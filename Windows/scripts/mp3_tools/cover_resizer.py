@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+"""Cover Image Resizer — batch resize cover art to a square (letterbox or crop).
 
-import os
-import sys
+Refactored for the unified launcher: the UI is built by :func:`build_ui` into
+any parent frame, so it can live inside the launcher's content panel. Running
+this file directly still opens it in its own window via :func:`main`.
+"""
+
 import threading
 from pathlib import Path
 
@@ -86,21 +90,19 @@ def resize_for_audiobook(in_path: Path, out_path: Path, size: int, letterbox: bo
     img.save(out_path, **save_kwargs)
 
 
-# ---------- GUI app ----------
+# ---------- GUI ----------
 
 
-class App(tk.Tk):
-    def __init__(self):
-        super().__init__()
+class CoverResizerUI(ttk.Frame):
+    """The Cover Resizer tool as an embeddable frame."""
 
-        self.title(APP_TITLE)
-        self.geometry("900x640")
-        self.minsize(900, 640)
+    def __init__(self, parent: tk.Misc):
+        super().__init__(parent)
 
         self.files: list[Path] = []
 
         # Top buttons
-        top = tk.Frame(self)
+        top = ttk.Frame(self)
         top.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 6))
 
         self.btn_add = ttk.Button(top, text="Import Images", command=self.add_files)
@@ -116,7 +118,7 @@ class App(tk.Tk):
         ttk.Label(top, textvariable=self.count_var).pack(side=tk.RIGHT)
 
         # File list
-        list_frame = tk.Frame(self)
+        list_frame = ttk.Frame(self)
         list_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10)
 
         self.listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, height=12)
@@ -127,7 +129,7 @@ class App(tk.Tk):
         self.listbox.configure(yscrollcommand=sb.set)
 
         # Options
-        options = tk.LabelFrame(self, text="Resize Options (applies to all images)")
+        options = ttk.LabelFrame(self, text="Resize Options (applies to all images)")
         options.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10, ipady=4)
 
         row = 0
@@ -164,7 +166,7 @@ class App(tk.Tk):
         )
 
         # Log + progress
-        logf = tk.LabelFrame(self, text="Log")
+        logf = ttk.LabelFrame(self, text="Log")
         logf.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
         self.log = tk.Text(logf, height=8, wrap="word")
@@ -178,7 +180,7 @@ class App(tk.Tk):
         self.progress.pack(side=tk.BOTTOM, pady=(0, 10))
 
         # Bottom action bar
-        action = tk.Frame(self)
+        action = ttk.Frame(self)
         action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
 
         self.btn_convert = ttk.Button(action, text="Resize Covers", command=self.start_resize)
@@ -190,7 +192,7 @@ class App(tk.Tk):
         files = filedialog.askopenfilenames(
             title="Select cover images",
             filetypes=[
-                ("Images", "*.jpg;*.jpeg;*.png;*.heic;*.heif"),
+                ("Images", "*.jpg *.jpeg *.png *.heic *.heif"),
                 ("All files", "*.*"),
             ],
         )
@@ -296,7 +298,21 @@ class App(tk.Tk):
         self.disable_inputs(False)
 
 
-if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+def build_ui(parent: tk.Misc) -> CoverResizerUI:
+    """Build the Cover Resizer UI into ``parent`` and return the frame."""
+    ui = CoverResizerUI(parent)
+    ui.pack(fill=tk.BOTH, expand=True)
+    return ui
 
+
+def main():
+    root = tk.Tk()
+    root.title(APP_TITLE)
+    root.geometry("900x640")
+    root.minsize(900, 640)
+    build_ui(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

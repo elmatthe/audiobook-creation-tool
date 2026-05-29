@@ -3,13 +3,19 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status:** Phase 2 (setup_and_run cross-platform bootstrap) **code-complete**. Dependencies
-> pinned, git initialized, and the one-click `setup_and_run.bat` / `.command` + `shared/bootstrap.py`
-> are built and statically verified (compile, detection self-test, GUI-wiring smoke test). The
-> **live fresh-machine install** (Debug Gate 2 — winget/brew Python 3.12, pip, ffmpeg, 300 MB
-> Kokoro model) is a manual/VM test that has **not** been run yet (it mutates the host). **Phase 3
-> (unified launcher GUI) is next** — the bootstrap already points at `scripts/launcher.py` and
-> falls back to the TTS GUI until that file exists.
+> **Status:** Phase 3 (unified launcher GUI) **code-complete**. `scripts/launcher.py` is built
+> (sidebar + swappable content panel + status bar); all 5 tools expose `build_ui(parent)` and load
+> into the panel; every tool subprocess call is routed through `shared/subprocess_utils` (console
+> hidden on Windows); `shared/settings.py` and `shared/ffmpeg_utils.py` added; launcher window
+> geometry + last-tool persist. Verified statically and via a **headless GUI smoke test** (all 5
+> tools BUILT into the panel, settings round-trip, zero direct subprocess calls, bootstrap self-test
+> resolves `launcher.py`). The **live Debug Gate 3** items — running a real conversion from the
+> launcher and visually confirming no console flash under `pythonw` — are deferred to a manual
+> pre-release pass (same posture as the deferred Debug Gate 2 live install). **Phase 4 (TTS
+> integration & polish, incl. the Cancel button) is next.**
+>
+> **Git:** local-only history. `master` = Phase 0+1 restructure baseline; branch `phase-2-bootstrap`
+> = Phase 2; branch `phase-3-launcher` = Phase 3. No remote yet — GitHub is handled at the very end.
 
 ---
 
@@ -75,14 +81,14 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 
 | Subsystem | Eventual location | Role |
 |---|---|---|
-| Launcher | `scripts/launcher.py` | Unified Tk GUI; sidebar of 6 tools, single content panel (built in Phase 3) |
+| Launcher | `scripts/launcher.py` | Unified Tk GUI; sidebar of tools + single swappable content panel (**built, Phase 3**). Each tool's `build_ui(parent)` is built once and shown/hidden on selection; Phase-6 Metadata Editor slot auto-hidden until its module exists. |
 | TTS | `scripts/tts/` | EPUB / PDF / TXT → MP3 (Edge TTS + Kokoro local AI) |
 | M4B Converter | `scripts/mp3_tools/m4b_converter.py` | Batch M4B → clean MP3 |
 | MP3 Tool | `scripts/mp3_tools/mp3_tool.py` | Combine MP3s, time-edit, bulk ID3 tagging |
 | M4B Maker | `scripts/mp3_tools/m4b_maker.py` | MP3s → M4B with chapters, metadata, cover, **series tags** (new in Phase 6) |
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
 | M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **New in Phase 6** — edit existing M4B tags; preserves untouched fields |
-| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py`, `metadata.py`, `settings.py`, `logging_setup.py`, `bootstrap.py` (created Phases 1–3) |
+| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `logging_setup.py`, `bootstrap.py`. `metadata.py` arrives in Phase 5. |
 
 ---
 
@@ -134,8 +140,10 @@ Two source repos, each with a Windows and a macOS variant (four trees total).
 
 - **Bundling strategy: Path A (install-on-first-run bootstrap). DECIDED.**
   Rationale: the existing `setup_env.py` already implements Path A well, and the TTS engine depends on **Kokoro → PyTorch (multi-GB)**, which makes a PyInstaller/py2app self-contained build (Path B) fragile (torch bundling issues, antivirus false-positives on PyInstaller exes, huge artifacts, full rebuild per update). Path A keeps the download small, updates trivial (replace `scripts/`), and reuses proven code. Phase 2 refactors `setup_env.py` → `shared/bootstrap.py`.
-- **Launcher UX: sidebar + single swappable content panel. DECIDED.** (vs. tabs / separate windows). Each tool exposes `build_ui(parent_frame)`; the launcher clears and repopulates one content `Frame` on tool selection. Feels like one app, not a launcher of scripts. See §8 sketch.
-- **Console-window suppression:** run the launcher under **`pythonw.exe`** on Windows; route **every** `subprocess` call through `shared/subprocess_utils.py` which applies `CREATE_NO_WINDOW` + `STARTUPINFO/SW_HIDE` on Windows. The old MP3 launcher already proves the `pythonw` detection pattern. Known caveat: `pydub`/`edge-tts` spawn ffmpeg internally; running everything under `pythonw` is the canonical fix for residual flashes (set `AudioSegment.converter` to our ffmpeg path).
+- **Launcher UX: sidebar + single swappable content panel. DECIDED + BUILT (Phase 3).** (vs. tabs / separate windows). Each tool exposes `build_ui(parent_frame)`. **Phase 3 refinement:** rather than literally clearing/repopulating one frame, the launcher builds each tool into its own container **once** and shows/hides (raises) it on selection — same single-app feel, but in-progress state (file lists, typed metadata) survives switching. Tool modules are **lazy-imported and guarded**: a missing optional dependency renders a friendly in-panel error instead of crashing the launcher. The Phase-6 Metadata Editor is pre-registered but auto-hidden via `importlib.util.find_spec` until its module exists. See §8 sketch.
+- **Console-window suppression: IMPLEMENTED (Phase 3).** Run the launcher under **`pythonw.exe`** on Windows; **every** tool subprocess call routes through `shared/subprocess_utils.py` (`CREATE_NO_WINDOW` + `STARTUPINFO/SW_HIDE`). Audit confirms zero direct `subprocess.*` in tool code. `pydub`/`edge-tts` spawn ffmpeg internally; the canonical fix is running under `pythonw` **plus** `ffmpeg_utils.configure_pydub()` which pins `AudioSegment.converter/ffmpeg/ffprobe` and `get_prober_name` to the resolved binary (bundled `resources/bin/` first, else PATH). Residual brief flashes from pydub on Windows, if any, are eliminated by the `pythonw` launch.
+- **ffmpeg resolution (Phase 3): `shared/ffmpeg_utils.py`.** Single place that resolves ffmpeg/ffprobe (bundled portable build in `resources/bin/` → system PATH), used by every tool when building command lists (`ffmpeg_cmd()` / `ffprobe_cmd()`) so behaviour is identical regardless of what's on PATH.
+- **Settings persistence (Phase 3): `shared/settings.py`.** Atomic JSON at `resources/settings.json` (temp-file + `os.replace`; never raises on missing/corrupt). Launcher persists window geometry + last-selected tool; the module is the home for the per-tool remembered fields (input/output folders, voice, bitrate, timing preset) wired in later phases.
 - **Metadata library: mutagen** (already a TTS dep) for the shared `metadata.py`. ffmpeg writes tags at encode time; mutagen reads/edits after the fact and is required for the preserve-unset Metadata Editor.
 - **Series tag format (Phase 6.1): freeform MP4 atoms `----:com.apple.iTunes:SERIES` and `----:com.apple.iTunes:SERIES-PART`.** See §6 research — this is what Audiobookshelf's ffprobe-based scanner actually reads (surfaced as `series` / `series-part`).
 - **Keep one shared codebase per subsystem with thin platform shims** rather than two divergent Win/Mac copies, since Phase 0 proved the code is ~identical. The repo still ships physically separate `Windows/` and `MacOS/` trees (per the structure rule and for clean zips), but their `scripts/` contents should be kept in lockstep; document any intentional divergence here.
@@ -280,7 +288,7 @@ cd Windows
 ## 11. Known Issues / Deferred Items (Phase 0)
 
 - ~~TTS requirements are **unpinned**; MP3 requirements too. Pin all in Phase 2.~~ **DONE (Phase 2):** every package in both `requirements.txt` pinned to an exact version (verified against PyPI 2026-05-28); markers guard `kokoro` (<3.13) and `audioop-lts` (>=3.13).
-- `epub2tts_edge.make_m4b`/`make_mp3` and all MP3 tools call ffmpeg via **raw `subprocess`** — must move to `shared/subprocess_utils` (Phase 3/5) or console windows will flash.
+- ~~`epub2tts_edge.make_m4b` and all MP3 tools call ffmpeg via **raw `subprocess`** — must move to `shared/subprocess_utils`.~~ **DONE (Phase 3):** all tool subprocess calls routed through the hidden-console wrapper; audit shows zero direct `subprocess.*` in tool code. (Installer `bootstrap.py`/`setup_env.py` legitimately use raw subprocess and are out of scope.)
 - **Phase 2 deferred to a live test (Debug Gate 2):** the end-to-end fresh-machine install path (winget/brew Python 3.12 → `.venv` → pinned pip install incl. torch/Kokoro → ffmpeg → optional 300 MB model → GUI launch) is built and statically verified but has **not** been run live, because it installs system software and downloads GBs. Run it on a clean VM (or the target machine) before release. The portable-ffmpeg fallback download (BtbN build into `resources/bin/`) is likewise untested live.
 - **macOS bootstrap is untested** — built to mirror Windows but no Mac was available this session. The `.command` Terminal-auto-close (`osascript`) is best-effort.
 - Legacy tools **hardcode `~/Downloads/...` output folders** — route through settings/`paths.py` in Phase 5.

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import os
 import queue
 import sys
 import threading
@@ -14,16 +13,17 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
+import re as _re_mod
+
 # Ensure the scripts/ root is importable so `tts.*` resolves whether this GUI is
 # run directly (python scripts/tts/epub2tts_gui.py) or imported by the launcher.
 _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-import re as _re_mod
-
 from ebooklib import epub as epub_mod
 
+from shared import ffmpeg_utils
 from tts.batch_convert import run_batch_convert
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -63,11 +63,10 @@ def _parse_trim_dbfs(raw: str, label: str) -> float:
     return v
 
 
-def main() -> None:
-    root = tk.Tk()
-    root.title("epub2tts-edge v1.1 — Audiobook")
-    root.minsize(640, 900)
-    root.geometry("720x1000")
+def build_ui(parent: tk.Misc) -> None:
+    """Build the TTS tool UI into ``parent`` (launcher content frame or a root)."""
+    ffmpeg_utils.configure_pydub()
+    root = parent
 
     mode_var = tk.StringVar(value="single")
     input_var = tk.StringVar()
@@ -160,17 +159,21 @@ def main() -> None:
         text="Pause timing — single-file EPUB / PDF / TXT (milliseconds)",
         padding=8,
     )
-    pause_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+    pause_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
     pr = 0
     ttk.Checkbutton(
         pause_frm,
-        text="Trim Edge TTS padding on sentence clips (title clip never trimmed)",
+        text=(
+            "Trim Edge TTS padding on sentence clips only (chapter title clip is never trimmed; "
+            "title/chapter pauses below still apply)"
+        ),
         variable=trim_edge_chunks_var,
-    ).grid(row=pr, column=0, columnspan=4, sticky="w")
+    ).grid(row=pr, column=0, columnspan=2, sticky="w")
     pr += 1
-    ttk.Label(pause_frm, text="Trim threshold (dBFS)").grid(
-        row=pr, column=0, sticky="w", pady=(4, 0)
-    )
+    ttk.Label(
+        pause_frm,
+        text="Trim threshold (dBFS; more negative = trim less, keeps slightly more pause)",
+    ).grid(row=pr, column=0, sticky="w", pady=(6, 0))
     ttk.Spinbox(
         pause_frm,
         from_=-90,
@@ -178,25 +181,17 @@ def main() -> None:
         increment=1,
         textvariable=trim_dbfs_var,
         width=8,
-    ).grid(row=pr, column=1, sticky="w", padx=(8, 16), pady=(4, 0))
+    ).grid(row=pr, column=1, sticky="w", padx=(12, 0), pady=(6, 0))
     pr += 1
     pause_rows = [
-        ("Sentence pause", sentence_ms_var),
-        ("Paragraph pause", paragraph_ms_var),
-        ("Chapter title pause", title_ms_var),
-        ("End-of-chapter pause", chapter_ms_var),
-        ("End-of-book pause", end_pause_var),
+        ("Between sentences (within a paragraph)", sentence_ms_var),
+        ("After each paragraph block", paragraph_ms_var),
+        ("After spoken chapter title", title_ms_var),
+        ("Before merging last paragraph of chapter", chapter_ms_var),
+        ("End of recording (final silence)", end_pause_var),
     ]
-    for i, (lbl, var) in enumerate(pause_rows):
-        grow = pr + (i // 2)
-        gcol = (i % 2) * 2
-        ttk.Label(pause_frm, text=lbl).grid(
-            row=grow,
-            column=gcol,
-            sticky="w",
-            padx=(0 if gcol == 0 else 16, 0),
-            pady=(3, 0),
-        )
+    for lbl, var in pause_rows:
+        ttk.Label(pause_frm, text=lbl).grid(row=pr, column=0, sticky="w", pady=(4, 0))
         ttk.Spinbox(
             pause_frm,
             from_=0,
@@ -204,32 +199,36 @@ def main() -> None:
             increment=50,
             textvariable=var,
             width=8,
-        ).grid(row=grow, column=gcol + 1, sticky="w", padx=(8, 0), pady=(3, 0))
-    pr += (len(pause_rows) + 1) // 2
+        ).grid(row=pr, column=1, sticky="w", padx=(12, 0), pady=(4, 0))
+        pr += 1
     ttk.Label(
         pause_frm,
         text=(
-            "Defaults: 800 / 850 / 1200 / 2000 / 3000 ms; trim at -58 dBFS. "
-            "Try -62 dBFS if audio feels too tight."
+            "Defaults: 800 ms between sentences; 850 ms after each paragraph block; "
+            "1200 ms after chapter title; 2000 ms before last paragraph merge; "
+            "3000 ms end silence; trim at -58 dBFS. Batch speech rate +0%. "
+            "Try -62 dBFS if audio still feels too tight."
         ),
-        wraplength=620,
+        wraplength=560,
         justify=tk.LEFT,
-        foreground="gray",
-    ).grid(row=pr, column=0, columnspan=4, sticky="w", pady=(6, 0))
+    ).grid(row=pr, column=0, columnspan=2, sticky="w", pady=(8, 0))
     r += 1
 
     batch_opts = ttk.LabelFrame(frm, text="Batch options", padding=8)
-    batch_opts.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-    ttk.Label(batch_opts, text="Workers").grid(row=0, column=0, sticky="w")
+    batch_opts.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+    br = 0
+    ttk.Label(batch_opts, text="Workers").grid(row=br, column=0, sticky="w")
     ttk.Spinbox(batch_opts, from_=1, to=16, textvariable=workers_var, width=6).grid(
-        row=0, column=1, sticky="w", padx=(8, 16)
+        row=br, column=1, sticky="w"
     )
-    ttk.Label(batch_opts, text="Speech rate").grid(row=0, column=2, sticky="w")
+    br += 1
+    ttk.Label(batch_opts, text="Speech rate").grid(row=br, column=0, sticky="w", pady=(6, 0))
     ttk.Entry(batch_opts, textvariable=rate_var, width=10).grid(
-        row=0, column=3, sticky="w", padx=(8, 0)
+        row=br, column=1, sticky="w", pady=(6, 0)
     )
+    br += 1
     ttk.Checkbutton(batch_opts, text="Resume (skip existing MP3s)", variable=resume_var).grid(
-        row=1, column=0, columnspan=4, sticky="w", pady=(4, 0)
+        row=br, column=0, columnspan=2, sticky="w", pady=(6, 0)
     )
     r += 1
 
@@ -337,8 +336,8 @@ def main() -> None:
     )
     r += 1
 
-    log = scrolledtext.ScrolledText(frm, height=40, state=tk.DISABLED, wrap=tk.WORD)
-    log.grid(row=r, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+    log = scrolledtext.ScrolledText(frm, height=14, state=tk.DISABLED, wrap=tk.WORD)
+    log.grid(row=r, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
     frm.rowconfigure(r, weight=1)
     r += 1
 
@@ -616,15 +615,23 @@ def main() -> None:
     ttk.Label(
         frm,
         text=(
-            "Edge TTS = network synthesis (no login). "
-            "Kokoro = local AI; ~300 MB model downloaded on first use."
+            "Default voice: Microsoft Edge TTS — Steffan (en-US-SteffanNeural). "
+            "Edge TTS voices use network synthesis via edge-tts (no Natural Reader login). "
+            "Kokoro voices (Heart, Bella, Michael, Emma, George) run locally using the "
+            "Kokoro-82M open-source AI model; ~300 MB model download required on first use."
         ),
-        wraplength=680,
+        wraplength=620,
         justify=tk.LEFT,
-        foreground="gray",
-    ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(6, 0))
+    ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
     pump_queue()
+
+
+def main() -> None:
+    root = tk.Tk()
+    root.title("epub2tts-edge v1.1 — Audiobook")
+    root.minsize(640, 680)
+    build_ui(root)
     root.mainloop()
 
 
