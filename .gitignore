@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  Audiobook Creation Tool — .gitignore
+#  Auto-generated / machine-specific artifacts that must never be committed.
+# ─────────────────────────────────────────────────────────────────────────
+
+# Virtual environments (rebuilt fresh by setup_and_run on each machine)
+.venv/
+Windows/.venv/
+MacOS/.venv/
+.python_runtime/
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build / packaging artifacts
+dist/
+build/
+*.spec
+*.egg-info/
+
+# Bundled portable binaries (ffmpeg, etc.) — downloaded by the bootstrap
+Windows/resources/bin/
+MacOS/resources/bin/
+
+# Per-session logs and persisted settings (runtime state, not source)
+Windows/resources/logs/
+MacOS/resources/logs/
+Windows/resources/settings.json
+MacOS/resources/settings.json
+
+# Working test folder (per project test-log convention — never shipped)
+test-logs/
+Windows/test-logs/
+MacOS/test-logs/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
