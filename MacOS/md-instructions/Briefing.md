@@ -3,9 +3,13 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status:** Phase 1 (Repository Restructure & File Migration) complete — all source code now
-> lives under `scripts/{tts,mp3_tools,shared}` in both OS folders, imports rewired to the `tts.*` /
-> `mp3_tools.*` convention, no behavior change. **Phase 2 (setup_and_run bootstrap) is next.**
+> **Status:** Phase 2 (setup_and_run cross-platform bootstrap) **code-complete**. Dependencies
+> pinned, git initialized, and the one-click `setup_and_run.bat` / `.command` + `shared/bootstrap.py`
+> are built and statically verified (compile, detection self-test, GUI-wiring smoke test). The
+> **live fresh-machine install** (Debug Gate 2 — winget/brew Python 3.12, pip, ffmpeg, 300 MB
+> Kokoro model) is a manual/VM test that has **not** been run yet (it mutates the host). **Phase 3
+> (unified launcher GUI) is next** — the bootstrap already points at `scripts/launcher.py` and
+> falls back to the TTS GUI until that file exists.
 
 ---
 
@@ -135,6 +139,23 @@ Two source repos, each with a Windows and a macOS variant (four trees total).
 - **Metadata library: mutagen** (already a TTS dep) for the shared `metadata.py`. ffmpeg writes tags at encode time; mutagen reads/edits after the fact and is required for the preserve-unset Metadata Editor.
 - **Series tag format (Phase 6.1): freeform MP4 atoms `----:com.apple.iTunes:SERIES` and `----:com.apple.iTunes:SERIES-PART`.** See §6 research — this is what Audiobookshelf's ffprobe-based scanner actually reads (surfaced as `series` / `series-part`).
 - **Keep one shared codebase per subsystem with thin platform shims** rather than two divergent Win/Mac copies, since Phase 0 proved the code is ~identical. The repo still ships physically separate `Windows/` and `MacOS/` trees (per the structure rule and for clean zips), but their `scripts/` contents should be kept in lockstep; document any intentional divergence here.
+- **Bootstrap architecture (Phase 2): thin launcher script + one cross-platform `bootstrap.py`. DECIDED.**
+  `setup_and_run.bat` / `.command` stay short and readable; all logic lives in
+  `scripts/shared/bootstrap.py`, which is kept **byte-identical** in both OS trees (platform
+  differences are branches inside it, verified by hash). The launcher scripts only: (a) **fast-path**
+  — if `.venv` exists, launch the GUI via `pythonw.exe` (Windows) / detached (Mac) with **no console**
+  and exit; (b) **first run** — locate *any* Python (or winget/brew-install 3.12), then hand off to
+  `bootstrap.py`. `bootstrap.py` itself locates/installs **Python 3.12 specifically** for the venv
+  (system Python may be 3.13, which loses Kokoro), creates `<os_root>/.venv`, pip-installs the pinned
+  requirements, ensures ffmpeg (winget `Gyan.FFmpeg` / brew, else portable build into `resources/bin/`),
+  optionally pre-downloads Kokoro, then launches the GUI detached. First run shows a **Tk dialog**
+  (intro + Kokoro opt-in checkbox, default checked) with a progress bar + live log; everything is
+  tee'd to `resources/logs/setup_YYYY-MM-DD.log`. `bootstrap.py` depends on **stdlib + Tk only**
+  (it runs before the venv exists). Useful flags: `--launch-only` (fast-path launch, used by the
+  `.bat`), `--self-test` (detection-only, no installs — for dev verification), `--skip-kokoro-download`.
+- **Known minor (Windows):** a `.bat` entry point always flashes its own cmd window briefly on launch;
+  the GUI itself runs under `pythonw` with no console. Eliminating the flash entirely would need a
+  `.vbs`/shortcut shim — deferred as not worth the added opacity for a curious user opening the `.bat`.
 - **`.venv` location:** inside `Windows/` and `MacOS/` (not at root — keeps root at exactly 5 items).
 - **Settings storage:** `resources/settings.json` via `shared/settings.py`.
 - **Output locations:** the legacy tools hardcode `~/Downloads/edited_mp3s-*`, `~/Downloads/M4B-Output-*`, `~/Downloads/m4b_converter_output-*`. Phase 5 should route these through `shared/paths.py` / settings (remembered output folder) instead of hardcoding `Path.home()/"Downloads"`.
@@ -258,8 +279,10 @@ cd Windows
 
 ## 11. Known Issues / Deferred Items (Phase 0)
 
-- TTS requirements are **unpinned**; MP3 requirements too. Pin all in Phase 2.
+- ~~TTS requirements are **unpinned**; MP3 requirements too. Pin all in Phase 2.~~ **DONE (Phase 2):** every package in both `requirements.txt` pinned to an exact version (verified against PyPI 2026-05-28); markers guard `kokoro` (<3.13) and `audioop-lts` (>=3.13).
 - `epub2tts_edge.make_m4b`/`make_mp3` and all MP3 tools call ffmpeg via **raw `subprocess`** — must move to `shared/subprocess_utils` (Phase 3/5) or console windows will flash.
+- **Phase 2 deferred to a live test (Debug Gate 2):** the end-to-end fresh-machine install path (winget/brew Python 3.12 → `.venv` → pinned pip install incl. torch/Kokoro → ffmpeg → optional 300 MB model → GUI launch) is built and statically verified but has **not** been run live, because it installs system software and downloads GBs. Run it on a clean VM (or the target machine) before release. The portable-ffmpeg fallback download (BtbN build into `resources/bin/`) is likewise untested live.
+- **macOS bootstrap is untested** — built to mirror Windows but no Mac was available this session. The `.command` Terminal-auto-close (`osascript`) is best-effort.
 - Legacy tools **hardcode `~/Downloads/...` output folders** — route through settings/`paths.py` in Phase 5.
 - TTS GUI has **no Cancel button** — add in Phase 4.2.
 - `check_for_file()` and `setup_env.uninstall()` use blocking `input()` — fine for CLI, must not be reachable from GUI.
