@@ -1,0 +1,21 @@
+# Normalize line endings so cross-platform launch scripts are never corrupted.
+# Default: let Git handle text normalization automatically.
+* text=auto
+
+# macOS / Unix shell scripts MUST keep LF endings — a stray CR (\r) makes bash
+# fail with "command not found" / "bad interpreter".
+*.command text eol=lf
+*.sh       text eol=lf
+
+# Windows batch files keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Treat known binaries as binary (no EOL munging).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.icns binary
+*.m4b  binary
+*.mp3  binary

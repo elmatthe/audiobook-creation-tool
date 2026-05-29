@@ -16,6 +16,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- **Phase 2 (`setup_and_run` cross-platform bootstrap) — code-complete; live install pending.**
+  - **Initialized the git repository** at the root with a `.gitignore` (`.venv/`, `__pycache__/`,
+    `*.pyc`, `dist/`, `build/`, `*.spec`, `resources/bin/`, `resources/logs/`, `settings.json`,
+    `test-logs/`, OS/editor cruft) and a `.gitattributes` that forces `*.command`/`*.sh` to **LF**
+    (so the macOS launcher is never corrupted by CRLF) and `*.bat` to CRLF. Verified the initial
+    stage contains only source — no `.venv`/`__pycache__`/logs leaked.
+  - Built `scripts/shared/bootstrap.py` — a single **cross-platform** bootstrap (kept byte-identical
+    in both OS trees; platform logic is branched inside). It: fast-path launches the GUI if `.venv`
+    exists; otherwise locates/installs **Python 3.12** for the venv (system Python may be 3.13, which
+    drops Kokoro), creates `<os_root>/.venv`, pip-installs the pinned `requirements.txt`, ensures
+    ffmpeg (winget `Gyan.FFmpeg` / Homebrew, with a portable-build fallback into `resources/bin/`),
+    optionally pre-downloads the Kokoro model, and launches the GUI detached via `pythonw` (Windows).
+    First run shows a **Tk progress dialog** (intro + Kokoro opt-in checkbox, default checked) with a
+    progress bar and live log; all output is tee'd to `resources/logs/setup_YYYY-MM-DD.log`. Depends
+    on **stdlib + Tk only** (runs before the venv exists). Flags: `--launch-only`, `--self-test`,
+    `--skip-kokoro-download`. Adapted from the legacy `tts/setup_env.py`.
+  - Rewrote `setup_and_run.bat` and `setup_and_run.command` from stubs into real, **simple/readable**
+    entry points: fast-path (no-console GUI launch when `.venv` exists) + first-run Python discovery
+    (winget/Homebrew install, browser fallback) that hands off to `bootstrap.py`.
+
 - **Phase 1 (Repository Restructure & File Migration) complete — restructure only, no behavior change.**
   - Built the final `scripts/{tts,mp3_tools,shared}` skeleton in both `Windows/` and `MacOS/`,
     with `__init__.py` for each package and the `epub2tts_edge/` subpackage preserved intact.
@@ -48,6 +68,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Unified launcher UX sketch (`Briefing.md` §8): sidebar + single swappable content panel.
 
 ### Changed
+- **Pinned every dependency** in both `Windows/requirements.txt` and `MacOS/requirements.txt` to an
+  exact version (project rule), verified against PyPI on 2026-05-28: beautifulsoup4 4.14.3,
+  ebooklib 0.20, edge-tts 7.2.8, lxml 6.1.1, mutagen 1.47.0, nltk 3.9.4, pillow 12.2.0, pydub 0.25.1,
+  pymupdf 1.27.2.3, setuptools 82.0.1, tqdm 4.67.3, soundfile 0.13.1, scipy 1.17.1,
+  `audioop-lts==0.2.2 ; python_version >= "3.13"`, `kokoro==0.9.4 ; python_version < "3.13"`
+  (optional `pillow-heif==1.3.0` pinned but commented). The `<3.13` Kokoro marker matches the
+  bootstrap targeting Python 3.12.
 - **Import convention established:** `scripts/` is the single import root; all cross-module
   imports are absolute `tts.*` / `mp3_tools.*` (subpackage-internal imports inside
   `epub2tts_edge/` stay relative). Entry-point scripts that can be run directly
@@ -98,6 +125,37 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## Session Log
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
+
+### 2026-05-28 — Session 3
+- **Phase:** Phase 2 — `setup_and_run` cross-platform bootstrap (code-complete; live install pending).
+- **Done:** `git init` + `.gitignore` + `.gitattributes` (LF for `.command`/`.sh`); pinned every dep
+  in both `requirements.txt`; wrote `scripts/shared/bootstrap.py` (one byte-identical cross-platform
+  file, adapted from `setup_env.py`) with fast-path launch, Python-3.12 locate/install, venv create,
+  pinned pip install, ffmpeg ensure (+ portable fallback), Kokoro opt-in, detached GUI launch, dated
+  setup log, and `--launch-only`/`--self-test`/`--skip-kokoro-download` flags; rewrote
+  `setup_and_run.bat` and `.command` from stubs into real fast-path + first-run-Python-discovery
+  entry points.
+- **Verification (static, no system mutation):** `py_compile` clean (both trees); `--self-test`
+  detection ran with no side effects and correct results; auto-driven headless GUI smoke test ran the
+  intro→worker→progress→done→launch wiring to success (install/launch stubbed); `bootstrap.py`
+  confirmed byte-identical across trees; `.command` confirmed 0 CR bytes (LF-only); git stage
+  confirmed free of `.venv`/`__pycache__`/logs.
+- **Next:** Phase 3 — unified launcher GUI (`scripts/launcher.py`). Once it exists, the bootstrap's
+  launch target switches from the TTS-GUI fallback to it automatically (no bootstrap change needed).
+  After Phase 3, run the **live Debug Gate 2** fresh-machine install on Windows + a Mac.
+- **Blockers:** none. **Deferred:** live fresh-machine install (Debug Gate 2) — see below.
+
+### Debug Gate 2 — PARTIAL (static PASS; live install deferred)
+- [x] `setup_and_run.bat` / `.command` rewritten from stubs; fast-path + first-run logic in place.
+- [x] `bootstrap.py` compiles, self-tests, and its first-run GUI wiring runs to completion (stubbed).
+- [x] Logs written to `resources/logs/setup_YYYY-MM-DD.log` (verified by self-test run).
+- [~] Fresh-machine install (winget/brew Python 3.12 → venv → pinned pip incl. torch/Kokoro → ffmpeg
+  → optional 300 MB model → GUI open, 1 click) — **NOT run live.** Mutates the host (system Python +
+  ffmpeg, multi-GB downloads); to be run on a clean VM / the target machine before release.
+- [~] Second-launch under 2s, no console window — **needs a real `.venv` + Phase 3 `launcher.py`** to
+  verify end-to-end; the fast-path code path is in place and the GUI runs under `pythonw`.
+- [-] macOS double-click flow — **skipped this session** (no Mac available); `.command` built to mirror
+  Windows and confirmed LF-only.
 
 ### 2026-05-28 — Session 2
 - **Phase:** Phase 1 — Repository Restructure & File Migration (complete).
