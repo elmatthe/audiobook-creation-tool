@@ -1,30 +1,36 @@
 #!/usr/bin/env python3
-# mp3_tool-v5.7.py
+# mp3_tool.py
 #
-# Changes vs v5.6:
-# - Write ID3 Tags now ALWAYS outputs to ~/Downloads/edited_mp3s-*,
-#   even when time delta is 0 (no time edit). We copy streams with
-#   -map_metadata -1 (clear tags), then write only your tags.
+# MP3 Tool: combine MP3s, add/remove time at end of tracks, bulk ID3 tagging.
 #
-# Still:
+# Refactored for the unified launcher: UI is built by build_ui(parent); all
+# ffmpeg/ffprobe calls go through shared.subprocess_utils so no console window
+# flashes on Windows.
+#
+# Behavior preserved from v5.7:
+# - Write ID3 Tags always outputs to ~/Downloads/edited_mp3s-* (even at delta 0).
 # - Keep combined_time-stamps.txt for combined MP3s.
 # - Only create ffmpeg_log.txt when an ffmpeg error occurs.
-# - Success dialogs after Combine / Time Edit / Write ID3.
 # - Fast-first concat with auto-fallback to safe WAV (and gap insertion).
-# - Multi-batch import, duplicate-skip.
-# - Chapter titles paste box; auto-number toggle (+ Start #).
-# - Strip ALL metadata on any new/processed file; we only write:
-#   title, artist, albumartist, album, tracknumber (when you click Write ID3).
+# - Strip ALL metadata on any new/processed file; only write title, artist,
+#   albumartist, album, tracknumber (when you click Write ID3).
 
-import os
 import sys
 import shlex
-import subprocess
 from pathlib import Path
 from typing import List, Tuple, Optional
 
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox
+
+# Make the scripts/ root importable so `shared.*` resolves whether this tool is
+# run standalone (python mp3_tools/mp3_tool.py) or imported by the launcher.
+_SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from shared import ffmpeg_utils
+from shared import subprocess_utils as sp
 
 try:
     from mutagen.easyid3 import EasyID3
@@ -41,20 +47,16 @@ BASE_OUTPUT_DIRNAME = "edited_mp3s"
 # ---------------------------
 
 
-def which(cmd: str) -> Optional[str]:
-    from shutil import which as _which
-
-    return _which(cmd)
-
-
 def ensure_ffmpeg_available() -> bool:
-    return bool(which("ffmpeg") and which("ffprobe"))
+    return ffmpeg_utils.have_ffmpeg()
 
 
 def run_ff(args: List[str]) -> Tuple[int, str, str]:
     """Run ffmpeg/ffprobe and return (code, stdout, stderr) as text."""
     try:
-        p = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        from subprocess import PIPE
+
+        p = sp.run(args, stdout=PIPE, stderr=PIPE, text=True)
         return p.returncode, p.stdout, p.stderr
     except Exception as e:
         return 999, "", f"Subprocess failed: {e}"
@@ -98,7 +100,7 @@ def next_available_folder(base: Path) -> Path:
 def ffprobe_duration_seconds(path: Path) -> Optional[float]:
     code, out, _ = run_ff(
         [
-            "ffprobe",
+            ffmpeg_utils.ffprobe_cmd(),
             "-v",
             "error",
             "-show_entries",
@@ -125,13 +127,13 @@ def seconds_to_hms(sec: float) -> str:
 
 
 # ---------------------------
-# FAST PATH (like v4) — metadata stripped
+# FAST PATH (metadata stripped)
 # ---------------------------
 
 
 def concat_mp3s_fast(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
     args = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
         "error",
@@ -163,7 +165,7 @@ def concat_mp3s_fast(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
 
 def normalize_to_wav(in_path: Path, out_wav: Path, log_dir: Path) -> bool:
     args = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
         "error",
@@ -190,7 +192,7 @@ def normalize_to_wav(in_path: Path, out_wav: Path, log_dir: Path) -> bool:
 def make_silence_wav(seconds: float, out_wav: Path, log_dir: Path) -> bool:
     seconds = max(0.0, float(seconds))
     args = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
         "error",
@@ -217,7 +219,7 @@ def make_silence_wav(seconds: float, out_wav: Path, log_dir: Path) -> bool:
 
 def concat_wavs_to_mp3(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
     args = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
         "error",
@@ -250,7 +252,7 @@ def concat_wavs_to_mp3(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
 def add_silence_to_mp3(in_mp3: Path, seconds: float, out_mp3: Path, log_dir: Path) -> bool:
     seconds = max(0.0, float(seconds))
     args = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
         "error",
@@ -290,7 +292,7 @@ def trim_from_end_mp3(in_mp3: Path, seconds_to_remove: float, out_mp3: Path, log
     dur = ffprobe_duration_seconds(in_mp3) or 0.0
     new_dur = max(0.0, dur - seconds_to_remove)
     args = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
         "error",
@@ -322,69 +324,62 @@ def trim_from_end_mp3(in_mp3: Path, seconds_to_remove: float, out_mp3: Path, log
 # ---------------------------
 
 
-class MP3ToolGUI:
-    def __init__(self, root: tk.Tk):
-        self.root = root
-        self.root.title(APP_TITLE)
+class MP3ToolUI(ttk.Frame):
+    """The MP3 Tool as an embeddable frame."""
+
+    def __init__(self, parent: tk.Misc):
+        super().__init__(parent)
 
         self.file_list: List[Path] = []
 
-        frame = tk.Frame(root)
+        frame = ttk.Frame(self)
         frame.pack(padx=10, pady=10, fill="both", expand=True)
 
         # Top buttons
-        bbar = tk.Frame(frame)
+        bbar = ttk.Frame(frame)
         bbar.pack(fill="x")
-        tk.Button(bbar, text="Import MP3 Files", command=self.import_files).pack(
+        ttk.Button(bbar, text="Import MP3 Files", command=self.import_files).pack(
             side="left", padx=5
         )
-        tk.Button(bbar, text="Remove Selected", command=self.remove_selected).pack(
+        ttk.Button(bbar, text="Remove Selected", command=self.remove_selected).pack(
             side="left", padx=5
         )
-        tk.Button(bbar, text="Clear List", command=self.clear_list).pack(side="left", padx=5)
+        ttk.Button(bbar, text="Clear List", command=self.clear_list).pack(side="left", padx=5)
 
         # Listbox
         self.listbox = tk.Listbox(frame, selectmode=tk.EXTENDED, width=80, height=12)
         self.listbox.pack(fill="both", expand=True, pady=8)
 
         # Gap
-        gaprow = tk.Frame(frame)
+        gaprow = ttk.Frame(frame)
         gaprow.pack(fill="x", pady=5)
-        tk.Label(gaprow, text="Silence between tracks (seconds, 0 = none):").pack(
-            side="left"
-        )
+        ttk.Label(gaprow, text="Silence between tracks (seconds, 0 = none):").pack(side="left")
         self.gap_var = tk.StringVar(value="0")
-        tk.Entry(gaprow, textvariable=self.gap_var, width=8).pack(side="left", padx=5)
+        ttk.Entry(gaprow, textvariable=self.gap_var, width=8).pack(side="left", padx=5)
 
         # Fast-first checkbox
         self.fast_first_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(
+        ttk.Checkbutton(
             frame,
             text="Always try FAST mode first (auto-fallback on failure)",
             variable=self.fast_first_var,
         ).pack(anchor="w")
 
         # Combine
-        tk.Button(frame, text="Combine MP3s → One MP3", command=self.combine_mp3s).pack(
-            pady=6
-        )
+        ttk.Button(frame, text="Combine MP3s → One MP3", command=self.combine_mp3s).pack(pady=6)
 
         # Time edit (applies to ALL files)
-        trow = tk.Frame(frame)
+        trow = ttk.Frame(frame)
         trow.pack(fill="x", pady=5)
-        tk.Label(trow, text="Add/Remove time at END of each track (seconds):").pack(
-            side="left"
-        )
+        ttk.Label(trow, text="Add/Remove time at END of each track (seconds):").pack(side="left")
         self.time_delta_var = tk.StringVar(value="0")
-        tk.Entry(trow, textvariable=self.time_delta_var, width=8).pack(
-            side="left", padx=5
-        )
-        tk.Button(trow, text="Apply to All Files", command=self.apply_time_edit).pack(
+        ttk.Entry(trow, textvariable=self.time_delta_var, width=8).pack(side="left", padx=5)
+        ttk.Button(trow, text="Apply to All Files", command=self.apply_time_edit).pack(
             side="left", padx=6
         )
 
         # ID3 group (applies to ALL files)
-        grp = tk.LabelFrame(frame, text="Bulk Edit ID3 Tags (applies to all files)")
+        grp = ttk.LabelFrame(frame, text="Bulk Edit ID3 Tags (applies to all files)")
         grp.pack(fill="x", pady=10)
         self.id3_title_var = tk.StringVar()
         self.id3_artist_var = tk.StringVar()
@@ -395,58 +390,54 @@ class MP3ToolGUI:
         self.auto_number_var = tk.BooleanVar(value=True)  # default ON
         self.start_num_var = tk.StringVar(value="")  # blank -> 1
 
-        tk.Label(grp, text="Title (blank → filename)").grid(
+        ttk.Label(grp, text="Title (blank → filename)").grid(
             row=0, column=0, sticky="e", padx=5, pady=3
         )
-        tk.Entry(grp, textvariable=self.id3_title_var, width=40).grid(
+        ttk.Entry(grp, textvariable=self.id3_title_var, width=40).grid(
             row=0, column=1, sticky="w", padx=5, pady=3
         )
 
-        tk.Label(grp, text="Artist").grid(row=1, column=0, sticky="e", padx=5, pady=3)
-        tk.Entry(grp, textvariable=self.id3_artist_var, width=40).grid(
+        ttk.Label(grp, text="Artist").grid(row=1, column=0, sticky="e", padx=5, pady=3)
+        ttk.Entry(grp, textvariable=self.id3_artist_var, width=40).grid(
             row=1, column=1, sticky="w", padx=5, pady=3
         )
 
-        tk.Label(grp, text="Album Artist").grid(
-            row=2, column=0, sticky="e", padx=5, pady=3
-        )
-        tk.Entry(grp, textvariable=self.id3_albumartist_var, width=40).grid(
+        ttk.Label(grp, text="Album Artist").grid(row=2, column=0, sticky="e", padx=5, pady=3)
+        ttk.Entry(grp, textvariable=self.id3_albumartist_var, width=40).grid(
             row=2, column=1, sticky="w", padx=5, pady=3
         )
 
-        tk.Label(grp, text="Album").grid(row=3, column=0, sticky="e", padx=5, pady=3)
-        tk.Entry(grp, textvariable=self.id3_album_var, width=40).grid(
+        ttk.Label(grp, text="Album").grid(row=3, column=0, sticky="e", padx=5, pady=3)
+        ttk.Entry(grp, textvariable=self.id3_album_var, width=40).grid(
             row=3, column=1, sticky="w", padx=5, pady=3
         )
 
-        tk.Checkbutton(grp, text="Auto-number tracks", variable=self.auto_number_var).grid(
+        ttk.Checkbutton(grp, text="Auto-number tracks", variable=self.auto_number_var).grid(
             row=4, column=1, sticky="w", padx=5, pady=(4, 0)
         )
-        tk.Label(grp, text="Start # (blank → 1)").grid(
+        ttk.Label(grp, text="Start # (blank → 1)").grid(
             row=5, column=0, sticky="e", padx=5, pady=3
         )
-        tk.Entry(grp, textvariable=self.start_num_var, width=40).grid(
+        ttk.Entry(grp, textvariable=self.start_num_var, width=40).grid(
             row=5, column=1, sticky="w", padx=5, pady=3
         )
 
-        tk.Label(grp, text="Chapter titles (one per line):").grid(
+        ttk.Label(grp, text="Chapter titles (one per line):").grid(
             row=6, column=0, sticky="ne", padx=5, pady=3
         )
         self.chapter_titles_text = tk.Text(grp, height=8, width=50, wrap="word")
         self.chapter_titles_text.grid(row=6, column=1, sticky="we", padx=5, pady=3)
 
-        tk.Button(grp, text="Write ID3 Tags", command=self.write_id3_tags).grid(
+        ttk.Button(grp, text="Write ID3 Tags", command=self.write_id3_tags).grid(
             row=7, column=0, columnspan=2, pady=8
         )
 
         # Status
         self.status = tk.StringVar(value="")
-        tk.Label(frame, textvariable=self.status, fg="blue").pack(pady=8)
+        ttk.Label(frame, textvariable=self.status, foreground="blue").pack(pady=8)
 
         if not ensure_ffmpeg_available():
-            messagebox.showerror(
-                APP_TITLE, "ffmpeg/ffprobe not found. Install ffmpeg and ensure it is on PATH."
-            )
+            self.status.set("WARNING: ffmpeg/ffprobe not found. Run the setup launcher to install it.")
 
     # ---------- file list ops ----------
 
@@ -513,8 +504,8 @@ class MP3ToolGUI:
 
         # FAST PATH
         if fast_allowed:
-            self.status.set("FAST mode: concatenating MP3s (like v4)…")
-            self.root.update_idletasks()
+            self.status.set("FAST mode: concatenating MP3s…")
+            self.update_idletasks()
             list_fast = build_dir / "inputs_fast.txt"
             write_concat_listfile(self.file_list, list_fast)
             if concat_mp3s_fast(list_fast, out_path, out_dir):
@@ -524,7 +515,7 @@ class MP3ToolGUI:
                 return
             else:
                 self.status.set("FAST failed — switching to SAFE (WAV normalize)…")
-                self.root.update_idletasks()
+                self.update_idletasks()
 
         # SAFE PATH
         if self._safe_concat_with_optional_gaps(self.file_list, gap, out_path, out_dir):
@@ -626,7 +617,7 @@ class MP3ToolGUI:
             else:
                 # Copy stream but clear metadata too
                 args = [
-                    "ffmpeg",
+                    ffmpeg_utils.ffmpeg_cmd(),
                     "-hide_banner",
                     "-loglevel",
                     "error",
@@ -700,7 +691,7 @@ class MP3ToolGUI:
             for p in self.file_list:
                 dst = out_dir / p.name
                 args = [
-                    "ffmpeg",
+                    ffmpeg_utils.ffmpeg_cmd(),
                     "-hide_banner",
                     "-loglevel",
                     "error",
@@ -758,23 +749,25 @@ class MP3ToolGUI:
                 tags.save()
                 updated += 1
             except Exception as e:
-                print(f"ID3 write failed for {p}: {e}", file=sys.stderr)
+                self.status.set(f"ID3 write failed for {p.name}: {e}")
 
         self.status.set(f"ID3 updated: {updated}/{total} file(s). Output folder: {out_dir}")
         messagebox.showinfo(APP_TITLE, f"ID3 writing complete.\nOutput folder: {out_dir}")
 
 
-# ---------------------------
-# Main
-# ---------------------------
+def build_ui(parent: tk.Misc) -> MP3ToolUI:
+    """Build the MP3 Tool UI into ``parent`` and return the frame."""
+    ui = MP3ToolUI(parent)
+    ui.pack(fill=tk.BOTH, expand=True)
+    return ui
 
 
 def main():
     root = tk.Tk()
-    _app = MP3ToolGUI(root)
+    root.title(APP_TITLE)
+    build_ui(root)
     root.mainloop()
 
 
 if __name__ == "__main__":
     main()
-

@@ -16,6 +16,31 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- **Phase 3 (Unified Launcher GUI) — code-complete; live conversion + visual console-flash check pending.**
+  - Built `scripts/launcher.py`: a single Tk window with a left **sidebar of tools** and one
+    **swappable content panel** on the right (matches the Briefing UX sketch). Includes a status
+    bar with an **"Open log folder"** link. The launcher initialises the per-session file logger
+    and calls `ffmpeg_utils.configure_pydub()` once at startup.
+  - **Refactored all five existing tools to expose `build_ui(parent)`** so they render inside the
+    launcher's content panel instead of owning a `Tk` root. Each keeps a standalone `main()`
+    (wraps `build_ui` in a private `Tk()`) for debugging. The MP3 tools changed from
+    `class App(tk.Tk)` / `MP3ToolGUI(root)` to embeddable `ttk.Frame` subclasses
+    (`CoverResizerUI`, `M4BConverterUI`, `MP3ToolUI`, `M4BMakerUI`); the TTS GUI's `main()` body
+    became `build_ui(parent)`.
+  - **Tools are built once and shown/hidden (raise) on selection**, not destroyed and rebuilt, so
+    in-progress state (file lists, typed metadata) survives switching tabs. This is a deliberate
+    refinement of the "clear and repopulate" sketch — same single-panel feel, better UX.
+  - **Lazy, guarded tool loading:** each tool module is imported on first selection and wrapped in
+    try/except, so a missing optional dependency shows a friendly in-panel error instead of
+    crashing the whole launcher. The Phase 6 **M4B Metadata Editor** is pre-registered in the
+    sidebar but auto-hidden until its module exists (detected via `importlib.util.find_spec`).
+  - Added `scripts/shared/settings.py` — atomic JSON settings at `resources/settings.json`
+    (temp-file + `os.replace`; never raises on missing/corrupt file). The launcher persists
+    **window geometry** and **last-selected tool** across restarts.
+  - Added `scripts/shared/ffmpeg_utils.py` — resolves ffmpeg/ffprobe (bundled `resources/bin/`
+    first, then PATH) and configures pydub (`AudioSegment.converter/ffmpeg/ffprobe`,
+    `get_prober_name`) so audio ops use the right binary and don't depend on PATH.
+
 - **Phase 2 (`setup_and_run` cross-platform bootstrap) — code-complete; live install pending.**
   - **Initialized the git repository** at the root with a `.gitignore` (`.venv/`, `__pycache__/`,
     `*.pyc`, `dist/`, `build/`, `*.spec`, `resources/bin/`, `resources/logs/`, `settings.json`,
@@ -68,6 +93,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Unified launcher UX sketch (`Briefing.md` §8): sidebar + single swappable content panel.
 
 ### Changed
+- **Phase 3: routed every tool's external-binary call through `shared/subprocess_utils`** so no
+  console window flashes on Windows. The MP3 tools' `subprocess.run` / `check_output` and the TTS
+  engine's two `subprocess.run(["ffmpeg", …])` calls in `epub2tts_edge.make_m4b` now go through the
+  hidden-console wrapper; folder-opening (`os.startfile` / `open` / `xdg-open`) goes through the new
+  `subprocess_utils.reveal_in_file_manager`. Audit confirms **zero direct `subprocess.*` calls** in
+  tool code (installer `bootstrap.py`/`setup_env.py` and the legacy `mp3_tools_launcher.py` are out
+  of scope). Extended `subprocess_utils` with `check_output` and `reveal_in_file_manager`.
+- **Phase 3: unified the two previously-divergent tool files across OS trees.** `cover_resizer.py`
+  (file-dialog filter) and `epub2tts_gui.py` (Mac window size/labels/`sys.path` shim) are now
+  byte-identical Win↔Mac; all platform differences are handled by `sys.platform` branches inside
+  the shared code (console-hide kwargs, exe suffix, file-manager command, launcher font/theme).
+- **Phase 3: demoted startup "ffmpeg not found" modals to log lines** in the MP3 tools, so switching
+  between tools in the single-panel launcher never pops a dialog on every selection.
 - **Pinned every dependency** in both `Windows/requirements.txt` and `MacOS/requirements.txt` to an
   exact version (project rule), verified against PyPI on 2026-05-28: beautifulsoup4 4.14.3,
   ebooklib 0.20, edge-tts 7.2.8, lxml 6.1.1, mutagen 1.47.0, nltk 3.9.4, pillow 12.2.0, pydub 0.25.1,
@@ -125,6 +163,43 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## Session Log
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
+
+### 2026-05-29 — Session 4
+- **Phase:** Phase 3 — Unified Launcher GUI (code-complete; live conversion + visual no-flash check pending).
+- **Git:** committed the existing work as two local commits before starting — `Phase 0+1 restructure
+  baseline` on `master`, `Phase 2 bootstrap` on branch `phase-2-bootstrap`. Phase 3 work is on a new
+  branch `phase-3-launcher` (off `phase-2-bootstrap`). Local only; no remote yet (GitHub at the end).
+- **Done:** wrote `scripts/launcher.py` (sidebar + swappable panel, status bar w/ open-log link,
+  geometry + last-tool persistence, lazy guarded tool loading, Phase-6 metadata slot auto-hidden);
+  refactored all 5 tools to `build_ui(parent)` as embeddable frames with standalone `main()`;
+  added `shared/settings.py` (atomic JSON) and `shared/ffmpeg_utils.py` (ffmpeg/ffprobe resolve +
+  pydub config); routed all tool subprocess calls through `shared/subprocess_utils` (added
+  `check_output`, `reveal_in_file_manager`); unified the 2 divergent files Win↔Mac. Mirrored all
+  10 changed/new files to MacOS (byte-identical).
+- **Verification (static + headless, no system mutation):** `compileall` clean (both trees);
+  subprocess audit shows **zero** direct `subprocess.*` calls in tool code (both trees); `import
+  launcher` succeeds without heavy deps; **headless GUI smoke test** instantiated the launcher and
+  built all 5 tools into the content panel (all `BUILT`, no error frames) and persisted geometry +
+  last-tool on close; settings round-trip verified; bootstrap `--self-test` confirms
+  `launch target = scripts/launcher.py (exists=True)` — the bootstrap now opens the unified launcher.
+- **Next:** Phase 4 — TTS integration & polish (feature-parity pass inside the launcher; add the
+  **Cancel button**; confirm Runner keeps all temp I/O out of the launcher cwd).
+- **Blockers:** none. **Deferred:** the live items in Debug Gate 3 (run a real conversion from the
+  launcher and visually confirm no console flash under `pythonw`) — manual pre-release, same posture
+  as the deferred Debug Gate 2 live install.
+
+### Debug Gate 3 — PARTIAL (static + headless PASS; live conversion deferred)
+- [x] Launcher opens; each of the 5 existing tools loads into the content panel (headless smoke test:
+  all 5 `BUILT`). The 6th (Metadata Editor) arrives in Phase 6 and is auto-hidden until then.
+- [x] Settings persist across restarts (window geometry + last sidebar selection round-trip to
+  `resources/settings.json`).
+- [x] Subprocess audit: zero direct `subprocess.*` calls in tool code; all routed through
+  `shared/subprocess_utils` (which applies `CREATE_NO_WINDOW` + hidden `STARTUPINFO` on Windows).
+- [x] pydub pointed at the resolved ffmpeg/ffprobe via `ffmpeg_utils.configure_pydub()`.
+- [~] Running a TTS / MP3 / M4B operation **from inside the launcher** produces output identical to
+  the old standalone GUI — **not run live this session** (needs a real conversion with sample assets).
+- [~] **No console window flashes during any operation** under `pythonw.exe` — code-verified (routing
+  + pythonw launch), **visual confirmation deferred** to the manual pre-release pass.
 
 ### 2026-05-28 — Session 3
 - **Phase:** Phase 2 — `setup_and_run` cross-platform bootstrap (code-complete; live install pending).

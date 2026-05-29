@@ -23,6 +23,29 @@ from PIL import Image
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 import zipfile
+from pathlib import Path as _Path
+
+
+def _ensure_shared_on_path() -> None:
+    """Put the scripts/ root on sys.path so `shared.*` imports resolve."""
+    root = str(_Path(__file__).resolve().parents[2])  # scripts/
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+
+def _run_ffmpeg(cmd):
+    """Run an ffmpeg command through the shared console-suppressing wrapper.
+
+    Resolves the ffmpeg binary (bundled portable build or PATH) and hides the
+    console window on Windows. Replaces the upstream raw ``subprocess.run``.
+    """
+    _ensure_shared_on_path()
+    from shared import subprocess_utils as _sp
+    from shared import ffmpeg_utils as _ff
+
+    if cmd and cmd[0] == "ffmpeg":
+        cmd = [_ff.ffmpeg_cmd()] + list(cmd[1:])
+    return _sp.run(cmd)
 
 
 namespaces = {
@@ -520,7 +543,7 @@ def make_m4b(files, sourcefile, speaker):
         "-2",
         outputm4a,
     ]
-    subprocess.run(ffmpeg_command)
+    _run_ffmpeg(ffmpeg_command)
     ffmpeg_command = [
         "ffmpeg",
         "-i",
@@ -533,7 +556,7 @@ def make_m4b(files, sourcefile, speaker):
         "aac",
         outputm4b,
     ]
-    subprocess.run(ffmpeg_command)
+    _run_ffmpeg(ffmpeg_command)
     os.remove(filelist)
     os.remove("FFMETADATAFILE")
     os.remove(outputm4a)

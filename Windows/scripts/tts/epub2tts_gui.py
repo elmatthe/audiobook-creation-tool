@@ -23,6 +23,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from ebooklib import epub as epub_mod
 
+from shared import ffmpeg_utils
 from tts.batch_convert import run_batch_convert
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -62,10 +63,10 @@ def _parse_trim_dbfs(raw: str, label: str) -> float:
     return v
 
 
-def main() -> None:
-    root = tk.Tk()
-    root.title("epub2tts-edge v1.1 — Audiobook")
-    root.minsize(640, 680)
+def build_ui(parent: tk.Misc) -> None:
+    """Build the TTS tool UI into ``parent`` (launcher content frame or a root)."""
+    ffmpeg_utils.configure_pydub()
+    root = parent
 
     mode_var = tk.StringVar(value="single")
     input_var = tk.StringVar()
@@ -624,6 +625,13 @@ def main() -> None:
     ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
     pump_queue()
+
+
+def main() -> None:
+    root = tk.Tk()
+    root.title("epub2tts-edge v1.1 — Audiobook")
+    root.minsize(640, 680)
+    build_ui(root)
     root.mainloop()
 
 

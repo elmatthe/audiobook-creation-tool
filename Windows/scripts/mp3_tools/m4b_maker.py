@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-M4B Tool v5.0 — Unified UI style
+M4B Maker — MP3 -> M4B with chapters.
 
-- Single main window (like webnovel_pdf_editor & m4b_converter)
+Refactored for the unified launcher: UI is built by build_ui(parent); all
+ffmpeg/ffprobe calls and folder-opening go through shared.subprocess_utils so
+no console window flashes on Windows.
+
 - MP3 -> M4B with chapters
 - Optional silence between tracks (safe WAV mode)
 - Fast concat with auto-fallback to safe path
@@ -12,19 +15,27 @@ M4B Tool v5.0 — Unified UI style
 - Output -> ~/Downloads/M4B-Output-*
 """
 
-import os
 import re
-import json
 import shutil
-import subprocess
 import sys
 import wave
+import json
 import contextlib
 import traceback
 from pathlib import Path
+from subprocess import CalledProcessError
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
+# Make the scripts/ root importable so `shared.*` resolves whether this tool is
+# run standalone (python mp3_tools/m4b_maker.py) or imported by the launcher.
+_SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from shared import ffmpeg_utils
+from shared import subprocess_utils as sp
 
 # Optional dependency for cover preview
 try:
@@ -39,7 +50,7 @@ WAV_CH = 2
 WAV_FMT = "s16"
 PREVIEW_MAX = (260, 260)
 
-APP_TITLE = "M4B Tool v5.0 (Fast-first + Auto-fallback)"
+APP_TITLE = "M4B Maker v5.0 (Fast-first + Auto-fallback)"
 
 
 # -------- helpers --------
@@ -63,9 +74,9 @@ def normalize_title(stem: str) -> str:
 
 
 def ffprobe_duration_ms(p: Path) -> int:
-    data = subprocess.check_output(
+    data = sp.check_output(
         [
-            "ffprobe",
+            ffmpeg_utils.ffprobe_cmd(),
             "-v",
             "error",
             "-select_streams",
@@ -80,9 +91,9 @@ def ffprobe_duration_ms(p: Path) -> int:
     j = json.loads(data)
     dur = j["streams"][0].get("duration") if j.get("streams") else None
     if dur is None:
-        data = subprocess.check_output(
+        data = sp.check_output(
             [
-                "ffprobe",
+                ffmpeg_utils.ffprobe_cmd(),
                 "-v",
                 "error",
                 "-show_entries",
@@ -156,7 +167,7 @@ def normalize_to_wav(inputs, tmp_dir: Path):
     for i, src in enumerate(inputs, 1):
         dst = wav_dir / f"{i:04d}.wav"
         cmd = [
-            "ffmpeg",
+            ffmpeg_utils.ffmpeg_cmd(),
             "-hide_banner",
             "-y",
             "-i",
@@ -178,7 +189,7 @@ def normalize_to_wav(inputs, tmp_dir: Path):
             "-1",
             str(dst),
         ]
-        subprocess.run(cmd, check=True)
+        sp.run(cmd, check=True)
         wavs.append(dst)
     return wavs
 
@@ -186,7 +197,7 @@ def normalize_to_wav(inputs, tmp_dir: Path):
 def create_silence_wav(seconds: float, tmp_dir: Path) -> Path:
     dst = tmp_dir / f"silence_{seconds:.3f}s.wav"
     cmd = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-y",
         "-f",
@@ -203,7 +214,7 @@ def create_silence_wav(seconds: float, tmp_dir: Path) -> Path:
         WAV_FMT,
         str(dst),
     ]
-    subprocess.run(cmd, check=True)
+    sp.run(cmd, check=True)
     return dst
 
 
@@ -236,7 +247,7 @@ def compute_audio_starts_with_silence(wavs, silence_ms):
 # ----- ffmpeg runners -----
 def run_safe_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate):
     cmd = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-y",
         "-xerror",
@@ -276,12 +287,12 @@ def run_safe_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate)
         "+faststart",
         str(out_path),
     ]
-    subprocess.run(cmd, check=True)
+    sp.run(cmd, check=True)
 
 
 def run_fast_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate):
     cmd = [
-        "ffmpeg",
+        ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-y",
         "-xerror",
@@ -323,16 +334,15 @@ def run_fast_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate)
         "+faststart",
         str(out_path),
     ]
-    subprocess.run(cmd, check=True)
+    sp.run(cmd, check=True)
 
 
 # -------- GUI --------
-class App(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title(APP_TITLE)
-        self.geometry("980x740")
-        self.minsize(860, 640)
+class M4BMakerUI(ttk.Frame):
+    """The M4B Maker as an embeddable frame."""
+
+    def __init__(self, parent: tk.Misc):
+        super().__init__(parent)
 
         self.files: list[Path] = []
         self.cover_path: Path | None = None
@@ -642,7 +652,7 @@ class App(tk.Tk):
                 else:
                     self.log("Using SAFE concat mode…")
                     run_safe_concat(listfile, ffmeta, cover_path, out_path, "128k")
-            except subprocess.CalledProcessError:
+            except CalledProcessError:
                 if not use_safe:
                     self.log("Fast path failed — retrying in Safe Mode…")
                     wavs = normalize_to_wav(self.files, tmp)
@@ -663,17 +673,9 @@ class App(tk.Tk):
             messagebox.showinfo("Success", f"Created:\n{out_path}")
 
             # open output folder
-            try:
-                if sys.platform.startswith("darwin"):
-                    os.system(f'open "{out_dir}"')
-                elif os.name == "nt":
-                    os.startfile(out_dir)  # type: ignore[attr-defined]
-                elif os.name == "posix":
-                    os.system(f'xdg-open "{out_dir}"')
-            except Exception:
-                pass
+            sp.reveal_in_file_manager(out_dir)
 
-        except subprocess.CalledProcessError as e:
+        except CalledProcessError as e:
             self.status.set("ffmpeg error")
             try:
                 stderr = getattr(e, "stderr", None)
@@ -694,11 +696,21 @@ class App(tk.Tk):
             messagebox.showerror("Error", str(e))
 
 
+def build_ui(parent: tk.Misc) -> M4BMakerUI:
+    """Build the M4B Maker UI into ``parent`` and return the frame."""
+    ui = M4BMakerUI(parent)
+    ui.pack(fill=tk.BOTH, expand=True)
+    return ui
+
+
 def main():
-    app = App()
-    app.mainloop()
+    root = tk.Tk()
+    root.title(APP_TITLE)
+    root.geometry("980x740")
+    root.minsize(860, 640)
+    build_ui(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
     main()
-

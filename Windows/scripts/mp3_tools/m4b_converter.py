@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
 # m4b_converter.py
 # GUI batch converter: .m4b -> .mp3 with optional bulk metadata, sequential output folders.
+#
+# Refactored for the unified launcher: UI is built by build_ui(parent); all
+# ffmpeg calls and folder-opening go through shared.subprocess_utils so no
+# console window flashes on Windows.
 
-import os
 import sys
 import threading
-import subprocess
 from pathlib import Path
+from subprocess import PIPE, STDOUT
+
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
+# Make the scripts/ root importable so `shared.*` resolves whether this tool is
+# run standalone (python mp3_tools/m4b_converter.py) or imported by the launcher.
+_SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from shared import ffmpeg_utils
+from shared import subprocess_utils as sp
 
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
 
 
 # ---------- helpers ---------- #
-
-
-def which(cmd: str) -> str | None:
-    from shutil import which as _which
-
-    return _which(cmd)
 
 
 def next_output_dir() -> Path:
@@ -47,28 +54,23 @@ def sanitize_filename(name: str) -> str:
     return " ".join(out.split())
 
 
-def ffmpeg_available() -> bool:
-    return which("ffmpeg") is not None and which("ffprobe") is not None
-
-
 def quote(p: Path) -> str:
     return str(p)
 
 
-# ---------- GUI app ----------
+# ---------- GUI ----------
 
 
-class App(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title(APP_TITLE)
-        self.geometry("900x620")
-        self.minsize(900, 620)
+class M4BConverterUI(ttk.Frame):
+    """The M4B → MP3 converter as an embeddable frame."""
+
+    def __init__(self, parent: tk.Misc):
+        super().__init__(parent)
 
         self.files: list[Path] = []
 
         # Top buttons
-        top = tk.Frame(self)
+        top = ttk.Frame(self)
         top.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 6))
 
         self.btn_add = ttk.Button(top, text="Import M4B Files", command=self.add_files)
@@ -84,7 +86,7 @@ class App(tk.Tk):
         ttk.Label(top, textvariable=self.count_var).pack(side=tk.RIGHT)
 
         # File list
-        list_frame = tk.Frame(self)
+        list_frame = ttk.Frame(self)
         list_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10)
         self.listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, height=12)
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -92,8 +94,8 @@ class App(tk.Tk):
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         self.listbox.configure(yscrollcommand=sb.set)
 
-        # Options area (styled like your mp3 tool)
-        options = tk.LabelFrame(self, text="Conversion & Metadata (applies to all files)")
+        # Options area
+        options = ttk.LabelFrame(self, text="Conversion & Metadata (applies to all files)")
         options.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10, ipady=4)
 
         row = 0
@@ -157,7 +159,7 @@ class App(tk.Tk):
 
         # Output dir preview
         row += 1
-        self.out_dir_preview = tk.StringVar(value=str(next_output_dir()))
+        self.out_dir_preview = tk.StringVar(value="")
         ttk.Label(options, text="Output folder (auto):").grid(
             row=row, column=0, sticky="e", padx=8, pady=4
         )
@@ -167,7 +169,7 @@ class App(tk.Tk):
         self.lbl_outdir.grid(row=row, column=1, columnspan=3, sticky="w", padx=8, pady=4)
 
         # Action buttons
-        action = tk.Frame(self)
+        action = ttk.Frame(self)
         action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
         self.btn_convert = ttk.Button(action, text="Convert M4Bs → MP3s", command=self.start_convert)
         self.btn_convert.pack(side=tk.LEFT)
@@ -175,7 +177,7 @@ class App(tk.Tk):
         self.btn_open_out.pack(side=tk.LEFT, padx=8)
 
         # Log area
-        logf = tk.LabelFrame(self, text="Log")
+        logf = ttk.LabelFrame(self, text="Log")
         logf.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
         self.log = tk.Text(logf, height=8, wrap="word")
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -187,17 +189,16 @@ class App(tk.Tk):
         self.progress = ttk.Progressbar(self, length=400, mode="determinate")
         self.progress.pack(side=tk.BOTTOM, pady=(0, 10))
 
-        # Initial checks
-        if not ffmpeg_available():
-            messagebox.showerror(
-                "FFmpeg not found",
-                "FFmpeg/ffprobe not found in PATH.\nInstall FFmpeg and ensure it is on PATH.",
+        for i in range(4):
+            options.grid_columnconfigure(i, weight=1)
+
+        # Initial checks (log instead of a modal so switching tools is quiet)
+        if not ffmpeg_utils.have_ffmpeg():
+            self.log_write(
+                "WARNING: ffmpeg/ffprobe not found. Run the setup launcher to install it.\n"
             )
         else:
             self.log_write("FFmpeg detected.\n")
-
-        for i in range(4):
-            options.grid_columnconfigure(i, weight=1)
 
         self.refresh_outdir_preview()
 
@@ -249,19 +250,14 @@ class App(tk.Tk):
         out_dir = Path(self.out_dir_preview.get())
         if not out_dir.exists():
             out_dir.mkdir(parents=True, exist_ok=True)
-        if sys.platform == "darwin":
-            subprocess.run(["open", str(out_dir)])
-        elif os.name == "nt":
-            os.startfile(str(out_dir))  # type: ignore[attr-defined]
-        else:
-            subprocess.run(["xdg-open", str(out_dir)])
+        sp.reveal_in_file_manager(out_dir)
 
     def start_convert(self):
         if not self.files:
             messagebox.showwarning("No files", "Please import .m4b files first.")
             return
-        if not ffmpeg_available():
-            messagebox.showerror("FFmpeg not found", "FFmpeg/ffprobe not found in PATH.")
+        if not ffmpeg_utils.have_ffmpeg():
+            messagebox.showerror("FFmpeg not found", "FFmpeg/ffprobe not found.")
             return
         outdir = next_output_dir()
         self.out_dir_preview.set(str(outdir))
@@ -311,7 +307,7 @@ class App(tk.Tk):
                 stem = sanitize_filename(in_file.stem)
                 out_mp3 = outdir / f"{stem}.mp3"
 
-                cmd = ["ffmpeg", "-hide_banner", "-y", "-i", quote(in_file), "-vn"]
+                cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-y", "-i", quote(in_file), "-vn"]
 
                 if write_tags:
                     title_val = bulk_title if bulk_title else stem
@@ -342,11 +338,9 @@ class App(tk.Tk):
                 self.log_write(
                     f"\n[{idx}/{total}] Converting:\n  {in_file}\n  -> {out_mp3}\n"
                 )
-                proc = subprocess.run(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-                )
+                proc = sp.run(cmd, stdout=PIPE, stderr=STDOUT, text=True)
                 if proc.returncode != 0:
-                    self.log_write(proc.stdout[-2000:] + "\n")
+                    self.log_write((proc.stdout or "")[-2000:] + "\n")
                     raise RuntimeError(f"FFmpeg failed (code {proc.returncode}).")
 
                 self.log_write("  ✓ Done\n")
@@ -358,18 +352,24 @@ class App(tk.Tk):
 
         self.log_write(f"\nAll done. Output: {outdir}\n")
         self.disable_inputs(False)
-        try:
-            if sys.platform == "darwin":
-                subprocess.run(["open", str(outdir)])
-            elif os.name == "nt":
-                os.startfile(str(outdir))  # type: ignore[attr-defined]
-            else:
-                subprocess.run(["xdg-open", str(outdir)])
-        except Exception:
-            pass
+        sp.reveal_in_file_manager(outdir)
+
+
+def build_ui(parent: tk.Misc) -> M4BConverterUI:
+    """Build the M4B Converter UI into ``parent`` and return the frame."""
+    ui = M4BConverterUI(parent)
+    ui.pack(fill=tk.BOTH, expand=True)
+    return ui
+
+
+def main():
+    root = tk.Tk()
+    root.title(APP_TITLE)
+    root.geometry("900x620")
+    root.minsize(900, 620)
+    build_ui(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
-
+    main()
