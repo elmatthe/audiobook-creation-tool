@@ -1,0 +1,32 @@
+# Audiobook Creation Tool — macOS dependencies
+# Every package is pinned to an exact version (project dependency rule).
+# Versions verified against PyPI on 2026-05-28.
+# The bootstrap builds the .venv with Python 3.12 (PyPI Kokoro wheels require
+# <3.13); the environment markers below guard the version-specific packages.
+
+# --- TTS (epub2tts-edge) ---
+beautifulsoup4==4.14.3
+ebooklib==0.20
+edge-tts==7.2.8
+lxml==6.1.1
+mutagen==1.47.0
+nltk==3.9.4
+pillow==12.2.0
+pydub==0.25.1
+pymupdf==1.27.2.3
+setuptools==82.0.1
+tqdm==4.67.3
+soundfile==0.13.1
+scipy==1.17.1
+# pydub uses the stdlib `audioop` module, which was removed in Python 3.13.
+# This backfill only installs if the venv ever ends up on 3.13+ (normally 3.12).
+audioop-lts==0.2.2 ; python_version >= "3.13"
+
+# --- Local AI TTS (Kokoro) — only on Python <3.13 (PyPI wheels require it) ---
+kokoro==0.9.4 ; python_version < "3.13"
+
+# --- MP3 / M4B tools ---
+# mutagen + pillow (pinned above) cover the MP3 Tool, M4B Maker/Converter,
+# Cover Resizer, and the Phase 6 Metadata Editor.
+# Optional HEIC/HEIF cover support for the Cover Resizer (uncomment to enable):
+# pillow-heif==1.3.0
