@@ -28,8 +28,24 @@ from pathlib import Path
 from typing import Any
 
 # Freeform MP4 atoms read by Audiobookshelf's ffprobe-based scanner (Briefing §6).
+# These are the canonical atoms we *write* to; on read we accept them first, then
+# any other vendor's freeform series atom, then the native movement atoms (below).
 SERIES_ATOM = "----:com.apple.iTunes:SERIES"
 SERIES_PART_ATOM = "----:com.apple.iTunes:SERIES-PART"
+
+# Native MP4 "movement" atoms — Audiobookshelf's documented fallback for series
+# (©mvn = movement/series name, mvin = movement/series index, ©mvc = count). Some
+# taggers store the series here instead of a freeform atom; we read them as a last
+# resort but never write them (writes stay canonical freeform — see write_m4b_tags).
+MOVEMENT_NAME_ATOM = "\xa9mvn"
+MOVEMENT_INDEX_ATOM = "mvin"
+MOVEMENT_COUNT_ATOM = "\xa9mvc"
+
+# Freeform-atom suffixes (the segment after the last ':') that hold a series name
+# or part on real files. Audible rips tagged with Libation/tone, for example, use
+# the ``----:com.pilabor.tone:SERIES`` / ``:PART`` namespace rather than Apple's.
+_SERIES_NAME_SUFFIXES = ("SERIES",)
+_SERIES_PART_SUFFIXES = ("SERIES-PART", "PART")
 
 # Canonical text fields shared by both M4B tools, in the order they are written.
 # These keys are the friendly names callers use; the values are the matching
@@ -56,6 +72,118 @@ def _clean(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _decode_atom_value(raw: Any) -> str:
+    """Decode one raw MP4 atom value to a stripped string.
+
+    Handles freeform ``bytes`` / ``MP4FreeForm`` (UTF-8), plain ``str`` text atoms,
+    and ``int`` values (e.g. a movement index). Returns ``""`` for None/blank.
+    """
+    if raw is None:
+        return ""
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", "replace").strip()
+    return str(raw).strip()
+
+
+def _resolve_series(mp4tags) -> dict:
+    """Resolve the series name/part from every source Audiobookshelf might use.
+
+    Priority, for each of name and part:
+      1. our canonical freeform atom (``----:com.apple.iTunes:SERIES`` /
+         ``SERIES-PART``) — what this tool writes;
+      2. any *other* vendor freeform atom with a matching suffix — e.g. Libation/
+         tone writes ``----:com.pilabor.tone:SERIES`` / ``:PART`` (ffprobe, and so
+         Audiobookshelf, surface these as ``SERIES`` / ``PART``);
+      3. the native MP4 movement atoms (``©mvn`` name / ``mvin`` index).
+
+    Returns a dict carrying ``series`` / ``series_part`` **only when found**
+    (non-empty), plus the always-present provenance keys ``series_source`` /
+    ``series_part_source`` (one of ``"freeform"`` | ``"movement"`` | ``None``) and
+    ``series_atom`` / ``series_part_atom`` (the exact atom key the value came from,
+    or ``None``) so the GUI can show the user what is really on the file.
+    """
+    out: dict[str, Any] = {
+        "series_source": None,
+        "series_part_source": None,
+        "series_atom": None,
+        "series_part_atom": None,
+    }
+    if not mp4tags:
+        return out
+
+    freeform = [k for k in mp4tags.keys() if k.startswith("----:")]
+
+    def _val(key) -> str:
+        vals = mp4tags.get(key)
+        return _decode_atom_value(vals[0]) if vals else ""
+
+    def _find_freeform(suffixes):
+        """First non-empty freeform atom matching ``suffixes`` (canonical first)."""
+        for suf in suffixes:
+            canonical = f"----:com.apple.iTunes:{suf}"
+            if canonical in mp4tags:
+                v = _val(canonical)
+                if v:
+                    return canonical, v
+            for key in freeform:
+                if key.rsplit(":", 1)[-1].upper() == suf:
+                    v = _val(key)
+                    if v:
+                        return key, v
+        return None, ""
+
+    # --- series name ---
+    atom, val = _find_freeform(_SERIES_NAME_SUFFIXES)
+    if val:
+        out["series"], out["series_atom"], out["series_source"] = val, atom, "freeform"
+    else:
+        mv = _val(MOVEMENT_NAME_ATOM)
+        if mv:
+            out["series"], out["series_atom"], out["series_source"] = mv, MOVEMENT_NAME_ATOM, "movement"
+
+    # --- series part ---
+    atom, val = _find_freeform(_SERIES_PART_SUFFIXES)
+    if val:
+        out["series_part"], out["series_part_atom"], out["series_part_source"] = val, atom, "freeform"
+    else:
+        mvals = mp4tags.get(MOVEMENT_INDEX_ATOM)
+        if mvals:
+            raw = mvals[0]
+            if isinstance(raw, (list, tuple)):
+                raw = raw[0] if raw else None
+            try:
+                num = int(raw)
+            except (ValueError, TypeError):
+                num = None
+            if num is not None:
+                out["series_part"] = str(num)
+                out["series_part_atom"] = MOVEMENT_INDEX_ATOM
+                out["series_part_source"] = "movement"
+
+    return out
+
+
+def _strip_conflicting_series_atoms(mp4tags, suffixes, movement_atom) -> None:
+    """Remove freeform/movement atoms that would shadow a freshly written series.
+
+    ffprobe (and so Audiobookshelf) surface a freeform atom under the segment after
+    its last ``:`` — so a leftover ``----:com.pilabor.tone:SERIES`` would keep
+    shadowing a value we write to ``----:com.apple.iTunes:SERIES`` (they both
+    surface as ``SERIES``). When the user actually writes a series value we delete
+    every freeform atom whose suffix is in ``suffixes`` (the canonical one is
+    re-added by the caller) and the native movement atom, so the write is
+    authoritative and the old value cannot win. Only ever called when writing a
+    non-empty value — a blank field never reaches here (preserve-by-default).
+    """
+    if not mp4tags:
+        return
+    for key in list(mp4tags.keys()):
+        if key.startswith("----:") and key.rsplit(":", 1)[-1].upper() in suffixes:
+            del mp4tags[key]
+    if movement_atom and movement_atom in mp4tags:
+        del mp4tags[movement_atom]
 
 
 # --------------------------------------------------------------------------- #
@@ -105,9 +233,13 @@ def read_m4b_tags(path) -> dict:
 
     Returns keys ``title``, ``artist``, ``album_artist``, ``album``, ``comment``,
     ``genre``, ``year`` (strings), ``track`` (int track number, if present),
-    ``series`` / ``series_part`` (strings, from the Audiobookshelf freeform
-    atoms), and ``has_cover`` (bool, always present). Missing text tags are
-    simply absent from the returned dict.
+    ``series`` / ``series_part`` (strings — resolved from the canonical freeform
+    atom, any other vendor freeform atom, or the native movement atoms, in that
+    order; present only when found), and ``has_cover`` (bool, always present).
+    Always includes the series provenance keys ``series_source`` /
+    ``series_part_source`` (``"freeform"`` | ``"movement"`` | ``None``) and
+    ``series_atom`` / ``series_part_atom`` (the exact source atom, or ``None``).
+    Missing text tags are simply absent from the returned dict.
     """
     from mutagen.mp4 import MP4
 
@@ -126,14 +258,43 @@ def read_m4b_tags(path) -> dict:
             if num:
                 out["track"] = int(num)
 
-        for friendly, atom in (("series", SERIES_ATOM), ("series_part", SERIES_PART_ATOM)):
-            vals = mp4.tags.get(atom)
-            if vals:
-                raw = vals[0]
-                out[friendly] = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
-
+    # Series can live in several atoms on real files; resolve from all of them.
+    out.update(_resolve_series(mp4.tags))
     out["has_cover"] = bool(mp4.tags and mp4.tags.get("covr"))
     return out
+
+
+def describe_series_atoms(path) -> list[tuple[str, str]]:
+    """Return ``[(atom_key, decoded_value), ...]`` for every series-relevant atom
+    present on the file, for the GUI's read-back display.
+
+    Checks the freeform ``----:…:SERIES`` / ``SERIES-PART`` / ``PART`` atoms (any
+    vendor namespace) and the native movement atoms ``©mvn`` / ``mvin`` / ``©mvc``.
+    Returns ``[]`` when none are present. Never raises on a missing/odd atom.
+    """
+    from mutagen.mp4 import MP4
+
+    try:
+        tags = MP4(str(Path(path))).tags
+    except Exception:
+        return []
+    if not tags:
+        return []
+
+    found: list[tuple[str, str]] = []
+    wanted = set(_SERIES_NAME_SUFFIXES) | set(_SERIES_PART_SUFFIXES)
+    for key in tags.keys():
+        if key.startswith("----:") and key.rsplit(":", 1)[-1].upper() in wanted:
+            vals = tags.get(key)
+            found.append((key, _decode_atom_value(vals[0]) if vals else ""))
+    for atom in (MOVEMENT_NAME_ATOM, MOVEMENT_INDEX_ATOM, MOVEMENT_COUNT_ATOM):
+        if atom in tags:
+            vals = tags.get(atom)
+            raw = vals[0] if vals else None
+            if isinstance(raw, (list, tuple)):
+                raw = raw[0] if raw else None
+            found.append((atom, _decode_atom_value(raw)))
+    return found
 
 
 def write_m4b_tags(path, tags: dict) -> None:
@@ -145,6 +306,12 @@ def write_m4b_tags(path, tags: dict) -> None:
     freeform Audiobookshelf atoms, UTF-8 bytes), and ``cover_path`` (path to a
     JPEG/PNG image to embed as the front cover). A text/series key whose value
     is empty/None clears that tag; an empty ``cover_path`` clears the cover.
+
+    Writing a non-empty ``series`` / ``series_part`` also strips any *other*
+    vendor freeform atom (e.g. ``----:com.pilabor.tone:SERIES``) or movement atom
+    that ffprobe/Audiobookshelf would surface under the same name, so the new
+    value is authoritative rather than shadowed by a leftover atom. A blank series
+    field is never written, so this never disturbs an existing tag (preserve-by-default).
     """
     from mutagen.mp4 import MP4, MP4Cover
 
@@ -168,10 +335,18 @@ def write_m4b_tags(path, tags: dict) -> None:
         else:
             mp4.tags["trkn"] = [(int(track), 0)]
 
-    for friendly, atom in (("series", SERIES_ATOM), ("series_part", SERIES_PART_ATOM)):
+    for friendly, atom, suffixes, movement_atom in (
+        ("series", SERIES_ATOM, _SERIES_NAME_SUFFIXES, MOVEMENT_NAME_ATOM),
+        ("series_part", SERIES_PART_ATOM, _SERIES_PART_SUFFIXES, MOVEMENT_INDEX_ATOM),
+    ):
         if friendly in tags:
             val = _clean(tags[friendly])
             if val:
+                # Drop any vendor freeform atom (e.g. ----:com.pilabor.tone:SERIES)
+                # or movement atom that surfaces under the same ffprobe/ABS name,
+                # then write our canonical atom — otherwise the old value shadows
+                # the new one and the overwrite silently fails to take effect.
+                _strip_conflicting_series_atoms(mp4.tags, suffixes, movement_atom)
                 mp4.tags[atom] = [val.encode("utf-8")]
             elif atom in mp4.tags:
                 del mp4.tags[atom]

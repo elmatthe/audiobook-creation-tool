@@ -15,6 +15,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-30
+
+> Patch release: a series-metadata read/display correctness fix in the M4B Metadata Editor.
+> Phase-gated off `master`, `compileall` clean, Windows↔MacOS `scripts/` trees byte-identical,
+> and verified live on Windows against the real `test-files/` assets (the Harry Potter &
+> Mistborn M4Bs). macOS deferred (no host).
+
+### Fixed
+- **M4B Metadata Editor:** Series Name and Series Part now display the existing value from real
+  Audible/Audiobookshelf M4B files. `read_m4b_tags` previously checked only the freeform
+  `----:com.apple.iTunes:SERIES` atom, so it missed series stored in **other freeform namespaces**
+  (real Audible rips tagged with Libation/tone use `----:com.pilabor.tone:SERIES` / `:PART`, which
+  ffprobe and Audiobookshelf surface as `SERIES`/`PART`) **and** the native MP4 movement atoms
+  (`©mvn`/`mvin`) — so the fields showed blank even when Audiobookshelf grouped the book into a series.
+  The reader now resolves series from the canonical freeform atom first, then any other vendor freeform
+  atom, then the movement atoms, and reports which atom it found.
+- **`shared/metadata.py`:** writing a series value now also strips any *other* vendor freeform or
+  movement atom that ffprobe (and Audiobookshelf) would surface under the same name — e.g. a leftover
+  `----:com.pilabor.tone:SERIES`. Without this, the original atom **shadowed** the new write and the
+  overwrite silently failed to take effect in Audiobookshelf. Blank fields are still never written, so
+  this never disturbs an existing tag (preserve-by-default intact). The chapter-title re-mux still
+  snapshots/restores the freeform atoms, so the series survives a later chapter-title import.
+
+### Added
+- **M4B Metadata Editor:** a read-only "Detected on file" line beneath the Series fields shows the
+  original series value and its exact source atom (e.g. `(source: ----:com.pilabor.tone:SERIES)`), or
+  "none — this file has no series tag", so an overwrite can be confirmed before and after writing. For
+  multiple files it shows "(multiple files loaded)".
+- **`shared/metadata.py`:** `read_m4b_tags` now returns series provenance (`series_source` /
+  `series_part_source` ∈ `freeform` | `movement` | `None`, plus the exact `series_atom` /
+  `series_part_atom`), and a new `describe_series_atoms(path)` helper lists every series-bearing atom on
+  a file for diagnostics. Existing return keys are unchanged, so no callers break.
+
 ## [0.1.1] - 2026-05-30
 
 > v0.1.1 update release. Phase-gated (A–F) off `master` with the same discipline as

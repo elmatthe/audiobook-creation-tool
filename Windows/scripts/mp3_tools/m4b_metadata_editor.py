@@ -74,6 +74,11 @@ _FIELDS = [
     ("series_part", "var_series_part", "Series Part"),
 ]
 
+# Series fields are preserve-by-default even on a normal Save: a pre-filled value
+# left unchanged is never written back (it may have been read from a vendor/movement
+# atom, and silently migrating it to the canonical atom is not what the user asked).
+_SERIES_KEYS = {"series", "series_part"}
+
 
 def _remembered_dir(key: str) -> Path:
     """Return the saved folder for ``key`` if it still exists, else the home dir."""
@@ -103,6 +108,9 @@ class M4BMetadataEditorUI(ttk.Frame):
             setattr(self, attr, tk.StringVar())
         self.var_cover_path = tk.StringVar()
         self.mode_var = tk.StringVar(value="No files loaded.")
+        # Read-only "Detected on file" line for the series actually present on the
+        # loaded file (and which atom it came from), so an overwrite can be trusted.
+        self.series_readback_var = tk.StringVar(value="")
 
         # Snapshot of the values auto-loaded into the form in single-file mode.
         # A "Clear All Tags" run re-applies only fields the user changed from
@@ -180,6 +188,14 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cover.pack(side=tk.LEFT)
         self.btn_cover_clear = ttk.Button(cover_btns, text="Clear", command=lambda: self.var_cover_path.set(""))
         self.btn_cover_clear.pack(side=tk.LEFT, padx=(6, 0))
+
+        # Read-only read-back of the series detected on the loaded file (and its
+        # source atom). Lets the user confirm the existing series before, and the
+        # written series after, an overwrite. Single file only; cleared otherwise.
+        self.lbl_series_readback = ttk.Label(
+            form_box, textvariable=self.series_readback_var, foreground="#1e3a8a"
+        )
+        self.lbl_series_readback.pack(side=tk.TOP, anchor="w", padx=8, pady=(0, 8))
 
         # Chapter Titles (optional) — paged, one page per loaded file, applied
         # positionally (line N -> chapter N; blank line = leave that chapter).
@@ -271,7 +287,26 @@ class M4BMetadataEditorUI(ttk.Frame):
         for _key, attr, _label in _FIELDS:
             getattr(self, attr).set("")
         self.var_cover_path.set("")
+        self.series_readback_var.set("")
         self._prefill = {}
+
+    @staticmethod
+    def _series_readback_text(tags: dict) -> str:
+        """Build the "Detected on file" line from read_m4b_tags() results."""
+        series = (tags.get("series") or "").strip()
+        part = (tags.get("series_part") or "").strip()
+        if not series and not part:
+            return "Detected on file: none — this file has no series tag"
+        shown = series or "(unnamed series)"
+        if part:
+            shown += f" #{part}"
+        atom = tags.get("series_atom") or tags.get("series_part_atom")
+        source = tags.get("series_source") or tags.get("series_part_source")
+        if atom:
+            return f"Detected on file: {shown}  (source: {atom})"
+        if source:
+            return f"Detected on file: {shown}  (source: {source})"
+        return f"Detected on file: {shown}"
 
     def _refresh_mode(self):
         """Update the mode notice and (single-file) pre-fill from the file's tags."""
@@ -285,6 +320,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         else:
             self._clear_fields()
             self.mode_var.set(f"Batch mode: {n} files — blank fields are left unchanged.")
+            self.series_readback_var.set("Detected on file: (multiple files loaded)")
         self._sync_chapter_pager()
 
     # ----- chapter-title pager -----
@@ -354,6 +390,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             if key in tags:
                 getattr(self, attr).set(str(tags[key]))
                 self._prefill[key] = str(tags[key])
+        self.series_readback_var.set(self._series_readback_text(tags))
         if tags.get("has_cover"):
             self.log_write(f"{path.name}: existing cover present (leave Cover blank to keep it).\n")
 
@@ -406,7 +443,12 @@ class M4BMetadataEditorUI(ttk.Frame):
             val = getattr(self, attr).get().strip()
             if not val:
                 continue
-            if only_edited and val == (self._prefill.get(key, "")).strip():
+            # Series is preserve-by-default even on a normal Save (only_edited=False):
+            # an unchanged pre-filled series is not written back, so a value read from
+            # a vendor/movement atom is never silently migrated to the canonical atom
+            # unless the user actually edits it (or types one in batch mode).
+            skip_unchanged = only_edited or key in _SERIES_KEYS
+            if skip_unchanged and val == (self._prefill.get(key, "")).strip():
                 continue
             tags[key] = val
         cover = self.var_cover_path.get().strip()
@@ -432,6 +474,9 @@ class M4BMetadataEditorUI(ttk.Frame):
                 "on top of the cleared copies.\n\nProceed?",
             ):
                 return
+        # The output copies will have no series tag; clear the read-back so it
+        # doesn't keep advertising the (now-irrelevant) source file's series.
+        self.series_readback_var.set("")
         self._start_job(clear_first=True)
 
     def _start_job(self, *, clear_first: bool):
