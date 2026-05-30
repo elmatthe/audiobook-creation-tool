@@ -218,3 +218,169 @@ def clear_metadata_keep_chapters(path) -> None:
         for key in list(mp4.tags.keys()):
             del mp4.tags[key]
         mp4.save()
+
+
+# --------------------------------------------------------------------------- #
+# Chapter-title editing (Phase D) — ffmpeg ffmetadata round-trip
+# --------------------------------------------------------------------------- #
+#
+# mutagen does not expose MP4/QuickTime chapter-track titles for editing, so
+# chapter titles are edited with an ffmpeg ffmetadata round-trip: dump the file's
+# metadata (global tags + [CHAPTER] blocks with exact START/END), rewrite only
+# the chapter title= lines positionally, then re-mux with ``-c copy`` taking the
+# audio + cover + global metadata from the original file and the chapters from
+# the edited dump. ``-c copy`` keeps the audio and chapter timestamps byte-stable
+# — only the title strings change. (Chosen over mutagen because mutagen cannot
+# edit chapter titles; verified empirically that timestamps and other metadata
+# are preserved.)
+
+
+def _ffmeta_escape(value: str) -> str:
+    """Escape a value for an ffmetadata file (``=``, ``;``, ``#``, ``\\`` and newlines)."""
+    out = []
+    for ch in value:
+        if ch in "=;#\\" or ch == "\n":
+            out.append("\\" + ch)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def read_chapter_titles(path) -> list[str]:
+    """Return the ordered list of chapter titles from an M4B.
+
+    Each entry is the chapter's title (``""`` for an untitled chapter). The list
+    length equals the file's chapter count.
+    """
+    import json
+
+    from . import ffmpeg_utils
+    from . import subprocess_utils as sp
+
+    out = sp.check_output(
+        [
+            ffmpeg_utils.ffprobe_cmd(),
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_chapters",
+            str(Path(path)),
+        ]
+    )
+    data = json.loads(out)
+    return [str(ch.get("tags", {}).get("title", "")) for ch in data.get("chapters", [])]
+
+
+def apply_chapter_titles(path, new_titles) -> None:
+    """Positionally overwrite chapter titles on the M4B at ``path`` (a COPY).
+
+    ``new_titles[i]`` replaces chapter ``i``'s title. Rules:
+      - entries past the file's chapter count are ignored;
+      - a blank/empty entry leaves that chapter's title unchanged;
+      - chapters, their count, order and timestamps, the audio, the cover art,
+        and all global metadata are left untouched — only the title strings of
+        the supplied positions change.
+
+    Does nothing if ``new_titles`` is empty or every supplied entry is blank.
+    Operate on a COPY only — never on an imported original.
+    """
+    import os
+    import shutil
+    import tempfile
+
+    from mutagen.mp4 import MP4
+
+    from . import ffmpeg_utils
+    from . import subprocess_utils as sp
+
+    path = Path(path)
+    if not any((t or "").strip() for t in new_titles):
+        return
+
+    # ffmpeg's mov muxer drops freeform iTunes atoms (e.g. the Audiobookshelf
+    # ----:com.apple.iTunes:SERIES / SERIES-PART) on a -c copy re-mux, so snapshot
+    # every freeform atom now and restore it with mutagen afterwards.
+    _src = MP4(str(path))
+    freeform = {
+        k: list(v) for k, v in (_src.tags or {}).items() if k.startswith("----:")
+    }
+
+    work = Path(tempfile.mkdtemp(prefix="chaptitles_"))
+    try:
+        # 1) Dump the file's ffmetadata (global tags + [CHAPTER] blocks).
+        meta_in = work / "in.ffmeta"
+        sp.run(
+            [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-loglevel", "error",
+             "-y", "-i", str(path), "-f", "ffmetadata", str(meta_in)],
+            check=True,
+        )
+        lines = meta_in.read_text(encoding="utf-8").splitlines()
+
+        # 2) Split into the global preamble + one list of lines per [CHAPTER].
+        first = next((i for i, ln in enumerate(lines) if ln.strip() == "[CHAPTER]"), None)
+        if first is None:
+            return  # no chapters — nothing to do
+        preamble = lines[:first]
+        blocks: list[list[str]] = []
+        cur: list[str] | None = None
+        for ln in lines[first:]:
+            if ln.strip() == "[CHAPTER]":
+                if cur is not None:
+                    blocks.append(cur)
+                cur = []
+            else:
+                cur.append(ln)
+        if cur is not None:
+            blocks.append(cur)
+
+        # 3) Apply the new titles positionally (skip blanks; only non-blank wins).
+        changed = False
+        for i, block in enumerate(blocks):
+            if i >= len(new_titles):
+                break
+            nt = (new_titles[i] or "").strip()
+            if not nt:
+                continue
+            block[:] = [b for b in block if not b.startswith("title=")]
+            block.append("title=" + _ffmeta_escape(nt))
+            changed = True
+        if not changed:
+            return
+
+        # 4) Reassemble the edited ffmetadata.
+        out_lines = list(preamble)
+        for block in blocks:
+            out_lines.append("[CHAPTER]")
+            out_lines.extend(block)
+        meta_out = work / "out.ffmeta"
+        meta_out.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+
+        # 5) Re-mux: take the audio and (optional) cover-art video from the file
+        #    plus its global metadata, and a freshly built chapter track from the
+        #    edited dump. We deliberately map only ``0:a`` + ``0:v?`` and NOT the
+        #    file's existing chapter text/data stream — copying that stream makes
+        #    the ipod/mov muxer reject it ("Tag text incompatible…"); -map_chapters
+        #    rebuilds the chapter track instead. ``-c copy`` keeps audio + chapter
+        #    timestamps byte-stable. A temp output beside the file keeps os.replace
+        #    on the same filesystem (avoids cross-drive errors).
+        tmp_out = path.with_name(path.stem + ".retitle.tmp" + path.suffix)
+        sp.run(
+            [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-loglevel", "error", "-y",
+             "-i", str(path), "-i", str(meta_out),
+             "-map", "0:a", "-map", "0:v?", "-map_metadata", "0", "-map_chapters", "1",
+             "-c", "copy", str(tmp_out)],
+            check=True,
+        )
+        os.replace(tmp_out, path)
+
+        # Restore the freeform atoms the re-mux dropped.
+        if freeform:
+            dst = MP4(str(path))
+            if dst.tags is None:
+                dst.add_tags()
+            for key, value in freeform.items():
+                dst.tags[key] = value
+            dst.save()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
