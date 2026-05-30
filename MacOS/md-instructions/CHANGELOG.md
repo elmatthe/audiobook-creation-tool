@@ -16,6 +16,30 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- **Phase 5 (MP3 Tools Polish) — complete (Cancel buttons + settings-backed folders +
+  shared metadata module, verified headless).**
+  - Added a **Cancel button** to all four MP3 tools (M4B Converter, MP3 Tool, M4B Maker,
+    Cover Image Converter), beside their action buttons. Each is **disabled when idle and
+    enabled only while an operation is running**; clicking it disables itself, sets a
+    `threading.Event`, and the worker bails at the next **natural checkpoint (between files /
+    between tracks / at stage boundaries)** via `shared/cancellation.py`
+    (`raise_if_cancelled` / `ConversionCancelled`). On cancel the tool **cleans up its partial
+    output** (M4B Maker / MP3 Tool delete the staging output folder; the Converter drops a
+    partial MP3) and reports a clear **"Cancelled."** line in the log/status.
+  - **M4B Maker and MP3 Tool now run their conversions on a worker thread.** They previously ran
+    synchronously on the main thread, which froze the GUI (and made a Cancel button impossible).
+    Each now reads all Tk variables on the main thread, hands plain copies to the worker, and the
+    worker talks back only through a thread-safe queue drained by a `pump_queue` (`after`) loop —
+    the same pattern (and the same fix) as the Phase 4 TTS worker, avoiding
+    "main thread is not in main loop". The M4B Converter and Cover Resizer already used worker
+    threads; their off-thread widget writes were likewise routed through the queue.
+  - Added `scripts/shared/metadata.py` — the canonical M4B/MP4 metadata module:
+    `read_m4b_tags(path) -> dict` and `write_m4b_tags(path, tags)` (mutagen; `write` only touches
+    the keys you pass, preserving every other tag — for the Phase 6 Metadata Editor), plus the
+    encode-time helpers `ffmpeg_metadata_args` / `ffmetadata_header_lines` shared by the two M4B
+    tools, and the Audiobookshelf series-atom constants `----:com.apple.iTunes:SERIES` /
+    `SERIES-PART` (Briefing §6). `m4b_maker.py` and `m4b_converter.py` now build their ffmpeg
+    tag fields from this module instead of each spelling them out.
 - **Phase 4 (TTS Integration & Polish) — complete (Cancel button + cancellation plumbing,
   verified headless).**
   - Added a **Cancel button** to the TTS tool, beside Start. It is **disabled when idle and
@@ -118,6 +142,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Unified launcher UX sketch (`Briefing.md` §8): sidebar + single swappable content panel.
 
 ### Changed
+- **Phase 5: routed every MP3-tool input/output folder through `shared/settings.py`** instead of
+  hardcoding `~/Downloads/...`. Each tool remembers its folders under per-tool keys
+  (`m4b_maker.input_dir` / `.output_dir` / `.cover_dir`, `m4b_converter.input_dir` / `.output_dir`,
+  `mp3_tool.input_dir` / `.output_dir`, `cover_resizer.input_dir`). **First run defaults to the
+  user's home directory** (no more `~/Downloads`); the chosen folders persist on every successful
+  operation and pre-fill the file dialogs (`initialdir`) and a new **"Output folder" picker** added
+  to M4B Maker, M4B Converter, and MP3 Tool. The Cover Resizer writes next to its source images, so
+  it only remembers its input folder. The sequential auto-named subfolders (`M4B-Output-N`,
+  `m4b_converter_output-N`, `edited_mp3s-N`) are unchanged — they're now created **inside** the
+  remembered base folder.
 - **Phase 3: routed every tool's external-binary call through `shared/subprocess_utils`** so no
   console window flashes on Windows. The MP3 tools' `subprocess.run` / `check_output` and the TTS
   engine's two `subprocess.run(["ffmpeg", …])` calls in `epub2tts_edge.make_m4b` now go through the
@@ -196,6 +230,47 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## Session Log
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
+
+### 2026-05-29 — Session 6
+- **Phase:** Phase 5 — MP3 Tools Polish (complete).
+- **Git:** work on new branch `phase-5-mp3-polish` (off `phase-4-tts-polish`). Local only.
+- **Done:** added `shared/metadata.py` (mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms +
+  `ffmpeg_metadata_args`/`ffmetadata_header_lines`); `m4b_maker.py` and `m4b_converter.py` now build
+  their tag fields from it. Added a **Cancel button** to all four MP3 tools (idle-disabled,
+  active-enabled, `threading.Event` checkpoints via `shared/cancellation.py`, "Cancelled." line,
+  partial-output cleanup). **Moved M4B Maker and MP3 Tool conversions onto worker threads** (they
+  were synchronous on the main thread) with a queue + `pump_queue` so Tk is only touched on the main
+  thread; routed the Converter/Resizer off-thread widget writes through the queue too. Replaced every
+  hardcoded `~/Downloads/...` path with `shared/settings.py`-backed per-tool input/output folders
+  (default = home), added an "Output folder" picker to the three output-producing tools, and persist
+  folders on success + pre-fill dialogs. Mirrored all 5 changed/new files byte-identical to MacOS.
+- **Verification:** `compileall` clean (both full trees); a temporary headless test (real Tk + real
+  ffmpeg/ffprobe) passed 38/38 — Cancel state machine (idle→busy→cancel→idle) for all four tools,
+  `normalize_to_wav` honouring `cancel_check`, the `ffmpeg_metadata_args`/`ffmetadata_header_lines`
+  output, and a full M4B tag round-trip incl. **ffprobe surfacing the freeform series atoms as
+  `series` / `series-part`** (validates Briefing §6 live). Test scaffold removed after the pass.
+- **Next:** Phase 6 (M4B Metadata Editor + series tags in M4B Maker) — builds directly on
+  `shared/metadata.py`.
+- **Blockers:** none. **Deferred:** live mid-operation cancel during a single long ffmpeg encode
+  (cancel lands at stage/file boundaries, not mid-subprocess) — manual pre-release pass, same posture
+  as the deferred TTS live cancel.
+
+### Debug Gate 5 — PASS (headless)
+- [x] Cancel button present and correctly state-managed in all four MP3 tools (headless: idle
+  `disabled`; enabled while busy; `cancel()` sets the event and disables itself; `_finish_idle()`
+  clears busy and leaves Cancel disabled).
+- [x] No hardcoded `~/Downloads` paths remain in tool code (grep: only doc-comment mentions left);
+  all folders route through `shared/settings.py` with a home-dir default.
+- [x] Last-used input/output folders persist per tool independently via distinct settings keys
+  (`<tool>.input_dir` / `.output_dir` / `.cover_dir`); written on success, read as dialog `initialdir`.
+- [x] `shared/metadata.py` exists; `m4b_maker.py` and `m4b_converter.py` import its ffmpeg tag
+  helpers; no duplicated field-mapping logic remains. `read_m4b_tags`/`write_m4b_tags` round-trip
+  verified, and ffprobe confirms the series atoms surface as `series` / `series-part`.
+- [x] `compileall` clean, both trees.
+- [x] Existing MP3-tool functionality preserved (same ffmpeg command construction, same output-folder
+  naming, same ID3/timestamp behaviour; the only changes are the worker-thread move, Cancel, and the
+  remembered folders).
+- [~] Live mid-encode cancel on real audio — deferred to the manual pre-release pass.
 
 ### 2026-05-29 — Session 5
 - **Phase:** Phase 4 — TTS Integration & Polish (complete).

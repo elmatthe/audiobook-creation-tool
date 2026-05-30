@@ -3,25 +3,30 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status:** Phase 4 (TTS integration & polish) **complete**. The TTS tool now has a **Cancel
-> button** (idle-disabled, active-enabled) wired into all four conversion paths via the new
-> cooperative-cancellation primitive `shared/cancellation.py`; cancel is honoured at natural
-> checkpoints (chapter / paragraph / chunk), cleans up temp dirs, and logs "Cancelled." A **critical
-> threading bug** found this phase is fixed: the TTS worker was reading Tk variables off the main
-> thread (`RuntimeError: main thread is not in main loop` during conversion) — all Tk reads are now
-> hoisted to the main thread in `run_job` and the worker talks to the GUI only through the log queue.
-> Verified by `compileall` (both trees) and a **headless GUI test** (real Tk, stubbed runner, no
-> network): idle→active→cancel→idle button states, engine/batch cancel checkpoints, clean "Cancelled."
-> log, no "main thread" error. Live mid-conversion cancel on real audio is deferred to the manual
-> pre-release pass (same posture as the deferred Debug Gate 2/3 live items). Phase 3's launcher stays
-> code-complete (sidebar + swappable panel; all tools `build_ui(parent)`; subprocess routed through
-> `shared/subprocess_utils`; `shared/settings.py` + `ffmpeg_utils.py`). **Phase 5 (MP3 tools polish —
-> route hardcoded `~/Downloads/...` outputs through settings/`paths.py`; reuse `shared/cancellation.py`
-> for an MP3-tools Cancel) is next.**
+> **Status:** Phase 5 (MP3 tools polish) **complete**. All four MP3 tools (M4B Converter, MP3 Tool,
+> M4B Maker, Cover Image Converter) now have a **Cancel button** (idle-disabled, active-enabled) that
+> sets a `threading.Event` checked at natural checkpoints (between files / tracks / at stage
+> boundaries) via `shared/cancellation.py`, cleans up partial output, and logs "Cancelled." To make
+> Cancel possible, **M4B Maker and MP3 Tool moved their conversions onto worker threads** (they were
+> synchronous on the main thread) using the Phase-4 pattern: read Tk vars on the main thread, hand
+> plain copies to the worker, talk back only through a queue drained by `pump_queue`. Every hardcoded
+> `~/Downloads/...` path is gone — input/output folders now route through `shared/settings.py`
+> (per-tool keys, **default = home**), persist on success, pre-fill dialogs, and the three
+> output-producing tools gained an "Output folder" picker. New **`shared/metadata.py`** is the
+> canonical M4B/MP4 tag module: mutagen `read_m4b_tags`/`write_m4b_tags` (+ the Audiobookshelf series
+> atoms) for edit-after, and `ffmpeg_metadata_args`/`ffmetadata_header_lines` (now used by both M4B
+> tools) for encode-time. Verified by `compileall` (both trees) and a headless test (real Tk + real
+> ffmpeg/ffprobe, 38/38): Cancel state machine for all four tools, a worker cancel checkpoint, and a
+> full tag round-trip where **ffprobe surfaces the freeform atoms as `series` / `series-part`**
+> (validates §6 live). Live mid-encode cancel (during a single long ffmpeg call) is deferred to the
+> manual pre-release pass, same posture as the TTS live cancel. Phase 4's TTS Cancel and Phase 3's
+> launcher (sidebar + swappable panel; all tools `build_ui(parent)`; `shared/subprocess_utils` +
+> `settings.py` + `ffmpeg_utils.py`) stand. **Phase 6 (M4B Metadata Editor + series tags in M4B
+> Maker, both built on `shared/metadata.py`) is next.**
 >
 > **Git:** local-only history. `master` = Phase 0+1 restructure baseline; branch `phase-2-bootstrap`
-> = Phase 2; branch `phase-3-launcher` = Phase 3; branch `phase-4-tts-polish` = Phase 4. No remote
-> yet — GitHub is handled at the very end.
+> = Phase 2; branch `phase-3-launcher` = Phase 3; branch `phase-4-tts-polish` = Phase 4; branch
+> `phase-5-mp3-polish` = Phase 5. No remote yet — GitHub is handled at the very end.
 
 ---
 
@@ -94,7 +99,7 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 | M4B Maker | `scripts/mp3_tools/m4b_maker.py` | MP3s → M4B with chapters, metadata, cover, **series tags** (new in Phase 6) |
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
 | M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **New in Phase 6** — edit existing M4B tags; preserves untouched fields |
-| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `logging_setup.py`, `bootstrap.py`. `metadata.py` arrives in Phase 5. |
+| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers), `logging_setup.py`, `bootstrap.py`. |
 
 ---
 
@@ -172,7 +177,7 @@ Two source repos, each with a Windows and a macOS variant (four trees total).
   `.vbs`/shortcut shim — deferred as not worth the added opacity for a curious user opening the `.bat`.
 - **`.venv` location:** inside `Windows/` and `MacOS/` (not at root — keeps root at exactly 5 items).
 - **Settings storage:** `resources/settings.json` via `shared/settings.py`.
-- **Output locations:** the legacy tools hardcode `~/Downloads/edited_mp3s-*`, `~/Downloads/M4B-Output-*`, `~/Downloads/m4b_converter_output-*`. Phase 5 should route these through `shared/paths.py` / settings (remembered output folder) instead of hardcoding `Path.home()/"Downloads"`.
+- **Output locations:** ~~the legacy tools hardcode `~/Downloads/edited_mp3s-*`, `~/Downloads/M4B-Output-*`, `~/Downloads/m4b_converter_output-*`.~~ **DONE (Phase 5):** routed through `shared/settings.py` — each tool remembers its input/output (and M4B Maker its cover) folder under per-tool keys, **defaulting to the user's home directory**, persisted on every successful run and pre-filled into the file dialogs; the three output-producing tools gained an "Output folder" picker. The sequential auto-named subfolders are unchanged but now created inside the remembered base.
 
 ---
 
@@ -297,7 +302,11 @@ cd Windows
 - ~~`epub2tts_edge.make_m4b` and all MP3 tools call ffmpeg via **raw `subprocess`** — must move to `shared/subprocess_utils`.~~ **DONE (Phase 3):** all tool subprocess calls routed through the hidden-console wrapper; audit shows zero direct `subprocess.*` in tool code. (Installer `bootstrap.py`/`setup_env.py` legitimately use raw subprocess and are out of scope.)
 - **Phase 2 deferred to a live test (Debug Gate 2):** the end-to-end fresh-machine install path (winget/brew Python 3.12 → `.venv` → pinned pip install incl. torch/Kokoro → ffmpeg → optional 300 MB model → GUI launch) is built and statically verified but has **not** been run live, because it installs system software and downloads GBs. Run it on a clean VM (or the target machine) before release. The portable-ffmpeg fallback download (BtbN build into `resources/bin/`) is likewise untested live.
 - **macOS bootstrap is untested** — built to mirror Windows but no Mac was available this session. The `.command` Terminal-auto-close (`osascript`) is best-effort.
-- Legacy tools **hardcode `~/Downloads/...` output folders** — route through settings/`paths.py` in Phase 5.
+- ~~Legacy tools **hardcode `~/Downloads/...` output folders** — route through settings/`paths.py` in Phase 5.~~
+  **DONE (Phase 5):** all four MP3 tools route input/output folders through `shared/settings.py`
+  (per-tool keys, default = home, persisted on success); a grep confirms no `~/Downloads` remains in
+  tool code. Phase 5 also gave the MP3 tools a **Cancel button** (reusing `shared/cancellation.py`)
+  and added `shared/metadata.py`; M4B Maker and MP3 Tool moved their conversions onto worker threads.
 - ~~TTS GUI has **no Cancel button** — add in Phase 4.2.~~ **DONE (Phase 4):** Cancel button added,
   wired into all four conversion paths via `shared/cancellation.py` (checkpoints between
   chapters/paragraphs/chunks; temp cleanup; "Cancelled." log).

@@ -4,13 +4,27 @@
 Refactored for the unified launcher: the UI is built by :func:`build_ui` into
 any parent frame, so it can live inside the launcher's content panel. Running
 this file directly still opens it in its own window via :func:`main`.
+
+Phase 5: Cancel button (cooperative, checked between images) and a remembered
+input folder via shared.settings (default = home). Resized images are written
+next to their source, so this tool has no separate output folder.
 """
 
+import queue
+import sys
 import threading
 from pathlib import Path
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
+# Make the scripts/ root importable so `shared.*` resolves whether this tool is
+# run standalone or imported by the launcher.
+_SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from shared import settings
 
 from PIL import Image  # needs: pip install pillow
 
@@ -25,8 +39,21 @@ except Exception:
 APP_TITLE = "Audiobook Cover Resizer v1.1"
 TARGET_SIZE = 1024  # default square size for covers
 
+# settings.json keys (Phase 5)
+KEY_INPUT_DIR = "cover_resizer.input_dir"
+
 
 # ---------- helpers ----------
+
+
+def _remembered_dir(key: str) -> Path:
+    """Return the saved folder for ``key`` if it still exists, else the home dir."""
+    val = settings.get(key)
+    if val:
+        p = Path(val)
+        if p.exists():
+            return p
+    return Path.home()
 
 
 def next_version_path(p: Path) -> Path:
@@ -100,6 +127,11 @@ class CoverResizerUI(ttk.Frame):
         super().__init__(parent)
 
         self.files: list[Path] = []
+
+        # Cancellation / worker plumbing (mirrors the TTS tool's pattern).
+        self._busy = threading.Event()
+        self._cancel_event = threading.Event()
+        self._log_q: queue.Queue = queue.Queue()
 
         # Top buttons
         top = ttk.Frame(self)
@@ -185,12 +217,20 @@ class CoverResizerUI(ttk.Frame):
 
         self.btn_convert = ttk.Button(action, text="Resize Covers", command=self.start_resize)
         self.btn_convert.pack(side=tk.LEFT)
+        self.btn_cancel = ttk.Button(
+            action, text="Cancel", command=self.cancel, state=tk.DISABLED
+        )
+        self.btn_cancel.pack(side=tk.LEFT, padx=8)
+
+        # Start draining the worker->GUI queue on the main thread.
+        self.after(150, self._pump_queue)
 
     # ------- UI callbacks -------
 
     def add_files(self):
         files = filedialog.askopenfilenames(
             title="Select cover images",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
             filetypes=[
                 ("Images", "*.jpg *.jpeg *.png *.heic *.heif"),
                 ("All files", "*.*"),
@@ -204,6 +244,7 @@ class CoverResizerUI(ttk.Frame):
             self.files.append(p)
             self.listbox.insert(tk.END, str(p))
 
+        settings.set(KEY_INPUT_DIR, str(Path(files[0]).parent))
         self.update_count()
 
     def remove_selected(self):
@@ -223,6 +264,8 @@ class CoverResizerUI(ttk.Frame):
         self.count_var.set(f"{len(self.files)} file(s)")
 
     def start_resize(self):
+        if self._busy.is_set():
+            return
         if not self.files:
             messagebox.showwarning("No files", "Please import images first.")
             return
@@ -237,13 +280,28 @@ class CoverResizerUI(ttk.Frame):
             messagebox.showerror("Bad size", "Target size must be positive.")
             return
 
+        params = {
+            "size": size,
+            "letterbox": self.var_letterbox.get(),
+            "overwrite": self.var_overwrite.get(),
+            "files": list(self.files),
+        }
+
+        self._busy.set()
+        self._cancel_event.clear()
+        self.progress.configure(maximum=len(params["files"]), value=0)
         self.disable_inputs(True)
-        t = threading.Thread(
-            target=self.resize_worker,
-            args=(size, self.var_letterbox.get(), self.var_overwrite.get()),
-            daemon=True,
-        )
+        self.btn_cancel.configure(state=tk.NORMAL)
+
+        t = threading.Thread(target=self.resize_worker, args=(params,), daemon=True)
         t.start()
+
+    def cancel(self):
+        if not self._busy.is_set() or self._cancel_event.is_set():
+            return
+        self._cancel_event.set()
+        self.btn_cancel.configure(state=tk.DISABLED)
+        self._log_q.put(("log", "Cancelling… will stop after the current image.\n"))
 
     def disable_inputs(self, state: bool):
         widgets = [
@@ -261,15 +319,45 @@ class CoverResizerUI(ttk.Frame):
     def log_write(self, text: str):
         self.log.insert(tk.END, text)
         self.log.see(tk.END)
-        self.update_idletasks()
 
-    # ------- worker -------
+    # ------- worker -> GUI queue pump (main thread) -------
 
-    def resize_worker(self, size: int, letterbox: bool, overwrite: bool):
-        total = len(self.files)
-        self.progress.configure(maximum=total, value=0)
+    def _pump_queue(self):
+        try:
+            while True:
+                kind, payload = self._log_q.get_nowait()
+                if kind == "log":
+                    self.log_write(payload)
+                elif kind == "progress":
+                    self.progress.configure(value=payload)
+                elif kind == "done":
+                    self.log_write(payload)
+                    self._finish_idle()
+        except queue.Empty:
+            pass
+        self.after(150, self._pump_queue)
 
-        for idx, in_file in enumerate(self.files, start=1):
+    def _finish_idle(self):
+        self._busy.clear()
+        self._cancel_event.clear()
+        self.disable_inputs(False)
+        self.btn_cancel.configure(state=tk.DISABLED)
+
+    # ------- worker (thread) -------
+
+    def resize_worker(self, params: dict):
+        files = params["files"]
+        size = params["size"]
+        letterbox = params["letterbox"]
+        overwrite = params["overwrite"]
+        total = len(files)
+        cancelled = False
+
+        for idx, in_file in enumerate(files, start=1):
+            if self._cancel_event.is_set():
+                cancelled = True
+                break
+            temp_out = None
             try:
                 if overwrite:
                     temp_out = next_version_path(in_file)  # make a temp with -1
@@ -278,24 +366,31 @@ class CoverResizerUI(ttk.Frame):
                     temp_out = next_version_path(in_file)
                     final_out = temp_out
 
-                self.log_write(f"\n[{idx}/{total}] Resizing:\n {in_file}\n -> {final_out}\n")
+                self._log_q.put(("log", f"\n[{idx}/{total}] Resizing:\n {in_file}\n -> {final_out}\n"))
 
                 resize_for_audiobook(in_file, temp_out, size=size, letterbox=letterbox)
 
                 if overwrite and temp_out != final_out:
                     temp_out.replace(final_out)
 
-                self.log_write(" ✓ Done\n")
+                self._log_q.put(("log", " ✓ Done\n"))
 
             except Exception as e:
-                self.log_write(f" ✗ Error: {e}\n")
+                # Clean up a partial temp file from a failed resize.
+                if temp_out is not None and overwrite:
+                    try:
+                        temp_out.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                self._log_q.put(("log", f" ✗ Error: {e}\n"))
 
             finally:
-                self.progress.configure(value=idx)
-                self.update_idletasks()
+                self._log_q.put(("progress", idx))
 
-        self.log_write("\nAll done.\n")
-        self.disable_inputs(False)
+        if cancelled:
+            self._log_q.put(("done", "\nCancelled.\n"))
+        else:
+            self._log_q.put(("done", "\nAll done.\n"))
 
 
 def build_ui(parent: tk.Misc) -> CoverResizerUI:

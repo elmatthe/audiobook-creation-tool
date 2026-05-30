@@ -12,7 +12,12 @@ no console window flashes on Windows.
 - Optional silence between tracks (safe WAV mode)
 - Fast concat with auto-fallback to safe path
 - Cover picker with preview (Pillow, optional)
-- Output -> ~/Downloads/M4B-Output-*
+- Output -> a remembered folder (settings; default = home), in M4B-Output-*
+
+Phase 5: the build now runs on a worker thread with a Cancel button (cooperative
+cancellation at stage boundaries, partial output removed), input/output/cover
+folders are remembered via shared.settings, and the ffmetadata header is built
+by shared.metadata so the field set matches the other M4B tool.
 """
 
 import re
@@ -20,6 +25,8 @@ import shutil
 import sys
 import wave
 import json
+import queue
+import threading
 import contextlib
 import traceback
 from pathlib import Path
@@ -35,7 +42,10 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils
+from shared import metadata
+from shared import settings
 from shared import subprocess_utils as sp
+from shared.cancellation import ConversionCancelled, raise_if_cancelled
 
 # Optional dependency for cover preview
 try:
@@ -52,8 +62,23 @@ PREVIEW_MAX = (260, 260)
 
 APP_TITLE = "M4B Maker v5.0 (Fast-first + Auto-fallback)"
 
+# settings.json keys (Phase 5)
+KEY_INPUT_DIR = "m4b_maker.input_dir"
+KEY_OUTPUT_DIR = "m4b_maker.output_dir"
+KEY_COVER_DIR = "m4b_maker.cover_dir"
+
 
 # -------- helpers --------
+def _remembered_dir(key: str) -> Path:
+    """Return the saved folder for ``key`` if it still exists, else the home dir."""
+    val = settings.get(key)
+    if val:
+        p = Path(val)
+        if p.exists():
+            return p
+    return Path.home()
+
+
 def natural_key(s):
     import re as _re
 
@@ -107,9 +132,7 @@ def ffprobe_duration_ms(p: Path) -> int:
     return max(int(round(float(dur) * 1000)), 0)
 
 
-def next_output_dir(base: Path | None = None) -> Path:
-    if base is None:
-        base = Path.home() / "Downloads"
+def next_output_dir(base: Path) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     n = 1
     while True:
@@ -127,14 +150,14 @@ def compute_titles(files):
 def build_ffmetadata_from_starts(titles, starts_ms, meta, total_ms):
     """Create ffmetadata with proper chapter ends (last chapter ends at total_ms-1)."""
     lines = [";FFMETADATA1"]
-    if meta.get("title"):
-        lines.append(f"title={meta['title']}")
-    if meta.get("artist"):
-        lines.append(f"artist={meta['artist']}")
-    if meta.get("album_artist"):
-        lines.append(f"album_artist={meta['album_artist']}")
-    if meta.get("album"):
-        lines.append(f"album={meta['album']}")
+    lines += metadata.ffmetadata_header_lines(
+        {
+            "title": meta.get("title"),
+            "artist": meta.get("artist"),
+            "album_artist": meta.get("album_artist"),
+            "album": meta.get("album"),
+        }
+    )
 
     n = len(titles)
     for i in range(n):
@@ -160,11 +183,12 @@ def write_concat_list(paths, dest: Path):
 
 
 # ----- SAFE path helpers -----
-def normalize_to_wav(inputs, tmp_dir: Path):
+def normalize_to_wav(inputs, tmp_dir: Path, cancel_check=None):
     wav_dir = tmp_dir / "wav"
     wav_dir.mkdir(parents=True, exist_ok=True)
     wavs = []
     for i, src in enumerate(inputs, 1):
+        raise_if_cancelled(cancel_check)
         dst = wav_dir / f"{i:04d}.wav"
         cmd = [
             ffmpeg_utils.ffmpeg_cmd(),
@@ -348,6 +372,11 @@ class M4BMakerUI(ttk.Frame):
         self.cover_path: Path | None = None
         self.cover_thumb = None
 
+        # Cancellation / worker plumbing (mirrors the TTS tool's pattern).
+        self._busy = threading.Event()
+        self._cancel_event = threading.Event()
+        self._log_q: queue.Queue = queue.Queue()
+
         self.silence_seconds = tk.StringVar(value="0")
         self.fast_first = tk.BooleanVar(value=True)
 
@@ -356,10 +385,14 @@ class M4BMakerUI(ttk.Frame):
         self.var_album_artist = tk.StringVar()
         self.var_album = tk.StringVar()
         self.var_cover_path = tk.StringVar()
+        self.var_outdir = tk.StringVar(value=str(_remembered_dir(KEY_OUTPUT_DIR)))
 
         self.status = tk.StringVar(value="Added 0 files. Total: 0")
 
         self._build_ui()
+
+        # Start draining the worker->GUI queue on the main thread.
+        self.after(150, self._pump_queue)
 
     # ----- UI -----
     def _build_ui(self):
@@ -367,13 +400,12 @@ class M4BMakerUI(ttk.Frame):
         top = ttk.Frame(self)
         top.pack(fill="x", padx=12, pady=8)
 
-        ttk.Button(top, text="Import MP3 Files", command=self.add_files).pack(side="left")
-        ttk.Button(top, text="Remove Selected", command=self.remove_selected).pack(
-            side="left", padx=(8, 0)
-        )
-        ttk.Button(top, text="Clear List", command=self.clear_all).pack(
-            side="left", padx=(8, 0)
-        )
+        self.btn_import = ttk.Button(top, text="Import MP3 Files", command=self.add_files)
+        self.btn_import.pack(side="left")
+        self.btn_remove = ttk.Button(top, text="Remove Selected", command=self.remove_selected)
+        self.btn_remove.pack(side="left", padx=(8, 0))
+        self.btn_clear = ttk.Button(top, text="Clear List", command=self.clear_all)
+        self.btn_clear.pack(side="left", padx=(8, 0))
 
         # File list + log (same window)
         center = ttk.Frame(self)
@@ -406,22 +438,36 @@ class M4BMakerUI(ttk.Frame):
         sb_log.grid(row=0, column=1, sticky="ns")
         self.log_text.config(yscrollcommand=sb_log.set)
 
+        # Output folder row
+        outrow = ttk.Frame(self)
+        outrow.pack(fill="x", padx=12, pady=(0, 4))
+        ttk.Label(outrow, text="Output folder:").pack(side="left")
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
+        self.entry_outdir.pack(side="left", fill="x", expand=True, padx=(6, 6))
+        self.btn_browse_out = ttk.Button(outrow, text="Browse…", command=self.choose_outdir)
+        self.btn_browse_out.pack(side="left")
+
         # Controls row
         ctrls = ttk.Frame(self)
         ctrls.pack(fill="x", padx=12, pady=(0, 6))
 
         ttk.Label(ctrls, text="Silence between tracks (seconds, 0 = none):").pack(side="left")
-        ttk.Entry(ctrls, width=8, textvariable=self.silence_seconds).pack(
-            side="left", padx=(6, 14)
-        )
+        self.entry_silence = ttk.Entry(ctrls, width=8, textvariable=self.silence_seconds)
+        self.entry_silence.pack(side="left", padx=(6, 14))
 
-        ttk.Checkbutton(
+        self.chk_fast = ttk.Checkbutton(
             ctrls,
             text="Always try FAST mode first (auto-fallback on failure)",
             variable=self.fast_first,
-        ).pack(side="left", padx=6)
+        )
+        self.chk_fast.pack(side="left", padx=6)
 
-        ttk.Button(ctrls, text="Combine files → M4B", command=self.build).pack(side="right")
+        self.btn_cancel = ttk.Button(
+            ctrls, text="Cancel", command=self.cancel, state=tk.DISABLED
+        )
+        self.btn_cancel.pack(side="right", padx=(8, 0))
+        self.btn_build = ttk.Button(ctrls, text="Combine files → M4B", command=self.build)
+        self.btn_build.pack(side="right")
 
         # Metadata & cover
         meta = ttk.LabelFrame(self, text="M4B Metadata & Chapters")
@@ -490,7 +536,9 @@ class M4BMakerUI(ttk.Frame):
     # ----- file actions -----
     def add_files(self):
         paths = filedialog.askopenfilenames(
-            title="Select MP3 files", filetypes=[("MP3 audio", "*.mp3")]
+            title="Select MP3 files",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
+            filetypes=[("MP3 audio", "*.mp3")],
         )
         if not paths:
             return
@@ -501,6 +549,7 @@ class M4BMakerUI(ttk.Frame):
                 self.files.append(p)
                 self.listbox.insert("end", p.name)
                 added += 1
+        settings.set(KEY_INPUT_DIR, str(Path(paths[0]).parent))
         self.status.set(f"Added {added} files. Total: {len(self.files)}")
 
     def remove_selected(self):
@@ -523,16 +572,29 @@ class M4BMakerUI(ttk.Frame):
         self.log_text.insert(tk.END, msg + "\n")
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
-        self.update_idletasks()
+
+    # ----- output folder -----
+    def choose_outdir(self):
+        d = filedialog.askdirectory(
+            title="Choose output folder", initialdir=self.var_outdir.get() or str(Path.home())
+        )
+        if d:
+            self.var_outdir.set(d)
+
+    def output_base(self) -> Path:
+        base = self.var_outdir.get().strip()
+        return Path(base) if base else Path.home()
 
     # ----- cover -----
     def choose_cover(self):
         p = filedialog.askopenfilename(
             title="Select Cover Image (JPG/PNG)",
+            initialdir=str(_remembered_dir(KEY_COVER_DIR)),
             filetypes=[("Image", "*.jpg *.jpeg *.png")],
         )
         if not p:
             return
+        settings.set(KEY_COVER_DIR, str(Path(p).parent))
         self.var_cover_path.set(p)
 
     def clear_cover(self):
@@ -561,13 +623,115 @@ class M4BMakerUI(ttk.Frame):
             self.preview_label.config(image="", text=f"(preview error: {e})")
             self.cover_thumb = None
 
+    # ----- cancel + queue pump -----
+    def cancel(self):
+        if not self._busy.is_set() or self._cancel_event.is_set():
+            return
+        self._cancel_event.set()
+        self.btn_cancel.configure(state=tk.DISABLED)
+        self._log_q.put(("log", "Cancelling… will stop at the next stage."))
+
+    def disable_inputs(self, state: bool):
+        widgets = [
+            self.btn_import,
+            self.btn_remove,
+            self.btn_clear,
+            self.btn_build,
+            self.entry_silence,
+            self.chk_fast,
+            self.entry_outdir,
+            self.btn_browse_out,
+        ]
+        for w in widgets:
+            w.configure(state=tk.DISABLED if state else tk.NORMAL)
+
+    def _pump_queue(self):
+        try:
+            while True:
+                kind, payload = self._log_q.get_nowait()
+                if kind == "log":
+                    self.log(payload)
+                elif kind == "status":
+                    self.status.set(payload)
+                elif kind == "progress":
+                    self.progress["value"] = payload
+                elif kind == "progress_max":
+                    self.progress["maximum"] = payload
+                elif kind == "done":
+                    self._finish_idle()
+                    out_path, out_dir = payload
+                    self.status.set(f"Done → {out_path}")
+                    self.log(f"Created: {out_path}")
+                    messagebox.showinfo("Success", f"Created:\n{out_path}")
+                    sp.reveal_in_file_manager(out_dir)
+                elif kind == "cancelled":
+                    self._finish_idle()
+                    self.status.set("Cancelled.")
+                    self.log("Cancelled.")
+                elif kind == "err":
+                    self._finish_idle()
+                    title, msg = payload
+                    self.status.set(title)
+                    self.log(f"{title}: {msg}")
+                    messagebox.showerror(title, msg)
+        except queue.Empty:
+            pass
+        self.after(150, self._pump_queue)
+
+    def _finish_idle(self):
+        self._busy.clear()
+        self._cancel_event.clear()
+        self.disable_inputs(False)
+        self.btn_cancel.configure(state=tk.DISABLED)
+
     # ----- build -----
     def build(self):
+        if self._busy.is_set():
+            return
         if not self.files:
             messagebox.showerror("No files", "Please import MP3 files first.")
             return
 
-        out_dir = next_output_dir(Path.home() / "Downloads")
+        # Read every Tk var here on the main thread; the worker uses copies only.
+        pasted = [
+            s.strip() for s in self.chapters_txt.get("1.0", "end").splitlines() if s.strip()
+        ]
+        try:
+            silence_val = float(self.silence_seconds.get().strip() or "0")
+        except ValueError:
+            silence_val = 0.0
+
+        params = {
+            "files": list(self.files),
+            "pasted_titles": pasted,
+            "silence_val": silence_val,
+            "fast_first": self.fast_first.get(),
+            "title": self.var_title.get().strip(),
+            "artist": self.var_artist.get().strip(),
+            "album_artist": self.var_album_artist.get().strip(),
+            "album": self.var_album.get().strip(),
+            "cover_path": self.cover_path if (self.cover_path and self.cover_path.exists()) else None,
+        }
+
+        base = self.output_base()
+        out_dir = next_output_dir(base)
+        settings.set(KEY_OUTPUT_DIR, str(base))
+
+        self._busy.set()
+        self._cancel_event.clear()
+        self.progress["maximum"] = len(params["files"])
+        self.progress["value"] = 0
+        self.disable_inputs(True)
+        self.btn_cancel.configure(state=tk.NORMAL)
+
+        t = threading.Thread(
+            target=self._build_worker, args=(params, out_dir), daemon=True
+        )
+        t.start()
+
+    def _build_worker(self, params: dict, out_dir: Path):
+        cancel_check = self._cancel_event.is_set
+        files = params["files"]
         tmp = out_dir / "build"
         tmp.mkdir(exist_ok=True)
 
@@ -579,25 +743,21 @@ class M4BMakerUI(ttk.Frame):
 
         try:
             # Titles
-            pasted = [s.strip() for s in self.chapters_txt.get("1.0", "end").splitlines() if s.strip()]
-            auto = [normalize_title(Path(p).stem) for p in self.files]
-            titles = pasted if pasted else auto
-            if len(titles) < len(self.files):
-                titles += auto[len(titles) :]
-            if len(titles) > len(self.files):
-                titles = titles[: len(self.files)]
+            auto = [normalize_title(Path(p).stem) for p in files]
+            titles = params["pasted_titles"] if params["pasted_titles"] else auto
+            if len(titles) < len(files):
+                titles += auto[len(titles):]
+            if len(titles) > len(files):
+                titles = titles[: len(files)]
 
-            # Silence
-            try:
-                silence_val = float(self.silence_seconds.get().strip() or "0")
-            except ValueError:
-                silence_val = 0.0
-            silence_ms = int(round(silence_val * 1000))
+            silence_ms = int(round(params["silence_val"] * 1000))
+
+            raise_if_cancelled(cancel_check)
 
             if silence_ms > 0:
-                self.log("Normalizing to WAV and inserting silence…")
-                wavs = normalize_to_wav(self.files, tmp)
-                gap = create_silence_wav(silence_val, tmp)
+                self._log_q.put(("log", "Normalizing to WAV and inserting silence…"))
+                wavs = normalize_to_wav(files, tmp, cancel_check=cancel_check)
+                gap = create_silence_wav(params["silence_val"], tmp)
                 seq = []
                 for i, w in enumerate(wavs):
                     seq.append(w)
@@ -607,22 +767,24 @@ class M4BMakerUI(ttk.Frame):
                 audio_for_build = seq
                 use_safe = True
             else:
-                self.log("Using FAST path timings (no silence)…")
-                audio_for_build = self.files
-                starts_ms, total_ms = compute_starts_total_fast(self.files)
+                self._log_q.put(("log", "Using FAST path timings (no silence)…"))
+                audio_for_build = files
+                starts_ms, total_ms = compute_starts_total_fast(files)
                 use_safe = False
 
+            raise_if_cancelled(cancel_check)
+
             # Output name
-            base_name = self.var_title.get().strip() or self.var_album.get().strip() or "audiobook"
+            base_name = params["title"] or params["album"] or "audiobook"
             base_name = re.sub(r'[\\/:*?"<>|]+', "_", base_name) or "audiobook"
             out_path = out_dir / f"{base_name}.m4b"
 
             # Metadata
             meta = {
                 "title": base_name,
-                "artist": self.var_artist.get().strip(),
-                "album_artist": self.var_album_artist.get().strip(),
-                "album": self.var_album.get().strip(),
+                "artist": params["artist"],
+                "album_artist": params["album_artist"],
+                "album": params["album"],
             }
 
             ffmeta = tmp / "chapters.ffmeta.txt"
@@ -635,27 +797,23 @@ class M4BMakerUI(ttk.Frame):
             listfile = tmp / "inputs.txt"
             write_concat_list(audio_for_build, listfile)
 
-            cover_path = self.cover_path if (self.cover_path and self.cover_path.exists()) else None
+            cover_path = params["cover_path"]
 
-            # Progress
-            total_files = len(self.files)
-            self.progress["maximum"] = total_files
-            self.progress["value"] = 0
-
-            self.status.set("Encoding…")
-            self.update_idletasks()
+            self._log_q.put(("status", "Encoding…"))
+            raise_if_cancelled(cancel_check)
 
             try:
-                if not use_safe and self.fast_first.get():
-                    self.log("Trying FAST concat mode…")
+                if not use_safe and params["fast_first"]:
+                    self._log_q.put(("log", "Trying FAST concat mode…"))
                     run_fast_concat(listfile, ffmeta, cover_path, out_path, "128k")
                 else:
-                    self.log("Using SAFE concat mode…")
+                    self._log_q.put(("log", "Using SAFE concat mode…"))
                     run_safe_concat(listfile, ffmeta, cover_path, out_path, "128k")
             except CalledProcessError:
+                raise_if_cancelled(cancel_check)
                 if not use_safe:
-                    self.log("Fast path failed — retrying in Safe Mode…")
-                    wavs = normalize_to_wav(self.files, tmp)
+                    self._log_q.put(("log", "Fast path failed — retrying in Safe Mode…"))
+                    wavs = normalize_to_wav(files, tmp, cancel_check=cancel_check)
                     write_concat_list(wavs, listfile)
                     starts_ms, total_ms = compute_audio_starts_with_silence(wavs, 0)
                     ffmeta.write_text(
@@ -667,33 +825,27 @@ class M4BMakerUI(ttk.Frame):
                     raise
 
             shutil.rmtree(tmp, ignore_errors=True)
-            self.progress["value"] = total_files
-            self.status.set(f"Done → {out_path}")
-            self.log(f"Created: {out_path}")
-            messagebox.showinfo("Success", f"Created:\n{out_path}")
+            self._log_q.put(("progress", len(files)))
+            self._log_q.put(("done", (out_path, out_dir)))
 
-            # open output folder
-            sp.reveal_in_file_manager(out_dir)
-
+        except ConversionCancelled:
+            # Remove the whole output folder created for this (now-abandoned) build.
+            shutil.rmtree(out_dir, ignore_errors=True)
+            self._log_q.put(("cancelled", None))
         except CalledProcessError as e:
-            self.status.set("ffmpeg error")
             try:
                 stderr = getattr(e, "stderr", None)
                 msg = stderr.decode("utf-8") if stderr else str(e)
             except Exception:
                 msg = str(e)
             write_error(f"ffmpeg error:\n\n{msg}")
-            self.log(f"ffmpeg error: {msg}")
-            messagebox.showerror("ffmpeg error", msg)
+            self._log_q.put(("err", ("ffmpeg error", msg)))
         except FileNotFoundError as e:
             write_error(f"Missing file(s): {e}")
-            self.log(f"Missing file(s): {e}")
-            messagebox.showerror("Missing file(s)", str(e))
+            self._log_q.put(("err", ("Missing file(s)", str(e))))
         except Exception as e:
-            self.status.set("Error")
             write_error(f"Unhandled error:\n\n{traceback.format_exc()}")
-            self.log(f"Unhandled error: {e}")
-            messagebox.showerror("Error", str(e))
+            self._log_q.put(("err", ("Error", str(e))))
 
 
 def build_ui(parent: tk.Misc) -> M4BMakerUI:
@@ -706,8 +858,8 @@ def build_ui(parent: tk.Misc) -> M4BMakerUI:
 def main():
     root = tk.Tk()
     root.title(APP_TITLE)
-    root.geometry("980x740")
-    root.minsize(860, 640)
+    root.geometry("980x780")
+    root.minsize(860, 660)
     build_ui(root)
     root.mainloop()
 
