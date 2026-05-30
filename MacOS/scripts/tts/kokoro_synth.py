@@ -126,6 +126,7 @@ def kokoro_file_to_mp3(
     end_silence_ms: int = 3000,
     chunk_pause_ms: int = 50,
     log: Callable[[str], None] = print,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> None:
     """Read plain text from file → Kokoro TTS → single MP3."""
     src = Path(source_path)
@@ -163,6 +164,10 @@ def kokoro_file_to_mp3(
     segment_paths: list[str] = []
     with tempfile.TemporaryDirectory(prefix="epub2tts_kokoro_") as tmpdir:
         for idx, chunk in enumerate(chunks, start=1):
+            if cancel_check is not None and cancel_check():  # between chunks
+                from shared.cancellation import ConversionCancelled
+
+                raise ConversionCancelled("Conversion cancelled by user.")
             log(f"  Kokoro chunk {idx}/{len(chunks)}...")
             chunk_wav = str(Path(tmpdir) / f"chunk_{idx:04d}.wav")
             chunk_mp3 = str(Path(tmpdir) / f"chunk_{idx:04d}.mp3")

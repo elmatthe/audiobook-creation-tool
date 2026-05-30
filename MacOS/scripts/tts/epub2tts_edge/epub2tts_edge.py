@@ -384,12 +384,23 @@ def read_book(
     trim_tts_padding=True,
     trim_silence_db=DEFAULT_TRIM_SILENCE_DB,
     trim_chunk_ms=DEFAULT_TRIM_CHUNK_MS,
+    cancel_check=None,
 ):
     segments = []
     # Do not read these into the audio file:
     title_names_to_skip_reading = ['Title', 'blank']
 
+    def _checkpoint():
+        # Cooperative cancellation: only does work (and lazy-imports the exception)
+        # when the user has actually requested cancel, so it is free in the hot loop.
+        if cancel_check is None or not cancel_check():
+            return
+        _ensure_shared_on_path()
+        from shared.cancellation import ConversionCancelled
+        raise ConversionCancelled("Conversion cancelled by user.")
+
     for i, chapter in enumerate(book_contents, start=1):
+        _checkpoint()  # between chapters
         files = []
         partname = f"part{i}.flac"
         print(f"\n\n")
@@ -415,6 +426,7 @@ def read_book(
             for pindex, paragraph in enumerate(
                 tqdm(chapter["paragraphs"], desc=f"Generating audio files: ",unit='pg')
             ):
+                _checkpoint()  # between paragraphs
                 ptemp = f"pgraphs{pindex}.flac"
                 if os.path.isfile(ptemp):
                     print(f"{ptemp} exists, skipping to next paragraph")
@@ -424,6 +436,7 @@ def read_book(
                     sentence_paths: list[str] = []
                     sent_counter = 1
                     for _si, sentence in enumerate(sentences):
+                        _checkpoint()  # between sentence chunks (each is a network round-trip)
                         sentence = re.sub(r"[!]+", "!", sentence)
                         sentence = re.sub(r"[?]+", "?", sentence)
                         subs = intra_sentence_chunks(sentence)

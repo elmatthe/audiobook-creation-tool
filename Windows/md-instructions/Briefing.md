@@ -3,19 +3,25 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status:** Phase 3 (unified launcher GUI) **code-complete**. `scripts/launcher.py` is built
-> (sidebar + swappable content panel + status bar); all 5 tools expose `build_ui(parent)` and load
-> into the panel; every tool subprocess call is routed through `shared/subprocess_utils` (console
-> hidden on Windows); `shared/settings.py` and `shared/ffmpeg_utils.py` added; launcher window
-> geometry + last-tool persist. Verified statically and via a **headless GUI smoke test** (all 5
-> tools BUILT into the panel, settings round-trip, zero direct subprocess calls, bootstrap self-test
-> resolves `launcher.py`). The **live Debug Gate 3** items — running a real conversion from the
-> launcher and visually confirming no console flash under `pythonw` — are deferred to a manual
-> pre-release pass (same posture as the deferred Debug Gate 2 live install). **Phase 4 (TTS
-> integration & polish, incl. the Cancel button) is next.**
+> **Status:** Phase 4 (TTS integration & polish) **complete**. The TTS tool now has a **Cancel
+> button** (idle-disabled, active-enabled) wired into all four conversion paths via the new
+> cooperative-cancellation primitive `shared/cancellation.py`; cancel is honoured at natural
+> checkpoints (chapter / paragraph / chunk), cleans up temp dirs, and logs "Cancelled." A **critical
+> threading bug** found this phase is fixed: the TTS worker was reading Tk variables off the main
+> thread (`RuntimeError: main thread is not in main loop` during conversion) — all Tk reads are now
+> hoisted to the main thread in `run_job` and the worker talks to the GUI only through the log queue.
+> Verified by `compileall` (both trees) and a **headless GUI test** (real Tk, stubbed runner, no
+> network): idle→active→cancel→idle button states, engine/batch cancel checkpoints, clean "Cancelled."
+> log, no "main thread" error. Live mid-conversion cancel on real audio is deferred to the manual
+> pre-release pass (same posture as the deferred Debug Gate 2/3 live items). Phase 3's launcher stays
+> code-complete (sidebar + swappable panel; all tools `build_ui(parent)`; subprocess routed through
+> `shared/subprocess_utils`; `shared/settings.py` + `ffmpeg_utils.py`). **Phase 5 (MP3 tools polish —
+> route hardcoded `~/Downloads/...` outputs through settings/`paths.py`; reuse `shared/cancellation.py`
+> for an MP3-tools Cancel) is next.**
 >
 > **Git:** local-only history. `master` = Phase 0+1 restructure baseline; branch `phase-2-bootstrap`
-> = Phase 2; branch `phase-3-launcher` = Phase 3. No remote yet — GitHub is handled at the very end.
+> = Phase 2; branch `phase-3-launcher` = Phase 3; branch `phase-4-tts-polish` = Phase 4. No remote
+> yet — GitHub is handled at the very end.
 
 ---
 
@@ -292,7 +298,12 @@ cd Windows
 - **Phase 2 deferred to a live test (Debug Gate 2):** the end-to-end fresh-machine install path (winget/brew Python 3.12 → `.venv` → pinned pip install incl. torch/Kokoro → ffmpeg → optional 300 MB model → GUI launch) is built and statically verified but has **not** been run live, because it installs system software and downloads GBs. Run it on a clean VM (or the target machine) before release. The portable-ffmpeg fallback download (BtbN build into `resources/bin/`) is likewise untested live.
 - **macOS bootstrap is untested** — built to mirror Windows but no Mac was available this session. The `.command` Terminal-auto-close (`osascript`) is best-effort.
 - Legacy tools **hardcode `~/Downloads/...` output folders** — route through settings/`paths.py` in Phase 5.
-- TTS GUI has **no Cancel button** — add in Phase 4.2.
+- ~~TTS GUI has **no Cancel button** — add in Phase 4.2.~~ **DONE (Phase 4):** Cancel button added,
+  wired into all four conversion paths via `shared/cancellation.py` (checkpoints between
+  chapters/paragraphs/chunks; temp cleanup; "Cancelled." log).
+- ~~TTS worker thread read Tk variables off-thread~~ **FIXED (Phase 4):** caused
+  `RuntimeError: main thread is not in main loop` during conversion; all Tk reads moved to the main
+  thread in `run_job`, worker uses plain copies + the log queue only.
 - `check_for_file()` and `setup_env.uninstall()` use blocking `input()` — fine for CLI, must not be reachable from GUI.
 - PDF extraction heuristics may over/under-merge on footnotes / multi-column — test in Phase 7.2.
 
