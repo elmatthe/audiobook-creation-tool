@@ -24,6 +24,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 from ebooklib import epub as epub_mod
 
 from shared import ffmpeg_utils
+from shared import paths
 from shared.cancellation import ConversionCancelled
 from tts.batch_convert import run_batch_convert
 from tts.epub2tts_edge.epub2tts_edge import (
@@ -71,7 +72,10 @@ def build_ui(parent: tk.Misc) -> None:
 
     mode_var = tk.StringVar(value="single")
     input_var = tk.StringVar()
-    output_var = tk.StringVar()
+    # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build time.
+    # Browse redirects it for this run only (never persisted); the folder is
+    # created when a conversion starts.
+    output_var = tk.StringVar(value=str(paths.next_output_dir(paths.TOOL_SLUGS["tts"])))
     bitrate_var = tk.StringVar(value="192k")
     voice_var = tk.StringVar(value=DEFAULT_SPEAKER)
     epub_convert_var = tk.BooleanVar(value=True)
@@ -379,6 +383,13 @@ def build_ui(parent: tk.Misc) -> None:
         outd = output_var.get().strip()
         if not inp or not outd:
             messagebox.showwarning("Missing paths", "Choose input and output folder.")
+            return
+        # Lazy-create the output folder when a run starts (so merely opening the
+        # tool never litters Downloads with empty folders).
+        try:
+            Path(outd).mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            messagebox.showerror("Output folder", f"Could not create output folder:\n{outd}\n\n{e}")
             return
 
         current_voice_entry = get_voice(selected_voice_label.get())

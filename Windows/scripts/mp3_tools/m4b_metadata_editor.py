@@ -9,12 +9,17 @@ Year, Comment, Genre, cover image, and Audiobookshelf Series Name / Series Part)
 Reading and writing go through shared.metadata (mutagen), which only touches the
 keys you pass, so every other tag in each file is preserved.
 
+Non-destructive (v0.1.1): the imported originals are **never modified**. Each
+selected file is first copied into the output folder (a fresh
+``Downloads/M4B-Metadata-N`` by default, redirectable via Browse for the current
+run), and all tag writes run against the **copy**.
+
 Behaviour:
 - **Single file:** the form is pre-filled from the file's existing tags. Editing
-  a field and saving writes that field back.
+  a field and saving writes that field back (to the copy).
 - **Multiple files (batch mode):** the form starts blank with a batch notice.
-  Fields left **blank are not written** (each file keeps its existing tag); any
-  field with a value **overwrites** that tag in every selected file.
+  Fields left **blank are not written** (each copy keeps the original's tag); any
+  field with a value **overwrites** that tag in every copy.
 
 Series Name / Series Part are written as the freeform atoms
 ``----:com.apple.iTunes:SERIES`` / ``SERIES-PART`` (Briefing §6), which
@@ -26,6 +31,7 @@ via shared.cancellation; a standalone main() is kept for debugging.
 """
 
 import queue
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -40,12 +46,19 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import metadata
+from shared import paths
 from shared import settings
+from shared import subprocess_utils as sp
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
 
 APP_TITLE = "M4B Metadata Editor"
 
-# settings.json keys
+# Auto-named output folder slug (v0.1.1): tags are written to COPIES delivered
+# into Downloads/<SLUG>-N, never to the imported originals.
+SLUG = paths.TOOL_SLUGS["m4b_metadata"]
+
+# settings.json keys (input/cover dirs only remember the dialog's last location;
+# the output folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
 KEY_INPUT_DIR = "m4b_metadata.input_dir"
 KEY_COVER_DIR = "m4b_metadata.cover_dir"
 
@@ -90,6 +103,12 @@ class M4BMetadataEditorUI(ttk.Frame):
             setattr(self, attr, tk.StringVar())
         self.var_cover_path = tk.StringVar()
         self.mode_var = tk.StringVar(value="No files loaded.")
+
+        # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
+        # time. Browse redirects it for this run only; it is never persisted, so
+        # the next launch starts at the next free -N. The folder is created
+        # lazily on the first successful save.
+        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
 
         self._build_ui()
 
@@ -146,6 +165,18 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cover.pack(side=tk.LEFT)
         self.btn_cover_clear = ttk.Button(cover_btns, text="Clear", command=lambda: self.var_cover_path.set(""))
         self.btn_cover_clear.pack(side=tk.LEFT, padx=(6, 0))
+
+        # Output folder row — tagged copies are delivered here; originals are
+        # never touched.
+        outrow = ttk.Frame(self)
+        outrow.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
+        ttk.Label(outrow, text="Output folder:").pack(side=tk.LEFT)
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
+        self.entry_outdir.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 6))
+        self.btn_browse_out = ttk.Button(outrow, text="Browse…", command=self.choose_outdir)
+        self.btn_browse_out.pack(side=tk.LEFT)
+        self.btn_open_out = ttk.Button(outrow, text="Open", command=self.open_outdir)
+        self.btn_open_out.pack(side=tk.LEFT, padx=(6, 0))
 
         # Action buttons
         action = ttk.Frame(self)
@@ -238,6 +269,23 @@ class M4BMetadataEditorUI(ttk.Frame):
         settings.set(KEY_COVER_DIR, str(Path(p).parent))
         self.var_cover_path.set(p)
 
+    # ----- output folder -----
+    def choose_outdir(self):
+        cur = self.var_outdir.get().strip()
+        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
+        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
+        if d:
+            self.var_outdir.set(d)
+
+    def output_dir(self) -> Path:
+        val = self.var_outdir.get().strip()
+        return Path(val) if val else paths.next_output_dir(SLUG)
+
+    def open_outdir(self):
+        out = self.output_dir()
+        out.mkdir(parents=True, exist_ok=True)
+        sp.reveal_in_file_manager(out)
+
     # ----- logging -----
     def log_write(self, text: str):
         self.log.config(state=tk.NORMAL)
@@ -279,14 +327,15 @@ class M4BMetadataEditorUI(ttk.Frame):
             return
 
         files = list(self.files)
+        outdir = self.output_dir()  # read Tk var on the main thread
         self._busy.set()
         self._cancel_event.clear()
         self.progress.configure(maximum=len(files), value=0)
         self.disable_inputs(True)
         self.btn_cancel.configure(state=tk.NORMAL)
-        self.log_write(f"\nWriting tags to {len(files)} file(s)…\n")
+        self.log_write(f"\nWriting tags to {len(files)} copy(ies) in {outdir}…\n")
 
-        t = threading.Thread(target=self._save_worker, args=(files, tags), daemon=True)
+        t = threading.Thread(target=self._save_worker, args=(files, tags, outdir), daemon=True)
         t.start()
 
     def cancel(self):
@@ -305,6 +354,8 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.btn_cover,
             self.btn_cover_clear,
             self.entry_cover,
+            self.entry_outdir,
+            self.btn_browse_out,
             *self._field_widgets,
         ]
         for w in widgets:
@@ -344,18 +395,24 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cancel.configure(state=tk.DISABLED)
 
     # ----- save worker (worker thread) -----
-    def _save_worker(self, files: list, tags: dict):
+    def _save_worker(self, files: list, tags: dict, outdir: Path):
         cancel_check = self._cancel_event.is_set
         total = len(files)
         ok = 0
         fail = 0
         cancelled = False
         try:
+            outdir.mkdir(parents=True, exist_ok=True)  # lazy create on first save
             for idx, f in enumerate(files, start=1):
                 raise_if_cancelled(cancel_check)
                 try:
-                    metadata.write_m4b_tags(f, tags)
-                    self._log_q.put(("log", f"[{idx}/{total}] ✓ {f.name}\n"))
+                    # Copy the original into the output folder, then tag the COPY.
+                    # The imported original is only ever read.
+                    dest = paths.avoid_input_overwrite(outdir / f.name, files)
+                    shutil.copy2(f, dest)
+                    self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
+                    metadata.write_m4b_tags(dest, tags)
+                    self._log_q.put(("log", f"[{idx}/{total}] ✓ Tagged {dest.name}\n"))
                     ok += 1
                 except Exception as e:
                     self._log_q.put(("log", f"[{idx}/{total}] ✗ {f.name}: {e}\n"))

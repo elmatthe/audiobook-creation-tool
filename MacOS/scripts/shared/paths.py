@@ -100,6 +100,40 @@ def next_output_dir(tool_name: str, *, create: bool = False) -> Path:
     return target
 
 
+def avoid_input_overwrite(out_path: Path, inputs) -> Path:
+    """Guarantee a transforming tool never writes over one of its own inputs.
+
+    Returns ``out_path`` unchanged unless it resolves to one of the given input
+    files — in which case it returns the first ``"<stem> (N)<suffix>"`` sibling
+    that is neither an input nor an already-existing file. This is the
+    input==output collision guard used when a tool's output folder happens to be
+    the same folder the inputs were loaded from.
+    """
+    resolved_inputs: set[Path] = set()
+    for p in inputs:
+        try:
+            resolved_inputs.add(Path(p).resolve())
+        except OSError:
+            pass
+
+    def is_input(p: Path) -> bool:
+        try:
+            return p.resolve() in resolved_inputs
+        except OSError:
+            return False
+
+    if not is_input(out_path):
+        return out_path
+
+    parent, stem, suffix = out_path.parent, out_path.stem, out_path.suffix
+    n = 1
+    while True:
+        candidate = parent / f"{stem} ({n}){suffix}"
+        if not is_input(candidate) and not candidate.exists():
+            return candidate
+        n += 1
+
+
 def resources_dir() -> Path:
     return ensure_dir(RESOURCES_DIR)
 

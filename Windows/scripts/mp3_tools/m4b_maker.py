@@ -43,6 +43,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import ffmpeg_utils
 from shared import metadata
+from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
@@ -62,9 +63,13 @@ PREVIEW_MAX = (260, 260)
 
 APP_TITLE = "M4B Maker v5.0 (Fast-first + Auto-fallback)"
 
-# settings.json keys (Phase 5)
+# Auto-named output folder slug (v0.1.1): the built .m4b is delivered into
+# Downloads/<SLUG>-N. The input MP3s are only ever read.
+SLUG = paths.TOOL_SLUGS["m4b_maker"]
+
+# settings.json keys (input/cover dirs only remember the dialog location; the
+# output folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
 KEY_INPUT_DIR = "m4b_maker.input_dir"
-KEY_OUTPUT_DIR = "m4b_maker.output_dir"
 KEY_COVER_DIR = "m4b_maker.cover_dir"
 
 
@@ -130,17 +135,6 @@ def ffprobe_duration_ms(p: Path) -> int:
         )
         dur = data.decode().strip()
     return max(int(round(float(dur) * 1000)), 0)
-
-
-def next_output_dir(base: Path) -> Path:
-    base.mkdir(parents=True, exist_ok=True)
-    n = 1
-    while True:
-        d = base / f"M4B-Output-{n}"
-        if not d.exists():
-            d.mkdir()
-            return d
-        n += 1
 
 
 def compute_titles(files):
@@ -387,7 +381,10 @@ class M4BMakerUI(ttk.Frame):
         self.var_series = tk.StringVar()
         self.var_series_part = tk.StringVar()
         self.var_cover_path = tk.StringVar()
-        self.var_outdir = tk.StringVar(value=str(_remembered_dir(KEY_OUTPUT_DIR)))
+        # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
+        # time. Browse redirects it for this run only (never persisted); the
+        # folder is created lazily on the first build.
+        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
 
         self.status = tk.StringVar(value="Added 0 files. Total: 0")
 
@@ -579,15 +576,15 @@ class M4BMakerUI(ttk.Frame):
 
     # ----- output folder -----
     def choose_outdir(self):
-        d = filedialog.askdirectory(
-            title="Choose output folder", initialdir=self.var_outdir.get() or str(Path.home())
-        )
+        cur = self.var_outdir.get().strip()
+        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
+        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
         if d:
             self.var_outdir.set(d)
 
-    def output_base(self) -> Path:
-        base = self.var_outdir.get().strip()
-        return Path(base) if base else Path.home()
+    def output_dir(self) -> Path:
+        val = self.var_outdir.get().strip()
+        return Path(val) if val else paths.next_output_dir(SLUG)
 
     # ----- cover -----
     def choose_cover(self):
@@ -719,9 +716,8 @@ class M4BMakerUI(ttk.Frame):
             "cover_path": self.cover_path if (self.cover_path and self.cover_path.exists()) else None,
         }
 
-        base = self.output_base()
-        out_dir = next_output_dir(base)
-        settings.set(KEY_OUTPUT_DIR, str(base))
+        out_dir = self.output_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)  # lazy create on first build
 
         self._busy.set()
         self._cancel_event.clear()
@@ -783,7 +779,7 @@ class M4BMakerUI(ttk.Frame):
             # Output name
             base_name = params["title"] or params["album"] or "audiobook"
             base_name = re.sub(r'[\\/:*?"<>|]+', "_", base_name) or "audiobook"
-            out_path = out_dir / f"{base_name}.m4b"
+            out_path = paths.avoid_input_overwrite(out_dir / f"{base_name}.m4b", files)
 
             # Metadata
             meta = {

@@ -27,15 +27,20 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import ffmpeg_utils
 from shared import metadata
+from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
 
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
 
-# settings.json keys (Phase 5)
+# Auto-named output folder slug (v0.1.1): MP3s are delivered into
+# Downloads/<SLUG>-N. The originals (.m4b) are only ever read.
+SLUG = paths.TOOL_SLUGS["m4b_converter"]
+
+# settings.json keys (input dir only remembers the dialog location; the output
+# folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
 KEY_INPUT_DIR = "m4b_converter.input_dir"
-KEY_OUTPUT_DIR = "m4b_converter.output_dir"
 
 
 # ---------- helpers ---------- #
@@ -49,27 +54,6 @@ def _remembered_dir(key: str) -> Path:
         if p.exists():
             return p
     return Path.home()
-
-
-def next_output_dir(base: Path) -> Path:
-    base.mkdir(parents=True, exist_ok=True)
-    n = 1
-    while True:
-        candidate = base / f"m4b_converter_output-{n}"
-        if not candidate.exists():
-            candidate.mkdir(parents=True, exist_ok=True)
-            return candidate
-        n += 1
-
-
-def preview_output_dir(base: Path) -> Path:
-    """The next auto folder name under ``base`` without creating it."""
-    n = 1
-    while True:
-        candidate = base / f"m4b_converter_output-{n}"
-        if not candidate.exists():
-            return candidate
-        n += 1
 
 
 def sanitize_filename(name: str) -> str:
@@ -104,8 +88,10 @@ class M4BConverterUI(ttk.Frame):
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
 
-        # Remembered base output folder (default = home; never ~/Downloads).
-        self.var_outdir = tk.StringVar(value=str(_remembered_dir(KEY_OUTPUT_DIR)))
+        # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
+        # time. Browse redirects it for this run only (never persisted); the
+        # folder is created lazily on the first conversion.
+        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
 
         # Top buttons
         top = ttk.Frame(self)
@@ -205,17 +191,6 @@ class M4BConverterUI(ttk.Frame):
         self.btn_browse_out = ttk.Button(options, text="Browse…", command=self.choose_outdir)
         self.btn_browse_out.grid(row=row, column=3, sticky="w", padx=8, pady=4)
 
-        # Output dir preview (the auto subfolder created on convert)
-        row += 1
-        self.out_dir_preview = tk.StringVar(value="")
-        ttk.Label(options, text="Next output (auto):").grid(
-            row=row, column=0, sticky="e", padx=8, pady=4
-        )
-        self.lbl_outdir = ttk.Label(
-            options, textvariable=self.out_dir_preview, foreground="#15803d"
-        )
-        self.lbl_outdir.grid(row=row, column=1, columnspan=3, sticky="w", padx=8, pady=4)
-
         # Action buttons
         action = ttk.Frame(self)
         action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
@@ -251,9 +226,6 @@ class M4BConverterUI(ttk.Frame):
             )
         else:
             self.log_write("FFmpeg detected.\n")
-
-        self.refresh_outdir_preview()
-        self.var_outdir.trace_add("write", lambda *_: self.refresh_outdir_preview())
 
         # Start draining the worker->GUI queue on the main thread.
         self.after(150, self._pump_queue)
@@ -294,27 +266,19 @@ class M4BConverterUI(ttk.Frame):
         self.count_var.set(f"{len(self.files)} file(s)")
 
     def choose_outdir(self):
-        d = filedialog.askdirectory(
-            title="Choose output folder", initialdir=self.var_outdir.get() or str(Path.home())
-        )
+        cur = self.var_outdir.get().strip()
+        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
+        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
         if d:
             self.var_outdir.set(d)
 
-    def output_base(self) -> Path:
-        base = self.var_outdir.get().strip()
-        return Path(base) if base else Path.home()
-
-    def refresh_outdir_preview(self):
-        # Preview without actually creating a new folder each time.
-        try:
-            self.out_dir_preview.set(str(preview_output_dir(self.output_base())))
-        except Exception:
-            self.out_dir_preview.set("")
+    def output_dir(self) -> Path:
+        val = self.var_outdir.get().strip()
+        return Path(val) if val else paths.next_output_dir(SLUG)
 
     def open_outdir(self):
-        out_dir = Path(self.out_dir_preview.get())
-        if not out_dir.exists():
-            out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = self.output_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
         sp.reveal_in_file_manager(out_dir)
 
     def start_convert(self):
@@ -345,10 +309,8 @@ class M4BConverterUI(ttk.Frame):
             "files": list(self.files),
         }
 
-        base = self.output_base()
-        outdir = next_output_dir(base)
-        settings.set(KEY_OUTPUT_DIR, str(base))
-        self.out_dir_preview.set(str(outdir))
+        outdir = self.output_dir()
+        outdir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
 
         self._busy.set()
         self._cancel_event.clear()
@@ -430,7 +392,7 @@ class M4BConverterUI(ttk.Frame):
                 break
             try:
                 stem = sanitize_filename(in_file.stem)
-                out_mp3 = outdir / f"{stem}.mp3"
+                out_mp3 = paths.avoid_input_overwrite(outdir / f"{stem}.mp3", files)
 
                 cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-y", "-i", quote(in_file), "-vn"]
 
