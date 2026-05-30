@@ -104,6 +104,11 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.var_cover_path = tk.StringVar()
         self.mode_var = tk.StringVar(value="No files loaded.")
 
+        # Snapshot of the values auto-loaded into the form in single-file mode.
+        # A "Clear All Tags" run re-applies only fields the user changed from
+        # this snapshot, so unchanged pre-filled fields are genuinely wiped.
+        self._prefill: dict[str, str] = {}
+
         # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
         # time. Browse redirects it for this run only; it is never persisted, so
         # the next launch starts at the next free -N. The folder is created
@@ -183,6 +188,10 @@ class M4BMetadataEditorUI(ttk.Frame):
         action.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
         self.btn_save = ttk.Button(action, text="Save Tags", command=self.save)
         self.btn_save.pack(side=tk.LEFT)
+        self.btn_clear_tags = ttk.Button(
+            action, text="Clear All Tags (keep chapters)", command=self.on_clear_all_tags
+        )
+        self.btn_clear_tags.pack(side=tk.LEFT, padx=(8, 0))
         self.btn_cancel = ttk.Button(action, text="Cancel", command=self.cancel, state=tk.DISABLED)
         self.btn_cancel.pack(side=tk.LEFT, padx=(8, 0))
         self.progress = ttk.Progressbar(action, mode="determinate", length=240)
@@ -230,6 +239,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         for _key, attr, _label in _FIELDS:
             getattr(self, attr).set("")
         self.var_cover_path.set("")
+        self._prefill = {}
 
     def _refresh_mode(self):
         """Update the mode notice and (single-file) pre-fill from the file's tags."""
@@ -254,6 +264,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         for key, attr, _label in _FIELDS:
             if key in tags:
                 getattr(self, attr).set(str(tags[key]))
+                self._prefill[key] = str(tags[key])
         if tags.get("has_cover"):
             self.log_write(f"{path.name}: existing cover present (leave Cover blank to keep it).\n")
 
@@ -294,27 +305,55 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.log.config(state=tk.DISABLED)
 
     # ----- collect non-blank fields -----
-    def _collect_tags(self) -> dict:
+    def _collect_tags(self, *, only_edited: bool = False) -> dict:
+        """Collect the non-blank tag fields to write.
+
+        With ``only_edited`` (used by Clear All Tags), a field that still holds
+        the value auto-loaded from the file in single-file mode is skipped, so
+        the clear genuinely wipes it; only fields the user changed are re-applied.
+        """
         tags: dict = {}
         for key, attr, _label in _FIELDS:
             val = getattr(self, attr).get().strip()
-            if val:
-                tags[key] = val
+            if not val:
+                continue
+            if only_edited and val == (self._prefill.get(key, "")).strip():
+                continue
+            tags[key] = val
         cover = self.var_cover_path.get().strip()
         if cover:
             tags["cover_path"] = cover
         return tags
 
-    # ----- save -----
+    # ----- save / clear -----
     def save(self):
+        """Write the typed tag fields onto a copy of each file (preserve-by-default)."""
+        self._start_job(clear_first=False)
+
+    def on_clear_all_tags(self):
+        """Strip all metadata (keep chapters) on a copy of each file, then apply
+        any typed tag fields on top of the cleared copy."""
+        if not self._busy.is_set() and self.files:
+            if not messagebox.askyesno(
+                "Clear all tags?",
+                "This writes COPIES with ALL metadata removed (title, author, "
+                "album, year, genre, comment, series, cover art).\n\n"
+                "Chapter markers and titles are kept. The imported originals are "
+                "not modified. Any tag fields you have typed will be re-applied "
+                "on top of the cleared copies.\n\nProceed?",
+            ):
+                return
+        self._start_job(clear_first=True)
+
+    def _start_job(self, *, clear_first: bool):
         if self._busy.is_set():
             return
         if not self.files:
             messagebox.showerror("No files", "Open one or more M4B files first.")
             return
 
-        tags = self._collect_tags()
-        if not tags:
+        tags = self._collect_tags(only_edited=clear_first)
+        if not tags and not clear_first:
             messagebox.showinfo(
                 "Nothing to write",
                 "All fields are blank, so there is nothing to change.",
@@ -333,9 +372,12 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.progress.configure(maximum=len(files), value=0)
         self.disable_inputs(True)
         self.btn_cancel.configure(state=tk.NORMAL)
-        self.log_write(f"\nWriting tags to {len(files)} copy(ies) in {outdir}…\n")
+        verb = "Clearing tags on" if clear_first else "Writing tags to"
+        self.log_write(f"\n{verb} {len(files)} copy(ies) in {outdir}…\n")
 
-        t = threading.Thread(target=self._save_worker, args=(files, tags, outdir), daemon=True)
+        t = threading.Thread(
+            target=self._save_worker, args=(files, tags, outdir, clear_first), daemon=True
+        )
         t.start()
 
     def cancel(self):
@@ -351,6 +393,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.btn_remove,
             self.btn_clear,
             self.btn_save,
+            self.btn_clear_tags,
             self.btn_cover,
             self.btn_cover_clear,
             self.entry_cover,
@@ -395,7 +438,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cancel.configure(state=tk.DISABLED)
 
     # ----- save worker (worker thread) -----
-    def _save_worker(self, files: list, tags: dict, outdir: Path):
+    def _save_worker(self, files: list, tags: dict, outdir: Path, clear_first: bool):
         cancel_check = self._cancel_event.is_set
         total = len(files)
         ok = 0
@@ -406,13 +449,22 @@ class M4BMetadataEditorUI(ttk.Frame):
             for idx, f in enumerate(files, start=1):
                 raise_if_cancelled(cancel_check)
                 try:
-                    # Copy the original into the output folder, then tag the COPY.
-                    # The imported original is only ever read.
+                    # Per-file order (Phase B/C): copy original → output folder,
+                    # then (optionally) clear all metadata keeping chapters, then
+                    # re-apply any typed tag fields on top. Only the COPY is ever
+                    # written; the imported original is read-only.
                     dest = paths.avoid_input_overwrite(outdir / f.name, files)
                     shutil.copy2(f, dest)
                     self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
-                    metadata.write_m4b_tags(dest, tags)
-                    self._log_q.put(("log", f"[{idx}/{total}] ✓ Tagged {dest.name}\n"))
+                    if clear_first:
+                        metadata.clear_metadata_keep_chapters(dest)
+                        self._log_q.put(
+                            ("log", f"[{idx}/{total}] Cleared all tags (kept chapters)\n")
+                        )
+                    if tags:
+                        metadata.write_m4b_tags(dest, tags)
+                        self._log_q.put(("log", f"[{idx}/{total}] Applied typed tag fields\n"))
+                    self._log_q.put(("log", f"[{idx}/{total}] ✓ {dest.name}\n"))
                     ok += 1
                 except Exception as e:
                     self._log_q.put(("log", f"[{idx}/{total}] ✗ {f.name}: {e}\n"))
