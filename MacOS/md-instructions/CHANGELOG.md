@@ -15,7 +15,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-_Nothing yet — first section after the 0.1.0 release._
+### Added
+- **Phase 9 (GitHub Remote + Public Release) — complete.** Created the public GitHub repo
+  **[elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)**, set
+  it as `origin`, and pushed the full local history — all **8 branches** (`master`,
+  `phase-2-bootstrap` … `phase-8-release`) plus the annotated tag **`v0.1.0`**; `master` is the
+  default branch. Fast‑forward‑merged `phase-8-release` into `master` (linear history, clean ff) and
+  tagged the merged commit `v0.1.0`. Built the two distributable zips with `release.py` and published
+  the **GitHub Release**
+  **[v0.1.0](https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.1.0)** with both
+  `AudiobookTool-Windows-v0.1.0.zip` and `AudiobookTool-MacOS-v0.1.0.zip` attached (both verified
+  downloadable, HTTP 200). Added a **Download** section + TOC entry to the root `README.md` with direct
+  links to the two release assets. `dist/` remains gitignored — the zips ship only as release assets,
+  never committed. `compileall` clean one final time on both trees. No application code changed.
 
 ## [0.1.0] - 2026-05-29
 
