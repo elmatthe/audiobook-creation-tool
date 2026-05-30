@@ -37,6 +37,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils
+from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
@@ -51,9 +52,13 @@ except Exception:
 APP_TITLE = "MP3 Tool v5.7 (Fast-first + Auto-fallback)"
 BASE_OUTPUT_DIRNAME = "edited_mp3s"
 
-# settings.json keys (Phase 5)
+# Auto-named output folder slug (v0.1.1): time-edit / ID3 outputs and the
+# combined MP3 default into Downloads/<SLUG>-N. The imported MP3s are read-only.
+SLUG = paths.TOOL_SLUGS["mp3_tool"]
+
+# settings.json key (input dir only remembers the dialog location; the output
+# folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
 KEY_INPUT_DIR = "mp3_tool.input_dir"
-KEY_OUTPUT_DIR = "mp3_tool.output_dir"
 
 # ---------------------------
 # Utilities
@@ -360,7 +365,10 @@ class MP3ToolUI(ttk.Frame):
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
 
-        self.var_outdir = tk.StringVar(value=str(_remembered_dir(KEY_OUTPUT_DIR)))
+        # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
+        # time. Browse redirects it for this run only (never persisted); the
+        # folder is created lazily on the first operation.
+        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
 
         frame = ttk.Frame(self)
         frame.pack(padx=10, pady=10, fill="both", expand=True)
@@ -486,15 +494,15 @@ class MP3ToolUI(ttk.Frame):
     # ---------- output folder ----------
 
     def choose_outdir(self):
-        d = filedialog.askdirectory(
-            title="Choose output folder", initialdir=self.var_outdir.get() or str(Path.home())
-        )
+        cur = self.var_outdir.get().strip()
+        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
+        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
         if d:
             self.var_outdir.set(d)
 
-    def output_base(self) -> Path:
-        base = self.var_outdir.get().strip()
-        return Path(base) if base else Path.home()
+    def output_dir(self) -> Path:
+        val = self.var_outdir.get().strip()
+        return Path(val) if val else paths.next_output_dir(SLUG)
 
     # ---------- file list ops ----------
 
@@ -601,10 +609,14 @@ class MP3ToolUI(ttk.Frame):
             return
         gap = max(0.0, gap)
 
+        # Default the save location to the auto-named Downloads/<SLUG>-N (or its
+        # parent if that folder hasn't been created yet this session).
+        outdir = self.output_dir()
+        combine_initialdir = str(outdir if outdir.exists() else outdir.parent)
         out_path = filedialog.asksaveasfilename(
             title="Save combined MP3 as…",
             defaultextension=".mp3",
-            initialdir=str(_remembered_dir(KEY_OUTPUT_DIR)),
+            initialdir=combine_initialdir,
             initialfile="combined.mp3",
             filetypes=[("MP3 files", "*.mp3")],
         )
@@ -612,7 +624,6 @@ class MP3ToolUI(ttk.Frame):
             return
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        settings.set(KEY_OUTPUT_DIR, str(out_path.parent))
 
         params = {
             "files": list(self.file_list),
@@ -757,9 +768,7 @@ class MP3ToolUI(ttk.Frame):
             messagebox.showwarning(APP_TITLE, "Enter a numeric value (can be negative).")
             return
 
-        base = self.output_base()
-        settings.set(KEY_OUTPUT_DIR, str(base))
-        params = {"files": list(self.file_list), "delta": delta, "base": base}
+        params = {"files": list(self.file_list), "delta": delta, "outdir": self.output_dir()}
         self._begin_busy()
         threading.Thread(target=self._time_edit_worker, args=(params,), daemon=True).start()
 
@@ -767,13 +776,14 @@ class MP3ToolUI(ttk.Frame):
         cancel_check = self._cancel_event.is_set
         files = params["files"]
         delta = params["delta"]
-        out_dir = next_available_folder(params["base"] / BASE_OUTPUT_DIRNAME)
+        out_dir = params["outdir"]
+        out_dir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
 
         try:
             ok_count = 0
             for src in files:
                 raise_if_cancelled(cancel_check)
-                dst = out_dir / src.name
+                dst = paths.avoid_input_overwrite(out_dir / src.name, files)
                 if delta > 0:
                     ok = add_silence_to_mp3(src, delta, dst, out_dir)
                 elif delta < 0:
@@ -810,7 +820,9 @@ class MP3ToolUI(ttk.Frame):
                 )
             )
         except ConversionCancelled:
-            self._cleanup_partial(out_dir)
+            # Cancel lands between files, so already-written outputs are complete
+            # and valid — leave them (and any earlier outputs in this shared
+            # session folder) in place; just stop.
             self._log_q.put(("cancelled", None))
 
     # ---------- ID3 (ALL files; ALWAYS outputs to edited_mp3s-*) ----------
@@ -841,8 +853,6 @@ class MP3ToolUI(ttk.Frame):
         chapter_blob = self.chapter_titles_text.get("1.0", "end")
         chapter_titles = [ln.strip() for ln in chapter_blob.splitlines() if ln.strip()]
 
-        base = self.output_base()
-        settings.set(KEY_OUTPUT_DIR, str(base))
         params = {
             "files": list(self.file_list),
             "delta": delta,
@@ -853,7 +863,7 @@ class MP3ToolUI(ttk.Frame):
             "auto_num": self.auto_number_var.get(),
             "start_num": start_num,
             "chapter_titles": chapter_titles,
-            "base": base,
+            "outdir": self.output_dir(),
         }
         self._begin_busy()
         threading.Thread(target=self._id3_worker, args=(params,), daemon=True).start()
@@ -870,28 +880,32 @@ class MP3ToolUI(ttk.Frame):
         start_num = params["start_num"]
         chapter_titles = params["chapter_titles"]
 
-        # ALWAYS create an output folder for ID3 operations
-        out_dir = next_available_folder(params["base"] / BASE_OUTPUT_DIRNAME)
+        # Output folder for ID3 operations (Downloads/<SLUG>-N by default).
+        out_dir = params["outdir"]
+        out_dir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
 
         try:
-            # Prepare targets in output folder:
+            # Prepare targets in the output folder — ID3 tags are only ever
+            # written to these copies, never to the imported originals:
             # - If delta != 0, time-edit into out_dir.
             # - If delta == 0, stream copy with -map_metadata -1 into out_dir.
-            targets: List[Path] = []
+            # A None target marks a file whose copy failed; it is skipped at the
+            # tag-writing stage so the original is never touched.
+            targets: List[Optional[Path]] = []
             if abs(delta) > 1e-9:
                 for p in files:
                     raise_if_cancelled(cancel_check)
-                    dst = out_dir / p.name
+                    dst = paths.avoid_input_overwrite(out_dir / p.name, files)
                     ok = (
                         add_silence_to_mp3(p, delta, dst, out_dir)
                         if delta > 0
                         else trim_from_end_mp3(p, -delta, dst, out_dir)
                     )
-                    targets.append(dst if ok else p)
+                    targets.append(dst if ok else None)
             else:
                 for p in files:
                     raise_if_cancelled(cancel_check)
-                    dst = out_dir / p.name
+                    dst = paths.avoid_input_overwrite(out_dir / p.name, files)
                     args = [
                         ffmpeg_utils.ffmpeg_cmd(),
                         "-hide_banner",
@@ -909,7 +923,7 @@ class MP3ToolUI(ttk.Frame):
                     code, _, err = run_ff(args)
                     if code != 0:
                         save_error_log(out_dir, f"copy_for_id3: {p.name}", args, err)
-                        targets.append(p)  # fallback
+                        targets.append(None)  # skip — never tag the original
                     else:
                         targets.append(dst)
 
@@ -918,6 +932,10 @@ class MP3ToolUI(ttk.Frame):
             total = len(targets)
             for idx, p in enumerate(targets, start=1):
                 raise_if_cancelled(cancel_check)
+                if p is None:
+                    # Copy failed for this file — skip; never tag the original.
+                    self._log_q.put(("status", f"Skipped (copy failed): file {idx}"))
+                    continue
                 try:
                     m = MutagenMP3(p)
                     try:
@@ -964,7 +982,8 @@ class MP3ToolUI(ttk.Frame):
                 )
             )
         except ConversionCancelled:
-            self._cleanup_partial(out_dir)
+            # Leave already-written outputs (and any earlier outputs in this
+            # shared session folder) in place; just stop.
             self._log_q.put(("cancelled", None))
 
 
