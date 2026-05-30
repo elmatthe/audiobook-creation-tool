@@ -16,6 +16,31 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- **Phase 4 (TTS Integration & Polish) — complete (Cancel button + cancellation plumbing,
+  verified headless).**
+  - Added a **Cancel button** to the TTS tool, beside Start. It is **disabled when idle and
+    enabled only while a conversion is running**; clicking it disables itself and requests a stop.
+    Works for **all four conversion paths** — single-file Edge, batch-PDF Edge, single Kokoro, and
+    batch Kokoro.
+  - Added `scripts/shared/cancellation.py` — a small cooperative-cancellation primitive
+    (`ConversionCancelled` + `raise_if_cancelled`). The Cancel button sets a `threading.Event`;
+    a `cancel_check` callable (`event.is_set`) is threaded into the worker, which consults it at
+    **natural checkpoints (between chapters, paragraphs, and TTS chunks)**. Lives in `shared/`
+    (not `tts/`) so the MP3 tools can reuse it for their own Cancel (Phase 5.1).
+  - Wired `cancel_check` through `epub2tts_edge.read_book` (chapter / paragraph / sentence-chunk
+    checkpoints), `runner.run_conversion_job`, `batch_convert.run_batch_convert` /
+    `convert_single_pdf` (between PDFs and between chunks; queued PDFs are cancelled, in-flight
+    workers bail at the next chunk), and `kokoro_synth.kokoro_file_to_mp3` (between chunks).
+    On cancel the worker **cleans up its temp directory** (the runner's existing `finally` and the
+    synth helpers' `TemporaryDirectory` contexts) and logs a clear **"Cancelled."** line.
+  - **Feature-parity audit (4.1):** confirmed the Phase 3 `main()`→`build_ui(parent)` refactor
+    dropped no controls and broke no bindings — `main()` now simply wraps `build_ui` in a private
+    `Tk()`, so the launcher panel and the standalone window are the same UI. The only intentional
+    UI change is the new Cancel button.
+  - **Runner cwd isolation (4.3):** verified `runner.run_conversion_job` captures `old_cwd` before
+    `os.chdir(tmp)` and restores it in a `finally` (alongside `shutil.rmtree(tmp)`), so launching
+    via the unified launcher leaves no cwd side-effects between tool invocations. No change needed.
+
 - **Phase 3 (Unified Launcher GUI) — code-complete; live conversion + visual console-flash check pending.**
   - Built `scripts/launcher.py`: a single Tk window with a left **sidebar of tools** and one
     **swappable content panel** on the right (matches the Briefing UX sketch). Includes a status
@@ -135,7 +160,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   The `.venv` is rebuilt fresh by Phase 2's bootstrap.
 
 ### Fixed
-- _(nothing yet — Phase 1 is restructure only, no behavior change)_
+- **Phase 4: TTS conversion crash — "main thread is not in main loop."** The TTS worker thread was
+  reading Tk variables directly (`mode_var.get()`, `workers_var.get()`, `resume_var.get()`,
+  `voice_var.get()`, `rate_var.get()`, `bitrate_var.get()`, `overwrite_var.get()`,
+  `epub_convert_var.get()`, `kokoro_speed_var.get()`, `end_pause_var.get()`). Tcl variable access
+  off the main thread raises `RuntimeError: main thread is not in main loop`. Fixed by reading
+  **every** Tk variable on the main thread in `run_job` (into plain Python locals) before spawning
+  the worker; the worker now uses only those copies and talks to the GUI exclusively through the
+  thread-safe log queue (drained by `pump_queue` via `root.after`). Surfaced by the Phase 4 headless
+  test and reported live during conversion.
 
 ---
 
@@ -163,6 +196,44 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## Session Log
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
+
+### 2026-05-29 — Session 5
+- **Phase:** Phase 4 — TTS Integration & Polish (complete).
+- **Git:** work on new branch `phase-4-tts-polish` (off `phase-3-launcher`). Local only.
+- **Done:** added `shared/cancellation.py`; added a **Cancel button** to the TTS GUI (idle-disabled,
+  active-enabled) wired into all four conversion paths; threaded `cancel_check` through `read_book`
+  (chapter/paragraph/chunk checkpoints), `runner.run_conversion_job`, `batch_convert`
+  (`run_batch_convert` + `convert_single_pdf`), and `kokoro_synth.kokoro_file_to_mp3`; cancel logs
+  "Cancelled." and temp dirs are removed by existing `finally`/`TemporaryDirectory` cleanup.
+  Completed the 4.1 feature-parity audit (Phase 3 refactor dropped nothing) and confirmed 4.3
+  runner cwd is restored in a `finally` (no change needed). Mirrored all 6 files byte-identical to
+  both trees.
+- **Fixed (critical):** TTS worker thread was reading Tk variables off-thread →
+  `RuntimeError: main thread is not in main loop` during conversion (reported live, also caught by
+  the headless test). All Tk reads hoisted to the main thread in `run_job`; worker now uses plain
+  copies + the log queue only.
+- **Verification:** `compileall` clean (both trees); a headless GUI test (real Tk, stubbed runner,
+  no network) confirmed idle→active→cancel→idle button states, the engine + batch cancel checkpoints
+  raising/returning without network, a clean "Cancelled." log, and **no** "main thread" error. Test
+  scaffold was temporary and removed after the pass.
+- **Next:** Phase 5 (MP3 tools polish; route hardcoded `~/Downloads/...` outputs through
+  settings/`paths.py`; MP3-tools Cancel can reuse `shared/cancellation.py`).
+- **Blockers:** none. **Deferred:** live mid-conversion cancel on real audio (manual pre-release pass,
+  same posture as the deferred Debug Gate 2/3 live items).
+
+### Debug Gate 4 — PASS (headless)
+- [x] Cancel button visible; correctly enabled/disabled idle vs. active (headless test: idle Cancel
+  `disabled` / Start `normal`; after start Cancel `normal` / Start `disabled`; after cancel click
+  Cancel `disabled`; back-to-idle Start `normal`).
+- [x] Worker thread exits cleanly on cancel; temp dir removed (runner `finally` + synth
+  `TemporaryDirectory`); **"Cancelled."** present in the log pane.
+- [x] Feature-parity: every control from the standalone TTS GUI is present in the launcher panel
+  (`main()` wraps the same `build_ui`); only addition is the Cancel button.
+- [x] `runner.py` restores cwd in a `finally` (captured before `os.chdir`); no cwd leakage between
+  tools.
+- [x] No "main thread is not in main loop" error — all Tk reads moved to the main thread.
+- [x] `compileall` clean, both trees.
+- [~] Live mid-conversion cancel on real EPUB/PDF audio — deferred to the manual pre-release pass.
 
 ### 2026-05-29 — Session 4
 - **Phase:** Phase 3 — Unified Launcher GUI (code-complete; live conversion + visual no-flash check pending).

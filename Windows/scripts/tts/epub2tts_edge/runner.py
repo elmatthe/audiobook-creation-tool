@@ -123,6 +123,7 @@ def run_conversion_job(
     trim_silence_db: float = DEFAULT_TRIM_SILENCE_DB,
     overwrite: bool = False,
     epub_convert: bool = False,
+    cancel_check=None,
 ) -> str:
     """
     Convert EPUB (with epub_convert), PDF, or TXT to M4B or MP3.
@@ -172,6 +173,7 @@ def run_conversion_job(
             end_of_book_pause=end_of_book_pause,
             trim_tts_padding=trim_tts_padding,
             trim_silence_db=trim_silence_db,
+            cancel_check=cancel_check,
         )
 
         cover_local = None

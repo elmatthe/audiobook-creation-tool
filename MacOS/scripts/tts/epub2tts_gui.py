@@ -24,6 +24,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 from ebooklib import epub as epub_mod
 
 from shared import ffmpeg_utils
+from shared.cancellation import ConversionCancelled
 from tts.batch_convert import run_batch_convert
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -90,6 +91,7 @@ def build_ui(parent: tk.Misc) -> None:
 
     log_q: queue.Queue[tuple[str, str]] = queue.Queue()
     busy = threading.Event()
+    cancel_event = threading.Event()
 
     frm = ttk.Frame(root, padding=10)
     frm.grid(row=0, column=0, sticky="nsew")
@@ -356,11 +358,15 @@ def build_ui(parent: tk.Misc) -> None:
                 elif kind == "done":
                     append_log(payload + "\n")
                     busy.clear()
+                    cancel_event.clear()
                     go_btn.configure(state=tk.NORMAL)
+                    cancel_btn.configure(state=tk.DISABLED)
                 elif kind == "err":
                     append_log(payload + "\n")
                     busy.clear()
+                    cancel_event.clear()
                     go_btn.configure(state=tk.NORMAL)
+                    cancel_btn.configure(state=tk.DISABLED)
                     messagebox.showerror("Error", payload)
         except queue.Empty:
             pass
@@ -412,16 +418,42 @@ def build_ui(parent: tk.Misc) -> None:
                     messagebox.showwarning("Pause settings", str(e))
                     return
 
+        # Read every Tk variable here on the main thread. The worker runs off-thread,
+        # and touching Tk vars/widgets from another thread raises
+        # "main thread is not in main loop"; the worker must use these plain copies and
+        # talk to the GUI only through the thread-safe log queue (drained by pump_queue).
+        mode = mode_var.get()
+        speaker = voice_var.get().strip() or DEFAULT_SPEAKER
+        rate = rate_var.get().strip() or "+0%"
+        resume = resume_var.get()
+        overwrite = overwrite_var.get()
+        epub_convert = epub_convert_var.get()
+        bitrate = bitrate_var.get()
+        try:
+            workers = int(workers_var.get() or "2")
+        except ValueError:
+            workers = 2
+        try:
+            kokoro_speed = float(kokoro_speed_var.get())
+        except ValueError:
+            kokoro_speed = 1.0
+        try:
+            end_pause = int(end_pause_var.get() or "3000")
+        except ValueError:
+            end_pause = 3000
+
         busy.set()
+        cancel_event.clear()
         go_btn.configure(state=tk.DISABLED)
+        cancel_btn.configure(state=tk.NORMAL)
 
         def worker() -> None:
             qw = QueueWriter(log_q)
             try:
                 with contextlib.redirect_stdout(qw), contextlib.redirect_stderr(qw):
                     ensure_punkt()
-                    if mode_var.get() == "batch":
-                        w = int(workers_var.get() or "2")
+                    if mode == "batch":
+                        w = workers
 
                         if is_kokoro:
                             assert current_voice_entry is not None
@@ -435,7 +467,7 @@ def build_ui(parent: tk.Misc) -> None:
                                 return [int(x) if x.isdigit() else x.lower() for x in parts]
 
                             pdfs = sorted(Path(inp).rglob("*.pdf"), key=_natural_sort_key)
-                            if resume_var.get():
+                            if resume:
                                 pdfs = [
                                     p
                                     for p in pdfs
@@ -447,12 +479,11 @@ def build_ui(parent: tk.Misc) -> None:
                             ok = 0
                             fail = 0
 
-                            try:
-                                speed = float(kokoro_speed_var.get())
-                            except ValueError:
-                                speed = 1.0
+                            speed = kokoro_speed
 
                             def _do_one(pdf_path: Path) -> tuple[str, Path, str | None]:
+                                if cancel_event.is_set():
+                                    return "cancelled", pdf_path, None
                                 stem = pdf_path.stem
                                 out_mp3 = str(Path(outd) / f"{stem}.mp3")
                                 try:
@@ -465,8 +496,11 @@ def build_ui(parent: tk.Misc) -> None:
                                             voice_id=current_voice_entry.voice_id,
                                             speed=speed,
                                             log=lambda s: log_q.put(("log", s + "\n")),
+                                            cancel_check=cancel_event.is_set,
                                         )
                                     return "success", pdf_path, None
+                                except ConversionCancelled:
+                                    return "cancelled", pdf_path, None
                                 except Exception as exc:
                                     return "failed", pdf_path, str(exc)
 
@@ -483,6 +517,8 @@ def build_ui(parent: tk.Misc) -> None:
                                             f"[{ts}] {path.name} — completed "
                                             f"({completed_so_far[0]}/{total})"
                                         )
+                                    elif status == "cancelled":
+                                        line = f"[{ts}] {path.name} — skipped (cancelled)"
                                     else:
                                         fail += 1
                                         line = (
@@ -490,7 +526,14 @@ def build_ui(parent: tk.Misc) -> None:
                                             f"({completed_so_far[0]}/{total}): {msg}"
                                         )
                                     log_q.put(("log", line + "\n"))
+                                    if cancel_event.is_set():
+                                        for f in futs:
+                                            f.cancel()
+                                        break
 
+                            if cancel_event.is_set():
+                                log_q.put(("done", "Cancelled."))
+                                return
                             log_q.put(("done", f"Kokoro batch finished: {ok} ok, {fail} failed."))
                             return
 
@@ -511,25 +554,29 @@ def build_ui(parent: tk.Misc) -> None:
                         ok, fail, _ = run_batch_convert(
                             inp,
                             outd,
-                            speaker=voice_var.get().strip() or DEFAULT_SPEAKER,
+                            speaker=speaker,
                             workers=max(1, min(32, w)),
-                            rate=rate_var.get().strip() or "+0%",
-                            resume=resume_var.get(),
+                            rate=rate,
+                            resume=resume,
                             use_tqdm=False,
                             log=lambda s: log_q.put(("log", s + "\n")),
                             progress_callback=on_progress,
+                            cancel_check=cancel_event.is_set,
                         )
+                        if cancel_event.is_set():
+                            log_q.put(("done", "Cancelled."))
+                            return
                         log_q.put(("done", f"Batch finished: {ok} ok, {fail} failed."))
                         return
 
                     low = inp.lower()
-                    if low.endswith(".epub") and not epub_convert_var.get():
+                    if low.endswith(".epub") and not epub_convert:
                         book = epub_mod.read_epub(inp)
-                        export(book, inp, overwrite=overwrite_var.get())
+                        export(book, inp, overwrite=overwrite)
                         log_q.put(("done", "Exported EPUB to text (and cover PNG if present)."))
                         return
 
-                    if is_kokoro and mode_var.get() == "single":
+                    if is_kokoro and mode == "single":
                         assert current_voice_entry is not None
                         import tempfile
 
@@ -539,7 +586,7 @@ def build_ui(parent: tk.Misc) -> None:
                         stem = Path(inp).stem
                         out_mp3 = str(Path(outd) / f"{stem}.mp3")
 
-                        if Path(out_mp3).exists() and not overwrite_var.get():
+                        if Path(out_mp3).exists() and not overwrite:
                             log_q.put(
                                 (
                                     "err",
@@ -566,12 +613,8 @@ def build_ui(parent: tk.Misc) -> None:
                                 log_q.put(("err", f"Unsupported file type for Kokoro: {inp}"))
                                 return
 
-                            try:
-                                speed = float(kokoro_speed_var.get())
-                            except ValueError:
-                                speed = 1.0
-
-                            end_ms = int(end_pause_var.get() or "3000")
+                            speed = kokoro_speed
+                            end_ms = end_pause
                             kokoro_file_to_mp3(
                                 txt_path,
                                 out_mp3,
@@ -579,6 +622,7 @@ def build_ui(parent: tk.Misc) -> None:
                                 speed=speed,
                                 end_silence_ms=end_ms,
                                 log=lambda s: log_q.put(("log", s + "\n")),
+                                cancel_check=cancel_event.is_set,
                             )
                         log_q.put(("done", f"Kokoro conversion finished → {out_mp3}"))
                         return
@@ -589,27 +633,43 @@ def build_ui(parent: tk.Misc) -> None:
                     run_conversion_job(
                         inp,
                         output_dir=outd,
-                        speaker=voice_var.get().strip() or DEFAULT_SPEAKER,
+                        speaker=speaker,
                         audio_format="mp3",
-                        mp3_bitrate=bitrate_var.get(),
+                        mp3_bitrate=bitrate,
                         cover=None,
-                        overwrite=overwrite_var.get(),
-                        epub_convert=epub_convert_var.get() if low.endswith(".epub") else False,
+                        overwrite=overwrite,
+                        epub_convert=epub_convert if low.endswith(".epub") else False,
                         trim_tts_padding=pause_kw.get("trim_tts_padding", True),
                         trim_silence_db=pause_kw.get(
                             "trim_silence_db", float(DEFAULT_TRIM_SILENCE_DB)
                         ),
+                        cancel_check=cancel_event.is_set,
                         **{k: v for k, v in pause_kw.items() if k not in _skip},
                     )
                     log_q.put(("done", "Conversion finished."))
+            except ConversionCancelled:
+                log_q.put(("done", "Cancelled."))
             except Exception as e:
                 log_q.put(("log", f"{e!r}\n"))
                 log_q.put(("err", str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    go_btn = ttk.Button(frm, text="Start", command=run_job)
-    go_btn.grid(row=r, column=0, columnspan=2, pady=(8, 0))
+    def cancel_job() -> None:
+        if not busy.is_set() or cancel_event.is_set():
+            return
+        cancel_event.set()
+        cancel_btn.configure(state=tk.DISABLED)
+        append_log("Cancelling… will stop at the next checkpoint (chapter / chunk).\n")
+
+    btn_row = ttk.Frame(frm)
+    btn_row.grid(row=r, column=0, columnspan=2, pady=(8, 0))
+    go_btn = ttk.Button(btn_row, text="Start", command=run_job)
+    go_btn.pack(side=tk.LEFT)
+    cancel_btn = ttk.Button(
+        btn_row, text="Cancel", command=cancel_job, state=tk.DISABLED
+    )
+    cancel_btn.pack(side=tk.LEFT, padx=(8, 0))
     r += 1
 
     ttk.Label(

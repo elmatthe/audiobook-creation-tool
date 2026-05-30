@@ -111,11 +111,18 @@ def convert_single_pdf(
     rate: str,
     log=print,
     progress_report: Callable[[str, str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[str, Path, str | None]:
     stem = pdf_path.stem
     tmp_root = output_dir / ".tmp_chunks" / stem
     last_err: str | None = None
+
+    def _cancelled() -> bool:
+        return cancel_check is not None and cancel_check()
+
     try:
+        if _cancelled():
+            return "cancelled", pdf_path, None
         for pdf_attempt in range(PDF_MAX_RETRIES + 1):
             chunk_paths: list[str] = []
             if pdf_attempt > 0:
@@ -135,6 +142,8 @@ def convert_single_pdf(
 
                 tmp_root.mkdir(parents=True, exist_ok=True)
                 for idx, chunk in enumerate(chunks, start=1):
+                    if _cancelled():  # between chunks
+                        return "cancelled", pdf_path, None
                     cpath = str(tmp_root / f"chunk_{idx:03d}.mp3")
                     for attempt in range(CHUNK_MAX_RETRIES):
                         try:
@@ -186,6 +195,7 @@ def run_batch_convert(
     use_tqdm: bool = True,
     log=print,
     progress_callback: Callable[[str, int, int, str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[int, int, Path]:
     """Convert each PDF under input_dir to an MP3 in output_dir. Returns (ok, fail, error_log_path)."""
     input_dir = Path(input_dir).resolve()
@@ -243,6 +253,7 @@ def run_batch_convert(
             done = completed_so_far[0]
         progress_callback(pdf_name, done, total, status)
 
+    cancelled = False
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {
             ex.submit(
@@ -253,6 +264,7 @@ def run_batch_convert(
                 rate,
                 log,
                 _report_progress,
+                cancel_check,
             ): p
             for p in pdfs
         }
@@ -263,10 +275,19 @@ def run_batch_convert(
             status, path, msg = fut.result()
             if status == "success":
                 ok += 1
+            elif status == "cancelled":
+                pass  # not counted as a failure
             else:
                 fail += 1
                 with open(error_log, "a", encoding="utf-8") as lf:
                     lf.write(f"{path}\n{msg}\n\n")
+            if cancel_check is not None and cancel_check():
+                # Stop dispatching: cancel queued (not-yet-started) PDFs; in-flight
+                # workers bail at their own between-chunk checkpoint and return fast.
+                cancelled = True
+                for f in futures:
+                    f.cancel()
+                break
 
     tmp_chunks = output_dir / ".tmp_chunks"
     if tmp_chunks.exists():
@@ -276,6 +297,8 @@ def run_batch_convert(
     mins, sec = divmod(int(elapsed), 60)
     hrs, mins = divmod(mins, 60)
     log("============================================")
+    if cancelled:
+        log("  Cancelled.")
     log(f"  Completed : {ok}")
     log(f"  Failed    : {fail}" + (f"  (see {error_log})" if fail else ""))
     log(f"  Total time : {hrs}h {mins}m {sec}s")
