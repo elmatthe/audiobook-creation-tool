@@ -15,7 +15,27 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+_Nothing yet — first section after the 0.1.0 release._
+
+## [0.1.0] - 2026-05-29
+
 ### Added
+- **Phase 8 (README + Release Packaging) — complete (docs + dev tooling; no app code
+  changed).** Wrote the CV-grade **`README.md`** at the repo root (root only, never duplicated
+  into the OS trees): one-paragraph summary, six-tool feature list, an ASCII launcher mockup,
+  Windows + macOS install steps, a system-requirements table (Python 3.11–3.12 for Kokoro, 3.13
+  for Edge-only), a per-tool usage walkthrough, a full architecture section
+  (`scripts/{tts,mp3_tools,shared}` layout + the thread-safety / console-suppression / atomic-settings
+  / ffmpeg-isolation / cancellation design decisions), upstream credits (epub2tts-edge — Christopher
+  Aedo, GPL-3.0; edge-tts; Kokoro-82M), a GPL-3.0 license section, and the known limitations. Added
+  **`scripts/shared/version.py`** (`VERSION = "0.1.0"`, the single source of truth) and the developer
+  packaging helper **`scripts/shared/release.py`** — a stdlib-only, never-imported-by-the-app tool that
+  zips each OS tree (excluding `.venv/`, `__pycache__/`, `*.pyc`, `resources/logs/`,
+  `resources/settings.json`, `resources/bin/`, `test-files/`) into
+  `dist/AudiobookTool-{Windows,MacOS}-vX.Y.Z.zip`, placing `README.md` + the correct double-click
+  launcher at each archive root, then prints the Briefing §13 release checklist. Verified the produced
+  zips with `zipfile.namelist()` (README + correct launcher at root, OS tree nested, zero excluded
+  leaks). `version.py` and `release.py` mirrored byte-identical to both trees; `compileall` clean.
 - **Phase 7 (Cross-Platform Test Matrix) — complete on Windows (live verification pass; no
   feature code changes).** Ran every deferred live debug-gate item (Gates 2–6) and filled the
   Briefing §12 matrix against the real `test-files/` assets. **18/18 applicable Windows rows PASS,
@@ -285,6 +305,27 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
 
+### 2026-05-29 — Session 9
+- **Phase:** Phase 8 — README + Release Packaging (complete).
+- **Git:** work on new branch `phase-8-release` (off `phase-7-test-matrix`). Local only.
+- **Done:** wrote the CV-grade root **`README.md`** (summary, six-tool feature list, ASCII launcher
+  mockup, Windows/macOS install, system-requirements table, per-tool usage, architecture +
+  design-decisions section, GPL-3.0 credits/license, known limitations). Added
+  **`shared/version.py`** (`VERSION = "0.1.0"`) as the single source of truth and the dev-only
+  **`shared/release.py`** packager (stdlib-only; zips each OS tree with the documented exclusions,
+  README + launcher at the archive root, prints the §13 checklist). Mirrored both new modules
+  byte-identical to Windows + MacOS. Finalised both CHANGELOG copies: `[Unreleased]` → `[0.1.0] -
+  2026-05-29` with a fresh empty `[Unreleased]` on top, and removed the stale bottom `[0.1.0]`
+  placeholder.
+- **Verification:** ran `release.py` → two zips under `dist/`; `zipfile.namelist()` confirms each has
+  `README.md` + the correct launcher at root, the OS tree nested under its folder, and **zero**
+  excluded leaks (no `.venv`/`__pycache__`/`.pyc`/logs/settings/bin/test-files). `compileall` clean,
+  both trees.
+- **Next:** GitHub remote + first Release (attach both zips). Before a real public ship, still run
+  **Debug Gate 2** (full one-click install on a clean Python-3.12 box), the **macOS** matrix column on
+  a Mac, and the final **visual** no-console-flash confirmation.
+- **Blockers:** none.
+
 ### 2026-05-29 — Session 8
 - **Phase:** Phase 7 — Cross-Platform Test Matrix (complete on Windows; macOS deferred — no host).
 - **Git:** work on new branch `phase-7-test-matrix` (off `phase-6-metadata-editor`). Local only.
@@ -545,8 +586,4 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   smoke-test imports. No behavior change.
 - **Blockers:** none.
 
----
-
-## [0.1.0] - YYYY-MM-DD
-
-_Initial restructure release. Placeholder until Phase 8 ships._
+_The version history above (Phases 0–8) all ships under **[0.1.0]** — the initial public release._
