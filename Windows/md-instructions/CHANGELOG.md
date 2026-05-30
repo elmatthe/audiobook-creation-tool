@@ -15,6 +15,67 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-30
+
+> v0.1.1 update release. Phase-gated (A–F) off `master` with the same discipline as
+> the 0–9 build: each phase code-complete + verified, `compileall` clean, and the
+> Windows↔MacOS `scripts/` trees kept byte-identical before every commit. Verified
+> live on Windows against the real `test-files/` assets (the real Harry Potter &
+> Mistborn M4Bs, real Shadow Slave MP3s, a real JPG); macOS deferred (no host).
+
+### Added
+- **Phase A — shared output-folder resolver (`shared/paths.py`).** `downloads_dir()`
+  and `next_output_dir(tool_name, *, create=False)` plus a canonical `TOOL_SLUGS`
+  map (one user-visible folder slug per tool). `next_output_dir` returns
+  `Downloads/<Tool>-N` for the lowest free `N` at call time; each tool computes it
+  once at build time and the folder is created lazily on first successful write.
+- **Phase C — "Clear All Tags (keep chapters)" in the M4B Metadata Editor.** A new
+  button strips every standard + freeform iTunes metadata atom (title / artist /
+  album / year / genre / comment / cover + `SERIES`/`SERIES-PART`) while leaving the
+  chapter track — count, titles, timestamps — untouched, then re-applies only the
+  tag fields the user actually edited (so an auto-prefilled single-file form is not
+  re-applied over the clear). Implemented as `shared.metadata.clear_metadata_keep_chapters`
+  (mutagen; verified to preserve chapters on a real 1.17 GB / 39-chapter M4B, so the
+  ffmpeg fallback is not needed). Runs on the copy-based pipeline with Cancel.
+- **Phase D — per-file positional chapter-title import in the Metadata Editor.** A
+  paged "Chapter Titles (optional)" section (one page per loaded file, ◀/▶ pager,
+  per-file buffer, a hint showing each file's chapter count) lets you paste new
+  titles one per line: line N → chapter N, blank line = leave that chapter
+  unchanged, extra lines ignored. Backed by `shared.metadata.read_chapter_titles` /
+  `apply_chapter_titles` (an ffmpeg ffmetadata round-trip, since mutagen cannot edit
+  MP4 chapter titles) — `-c copy` keeps audio + chapter timestamps byte-stable, and
+  freeform `----:` atoms (series) are snapshotted/restored across the re-mux.
+
+### Changed
+- **Phase B — copy-based, non-destructive output across every transforming tool, with
+  smart default folders.** The M4B Metadata Editor now copies each selected file into
+  the output folder and tags the **copy** (mutagen), never the imported original.
+  Every output-producing tool (TTS, M4B Converter, MP3 Tool, M4B Maker, Metadata
+  Editor) defaults its output folder to a fresh `Downloads/<Tool>-N`, decided once at
+  build time and created lazily on first write; **Browse** redirects it for the current
+  run only and is **no longer persisted** across sessions (next launch resets to the
+  next free `-N`). The legacy nested `*-output-N` subfolders are replaced by the single
+  Downloads folder. Added `shared.paths.avoid_input_overwrite()` (input==output
+  collision guard) and applied it in the Metadata Editor, MP3 Tool (time-edit + ID3),
+  M4B Converter, and M4B Maker. The Cover Image tool keeps its sanctioned in-place
+  overwrite toggle (and otherwise writes `Name-N` copies next to the source).
+
+### Fixed
+- **Metadata Editor (Phase C):** "Clear All Tags" no longer re-applies the values
+  auto-loaded into the single-file form, which previously undid the clear — only
+  fields changed from the pre-filled snapshot are re-applied.
+- **`shared/metadata.py` (Phase D):** the ffmpeg chapter re-mux dropped the freeform
+  Audiobookshelf `SERIES`/`SERIES-PART` atoms; they (and any `----:` atom) are now
+  snapshotted with mutagen before the re-mux and restored after. Also fixed an
+  ipod/mov muxer error by mapping only `0:a` + `0:v?` (not the file's text chapter
+  stream) and rebuilding the chapter track via `-map_chapters`.
+- **MP3 Tool (Phase B):** the bulk-ID3 path could tag the **original** file as a
+  fallback when its working copy failed to write; it now skips that file instead, so
+  an original is never modified. Time-edit / ID3 cancel no longer deletes the shared
+  session output folder (finished outputs are left valid).
+
+## [0.1.0] - 2026-05-29
+
 ### Added
 - **Phase 9 (GitHub Remote + Public Release) — complete.** Created the public GitHub repo
   **[elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)**, set
@@ -28,10 +89,6 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   downloadable, HTTP 200). Added a **Download** section + TOC entry to the root `README.md` with direct
   links to the two release assets. `dist/` remains gitignored — the zips ship only as release assets,
   never committed. `compileall` clean one final time on both trees. No application code changed.
-
-## [0.1.0] - 2026-05-29
-
-### Added
 - **Phase 8 (README + Release Packaging) — complete (docs + dev tooling; no app code
   changed).** Wrote the CV-grade **`README.md`** at the repo root (root only, never duplicated
   into the OS trees): one-paragraph summary, six-tool feature list, an ASCII launcher mockup,
@@ -316,6 +373,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## Session Log
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
+
+### 2026-05-30 — Session 10
+- **Phase:** v0.1.1 update release — Phases A–F (complete).
+- **Git:** phase chain off `master` — `v0.1.1-phaseA-output-infra` → `…-phaseB-copy-output`
+  → `…-phaseC-clear-tags` → `…-phaseD-chapter-import` → `…-phaseE-test` → `…-phaseF-release`,
+  each fast-forward off the previous for a linear merge to `master`.
+- **Done:** Phase A `shared/paths.py` output resolver (`downloads_dir` / `next_output_dir` /
+  `TOOL_SLUGS` / `avoid_input_overwrite`); Phase B copy-based non-destructive output + smart
+  `Downloads/<Tool>-N` defaults across all six tools (Metadata Editor now tags copies; Browse
+  no longer persisted); Phase C `clear_metadata_keep_chapters` + "Clear All Tags (keep chapters)"
+  button; Phase D `read_chapter_titles`/`apply_chapter_titles` (ffmpeg ffmetadata round-trip,
+  freeform-atom preservation) + paged per-file chapter-title import UI; Phase F version bump
+  (0.1.1), README + Briefing + CHANGELOG, release zips. All changes mirrored byte-identical
+  Win↔Mac.
+- **Verification:** `compileall` clean both trees at every commit; headless functional tests
+  (real Tk + ffmpeg + mutagen) per phase; Phase E live pass on real `test-files/` (Harry Potter
+  + Mistborn M4Bs, Shadow Slave MP3s, real JPG) — all transforms on copies, every imported
+  original MD5-identical before/after; subprocess audit clean. See `Windows/test-logs/
+  v0.1.1_pre-release.md`.
+- **Next:** post-release — macOS live pass on a Mac; final visual no-console-flash confirmation.
+- **Blockers:** none. **Deferred (carried from v0.1.0):** clean-machine one-click install on
+  Python 3.12, the macOS matrix column, and the visual no-flash check.
 
 ### 2026-05-29 — Session 9
 - **Phase:** Phase 8 — README + Release Packaging (complete).

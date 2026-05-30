@@ -3,7 +3,23 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status:** Phase 7 (Cross-Platform Test Matrix) **complete on Windows**. Every deferred live
+> **Status (v0.1.1, 2026-05-30):** Update release on top of v0.1.0; `VERSION = "0.1.1"`. Phases A–F
+> complete (phase-gated off `master`, `compileall` clean and Win↔Mac byte-identical before each commit):
+> **non-destructive copy-based output** across every transforming tool (imported originals are never
+> modified — the M4B Metadata Editor now tags **copies**, not the source), smart auto-named
+> **`Downloads/<Tool>-N`** output folders (decided once per launch and created lazily on first write;
+> **Browse** redirects for the current run only and is **not** persisted), a **Clear All Tags (keep
+> chapters)** button, and **per-file positional chapter-title import** (paged) in the M4B Metadata
+> Editor. New shared API: `paths.downloads_dir` / `next_output_dir` / `avoid_input_overwrite`;
+> `metadata.clear_metadata_keep_chapters` / `read_chapter_titles` / `apply_chapter_titles`
+> (chapter-title edits use an ffmpeg ffmetadata round-trip with freeform-atom preservation, since
+> mutagen can't edit MP4 chapter titles). Verified live on Windows against the real `test-files/`
+> assets (the real Harry Potter & Mistborn M4Bs, real Shadow Slave MP3s, a real JPG): every transform
+> ran on a copy and each imported original was MD5-identical before/after (see
+> `Windows/test-logs/v0.1.1_pre-release.md`). macOS live pass still deferred (no host); the clean-machine
+> one-click install and the visual no-console-flash check remain the same documented deferrals as v0.1.0.
+>
+> **Prior status (v0.1.0):** Phase 7 (Cross-Platform Test Matrix) **complete on Windows**. Every deferred live
 > debug-gate item (Gates 2–6) was run live on Windows against the real `test-files/` assets, and the
 > §12 matrix is filled: **all 18 applicable Windows rows PASS** with **zero unresolved FAILs**. The
 > live runs drove the *real* tool worker code paths (real ffmpeg / mutagen / Pillow / Edge-TTS over the
@@ -113,9 +129,9 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 | MP3 Tool | `scripts/mp3_tools/mp3_tool.py` | Combine MP3s, time-edit, bulk ID3 tagging |
 | M4B Maker | `scripts/mp3_tools/m4b_maker.py` | MP3s → M4B with chapters, metadata, cover, **series tags** (new in Phase 6) |
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
-| M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. |
-| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`), `logging_setup.py`, `bootstrap.py`, `version.py` (Phase 8 — single
-source of truth `VERSION = "0.1.0"`), `release.py` (Phase 8 — dev-only zip packager, never imported by
+| M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. **v0.1.1:** writes **copies** (never the original) to `Downloads/M4B-Metadata-N`; adds a **Clear All Tags (keep chapters)** button and a paged **per-file chapter-title import** (positional; blank line = unchanged). |
+| Shared | `scripts/shared/` | `paths.py` (**v0.1.1 added** `downloads_dir`/`next_output_dir`/`TOOL_SLUGS`/`avoid_input_overwrite`), `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`; **v0.1.1 added** `clear_metadata_keep_chapters`, `read_chapter_titles`, `apply_chapter_titles`), `logging_setup.py`, `bootstrap.py`, `version.py` (single
+source of truth, **`VERSION = "0.1.1"`**), `release.py` (Phase 8 — dev-only zip packager, never imported by
 the app). |
 
 ---
@@ -194,7 +210,7 @@ Two source repos, each with a Windows and a macOS variant (four trees total).
   `.vbs`/shortcut shim — deferred as not worth the added opacity for a curious user opening the `.bat`.
 - **`.venv` location:** inside `Windows/` and `MacOS/` (not at root — keeps root at exactly 5 items).
 - **Settings storage:** `resources/settings.json` via `shared/settings.py`.
-- **Output locations:** ~~the legacy tools hardcode `~/Downloads/edited_mp3s-*`, `~/Downloads/M4B-Output-*`, `~/Downloads/m4b_converter_output-*`.~~ **DONE (Phase 5):** routed through `shared/settings.py` — each tool remembers its input/output (and M4B Maker its cover) folder under per-tool keys, **defaulting to the user's home directory**, persisted on every successful run and pre-filled into the file dialogs; the three output-producing tools gained an "Output folder" picker. The sequential auto-named subfolders are unchanged but now created inside the remembered base.
+- **Output locations:** ~~the legacy tools hardcode `~/Downloads/edited_mp3s-*`, `~/Downloads/M4B-Output-*`, `~/Downloads/m4b_converter_output-*`.~~ **DONE (Phase 5):** routed through `shared/settings.py` — each tool remembers its input/output (and M4B Maker its cover) folder under per-tool keys, **defaulting to the user's home directory**, persisted on every successful run and pre-filled into the file dialogs; the three output-producing tools gained an "Output folder" picker. The sequential auto-named subfolders are unchanged but now created inside the remembered base. **Superseded in v0.1.1:** the output default is now a fresh `Downloads/<Tool>-N` decided once per launch (via `paths.next_output_dir`), created lazily on first write; **Browse** redirects for the current run only and is **no longer persisted** across sessions; the per-tool nested `*-output-N` subfolders are removed (the `-N` now lives in the Downloads folder name). Output is **copy-based** everywhere (originals never modified) except the Cover Image in-place toggle. Input-dir settings keys (dialog `initialdir`) are unchanged.
 
 ---
 
@@ -314,6 +330,15 @@ cd Windows
 ---
 
 ## 11. Known Issues / Deferred Items (Phase 0)
+
+- **v0.1.1 update (2026-05-30):** all transforming tools now write **copies** to a fresh
+  `Downloads/<Tool>-N` folder (decided once per launch, lazily created, Browse not persisted) so
+  imported originals are never modified — the only in-place exception is the Cover Image tool's
+  explicit overwrite toggle. Two bugs were found and fixed during the build (both pre-commit): the
+  Metadata Editor's single-file pre-fill re-applying over a "Clear All Tags" wipe, and the ffmpeg
+  chapter-title re-mux dropping the freeform series atoms (now snapshotted/restored via mutagen).
+  **Carried deferrals (unchanged from v0.1.0):** the clean-machine one-click install on Python 3.12,
+  the macOS matrix column (no host), and the final visual no-console-flash confirmation.
 
 - ~~TTS requirements are **unpinned**; MP3 requirements too. Pin all in Phase 2.~~ **DONE (Phase 2):** every package in both `requirements.txt` pinned to an exact version (verified against PyPI 2026-05-28); markers guard `kokoro` (<3.13) and `audioop-lts` (>=3.13).
 - ~~`epub2tts_edge.make_m4b` and all MP3 tools call ffmpeg via **raw `subprocess`** — must move to `shared/subprocess_utils`.~~ **DONE (Phase 3):** all tool subprocess calls routed through the hidden-console wrapper; audit shows zero direct `subprocess.*` in tool code. (Installer `bootstrap.py`/`setup_env.py` legitimately use raw subprocess and are out of scope.)
