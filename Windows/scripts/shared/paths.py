@@ -45,6 +45,61 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+# --------------------------------------------------------------------------- #
+# Output-folder resolution (v0.1.1)
+# --------------------------------------------------------------------------- #
+#
+# Every transforming tool delivers its results to an auto-named subfolder of the
+# user's Downloads directory: ``Downloads/<ToolName>-N``. The ``-N`` suffix is the
+# lowest positive integer that does not already collide with an existing folder
+# *at the moment it is computed* — and each tool computes it exactly once, at
+# build_ui() time, so the number stays fixed for the whole session (recomputing
+# per-save would shift the number mid-session). The folder itself is created
+# lazily on the first successful write, so merely opening a tool never litters
+# Downloads with empty folders.
+#
+# Canonical tool-name slugs (keep these stable — they are user-visible folder
+# names). One per tool, matching the launcher sidebar:
+TOOL_SLUGS: dict[str, str] = {
+    "tts": "TTS-Audiobook",
+    "m4b_converter": "M4B-Converter",
+    "mp3_tool": "MP3-Tool",
+    "m4b_maker": "M4B-Maker",
+    "cover": "Cover-Image",
+    "m4b_metadata": "M4B-Metadata",
+}
+
+
+def downloads_dir() -> Path:
+    """Resolve the current user's Downloads folder cross-platform.
+
+    Falls back to the home directory if Downloads does not exist.
+    """
+    home = Path.home()
+    candidate = home / "Downloads"
+    return candidate if candidate.exists() else home
+
+
+def next_output_dir(tool_name: str, *, create: bool = False) -> Path:
+    """Return ``Downloads/<tool_name>-N`` for the lowest free positive ``N``.
+
+    ``N`` starts at 1 and increments only to avoid a folder that already exists
+    at call time. With ``create=True`` the folder (and parents) is created;
+    otherwise the path is returned without touching the filesystem.
+
+    ``tool_name`` is the short tool slug (see :data:`TOOL_SLUGS`), e.g.
+    ``"M4B-Metadata"`` or ``"TTS-Audiobook"``.
+    """
+    base = downloads_dir()
+    n = 1
+    while (base / f"{tool_name}-{n}").exists():
+        n += 1
+    target = base / f"{tool_name}-{n}"
+    if create:
+        target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def resources_dir() -> Path:
     return ensure_dir(RESOURCES_DIR)
 
