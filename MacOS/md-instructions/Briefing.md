@@ -24,12 +24,22 @@
 > suppression is mechanism-verified (zero direct `subprocess.*` in tool code; `subprocess_utils`
 > applies `CREATE_NO_WINDOW`+hidden `STARTUPINFO`; launcher runs under `pythonw`) with the final visual
 > confirmation left to a real double-click pass. Phases 3–6 all stand. **Phase 8 (README + release
-> packaging) is next.**
+> packaging) is COMPLETE:** the CV-grade root `README.md` is written (six-tool feature list, launcher
+> mockup, install steps, system requirements, per-tool usage, architecture + design decisions,
+> GPL-3.0 credits/license, known limitations); `scripts/shared/version.py` (`VERSION = "0.1.0"`) is the
+> single source of truth; and the dev-only `scripts/shared/release.py` packages
+> `dist/AudiobookTool-{Windows,MacOS}-v0.1.0.zip` (excluding `.venv`/`__pycache__`/`*.pyc`/`logs`/
+> `settings.json`/`bin`/`test-files`, with `README.md` + the launcher at each archive root — verified
+> via `zipfile.namelist()`). CHANGELOG `[Unreleased]` → `[0.1.0] - 2026-05-29`, both trees. **What
+> remains before a public ship is the live pre-release pass, not new code:** Debug Gate 2 (full
+> one-click install on a clean Python-3.12 box), the macOS matrix column on a Mac, and the final
+> visual no-console-flash confirmation — then a GitHub remote + Release with the two zips attached.
 >
 > **Git:** local-only history. `master` = Phase 0+1 restructure baseline; branch `phase-2-bootstrap`
 > = Phase 2; branch `phase-3-launcher` = Phase 3; branch `phase-4-tts-polish` = Phase 4; branch
 > `phase-5-mp3-polish` = Phase 5; branch `phase-6-metadata-editor` = Phase 6; branch
-> `phase-7-test-matrix` = Phase 7. No remote yet — GitHub is handled at the very end. The real-asset
+> `phase-7-test-matrix` = Phase 7; branch `phase-8-release` = Phase 8. No remote yet — GitHub is
+> handled at the very end. The real-asset
 > **`test-files/`** folder at the repo root (~2.7 GB: 2 M4Bs, 289 MP3, 836 PDF, etc.) is **gitignored**
 > — it is a local test fixture, never committed.
 
@@ -104,7 +114,9 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 | M4B Maker | `scripts/mp3_tools/m4b_maker.py` | MP3s → M4B with chapters, metadata, cover, **series tags** (new in Phase 6) |
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
 | M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. |
-| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`), `logging_setup.py`, `bootstrap.py`. |
+| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`), `logging_setup.py`, `bootstrap.py`, `version.py` (Phase 8 — single
+source of truth `VERSION = "0.1.0"`), `release.py` (Phase 8 — dev-only zip packager, never imported by
+the app). |
 
 ---
 
@@ -389,10 +401,17 @@ documented `.command` Terminal-auto-close and ffmpeg-via-Homebrew differences.
 ## 13. Release Process
 
 1. All test matrix cells PASS.
-2. CHANGELOG `[Unreleased]` → `[X.Y.Z] - YYYY-MM-DD`.
-3. Version bumped in both OS folders.
-4. Zip each OS folder + root files; attach to GitHub Release.
+2. CHANGELOG `[Unreleased]` → `[X.Y.Z] - YYYY-MM-DD` (both OS trees).
+3. Bump `VERSION` in `scripts/shared/version.py` (single source of truth; kept identical in both trees).
+4. Run `python Windows/scripts/shared/release.py` — zips each OS folder + the root README/launcher
+   into `dist/AudiobookTool-{Windows,MacOS}-vX.Y.Z.zip` (excludes `.venv`/`__pycache__`/`*.pyc`/`logs`/
+   `settings.json`/`bin`/`test-files`) and prints this checklist. Attach both zips to the GitHub Release.
 5. README download links updated.
+
+**Done for v0.1.0 (Phase 8):** steps 2–4 are implemented and exercised — `release.py` produced both
+zips and `zipfile.namelist()` confirmed README + launcher at each archive root with zero excluded
+leaks. Remaining for the actual public ship: the live pre-release pass (Debug Gate 2 clean-machine
+install, macOS matrix on a Mac, visual no-flash check) and creating the GitHub remote + Release.
 
 ---
 
