@@ -190,3 +190,31 @@ def write_m4b_tags(path, tags: dict) -> None:
             del mp4.tags["covr"]
 
     mp4.save()
+
+
+def clear_metadata_keep_chapters(path) -> None:
+    """Remove every standard + freeform iTunes metadata atom from an M4B while
+    PRESERVING chapter markers, their titles, and any bookmark structure.
+
+    Use this on a COPY only — never on an imported original (the Metadata Editor
+    copies first, per Phase B).
+
+    Implementation (verified empirically against a real multi-chapter M4B):
+      - Chapter data in MP4/M4B lives in a dedicated chapter *track* (a ``trak``
+        in ``moov``, referenced by a ``chap`` track reference), NOT in the
+        ``ilst`` metadata atoms that ``mutagen.mp4.MP4Tags`` exposes. Clearing
+        every ``MP4Tags`` key (title/artist/album/year/genre/comment/cover art,
+        the freeform ``----:com.apple.iTunes:SERIES``/``SERIES-PART`` atoms, and
+        anything else in ``ilst``) therefore leaves the chapter track — and so
+        the chapter count, titles, and timestamps — untouched.
+      - We delete keys individually (rather than rely on a full container
+        rewrite) so no chapter track is ever dropped. mutagen's ``save`` only
+        rewrites the ``ilst``/``udta`` metadata, not the chapter ``trak``.
+    """
+    from mutagen.mp4 import MP4
+
+    mp4 = MP4(str(Path(path)))
+    if mp4.tags:
+        for key in list(mp4.tags.keys()):
+            del mp4.tags[key]
+        mp4.save()
