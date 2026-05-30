@@ -5,7 +5,12 @@
 # Refactored for the unified launcher: UI is built by build_ui(parent); all
 # ffmpeg calls and folder-opening go through shared.subprocess_utils so no
 # console window flashes on Windows.
+#
+# Phase 5: Cancel button (cooperative, checked between files), input/output
+# folders remembered via shared.settings (default = home, no hardcoded
+# ~/Downloads), and tag args built by shared.metadata.
 
+import queue
 import sys
 import threading
 from pathlib import Path
@@ -21,23 +26,48 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils
+from shared import metadata
+from shared import settings
 from shared import subprocess_utils as sp
 
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
 
+# settings.json keys (Phase 5)
+KEY_INPUT_DIR = "m4b_converter.input_dir"
+KEY_OUTPUT_DIR = "m4b_converter.output_dir"
+
 
 # ---------- helpers ---------- #
 
 
-def next_output_dir() -> Path:
-    base = Path.home() / "Downloads"
+def _remembered_dir(key: str) -> Path:
+    """Return the saved folder for ``key`` if it still exists, else the home dir."""
+    val = settings.get(key)
+    if val:
+        p = Path(val)
+        if p.exists():
+            return p
+    return Path.home()
+
+
+def next_output_dir(base: Path) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     n = 1
     while True:
         candidate = base / f"m4b_converter_output-{n}"
         if not candidate.exists():
             candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        n += 1
+
+
+def preview_output_dir(base: Path) -> Path:
+    """The next auto folder name under ``base`` without creating it."""
+    n = 1
+    while True:
+        candidate = base / f"m4b_converter_output-{n}"
+        if not candidate.exists():
             return candidate
         n += 1
 
@@ -68,6 +98,14 @@ class M4BConverterUI(ttk.Frame):
         super().__init__(parent)
 
         self.files: list[Path] = []
+
+        # Cancellation / worker plumbing (mirrors the TTS tool's pattern).
+        self._busy = threading.Event()
+        self._cancel_event = threading.Event()
+        self._log_q: queue.Queue = queue.Queue()
+
+        # Remembered base output folder (default = home; never ~/Downloads).
+        self.var_outdir = tk.StringVar(value=str(_remembered_dir(KEY_OUTPUT_DIR)))
 
         # Top buttons
         top = ttk.Frame(self)
@@ -157,10 +195,20 @@ class M4BConverterUI(ttk.Frame):
         self.entry_start_num = ttk.Entry(options, textvariable=self.var_start_num, width=6)
         self.entry_start_num.grid(row=row, column=1, sticky="w", padx=(70, 8), pady=2)
 
-        # Output dir preview
+        # Output folder picker (remembered base)
+        row += 1
+        ttk.Label(options, text="Output folder:").grid(
+            row=row, column=0, sticky="e", padx=8, pady=4
+        )
+        self.entry_outdir = ttk.Entry(options, textvariable=self.var_outdir)
+        self.entry_outdir.grid(row=row, column=1, columnspan=2, sticky="we", padx=8, pady=4)
+        self.btn_browse_out = ttk.Button(options, text="Browse…", command=self.choose_outdir)
+        self.btn_browse_out.grid(row=row, column=3, sticky="w", padx=8, pady=4)
+
+        # Output dir preview (the auto subfolder created on convert)
         row += 1
         self.out_dir_preview = tk.StringVar(value="")
-        ttk.Label(options, text="Output folder (auto):").grid(
+        ttk.Label(options, text="Next output (auto):").grid(
             row=row, column=0, sticky="e", padx=8, pady=4
         )
         self.lbl_outdir = ttk.Label(
@@ -173,6 +221,10 @@ class M4BConverterUI(ttk.Frame):
         action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
         self.btn_convert = ttk.Button(action, text="Convert M4Bs → MP3s", command=self.start_convert)
         self.btn_convert.pack(side=tk.LEFT)
+        self.btn_cancel = ttk.Button(
+            action, text="Cancel", command=self.cancel, state=tk.DISABLED
+        )
+        self.btn_cancel.pack(side=tk.LEFT, padx=8)
         self.btn_open_out = ttk.Button(action, text="Open Output Folder", command=self.open_outdir)
         self.btn_open_out.pack(side=tk.LEFT, padx=8)
 
@@ -201,12 +253,17 @@ class M4BConverterUI(ttk.Frame):
             self.log_write("FFmpeg detected.\n")
 
         self.refresh_outdir_preview()
+        self.var_outdir.trace_add("write", lambda *_: self.refresh_outdir_preview())
+
+        # Start draining the worker->GUI queue on the main thread.
+        self.after(150, self._pump_queue)
 
     # ------- UI callbacks -------
 
     def add_files(self):
         files = filedialog.askopenfilenames(
             title="Select .m4b files",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
             filetypes=[("M4B Audiobooks", "*.m4b"), ("All files", "*.*")],
         )
         if not files:
@@ -217,6 +274,7 @@ class M4BConverterUI(ttk.Frame):
                 continue
             self.files.append(p)
             self.listbox.insert(tk.END, str(p))
+        settings.set(KEY_INPUT_DIR, str(Path(files[0]).parent))
         self.update_count()
 
     def remove_selected(self):
@@ -235,16 +293,23 @@ class M4BConverterUI(ttk.Frame):
     def update_count(self):
         self.count_var.set(f"{len(self.files)} file(s)")
 
+    def choose_outdir(self):
+        d = filedialog.askdirectory(
+            title="Choose output folder", initialdir=self.var_outdir.get() or str(Path.home())
+        )
+        if d:
+            self.var_outdir.set(d)
+
+    def output_base(self) -> Path:
+        base = self.var_outdir.get().strip()
+        return Path(base) if base else Path.home()
+
     def refresh_outdir_preview(self):
-        # preview without actually creating a new folder each time
-        base = Path.home() / "Downloads"
-        n = 1
-        while True:
-            candidate = base / f"m4b_converter_output-{n}"
-            if not candidate.exists():
-                self.out_dir_preview.set(str(candidate))
-                break
-            n += 1
+        # Preview without actually creating a new folder each time.
+        try:
+            self.out_dir_preview.set(str(preview_output_dir(self.output_base())))
+        except Exception:
+            self.out_dir_preview.set("")
 
     def open_outdir(self):
         out_dir = Path(self.out_dir_preview.get())
@@ -253,17 +318,55 @@ class M4BConverterUI(ttk.Frame):
         sp.reveal_in_file_manager(out_dir)
 
     def start_convert(self):
+        if self._busy.is_set():
+            return
         if not self.files:
             messagebox.showwarning("No files", "Please import .m4b files first.")
             return
         if not ffmpeg_utils.have_ffmpeg():
             messagebox.showerror("FFmpeg not found", "FFmpeg/ffprobe not found.")
             return
-        outdir = next_output_dir()
+
+        # Read all Tk vars here on the main thread; the worker uses these copies
+        # only (touching Tk from a worker raises "main thread is not in main loop").
+        try:
+            quality = max(0, min(9, int(self.var_quality.get())))
+        except Exception:
+            quality = DEFAULT_QUALITY
+        params = {
+            "quality": quality,
+            "write_tags": not self.var_no_tags.get(),
+            "title": self.title_entry.get().strip(),
+            "artist": self.artist_entry.get().strip(),
+            "album_artist": self.album_artist_entry.get().strip(),
+            "album": self.album_entry.get().strip(),
+            "do_track": self.var_auto_num.get(),
+            "start_num": int(self.var_start_num.get() or 1),
+            "files": list(self.files),
+        }
+
+        base = self.output_base()
+        outdir = next_output_dir(base)
+        settings.set(KEY_OUTPUT_DIR, str(base))
         self.out_dir_preview.set(str(outdir))
+
+        self._busy.set()
+        self._cancel_event.clear()
+        self.progress.configure(maximum=len(params["files"]), value=0)
         self.disable_inputs(True)
-        t = threading.Thread(target=self.convert_worker, args=(outdir,), daemon=True)
+        self.btn_cancel.configure(state=tk.NORMAL)
+
+        t = threading.Thread(
+            target=self.convert_worker, args=(outdir, params), daemon=True
+        )
         t.start()
+
+    def cancel(self):
+        if not self._busy.is_set() or self._cancel_event.is_set():
+            return
+        self._cancel_event.set()
+        self.btn_cancel.configure(state=tk.DISABLED)
+        self._log_q.put(("log", "Cancelling… will stop after the current file.\n"))
 
     def disable_inputs(self, state: bool):
         widgets = [
@@ -279,6 +382,8 @@ class M4BConverterUI(ttk.Frame):
             self.album_entry,
             self.chk_auto_num,
             self.entry_start_num,
+            self.entry_outdir,
+            self.btn_browse_out,
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
@@ -286,41 +391,59 @@ class M4BConverterUI(ttk.Frame):
     def log_write(self, text: str):
         self.log.insert(tk.END, text)
         self.log.see(tk.END)
-        self.update_idletasks()
 
-    # ------- conversion -------
+    # ------- worker -> GUI queue pump (main thread) -------
 
-    def convert_worker(self, outdir: Path):
-        total = len(self.files)
-        self.progress.configure(maximum=total, value=0)
-        quality = max(0, min(9, int(self.var_quality.get())))
-        write_tags = not self.var_no_tags.get()
-        bulk_title = self.title_entry.get().strip()
-        artist = self.artist_entry.get().strip()
-        album_artist = self.album_artist_entry.get().strip()
-        album = self.album_entry.get().strip()
-        do_track = self.var_auto_num.get()
-        start_num = int(self.var_start_num.get() or 1)
+    def _pump_queue(self):
+        try:
+            while True:
+                kind, payload = self._log_q.get_nowait()
+                if kind == "log":
+                    self.log_write(payload)
+                elif kind == "progress":
+                    self.progress.configure(value=payload)
+                elif kind == "done":
+                    self.log_write(payload[0])
+                    self._finish_idle()
+                    if payload[1] is not None:
+                        sp.reveal_in_file_manager(payload[1])
+        except queue.Empty:
+            pass
+        self.after(150, self._pump_queue)
 
-        for idx, in_file in enumerate(self.files, start=1):
+    def _finish_idle(self):
+        self._busy.clear()
+        self._cancel_event.clear()
+        self.disable_inputs(False)
+        self.btn_cancel.configure(state=tk.DISABLED)
+
+    # ------- conversion (worker thread) -------
+
+    def convert_worker(self, outdir: Path, params: dict):
+        files = params["files"]
+        total = len(files)
+        cancelled = False
+
+        for idx, in_file in enumerate(files, start=1):
+            if self._cancel_event.is_set():
+                cancelled = True
+                break
             try:
                 stem = sanitize_filename(in_file.stem)
                 out_mp3 = outdir / f"{stem}.mp3"
 
                 cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-y", "-i", quote(in_file), "-vn"]
 
-                if write_tags:
-                    title_val = bulk_title if bulk_title else stem
-                    cmd += ["-metadata", f"title={title_val}"]
-                    if artist:
-                        cmd += ["-metadata", f"artist={artist}"]
-                    if album_artist:
-                        cmd += ["-metadata", f"album_artist={album_artist}"]
-                    if album:
-                        cmd += ["-metadata", f"album={album}"]
-                    if do_track:
-                        trackno = start_num + (idx - 1)
-                        cmd += ["-metadata", f"track={trackno}"]
+                if params["write_tags"]:
+                    tags = {
+                        "title": params["title"] if params["title"] else stem,
+                        "artist": params["artist"],
+                        "album_artist": params["album_artist"],
+                        "album": params["album"],
+                    }
+                    if params["do_track"]:
+                        tags["track"] = params["start_num"] + (idx - 1)
+                    cmd += metadata.ffmpeg_metadata_args(tags)
                     cmd += ["-id3v2_version", "3"]
                 else:
                     cmd += ["-map_metadata", "-1"]
@@ -329,30 +452,35 @@ class M4BConverterUI(ttk.Frame):
                     "-c:a",
                     "libmp3lame",
                     "-q:a",
-                    str(quality),
+                    str(params["quality"]),
                     "-threads",
                     "0",
                     quote(out_mp3),
                 ]
 
-                self.log_write(
-                    f"\n[{idx}/{total}] Converting:\n  {in_file}\n  -> {out_mp3}\n"
+                self._log_q.put(
+                    ("log", f"\n[{idx}/{total}] Converting:\n  {in_file}\n  -> {out_mp3}\n")
                 )
                 proc = sp.run(cmd, stdout=PIPE, stderr=STDOUT, text=True)
                 if proc.returncode != 0:
-                    self.log_write((proc.stdout or "")[-2000:] + "\n")
+                    self._log_q.put(("log", (proc.stdout or "")[-2000:] + "\n"))
+                    # Drop the partial/failed output so the folder only holds good files.
+                    try:
+                        out_mp3.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                     raise RuntimeError(f"FFmpeg failed (code {proc.returncode}).")
 
-                self.log_write("  ✓ Done\n")
+                self._log_q.put(("log", "  ✓ Done\n"))
             except Exception as e:
-                self.log_write(f"  ✗ Error: {e}\n")
+                self._log_q.put(("log", f"  ✗ Error: {e}\n"))
             finally:
-                self.progress.configure(value=idx)
-                self.update_idletasks()
+                self._log_q.put(("progress", idx))
 
-        self.log_write(f"\nAll done. Output: {outdir}\n")
-        self.disable_inputs(False)
-        sp.reveal_in_file_manager(outdir)
+        if cancelled:
+            self._log_q.put(("done", (f"\nCancelled. Output so far: {outdir}\n", outdir)))
+        else:
+            self._log_q.put(("done", (f"\nAll done. Output: {outdir}\n", outdir)))
 
 
 def build_ui(parent: tk.Misc) -> M4BConverterUI:
@@ -365,8 +493,8 @@ def build_ui(parent: tk.Misc) -> M4BConverterUI:
 def main():
     root = tk.Tk()
     root.title(APP_TITLE)
-    root.geometry("900x620")
-    root.minsize(900, 620)
+    root.geometry("900x680")
+    root.minsize(900, 680)
     build_ui(root)
     root.mainloop()
 

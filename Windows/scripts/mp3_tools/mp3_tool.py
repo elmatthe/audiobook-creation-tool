@@ -8,15 +8,22 @@
 # flashes on Windows.
 #
 # Behavior preserved from v5.7:
-# - Write ID3 Tags always outputs to ~/Downloads/edited_mp3s-* (even at delta 0).
+# - Write ID3 Tags always outputs to <output folder>/edited_mp3s-* (even at delta 0).
 # - Keep combined_time-stamps.txt for combined MP3s.
 # - Only create ffmpeg_log.txt when an ffmpeg error occurs.
 # - Fast-first concat with auto-fallback to safe WAV (and gap insertion).
 # - Strip ALL metadata on any new/processed file; only write title, artist,
 #   albumartist, album, tracknumber (when you click Write ID3).
+#
+# Phase 5: operations now run on a worker thread with a Cancel button
+# (cooperative cancellation checked between files), and the output base folder
+# is remembered via shared.settings (default = home; no hardcoded ~/Downloads).
 
+import queue
 import sys
 import shlex
+import shutil
+import threading
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -30,7 +37,9 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils
+from shared import settings
 from shared import subprocess_utils as sp
+from shared.cancellation import ConversionCancelled, raise_if_cancelled
 
 try:
     from mutagen.easyid3 import EasyID3
@@ -42,9 +51,23 @@ except Exception:
 APP_TITLE = "MP3 Tool v5.7 (Fast-first + Auto-fallback)"
 BASE_OUTPUT_DIRNAME = "edited_mp3s"
 
+# settings.json keys (Phase 5)
+KEY_INPUT_DIR = "mp3_tool.input_dir"
+KEY_OUTPUT_DIR = "mp3_tool.output_dir"
+
 # ---------------------------
 # Utilities
 # ---------------------------
+
+
+def _remembered_dir(key: str) -> Path:
+    """Return the saved folder for ``key`` if it still exists, else the home dir."""
+    val = settings.get(key)
+    if val:
+        p = Path(val)
+        if p.exists():
+            return p
+    return Path.home()
 
 
 def ensure_ffmpeg_available() -> bool:
@@ -332,23 +355,42 @@ class MP3ToolUI(ttk.Frame):
 
         self.file_list: List[Path] = []
 
+        # Cancellation / worker plumbing (mirrors the TTS tool's pattern).
+        self._busy = threading.Event()
+        self._cancel_event = threading.Event()
+        self._log_q: queue.Queue = queue.Queue()
+
+        self.var_outdir = tk.StringVar(value=str(_remembered_dir(KEY_OUTPUT_DIR)))
+
         frame = ttk.Frame(self)
         frame.pack(padx=10, pady=10, fill="both", expand=True)
 
         # Top buttons
         bbar = ttk.Frame(frame)
         bbar.pack(fill="x")
-        ttk.Button(bbar, text="Import MP3 Files", command=self.import_files).pack(
-            side="left", padx=5
+        self.btn_import = ttk.Button(bbar, text="Import MP3 Files", command=self.import_files)
+        self.btn_import.pack(side="left", padx=5)
+        self.btn_remove = ttk.Button(bbar, text="Remove Selected", command=self.remove_selected)
+        self.btn_remove.pack(side="left", padx=5)
+        self.btn_clear = ttk.Button(bbar, text="Clear List", command=self.clear_list)
+        self.btn_clear.pack(side="left", padx=5)
+        self.btn_cancel = ttk.Button(
+            bbar, text="Cancel", command=self.cancel, state=tk.DISABLED
         )
-        ttk.Button(bbar, text="Remove Selected", command=self.remove_selected).pack(
-            side="left", padx=5
-        )
-        ttk.Button(bbar, text="Clear List", command=self.clear_list).pack(side="left", padx=5)
+        self.btn_cancel.pack(side="right", padx=5)
 
         # Listbox
         self.listbox = tk.Listbox(frame, selectmode=tk.EXTENDED, width=80, height=12)
         self.listbox.pack(fill="both", expand=True, pady=8)
+
+        # Output folder
+        outrow = ttk.Frame(frame)
+        outrow.pack(fill="x", pady=(0, 6))
+        ttk.Label(outrow, text="Output folder:").pack(side="left")
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
+        self.entry_outdir.pack(side="left", fill="x", expand=True, padx=(6, 6))
+        self.btn_browse_out = ttk.Button(outrow, text="Browse…", command=self.choose_outdir)
+        self.btn_browse_out.pack(side="left")
 
         # Gap
         gaprow = ttk.Frame(frame)
@@ -366,7 +408,8 @@ class MP3ToolUI(ttk.Frame):
         ).pack(anchor="w")
 
         # Combine
-        ttk.Button(frame, text="Combine MP3s → One MP3", command=self.combine_mp3s).pack(pady=6)
+        self.btn_combine = ttk.Button(frame, text="Combine MP3s → One MP3", command=self.combine_mp3s)
+        self.btn_combine.pack(pady=6)
 
         # Time edit (applies to ALL files)
         trow = ttk.Frame(frame)
@@ -374,9 +417,8 @@ class MP3ToolUI(ttk.Frame):
         ttk.Label(trow, text="Add/Remove time at END of each track (seconds):").pack(side="left")
         self.time_delta_var = tk.StringVar(value="0")
         ttk.Entry(trow, textvariable=self.time_delta_var, width=8).pack(side="left", padx=5)
-        ttk.Button(trow, text="Apply to All Files", command=self.apply_time_edit).pack(
-            side="left", padx=6
-        )
+        self.btn_time = ttk.Button(trow, text="Apply to All Files", command=self.apply_time_edit)
+        self.btn_time.pack(side="left", padx=6)
 
         # ID3 group (applies to ALL files)
         grp = ttk.LabelFrame(frame, text="Bulk Edit ID3 Tags (applies to all files)")
@@ -428,9 +470,8 @@ class MP3ToolUI(ttk.Frame):
         self.chapter_titles_text = tk.Text(grp, height=8, width=50, wrap="word")
         self.chapter_titles_text.grid(row=6, column=1, sticky="we", padx=5, pady=3)
 
-        ttk.Button(grp, text="Write ID3 Tags", command=self.write_id3_tags).grid(
-            row=7, column=0, columnspan=2, pady=8
-        )
+        self.btn_id3 = ttk.Button(grp, text="Write ID3 Tags", command=self.write_id3_tags)
+        self.btn_id3.grid(row=7, column=0, columnspan=2, pady=8)
 
         # Status
         self.status = tk.StringVar(value="")
@@ -439,11 +480,29 @@ class MP3ToolUI(ttk.Frame):
         if not ensure_ffmpeg_available():
             self.status.set("WARNING: ffmpeg/ffprobe not found. Run the setup launcher to install it.")
 
+        # Start draining the worker->GUI queue on the main thread.
+        self.after(150, self._pump_queue)
+
+    # ---------- output folder ----------
+
+    def choose_outdir(self):
+        d = filedialog.askdirectory(
+            title="Choose output folder", initialdir=self.var_outdir.get() or str(Path.home())
+        )
+        if d:
+            self.var_outdir.set(d)
+
+    def output_base(self) -> Path:
+        base = self.var_outdir.get().strip()
+        return Path(base) if base else Path.home()
+
     # ---------- file list ops ----------
 
     def import_files(self):
         files = filedialog.askopenfilenames(
-            title="Select MP3 files", filetypes=[("MP3 files", "*.mp3")]
+            title="Select MP3 files",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
+            filetypes=[("MP3 files", "*.mp3")],
         )
         if not files:
             return
@@ -454,6 +513,7 @@ class MP3ToolUI(ttk.Frame):
                 self.file_list.append(p)
                 self.listbox.insert(tk.END, p.name)
                 added += 1
+        settings.set(KEY_INPUT_DIR, str(Path(files[0]).parent))
         self.status.set(f"Added {added} files. Total: {len(self.file_list)}")
 
     def remove_selected(self):
@@ -470,9 +530,66 @@ class MP3ToolUI(ttk.Frame):
         self.listbox.delete(0, tk.END)
         self.status.set("Cleared file list.")
 
+    # ---------- cancel + queue pump ----------
+
+    def cancel(self):
+        if not self._busy.is_set() or self._cancel_event.is_set():
+            return
+        self._cancel_event.set()
+        self.btn_cancel.configure(state=tk.DISABLED)
+        self._log_q.put(("status", "Cancelling… will stop at the next file."))
+
+    def _begin_busy(self):
+        self._busy.set()
+        self._cancel_event.clear()
+        self._set_inputs_state(tk.DISABLED)
+        self.btn_cancel.configure(state=tk.NORMAL)
+
+    def _set_inputs_state(self, state):
+        for w in (
+            self.btn_import,
+            self.btn_remove,
+            self.btn_clear,
+            self.btn_combine,
+            self.btn_time,
+            self.btn_id3,
+            self.entry_outdir,
+            self.btn_browse_out,
+        ):
+            w.configure(state=state)
+
+    def _pump_queue(self):
+        try:
+            while True:
+                kind, payload = self._log_q.get_nowait()
+                if kind == "status":
+                    self.status.set(payload)
+                elif kind == "info":
+                    self.status.set(payload[0])
+                    self._finish_idle()
+                    messagebox.showinfo(APP_TITLE, payload[1])
+                elif kind == "error":
+                    self.status.set(payload[0])
+                    self._finish_idle()
+                    messagebox.showerror(APP_TITLE, payload[1])
+                elif kind == "cancelled":
+                    self.status.set("Cancelled.")
+                    self._finish_idle()
+        except queue.Empty:
+            pass
+        self.after(150, self._pump_queue)
+
+    def _finish_idle(self):
+        self._busy.clear()
+        self._cancel_event.clear()
+        self._set_inputs_state(tk.NORMAL)
+        self.btn_cancel.configure(state=tk.DISABLED)
+
     # ---------- combine ----------
 
     def combine_mp3s(self):
+        if self._busy.is_set():
+            return
         if not self.file_list:
             messagebox.showwarning(APP_TITLE, "Import MP3 files first.")
             return
@@ -487,6 +604,7 @@ class MP3ToolUI(ttk.Frame):
         out_path = filedialog.asksaveasfilename(
             title="Save combined MP3 as…",
             defaultextension=".mp3",
+            initialdir=str(_remembered_dir(KEY_OUTPUT_DIR)),
             initialfile="combined.mp3",
             filetypes=[("MP3 files", "*.mp3")],
         )
@@ -494,40 +612,61 @@ class MP3ToolUI(ttk.Frame):
             return
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        settings.set(KEY_OUTPUT_DIR, str(out_path.parent))
+
+        params = {
+            "files": list(self.file_list),
+            "gap": gap,
+            "fast_first": self.fast_first_var.get(),
+            "out_path": out_path,
+        }
+        self._begin_busy()
+        threading.Thread(target=self._combine_worker, args=(params,), daemon=True).start()
+
+    def _combine_worker(self, params: dict):
+        cancel_check = self._cancel_event.is_set
+        files = params["files"]
+        gap = params["gap"]
+        out_path = params["out_path"]
 
         base_out_dir = out_path.parent / BASE_OUTPUT_DIRNAME
         out_dir = next_available_folder(base_out_dir)
         build_dir = out_dir / "build"
         build_dir.mkdir(parents=True, exist_ok=True)
 
-        fast_allowed = (gap == 0.0) and self.fast_first_var.get()
+        try:
+            fast_allowed = (gap == 0.0) and params["fast_first"]
 
-        # FAST PATH
-        if fast_allowed:
-            self.status.set("FAST mode: concatenating MP3s…")
-            self.update_idletasks()
-            list_fast = build_dir / "inputs_fast.txt"
-            write_concat_listfile(self.file_list, list_fast)
-            if concat_mp3s_fast(list_fast, out_path, out_dir):
-                self._write_timestamps(self.file_list, gap, out_dir)  # keep timestamps
-                self.status.set(f"Done (FAST). Output: {out_path}")
-                messagebox.showinfo(APP_TITLE, f"Combine complete.\nOutput: {out_path}")
-                return
+            # FAST PATH
+            if fast_allowed:
+                self._log_q.put(("status", "FAST mode: concatenating MP3s…"))
+                raise_if_cancelled(cancel_check)
+                list_fast = build_dir / "inputs_fast.txt"
+                write_concat_listfile(files, list_fast)
+                if concat_mp3s_fast(list_fast, out_path, out_dir):
+                    self._write_timestamps(files, gap, out_dir)  # keep timestamps
+                    self._log_q.put(
+                        ("info", (f"Done (FAST). Output: {out_path}", f"Combine complete.\nOutput: {out_path}"))
+                    )
+                    return
+                else:
+                    self._log_q.put(("status", "FAST failed — switching to SAFE (WAV normalize)…"))
+
+            # SAFE PATH
+            if self._safe_concat_with_optional_gaps(files, gap, out_path, out_dir, cancel_check):
+                self._log_q.put(
+                    ("info", (f"Done (SAFE). Output: {out_path}", f"Combine complete.\nOutput: {out_path}"))
+                )
             else:
-                self.status.set("FAST failed — switching to SAFE (WAV normalize)…")
-                self.update_idletasks()
-
-        # SAFE PATH
-        if self._safe_concat_with_optional_gaps(self.file_list, gap, out_path, out_dir):
-            self.status.set(f"Done (SAFE). Output: {out_path}")
-            messagebox.showinfo(APP_TITLE, f"Combine complete.\nOutput: {out_path}")
-        else:
-            messagebox.showerror(
-                APP_TITLE, f"FFmpeg failed.\nSee: {out_dir / 'ffmpeg_log.txt'} (if present)"
-            )
+                self._log_q.put(
+                    ("error", ("FFmpeg failed.", f"FFmpeg failed.\nSee: {out_dir / 'ffmpeg_log.txt'} (if present)"))
+                )
+        except ConversionCancelled:
+            self._cleanup_partial(out_dir, out_path)
+            self._log_q.put(("cancelled", None))
 
     def _safe_concat_with_optional_gaps(
-        self, mp3s: List[Path], gap_sec: float, out_path: Path, out_dir: Path
+        self, mp3s: List[Path], gap_sec: float, out_path: Path, out_dir: Path, cancel_check=None
     ) -> bool:
         wav_dir = out_dir / "build" / "wavs"
         wav_dir.mkdir(parents=True, exist_ok=True)
@@ -538,6 +677,7 @@ class MP3ToolUI(ttk.Frame):
         timestamps: List[str] = []
 
         for idx, inp in enumerate(mp3s, start=1):
+            raise_if_cancelled(cancel_check)
             norm = wav_dir / f"{idx:04d}.wav"
             if not normalize_to_wav(inp, norm, out_dir):
                 return False
@@ -556,6 +696,7 @@ class MP3ToolUI(ttk.Frame):
                 stage_paths.append(gp)
                 current_time += gap_sec
 
+        raise_if_cancelled(cancel_check)
         write_concat_listfile(stage_paths, list_safe)
         ok = concat_wavs_to_mp3(list_safe, out_path, out_dir)
 
@@ -593,9 +734,20 @@ class MP3ToolUI(ttk.Frame):
         except Exception:
             pass
 
+    def _cleanup_partial(self, out_dir: Path, out_path: Optional[Path] = None):
+        """Remove the staging output folder (and a partial final file) after cancel."""
+        shutil.rmtree(out_dir, ignore_errors=True)
+        if out_path is not None:
+            try:
+                out_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     # ---------- time edit (ALL files) ----------
 
     def apply_time_edit(self):
+        if self._busy.is_set():
+            return
         if not self.file_list:
             messagebox.showwarning(APP_TITLE, "Import MP3 files first.")
             return
@@ -605,43 +757,67 @@ class MP3ToolUI(ttk.Frame):
             messagebox.showwarning(APP_TITLE, "Enter a numeric value (can be negative).")
             return
 
-        out_dir = next_available_folder(Path.home() / "Downloads" / BASE_OUTPUT_DIRNAME)
+        base = self.output_base()
+        settings.set(KEY_OUTPUT_DIR, str(base))
+        params = {"files": list(self.file_list), "delta": delta, "base": base}
+        self._begin_busy()
+        threading.Thread(target=self._time_edit_worker, args=(params,), daemon=True).start()
 
-        ok_count = 0
-        for src in self.file_list:
-            dst = out_dir / src.name
-            if delta > 0:
-                ok = add_silence_to_mp3(src, delta, dst, out_dir)
-            elif delta < 0:
-                ok = trim_from_end_mp3(src, -delta, dst, out_dir)
-            else:
-                # Copy stream but clear metadata too
-                args = [
-                    ffmpeg_utils.ffmpeg_cmd(),
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-y",
-                    "-i",
-                    str(src),
-                    "-map_metadata",
-                    "-1",
-                    "-c",
-                    "copy",
-                    str(dst),
-                ]
-                code, _, err = run_ff(args)
-                ok = code == 0
-                if not ok:
-                    save_error_log(out_dir, f"copy_no_change: {src.name}", args, err)
-            ok_count += int(ok)
+    def _time_edit_worker(self, params: dict):
+        cancel_check = self._cancel_event.is_set
+        files = params["files"]
+        delta = params["delta"]
+        out_dir = next_available_folder(params["base"] / BASE_OUTPUT_DIRNAME)
 
-        self.status.set(f"Time edit complete: {ok_count}/{len(self.file_list)} written to {out_dir}")
-        messagebox.showinfo(APP_TITLE, f"Time edit complete.\nOutput folder: {out_dir}")
+        try:
+            ok_count = 0
+            for src in files:
+                raise_if_cancelled(cancel_check)
+                dst = out_dir / src.name
+                if delta > 0:
+                    ok = add_silence_to_mp3(src, delta, dst, out_dir)
+                elif delta < 0:
+                    ok = trim_from_end_mp3(src, -delta, dst, out_dir)
+                else:
+                    # Copy stream but clear metadata too
+                    args = [
+                        ffmpeg_utils.ffmpeg_cmd(),
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        str(src),
+                        "-map_metadata",
+                        "-1",
+                        "-c",
+                        "copy",
+                        str(dst),
+                    ]
+                    code, _, err = run_ff(args)
+                    ok = code == 0
+                    if not ok:
+                        save_error_log(out_dir, f"copy_no_change: {src.name}", args, err)
+                ok_count += int(ok)
+
+            self._log_q.put(
+                (
+                    "info",
+                    (
+                        f"Time edit complete: {ok_count}/{len(files)} written to {out_dir}",
+                        f"Time edit complete.\nOutput folder: {out_dir}",
+                    ),
+                )
+            )
+        except ConversionCancelled:
+            self._cleanup_partial(out_dir)
+            self._log_q.put(("cancelled", None))
 
     # ---------- ID3 (ALL files; ALWAYS outputs to edited_mp3s-*) ----------
 
     def write_id3_tags(self):
+        if self._busy.is_set():
+            return
         if EasyID3 is None or MutagenMP3 is None:
             messagebox.showerror(APP_TITLE, "Mutagen not installed. Install with pip: pip install mutagen")
             return
@@ -655,12 +831,6 @@ class MP3ToolUI(ttk.Frame):
         except Exception:
             delta = 0.0
 
-        title_in = self.id3_title_var.get().strip()
-        artist_in = self.id3_artist_var.get().strip()
-        albumartist_in = self.id3_albumartist_var.get().strip()
-        album_in = self.id3_album_var.get().strip()
-
-        auto_num = self.auto_number_var.get()
         start_raw = self.start_num_var.get().strip()
         try:
             start_num = int(start_raw) if start_raw else 1
@@ -671,88 +841,131 @@ class MP3ToolUI(ttk.Frame):
         chapter_blob = self.chapter_titles_text.get("1.0", "end")
         chapter_titles = [ln.strip() for ln in chapter_blob.splitlines() if ln.strip()]
 
+        base = self.output_base()
+        settings.set(KEY_OUTPUT_DIR, str(base))
+        params = {
+            "files": list(self.file_list),
+            "delta": delta,
+            "title": self.id3_title_var.get().strip(),
+            "artist": self.id3_artist_var.get().strip(),
+            "albumartist": self.id3_albumartist_var.get().strip(),
+            "album": self.id3_album_var.get().strip(),
+            "auto_num": self.auto_number_var.get(),
+            "start_num": start_num,
+            "chapter_titles": chapter_titles,
+            "base": base,
+        }
+        self._begin_busy()
+        threading.Thread(target=self._id3_worker, args=(params,), daemon=True).start()
+
+    def _id3_worker(self, params: dict):
+        cancel_check = self._cancel_event.is_set
+        files = params["files"]
+        delta = params["delta"]
+        title_in = params["title"]
+        artist_in = params["artist"]
+        albumartist_in = params["albumartist"]
+        album_in = params["album"]
+        auto_num = params["auto_num"]
+        start_num = params["start_num"]
+        chapter_titles = params["chapter_titles"]
+
         # ALWAYS create an output folder for ID3 operations
-        out_dir = next_available_folder(Path.home() / "Downloads" / BASE_OUTPUT_DIRNAME)
+        out_dir = next_available_folder(params["base"] / BASE_OUTPUT_DIRNAME)
 
-        # Prepare targets in output folder:
-        # - If delta != 0, time-edit into out_dir.
-        # - If delta == 0, stream copy with -map_metadata -1 into out_dir.
-        targets: List[Path] = []
-        if abs(delta) > 1e-9:
-            for p in self.file_list:
-                dst = out_dir / p.name
-                ok = (
-                    add_silence_to_mp3(p, delta, dst, out_dir)
-                    if delta > 0
-                    else trim_from_end_mp3(p, -delta, dst, out_dir)
-                )
-                targets.append(dst if ok else p)
-        else:
-            for p in self.file_list:
-                dst = out_dir / p.name
-                args = [
-                    ffmpeg_utils.ffmpeg_cmd(),
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-y",
-                    "-i",
-                    str(p),
-                    "-map_metadata",
-                    "-1",
-                    "-c",
-                    "copy",
-                    str(dst),
-                ]
-                code, _, err = run_ff(args)
-                if code != 0:
-                    save_error_log(out_dir, f"copy_for_id3: {p.name}", args, err)
-                    targets.append(p)  # fallback
-                else:
-                    targets.append(dst)
+        try:
+            # Prepare targets in output folder:
+            # - If delta != 0, time-edit into out_dir.
+            # - If delta == 0, stream copy with -map_metadata -1 into out_dir.
+            targets: List[Path] = []
+            if abs(delta) > 1e-9:
+                for p in files:
+                    raise_if_cancelled(cancel_check)
+                    dst = out_dir / p.name
+                    ok = (
+                        add_silence_to_mp3(p, delta, dst, out_dir)
+                        if delta > 0
+                        else trim_from_end_mp3(p, -delta, dst, out_dir)
+                    )
+                    targets.append(dst if ok else p)
+            else:
+                for p in files:
+                    raise_if_cancelled(cancel_check)
+                    dst = out_dir / p.name
+                    args = [
+                        ffmpeg_utils.ffmpeg_cmd(),
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        str(p),
+                        "-map_metadata",
+                        "-1",
+                        "-c",
+                        "copy",
+                        str(dst),
+                    ]
+                    code, _, err = run_ff(args)
+                    if code != 0:
+                        save_error_log(out_dir, f"copy_for_id3: {p.name}", args, err)
+                        targets.append(p)  # fallback
+                    else:
+                        targets.append(dst)
 
-        # Write ONLY allowed tags onto targets
-        updated = 0
-        total = len(targets)
-        for idx, p in enumerate(targets, start=1):
-            try:
-                m = MutagenMP3(p)
+            # Write ONLY allowed tags onto targets
+            updated = 0
+            total = len(targets)
+            for idx, p in enumerate(targets, start=1):
+                raise_if_cancelled(cancel_check)
                 try:
-                    tags = EasyID3(p)
-                except Exception:
-                    m.add_tags()
-                    tags = EasyID3(p)
-
-                # Clear any existing keys (defense-in-depth)
-                for k in list(tags.keys()):
+                    m = MutagenMP3(p)
                     try:
-                        del tags[k]
+                        tags = EasyID3(p)
                     except Exception:
-                        pass
+                        m.add_tags()
+                        tags = EasyID3(p)
 
-                # Title priority: pasted chapter title -> Title field -> filename
-                if idx <= len(chapter_titles):
-                    title = chapter_titles[idx - 1]
-                else:
-                    title = title_in if title_in else p.stem
-                if title:
-                    tags["title"] = title
-                if artist_in:
-                    tags["artist"] = artist_in
-                if albumartist_in:
-                    tags["albumartist"] = albumartist_in
-                if album_in:
-                    tags["album"] = album_in
-                if auto_num:
-                    tags["tracknumber"] = str(start_num + (idx - 1))
+                    # Clear any existing keys (defense-in-depth)
+                    for k in list(tags.keys()):
+                        try:
+                            del tags[k]
+                        except Exception:
+                            pass
 
-                tags.save()
-                updated += 1
-            except Exception as e:
-                self.status.set(f"ID3 write failed for {p.name}: {e}")
+                    # Title priority: pasted chapter title -> Title field -> filename
+                    if idx <= len(chapter_titles):
+                        title = chapter_titles[idx - 1]
+                    else:
+                        title = title_in if title_in else p.stem
+                    if title:
+                        tags["title"] = title
+                    if artist_in:
+                        tags["artist"] = artist_in
+                    if albumartist_in:
+                        tags["albumartist"] = albumartist_in
+                    if album_in:
+                        tags["album"] = album_in
+                    if auto_num:
+                        tags["tracknumber"] = str(start_num + (idx - 1))
 
-        self.status.set(f"ID3 updated: {updated}/{total} file(s). Output folder: {out_dir}")
-        messagebox.showinfo(APP_TITLE, f"ID3 writing complete.\nOutput folder: {out_dir}")
+                    tags.save()
+                    updated += 1
+                except Exception as e:
+                    self._log_q.put(("status", f"ID3 write failed for {p.name}: {e}"))
+
+            self._log_q.put(
+                (
+                    "info",
+                    (
+                        f"ID3 updated: {updated}/{total} file(s). Output folder: {out_dir}",
+                        f"ID3 writing complete.\nOutput folder: {out_dir}",
+                    ),
+                )
+            )
+        except ConversionCancelled:
+            self._cleanup_partial(out_dir)
+            self._log_q.put(("cancelled", None))
 
 
 def build_ui(parent: tk.Misc) -> MP3ToolUI:
