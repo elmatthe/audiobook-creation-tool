@@ -8,8 +8,20 @@ The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TX
 
 ---
 
+## Download
+
+Grab the latest release — extract the zip and double‑click the setup file (see [Installation](#installation)):
+
+- **Windows:** [**AudiobookTool-Windows-v0.1.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.0/AudiobookTool-Windows-v0.1.0.zip)
+- **macOS:** [**AudiobookTool-MacOS-v0.1.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.0/AudiobookTool-MacOS-v0.1.0.zip)
+
+All releases are listed on the [**Releases page**](https://github.com/elmatthe/audiobook-creation-tool/releases).
+
+---
+
 ## Table of Contents
 
+- [Download](#download)
 - [Features](#features)
 - [The Launcher](#the-launcher)
 - [Installation](#installation)

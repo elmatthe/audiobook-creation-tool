@@ -408,10 +408,16 @@ documented `.command` Terminal-auto-close and ffmpeg-via-Homebrew differences.
    `settings.json`/`bin`/`test-files`) and prints this checklist. Attach both zips to the GitHub Release.
 5. README download links updated.
 
-**Done for v0.1.0 (Phase 8):** steps 2–4 are implemented and exercised — `release.py` produced both
-zips and `zipfile.namelist()` confirmed README + launcher at each archive root with zero excluded
-leaks. Remaining for the actual public ship: the live pre-release pass (Debug Gate 2 clean-machine
-install, macOS matrix on a Mac, visual no-flash check) and creating the GitHub remote + Release.
+**Done for v0.1.0 (Phases 8–9):** steps 2–5 are complete. Step 4 — `release.py` produced both zips and
+`zipfile.namelist()` confirmed README + launcher at each archive root with zero excluded leaks
+(Phase 8). **Phase 9 finished the public ship:** the GitHub remote
+**[elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)** exists with
+all 8 branches + tag `v0.1.0` pushed (`master` default), the **GitHub Release
+[v0.1.0](https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.1.0)** is published with
+both zips attached (verified downloadable), and the README has direct download links (step 5). The
+release checklist is therefore **complete**. The only items still outstanding are the live
+*verification* tasks that don't gate the publish: the Debug Gate 2 clean‑machine install on Python
+3.12, the macOS matrix column on a Mac, and the final visual no‑console‑flash confirmation.
 
 ---
 
