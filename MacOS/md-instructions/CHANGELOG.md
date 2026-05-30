@@ -16,6 +16,37 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- **Phase 6 (M4B Metadata Editor + Series Tags) — complete (new editor tool, series
+  fields in M4B Maker, verified headless).**
+  - Added **`scripts/mp3_tools/m4b_metadata_editor.py`** — a new tool that opens one or
+    more existing M4B files and edits their tags **without re-encoding**, built on
+    `shared/metadata.py`'s `read_m4b_tags` / `write_m4b_tags` (mutagen). Editable fields:
+    **Title, Author/Artist, Album, Year, Genre, Comment, Series Name, Series Part**, and a
+    **cover image** (Browse/Clear). It is **preserve-by-default**: a blank field is never
+    written, so each file keeps its existing tag; a field with a value overwrites that tag
+    in every selected file. **Single-file mode** pre-fills the form from the file's current
+    tags (and notes if a cover is already present); **multi-file mode** shows a *batch*
+    notice and starts blank. The Save runs on a **worker thread** with the standard
+    **Cancel** button (idle-disabled / active-enabled, cooperative cancellation *between
+    files* via `shared/cancellation.py`) and reports **per-file success/failure** in the log
+    pane (one failure doesn't abort the batch). Exposes `build_ui(parent)` for the launcher
+    and a standalone `main()` for debugging.
+  - **Extended `shared/metadata.py` (additively) for the editor's fields.** Added the text
+    atoms **comment (`©cmt`), genre (`©gen`), year (`©day`)** to the mutagen read/write
+    mapping, plus **`cover_path`** (embed a JPEG/PNG as the front `covr` atom, or clear it)
+    and a **`has_cover`** boolean from `read_m4b_tags`. The Phase-5 ffmpeg encode-time
+    helpers (`ffmpeg_metadata_args` / `ffmetadata_header_lines`) are unchanged, so the M4B
+    Converter and the Maker's existing tag path are unaffected.
+  - **Un-hid the Metadata Editor in the launcher sidebar.** The slot was pre-registered in
+    Phase 3 and auto-hidden via `importlib.util.find_spec`; now that the module exists the
+    guard reveals it automatically — **no launcher code change was needed** (verified the
+    sidebar lists all six tools).
+  - **Series tags in M4B Maker.** Added **Series Name** and **Series Part** fields to
+    `M4BMakerUI`. Because ffmpeg cannot write the freeform iTunes atoms, the maker writes
+    them with mutagen (`shared/metadata.write_m4b_tags`) **immediately after a successful
+    encode**, so newly built M4B files carry the `----:com.apple.iTunes:SERIES` /
+    `SERIES-PART` atoms (read by ffprobe as `series` / `series-part`) from the start — not
+    just on a later edit pass.
 - **Phase 5 (MP3 Tools Polish) — complete (Cancel buttons + settings-backed folders +
   shared metadata module, verified headless).**
   - Added a **Cancel button** to all four MP3 tools (M4B Converter, MP3 Tool, M4B Maker,
@@ -230,6 +261,41 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## Session Log
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
+
+### 2026-05-29 — Session 7
+- **Phase:** Phase 6 — M4B Metadata Editor + Series Tags (complete).
+- **Git:** work on new branch `phase-6-metadata-editor` (off `phase-5-mp3-polish`). Local only.
+- **Done:** added `mp3_tools/m4b_metadata_editor.py` (open/edit existing M4B tags without
+  re-encoding; Title/Author/Album/Year/Genre/Comment/Series/cover; preserve-by-default;
+  single-file pre-fill + multi-file batch overwrite; worker-thread Save + Cancel + per-file
+  log; `build_ui` + `main`). Extended `shared/metadata.py` additively (comment/genre/year
+  atoms, `cover_path` embed/clear, `has_cover` read flag) — ffmpeg encode helpers untouched.
+  Added **Series Name / Series Part** fields to `M4BMakerUI`, written via mutagen right after
+  a successful encode (ffmpeg can't write the freeform atoms). Launcher slot auto-reveals via
+  the existing `find_spec` guard — no launcher change. Mirrored all 3 changed/new code files
+  byte-identical to MacOS.
+- **Verification:** `compileall` clean (both full trees); a temporary headless test (real Tk +
+  real mutagen + real ffmpeg/ffprobe) passed **17/17 on each tree** — launcher reveal,
+  single-file round-trip (edit one field, others preserved), comment/genre/cover round-trip,
+  batch blank-preserve / non-blank-overwrite, ffprobe surfacing `series` / `series-part`, and a
+  real short M4B-Maker build whose output carries the series atoms. Test scaffold removed.
+- **Next:** Phase 7 — full cross-platform test matrix (§12) on Windows + a Mac.
+- **Blockers:** none. **Deferred:** live click-through of the editor on a Mac and the broader
+  Phase 7 matrix (manual pre-release pass).
+
+### Debug Gate 6 — PASS (headless)
+- [x] `m4b_metadata_editor.py` exists and compiles; `build_ui(parent)` and `main()` both present.
+- [x] Launcher sidebar shows the Metadata Editor without any manual config change (`_available_tools`
+  lists `m4b_metadata`; the `find_spec` auto-hide now reveals it).
+- [x] Single-file tag round-trip: read tags → edit one field → write → re-read confirms the change,
+  with untouched fields preserved (headless, real mutagen). Comment/genre/cover atoms round-trip too.
+- [x] Batch mode: a blank field preserves each file's existing tag; a non-blank field overwrites all.
+- [x] Series atoms written as `----:com.apple.iTunes:SERIES` / `SERIES-PART` and read back by ffprobe
+  as `series` / `series-part`.
+- [x] M4B Maker series fields present in the UI and written to the output on a real (short) M4B build
+  (ffprobe confirms `series` on the produced file).
+- [x] `compileall` clean, both trees.
+- [~] Live click-through of the editor GUI on a Mac — deferred to the Phase 7 manual pass.
 
 ### 2026-05-29 — Session 6
 - **Phase:** Phase 5 — MP3 Tools Polish (complete).

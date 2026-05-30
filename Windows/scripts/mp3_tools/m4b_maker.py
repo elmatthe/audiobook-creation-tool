@@ -384,6 +384,8 @@ class M4BMakerUI(ttk.Frame):
         self.var_artist = tk.StringVar()
         self.var_album_artist = tk.StringVar()
         self.var_album = tk.StringVar()
+        self.var_series = tk.StringVar()
+        self.var_series_part = tk.StringVar()
         self.var_cover_path = tk.StringVar()
         self.var_outdir = tk.StringVar(value=str(_remembered_dir(KEY_OUTPUT_DIR)))
 
@@ -492,16 +494,18 @@ class M4BMakerUI(ttk.Frame):
         add_row(1, "Artist", self.var_artist)
         add_row(2, "Album Artist", self.var_album_artist)
         add_row(3, "Album", self.var_album)
+        add_row(4, "Series Name", self.var_series)
+        add_row(5, "Series Part", self.var_series_part)
 
         # Cover row
         ttk.Label(form, text="Cover image (JPG/PNG):").grid(
-            row=4, column=0, sticky="e", padx=5, pady=4
+            row=6, column=0, sticky="e", padx=5, pady=4
         )
         ttk.Entry(form, textvariable=self.var_cover_path).grid(
-            row=4, column=1, sticky="we", padx=5, pady=4
+            row=6, column=1, sticky="we", padx=5, pady=4
         )
         btns = ttk.Frame(form)
-        btns.grid(row=4, column=2, sticky="w", padx=6, pady=4)
+        btns.grid(row=6, column=2, sticky="w", padx=6, pady=4)
         ttk.Button(btns, text="Browse…", command=self.choose_cover).pack(side="left")
         ttk.Button(btns, text="Clear", command=self.clear_cover).pack(side="left", padx=(6, 0))
 
@@ -710,6 +714,8 @@ class M4BMakerUI(ttk.Frame):
             "artist": self.var_artist.get().strip(),
             "album_artist": self.var_album_artist.get().strip(),
             "album": self.var_album.get().strip(),
+            "series": self.var_series.get().strip(),
+            "series_part": self.var_series_part.get().strip(),
             "cover_path": self.cover_path if (self.cover_path and self.cover_path.exists()) else None,
         }
 
@@ -823,6 +829,17 @@ class M4BMakerUI(ttk.Frame):
                     run_safe_concat(listfile, ffmeta, cover_path, out_path, "128k")
                 else:
                     raise
+
+            # Series tags (Audiobookshelf freeform atoms) — ffmpeg can't write
+            # these, so add them with mutagen after the encode succeeds.
+            series_tags = {
+                k: params[k]
+                for k in ("series", "series_part")
+                if params.get(k)
+            }
+            if series_tags:
+                self._log_q.put(("log", "Writing series tags…"))
+                metadata.write_m4b_tags(out_path, series_tags)
 
             shutil.rmtree(tmp, ignore_errors=True)
             self._log_q.put(("progress", len(files)))

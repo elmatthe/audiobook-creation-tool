@@ -3,30 +3,31 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status:** Phase 5 (MP3 tools polish) **complete**. All four MP3 tools (M4B Converter, MP3 Tool,
-> M4B Maker, Cover Image Converter) now have a **Cancel button** (idle-disabled, active-enabled) that
-> sets a `threading.Event` checked at natural checkpoints (between files / tracks / at stage
-> boundaries) via `shared/cancellation.py`, cleans up partial output, and logs "Cancelled." To make
-> Cancel possible, **M4B Maker and MP3 Tool moved their conversions onto worker threads** (they were
-> synchronous on the main thread) using the Phase-4 pattern: read Tk vars on the main thread, hand
-> plain copies to the worker, talk back only through a queue drained by `pump_queue`. Every hardcoded
-> `~/Downloads/...` path is gone — input/output folders now route through `shared/settings.py`
-> (per-tool keys, **default = home**), persist on success, pre-fill dialogs, and the three
-> output-producing tools gained an "Output folder" picker. New **`shared/metadata.py`** is the
-> canonical M4B/MP4 tag module: mutagen `read_m4b_tags`/`write_m4b_tags` (+ the Audiobookshelf series
-> atoms) for edit-after, and `ffmpeg_metadata_args`/`ffmetadata_header_lines` (now used by both M4B
-> tools) for encode-time. Verified by `compileall` (both trees) and a headless test (real Tk + real
-> ffmpeg/ffprobe, 38/38): Cancel state machine for all four tools, a worker cancel checkpoint, and a
-> full tag round-trip where **ffprobe surfaces the freeform atoms as `series` / `series-part`**
-> (validates §6 live). Live mid-encode cancel (during a single long ffmpeg call) is deferred to the
-> manual pre-release pass, same posture as the TTS live cancel. Phase 4's TTS Cancel and Phase 3's
-> launcher (sidebar + swappable panel; all tools `build_ui(parent)`; `shared/subprocess_utils` +
-> `settings.py` + `ffmpeg_utils.py`) stand. **Phase 6 (M4B Metadata Editor + series tags in M4B
-> Maker, both built on `shared/metadata.py`) is next.**
+> **Status:** Phase 6 (M4B Metadata Editor + series tags) **complete**. New tool
+> **`mp3_tools/m4b_metadata_editor.py`** opens one or more existing M4B files and edits their tags
+> **without re-encoding**, on top of `shared/metadata.py` (mutagen). Editable: Title, Author/Artist,
+> Album, Year, Genre, Comment, **Series Name / Series Part**, and an embeddable cover image. It is a
+> **preserve-by-default editor**: blank fields are never written (each file keeps its existing tag);
+> a field with a value overwrites that tag in every selected file. Single-file mode pre-fills the form
+> from the file's tags; multi-file mode shows a batch notice and starts blank. The Save runs on a
+> worker thread with the standard **Cancel** button (cooperative, between files) and reports per-file
+> success/failure in the log. The launcher's pre-registered Metadata Editor slot now **auto-reveals**
+> (its `importlib.util.find_spec` guard sees the module). `shared/metadata.py` was extended (additively)
+> to handle the editor's extra atoms — comment (`©cmt`), genre (`©gen`), year (`©day`) — plus
+> `cover_path` embed/clear (`covr`) and a `has_cover` read flag; the ffmpeg encode-time helpers are
+> unchanged. **M4B Maker** gained **Series Name / Series Part** fields; since ffmpeg can't write the
+> freeform iTunes atoms, the maker writes them with mutagen (`write_m4b_tags`) right after a successful
+> encode, so new M4B files carry the series atoms from the start. Verified by `compileall` (both trees)
+> and a headless test (real Tk + real mutagen/ffmpeg/ffprobe, **17/17 on each tree**): launcher reveal,
+> single-file round-trip (edit one field, others preserved), comment/genre/cover round-trip, batch
+> blank-preserve / non-blank-overwrite, **ffprobe surfacing `series` / `series-part`**, and a real short
+> M4B-Maker build whose output carries the series atoms. Phase 5's Cancel/settings/metadata work,
+> Phase 4's TTS Cancel, and Phase 3's launcher all stand. **Phase 7 (full test matrix) is next.**
 >
 > **Git:** local-only history. `master` = Phase 0+1 restructure baseline; branch `phase-2-bootstrap`
 > = Phase 2; branch `phase-3-launcher` = Phase 3; branch `phase-4-tts-polish` = Phase 4; branch
-> `phase-5-mp3-polish` = Phase 5. No remote yet — GitHub is handled at the very end.
+> `phase-5-mp3-polish` = Phase 5; branch `phase-6-metadata-editor` = Phase 6. No remote yet —
+> GitHub is handled at the very end.
 
 ---
 
@@ -98,8 +99,8 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 | MP3 Tool | `scripts/mp3_tools/mp3_tool.py` | Combine MP3s, time-edit, bulk ID3 tagging |
 | M4B Maker | `scripts/mp3_tools/m4b_maker.py` | MP3s → M4B with chapters, metadata, cover, **series tags** (new in Phase 6) |
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
-| M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **New in Phase 6** — edit existing M4B tags; preserves untouched fields |
-| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers), `logging_setup.py`, `bootstrap.py`. |
+| M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. |
+| Shared | `scripts/shared/` | `paths.py`, `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`), `logging_setup.py`, `bootstrap.py`. |
 
 ---
 
