@@ -4,7 +4,7 @@
 
 The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
-> **Status:** v0.1.0 — initial release. Fully verified on Windows (18/18 test‑matrix rows pass against real assets). macOS is built to mirror Windows but awaits a live pass on a Mac. See [Known Limitations](#known-limitations).
+> **Status:** v0.1.1 — adds **non‑destructive copy‑based output** (imported files are never modified), smart auto‑named **Downloads/&lt;Tool&gt;‑N** output folders, a **Clear All Tags (keep chapters)** button, and **per‑file chapter‑title import** in the Metadata Editor. Fully verified on Windows against real assets (incl. the real Harry Potter & Mistborn M4Bs). macOS is built to mirror Windows but awaits a live pass on a Mac. See [Known Limitations](#known-limitations).
 
 ---
 
@@ -12,8 +12,8 @@ The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TX
 
 Grab the latest release — extract the zip and double‑click the setup file (see [Installation](#installation)):
 
-- **Windows:** [**AudiobookTool-Windows-v0.1.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.0/AudiobookTool-Windows-v0.1.0.zip)
-- **macOS:** [**AudiobookTool-MacOS-v0.1.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.0/AudiobookTool-MacOS-v0.1.0.zip)
+- **Windows:** [**AudiobookTool-Windows-v0.1.1.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.1/AudiobookTool-Windows-v0.1.1.zip)
+- **macOS:** [**AudiobookTool-MacOS-v0.1.1.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.1/AudiobookTool-MacOS-v0.1.1.zip)
 
 All releases are listed on the [**Releases page**](https://github.com/elmatthe/audiobook-creation-tool/releases).
 
@@ -44,9 +44,11 @@ Six tools, one window:
 3. **MP3 Tool** — **Combine** many MP3s into one (with optional gaps and a timestamp sheet), **time‑edit** tracks (pad or trim seconds), and **bulk‑write ID3 tags** (title / artist / album / track numbers, with a paste‑in chapter‑title list).
 4. **M4B Maker** — Turn a set of MP3s into a single **chaptered .m4b** with embedded **cover art**, full metadata, and **Audiobookshelf series tags** (series name + part).
 5. **Cover Image Converter** — Pad (letterbox) or center‑crop cover art to a clean **square**; accepts JPG / PNG / HEIC.
-6. **M4B Metadata Editor** — Open one or more existing **.m4b** files and edit their tags **without re‑encoding** — Title, Author, Album, Year, Genre, Comment, Series, and cover image. **Preserve‑by‑default:** a blank field is never written, so each file keeps its existing value; a filled field overwrites that tag across every selected file.
+6. **M4B Metadata Editor** — Open one or more existing **.m4b** files and edit their tags **without re‑encoding** — Title, Author, Album, Year, Genre, Comment, Series, and cover image. **Preserve‑by‑default:** a blank field is never written, so each file keeps its existing value; a filled field overwrites that tag across every selected file. A **Clear All Tags (keep chapters)** button wipes all identifying metadata (and cover art) while leaving the chapter markers and titles intact, and a paged **chapter‑title import** lets you paste new chapter titles (one per line, applied positionally, blank line = leave that chapter) per file.
 
-Cross‑cutting niceties: every long operation runs on a worker thread with a live log and a **Cancel** button; the app remembers your last‑used input/output folders, window size, and selected tool between runs; and **no console window ever flashes** during normal use.
+**Non‑destructive by design (v0.1.1):** every tool that transforms a file works on a **copy** and delivers results to an auto‑named **`Downloads/<Tool>-N`** folder (chosen fresh each launch; **Browse** redirects it for the current run). Your imported originals are never modified — the only exception is the Cover Image tool's explicit "overwrite original" toggle.
+
+Cross‑cutting niceties: every long operation runs on a worker thread with a live log and a **Cancel** button; the app remembers your last‑used input folder, window size, and selected tool between runs; and **no console window ever flashes** during normal use.
 
 ---
 
@@ -79,14 +81,14 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ### Windows
 
-1. Download `AudiobookTool-Windows-v0.1.0.zip` and extract it anywhere.
+1. Download `AudiobookTool-Windows-v0.1.1.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.bat`**.
 3. The **first** run opens a small setup window that installs a private Python environment, the audio libraries, and ffmpeg — and (optionally) pre‑downloads the Kokoro AI voice model. A progress bar and live log show what's happening.
 4. **Every run after that** opens the app instantly, with no console window.
 
 ### macOS
 
-1. Download `AudiobookTool-MacOS-v0.1.0.zip` and extract it anywhere.
+1. Download `AudiobookTool-MacOS-v0.1.1.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.command`** in Finder. (If macOS blocks it the first time, right‑click → **Open**.)
 3. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
 
@@ -119,7 +121,7 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 **Cover Image Converter.** Add one or more images, choose **letterbox** (pad to square, no crop) or **center‑crop**, and convert. Outputs sit next to the source images.
 
-**M4B Metadata Editor.** Add one `.m4b` (the form pre‑fills from its current tags) or several (batch mode, starts blank). Edit any field — leaving one **blank** preserves whatever each file already has; filling one **overwrites** that tag in every selected file. Save runs per‑file with a Cancel button; one failure doesn't abort the batch.
+**M4B Metadata Editor.** Add one `.m4b` (the form pre‑fills from its current tags) or several (batch mode, starts blank). Edit any field — leaving one **blank** preserves whatever each file already has; filling one **overwrites** that tag in every selected file. **Clear All Tags (keep chapters)** strips every identifying tag (title/author/album/year/genre/comment/series/cover) while keeping the chapter markers and titles — any field you've typed is then re‑applied on top. The **Chapter Titles (optional)** section pages through your loaded files (◀ / ▶); paste new titles one per line and they apply positionally (line N → chapter N; a blank line leaves that chapter's title unchanged; extra lines beyond the chapter count are ignored). Everything is written to **copies** in the output folder — your originals are never modified. Save runs per‑file with a Cancel button; one failure doesn't abort the batch.
 
 ---
 
