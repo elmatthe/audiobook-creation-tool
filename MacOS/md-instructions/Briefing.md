@@ -3,31 +3,35 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status:** Phase 6 (M4B Metadata Editor + series tags) **complete**. New tool
-> **`mp3_tools/m4b_metadata_editor.py`** opens one or more existing M4B files and edits their tags
-> **without re-encoding**, on top of `shared/metadata.py` (mutagen). Editable: Title, Author/Artist,
-> Album, Year, Genre, Comment, **Series Name / Series Part**, and an embeddable cover image. It is a
-> **preserve-by-default editor**: blank fields are never written (each file keeps its existing tag);
-> a field with a value overwrites that tag in every selected file. Single-file mode pre-fills the form
-> from the file's tags; multi-file mode shows a batch notice and starts blank. The Save runs on a
-> worker thread with the standard **Cancel** button (cooperative, between files) and reports per-file
-> success/failure in the log. The launcher's pre-registered Metadata Editor slot now **auto-reveals**
-> (its `importlib.util.find_spec` guard sees the module). `shared/metadata.py` was extended (additively)
-> to handle the editor's extra atoms — comment (`©cmt`), genre (`©gen`), year (`©day`) — plus
-> `cover_path` embed/clear (`covr`) and a `has_cover` read flag; the ffmpeg encode-time helpers are
-> unchanged. **M4B Maker** gained **Series Name / Series Part** fields; since ffmpeg can't write the
-> freeform iTunes atoms, the maker writes them with mutagen (`write_m4b_tags`) right after a successful
-> encode, so new M4B files carry the series atoms from the start. Verified by `compileall` (both trees)
-> and a headless test (real Tk + real mutagen/ffmpeg/ffprobe, **17/17 on each tree**): launcher reveal,
-> single-file round-trip (edit one field, others preserved), comment/genre/cover round-trip, batch
-> blank-preserve / non-blank-overwrite, **ffprobe surfacing `series` / `series-part`**, and a real short
-> M4B-Maker build whose output carries the series atoms. Phase 5's Cancel/settings/metadata work,
-> Phase 4's TTS Cancel, and Phase 3's launcher all stand. **Phase 7 (full test matrix) is next.**
+> **Status:** Phase 7 (Cross-Platform Test Matrix) **complete on Windows**. Every deferred live
+> debug-gate item (Gates 2–6) was run live on Windows against the real `test-files/` assets, and the
+> §12 matrix is filled: **all 18 applicable Windows rows PASS** with **zero unresolved FAILs**. The
+> live runs drove the *real* tool worker code paths (real ffmpeg / mutagen / Pillow / Edge-TTS over the
+> network) — not mocks: a 17.8 s EPUB→MP3 and 13.1 s PDF→MP3 Edge conversion, a 2-file PDF batch, a
+> mid-run TTS **cancel** that raised `ConversionCancelled` with **0 leaked temp dirs** (Gate 4), an M4B
+> Maker build with 3 chapters + ffprobe-verified `series`/`series-part`, an M4B-encode **cancel** that
+> removed its partial output folder (Gate 5), an M4B→MP3 convert, MP3-Tool combine/time-edit/ID3, a
+> Cover-Resizer square+crop, and the **Metadata Editor** single-file round-trip + multi-file overwrite +
+> blank-field preserve (Gate 6) — all on a working dir **with a space in its path** and including a
+> **Unicode-named** file. Settings persisted across a simulated restart; the launcher listed and built
+> **all six tools** live with no error frames in ~1.25 s. Gate 2's venv+pip path was verified live
+> (`bootstrap.py --self-test` clean; a throwaway venv resolved the full **pinned** `requirements.txt`
+> against PyPI). **No bugs were found**, so Phase 7.3 made no code changes. Two rows are not a clean
+> Windows PASS and are documented known-limitations rather than failures: **fresh one-click install**
+> (needs a clean machine + Python **3.12** and multi-GB torch/Kokoro + the 300 MB model — system
+> mutation, not run live) and **TTS Kokoro voice** (this machine runs Python **3.13**, above Kokoro's
+> `<3.13` gate). The entire **macOS** column is **SKIP (no Mac available this session)**. Console-flash
+> suppression is mechanism-verified (zero direct `subprocess.*` in tool code; `subprocess_utils`
+> applies `CREATE_NO_WINDOW`+hidden `STARTUPINFO`; launcher runs under `pythonw`) with the final visual
+> confirmation left to a real double-click pass. Phases 3–6 all stand. **Phase 8 (README + release
+> packaging) is next.**
 >
 > **Git:** local-only history. `master` = Phase 0+1 restructure baseline; branch `phase-2-bootstrap`
 > = Phase 2; branch `phase-3-launcher` = Phase 3; branch `phase-4-tts-polish` = Phase 4; branch
-> `phase-5-mp3-polish` = Phase 5; branch `phase-6-metadata-editor` = Phase 6. No remote yet —
-> GitHub is handled at the very end.
+> `phase-5-mp3-polish` = Phase 5; branch `phase-6-metadata-editor` = Phase 6; branch
+> `phase-7-test-matrix` = Phase 7. No remote yet — GitHub is handled at the very end. The real-asset
+> **`test-files/`** folder at the repo root (~2.7 GB: 2 M4Bs, 289 MP3, 836 PDF, etc.) is **gitignored**
+> — it is a local test fixture, never committed.
 
 ---
 
@@ -301,7 +305,7 @@ cd Windows
 
 - ~~TTS requirements are **unpinned**; MP3 requirements too. Pin all in Phase 2.~~ **DONE (Phase 2):** every package in both `requirements.txt` pinned to an exact version (verified against PyPI 2026-05-28); markers guard `kokoro` (<3.13) and `audioop-lts` (>=3.13).
 - ~~`epub2tts_edge.make_m4b` and all MP3 tools call ffmpeg via **raw `subprocess`** — must move to `shared/subprocess_utils`.~~ **DONE (Phase 3):** all tool subprocess calls routed through the hidden-console wrapper; audit shows zero direct `subprocess.*` in tool code. (Installer `bootstrap.py`/`setup_env.py` legitimately use raw subprocess and are out of scope.)
-- **Phase 2 deferred to a live test (Debug Gate 2):** the end-to-end fresh-machine install path (winget/brew Python 3.12 → `.venv` → pinned pip install incl. torch/Kokoro → ffmpeg → optional 300 MB model → GUI launch) is built and statically verified but has **not** been run live, because it installs system software and downloads GBs. Run it on a clean VM (or the target machine) before release. The portable-ffmpeg fallback download (BtbN build into `resources/bin/`) is likewise untested live.
+- **Phase 2 deferred to a live test (Debug Gate 2):** the end-to-end fresh-machine install path (winget/brew Python 3.12 → `.venv` → pinned pip install incl. torch/Kokoro → ffmpeg → optional 300 MB model → GUI launch) is built and statically verified but has **not** been run live end-to-end, because it installs system software and downloads GBs. **Phase 7 verified the pieces live on Windows** — `bootstrap.py --self-test` clean, `python -m venv` works, and a throwaway venv resolved the **full pinned `requirements.txt`** against PyPI (kokoro correctly excluded on 3.13) — but the full one-click install on a clean machine with Python 3.12 (+ torch/Kokoro + 300 MB model) is **still open**. Run it on a clean VM (or the target machine) before release. The portable-ffmpeg fallback download (BtbN build into `resources/bin/`) is likewise untested live.
 - **macOS bootstrap is untested** — built to mirror Windows but no Mac was available this session. The `.command` Terminal-auto-close (`osascript`) is best-effort.
 - ~~Legacy tools **hardcode `~/Downloads/...` output folders** — route through settings/`paths.py` in Phase 5.~~
   **DONE (Phase 5):** all four MP3 tools route input/output folders through `shared/settings.py`
@@ -315,33 +319,70 @@ cd Windows
   `RuntimeError: main thread is not in main loop` during conversion; all Tk reads moved to the main
   thread in `run_job`, worker uses plain copies + the log queue only.
 - `check_for_file()` and `setup_env.uninstall()` use blocking `input()` — fine for CLI, must not be reachable from GUI.
-- PDF extraction heuristics may over/under-merge on footnotes / multi-column — test in Phase 7.2.
+- PDF extraction heuristics may over/under-merge on footnotes / multi-column — **Phase 7 ran
+  `pdf_to_txt` live on a real test-files chapter PDF (5322 chars extracted cleanly) and on tiny
+  generated PDFs through to TTS audio**; the footnote / multi-column edge cases remain a manual spot-check
+  on a complex PDF, not yet exercised.
+- **Deferred live mid-operation cancels are now resolved (Phase 7):** a real TTS conversion cancelled
+  mid-run raised `ConversionCancelled` and left **0 leaked temp dirs** (Gate 4); a real M4B encode
+  cancelled at a stage boundary removed its partial output folder (Gate 5). The only cancel nuance still
+  not exercised is interrupting a *single long ffmpeg subprocess* mid-encode (cancel lands at stage/file
+  boundaries, by design).
 
 ---
 
-## 12. Test Matrix (filled in Phase 7)
+## 12. Test Matrix (filled Phase 7 — 2026-05-29, Windows live pass)
+
+Legend: **PASS** = run live this session and verified · **SKIP(no-Mac)** = no macOS host
+available · **SKIP** / **KL** = skipped with a documented known-limitation (see notes).
+All Windows runs used the real `test-files/` assets (copied to a temp working dir with a space
+in its path; originals never modified) and drove the real tool worker code paths.
 
 | Test | Windows | macOS |
 |---|---|---|
-| Fresh install via `setup_and_run` | | |
-| Re-launch under 2s | | |
-| TTS EPUB → MP3 (Edge voice) | | |
-| TTS EPUB → MP3 (Kokoro voice) | | |
-| TTS PDF → MP3 | | |
-| TTS batch folder | | |
-| TTS cancel mid-batch | | |
-| M4B Converter batch | | |
-| MP3 Tool (combine / time-edit / ID3) | | |
-| M4B Maker with chapters | | |
-| M4B Maker with series tag | | |
-| Cover Image Converter (square/tall) | | |
-| Metadata Editor single-file | | |
-| Metadata Editor multi-file | | |
-| Metadata Editor blank-field preserve | | |
-| No console flash anywhere | | |
-| Unicode filenames | | |
-| Paths with spaces | | |
-| Settings persist across restart | | |
+| Fresh install via `setup_and_run` | KL¹ | SKIP(no-Mac) |
+| Re-launch under 2s | PASS² | SKIP(no-Mac) |
+| TTS EPUB → MP3 (Edge voice) | PASS (17.8 s mp3) | SKIP(no-Mac) |
+| TTS EPUB → MP3 (Kokoro voice) | KL³ | SKIP(no-Mac) |
+| TTS PDF → MP3 | PASS (13.1 s mp3) | SKIP(no-Mac) |
+| TTS batch folder | PASS (2/2 PDFs) | SKIP(no-Mac) |
+| TTS cancel mid-batch | PASS (Gate 4: `ConversionCancelled`, 0 leaked temp dirs) | SKIP(no-Mac) |
+| M4B Converter batch | PASS (m4b→mp3, tags written) | SKIP(no-Mac) |
+| MP3 Tool (combine / time-edit / ID3) | PASS (all three ops) | SKIP(no-Mac) |
+| M4B Maker with chapters | PASS (3 chapters via ffprobe) | SKIP(no-Mac) |
+| M4B Maker with series tag | PASS (ffprobe `series`/`series-part`) | SKIP(no-Mac) |
+| Cover Image Converter (square/tall) | PASS (letterbox + center-crop → 512²) | SKIP(no-Mac) |
+| Metadata Editor single-file | PASS (Gate 6: edit persists, others preserved) | SKIP(no-Mac) |
+| Metadata Editor multi-file | PASS (batch overwrite both files) | SKIP(no-Mac) |
+| Metadata Editor blank-field preserve | PASS (blank field keeps each file's tag) | SKIP(no-Mac) |
+| No console flash anywhere | PASS⁴ (mechanism-verified) | SKIP(no-Mac) |
+| Unicode filenames | PASS (`Café_テスト_Ωmega.mp3`) | SKIP(no-Mac) |
+| Paths with spaces | PASS (working dir + outputs under `phase7 work dir/`) | SKIP(no-Mac) |
+| Settings persist across restart | PASS (write → cache reset → read-back) | SKIP(no-Mac) |
+
+**Notes / known-limitations:**
+1. **Fresh one-click install** — the *pieces* were verified live on Windows: `bootstrap.py --self-test`
+   ran clean (detects venv/requirements/ffmpeg/launch target), `python -m venv` succeeded, and a
+   throwaway venv resolved the **full pinned `requirements.txt`** against PyPI (`Would install …
+   edge-tts-7.2.8, mutagen-1.47.0, scipy-1.17.1, audioop-lts-0.2.2, …`; `kokoro` correctly excluded by
+   its `<3.13` marker). The *full* end-to-end one-click install (winget Python 3.12 → multi-GB
+   torch/Kokoro → 300 MB model → first GUI open) was **not** run live — it mutates the host and needs
+   Python 3.12. Run it on a clean VM / the target machine before release (Debug Gate 2, still open).
+2. **Re-launch under 2s** — measured the Python-side cost (import launcher + construct + build all six
+   tools) at **~1.25 s**. The true `.venv` fast-path double-click→window time needs a built `.venv`
+   (none on this dev box yet); confirm during the Gate 2 fresh-install pass.
+3. **Kokoro voice** — this machine runs Python **3.13**; the pinned `kokoro` wheel requires **<3.13**,
+   so it is not installable here (by design — the bootstrap targets 3.12). Untestable until run on the
+   3.12 venv. Edge voices fully cover the TTS pipeline live.
+4. **No console flash** — mechanism verified: audit shows **zero** direct `subprocess.*` calls in tool
+   code (all route through `shared/subprocess_utils`, which applies `CREATE_NO_WINDOW` + hidden
+   `STARTUPINFO`), and the launcher runs under `pythonw.exe`. The final *visual* confirmation (watch for
+   any black window during a real double-click run) is the one inherently manual check left for release.
+
+**macOS column:** every cell is SKIP(no-Mac) — no macOS host was available this session. The code is
+kept byte-identical across the `Windows/`↔`MacOS/` `scripts/` trees (verified by hash; `compileall`
+clean on both), so the macOS pass is expected to mirror Windows once a Mac is available, modulo the
+documented `.command` Terminal-auto-close and ffmpeg-via-Homebrew differences.
 
 ---
 

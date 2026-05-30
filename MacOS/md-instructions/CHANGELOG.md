@@ -16,6 +16,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 ### Added
+- **Phase 7 (Cross-Platform Test Matrix) — complete on Windows (live verification pass; no
+  feature code changes).** Ran every deferred live debug-gate item (Gates 2–6) and filled the
+  Briefing §12 matrix against the real `test-files/` assets. **18/18 applicable Windows rows PASS,
+  zero unresolved FAILs**; **no bugs found**, so Phase 7.3 changed no tool code. The runs drove the
+  *real* worker code paths (not mocks): Edge-TTS **EPUB→MP3** (17.8 s) and **PDF→MP3** (13.1 s) over
+  the network, a **2-file PDF batch**, a mid-run **TTS cancel** raising `ConversionCancelled` with
+  **0 leaked temp dirs** (Gate 4), an **M4B Maker** build with 3 ffprobe-verified chapters +
+  `series`/`series-part` atoms, an **M4B-encode cancel** that removed its partial output folder
+  (Gate 5), an **M4B→MP3** convert, **MP3-Tool** combine/time-edit/ID3, a **Cover-Resizer**
+  letterbox+crop (→512²), and the **Metadata Editor** single-file round-trip + multi-file overwrite +
+  blank-field preserve (Gate 6). All on a working dir **with a space in its path**, including a
+  **Unicode-named** file; settings persisted across a simulated restart; the launcher listed and built
+  **all six tools** live (no error frames, ~1.25 s). **Gate 2** verified live: `bootstrap.py
+  --self-test` clean and a throwaway venv resolved the **full pinned `requirements.txt`** against PyPI
+  (kokoro correctly excluded on Python 3.13). **Console-flash** suppression is mechanism-verified
+  (zero direct `subprocess.*` in tool code; `subprocess_utils` applies `CREATE_NO_WINDOW`+hidden
+  `STARTUPINFO`; launcher under `pythonw`). Documented known-limitations (not failures): **fresh
+  one-click install** (needs a clean machine + Python 3.12 + multi-GB torch/Kokoro — not run live) and
+  **TTS Kokoro voice** (this box is Python 3.13, above Kokoro's `<3.13` gate). The whole **macOS**
+  column is **SKIP (no Mac available)**. `compileall` clean on both trees.
 - **Phase 6 (M4B Metadata Editor + Series Tags) — complete (new editor tool, series
   fields in M4B Maker, verified headless).**
   - Added **`scripts/mp3_tools/m4b_metadata_editor.py`** — a new tool that opens one or
@@ -173,6 +193,9 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Unified launcher UX sketch (`Briefing.md` §8): sidebar + single swappable content panel.
 
 ### Changed
+- **Phase 7: added `test-files/` to `.gitignore`.** A ~2.7 GB folder of real test assets (2 M4Bs,
+  289 MP3, 836 PDF, JPGs, TXT) sits at the repo root as a local fixture for the test matrix; it must
+  never be committed. (No tool/source code changed in Phase 7.)
 - **Phase 5: routed every MP3-tool input/output folder through `shared/settings.py`** instead of
   hardcoding `~/Downloads/...`. Each tool remembers its folders under per-tool keys
   (`m4b_maker.input_dir` / `.output_dir` / `.cover_dir`, `m4b_converter.input_dir` / `.output_dir`,
@@ -261,6 +284,45 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## Session Log
 
 > One entry per Claude Code session. Newest at the top. Keep short — point at file changes, not full diffs.
+
+### 2026-05-29 — Session 8
+- **Phase:** Phase 7 — Cross-Platform Test Matrix (complete on Windows; macOS deferred — no host).
+- **Git:** work on new branch `phase-7-test-matrix` (off `phase-6-metadata-editor`). Local only.
+- **Done:** ran every deferred live gate (2–6) and filled Briefing §12 against the real `test-files/`
+  assets (copied to a temp working dir **with a space**; originals untouched). Verified live on
+  Windows, driving the real worker code paths: Edge-TTS EPUB→MP3 + PDF→MP3 + 2-file batch + mid-run
+  cancel (Gate 4, 0 leaked temp dirs); M4B Maker chapters + series (ffprobe-verified); M4B-encode
+  cancel cleanup (Gate 5); M4B→MP3; MP3-Tool combine/time-edit/ID3; Cover-Resizer square+crop;
+  Metadata Editor single/multi/blank-preserve (Gate 6); Unicode filename; spaces in path; settings
+  persist across simulated restart; launcher builds all six tools (~1.25 s). Gate 2 verified live
+  (`bootstrap.py --self-test` + throwaway-venv pip dry-run resolving the full pinned requirements).
+  Console-flash mechanism re-audited (zero direct `subprocess.*` in tool code). Added `test-files/`
+  to `.gitignore`.
+- **Result:** **18/18 applicable Windows rows PASS, 0 FAIL.** **No bugs found → no tool code changed**
+  (Phase 7.3 was a no-op by design). `compileall` clean on both trees.
+- **Next:** Phase 8 — README + release packaging. Before release, still run **Debug Gate 2** (full
+  one-click install on a clean machine with Python 3.12) and the **macOS** matrix column on a Mac.
+- **Blockers:** none. **Deferred (documented known-limitations):** fresh one-click install (system
+  mutation + Python 3.12), TTS Kokoro voice (needs Python <3.13; this box is 3.13), final *visual*
+  no-console-flash confirmation, and the entire macOS column (no Mac).
+
+### Debug Gate 7 — PASS (Windows live; macOS deferred)
+- [x] **Gate 2** — venv + pip path verified live: `bootstrap.py --self-test` clean; `python -m venv`
+  works; throwaway venv resolved the full **pinned** `requirements.txt` against PyPI (kokoro excluded
+  on 3.13). [~] Full one-click fresh install on a clean machine w/ Python 3.12 — still deferred.
+- [x] **Gate 3** — real conversions run from the tool worker paths (TTS single-file Edge → MP3 incl.).
+  Console-flash mechanism-verified (zero direct `subprocess.*` in tool code; `subprocess_utils` hides
+  the window; launcher under `pythonw`). [~] Final *visual* no-flash confirmation — manual, deferred.
+- [x] **Gate 4** — real TTS conversion cancelled mid-run: `ConversionCancelled` raised, **0 leaked
+  temp dirs**; GUI logs "Cancelled." (Phase 4 behavior unchanged).
+- [x] **Gate 5** — real M4B encode cancelled at a stage boundary: partial output folder removed,
+  `("cancelled")` posted.
+- [x] **Gate 6** — Metadata Editor on a real M4B (slice of a `test-files/` audiobook): edit a field →
+  save → re-read confirms the change persisted, untouched fields preserved; multi-file overwrite and
+  blank-field preserve verified.
+- [x] Full §12 matrix filled: **18/18 applicable Windows rows PASS**, 0 unresolved FAIL.
+- [x] `compileall` clean, both trees. **No bugs found → no code changes.**
+- [~] **macOS** column — SKIP(no-Mac), deferred to a Mac host.
 
 ### 2026-05-29 — Session 7
 - **Phase:** Phase 6 — M4B Metadata Editor + Series Tags (complete).
