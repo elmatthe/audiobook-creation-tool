@@ -3,7 +3,21 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status (v0.1.1, 2026-05-30):** Update release on top of v0.1.0; `VERSION = "0.1.1"`. Phases A–F
+> **Status (v0.1.2, 2026-05-30):** Patch release on top of v0.1.1; `VERSION = "0.1.2"`. Fixes the
+> **M4B Metadata Editor series read-back**: real Audible/Audiobookshelf M4Bs store the series in a
+> vendor freeform atom (Libation/tone writes `----:com.pilabor.tone:SERIES` / `:PART`, *not* the
+> `----:com.apple.iTunes:SERIES` atom we used to read), so Series Name/Part came up blank even when
+> Audiobookshelf grouped the book. `read_m4b_tags` now resolves series from the canonical freeform
+> atom → any other vendor freeform atom → the native movement atoms (`©mvn`/`mvin`), reports
+> provenance (`series_source`/`series_atom`), and the editor shows a read-only **"Detected on file"**
+> line with the value + source atom. Writing a series now also strips any other same-suffix
+> freeform/movement atom so the overwrite isn't shadowed (it previously silently failed to take in
+> ABS); preserve-by-default and the chapter-title re-mux freeform snapshot both still hold. Verified
+> live on Windows against the real Harry Potter (tone-tagged) & Mistborn (no series) M4Bs: read-back,
+> write→ffprobe `series`/`series-part`, original MD5-identical, and series surviving a 39-chapter
+> re-mux. Win↔Mac `scripts/` byte-identical; `compileall` clean; macOS live pass deferred (no host).
+>
+> **Prior status (v0.1.1, 2026-05-30):** Update release on top of v0.1.0; `VERSION = "0.1.1"`. Phases A–F
 > complete (phase-gated off `master`, `compileall` clean and Win↔Mac byte-identical before each commit):
 > **non-destructive copy-based output** across every transforming tool (imported originals are never
 > modified — the M4B Metadata Editor now tags **copies**, not the source), smart auto-named
@@ -130,7 +144,7 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 | M4B Maker | `scripts/mp3_tools/m4b_maker.py` | MP3s → M4B with chapters, metadata, cover, **series tags** (new in Phase 6) |
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
 | M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. **v0.1.1:** writes **copies** (never the original) to `Downloads/M4B-Metadata-N`; adds a **Clear All Tags (keep chapters)** button and a paged **per-file chapter-title import** (positional; blank line = unchanged). |
-| Shared | `scripts/shared/` | `paths.py` (**v0.1.1 added** `downloads_dir`/`next_output_dir`/`TOOL_SLUGS`/`avoid_input_overwrite`), `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`; **v0.1.1 added** `clear_metadata_keep_chapters`, `read_chapter_titles`, `apply_chapter_titles`), `logging_setup.py`, `bootstrap.py`, `version.py` (single
+| Shared | `scripts/shared/` | `paths.py` (**v0.1.1 added** `downloads_dir`/`next_output_dir`/`TOOL_SLUGS`/`avoid_input_overwrite`), `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`; **v0.1.1 added** `clear_metadata_keep_chapters`, `read_chapter_titles`, `apply_chapter_titles`; **v0.1.2** broadened `read_m4b_tags`'s series reader to resolve from the canonical freeform atom → any other vendor freeform atom (e.g. `----:com.pilabor.tone:SERIES`) → the native movement atoms, returning series provenance (`series_source`/`series_atom`) + a `describe_series_atoms` helper, and made series *writes* strip any same-suffix shadowing atom so an overwrite actually takes), `logging_setup.py`, `bootstrap.py`, `version.py` (single
 source of truth, **`VERSION = "0.1.1"`**), `release.py` (Phase 8 — dev-only zip packager, never imported by
 the app). |
 
