@@ -38,11 +38,16 @@ SERIES_PART_ATOM = "----:com.apple.iTunes:SERIES-PART"
 _FFMPEG_TEXT_FIELDS = ("title", "artist", "album_artist", "album")
 
 # Mapping of friendly tag name -> native MP4 atom, for mutagen read/write.
+# The first four are also the ffmpeg-shared fields; the rest (comment, genre,
+# year) are extra text fields the Phase 6 Metadata Editor edits after the fact.
 _MP4_TEXT_ATOMS = {
     "title": "\xa9nam",
     "artist": "\xa9ART",
     "album_artist": "aART",
     "album": "\xa9alb",
+    "comment": "\xa9cmt",
+    "genre": "\xa9gen",
+    "year": "\xa9day",
 }
 
 
@@ -98,10 +103,11 @@ def ffmetadata_header_lines(tags: dict) -> list[str]:
 def read_m4b_tags(path) -> dict:
     """Read tags from an M4B/MP4 file into a friendly dict.
 
-    Returns keys ``title``, ``artist``, ``album_artist``, ``album`` (strings),
-    ``track`` (int track number, if present), and ``series`` / ``series_part``
-    (strings, from the Audiobookshelf freeform atoms). Missing tags are simply
-    absent from the returned dict.
+    Returns keys ``title``, ``artist``, ``album_artist``, ``album``, ``comment``,
+    ``genre``, ``year`` (strings), ``track`` (int track number, if present),
+    ``series`` / ``series_part`` (strings, from the Audiobookshelf freeform
+    atoms), and ``has_cover`` (bool, always present). Missing text tags are
+    simply absent from the returned dict.
     """
     from mutagen.mp4 import MP4
 
@@ -126,6 +132,7 @@ def read_m4b_tags(path) -> dict:
                 raw = vals[0]
                 out[friendly] = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
 
+    out["has_cover"] = bool(mp4.tags and mp4.tags.get("covr"))
     return out
 
 
@@ -133,11 +140,13 @@ def write_m4b_tags(path, tags: dict) -> None:
     """Write/update the given tags on an M4B/MP4 file, preserving all others.
 
     Only keys present in ``tags`` are touched. Recognised keys: ``title``,
-    ``artist``, ``album_artist``, ``album`` (text), ``track`` (int), and
-    ``series`` / ``series_part`` (written as the freeform Audiobookshelf atoms,
-    UTF-8 bytes). A key whose value is empty/None clears that tag.
+    ``artist``, ``album_artist``, ``album``, ``comment``, ``genre``, ``year``
+    (text), ``track`` (int), ``series`` / ``series_part`` (written as the
+    freeform Audiobookshelf atoms, UTF-8 bytes), and ``cover_path`` (path to a
+    JPEG/PNG image to embed as the front cover). A text/series key whose value
+    is empty/None clears that tag; an empty ``cover_path`` clears the cover.
     """
-    from mutagen.mp4 import MP4
+    from mutagen.mp4 import MP4, MP4Cover
 
     mp4 = MP4(str(Path(path)))
     if mp4.tags is None:
@@ -166,5 +175,18 @@ def write_m4b_tags(path, tags: dict) -> None:
                 mp4.tags[atom] = [val.encode("utf-8")]
             elif atom in mp4.tags:
                 del mp4.tags[atom]
+
+    if "cover_path" in tags:
+        cover = _clean(tags["cover_path"])
+        if cover:
+            data = Path(cover).read_bytes()
+            fmt = (
+                MP4Cover.FORMAT_PNG
+                if cover.lower().endswith(".png")
+                else MP4Cover.FORMAT_JPEG
+            )
+            mp4.tags["covr"] = [MP4Cover(data, imageformat=fmt)]
+        elif "covr" in mp4.tags:
+            del mp4.tags["covr"]
 
     mp4.save()
