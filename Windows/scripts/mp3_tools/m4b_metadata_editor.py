@@ -109,6 +109,16 @@ class M4BMetadataEditorUI(ttk.Frame):
         # this snapshot, so unchanged pre-filled fields are genuinely wiped.
         self._prefill: dict[str, str] = {}
 
+        # Per-file chapter-title import (Phase D). Buffers are keyed by Path so
+        # they survive paging and reordering; counts cache each file's chapter
+        # count (ffprobe) so paging doesn't re-probe repeatedly.
+        self._chap_page = 0
+        self._chap_shown: Path | None = None  # path currently displayed in the box
+        self._chap_buffers: dict[Path, str] = {}
+        self._chap_counts: dict[Path, int] = {}
+        self.chap_pager_var = tk.StringVar(value="No files loaded.")
+        self.chap_hint_var = tk.StringVar(value="")
+
         # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
         # time. Browse redirects it for this run only; it is never persisted, so
         # the next launch starts at the next free -N. The folder is created
@@ -171,6 +181,23 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cover_clear = ttk.Button(cover_btns, text="Clear", command=lambda: self.var_cover_path.set(""))
         self.btn_cover_clear.pack(side=tk.LEFT, padx=(6, 0))
 
+        # Chapter Titles (optional) — paged, one page per loaded file, applied
+        # positionally (line N -> chapter N; blank line = leave that chapter).
+        chap_box = ttk.LabelFrame(self, text="Chapter Titles (optional)")
+        chap_box.pack(side=tk.TOP, fill=tk.BOTH, expand=False, padx=12, pady=(0, 6))
+        pager = ttk.Frame(chap_box)
+        pager.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 2))
+        self.btn_chap_prev = ttk.Button(pager, text="◀", width=3, command=self._chap_prev)
+        self.btn_chap_prev.pack(side=tk.LEFT)
+        ttk.Label(pager, textvariable=self.chap_pager_var).pack(side=tk.LEFT, padx=8)
+        self.btn_chap_next = ttk.Button(pager, text="▶", width=3, command=self._chap_next)
+        self.btn_chap_next.pack(side=tk.LEFT)
+        ttk.Label(chap_box, textvariable=self.chap_hint_var, foreground="#6b7280").pack(
+            side=tk.TOP, anchor="w", padx=8
+        )
+        self.chap_text = tk.Text(chap_box, height=6, wrap="none")
+        self.chap_text.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(2, 8))
+
         # Output folder row — tagged copies are delivered here; originals are
         # never touched.
         outrow = ttk.Frame(self)
@@ -206,6 +233,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=sb2.set)
 
+        self._update_chap_buttons()  # disabled until files are loaded
+
     # ----- file actions -----
     def add_files(self):
         paths = filedialog.askopenfilenames(
@@ -233,6 +262,9 @@ class M4BMetadataEditorUI(ttk.Frame):
     def clear_list(self):
         self.files.clear()
         self.listbox.delete(0, tk.END)
+        self._chap_buffers.clear()
+        self._chap_counts.clear()
+        self._chap_shown = None
         self._refresh_mode()
 
     def _clear_fields(self):
@@ -253,6 +285,63 @@ class M4BMetadataEditorUI(ttk.Frame):
         else:
             self._clear_fields()
             self.mode_var.set(f"Batch mode: {n} files — blank fields are left unchanged.")
+        self._sync_chapter_pager()
+
+    # ----- chapter-title pager -----
+    def _chap_count(self, path: Path) -> int:
+        if path not in self._chap_counts:
+            try:
+                self._chap_counts[path] = len(metadata.read_chapter_titles(path))
+            except Exception:
+                self._chap_counts[path] = 0
+        return self._chap_counts[path]
+
+    def _flush_chapter_page(self):
+        """Save the visible text into the buffer for the file it belongs to."""
+        if self._chap_shown is not None:
+            self._chap_buffers[self._chap_shown] = self.chap_text.get("1.0", "end-1c")
+
+    def _show_chapter_page(self, idx: int):
+        self._flush_chapter_page()
+        self.chap_text.delete("1.0", tk.END)
+        if not self.files:
+            self._chap_page = 0
+            self._chap_shown = None
+            self.chap_pager_var.set("No files loaded.")
+            self.chap_hint_var.set("")
+            self._update_chap_buttons()
+            return
+        idx = max(0, min(idx, len(self.files) - 1))
+        self._chap_page = idx
+        path = self.files[idx]
+        self._chap_shown = path
+        self.chap_text.insert("1.0", self._chap_buffers.get(path, ""))
+        self.chap_pager_var.set(f"File {idx + 1} of {len(self.files)}: {path.name}")
+        k = self._chap_count(path)
+        self.chap_hint_var.set(
+            f"This file has {k} chapters. Paste up to {k} titles, one per line; "
+            "a blank line leaves that chapter's title unchanged."
+        )
+        self._update_chap_buttons()
+
+    def _update_chap_buttons(self):
+        n = len(self.files)
+        self.btn_chap_prev.configure(state=tk.NORMAL if self._chap_page > 0 else tk.DISABLED)
+        self.btn_chap_next.configure(
+            state=tk.NORMAL if self._chap_page < n - 1 else tk.DISABLED
+        )
+
+    def _chap_prev(self):
+        self._show_chapter_page(self._chap_page - 1)
+
+    def _chap_next(self):
+        self._show_chapter_page(self._chap_page + 1)
+
+    def _sync_chapter_pager(self):
+        """Refresh the pager after the file list changed (clamp the page)."""
+        if self._chap_page >= len(self.files):
+            self._chap_page = max(0, len(self.files) - 1)
+        self._show_chapter_page(self._chap_page)
 
     def _prefill_from(self, path: Path):
         self._clear_fields()
@@ -353,10 +442,20 @@ class M4BMetadataEditorUI(ttk.Frame):
             return
 
         tags = self._collect_tags(only_edited=clear_first)
-        if not tags and not clear_first:
+
+        # Per-file chapter-title lists (parsed from the paged buffers). Flush the
+        # visible page first so the current edits are captured.
+        self._flush_chapter_page()
+        chapter_map: dict[str, list[str]] = {}
+        for p, buf in self._chap_buffers.items():
+            if buf.strip():
+                chapter_map[str(p)] = buf.splitlines()
+
+        if not tags and not clear_first and not chapter_map:
             messagebox.showinfo(
                 "Nothing to write",
-                "All fields are blank, so there is nothing to change.",
+                "No tag fields, no clear request, and no chapter titles — "
+                "nothing to change.",
             )
             return
 
@@ -376,7 +475,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.log_write(f"\n{verb} {len(files)} copy(ies) in {outdir}…\n")
 
         t = threading.Thread(
-            target=self._save_worker, args=(files, tags, outdir, clear_first), daemon=True
+            target=self._save_worker,
+            args=(files, tags, outdir, clear_first, chapter_map),
+            daemon=True,
         )
         t.start()
 
@@ -399,10 +500,16 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.entry_cover,
             self.entry_outdir,
             self.btn_browse_out,
+            self.chap_text,
+            self.btn_chap_prev,
+            self.btn_chap_next,
             *self._field_widgets,
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
+        if not state:
+            # Restore the pager arrows to their correct page-bounded state.
+            self._update_chap_buttons()
 
     # ----- worker -> GUI queue pump (main thread) -----
     def _pump_queue(self):
@@ -438,7 +545,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cancel.configure(state=tk.DISABLED)
 
     # ----- save worker (worker thread) -----
-    def _save_worker(self, files: list, tags: dict, outdir: Path, clear_first: bool):
+    def _save_worker(
+        self, files: list, tags: dict, outdir: Path, clear_first: bool, chapter_map: dict
+    ):
         cancel_check = self._cancel_event.is_set
         total = len(files)
         ok = 0
@@ -449,10 +558,11 @@ class M4BMetadataEditorUI(ttk.Frame):
             for idx, f in enumerate(files, start=1):
                 raise_if_cancelled(cancel_check)
                 try:
-                    # Per-file order (Phase B/C): copy original → output folder,
+                    # Per-file order (Phase B/C/D): copy original → output folder,
                     # then (optionally) clear all metadata keeping chapters, then
-                    # re-apply any typed tag fields on top. Only the COPY is ever
-                    # written; the imported original is read-only.
+                    # re-apply any typed tag fields, then apply imported chapter
+                    # titles positionally. Only the COPY is ever written; the
+                    # imported original is read-only.
                     dest = paths.avoid_input_overwrite(outdir / f.name, files)
                     shutil.copy2(f, dest)
                     self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
@@ -464,6 +574,12 @@ class M4BMetadataEditorUI(ttk.Frame):
                     if tags:
                         metadata.write_m4b_tags(dest, tags)
                         self._log_q.put(("log", f"[{idx}/{total}] Applied typed tag fields\n"))
+                    titles = chapter_map.get(str(f))
+                    if titles:
+                        metadata.apply_chapter_titles(dest, titles)
+                        self._log_q.put(
+                            ("log", f"[{idx}/{total}] Applied imported chapter titles\n")
+                        )
                     self._log_q.put(("log", f"[{idx}/{total}] ✓ {dest.name}\n"))
                     ok += 1
                 except Exception as e:
@@ -486,8 +602,8 @@ def build_ui(parent: tk.Misc) -> M4BMetadataEditorUI:
 def main():
     root = tk.Tk()
     root.title(APP_TITLE)
-    root.geometry("820x680")
-    root.minsize(720, 600)
+    root.geometry("880x900")
+    root.minsize(760, 760)
     build_ui(root)
     root.mainloop()
 
