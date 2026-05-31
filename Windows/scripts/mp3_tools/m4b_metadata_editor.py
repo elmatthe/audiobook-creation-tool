@@ -25,6 +25,11 @@ Series Name / Series Part are written as the freeform atoms
 ``----:com.apple.iTunes:SERIES`` / ``SERIES-PART`` (Briefing §6), which
 Audiobookshelf's ffprobe scanner reads as ``series`` / ``series-part``.
 
+Series Part is governed by an **Auto-number** toggle: OFF (default) writes
+nothing to series-part (the field is display-only — preserve-by-default); ON
+treats the Series Part field as the starting number and writes sequential parts
+across the loaded files in list order (a single file gets just that number).
+
 Refactored like the other tools: UI is built by build_ui(parent); the save runs
 on a worker thread with a Cancel button (cooperative cancellation between files)
 via shared.cancellation; a standalone main() is kept for debugging.
@@ -112,6 +117,14 @@ class M4BMetadataEditorUI(ttk.Frame):
         # loaded file (and which atom it came from), so an overwrite can be trusted.
         self.series_readback_var = tk.StringVar(value="")
 
+        # Auto-number Series Part. This toggle is the *sole* control over whether
+        # anything is written to the series-part tag: OFF (default) writes nothing
+        # to series-part (the field is display-only / preserve-by-default); ON uses
+        # the Series Part field as the starting number and assigns sequential parts
+        # across the loaded files in list order (single file → just that number).
+        self.var_autonumber = tk.BooleanVar(value=False)
+        self.autonumber_hint_var = tk.StringVar(value="")
+
         # Snapshot of the values auto-loaded into the form in single-file mode.
         # A "Clear All Tags" run re-applies only fields the user changed from
         # this snapshot, so unchanged pre-filled fields are genuinely wiped.
@@ -189,13 +202,32 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cover_clear = ttk.Button(cover_btns, text="Clear", command=lambda: self.var_cover_path.set(""))
         self.btn_cover_clear.pack(side=tk.LEFT, padx=(6, 0))
 
+        # Auto-number toggle, beside the Series Part entry. Ticking it turns the
+        # Series Part field into the starting number and writes incrementing parts
+        # across the loaded files; unticked, series-part is never written.
+        sp_row = next(i for i, (k, _a, _l) in enumerate(_FIELDS) if k == "series_part")
+        self.chk_autonumber = ttk.Checkbutton(
+            form,
+            text="Auto-number across files",
+            variable=self.var_autonumber,
+            command=self._update_autonumber_hint,
+        )
+        self.chk_autonumber.grid(row=sp_row, column=2, sticky="w", padx=4)
+        self.var_series_part.trace_add("write", lambda *_: self._update_autonumber_hint())
+
         # Read-only read-back of the series detected on the loaded file (and its
         # source atom). Lets the user confirm the existing series before, and the
         # written series after, an overwrite. Single file only; cleared otherwise.
         self.lbl_series_readback = ttk.Label(
             form_box, textvariable=self.series_readback_var, foreground="#1e3a8a"
         )
-        self.lbl_series_readback.pack(side=tk.TOP, anchor="w", padx=8, pady=(0, 8))
+        self.lbl_series_readback.pack(side=tk.TOP, anchor="w", padx=8, pady=(0, 2))
+
+        # Live hint explaining exactly what the auto-number toggle will write.
+        self.lbl_autonumber_hint = ttk.Label(
+            form_box, textvariable=self.autonumber_hint_var, foreground="#6b7280"
+        )
+        self.lbl_autonumber_hint.pack(side=tk.TOP, anchor="w", padx=8, pady=(0, 8))
 
         # Chapter Titles (optional) — paged, one page per loaded file, applied
         # positionally (line N -> chapter N; blank line = leave that chapter).
@@ -250,6 +282,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.log.configure(yscrollcommand=sb2.set)
 
         self._update_chap_buttons()  # disabled until files are loaded
+        self._update_autonumber_hint()  # set the initial (toggle-off) hint text
 
     # ----- file actions -----
     def add_files(self):
@@ -292,21 +325,42 @@ class M4BMetadataEditorUI(ttk.Frame):
 
     @staticmethod
     def _series_readback_text(tags: dict) -> str:
-        """Build the "Detected on file" line from read_m4b_tags() results."""
+        """Build the "Detected on file" line from read_m4b_tags() results.
+
+        Four cases (see Phase 3): a full series (real name [+ part]); a part with
+        no real name but an album Audiobookshelf likely groups by; a part with no
+        name and no album; or nothing at all. An ``"album-implied"`` name is *not*
+        a real name — it is shown as the album-grouping hint, not as the series.
+        """
         series = (tags.get("series") or "").strip()
         part = (tags.get("series_part") or "").strip()
+        album = (tags.get("album") or "").strip()
+        name_implied = tags.get("series_source") == "album-implied"
+        has_real_name = bool(series) and not name_implied
+
         if not series and not part:
             return "Detected on file: none — this file has no series tag"
-        shown = series or "(unnamed series)"
-        if part:
-            shown += f" #{part}"
-        atom = tags.get("series_atom") or tags.get("series_part_atom")
-        source = tags.get("series_source") or tags.get("series_part_source")
-        if atom:
-            return f"Detected on file: {shown}  (source: {atom})"
-        if source:
-            return f"Detected on file: {shown}  (source: {source})"
-        return f"Detected on file: {shown}"
+
+        if part and not has_real_name:
+            # Part with no real series name (the name is at most album-implied).
+            atom = tags.get("series_part_atom") or tags.get("series_part_source") or "?"
+            if album:
+                return (
+                    f"Detected on file: part #{part} only — no series name on file; "
+                    f"Audiobookshelf likely groups by Album: '{album}'  (source: {atom})"
+                )
+            return f"Detected on file: part #{part} only — no series name  (source: {atom})"
+
+        # Real series name (with or without a part).
+        shown = series + (f" #{part}" if part else "")
+        atom = (
+            tags.get("series_atom")
+            or tags.get("series_part_atom")
+            or tags.get("series_source")
+            or tags.get("series_part_source")
+            or "?"
+        )
+        return f"Detected on file: {shown}  (source: {atom})"
 
     def _refresh_mode(self):
         """Update the mode notice and (single-file) pre-fill from the file's tags."""
@@ -322,6 +376,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.mode_var.set(f"Batch mode: {n} files — blank fields are left unchanged.")
             self.series_readback_var.set("Detected on file: (multiple files loaded)")
         self._sync_chapter_pager()
+        self._update_autonumber_hint()
 
     # ----- chapter-title pager -----
     def _chap_count(self, path: Path) -> int:
@@ -386,7 +441,14 @@ class M4BMetadataEditorUI(ttk.Frame):
         except Exception as e:
             self.log_write(f"Could not read tags from {path.name}: {e}\n")
             return
+        # An album-implied series *name* is display-only: leave the Series Name
+        # field blank so an unedited Save writes nothing (preserve-by-default).
+        # The Series Part is still populated independently — a part-only file must
+        # show its part number even when the name is blank.
+        name_implied = tags.get("series_source") == "album-implied"
         for key, attr, _label in _FIELDS:
+            if key == "series" and name_implied:
+                continue
             if key in tags:
                 getattr(self, attr).set(str(tags[key]))
                 self._prefill[key] = str(tags[key])
@@ -430,23 +492,67 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.log.see(tk.END)
         self.log.config(state=tk.DISABLED)
 
+    def _autonumber_start(self) -> tuple[int | None, bool]:
+        """Parse the Series Part field as the auto-number start.
+
+        Returns ``(start, ok)``: a blank field starts at ``(1, True)``; a whole
+        number gives ``(n, True)``; anything else is ``(None, False)``.
+        """
+        raw = self.var_series_part.get().strip()
+        if not raw:
+            return 1, True
+        try:
+            return int(raw), True
+        except ValueError:
+            return None, False
+
+    def _update_autonumber_hint(self):
+        """Refresh the live hint describing what the auto-number toggle will write."""
+        n = len(self.files)
+        if not self.var_autonumber.get():
+            self.autonumber_hint_var.set(
+                "Series Part is not written. Tick “Auto-number” to write part "
+                "numbers to the series-part tag."
+            )
+            return
+        start, ok = self._autonumber_start()
+        if not ok:
+            self.autonumber_hint_var.set(
+                "Auto-number on: enter a whole number in Series Part (or leave it blank "
+                "to start at 1)."
+            )
+        elif n <= 1:
+            self.autonumber_hint_var.set(
+                f"Auto-number on: Series Part #{start} will be written."
+            )
+        else:
+            self.autonumber_hint_var.set(
+                f"Auto-number on: Series Parts #{start}–#{start + n - 1} will be "
+                f"written across the {n} files, in list order."
+            )
+
     # ----- collect non-blank fields -----
     def _collect_tags(self, *, only_edited: bool = False) -> dict:
-        """Collect the non-blank tag fields to write.
+        """Collect the non-blank tag fields shared by every file.
 
         With ``only_edited`` (used by Clear All Tags), a field that still holds
         the value auto-loaded from the file in single-file mode is skipped, so
         the clear genuinely wipes it; only fields the user changed are re-applied.
+
+        ``series_part`` is deliberately NOT collected here — it is governed solely
+        by the auto-number toggle and injected per-file in the worker.
         """
         tags: dict = {}
         for key, attr, _label in _FIELDS:
+            if key == "series_part":
+                continue  # owned by the auto-number toggle (see _save_worker)
             val = getattr(self, attr).get().strip()
             if not val:
                 continue
-            # Series is preserve-by-default even on a normal Save (only_edited=False):
-            # an unchanged pre-filled series is not written back, so a value read from
-            # a vendor/movement atom is never silently migrated to the canonical atom
-            # unless the user actually edits it (or types one in batch mode).
+            # Series name is preserve-by-default even on a normal Save: an unchanged
+            # pre-filled name is not written back, so a value read from a vendor/
+            # movement atom (or an album-implied value) is never silently migrated to
+            # the canonical atom unless the user actually edits it.
             skip_unchanged = only_edited or key in _SERIES_KEYS
             if skip_unchanged and val == (self._prefill.get(key, "")).strip():
                 continue
@@ -488,6 +594,21 @@ class M4BMetadataEditorUI(ttk.Frame):
 
         tags = self._collect_tags(only_edited=clear_first)
 
+        # Auto-number Series Part (read on the main thread). When on, validate the
+        # starting number now so we fail fast with a clear message.
+        autonumber = bool(self.var_autonumber.get())
+        start_part = 1
+        if autonumber:
+            start_part, ok = self._autonumber_start()
+            if not ok:
+                messagebox.showerror(
+                    "Series Part not a number",
+                    "Auto-number Series Part is on, but the Series Part field is not "
+                    "a whole number.\n\nEnter a starting number, or clear the field to "
+                    "start at 1.",
+                )
+                return
+
         # Per-file chapter-title lists (parsed from the paged buffers). Flush the
         # visible page first so the current edits are captured.
         self._flush_chapter_page()
@@ -496,11 +617,11 @@ class M4BMetadataEditorUI(ttk.Frame):
             if buf.strip():
                 chapter_map[str(p)] = buf.splitlines()
 
-        if not tags and not clear_first and not chapter_map:
+        if not tags and not clear_first and not chapter_map and not autonumber:
             messagebox.showinfo(
                 "Nothing to write",
-                "No tag fields, no clear request, and no chapter titles — "
-                "nothing to change.",
+                "No tag fields, no clear request, no chapter titles, and auto-number "
+                "off — nothing to change.",
             )
             return
 
@@ -518,10 +639,12 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_cancel.configure(state=tk.NORMAL)
         verb = "Clearing tags on" if clear_first else "Writing tags to"
         self.log_write(f"\n{verb} {len(files)} copy(ies) in {outdir}…\n")
+        if autonumber:
+            self.log_write(f"Auto-numbering Series Part from #{start_part} (list order).\n")
 
         t = threading.Thread(
             target=self._save_worker,
-            args=(files, tags, outdir, clear_first, chapter_map),
+            args=(files, tags, outdir, clear_first, chapter_map, autonumber, start_part),
             daemon=True,
         )
         t.start()
@@ -548,6 +671,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.chap_text,
             self.btn_chap_prev,
             self.btn_chap_next,
+            self.chk_autonumber,
             *self._field_widgets,
         ]
         for w in widgets:
@@ -591,7 +715,14 @@ class M4BMetadataEditorUI(ttk.Frame):
 
     # ----- save worker (worker thread) -----
     def _save_worker(
-        self, files: list, tags: dict, outdir: Path, clear_first: bool, chapter_map: dict
+        self,
+        files: list,
+        tags: dict,
+        outdir: Path,
+        clear_first: bool,
+        chapter_map: dict,
+        autonumber: bool,
+        start_part: int,
     ):
         cancel_check = self._cancel_event.is_set
         total = len(files)
@@ -616,9 +747,17 @@ class M4BMetadataEditorUI(ttk.Frame):
                         self._log_q.put(
                             ("log", f"[{idx}/{total}] Cleared all tags (kept chapters)\n")
                         )
-                    if tags:
-                        metadata.write_m4b_tags(dest, tags)
-                        self._log_q.put(("log", f"[{idx}/{total}] Applied typed tag fields\n"))
+                    # Shared text/series-name fields, plus the auto-numbered Series
+                    # Part for this file's position (when the toggle is on).
+                    file_tags = dict(tags)
+                    if autonumber:
+                        file_tags["series_part"] = str(start_part + (idx - 1))
+                    if file_tags:
+                        metadata.write_m4b_tags(dest, file_tags)
+                        msg = f"[{idx}/{total}] Applied typed tag fields"
+                        if autonumber:
+                            msg += f" (Series Part #{file_tags['series_part']})"
+                        self._log_q.put(("log", msg + "\n"))
                     titles = chapter_map.get(str(f))
                     if titles:
                         metadata.apply_chapter_titles(dest, titles)

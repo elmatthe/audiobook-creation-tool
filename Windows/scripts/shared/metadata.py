@@ -41,6 +41,19 @@ MOVEMENT_NAME_ATOM = "\xa9mvn"
 MOVEMENT_INDEX_ATOM = "mvin"
 MOVEMENT_COUNT_ATOM = "\xa9mvc"
 
+# Album / grouping atoms. Real tagger output (e.g. tone / "Chapter and Verse"
+# rips of the Trials of Apollo books) stores the *series name* in the album (and
+# grouping) and the book's position only in the track number — carrying no SERIES
+# or movement atom at all. We use the album as an *album-implied* series name and
+# the grouping as an extra gate when deciding a track number looks series-like.
+ALBUM_ATOM = "\xa9alb"
+GROUPING_ATOM = "\xa9grp"
+
+# Native MP4 track atom (``[(number, total)]``). Used as the lowest-priority,
+# *implied* series-part source: surfaced only when it looks series-like (see
+# _resolve_series) and never written (writes stay canonical freeform).
+TRACK_ATOM = "trkn"
+
 # Freeform-atom suffixes (the segment after the last ':') that hold a series name
 # or part on real files. Audible rips tagged with Libation/tone, for example, use
 # the ``----:com.pilabor.tone:SERIES`` / ``:PART`` namespace rather than Apple's.
@@ -87,22 +100,88 @@ def _decode_atom_value(raw: Any) -> str:
     return str(raw).strip()
 
 
+def _freeform_namespace(key: str) -> str:
+    """Return a freeform atom's ``mean`` namespace segment, e.g.
+    ``com.pilabor.tone`` from ``----:com.pilabor.tone:SERIES`` (``""`` if absent)."""
+    parts = key.split(":")
+    return parts[1] if len(parts) >= 3 else ""
+
+
+def _movement_index(mp4tags) -> int | None:
+    """Parse the native movement index (``mvin``) to an int, or ``None``.
+
+    Handles the ``int`` / ``[int]`` / ``[(idx, total)]`` shapes mutagen may hand
+    back for the movement-index atom.
+    """
+    mvals = mp4tags.get(MOVEMENT_INDEX_ATOM) if mp4tags else None
+    if not mvals:
+        return None
+    raw = mvals[0]
+    if isinstance(raw, (list, tuple)):
+        raw = raw[0] if raw else None
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def _track_number(mp4tags) -> tuple[int | None, int | None]:
+    """Return ``(track_number, track_total)`` ints from the ``trkn`` atom.
+
+    Either element is ``None`` if absent or unparseable. ``trkn`` is stored as
+    ``[(number, total)]`` on MP4, but we tolerate a bare int just in case.
+    """
+    tvals = mp4tags.get(TRACK_ATOM) if mp4tags else None
+    if not tvals:
+        return None, None
+    raw = tvals[0]
+    num = total = None
+    if isinstance(raw, (list, tuple)):
+        if len(raw) >= 1:
+            num = raw[0]
+        if len(raw) >= 2:
+            total = raw[1]
+    else:
+        num = raw
+
+    def _int(x):
+        try:
+            return int(x)
+        except (ValueError, TypeError):
+            return None
+
+    return _int(num), _int(total)
+
+
 def _resolve_series(mp4tags) -> dict:
     """Resolve the series name/part from every source Audiobookshelf might use.
 
-    Priority, for each of name and part:
-      1. our canonical freeform atom (``----:com.apple.iTunes:SERIES`` /
-         ``SERIES-PART``) — what this tool writes;
-      2. any *other* vendor freeform atom with a matching suffix — e.g. Libation/
-         tone writes ``----:com.pilabor.tone:SERIES`` / ``:PART`` (ffprobe, and so
-         Audiobookshelf, surface these as ``SERIES`` / ``PART``);
-      3. the native MP4 movement atoms (``©mvn`` name / ``mvin`` index).
+    Name and part are resolved on **independent** tracks — a part found without a
+    name (or vice-versa) is still returned; part is never gated on name.
+
+    Series **name** priority:
+      1. a freeform ``…:SERIES`` atom (canonical ``----:com.apple.iTunes:SERIES``
+         first, then any other vendor namespace, e.g. ``----:com.pilabor.tone:SERIES``);
+      2. the native movement name atom ``©mvn``;
+      3. *album-implied* — if no name was found but a part was, and the file has an
+         album, the album is used as the series name (Audiobookshelf groups
+         part-only books by their album). This is flagged ``"album-implied"`` so the
+         write path never silently persists it.
+
+    Series **part** priority:
+      1. a freeform ``…:SERIES-PART`` / ``…:PART`` atom (any namespace);
+      2. the native movement index atom ``mvin``;
+      3. *track-implied* — the track number (``trkn``), surfaced ONLY when it looks
+         series-like (the track total > 1, or an album/grouping name is present) so
+         an incidental track number on a standalone book is not turned into a fake
+         part. Flagged ``"track-implied"`` and, like album-implied, never written.
 
     Returns a dict carrying ``series`` / ``series_part`` **only when found**
     (non-empty), plus the always-present provenance keys ``series_source`` /
-    ``series_part_source`` (one of ``"freeform"`` | ``"movement"`` | ``None``) and
-    ``series_atom`` / ``series_part_atom`` (the exact atom key the value came from,
-    or ``None``) so the GUI can show the user what is really on the file.
+    ``series_part_source`` (``"freeform:<ns>"`` | ``"movement"`` | ``"album-implied"``
+    | ``"track-implied"`` | ``None``) and ``series_atom`` / ``series_part_atom`` (the
+    exact atom key the value came from, or ``None`` for an implied value) so the GUI
+    can show the user what is really on the file.
     """
     out: dict[str, Any] = {
         "series_source": None,
@@ -134,33 +213,48 @@ def _resolve_series(mp4tags) -> dict:
                         return key, v
         return None, ""
 
-    # --- series name ---
+    # --- series name: freeform …SERIES -> ©mvn (album-implied handled below) ---
     atom, val = _find_freeform(_SERIES_NAME_SUFFIXES)
     if val:
-        out["series"], out["series_atom"], out["series_source"] = val, atom, "freeform"
+        out["series"] = val
+        out["series_atom"] = atom
+        out["series_source"] = f"freeform:{_freeform_namespace(atom)}"
     else:
         mv = _val(MOVEMENT_NAME_ATOM)
         if mv:
-            out["series"], out["series_atom"], out["series_source"] = mv, MOVEMENT_NAME_ATOM, "movement"
+            out["series"] = mv
+            out["series_atom"] = MOVEMENT_NAME_ATOM
+            out["series_source"] = "movement"
 
-    # --- series part ---
+    # --- series part: freeform …SERIES-PART/…PART -> mvin -> trkn (implied) ---
     atom, val = _find_freeform(_SERIES_PART_SUFFIXES)
     if val:
-        out["series_part"], out["series_part_atom"], out["series_part_source"] = val, atom, "freeform"
+        out["series_part"] = val
+        out["series_part_atom"] = atom
+        out["series_part_source"] = f"freeform:{_freeform_namespace(atom)}"
     else:
-        mvals = mp4tags.get(MOVEMENT_INDEX_ATOM)
-        if mvals:
-            raw = mvals[0]
-            if isinstance(raw, (list, tuple)):
-                raw = raw[0] if raw else None
-            try:
-                num = int(raw)
-            except (ValueError, TypeError):
-                num = None
-            if num is not None:
-                out["series_part"] = str(num)
-                out["series_part_atom"] = MOVEMENT_INDEX_ATOM
-                out["series_part_source"] = "movement"
+        mv_idx = _movement_index(mp4tags)
+        if mv_idx is not None:
+            out["series_part"] = str(mv_idx)
+            out["series_part_atom"] = MOVEMENT_INDEX_ATOM
+            out["series_part_source"] = "movement"
+        else:
+            tnum, ttotal = _track_number(mp4tags)
+            if tnum:  # non-zero track number
+                album = _val(ALBUM_ATOM) or _val(GROUPING_ATOM)
+                series_like = (ttotal is not None and ttotal > 1) or bool(album)
+                if series_like:
+                    out["series_part"] = str(tnum)
+                    out["series_part_atom"] = TRACK_ATOM
+                    out["series_part_source"] = "track-implied"
+
+    # --- album-implied name: a part with no real name, but an album to group by ---
+    if not out.get("series") and out.get("series_part"):
+        album = _val(ALBUM_ATOM)
+        if album:
+            out["series"] = album
+            out["series_atom"] = None
+            out["series_source"] = "album-implied"
 
     return out
 
@@ -233,12 +327,15 @@ def read_m4b_tags(path) -> dict:
 
     Returns keys ``title``, ``artist``, ``album_artist``, ``album``, ``comment``,
     ``genre``, ``year`` (strings), ``track`` (int track number, if present),
-    ``series`` / ``series_part`` (strings — resolved from the canonical freeform
-    atom, any other vendor freeform atom, or the native movement atoms, in that
-    order; present only when found), and ``has_cover`` (bool, always present).
-    Always includes the series provenance keys ``series_source`` /
-    ``series_part_source`` (``"freeform"`` | ``"movement"`` | ``None``) and
-    ``series_atom`` / ``series_part_atom`` (the exact source atom, or ``None``).
+    ``series`` / ``series_part`` (strings — resolved independently; name from a
+    freeform ``…SERIES`` atom → ``©mvn`` → the album (album-implied); part from a
+    freeform ``…SERIES-PART``/``…PART`` atom → ``mvin`` → the track number
+    (track-implied, gated); present only when found), and ``has_cover`` (bool,
+    always present). Always includes the series provenance keys ``series_source`` /
+    ``series_part_source`` (``"freeform:<ns>"`` | ``"movement"`` | ``"album-implied"``
+    | ``"track-implied"`` | ``None``) and ``series_atom`` / ``series_part_atom`` (the
+    exact source atom, or ``None`` for an implied value). An ``"album-implied"`` name
+    and a ``"track-implied"`` part are display-only and must never be written back.
     Missing text tags are simply absent from the returned dict.
     """
     from mutagen.mp4 import MP4
