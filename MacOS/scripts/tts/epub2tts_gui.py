@@ -7,7 +7,18 @@ import io
 import queue
 import sys
 import threading
-import tkinter as tk
+try:
+    import tkinter as tk
+except (ImportError, ModuleNotFoundError) as _tk_err:  # Tk-less / headless Python
+    sys.stderr.write(
+        "\n[Audiobook Creation Tool] The graphical interface cannot start because\n"
+        "this Python build has no working Tk (tkinter) support.\n\n"
+        "To enable the window, install Tk and relaunch:\n"
+        "  - macOS (Homebrew):  brew install python-tk@3.12\n"
+        "  - then double-click setup_and_run again.\n\n"
+        f"(details: {_tk_err})\n"
+    )
+    raise SystemExit(1)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path

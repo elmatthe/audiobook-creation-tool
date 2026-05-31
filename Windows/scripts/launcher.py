@@ -20,8 +20,20 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
-import tkinter as tk
-from tkinter import ttk
+try:
+    import tkinter as tk
+    from tkinter import ttk
+except (ImportError, ModuleNotFoundError) as _tk_err:  # Tk-less / headless Python
+    import sys as _sys
+    _sys.stderr.write(
+        "\n[Audiobook Creation Tool] The graphical interface cannot start because\n"
+        "this Python build has no working Tk (tkinter) support.\n\n"
+        "To enable the window, install Tk and relaunch:\n"
+        "  - macOS (Homebrew):  brew install python-tk@3.12\n"
+        "  - then double-click setup_and_run again.\n\n"
+        f"(details: {_tk_err})\n"
+    )
+    raise SystemExit(1)
 
 # Make the scripts/ root importable whether launched as `python scripts/launcher.py`
 # or imported. (sys.path[0] is already scripts/ when run directly; this is belt-and-braces.)

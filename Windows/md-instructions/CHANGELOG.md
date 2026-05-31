@@ -15,6 +15,36 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## v0.2.0 — Installer Hardening (macOS)
+
+**macOS installer now self-heals on fresh machines with no Python/Homebrew/ffmpeg.**
+
+- setup_and_run.command: replaces "first python3 wins" discovery with a
+  GUI-capability probe (import tkinter; tkinter.Tcl()); only accepts a
+  Python that can actually run the GUI.
+- Auto-installs python-tk@3.12 + ffmpeg via Homebrew when a Tk-less
+  python@3.12 is found; auto-installs Homebrew itself on a bare Mac (user
+  is warned before the password prompt).
+- bootstrap.py: new capability probes (tkinter, ssl, venv, functional
+  Tcl/Tk, ffprobe); preflight report printed before setup begins.
+- find_suitable_python now prefers a Tk-capable interpreter and falls back
+  to Tk-repair before accepting a Tk-less one.
+- Venv validation: post-creation capability probe on the venv interpreter
+  (not just the base); self-heals by deleting and recreating a broken venv.
+- Package validation: explicit import-test for edge_tts, pydub, fitz,
+  mutagen, PIL, ebooklib, bs4, nltk after pip install; force-reinstalls on
+  failure.
+- ffmpeg: in-session PATH refresh after brew install (Apple Silicon +
+  Intel); ffprobe added to checks.
+- --headless mode: full venv + deps + ffmpeg + validation without requiring
+  Tk; activated automatically when no GUI-capable Python can be found.
+- launcher.py + epub2tts_gui.py: guarded top-level import tkinter with a
+  clear CLI-fallback message instead of a raw _tkinter traceback.
+- Windows path unchanged in behavior.
+- Known: macOS clean-machine one-click install is correct by inspection and
+  compile-verified but awaits a live pass on real Mac hardware before the
+  macOS column can be marked fully green.
+
 ## [0.1.3] - 2026-05-30
 
 > Update release batching three independent improvements staged off `master` since v0.1.2: a
