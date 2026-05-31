@@ -81,14 +81,14 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ### Windows
 
-1. Download `AudiobookTool-Windows-v0.1.3.zip` and extract it anywhere.
+1. Download `AudiobookTool-Windows-v0.2.0.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.bat`**.
 3. The **first** run opens a small setup window that installs a private Python environment, the audio libraries, and ffmpeg — and (optionally) pre‑downloads the Kokoro AI voice model. A progress bar and live log show what's happening.
 4. **Every run after that** opens the app instantly, with no console window.
 
 ### macOS
 
-1. Download `AudiobookTool-MacOS-v0.1.3.zip` and extract it anywhere.
+1. Download `AudiobookTool-MacOS-v0.2.0.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.command`** in Finder. (If macOS blocks it the first time, right‑click → **Open**.)
 3. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
 
