@@ -4,7 +4,7 @@
 
 The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
-> **Status:** v0.1.2 — fixes **series read-back** in the M4B Metadata Editor: it now displays the existing series from real Audible/Audiobookshelf files (which store it in a vendor freeform atom, e.g. Libation/tone's `----:com.pilabor.tone:SERIES`, or the native movement atoms — not the atom the tool previously read), shows a read-only **"Detected on file"** line with the source atom, and makes an overwrite authoritative so it isn't shadowed by the original tag. Builds on v0.1.1's **non‑destructive copy‑based output** (imported files are never modified), smart auto‑named **Downloads/&lt;Tool&gt;‑N** output folders, **Clear All Tags (keep chapters)**, and **per‑file chapter‑title import**. Fully verified on Windows against real assets (incl. the real Harry Potter & Mistborn M4Bs). macOS is built to mirror Windows but awaits a live pass on a Mac. See [Known Limitations](#known-limitations).
+> **Status:** v0.1.3 — three M4B Metadata Editor / launcher improvements. **Part-only series detection:** books whose series position lives only in the track number (e.g. `trkn = 4/5`) with the series name in Album/Grouping — and no dedicated series atom — are now detected; series **name** and **part** resolve independently and the editor shows the detected part + source instead of a false "no series tag". **Auto-number Series Part toggle:** the editor can write sequential part numbers across a batch of files (off by default; on uses the field as the start number), and is now the single control over series-part writes. **Default window size:** the launcher always opens at its default size (window geometry is no longer persisted; last‑selected tool is). Builds on v0.1.2's **series read-back** fix and v0.1.1's **non‑destructive copy‑based output**, **Downloads/&lt;Tool&gt;‑N** output folders, **Clear All Tags (keep chapters)**, and **per‑file chapter‑title import**. Verified on Windows against real assets (incl. the real Dungeon Crawler Carl, Trials of Apollo & Mistborn M4Bs). macOS is built to mirror Windows but awaits a live pass on a Mac. See [Known Limitations](#known-limitations).
 
 ---
 
@@ -12,8 +12,8 @@ The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TX
 
 Grab the latest release — extract the zip and double‑click the setup file (see [Installation](#installation)):
 
-- **Windows:** [**AudiobookTool-Windows-v0.1.2.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.2/AudiobookTool-Windows-v0.1.2.zip)
-- **macOS:** [**AudiobookTool-MacOS-v0.1.2.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.2/AudiobookTool-MacOS-v0.1.2.zip)
+- **Windows:** [**AudiobookTool-Windows-v0.1.3.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.3/AudiobookTool-Windows-v0.1.3.zip)
+- **macOS:** [**AudiobookTool-MacOS-v0.1.3.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.3/AudiobookTool-MacOS-v0.1.3.zip)
 
 All releases are listed on the [**Releases page**](https://github.com/elmatthe/audiobook-creation-tool/releases).
 
@@ -81,14 +81,14 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ### Windows
 
-1. Download `AudiobookTool-Windows-v0.1.2.zip` and extract it anywhere.
+1. Download `AudiobookTool-Windows-v0.1.3.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.bat`**.
 3. The **first** run opens a small setup window that installs a private Python environment, the audio libraries, and ffmpeg — and (optionally) pre‑downloads the Kokoro AI voice model. A progress bar and live log show what's happening.
 4. **Every run after that** opens the app instantly, with no console window.
 
 ### macOS
 
-1. Download `AudiobookTool-MacOS-v0.1.2.zip` and extract it anywhere.
+1. Download `AudiobookTool-MacOS-v0.1.3.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.command`** in Finder. (If macOS blocks it the first time, right‑click → **Open**.)
 3. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
 
