@@ -4,7 +4,7 @@
 
 The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
-> **Status:** v0.1.3 — three M4B Metadata Editor / launcher improvements. **Part-only series detection:** books whose series position lives only in the track number (e.g. `trkn = 4/5`) with the series name in Album/Grouping — and no dedicated series atom — are now detected; series **name** and **part** resolve independently and the editor shows the detected part + source instead of a false "no series tag". **Auto-number Series Part toggle:** the editor can write sequential part numbers across a batch of files (off by default; on uses the field as the start number), and is now the single control over series-part writes. **Default window size:** the launcher always opens at its default size (window geometry is no longer persisted; last‑selected tool is). Builds on v0.1.2's **series read-back** fix and v0.1.1's **non‑destructive copy‑based output**, **Downloads/&lt;Tool&gt;‑N** output folders, **Clear All Tags (keep chapters)**, and **per‑file chapter‑title import**. Verified on Windows against real assets (incl. the real Dungeon Crawler Carl, Trials of Apollo & Mistborn M4Bs). macOS is built to mirror Windows but awaits a live pass on a Mac. See [Known Limitations](#known-limitations).
+> **Status:** v0.2.0 — macOS installer hardening: GUI-capable Python selection, python-tk auto-install via Homebrew, --headless fallback mode, dependency-validation stage with preflight report, self-healing venv and ffmpeg recovery, clean Tk-less GUI error messages. Builds on v0.1.3's M4B Metadata Editor improvements. Verified on Windows; the macOS clean-machine install is built to mirror Windows but awaits a live pass on a Mac. See [Known Limitations](#known-limitations).
 
 ---
 
@@ -12,8 +12,8 @@ The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TX
 
 Grab the latest release — extract the zip and double‑click the setup file (see [Installation](#installation)):
 
-- **Windows:** [**AudiobookTool-Windows-v0.1.3.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.3/AudiobookTool-Windows-v0.1.3.zip)
-- **macOS:** [**AudiobookTool-MacOS-v0.1.3.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.1.3/AudiobookTool-MacOS-v0.1.3.zip)
+- **Windows:** [**AudiobookTool-Windows-v0.2.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.2.0/AudiobookTool-Windows-v0.2.0.zip)
+- **macOS:** [**AudiobookTool-MacOS-v0.2.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.2.0/AudiobookTool-MacOS-v0.2.0.zip)
 
 All releases are listed on the [**Releases page**](https://github.com/elmatthe/audiobook-creation-tool/releases).
 
