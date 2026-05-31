@@ -107,7 +107,7 @@ class LauncherApp:
         self.buttons: dict[str, ttk.Button] = {}
 
         self._build_ui()
-        self._restore_geometry()
+        self._apply_default_geometry()
 
         # Open the last-used tool, or the first available one.
         last = app_settings.get("last_tool")
@@ -251,19 +251,15 @@ class LauncherApp:
         for k, btn in self.buttons.items():
             btn.state(["disabled"] if k == key else ["!disabled"])
 
-    # ----- geometry persistence -----
-    def _restore_geometry(self):
-        geom = app_settings.get("window_geometry")
-        self.root.geometry(geom if isinstance(geom, str) and geom else DEFAULT_GEOMETRY)
+    # ----- geometry -----
+    def _apply_default_geometry(self):
+        # Always open at the default size — window size/position is intentionally
+        # not persisted across sessions (only the last-selected tool is).
+        self.root.geometry(DEFAULT_GEOMETRY)
 
     def _on_close(self):
         try:
-            app_settings.update(
-                {
-                    "window_geometry": self.root.winfo_geometry(),
-                    "last_tool": self.current_key,
-                }
-            )
+            app_settings.set("last_tool", self.current_key)
         except Exception:
             pass
         self.root.destroy()
