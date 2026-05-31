@@ -3,7 +3,20 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status (v0.1.2, 2026-05-30):** Patch release on top of v0.1.1; `VERSION = "0.1.2"`. Fixes the
+> **Status (v0.1.3, 2026-05-30):** Update release on top of v0.1.2; `VERSION = "0.1.3"`. Batches three
+> independent improvements staged off `master`: (1) **part-only / track-implied series detection** in the
+> M4B Metadata Editor — `read_m4b_tags` now resolves series **name** and **part** independently (name:
+> freeform `…SERIES` → `©mvn` → album-implied; part: freeform `…SERIES-PART`/`…PART` → `mvin` → the track
+> number, the last only when *series-like*: track total > 1 or an album/grouping name present), reporting
+> `album-implied`/`track-implied` provenance that is **display-only** and never persisted unless the user
+> supplies a real Series Name; (2) a new **Auto-number Series Part** toggle in the editor — the sole control
+> over series-part writes (off = nothing written; on = sequential parts across the loaded files in list
+> order from the field's start value, default 1); and (3) the **launcher now always opens at its default
+> size** (window geometry no longer persisted; last-selected-tool memory kept). Win↔Mac `scripts/`
+> byte-identical; `compileall` clean; verified headless on Windows against the real `test-files/` M4Bs
+> (Dungeon Crawler Carl, The Trials of Apollo, Mistborn). macOS live pass deferred (no host).
+>
+> **Prior status (v0.1.2, 2026-05-30):** Patch release on top of v0.1.1; `VERSION = "0.1.2"`. Fixes the
 > **M4B Metadata Editor series read-back**: real Audible/Audiobookshelf M4Bs store the series in a
 > vendor freeform atom (Libation/tone writes `----:com.pilabor.tone:SERIES` / `:PART`, *not* the
 > `----:com.apple.iTunes:SERIES` atom we used to read), so Series Name/Part came up blank even when
@@ -143,9 +156,9 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 | MP3 Tool | `scripts/mp3_tools/mp3_tool.py` | Combine MP3s, time-edit, bulk ID3 tagging |
 | M4B Maker | `scripts/mp3_tools/m4b_maker.py` | MP3s → M4B with chapters, metadata, cover, **series tags** (new in Phase 6) |
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
-| M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. **v0.1.1:** writes **copies** (never the original) to `Downloads/M4B-Metadata-N`; adds a **Clear All Tags (keep chapters)** button and a paged **per-file chapter-title import** (positional; blank line = unchanged). |
-| Shared | `scripts/shared/` | `paths.py` (**v0.1.1 added** `downloads_dir`/`next_output_dir`/`TOOL_SLUGS`/`avoid_input_overwrite`), `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`; **v0.1.1 added** `clear_metadata_keep_chapters`, `read_chapter_titles`, `apply_chapter_titles`; **v0.1.2** broadened `read_m4b_tags`'s series reader to resolve from the canonical freeform atom → any other vendor freeform atom (e.g. `----:com.pilabor.tone:SERIES`) → the native movement atoms, returning series provenance (`series_source`/`series_atom`) + a `describe_series_atoms` helper, and made series *writes* strip any same-suffix shadowing atom so an overwrite actually takes), `logging_setup.py`, `bootstrap.py`, `version.py` (single
-source of truth, **`VERSION = "0.1.1"`**), `release.py` (Phase 8 — dev-only zip packager, never imported by
+| M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. **v0.1.1:** writes **copies** (never the original) to `Downloads/M4B-Metadata-N`; adds a **Clear All Tags (keep chapters)** button and a paged **per-file chapter-title import** (positional; blank line = unchanged). **v0.1.3:** detects **part-only / track-implied** series (shows the detected part + source even when the name lives only in Album/Grouping, never auto-writing the implied value) and adds an **Auto-number Series Part** toggle (the sole control over series-part writes: off = nothing written, on = sequential parts across the loaded files). |
+| Shared | `scripts/shared/` | `paths.py` (**v0.1.1 added** `downloads_dir`/`next_output_dir`/`TOOL_SLUGS`/`avoid_input_overwrite`), `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`; **v0.1.1 added** `clear_metadata_keep_chapters`, `read_chapter_titles`, `apply_chapter_titles`; **v0.1.2** broadened `read_m4b_tags`'s series reader to resolve from the canonical freeform atom → any other vendor freeform atom (e.g. `----:com.pilabor.tone:SERIES`) → the native movement atoms, returning series provenance (`series_source`/`series_atom`) + a `describe_series_atoms` helper, and made series *writes* strip any same-suffix shadowing atom so an overwrite actually takes; **v0.1.3** resolves series **name and part independently** (name: freeform `…SERIES` → `©mvn` → album-implied; part: freeform `…SERIES-PART`/`…PART` → `mvin` → the track number when *series-like*) and reports `album-implied`/`track-implied` provenance — both **display-only**, never written), `logging_setup.py`, `bootstrap.py`, `version.py` (single
+source of truth, **`VERSION = "0.1.3"`**), `release.py` (Phase 8 — dev-only zip packager, never imported by
 the app). |
 
 ---

@@ -15,6 +15,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-30
+
+> Update release batching three independent improvements staged off `master` since v0.1.2: a
+> part-only / track-implied series-detection fix, a new auto-number Series Part toggle in the M4B
+> Metadata Editor, and a launcher that always opens at its default size. `compileall` clean, the
+> Windows↔MacOS `scripts/` trees byte-identical, and verified headless on Windows against the real
+> `test-files/` assets (the Dungeon Crawler Carl, Trials of Apollo, and Mistborn M4Bs). macOS
+> deferred (no host).
+
+### Added
+- **M4B Metadata Editor:** an **Auto-number Series Part** toggle, now the *sole* control over whether
+  anything is written to the series-part tag. When **on**, the Series Part field is the starting
+  number and sequential parts are written across the loaded files **in list order** (a single file
+  gets just that number; a blank field starts at 1), with a live hint showing the exact range that
+  will be written. When **off** (the default), the Series Part field is display-only and nothing is
+  written to the series-part tag (preserve-by-default).
+
+### Fixed
+- **M4B Metadata Editor:** series position is now detected for files that carry only a track-number
+  marker (e.g. `trkn = 4/5`) with the series name in Album/Grouping rather than a dedicated series
+  atom. Series **name** and **part** now resolve independently: a name from `…SERIES` → `©mvn` → the
+  album (album-implied); a part from `…SERIES-PART`/`…PART` → `mvin` → the track number (the last only
+  when *series-like* — track total > 1 or an album/grouping name present, so an incidental track number
+  on a standalone book is not turned into a fake part). Implied values (`album-implied` /
+  `track-implied`) are display-only, with their source shown in the read-only "Detected on file" line;
+  the album-implied name is never written unless the user types a Series Name, and the series-part is
+  written only via the new auto-number toggle. Eliminates the false "no series tag" reading on such
+  files.
+
+### Changed
+- **Launcher:** the window now always opens at its default size. Previous window size/position is no
+  longer saved or restored; last-selected-tool memory is unchanged.
+
 ## [0.1.2] - 2026-05-30
 
 > Patch release: a series-metadata read/display correctness fix in the M4B Metadata Editor.
