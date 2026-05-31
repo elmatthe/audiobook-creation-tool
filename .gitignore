@@ -39,6 +39,9 @@ MacOS/test-logs/
 # Real test assets used for the Phase 7 matrix (~2.7 GB local fixture; never committed)
 test-files/
 
+# Local AI/working scratch notes (never shipped)
+AI-WORKSPACE.md
+
 # OS cruft
 .DS_Store
 Thumbs.db
