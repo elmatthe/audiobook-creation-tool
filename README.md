@@ -4,7 +4,7 @@
 
 The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
-> **Status:** v0.2.0 — macOS installer hardening: GUI-capable Python selection, python-tk auto-install via Homebrew, --headless fallback mode, dependency-validation stage with preflight report, self-healing venv and ffmpeg recovery, clean Tk-less GUI error messages. Builds on v0.1.3's M4B Metadata Editor improvements. Verified on Windows; the macOS clean-machine install is built to mirror Windows but awaits a live pass on a Mac. See [Known Limitations](#known-limitations).
+> **Status:** v0.3.0 — series/track numbering fix in the M4B Metadata Editor: auto-numbering now writes the native `trkn` track atom (so Windows Explorer's `#` column populates) and the native movement atoms (`©mvn`/`©mvi`/`©mvc`) alongside the freeform iTunes series atoms, so Audiobookshelf groups a set into a numbered series; plus a new **Remove Series Numbering** action that strips every numbering surface while keeping chapters. Verified end-to-end on Windows (Explorer `#` 1–11 and an Audiobookshelf rebuild grouping the set); the macOS tree mirrors Windows byte-for-byte but awaits a live pass on a Mac. Builds on v0.2.0's macOS installer hardening. See [Known Limitations](#known-limitations).
 
 ---
 
@@ -12,8 +12,8 @@ The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TX
 
 Grab the latest release — extract the zip and double‑click the setup file (see [Installation](#installation)):
 
-- **Windows:** [**AudiobookTool-Windows-v0.2.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.2.0/AudiobookTool-Windows-v0.2.0.zip)
-- **macOS:** [**AudiobookTool-MacOS-v0.2.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.2.0/AudiobookTool-MacOS-v0.2.0.zip)
+- **Windows:** [**AudiobookTool-Windows-v0.3.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.3.0/AudiobookTool-Windows-v0.3.0.zip)
+- **macOS:** [**AudiobookTool-MacOS-v0.3.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.3.0/AudiobookTool-MacOS-v0.3.0.zip)
 
 All releases are listed on the [**Releases page**](https://github.com/elmatthe/audiobook-creation-tool/releases).
 
@@ -81,14 +81,14 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ### Windows
 
-1. Download `AudiobookTool-Windows-v0.2.0.zip` and extract it anywhere.
+1. Download `AudiobookTool-Windows-v0.3.0.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.bat`**.
 3. The **first** run opens a small setup window that installs a private Python environment, the audio libraries, and ffmpeg — and (optionally) pre‑downloads the Kokoro AI voice model. A progress bar and live log show what's happening.
 4. **Every run after that** opens the app instantly, with no console window.
 
 ### macOS
 
-1. Download `AudiobookTool-MacOS-v0.2.0.zip` and extract it anywhere.
+1. Download `AudiobookTool-MacOS-v0.3.0.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.command`** in Finder. (If macOS blocks it the first time, right‑click → **Open**.)
 3. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
 

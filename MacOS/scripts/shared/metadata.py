@@ -15,11 +15,15 @@ mapping:
    :func:`write_m4b_tags` are that canonical read/write pair. ``write_m4b_tags``
    only touches the keys you pass, leaving every other tag in the file intact.
 
-Series tags follow the Audiobookshelf convention (Briefing §6): Audiobookshelf
-scans with ffprobe, which does *not* surface the native MP4 movement atoms, so
-the series name/part are written as the freeform atoms
-``----:com.apple.iTunes:SERIES`` and ``----:com.apple.iTunes:SERIES-PART``
-(UTF-8 bytes), which ffprobe exposes as ``series`` / ``series-part``.
+Series tags (Briefing §6): the canonical write target is the freeform pair
+``----:com.apple.iTunes:SERIES`` / ``----:com.apple.iTunes:SERIES-PART`` (UTF-8
+bytes), which Audiobookshelf's ffprobe scanner exposes as ``series`` /
+``series-part``. Whenever a numeric series part is written, :func:`write_m4b_tags`
+ALSO sets the native track atom ``trkn`` (so Windows Explorer's ``#`` column and
+generic players show the number) and the native movement atoms ``©mvn`` /
+``©mvi`` / ``©mvc`` (a belt-and-suspenders fallback so grouping does not depend on
+a single namespace being honoured). :func:`clear_series_numbering` strips all of
+these surfaces again for a deterministic re-tag.
 """
 
 from __future__ import annotations
@@ -33,13 +37,20 @@ from typing import Any
 SERIES_ATOM = "----:com.apple.iTunes:SERIES"
 SERIES_PART_ATOM = "----:com.apple.iTunes:SERIES-PART"
 
-# Native MP4 "movement" atoms — Audiobookshelf's documented fallback for series
-# (©mvn = movement/series name, mvin = movement/series index, ©mvc = count). Some
-# taggers store the series here instead of a freeform atom; we read them as a last
-# resort but never write them (writes stay canonical freeform — see write_m4b_tags).
+# Native MP4 "movement" atoms (the iTunes ©-prefixed atoms mutagen supports:
+# ©mvn = movement name [text], ©mvi = movement index [int], ©mvc = movement count
+# [int]). Audiobookshelf reads these as a series fallback and generic players show
+# them, so write_m4b_tags writes them ALONGSIDE the canonical freeform atoms
+# whenever a numeric series part is supplied (belt-and-suspenders); the read path
+# also accepts ©mvn / ©mvi as a series source.
 MOVEMENT_NAME_ATOM = "\xa9mvn"
-MOVEMENT_INDEX_ATOM = "mvin"
+MOVEMENT_INDEX_ATOM = "\xa9mvi"
 MOVEMENT_COUNT_ATOM = "\xa9mvc"
+
+# Legacy / non-canonical movement spellings some third-party taggers emit. We do
+# not write these, but clear_series_numbering strips them too so a re-tag is
+# deterministic regardless of tagger origin.
+LEGACY_MOVEMENT_ATOMS = ("mvnm", "mvin", "mvc")
 
 # Album / grouping atoms. Real tagger output (e.g. tone / "Chapter and Verse"
 # rips of the Trials of Apollo books) stores the *series name* in the album (and
@@ -108,7 +119,7 @@ def _freeform_namespace(key: str) -> str:
 
 
 def _movement_index(mp4tags) -> int | None:
-    """Parse the native movement index (``mvin``) to an int, or ``None``.
+    """Parse the native movement index (``©mvi``) to an int, or ``None``.
 
     Handles the ``int`` / ``[int]`` / ``[(idx, total)]`` shapes mutagen may hand
     back for the movement-index atom.
@@ -170,7 +181,7 @@ def _resolve_series(mp4tags) -> dict:
 
     Series **part** priority:
       1. a freeform ``…:SERIES-PART`` / ``…:PART`` atom (any namespace);
-      2. the native movement index atom ``mvin``;
+      2. the native movement index atom ``©mvi``;
       3. *track-implied* — the track number (``trkn``), surfaced ONLY when it looks
          series-like (the track total > 1, or an album/grouping name is present) so
          an incidental track number on a standalone book is not turned into a fake
@@ -329,7 +340,7 @@ def read_m4b_tags(path) -> dict:
     ``genre``, ``year`` (strings), ``track`` (int track number, if present),
     ``series`` / ``series_part`` (strings — resolved independently; name from a
     freeform ``…SERIES`` atom → ``©mvn`` → the album (album-implied); part from a
-    freeform ``…SERIES-PART``/``…PART`` atom → ``mvin`` → the track number
+    freeform ``…SERIES-PART``/``…PART`` atom → ``©mvi`` → the track number
     (track-implied, gated); present only when found), and ``has_cover`` (bool,
     always present). Always includes the series provenance keys ``series_source`` /
     ``series_part_source`` (``"freeform:<ns>"`` | ``"movement"`` | ``"album-implied"``
@@ -366,7 +377,7 @@ def describe_series_atoms(path) -> list[tuple[str, str]]:
     present on the file, for the GUI's read-back display.
 
     Checks the freeform ``----:…:SERIES`` / ``SERIES-PART`` / ``PART`` atoms (any
-    vendor namespace) and the native movement atoms ``©mvn`` / ``mvin`` / ``©mvc``.
+    vendor namespace) and the native movement atoms ``©mvn`` / ``©mvi`` / ``©mvc``.
     Returns ``[]`` when none are present. Never raises on a missing/odd atom.
     """
     from mutagen.mp4 import MP4
@@ -394,7 +405,7 @@ def describe_series_atoms(path) -> list[tuple[str, str]]:
     return found
 
 
-def write_m4b_tags(path, tags: dict) -> None:
+def write_m4b_tags(path, tags: dict, total: int | None = None) -> None:
     """Write/update the given tags on an M4B/MP4 file, preserving all others.
 
     Only keys present in ``tags`` are touched. Recognised keys: ``title``,
@@ -409,6 +420,16 @@ def write_m4b_tags(path, tags: dict) -> None:
     that ffprobe/Audiobookshelf would surface under the same name, so the new
     value is authoritative rather than shadowed by a leftover atom. A blank series
     field is never written, so this never disturbs an existing tag (preserve-by-default).
+
+    When a numeric ``series_part`` is written this ADDITIONALLY sets the native
+    track atom ``trkn`` = ``(part, total)`` (so Windows Explorer's ``#`` column
+    and generic players show the number) and the native movement atoms ``©mvn``
+    (series name, if given) / ``©mvi`` (part) / ``©mvc`` (``total``, when known).
+    ``total`` is the size of the batch this part belongs to; pass it from the
+    caller (the editor passes ``len(files)``). When ``total`` is ``None``/0 the
+    track total is written as 0 and ``©mvc`` is omitted, so ``#`` still shows the
+    number. These native atoms are written *after* the conflicting-atom strip, so
+    they are never removed by it.
     """
     from mutagen.mp4 import MP4, MP4Cover
 
@@ -447,6 +468,34 @@ def write_m4b_tags(path, tags: dict) -> None:
                 mp4.tags[atom] = [val.encode("utf-8")]
             elif atom in mp4.tags:
                 del mp4.tags[atom]
+
+    # Native track + movement atoms (RC1/RC2). When a numeric series part is
+    # written, ALSO populate the native ``trkn`` (Explorer's # column / generic
+    # players) and the native movement atoms ``©mvn``/``©mvi``/``©mvc`` so
+    # Audiobookshelf groups regardless of which mapping its scanner honours. This
+    # runs AFTER _strip_conflicting_series_atoms (which removed any stale ©mvn/©mvi
+    # for the keys being written), so the values written here are authoritative.
+    if "series_part" in tags:
+        part_raw = _clean(tags["series_part"])
+        if part_raw:
+            try:
+                part_int = int(part_raw)
+            except ValueError:
+                part_int = None
+            if part_int is not None:
+                try:
+                    total_int = int(total) if total not in (None, "") else 0
+                except (TypeError, ValueError):
+                    total_int = 0
+                mp4.tags[TRACK_ATOM] = [(part_int, total_int)]
+                mp4.tags[MOVEMENT_INDEX_ATOM] = [part_int]
+                if total_int > 0:
+                    mp4.tags[MOVEMENT_COUNT_ATOM] = [total_int]
+                elif MOVEMENT_COUNT_ATOM in mp4.tags:
+                    del mp4.tags[MOVEMENT_COUNT_ATOM]
+                name_raw = _clean(tags["series"]) if "series" in tags else ""
+                if name_raw:
+                    mp4.tags[MOVEMENT_NAME_ATOM] = [name_raw]
 
     if "cover_path" in tags:
         cover = _clean(tags["cover_path"])
@@ -490,6 +539,38 @@ def clear_metadata_keep_chapters(path) -> None:
         for key in list(mp4.tags.keys()):
             del mp4.tags[key]
         mp4.save()
+
+
+def clear_series_numbering(path) -> None:
+    """Remove every series / sequence / track numbering atom across all known
+    surfaces, leaving all other tags and chapters intact — a deterministic
+    baseline before re-tagging a set.
+
+    Strips: the native track atom ``trkn``; the native movement atoms
+    ``©mvn`` / ``©mvi`` / ``©mvc`` (and the legacy spellings other taggers emit);
+    and every freeform ``----:…`` atom whose final segment names a SERIES or PART
+    in any vendor namespace (Apple, tone, etc.). Chapter markers, titles,
+    timestamps, cover art, and all other metadata are left untouched — we delete
+    individual ``ilst`` keys, never the chapter ``trak`` (same guarantee as
+    :func:`clear_metadata_keep_chapters`). Operate on a COPY only — never on an
+    imported original (the Metadata Editor copies first).
+    """
+    from mutagen.mp4 import MP4
+
+    mp4 = MP4(str(Path(path)))
+    if not mp4.tags:
+        return
+    # Native + legacy movement/track atoms.
+    for key in (TRACK_ATOM, MOVEMENT_NAME_ATOM, MOVEMENT_INDEX_ATOM,
+                MOVEMENT_COUNT_ATOM, *LEGACY_MOVEMENT_ATOMS):
+        mp4.tags.pop(key, None)
+    # Freeform series/part atoms across every vendor namespace.
+    for key in list(mp4.tags.keys()):
+        if key.startswith("----:"):
+            suffix = key.rsplit(":", 1)[-1].upper()
+            if "SERIES" in suffix or "PART" in suffix:
+                mp4.tags.pop(key, None)
+    mp4.save()
 
 
 # --------------------------------------------------------------------------- #

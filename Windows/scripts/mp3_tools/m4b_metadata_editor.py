@@ -23,7 +23,11 @@ Behaviour:
 
 Series Name / Series Part are written as the freeform atoms
 ``----:com.apple.iTunes:SERIES`` / ``SERIES-PART`` (Briefing §6), which
-Audiobookshelf's ffprobe scanner reads as ``series`` / ``series-part``.
+Audiobookshelf's ffprobe scanner reads as ``series`` / ``series-part``. When a
+part is auto-numbered the writer also sets the native ``trkn`` (Windows
+Explorer's ``#`` column) and movement atoms (``©mvn``/``©mvi``/``©mvc``) — see
+``shared.metadata.write_m4b_tags``. "Remove Series Numbering" strips every one of
+those surfaces again (``shared.metadata.clear_series_numbering``).
 
 Series Part is governed by an **Auto-number** toggle: OFF (default) writes
 nothing to series-part (the field is display-only — preserve-by-default); ON
@@ -267,6 +271,10 @@ class M4BMetadataEditorUI(ttk.Frame):
             action, text="Clear All Tags (keep chapters)", command=self.on_clear_all_tags
         )
         self.btn_clear_tags.pack(side=tk.LEFT, padx=(8, 0))
+        self.btn_remove_numbering = ttk.Button(
+            action, text="Remove Series Numbering", command=self.on_remove_series_numbering
+        )
+        self.btn_remove_numbering.pack(side=tk.LEFT, padx=(8, 0))
         self.btn_cancel = ttk.Button(action, text="Cancel", command=self.cancel, state=tk.DISABLED)
         self.btn_cancel.pack(side=tk.LEFT, padx=(8, 0))
         self.progress = ttk.Progressbar(action, mode="determinate", length=240)
@@ -585,6 +593,42 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.series_readback_var.set("")
         self._start_job(clear_first=True)
 
+    def on_remove_series_numbering(self):
+        """Strip all series/track numbering (trkn, freeform series atoms, and
+        movement atoms) on a COPY of each loaded file, keeping chapters and every
+        other tag. Mirrors the Clear All Tags wiring (copy-based, worker thread,
+        Cancel, per-file log) but targets only the numbering surfaces."""
+        if self._busy.is_set():
+            return
+        if not self.files:
+            messagebox.showerror("No files", "Open one or more M4B files first.")
+            return
+        if not messagebox.askyesno(
+            "Remove series numbering?",
+            "This writes COPIES with all series/track numbering removed: the "
+            "track number (Explorer's # column), the Series Name / Series Part, "
+            "and the movement atoms — across every tagger namespace.\n\n"
+            "Chapter markers and titles, cover art, and all other tags are kept. "
+            "The imported originals are not modified.\n\nProceed?",
+        ):
+            return
+
+        files = list(self.files)
+        outdir = self.output_dir()  # read Tk var on the main thread
+        self.series_readback_var.set("")
+        self._busy.set()
+        self._cancel_event.clear()
+        self.progress.configure(maximum=len(files), value=0)
+        self.disable_inputs(True)
+        self.btn_cancel.configure(state=tk.NORMAL)
+        self.log_write(
+            f"\nRemoving series numbering on {len(files)} copy(ies) in {outdir}…\n"
+        )
+        t = threading.Thread(
+            target=self._remove_numbering_worker, args=(files, outdir), daemon=True
+        )
+        t.start()
+
     def _start_job(self, *, clear_first: bool):
         if self._busy.is_set():
             return
@@ -663,6 +707,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.btn_clear,
             self.btn_save,
             self.btn_clear_tags,
+            self.btn_remove_numbering,
             self.btn_cover,
             self.btn_cover_clear,
             self.entry_cover,
@@ -753,7 +798,7 @@ class M4BMetadataEditorUI(ttk.Frame):
                     if autonumber:
                         file_tags["series_part"] = str(start_part + (idx - 1))
                     if file_tags:
-                        metadata.write_m4b_tags(dest, file_tags)
+                        metadata.write_m4b_tags(dest, file_tags, total=total)
                         msg = f"[{idx}/{total}] Applied typed tag fields"
                         if autonumber:
                             msg += f" (Series Part #{file_tags['series_part']})"
@@ -764,6 +809,39 @@ class M4BMetadataEditorUI(ttk.Frame):
                         self._log_q.put(
                             ("log", f"[{idx}/{total}] Applied imported chapter titles\n")
                         )
+                    self._log_q.put(("log", f"[{idx}/{total}] ✓ {dest.name}\n"))
+                    ok += 1
+                except Exception as e:
+                    self._log_q.put(("log", f"[{idx}/{total}] ✗ {f.name}: {e}\n"))
+                    fail += 1
+                finally:
+                    self._log_q.put(("progress", idx))
+        except ConversionCancelled:
+            cancelled = True
+        self._log_q.put(("done", (ok, fail, cancelled)))
+
+    # ----- remove-series-numbering worker (worker thread) -----
+    def _remove_numbering_worker(self, files: list, outdir: Path):
+        cancel_check = self._cancel_event.is_set
+        total = len(files)
+        ok = 0
+        fail = 0
+        cancelled = False
+        try:
+            outdir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
+            for idx, f in enumerate(files, start=1):
+                raise_if_cancelled(cancel_check)
+                try:
+                    # Copy original → output folder, then strip numbering on the
+                    # COPY only (chapters/other tags preserved). The imported
+                    # original is read-only.
+                    dest = paths.avoid_input_overwrite(outdir / f.name, files)
+                    shutil.copy2(f, dest)
+                    self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
+                    metadata.clear_series_numbering(dest)
+                    self._log_q.put(
+                        ("log", f"[{idx}/{total}] Removed series numbering (kept chapters)\n")
+                    )
                     self._log_q.put(("log", f"[{idx}/{total}] ✓ {dest.name}\n"))
                     ok += 1
                 except Exception as e:

@@ -15,6 +15,44 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-31
+
+> Series & track numbering fix for the M4B Metadata Editor. Auto-numbering now lights up **all three
+> surfaces** a reader looks at — the native track atom, the native movement atoms, and the freeform
+> iTunes series atoms — and a new **Remove Series Numbering** action strips every one of them again.
+> Verified end-to-end on Windows: a re-tagged 11-volume "Shadow Slave" set shows `#` 1–11 in File
+> Explorer and groups as a numbered series in Audiobookshelf after a library rebuild. Win↔Mac
+> `scripts/` byte-identical; `compileall` clean; headless round-trip self-test passed (trkn / movement
+> / freeform all written and correct, chapter count unchanged, `clear_series_numbering` removes
+> everything). macOS still awaits a live pass on a Mac.
+
+### Added
+- **M4B Metadata Editor — "Remove Series Numbering" action.** A new button beside "Clear All Tags
+  (keep chapters)" that strips every series/track numbering surface from a **copy** of each loaded
+  file — the native `trkn`, the movement atoms (`©mvn`/`©mvi`/`©mvc` plus legacy `mvnm`/`mvin`/`mvc`
+  spellings), and every freeform `----:…:SERIES` / `…:PART` atom in any vendor namespace — while
+  preserving chapters, cover art, and all other tags. Mirrors the Clear-All wiring exactly
+  (copy-based, worker thread, Cancel, per-file ✓/✗ log). Backed by new
+  `shared.metadata.clear_series_numbering`.
+
+### Fixed
+- **Blank Explorer `#` column (RC1).** `write_m4b_tags` now writes the native MP4 track atom
+  `trkn = (part, total)` whenever a numeric series part is auto-numbered, so Windows Explorer's `#`
+  column (and generic players that read `trkn`) shows 1…N. `write_m4b_tags` gained an optional
+  `total` parameter; the editor passes `len(files)` so `trkn`/`©mvc` reflect the batch size.
+- **Audiobookshelf not grouping app-tagged sets (RC2).** Alongside the existing freeform
+  `----:com.apple.iTunes:SERIES` / `SERIES-PART` atoms, the writer now ALSO writes the native
+  movement atoms `©mvn` (series name) / `©mvi` (index) / `©mvc` (count) when a part is supplied —
+  belt-and-suspenders so grouping doesn't depend on a single namespace being honoured. The native
+  atoms are written **after** the v0.1.2 conflicting-atom strip, so the strip only removes
+  foreign-namespace duplicates and never the atoms just written.
+
+### Changed
+- **Movement-index atom constant corrected for read/write symmetry.** `MOVEMENT_INDEX_ATOM` was the
+  non-canonical `"mvin"`; it is now the iTunes `"\xa9mvi"` (`©mvi`) that mutagen reads and writes
+  natively, so the read path round-trips what the write path emits. The legacy `mvnm`/`mvin`/`mvc`
+  spellings are retained only as strip targets in `clear_series_numbering`.
+
 ## v0.2.0 — Installer Hardening (macOS)
 
 **macOS installer now self-heals on fresh machines with no Python/Homebrew/ffmpeg.**

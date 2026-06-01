@@ -3,7 +3,31 @@
 > **Audience:** future Claude chat sessions and any new contributor.
 > **Purpose:** be the single document you can hand someone (or paste into a new chat) to get them fully oriented without re-explaining the project.
 > **Maintained by:** Claude Code, updated at the end of every session.
-> **Status (v0.1.3, 2026-05-30):** Update release on top of v0.1.2; `VERSION = "0.1.3"`. Batches three
+> **Status (v0.3.0, 2026-05-31):** Minor release on top of v0.2.0; `VERSION = "0.3.0"`. Fixes
+> series/track numbering in the **M4B Metadata Editor** so it lights up every surface a reader checks.
+> When Auto-number Series Part is on, `write_m4b_tags(path, tags, total=…)` now writes, in addition to
+> the canonical freeform `----:com.apple.iTunes:SERIES` / `SERIES-PART` atoms: (1) the native track
+> atom `trkn = (part, total)` — fixes the **blank Windows Explorer `#` column** (RC1); and (2) the
+> native movement atoms `©mvn` (name) / `©mvi` (index) / `©mvc` (count) — belt-and-suspenders so
+> **Audiobookshelf groups the set** regardless of which mapping its scanner honours (RC2). The native
+> atoms are written *after* the v0.1.2 conflicting-atom strip, so the strip only removes
+> foreign-namespace duplicates, never the atoms just written. `MOVEMENT_INDEX_ATOM` was corrected from
+> the non-canonical `"mvin"` to `"©mvi"` for read/write symmetry. New
+> `metadata.clear_series_numbering` + a **Remove Series Numbering** editor button strip every numbering
+> surface (trkn, movement, all freeform SERIES/PART namespaces) on a copy while keeping chapters/cover/
+> other tags. **Verified end-to-end on Windows:** a re-tagged 11-volume Shadow Slave set shows `#` 1–11
+> in Explorer and groups as a numbered series in Audiobookshelf after a rebuild; headless round-trip
+> self-test passed (all three surfaces written & correct, chapter count unchanged, clear removes
+> everything). Win↔Mac `scripts/` byte-identical; `compileall` clean; macOS live pass deferred (no host).
+>
+> **Prior status (v0.2.0, 2026-05-31):** Installer-hardening release for macOS; `VERSION = "0.2.0"`.
+> setup_and_run.command now selects a GUI-capable Python (tkinter probe), auto-installs python-tk@3.12
+> + ffmpeg (and Homebrew itself) when needed, adds a `--headless` fallback and a bootstrap preflight
+> report with self-healing venv/ffmpeg recovery, and guards top-level `import tkinter` with a clear CLI
+> message. Windows behavior unchanged. macOS clean-machine install correct by inspection and
+> compile-verified but awaiting a live pass on real Mac hardware.
+>
+> **Prior status (v0.1.3, 2026-05-30):** Update release on top of v0.1.2; `VERSION = "0.1.3"`. Batches three
 > independent improvements staged off `master`: (1) **part-only / track-implied series detection** in the
 > M4B Metadata Editor — `read_m4b_tags` now resolves series **name** and **part** independently (name:
 > freeform `…SERIES` → `©mvn` → album-implied; part: freeform `…SERIES-PART`/`…PART` → `mvin` → the track
@@ -158,7 +182,7 @@ so they resolve `tts.*` whether run standalone or imported by the launcher. Noth
 | Cover Image Converter | `scripts/mp3_tools/cover_resizer.py` | Pad/crop cover art to square |
 | M4B Metadata Editor | `scripts/mp3_tools/m4b_metadata_editor.py` | **Built in Phase 6** — edit existing M4B tags (Title/Author/Album/Year/Genre/Comment/Series/cover) without re-encoding; **preserve-by-default** (blank = unchanged), single-file pre-fill + multi-file batch overwrite; Cancel + per-file log. **v0.1.1:** writes **copies** (never the original) to `Downloads/M4B-Metadata-N`; adds a **Clear All Tags (keep chapters)** button and a paged **per-file chapter-title import** (positional; blank line = unchanged). **v0.1.3:** detects **part-only / track-implied** series (shows the detected part + source even when the name lives only in Album/Grouping, never auto-writing the implied value) and adds an **Auto-number Series Part** toggle (the sole control over series-part writes: off = nothing written, on = sequential parts across the loaded files). |
 | Shared | `scripts/shared/` | `paths.py` (**v0.1.1 added** `downloads_dir`/`next_output_dir`/`TOOL_SLUGS`/`avoid_input_overwrite`), `subprocess_utils.py` (+`check_output`/`reveal_in_file_manager`), `settings.py` (Phase 3), `ffmpeg_utils.py` (Phase 3), `cancellation.py` (Phase 4), `metadata.py` (Phase 5 — mutagen `read_m4b_tags`/`write_m4b_tags` + series atoms + ffmpeg tag-arg helpers; **Phase 6 added** comment/genre/year atoms, `cover_path` embed + `has_cover`; **v0.1.1 added** `clear_metadata_keep_chapters`, `read_chapter_titles`, `apply_chapter_titles`; **v0.1.2** broadened `read_m4b_tags`'s series reader to resolve from the canonical freeform atom → any other vendor freeform atom (e.g. `----:com.pilabor.tone:SERIES`) → the native movement atoms, returning series provenance (`series_source`/`series_atom`) + a `describe_series_atoms` helper, and made series *writes* strip any same-suffix shadowing atom so an overwrite actually takes; **v0.1.3** resolves series **name and part independently** (name: freeform `…SERIES` → `©mvn` → album-implied; part: freeform `…SERIES-PART`/`…PART` → `mvin` → the track number when *series-like*) and reports `album-implied`/`track-implied` provenance — both **display-only**, never written), `logging_setup.py`, `bootstrap.py`, `version.py` (single
-source of truth, **`VERSION = "0.1.3"`**), `release.py` (Phase 8 — dev-only zip packager, never imported by
+source of truth, **`VERSION = "0.2.0"`**), `release.py` (Phase 8 — dev-only zip packager, never imported by
 the app). |
 
 ---
