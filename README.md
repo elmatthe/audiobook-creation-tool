@@ -58,18 +58,18 @@ A single window: a sidebar of the six tools on the left, and one swappable conte
 
 ```
 +--------------------------------------------------------------+
-|  Audiobook Creation Tool                            [_][[]][X]|
+|  Audiobook Creation Tool                           [_][[]][X]|
 +--------------------------------------------------------------+
 |  +----------------+                                          |
 |  | TTS Audiobook  |  <- Sidebar: 6 tool buttons              |
 |  | M4B Converter  |                                          |
 |  | MP3 Tool       |     +-------------------------------+    |
-|  | M4B Maker      |     |   Selected tool's UI renders   |    |
-|  | Cover Image    |     |   into this content panel      |    |
+|  | M4B Maker      |     |   Selected tool's UI renders  |    |
+|  | Cover Image    |     |   into this content panel     |    |
 |  | M4B Metadata   |     |                               |    |
 |  +----------------+     +-------------------------------+    |
 +--------------------------------------------------------------+
-|  Status: Ready.                     |  Log: [open log folder] |
+|  Status: Ready.                     |  Log: [open log folder]|
 +--------------------------------------------------------------+
 ```
 
