@@ -4,7 +4,7 @@
 
 The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
-> **Status:** v0.3.0 — series/track numbering fix in the M4B Metadata Editor: auto-numbering now writes the native `trkn` track atom (so Windows Explorer's `#` column populates) and the native movement atoms (`©mvn`/`©mvi`/`©mvc`) alongside the freeform iTunes series atoms, so Audiobookshelf groups a set into a numbered series; plus a new **Remove Series Numbering** action that strips every numbering surface while keeping chapters. Verified end-to-end on Windows (Explorer `#` 1–11 and an Audiobookshelf rebuild grouping the set); the macOS tree mirrors Windows byte-for-byte but awaits a live pass on a Mac. Builds on v0.2.0's macOS installer hardening. See [Known Limitations](#known-limitations).
+> **Status:** v0.3.1 — **first live macOS pass; the macOS column is now green.** Verified end-to-end on a real Mac (macOS 26.3.1, Apple Silicon) against the real test assets (41 `.m4b` audiobooks + a cover image + a TXT), and fixed six macOS launch/UX/packaging defects found on the way: Gatekeeper **App Translocation** (the silent "Terminal flashes, no window" crash), an **invisible launcher-startup crash** (the GUI's output is now captured to a log so a startup failure isn't lost), the Terminal **"terminate running processes" dialog** on close, a packaging bug that could ship a non-executable launcher, the **TTS log/layout** (now a scrollable options pane with an always-visible Start/Cancel and a labelled 12-row Log), and the **M4B Maker FAST path** choking on an external cover. All fixes sit behind `sys.platform` guards (or in the Mac-only entry file) and are mirrored byte-for-byte into the Windows tree. Builds on v0.3.0's series/track-numbering fix and v0.2.0's macOS installer hardening. See [Known Limitations](#known-limitations).
 
 ---
 
@@ -12,8 +12,8 @@ The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TX
 
 Grab the latest release — extract the zip and double‑click the setup file (see [Installation](#installation)):
 
-- **Windows:** [**AudiobookTool-Windows-v0.3.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.3.0/AudiobookTool-Windows-v0.3.0.zip)
-- **macOS:** [**AudiobookTool-MacOS-v0.3.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.3.0/AudiobookTool-MacOS-v0.3.0.zip)
+- **Windows:** [**AudiobookTool-Windows-v0.3.1.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.3.1/AudiobookTool-Windows-v0.3.1.zip)
+- **macOS:** [**AudiobookTool-MacOS-v0.3.1.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.3.1/AudiobookTool-MacOS-v0.3.1.zip)
 
 All releases are listed on the [**Releases page**](https://github.com/elmatthe/audiobook-creation-tool/releases).
 
@@ -81,16 +81,17 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ### Windows
 
-1. Download `AudiobookTool-Windows-v0.3.0.zip` and extract it anywhere.
+1. Download `AudiobookTool-Windows-v0.3.1.zip` and extract it anywhere.
 2. Double‑click **`setup_and_run.bat`**.
 3. The **first** run opens a small setup window that installs a private Python environment, the audio libraries, and ffmpeg — and (optionally) pre‑downloads the Kokoro AI voice model. A progress bar and live log show what's happening.
 4. **Every run after that** opens the app instantly, with no console window.
 
 ### macOS
 
-1. Download `AudiobookTool-MacOS-v0.3.0.zip` and extract it anywhere.
-2. Double‑click **`setup_and_run.command`** in Finder. (If macOS blocks it the first time, right‑click → **Open**.)
-3. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
+1. Download `AudiobookTool-MacOS-v0.3.1.zip` and extract it (double‑click the zip in Finder).
+2. **Drag the extracted `audiobook-creation-tool` folder out of Downloads** — onto your Desktop or into Applications. (macOS runs items launched straight from Downloads from a temporary read‑only copy, which can stop the app finding its files; moving the folder once in Finder clears that. If you skip this step the launcher shows a message telling you to do it.)
+3. Double‑click **`setup_and_run.command`** in Finder. The first time, macOS may block it — **right‑click → Open**, then confirm. After it starts, the setup Terminal window closes by itself.
+4. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
 
 > The setup uses **winget** (Windows) or **Homebrew** (macOS) to fetch Python 3.12 and ffmpeg if they aren't already present. If neither is available, it opens the right download page and tells you exactly what to install. The app never crashes with a raw error because something is missing.
 
@@ -186,7 +187,7 @@ is never imported by the app.
 
 ## Known Limitations
 
-- **macOS is untested live.** The `MacOS/` tree mirrors Windows byte‑for‑byte and compiles cleanly, but no Mac was available to run the matrix. The Windows column is fully green; the macOS column is expected to mirror it once a Mac host is available.
+- **macOS is verified live (v0.3.1).** The tool was run end‑to‑end on a real Mac (macOS 26.3.1, Apple Silicon, Python 3.13) against the real test assets — 41 `.m4b` audiobooks plus a cover image and a TXT — and six macOS launch/UX/packaging defects found there were fixed (App Translocation, an invisible launcher-startup crash, the Terminal close dialog, the executable‑bit packaging, the TTS log/layout, and the M4B Maker FAST‑path cover). Both trees stay byte‑identical and compile cleanly. One caveat: the **Kokoro** local AI voices need Python < 3.13, and this Mac runs Python 3.13, so the Kokoro path was not exercised on macOS (Edge TTS was).
 - **Kokoro requires Python < 3.13.** The Kokoro AI voice model's wheels don't support Python 3.13+, which is why the installer targets 3.12. On a 3.13 system, **Edge TTS voices still work fully** — only the local Kokoro voices are unavailable.
 - **The clean‑machine one‑click install isn't yet live‑verified end‑to‑end.** Each piece is verified (Python/ffmpeg detection, venv creation, pinned dependency resolution against PyPI), but the full first‑run install on a fresh Python‑3.12 box — including the multi‑GB PyTorch/Kokoro download — should be run on a clean VM before shipping.
 

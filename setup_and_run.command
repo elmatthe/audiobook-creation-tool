@@ -13,19 +13,102 @@ set -u
 
 # Resolve this script's directory, then the MacOS/ subfolder beside it.
 HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# Gatekeeper "App Translocation" guard.
+#
+# When a quarantined download (this whole folder came from a browser/zip) is
+# opened straight from Finder, macOS may run THIS script from a temporary,
+# read-only randomized copy that contains only the .command file — its MacOS/
+# program folder is NOT beside it. The old code then failed `cd "$HERE/MacOS"`
+# and exited silently, which looked exactly like "Terminal flashes, no window".
+#
+# The same "no MacOS/ sibling" situation also happens if someone copies just the
+# .command out on its own. In every such case we cannot find the app, so show a
+# clear, actionable message and KEEP THE WINDOW OPEN (no auto-close) instead of
+# dying silently.
+# ---------------------------------------------------------------------------
+if [ ! -d "$HERE/MacOS" ]; then
+    translocated=no
+    case "$HERE" in
+        */AppTranslocation/*) translocated=yes ;;
+    esac
+
+    cat <<'EOF'
+
+============================================================
+  Audiobook Creation Tool — can't start from here
+============================================================
+
+macOS is running this launcher from a temporary, read-only copy
+(Gatekeeper "App Translocation"), so it cannot find its program
+files. This happens when the app is opened straight from a
+Downloads or unzipped-in-place location.
+
+To fix it (one time):
+
+  1. In Finder, move the WHOLE "audiobook-creation-tool" folder
+     OUT of Downloads — for example drag it onto your Desktop or
+     into Applications.
+  2. Open that moved folder and double-click setup_and_run.command
+     again.
+
+Moving the folder in Finder clears the translocation. (Alternatively,
+right-click setup_and_run.command -> Open, then confirm the prompt.)
+
+EOF
+    if [ "$translocated" = yes ]; then
+        echo "  Detected translocated path:"
+        echo "    $HERE"
+        echo
+    fi
+    # Pause so the message is actually read — this window is NOT auto-closed.
+    read -n 1 -s -r -p "Press any key to close..."
+    echo
+    exit 1
+fi
+
 cd "$HERE/MacOS" || { echo "Could not find the MacOS folder next to this script."; exit 1; }
 
 BOOTSTRAP="scripts/shared/bootstrap.py"
 
 # ---------------------------------------------------------------------------
-# Fast path: environment already set up. Launch detached and close the Terminal.
+# Fast path: environment already set up.
+#
+# Run the launcher in the FOREGROUND. bootstrap.py --launch-only spawns the GUI
+# fully detached (its own session via start_new_session, output redirected to
+# resources/logs/launch_<date>.log) and then returns within a couple of seconds.
+# Because we WAIT for it to return, by the time we ask Terminal to close there is
+# no child process left in this window's session, so macOS does not show the
+# "terminate running processes (bash, Python…)?" dialog. The detached GUI lives
+# in its own session with no controlling terminal, so Terminal ignores it.
+#
+# If the GUI fails to start, bootstrap exits non-zero: keep the window OPEN and
+# point at the log instead of closing silently (that silent close was the old
+# "Terminal flashes, no window" symptom).
 # ---------------------------------------------------------------------------
 if [ -x ".venv/bin/python" ]; then
-    nohup ".venv/bin/python" "$BOOTSTRAP" --launch-only >/dev/null 2>&1 &
-    disown 2>/dev/null || true
-    # Best-effort: close the Terminal window this script opened.
-    osascript -e 'tell application "Terminal" to close (every window whose name contains "setup_and_run")' >/dev/null 2>&1 || true
-    exit 0
+    if ".venv/bin/python" "$BOOTSTRAP" --launch-only; then
+        # The GUI is up and detached. Auto-close THIS Terminal window WITHOUT the
+        # "terminate running processes (bash, osascript)" prompt. Closing the
+        # window from here directly would run osascript while bash + osascript are
+        # still alive in this very window — which is exactly what triggers that
+        # dialog (verified: such a self-close is blocked by the modal). Instead a
+        # helper detached into its own session waits for this bash to exit, then
+        # closes the window (matched by our tty) when nothing is running in it.
+        launcher_tty="$(tty 2>/dev/null || true)"
+        nohup ".venv/bin/python" "scripts/shared/close_terminal.py" "$launcher_tty" \
+            >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+        exit 0
+    fi
+    echo
+    echo "The app window did not start. Details are in:"
+    echo "  MacOS/resources/logs/launch_$(date +%Y-%m-%d).log"
+    echo
+    read -n 1 -s -r -p "Press any key to close..."
+    echo
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------

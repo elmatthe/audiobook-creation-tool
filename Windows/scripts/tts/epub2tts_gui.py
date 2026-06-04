@@ -108,11 +108,54 @@ def build_ui(parent: tk.Misc) -> None:
     busy = threading.Event()
     cancel_event = threading.Event()
 
-    frm = ttk.Frame(root, padding=10)
-    frm.grid(row=0, column=0, sticky="nsew")
-    root.rowconfigure(0, weight=1)
+    # This tool's form is far taller than the launcher window (~1300 px of
+    # controls vs ~660 px visible), so the options live in a vertically
+    # scrollable canvas. The Start/Cancel buttons (row 1) and the Log box (row 2)
+    # sit OUTSIDE that canvas so they are always visible and never crushed —
+    # matching the other tools, where the log is a labelled box at the bottom.
+    root.rowconfigure(0, weight=1)   # scrollable options grow with the window
+    root.rowconfigure(1, weight=0)   # action buttons — fixed, always visible
+    root.rowconfigure(2, weight=0)   # log box — fixed height, always visible
     root.columnconfigure(0, weight=1)
+
+    canvas_wrap = ttk.Frame(root)
+    canvas_wrap.grid(row=0, column=0, sticky="nsew")
+    canvas_wrap.rowconfigure(0, weight=1)
+    canvas_wrap.columnconfigure(0, weight=1)
+    options_canvas = tk.Canvas(canvas_wrap, highlightthickness=0, borderwidth=0)
+    options_canvas.grid(row=0, column=0, sticky="nsew")
+    options_sb = ttk.Scrollbar(
+        canvas_wrap, orient="vertical", command=options_canvas.yview
+    )
+    options_sb.grid(row=0, column=1, sticky="ns")
+    options_canvas.configure(yscrollcommand=options_sb.set)
+
+    frm = ttk.Frame(options_canvas, padding=10)
+    _frm_window = options_canvas.create_window((0, 0), window=frm, anchor="nw")
     frm.columnconfigure(1, weight=1)
+
+    def _sync_scrollregion(_event: object | None = None) -> None:
+        options_canvas.configure(scrollregion=options_canvas.bbox("all"))
+
+    def _sync_form_width(event: object) -> None:
+        # Make the form fill the canvas width so "ew" rows expand as before.
+        options_canvas.itemconfigure(_frm_window, width=event.width)
+
+    frm.bind("<Configure>", _sync_scrollregion)
+    options_canvas.bind("<Configure>", _sync_form_width)
+
+    def _on_mousewheel(event: object) -> None:
+        if getattr(event, "delta", 0):
+            options_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    # The launcher reuses one root across tools, so wheel binding is scoped to
+    # while the pointer is actually over this panel's canvas.
+    options_canvas.bind(
+        "<Enter>", lambda _e: options_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+    )
+    options_canvas.bind(
+        "<Leave>", lambda _e: options_canvas.unbind_all("<MouseWheel>")
+    )
 
     r = 0
     ttk.Label(frm, text="Mode").grid(row=r, column=0, sticky="w")
@@ -353,10 +396,18 @@ def build_ui(parent: tk.Misc) -> None:
     )
     r += 1
 
-    log = scrolledtext.ScrolledText(frm, height=14, state=tk.DISABLED, wrap=tk.WORD)
-    log.grid(row=r, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
-    frm.rowconfigure(r, weight=1)
-    r += 1
+    # Footer help text — last row of the scrollable form.
+    ttk.Label(
+        frm,
+        text=(
+            "Default voice: Microsoft Edge TTS — Steffan (en-US-SteffanNeural). "
+            "Edge TTS voices use network synthesis via edge-tts (no Natural Reader login). "
+            "Kokoro voices (Heart, Bella, Michael, Emma, George) run locally using the "
+            "Kokoro-82M open-source AI model; ~300 MB model download required on first use."
+        ),
+        wraplength=620,
+        justify=tk.LEFT,
+    ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
     def append_log(msg: str) -> None:
         log.configure(state=tk.NORMAL)
@@ -684,27 +735,27 @@ def build_ui(parent: tk.Misc) -> None:
         cancel_btn.configure(state=tk.DISABLED)
         append_log("Cancelling… will stop at the next checkpoint (chapter / chunk).\n")
 
-    btn_row = ttk.Frame(frm)
-    btn_row.grid(row=r, column=0, columnspan=2, pady=(8, 0))
+    # --- Action buttons (row 1): always visible, outside the scroll area. ---
+    btn_row = ttk.Frame(root, padding=(10, 8))
+    btn_row.grid(row=1, column=0, sticky="w")
     go_btn = ttk.Button(btn_row, text="Start", command=run_job)
     go_btn.pack(side=tk.LEFT)
     cancel_btn = ttk.Button(
         btn_row, text="Cancel", command=cancel_job, state=tk.DISABLED
     )
     cancel_btn.pack(side=tk.LEFT, padx=(8, 0))
-    r += 1
 
-    ttk.Label(
-        frm,
-        text=(
-            "Default voice: Microsoft Edge TTS — Steffan (en-US-SteffanNeural). "
-            "Edge TTS voices use network synthesis via edge-tts (no Natural Reader login). "
-            "Kokoro voices (Heart, Bella, Michael, Emma, George) run locally using the "
-            "Kokoro-82M open-source AI model; ~300 MB model download required on first use."
-        ),
-        wraplength=620,
-        justify=tk.LEFT,
-    ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(8, 0))
+    # --- Log box (row 2): a labelled, multi-row pane that is always visible and
+    # never crushed, matching the other tools. ---
+    log_font = ("Consolas", 10) if sys.platform == "win32" else ("Menlo", 11)
+    logf = ttk.LabelFrame(root, text="Log", padding=(8, 4))
+    logf.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
+    logf.rowconfigure(0, weight=1)
+    logf.columnconfigure(0, weight=1)
+    log = scrolledtext.ScrolledText(
+        logf, height=12, state=tk.DISABLED, wrap=tk.WORD, font=log_font
+    )
+    log.grid(row=0, column=0, sticky="nsew")
 
     pump_queue()
 

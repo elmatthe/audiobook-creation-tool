@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 import zipfile
 from datetime import datetime
@@ -665,8 +666,35 @@ def _launch_target() -> Path:
     return LAUNCHER if LAUNCHER.exists() else LAUNCHER_FALLBACK
 
 
+# Seconds to watch a freshly-spawned GUI before declaring the launch a success.
+# An import error / broken venv / Tk failure dies within a few hundred ms, so a
+# short grace window reliably catches a crash without making a healthy launch
+# wait. The launch is already detached, so this delay is never user-visible on
+# the fast path (the .command/.bat has already backgrounded this process).
+_LAUNCH_GRACE_SECONDS = 1.5
+
+
+def _tail_text(path: Path, max_lines: int = 25) -> str:
+    """Return the last ``max_lines`` lines of ``path`` (best-effort, never raises)."""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        return "\n".join(lines[-max_lines:])
+    except Exception:
+        return ""
+
+
 def launch_gui(log: SetupLog) -> bool:
-    """Spawn the launcher GUI detached so this process can exit."""
+    """Spawn the launcher GUI detached so this process can exit.
+
+    The child's stdout+stderr are redirected to
+    ``resources/logs/launch_<date>.log`` so a crash during import/startup is never
+    invisible. On the fast path the ``.command``/``.bat`` send *this* process's
+    output to the void (and on Windows the GUI runs windowless with no console),
+    so without this capture a launcher crash produces a clean ``[Process
+    completed]`` with no window and nothing to diagnose. After spawning we briefly
+    watch the child: if it dies immediately, the captured output is surfaced and
+    we report failure instead of a false success.
+    """
     target = _launch_target()
     if not target.exists():
         log.line(f"  ERROR: no GUI to launch (looked for {LAUNCHER} and "
@@ -683,19 +711,56 @@ def launch_gui(log: SetupLog) -> bool:
     if _ffmpeg_in_bin():
         env["PATH"] = str(BIN_DIR) + os.pathsep + env.get("PATH", "")
 
-    log.line(f"Launching {target.name} via {py.name}…")
+    # Capture the GUI's stdout+stderr to a dated log so a startup crash is visible.
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    launch_log_path = LOGS_DIR / f"launch_{datetime.now():%Y-%m-%d}.log"
     try:
+        launch_fh = open(launch_log_path, "a", encoding="utf-8")
+        launch_fh.write(f"\n===== Launch {datetime.now():%Y-%m-%d %H:%M:%S} : "
+                        f"{py} {target} =====\n")
+        launch_fh.flush()
+    except Exception:
+        # Could not open the capture file — fall back to inherited stdio rather
+        # than fail the launch outright.
+        launch_fh = None
+
+    log.line(f"Launching {target.name} via {py.name} "
+             f"(GUI output -> {launch_log_path.name})…")
+    try:
+        kwargs: dict = {"cwd": str(SCRIPTS_DIR), "env": env}
+        if launch_fh is not None:
+            kwargs["stdout"] = launch_fh
+            kwargs["stderr"] = subprocess.STDOUT
         if IS_WINDOWS:
-            flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
-            subprocess.Popen([str(py), str(target)], cwd=str(SCRIPTS_DIR),
-                             env=env, creationflags=flags, close_fds=True)
+            kwargs["creationflags"] = (subprocess.CREATE_NO_WINDOW
+                                       | subprocess.DETACHED_PROCESS)
+            kwargs["close_fds"] = True
         else:
-            subprocess.Popen([str(py), str(target)], cwd=str(SCRIPTS_DIR),
-                             env=env, start_new_session=True)
-        return True
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen([str(py), str(target)], **kwargs)
     except Exception as exc:
         log.line(f"  ERROR launching GUI: {exc}")
         return False
+    finally:
+        # The child holds its own inherited copy of the handle; the parent's is
+        # no longer needed (the survival check reads the log back by path).
+        if launch_fh is not None:
+            launch_fh.close()
+
+    # Watch for an immediate crash so a broken launch is reported, not hidden.
+    time.sleep(_LAUNCH_GRACE_SECONDS)
+    rc = proc.poll()
+    if rc is not None and rc != 0:
+        log.line(f"  ERROR: the app window failed to start (exited with code {rc}).")
+        tail = _tail_text(launch_log_path)
+        if tail:
+            log.line(f"  --- last lines of {launch_log_path.name} ---")
+            for line in tail.splitlines():
+                log.line("    " + line)
+            log.line("  --- end ---")
+        log.line(f"  Full launch log: {launch_log_path}")
+        return False
+    return True
 
 
 # ===========================================================================
