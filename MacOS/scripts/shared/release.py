@@ -51,8 +51,28 @@ EXCLUDED_DIR_NAMES = {".venv", "__pycache__"}
 # File suffixes that are always excluded.
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 # Paths (relative to the OS tree, forward-slash form) excluded by prefix/exact.
-EXCLUDED_PREFIXES = ("resources/logs/", "resources/bin/")
+# md-instructions/ holds developer docs (Briefing, CHANGELOG, macOS replay reports);
+# end users get README + the launcher + code only, so it is not shipped in the zip.
+EXCLUDED_PREFIXES = ("resources/logs/", "resources/bin/", "md-instructions/")
 EXCLUDED_EXACT = {"resources/settings.json"}
+
+
+def _write_executable(zf: zipfile.ZipFile, src: Path, arcname: str) -> None:
+    """Add *src* to the archive as *arcname* with a forced 0o755 mode.
+
+    The double-click launcher MUST be executable the instant a user extracts the
+    zip. ``ZipFile.write`` only preserves whatever mode the source file happens to
+    have, so a dev checkout that lost its +x bit (a clone with ``core.filemode``
+    off, a plain file copy) would otherwise ship a non-runnable launcher and force
+    the user to ``chmod +x``. Storing an explicit Unix mode of ``rwxr-xr-x`` makes
+    packaging robust regardless of the source file's mode; macOS Archive Utility
+    and ``unzip`` both honour the stored mode on extract.
+    """
+    zi = zipfile.ZipInfo.from_file(src, arcname)
+    zi.external_attr = (0o100755 << 16)  # high 16 bits = Unix st_mode (reg file + 0755)
+    zi.compress_type = zipfile.ZIP_DEFLATED
+    with open(src, "rb") as fh:
+        zf.writestr(zi, fh.read())
 
 
 def _is_excluded(rel: Path) -> bool:
@@ -96,7 +116,8 @@ def _package_os(os_name: str) -> Path:
         # The launcher and README sit at the archive root so they're the first
         # thing a user sees on extract.
         zf.write(readme, arcname="README.md")
-        zf.write(entry_file, arcname=entry_name)
+        # Force the launcher executable so a user never has to `chmod +x`.
+        _write_executable(zf, entry_file, entry_name)
 
         for path in sorted(tree_dir.rglob("*")):
             if not path.is_file():

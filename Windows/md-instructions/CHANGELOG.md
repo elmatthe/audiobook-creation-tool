@@ -15,7 +15,69 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-05-31
+## [0.3.1] - 2026-06-04
+
+> **First live macOS pass — the macOS column is now green.** Verified end-to-end on a real Mac
+> (macOS 26.3.1, Apple Silicon, Python 3.13 venv) against the real `test-files/` assets (41 `.m4b`
+> audiobooks + a cover image + a TXT). Six launch/UX/packaging defects found and fixed on the way,
+> all behind `sys.platform` guards (or in Mac-only entry files) and mirrored so the Windows↔MacOS
+> `scripts/` trees stay byte-identical; `compileall` clean on both. No Windows behaviour changes.
+
+### Fixed
+- **macOS launch crash — Gatekeeper App Translocation.** Double-clicking the quarantined
+  `setup_and_run.command` ran it from a temporary, read-only translocated copy with no `MacOS/`
+  sibling, so `cd "$HERE/MacOS"` failed and the script exited **silently before Python ever ran** —
+  the "Terminal flashes, no window, empty log" symptom. The launcher now detects a missing `MacOS/`
+  sibling (or an `/AppTranslocation/` path), prints a clear, persistent "move the whole folder out of
+  Downloads, then right-click → Open" message, and keeps the window open instead of dying silently.
+  (`setup_and_run.command` — Mac-only entry file.)
+- **A launcher crash on the fast path was invisible (no window, no log).** `bootstrap.launch_gui()`
+  spawned the GUI inheriting the `.command`/`.bat`'s discarded stdio and returned success
+  unconditionally, so any import/venv/Tk failure at launcher startup died to `/dev/null` — a clean
+  `[Process completed]` with nothing to diagnose. It now redirects the GUI's stdout+stderr to
+  `resources/logs/launch_<date>.log`, watches the child ~1.5 s, and returns failure (surfacing the
+  captured tail) on an immediate crash; the macOS `.command` uses that to keep its window open and
+  point at the log instead of closing silently. (`scripts/shared/bootstrap.py` — both trees; the
+  Windows `.bat` does not consume the failure-return today, but the launch-log capture benefits
+  Windows too.)
+- **macOS "terminate running processes" dialog on close.** The fast path closed its own Terminal
+  window with `osascript` while `bash` + `osascript` were still alive in that window, which is exactly
+  what triggers Terminal's "Do you want to terminate running processes?" prompt (a self-close from
+  within the doomed window is blocked by the modal). Added **`scripts/shared/close_terminal.py`**: a
+  helper that detaches into its own session (`os.setsid`), waits for the launching `bash` to exit, then
+  closes the window matched **by tty** — by which point the window has no running process, so the close
+  is silent. The GUI itself is spawned fully detached (`start_new_session`). Verified on a real
+  double-click: GUI comes up, Terminal window auto-closes, **no dialog**. (Helper is macOS-only — a
+  no-op on any non-`darwin` platform; the `.command` wiring is Mac-only.)
+- **Release packaging could ship a non-executable launcher.** `release.py` zipped the entry launcher
+  with `ZipFile.write`, which only preserves the source file's *current* mode — a dev checkout that
+  lost its `+x` bit (a clone with `core.filemode` off, a plain copy) would ship a `.command` the user
+  had to `chmod +x`. Added `_write_executable()`, which stores the launcher entry with a forced
+  `0o100755`; both `unzip` and macOS Archive Utility honour the stored Unix mode on extract (verified
+  644 source → archive `0o755` → extracts `755`). (`scripts/shared/release.py` — both trees.)
+- **TTS Audiobook log pane was crushed to ~1 px and the Start/Cancel buttons rendered off-screen.**
+  The panel's natural height (~1300 px) far exceeds the window, and the log was the only weighted grid
+  row, so Tk shrank it to nothing and pushed the buttons below the visible area. The options now live
+  in a **vertically scrollable canvas**, with **Start/Cancel and a labelled 12-row monospace "Log"
+  box pulled out into always-visible bottom rows** (matching the other tools). Verified the log stays a
+  full ~12-row pane and the buttons stay on-screen at the default, minimum, and tall window sizes.
+  (`scripts/tts/epub2tts_gui.py` — both trees, behind a `sys.platform` font branch.)
+- **M4B Maker FAST path failed on an external cover image.** In `run_fast_concat` the output-only
+  option `-filter:a` was emitted *before* the cover `-i`, so ffmpeg parsed it as an **input** option
+  for the cover ("Option filter:a cannot be applied to cover.png") and fell back to the slower SAFE
+  path. Reordered so all inputs are declared first, `-fflags +genpts` stays an input option on the
+  concat demuxer, and `-filter:a` / `-avoid_negative_ts` move into the output section. The FAST path
+  now embeds an external cover directly (verified via the GUI: cover + 3 chapters + series atoms, no
+  fallback). (`scripts/mp3_tools/m4b_maker.py` — both trees.)
+
+### Added
+- **macOS test matrix — first live pass (green).** Drove every tool on a real Mac against the real
+  `test-files/` assets: M4B Converter (41 `.m4b` → MP3, run through the GUI by the maintainer), and —
+  via the real `build_ui` + button handlers + worker/queue — M4B Maker (chapters + external cover +
+  series atoms) and the M4B Metadata Editor (write title/series, preserve untouched album + chapters;
+  series-part display-only unless Auto-number is on). The remaining tools (MP3 Tool combine/time-edit/
+  ID3, Cover Image letterbox+crop, TTS Edge TXT→MP3 + cancel) passed at the worker level. Kokoro
+  voices remain skipped on this host (Python 3.13, above Kokoro's `<3.13` gate).
 
 > Series & track numbering fix for the M4B Metadata Editor. Auto-numbering now lights up **all three
 > surfaces** a reader looks at — the native track atom, the native movement atoms, and the freeform

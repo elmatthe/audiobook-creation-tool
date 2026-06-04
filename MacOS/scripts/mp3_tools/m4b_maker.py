@@ -309,11 +309,20 @@ def run_safe_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate)
 
 
 def run_fast_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate):
+    # IMPORTANT: declare ALL inputs first, then output options. ffmpeg scopes an
+    # option to the next file token, so an output-only option like ``-filter:a``
+    # placed before ``-i cover`` is wrongly parsed as an input option for the
+    # cover image ("Option filter:a cannot be applied to cover.png"). Keeping
+    # ``-fflags +genpts`` as an input option on the concat demuxer (before its
+    # ``-i``) and moving ``-filter:a`` / ``-avoid_negative_ts`` into the output
+    # section makes the cover path succeed instead of failing into the SAFE path.
     cmd = [
         ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-y",
         "-xerror",
+        "-fflags",
+        "+genpts",
         "-f",
         "concat",
         "-safe",
@@ -322,12 +331,6 @@ def run_fast_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate)
         str(audio_list_path),
         "-i",
         str(ffmeta_path),
-        "-fflags",
-        "+genpts",
-        "-avoid_negative_ts",
-        "make_zero",
-        "-filter:a",
-        "asetpts=N/SR/TB,aresample=async=1:first_pts=0",
     ]
     maps = ["-map_metadata", "1", "-map_chapters", "1", "-map", "0:a:0"]
     if cover_path:
@@ -342,12 +345,18 @@ def run_fast_concat(audio_list_path, ffmeta_path, cover_path, out_path, bitrate)
             "-metadata:s:v:0",
             "comment=Cover (front)",
         ]
+    # All inputs are declared above; everything below is output options.
+    cmd += maps
+    cmd += ["-filter:a", "asetpts=N/SR/TB,aresample=async=1:first_pts=0"]
+    if cover_path:
         cmd += ["-c:v:0", "mjpeg"]
-    cmd += maps + [
+    cmd += [
         "-c:a",
         "aac",
         "-b:a",
         bitrate,
+        "-avoid_negative_ts",
+        "make_zero",
         "-movflags",
         "+faststart",
         str(out_path),
