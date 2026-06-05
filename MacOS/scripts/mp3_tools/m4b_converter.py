@@ -394,7 +394,41 @@ class M4BConverterUI(ttk.Frame):
                 stem = sanitize_filename(in_file.stem)
                 out_mp3 = paths.avoid_input_overwrite(outdir / f"{stem}.mp3", files)
 
-                cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-y", "-i", quote(in_file), "-vn"]
+                # Probe the source so the decode side can be chosen correctly.
+                # xHE-AAC (USAC) m4b sources are mis-decoded by ffmpeg's native
+                # AAC decoder (it drops packets → a shorter, sped-up MP3); on
+                # macOS the Apple AudioToolbox decoder (aac_at) handles them.
+                info = ffmpeg_utils.probe_audio_stream(in_file)
+                dec_args = ffmpeg_utils.input_decoder_args(info)
+                if info:
+                    self._log_q.put(
+                        (
+                            "log",
+                            "  source: {codec}{prof} {sr} Hz, {ch} ch\n".format(
+                                codec=info.get("codec_name") or "?",
+                                prof=(
+                                    f" [{info['profile']}]" if info.get("profile") else ""
+                                ),
+                                sr=info.get("sample_rate") or "?",
+                                ch=info.get("channels") or "?",
+                            ),
+                        )
+                    )
+                if dec_args:
+                    self._log_q.put(
+                        ("log", f"  using {dec_args[1]} decoder (xHE-AAC source)\n")
+                    )
+                elif ffmpeg_utils.needs_special_aac_decoder(info):
+                    self._log_q.put(
+                        (
+                            "log",
+                            "  ⚠ WARNING: source is xHE-AAC and this ffmpeg build has "
+                            "no compatible decoder on this platform — the output may be "
+                            "sped up / choppy.\n",
+                        )
+                    )
+
+                cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-y", *dec_args, "-i", quote(in_file), "-vn"]
 
                 if params["write_tags"]:
                     tags = {
@@ -423,6 +457,7 @@ class M4BConverterUI(ttk.Frame):
                 self._log_q.put(
                     ("log", f"\n[{idx}/{total}] Converting:\n  {in_file}\n  -> {out_mp3}\n")
                 )
+                self._log_q.put(("log", "  ffmpeg: " + " ".join(str(c) for c in cmd) + "\n"))
                 proc = sp.run(cmd, stdout=PIPE, stderr=STDOUT, text=True)
                 if proc.returncode != 0:
                     self._log_q.put(("log", (proc.stdout or "")[-2000:] + "\n"))
@@ -432,6 +467,30 @@ class M4BConverterUI(ttk.Frame):
                     except OSError:
                         pass
                     raise RuntimeError(f"FFmpeg failed (code {proc.returncode}).")
+
+                # Defensive duration guard (all platforms): a source ffmpeg
+                # cannot fully decode — e.g. xHE-AAC on a platform without the
+                # aac_at decoder — silently drops packets, producing an output
+                # much shorter than the source that plays sped up and choppy.
+                # Compare the output length to the source and fail loudly rather
+                # than deliver a corrupt MP3.
+                src_dur = info.get("duration") if info else None
+                out_info = ffmpeg_utils.probe_audio_stream(out_mp3)
+                out_dur = out_info.get("duration") if out_info else None
+                if src_dur and out_dur and src_dur > 1.0:
+                    drift = abs(out_dur - src_dur) / src_dur
+                    if drift > 0.03:
+                        try:
+                            out_mp3.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        raise RuntimeError(
+                            "output length {:.0f}s != source {:.0f}s ({:.0%} off) — the "
+                            "source could not be decoded correctly (likely xHE-AAC with "
+                            "no compatible decoder on this platform). Output discarded.".format(
+                                out_dur, src_dur, drift
+                            )
+                        )
 
                 self._log_q.put(("log", "  ✓ Done\n"))
             except Exception as e:
