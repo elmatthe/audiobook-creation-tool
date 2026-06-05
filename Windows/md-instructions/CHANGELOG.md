@@ -15,13 +15,52 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-04
+
+> **MP3 output speed-up fix — real root cause was xHE-AAC, not a sample-rate mismatch.**
+> The bug was confirmed on macOS with ffprobe: source M4B and the bad MP3 were **both 44100 Hz
+> stereo**, so the originally-suspected sample-rate/`-ar` theory was wrong. The actual cause is the
+> source codec profile. Verified on the real `test-files/Reincarnated as a Sword.m4b`: a 600 s
+> source slice that previously produced a 454.6 s MP3 now produces a correct 600.0 s MP3. Fixed in
+> the shared decode path; Win↔Mac `scripts/` byte-identical, `compileall` clean.
+
 ### Fixed
+- **M4B Converter — MP3 output sped up and choppy for xHE-AAC audiobooks.** Converting some M4B
+  audiobooks (e.g. newer Audible rips) to MP3 produced audio that played ~1.3× too fast with
+  stutter/dropouts. **Root cause (ffprobe-confirmed):** the source is **xHE-AAC (USAC)**, which
+  ffmpeg's *native* `aac` decoder cannot decode — it logs `Error submitting packet to decoder: Not
+  yet implemented in FFmpeg, patches welcome` and silently drops ~24% of packets, so the decoded
+  stream is much shorter than the source and, re-encoded to MP3, plays faster. It is **not** a
+  sample-rate mismatch (source and output are both 44100 Hz stereo) and **not** a concat/`-ar`
+  problem. Fixes:
+  - The converter now **probes each source** via the new `ffmpeg_utils.probe_audio_stream()` and,
+    for xHE-AAC sources, decodes through the **Apple AudioToolbox decoder (`aac_at`)** when it is
+    available — on macOS this restores full-length, correct-speed output. Decoder selection is a
+    **runtime** check (decoder availability), so the `Windows/` and `MacOS/` `scripts/` trees stay
+    byte-identical.
+  - A new **post-encode duration guard** compares the output length to the source and **fails the
+    file (discarding it) when they differ by more than 3%**, so a source that cannot be decoded
+    correctly on a given platform yields a clear error instead of a silently corrupt MP3.
+  - The per-file log now shows a one-line **source summary** (codec/profile/sample-rate/channels)
+    and the **full ffmpeg command**.
+  - New shared helpers in `scripts/shared/ffmpeg_utils.py`: `probe_audio_stream`, `is_xhe_aac`,
+    `input_decoder_args`, `needs_special_aac_decoder` (plus cached decoder detection).
+  - **MP3 Tool and M4B Maker were not changed** — they ingest MP3, not AAC, so they never reach the
+    AAC decoder path. (The original report listed them, but that was based on the disproven
+    sample-rate theory.)
 - **Release packaging could leak internal QA logs.** `release.py` builds the zips by walking the
   filesystem, so a gitignored `test-logs/` working file present on a dev machine could be packaged
   into the distribution zip (caught while rebuilding the v0.3.1 zips on Windows; the Mac build was
   clean only because that file never existed on the Mac). Added `test-logs/` to the packaging
   exclusions so internal QA logs never ship, regardless of which machine builds the release.
   (`scripts/shared/release.py` — both trees, byte-identical.)
+
+### Platform note
+- **macOS is fully fixed** (`aac_at` decodes xHE-AAC). **On Windows, `aac_at` does not exist**; if
+  the bundled ffmpeg cannot decode an xHE-AAC source, the new duration guard fails the conversion
+  with a clear message rather than shipping a sped-up file. A true Windows-side xHE-AAC decode path
+  is still **to be verified/decided on the Windows host** — see
+  `md-instructions/0.3.2-CHANGED-FILES.md`.
 
 ## [0.3.1] - 2026-06-04
 
