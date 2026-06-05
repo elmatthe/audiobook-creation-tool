@@ -51,9 +51,10 @@ EXCLUDED_DIR_NAMES = {".venv", "__pycache__"}
 # File suffixes that are always excluded.
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 # Paths (relative to the OS tree, forward-slash form) excluded by prefix/exact.
-# md-instructions/ holds developer docs (Briefing, CHANGELOG, macOS replay reports);
-# end users get README + the launcher + code only, so it is not shipped in the zip.
-EXCLUDED_PREFIXES = ("resources/logs/", "resources/bin/", "md-instructions/")
+# md-instructions/ holds developer docs (Briefing, CHANGELOG, macOS replay reports)
+# and test-logs/ holds internal QA logs (a gitignored working folder); end users get
+# README + the launcher + code only, so neither is shipped in the zip.
+EXCLUDED_PREFIXES = ("resources/logs/", "resources/bin/", "md-instructions/", "test-logs/")
 EXCLUDED_EXACT = {"resources/settings.json"}
 
 
