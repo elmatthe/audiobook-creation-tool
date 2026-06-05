@@ -36,11 +36,19 @@ test-logs/
 Windows/test-logs/
 MacOS/test-logs/
 
-# Real test assets used for the Phase 7 matrix (~2.7 GB local fixture; never committed)
-test-files/
+# test-files: track non-audio fixtures (PDF/TXT/JPG/PNG) for cross-machine sync;
+# exclude only the large audio binaries, at any depth (nested in book subfolders).
+test-files/**/*.m4b
+test-files/**/*.mp3
+test-files/**/*.wav
+test-files/**/*.flac
+test-files/**/*.m4a
+test-files/**/*.aac
+test-files/**/*.ogg
+test-files/**/*.opus
 
-# Local AI/working scratch notes (never shipped)
-AI-WORKSPACE.md
+# Per-machine Claude Code settings (machine paths/permissions); rest of .claude/ is tracked.
+.claude/settings.local.json
 
 # OS cruft
 .DS_Store
