@@ -55,12 +55,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   exclusions so internal QA logs never ship, regardless of which machine builds the release.
   (`scripts/shared/release.py` — both trees, byte-identical.)
 
-### Platform note
-- **macOS is fully fixed** (`aac_at` decodes xHE-AAC). **On Windows, `aac_at` does not exist**; if
-  the bundled ffmpeg cannot decode an xHE-AAC source, the new duration guard fails the conversion
-  with a clear message rather than shipping a sped-up file. A true Windows-side xHE-AAC decode path
-  is still **to be verified/decided on the Windows host** — see
-  `md-instructions/0.3.2-CHANGED-FILES.md`.
+### Platform note / known limitation
+- **macOS is fully fixed** (`aac_at` decodes xHE-AAC). **On Windows, xHE-AAC is a known
+  limitation.** Verified on the Windows host against `test-files/Reincarnated as a Sword.m4b`: the
+  bundled ffmpeg (build `N-123884`, April 2026) has **no `aac_at`** and its native `aac` decoder
+  also mis-decodes xHE-AAC (a 600 s slice decoded to 454.6 s, ~1.3× fast — the same
+  `Not yet implemented` packet drop seen on the Mac). FFmpeg exposes no Windows decoder for xHE-AAC,
+  so this is not fixable by a decoder flag. The new **duration guard** therefore **fails the
+  conversion of an xHE-AAC source on Windows with a clear message** rather than shipping a sped-up
+  file — no silent corruption, but such files cannot yet be converted on Windows. Ordinary AAC-LC
+  audiobooks (the common case) are unaffected on both platforms.
 
 ## [0.3.1] - 2026-06-04
 
