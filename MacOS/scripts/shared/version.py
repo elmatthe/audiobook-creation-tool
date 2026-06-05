@@ -5,4 +5,4 @@ distribution zips, and available to any future about-box / ``--version`` output.
 Kept byte-identical in the ``Windows/`` and ``MacOS/`` trees.
 """
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
