@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+- **Release packaging could leak internal QA logs.** `release.py` builds the zips by walking the
+  filesystem, so a gitignored `test-logs/` working file present on a dev machine could be packaged
+  into the distribution zip (caught while rebuilding the v0.3.1 zips on Windows; the Mac build was
+  clean only because that file never existed on the Mac). Added `test-logs/` to the packaging
+  exclusions so internal QA logs never ship, regardless of which machine builds the release.
+  (`scripts/shared/release.py` — both trees, byte-identical.)
+
 ## [0.3.1] - 2026-06-04
 
 > **First live macOS pass — the macOS column is now green.** Verified end-to-end on a real Mac
