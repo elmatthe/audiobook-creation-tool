@@ -6,6 +6,27 @@ Read this at the start of every session and apply these defaults unless a projec
 
 ---
 
+## Cross-machine sync (Mac ↔ Windows)
+
+**Tracked in git** (synced via push/pull on both machines):
+- All code (Windows/, MacOS/, repo root scripts)
+- .claude/ — skills, memory, project notes (except settings.local.json)
+- AI-WORKSPACE.md (this file)
+- test-files/ — non-audio fixtures (PDFs, TXT, JPG, PNG) for reproducing bugs
+
+**Local-only per machine** (gitignored, copy manually if needed):
+- Audio binaries: *.m4b, *.mp3, *.wav, *.flac, *.m4a, *.aac, *.ogg, *.opus
+  inside test-files/ — too large for git
+- .claude/settings.local.json — per-machine paths/permissions
+- .venv/, dist/, __pycache__/, *.pyc
+- resources/logs/, resources/settings.json, resources/bin/
+
+**To sync audio files between machines:** copy via USB/AirDrop/cloud storage.
+They're intentionally not in git because the repo would exceed GitHub's size
+limits.
+
+---
+
 ## My Machines & Workspace Roots
 
 I work across more than one machine. Use the roots and constraints for whichever machine
