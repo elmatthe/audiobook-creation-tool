@@ -54,7 +54,10 @@ EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 # md-instructions/ holds developer docs (Briefing, CHANGELOG, macOS replay reports)
 # and test-logs/ holds internal QA logs (a gitignored working folder); end users get
 # README + the launcher + code only, so neither is shipped in the zip.
-EXCLUDED_PREFIXES = ("resources/logs/", "resources/bin/", "md-instructions/", "test-logs/")
+# resources/models/ holds the ~300 MB Kokoro HF cache and resources/test-logs/ holds
+# voice-verification MP3s — both are regenerated at runtime and must never ship.
+EXCLUDED_PREFIXES = ("resources/logs/", "resources/bin/", "resources/models/",
+                     "resources/test-logs/", "md-instructions/", "test-logs/")
 EXCLUDED_EXACT = {"resources/settings.json"}
 
 

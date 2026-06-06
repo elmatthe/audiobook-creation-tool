@@ -277,7 +277,29 @@ class LauncherApp:
         self.root.destroy()
 
 
+def _configure_hf_cache() -> None:
+    """Keep the HuggingFace model cache inside the project tree.
+
+    Mirrors ``bootstrap.py``: point ``HF_HOME`` at ``resources/models/huggingface/``
+    so the ~300 MB Kokoro model never lands in ``~/.cache/huggingface/``. The
+    bootstrap fast-path already sets this and it inherits to the launched GUI, but
+    set it here too for the case where the launcher is started directly (dev /
+    debug) so the redirect holds no matter how the GUI is launched. Must run
+    before any kokoro/huggingface import (Kokoro is imported lazily by the TTS
+    tool, well after this).
+    """
+    import os
+    hf_cache = paths.RESOURCES_DIR / "models" / "huggingface"
+    try:
+        hf_cache.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    os.environ["HF_HOME"] = str(hf_cache)
+    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
+
+
 def main() -> int:
+    _configure_hf_cache()
     root = tk.Tk()
     LauncherApp(root)
     root.mainloop()

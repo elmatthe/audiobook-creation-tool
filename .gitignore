@@ -31,6 +31,14 @@ MacOS/resources/logs/
 Windows/resources/settings.json
 MacOS/resources/settings.json
 
+# HuggingFace model cache (~300 MB Kokoro weights) — kept in-tree, never committed
+Windows/resources/models/
+MacOS/resources/models/
+
+# Voice-verification harness outputs (generated MP3s — runtime, not source)
+Windows/resources/test-logs/
+MacOS/resources/test-logs/
+
 # Working test folder (per project test-log convention — never shipped)
 test-logs/
 Windows/test-logs/

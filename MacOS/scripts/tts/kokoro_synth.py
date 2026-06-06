@@ -2,18 +2,44 @@
 kokoro_synth.py — Local Kokoro TTS synthesis helpers for epub2tts-edge v1.1.
 
 Kokoro-82M model is downloaded automatically (~300 MB) from HuggingFace on
-first use and cached in ~/.cache/huggingface/.
+first use. The bootstrap/launcher redirect the HuggingFace cache into the project
+tree (``resources/models/huggingface/``); the fallback below covers the standalone
+CLI/debug path where neither set ``HF_HOME`` first, so the model still stays in the
+project folder rather than ``~/.cache/huggingface/``.
 """
 
 from __future__ import annotations
 
-import tempfile
+import os
 from pathlib import Path
+
+# Belt-and-suspenders: if no parent process set HF_HOME (e.g. this module is run
+# directly for debugging), point the HuggingFace cache at the project tree before
+# kokoro is ever imported (the kokoro import is lazy, inside the functions below,
+# so this module-load-time setup runs first). Walk up to the OS-root folder that
+# contains 'resources/'.
+if "HF_HOME" not in os.environ:
+    _here = Path(__file__).resolve()
+    for _parent in _here.parents:
+        if (_parent / "resources").is_dir():
+            _hf = _parent / "resources" / "models" / "huggingface"
+            os.environ["HF_HOME"] = str(_hf)
+            os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(_hf / "hub"))
+            break
+
+import tempfile
+import time
 from typing import Callable
 
 import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
+
+# Fires the single first-load retry (below) only once per process. The first
+# KPipeline load can be transiently blocked while Windows Smart App Control / WDAC
+# evaluates Kokoro's unsigned native DLLs; subsequent in-process loads that fail
+# are real errors and must not be retried/swallowed.
+_first_pipeline_load_attempted = False
 
 _KOKORO_LANG_MAP: dict[str, str] = {
     "af_": "a",
@@ -31,11 +57,41 @@ def _lang_code_for_voice(voice_id: str) -> str:
     return "a"
 
 
-def _get_pipeline(lang_code: str):
-    """Import and instantiate a KPipeline (lazy import to avoid loading torch at startup)."""
+def _instantiate_pipeline(lang_code: str):
+    """Lazy-import kokoro and build a KPipeline (defers loading torch to first use)."""
     from kokoro import KPipeline  # type: ignore
 
     return KPipeline(lang_code=lang_code)
+
+
+def _get_pipeline(lang_code: str):
+    """Import and instantiate a KPipeline, with a single retry on the first load.
+
+    On a fresh Windows install, the very first attempt to load Kokoro's native
+    extensions can fail while Smart App Control / WDAC evaluates the unsigned DLLs
+    — surfacing as an ``ImportError`` ("DLL load failed while importing
+    sparselinear: An Application Control policy has blocked this file"), or
+    occasionally an ``OSError``/``RuntimeError``. The OS typically allows the DLL
+    on the immediate retry, so we sleep briefly and try once more. The retry only
+    fires on the first load per process (guarded by the module flag); any later
+    failure is a real error and propagates immediately.
+    """
+    global _first_pipeline_load_attempted
+    if not _first_pipeline_load_attempted:
+        _first_pipeline_load_attempted = True
+        try:
+            return _instantiate_pipeline(lang_code)
+        except (OSError, RuntimeError, ImportError) as exc:
+            print(
+                "Kokoro pipeline load blocked on first attempt (likely Windows "
+                "Application Control evaluating unsigned native DLLs) — retrying in 2s"
+            )
+            time.sleep(2)
+            try:
+                return _instantiate_pipeline(lang_code)
+            except (OSError, RuntimeError, ImportError) as exc2:
+                raise exc2 from exc
+    return _instantiate_pipeline(lang_code)
 
 
 def synthesize_text_to_mp3(
