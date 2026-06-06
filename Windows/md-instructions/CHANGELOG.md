@@ -15,6 +15,12 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Removed
+- All copyrighted web-novel test fixtures stripped from git history via
+  `git filter-repo`. The entire `test-files/` folder is now gitignored and
+  will never be tracked again. Use the `KOKORO_TEST_PDF_FOLDER` env var to
+  point the voice-test harness at a local folder of input PDFs.
+
 ## [0.4.0] - 2026-06-05
 
 ### Fixed
