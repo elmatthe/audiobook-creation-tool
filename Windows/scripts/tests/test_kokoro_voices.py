@@ -67,14 +67,13 @@ VOICES = [
 ]
 
 # The user's real chapter-PDF folder. Set it here, or override at run time with
-# the KOKORO_TEST_PDF_FOLDER environment variable. Tests B and C are skipped (not
-# failed) if this points at the unfilled placeholder or a missing folder.
-INPUT_PDF_FOLDER = Path(
-    os.environ.get(
-        "KOKORO_TEST_PDF_FOLDER",
-        r"C:\Users\ematthew\Desktop\Apps\Coding\Repository_Workspaces\MyProjects\Home-PC\Audiobook-Creation-Tool\test-files\webscraped_shadow_slave-1",
-    )
-)
+# the KOKORO_TEST_PDF_FOLDER environment variable. There is intentionally NO
+# committed default: test-files/ is gitignored and never lives in the repo, so
+# the chapter PDFs must be supplied locally. When the env var is unset (or points
+# at a folder that doesn't exist), Tests B and C are SKIPPED — not failed — and
+# Test A (smoke) is the only required gate.
+_env_folder = os.environ.get("KOKORO_TEST_PDF_FOLDER")
+INPUT_PDF_FOLDER: Path | None = Path(_env_folder) if _env_folder else None
 TEST_PDF_NAME = "Chapter 20_ Outcast Once Again.pdf"
 BATCH_VOICE = "bf_emma"
 
@@ -83,10 +82,7 @@ TEST_LOGS_DIR = OS_ROOT / "resources" / "test-logs"
 
 
 def _input_folder_ready() -> bool:
-    return (
-        str(INPUT_PDF_FOLDER) != "<INPUT_PDF_FOLDER>"
-        and INPUT_PDF_FOLDER.is_dir()
-    )
+    return INPUT_PDF_FOLDER is not None and INPUT_PDF_FOLDER.is_dir()
 
 
 def probe_mp3(path: Path) -> float:
@@ -250,9 +246,10 @@ def main() -> int:
     fa = smoke()
 
     if not _input_folder_ready():
-        print("=== Test B & C skipped (set KOKORO_TEST_PDF_FOLDER or "
-              "INPUT_PDF_FOLDER to the real chapter-PDF folder) ===")
-        return 1 if fa else 0
+        print("SKIP Test B/C — set KOKORO_TEST_PDF_FOLDER to a folder containing "
+              "chapter PDFs to enable end-to-end and batch tests")
+        # Test A is the only required gate; exit 0 when it passes.
+        return 0 if not fa else 1
 
     print("=== Test B: End-to-end per voice ===")
     fb = end_to_end()
