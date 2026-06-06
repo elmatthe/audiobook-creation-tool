@@ -15,6 +15,43 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-05
+
+### Fixed
+- **Bootstrap now self-heals a missing/broken Kokoro install on every launch.** The
+  fast-path (`.venv` exists → launch GUI) previously skipped Kokoro entirely, so a
+  partial first-run install or a manually-uninstalled `kokoro` package would silently
+  break the AI voice path until the user ran a Kokoro batch and saw 10 chapters fail
+  in a row with `No module named 'kokoro'`. `bootstrap.py` now probes the venv for
+  `kokoro` + `soundfile` + `scipy` before every launch (both the `--launch-only`
+  fast-path used by `setup_and_run` and the `venv_is_valid()` path) and pip-installs
+  the pinned versions into the existing venv if any are missing, showing a small
+  "Repairing the Kokoro AI voice install…" progress window with a live log. The repair
+  never blocks launch — if it fails, a clear warning is shown and the GUI still opens
+  so Edge TTS keeps working. The `--skip-kokoro-download` flag and first-run opt-in
+  checkbox are now scoped to the optional ~300 MB HuggingFace model weights only; the
+  Python wheels are mandatory and always installed because they are required for the
+  import to succeed. The first-run install now pre-warms the Kokoro pipeline to force
+  Windows Smart App Control / WDAC to evaluate Kokoro's unsigned native DLLs during the
+  install dialog rather than during the user's first synthesis, and a single retry on
+  OSError/RuntimeError/ImportError during the first in-process pipeline load absorbs
+  any remaining transient DLL-load block.
+
+### Changed
+- **Kokoro model weights now live inside the project tree.** `HF_HOME` and
+  `HUGGINGFACE_HUB_CACHE` are set to `resources/models/huggingface/` by
+  `bootstrap.py`, `scripts/launcher.py`, and `scripts/tts/kokoro_synth.py`, so the
+  ~300 MB model is part of the project folder instead of `~/.cache/huggingface/`.
+  Keeps the user's home directory clean and makes the install fully self-contained
+  (uninstall = delete the project folder).
+
+### Added
+- `scripts/tests/test_kokoro_voices.py` — verifies all five Kokoro voices
+  (`af_heart`, `af_bella`, `am_michael`, `bf_emma`, `bm_george`) with a synthetic
+  smoke test, a per-voice end-to-end PDF run, and a full 10-PDF batch run. Mirrored
+  in both OS trees. (Tests B/C drive the real Kokoro path — `pdf_to_txt` →
+  `kokoro_file_to_mp3` — since `run_conversion_job`/`run_batch_convert` are Edge-only.)
+
 ## [0.3.2] - 2026-06-04
 
 > **MP3 output speed-up fix — real root cause was xHE-AAC, not a sample-rate mismatch.**

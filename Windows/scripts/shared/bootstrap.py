@@ -181,6 +181,118 @@ def venv_is_valid() -> bool:
 
 
 # ===========================================================================
+#  Kokoro self-heal (probe + in-venv repair install)
+# ===========================================================================
+# The pinned Kokoro stack. These mirror requirements.txt exactly; they are the
+# *wheels* (mandatory — required for `import kokoro` to succeed), distinct from
+# the optional ~300 MB model weights pre-download (gated by the first-run
+# checkbox / --skip-kokoro-download). torch is pulled in transitively by kokoro.
+KOKORO_PKGS = ["kokoro==0.9.4", "soundfile==0.13.1", "scipy==1.17.1"]
+
+
+def kokoro_is_healthy(venv_py: Path) -> tuple[bool, str]:
+    """Probe the venv for kokoro + soundfile + scipy. Returns ``(ok, reason)``.
+
+    Uses ``importlib.util.find_spec`` (cheap — does not import torch) so the
+    check is fast enough to run on every launch without slowing the fast path.
+    """
+    probe = (
+        "import importlib.util as u, sys; "
+        "mods = ['kokoro', 'soundfile', 'scipy']; "
+        "missing = [m for m in mods if u.find_spec(m) is None]; "
+        "print('MISSING:' + ','.join(missing) if missing else 'OK'); "
+        "sys.exit(0 if not missing else 1)"
+    )
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-c", probe],
+            capture_output=True, text=True, timeout=30, **_hidden(),
+        )
+        out = (r.stdout or "").strip()
+        if r.returncode == 0 and out == "OK":
+            return True, "ok"
+        return False, out or (r.stderr or "").strip() or "unknown"
+    except Exception as exc:
+        return False, f"probe failed: {exc!r}"
+
+
+def ensure_kokoro_installed(venv_py: Path, log: Callable[[str], None]) -> bool:
+    """Install the pinned Kokoro stack into the existing venv. Returns True on success.
+
+    This is the *self-heal* path: it pip-installs into the venv that already
+    exists (never --user, never system site-packages). ``log`` is the same
+    callable the rest of the bootstrap uses, so output is tee'd to the setup log
+    and the repair dialog's live log pane.
+    """
+    log(f"Installing Kokoro stack into venv: {' '.join(KOKORO_PKGS)}")
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-m", "pip", "install", "--no-input", *KOKORO_PKGS],
+            capture_output=True, text=True, timeout=600, **_hidden(),
+        )
+        if r.stdout:
+            log(r.stdout.strip())
+        if r.returncode != 0:
+            if r.stderr:
+                log(r.stderr.strip())
+            return False
+        ok, reason = kokoro_is_healthy(venv_py)
+        log(f"Post-install health-check: {reason}")
+        return ok
+    except Exception as exc:
+        log(f"ensure_kokoro_installed failed: {exc!r}")
+        return False
+
+
+def warmup_kokoro_pipeline(venv_py: Path, log: Callable[[str], None]) -> None:
+    """One-shot KPipeline load to pre-warm Kokoro at install time.
+
+    On fresh Windows 11 Home machines, Smart App Control / WDAC blocks Kokoro's
+    unsigned native DLLs (e.g. ``sparselinear``) the *first* time they are loaded
+    ("An Application Control policy has blocked this file"), which would otherwise
+    surface as a failed first synthesis for the default voice (``af_heart``).
+    Loading the pipeline once here — inside the install/repair dialog — forces the
+    OS to evaluate (and then allow) those DLLs now, so the user's first real
+    synthesis just works. Best-effort: any error is logged, never raised, since
+    the worst case is the first synthesis retries (the kokoro_synth single-retry
+    wrapper also absorbs a residual transient block).
+    """
+    log("Initializing AI voice engine (first-run only)…")
+    # Force the project-tree HF cache for the subprocess regardless of whether the
+    # parent set HF_HOME, so the warmup never leaks the ~300 MB model into the
+    # user's home (~/.cache/huggingface/).
+    hf_cache = RESOURCES_DIR / "models" / "huggingface"
+    env = os.environ.copy()
+    env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
+    env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
+    script = (
+        "import sys\n"
+        "try:\n"
+        "    from kokoro import KPipeline\n"
+        "    KPipeline(lang_code='a')\n"
+        "    print('Kokoro pipeline warmup complete.')\n"
+        "except OSError as e:\n"
+        "    print('Kokoro warmup blocked (will retry on first synthesis): %r' % (e,))\n"
+        "except Exception as e:\n"
+        "    print('Kokoro warmup problem (non-fatal): %r' % (e,))\n"
+    )
+    try:
+        proc = subprocess.Popen(
+            [str(venv_py), "-c", script],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            env=env, **_hidden(),
+        )
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            if line:
+                log("  " + line)
+        proc.wait()
+    except OSError as exc:
+        log(f"  Kokoro warmup could not run: {exc!r}")
+
+
+# ===========================================================================
 #  Subprocess helper (hide console windows on Windows)
 # ===========================================================================
 def _hidden() -> dict:
@@ -814,6 +926,10 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
     if download_kokoro:
         progress(4, "Downloading Kokoro AI voices (~300 MB)…")
         predownload_kokoro(log)
+        # Pre-warm the pipeline so Smart App Control / WDAC evaluates Kokoro's
+        # unsigned native DLLs during this install dialog, not on first synthesis.
+        if kokoro_is_healthy(venv_python())[0]:
+            warmup_kokoro_pipeline(venv_python(), log)
 
     progress(total, "Setup complete.")
     return True, "Setup complete."
@@ -863,8 +979,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     ).pack(anchor="w")
     ttk.Checkbutton(
         intro,
-        text="Download the Kokoro AI voices now (~300 MB). "
-             "If unchecked, they download the first time you pick a Kokoro voice.",
+        text="Pre-download Kokoro AI voice model now (~300 MB). If unchecked, the "
+             "model auto-downloads on first synthesis.",
         variable=state["download_kokoro"],
     ).pack(anchor="w", pady=(16, 8))
 
@@ -972,6 +1088,181 @@ def _open_folder(path: Path) -> None:
 
 
 # ===========================================================================
+#  HuggingFace cache redirect (keep the ~300 MB Kokoro model in the project tree)
+# ===========================================================================
+def _configure_hf_cache() -> Path:
+    """Point the HuggingFace cache at ``resources/models/huggingface/``.
+
+    Without this, the ~300 MB Kokoro-82M model lands in the user's home
+    (``~/.cache/huggingface/``). Setting ``HF_HOME`` here — before any kokoro /
+    huggingface import in this process — and relying on ``launch_gui`` copying
+    ``os.environ`` to the spawned GUI keeps the model inside the project folder,
+    so uninstalling the app is just deleting the folder. ``HUGGINGFACE_HUB_CACHE``
+    is set too for older kokoro/huggingface_hub versions that still read it.
+    """
+    hf_cache = RESOURCES_DIR / "models" / "huggingface"
+    try:
+        hf_cache.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    os.environ["HF_HOME"] = str(hf_cache)
+    os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
+    return hf_cache
+
+
+# ===========================================================================
+#  Self-heal dialogs (small Tk windows reusing the first-run log-pane pattern)
+# ===========================================================================
+def show_repair_dialog(work: Callable[[], bool]) -> bool:
+    """Show a small "Repairing Kokoro install…" window while ``work`` runs.
+
+    Reuses the first-run flow's live-log pane: ``work`` runs on a worker thread
+    and everything tee'd through ``LOG`` is mirrored into the Text pane. Returns
+    ``work()``'s boolean result. If Tk cannot start (headless Python), ``work``
+    is run directly with no window so the repair still happens.
+    """
+    try:
+        import queue
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception:
+        return work()
+
+    ui_queue: "queue.Queue[object]" = queue.Queue()
+    result = {"ok": False, "done": False}
+
+    try:
+        root = tk.Tk()
+    except Exception:
+        return work()
+    root.title("Audiobook Creation Tool — Repairing")
+    root.geometry("560x360")
+    root.minsize(480, 300)
+    try:
+        ttk.Style().theme_use("vista" if IS_WINDOWS else "aqua")
+    except Exception:
+        pass
+
+    frame = ttk.Frame(root, padding=14)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(
+        frame, text="Repairing the Kokoro AI voice install…",
+        font=("Segoe UI" if IS_WINDOWS else "Helvetica", 12, "bold"),
+    ).pack(anchor="w", pady=(0, 6))
+    ttk.Label(
+        frame,
+        text="Installing the local AI voice libraries. This is a one-time repair; "
+             "Edge TTS voices work regardless.",
+        wraplength=520, justify="left",
+    ).pack(anchor="w", pady=(0, 8))
+    bar = ttk.Progressbar(frame, mode="indeterminate")
+    bar.pack(fill="x", pady=(0, 10))
+    bar.start(12)
+    log_box = tk.Text(frame, height=12, wrap="word", state="disabled",
+                      font=("Consolas" if IS_WINDOWS else "Menlo", 9))
+    log_box.pack(fill="both", expand=True)
+
+    def ui_log(msg: str) -> None:
+        ui_queue.put(msg)
+
+    LOG.set_ui_sink(ui_log)
+
+    def append(msg: str) -> None:
+        log_box.configure(state="normal")
+        log_box.insert("end", msg + "\n")
+        log_box.see("end")
+        log_box.configure(state="disabled")
+
+    def worker() -> None:
+        ok = False
+        try:
+            ok = work()
+        finally:
+            result["ok"] = ok
+            ui_queue.put(("__done__", ok))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def poll() -> None:
+        try:
+            while True:
+                item = ui_queue.get_nowait()
+                if isinstance(item, tuple) and item and item[0] == "__done__":
+                    result["done"] = True
+                    bar.stop()
+                    root.after(700, root.destroy)
+                else:
+                    append(str(item))
+        except queue.Empty:
+            pass
+        if not result["done"]:
+            root.after(100, poll)
+
+    root.after(100, poll)
+    try:
+        root.mainloop()
+    finally:
+        LOG.set_ui_sink(None)
+    return bool(result["ok"])
+
+
+def show_warning_dialog(title: str, message: str) -> None:
+    """Show a non-blocking warning (Tk messagebox). Falls back to the log if Tk
+    is unavailable so the message is never lost."""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showwarning(title, message)
+        root.destroy()
+    except Exception:
+        LOG.line(f"[WARNING] {title}: {message}")
+
+
+def _launch_with_kokoro_healthcheck() -> int:
+    """Probe Kokoro health, self-heal if needed, then launch the GUI.
+
+    Runs on *every* launch (both the ``--launch-only`` fast path used by the
+    ``.bat``/``.command`` and the ``venv_is_valid()`` path in ``main()``), so a
+    partial first-run install or a manually-uninstalled ``kokoro`` is repaired
+    before the user ever hits a Kokoro batch. Never blocks launch: if the repair
+    fails, a clear warning is shown and the GUI still opens (Edge TTS works).
+    """
+    venv_py = venv_python()
+    ok, reason = kokoro_is_healthy(venv_py)
+    LOG.line(f"Kokoro health-check: {reason}")
+    if not ok:
+        LOG.line("Kokoro stack incomplete — attempting an in-venv repair…")
+
+        def _repair_and_warmup() -> bool:
+            if not ensure_kokoro_installed(venv_py, LOG.line):
+                return False
+            # Force Smart App Control / WDAC to evaluate the freshly-installed
+            # native DLLs now (inside this dialog), not on first synthesis.
+            warmup_kokoro_pipeline(venv_py, LOG.line)
+            return True
+
+        show_repair_dialog(_repair_and_warmup)
+        ok2, reason2 = kokoro_is_healthy(venv_py)
+        LOG.line(f"Kokoro health-check after repair: {reason2}")
+        if not ok2:
+            show_warning_dialog(
+                "Kokoro is unavailable",
+                "The local AI voices could not be installed. Edge TTS voices "
+                "will still work.\n\n"
+                f"Reason: {reason2}\n\n"
+                "Manual fix:\n"
+                f'  "{venv_py}" -m pip install '
+                + " ".join(KOKORO_PKGS) + "\n\n"
+                f"See log: {LOG.path}"
+            )
+    launched = launch_gui(LOG)
+    LOG.close()
+    return 0 if launched else 1
+
+
+# ===========================================================================
 #  Entry point
 # ===========================================================================
 def _platform_sane() -> bool:
@@ -986,7 +1277,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         help="Skip all setup checks and just launch the GUI "
                              "(used by the fast path once .venv exists).")
     parser.add_argument("--skip-kokoro-download", action="store_true",
-                        help="Default the first-run Kokoro checkbox to unchecked.")
+                        help="Default the first-run checkbox for the optional ~300 MB "
+                             "Kokoro *model weights* pre-download to unchecked. The "
+                             "Kokoro Python wheels are mandatory and always installed "
+                             "regardless of this flag.")
     parser.add_argument("--headless", action="store_true",
                         help="Install without requiring a working Tkinter GUI "
                              "(CLI-only fallback, used when Tk cannot be set up).")
@@ -999,20 +1293,22 @@ def main(argv: Optional[list[str]] = None) -> int:
         LOG.line(f"Unsupported platform: {sys.platform}")
         return 2
 
+    # Keep the HuggingFace model cache inside the project tree for every path
+    # (self-test, fast launch, and first-run setup all inherit it).
+    _configure_hf_cache()
+
     if args.self_test:
         return _self_test()
 
     if args.launch_only:
-        ok = launch_gui(LOG)
-        LOG.close()
-        return 0 if ok else 1
+        # Fast path from the .bat/.command. Self-heal Kokoro before launching so
+        # a broken/partial install is repaired on every launch, not just first run.
+        return _launch_with_kokoro_healthcheck()
 
-    # Fast path: a valid venv already exists → just launch.
+    # Fast path: a valid venv already exists → health-check Kokoro, then launch.
     if venv_is_valid():
         LOG.line("Existing virtual environment detected — launching.")
-        ok = launch_gui(LOG)
-        LOG.close()
-        return 0 if ok else 1
+        return _launch_with_kokoro_healthcheck()
 
     # First run. Headless mode skips the Tk dialog (no GUI-capable Python).
     if args.headless:
@@ -1051,6 +1347,13 @@ def _self_test() -> int:
     LOG.line(f"[self-test] venv_is_valid    = {venv_is_valid()}")
     LOG.line(f"[self-test] requirements.txt = {REQUIREMENTS_FILE} "
              f"(exists={REQUIREMENTS_FILE.exists()})")
+    LOG.line(f"[self-test] HF_HOME          = {os.environ.get('HF_HOME')}")
+    # Exercise the Kokoro health-check path (detection only — never installs here).
+    if venv_python().exists():
+        k_ok, k_reason = kokoro_is_healthy(venv_python())
+        LOG.line(f"[self-test] kokoro health    = {k_ok} ({k_reason})")
+    else:
+        LOG.line("[self-test] kokoro health    = n/a (no venv interpreter yet)")
     py = find_suitable_python(LOG)
     LOG.line(f"[self-test] suitable Python  = {py}")
     if py is not None:
