@@ -44,16 +44,15 @@ test-logs/
 Windows/test-logs/
 MacOS/test-logs/
 
-# test-files: track non-audio fixtures (PDF/TXT/JPG/PNG) for cross-machine sync;
-# exclude only the large audio binaries, at any depth (nested in book subfolders).
-test-files/**/*.m4b
-test-files/**/*.mp3
-test-files/**/*.wav
-test-files/**/*.flac
-test-files/**/*.m4a
-test-files/**/*.aac
-test-files/**/*.ogg
-test-files/**/*.opus
+# ─────────────────────────────────────────────────────────────────────
+# test-files/  — entirely untracked.
+# The folder is for LOCAL testing only and never enters the repo.
+# Drop any input/output fixtures you need (PDFs, MP3s, M4Bs, EPUBs)
+# under here freely; nothing in this directory will be staged or
+# committed. To use a fixture in code, point at it via an env var or
+# ask the user for an absolute path — do not rely on it being in git.
+# ─────────────────────────────────────────────────────────────────────
+test-files/
 
 # Per-machine Claude Code settings (machine paths/permissions); rest of .claude/ is tracked.
 .claude/settings.local.json
