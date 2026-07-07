@@ -299,6 +299,10 @@ def _configure_hf_cache() -> None:
 
 
 def main() -> int:
+    # Install the global no-window guard first, before anything imports pydub /
+    # edge-tts, so their internal ffmpeg spawns during the TTS combine stage
+    # inherit hidden-window flags and do not flash console windows on Windows.
+    sp.install_no_window_guard()
     _configure_hf_cache()
     root = tk.Tk()
     LauncherApp(root)

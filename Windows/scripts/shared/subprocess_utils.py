@@ -48,6 +48,49 @@ def check_output(cmd, **kwargs) -> bytes | str:
     return subprocess.check_output(cmd, **{**_hidden_kwargs(), **kwargs})
 
 
+_POPEN_PATCHED = False
+
+
+def install_no_window_guard() -> None:
+    """Force *every* child process on Windows to spawn without a console window.
+
+    The app's own ffmpeg/ffprobe calls already go through :func:`run` /
+    :func:`popen`, but pydub and edge-tts spawn ffmpeg through their *own*
+    internal ``subprocess.Popen`` calls, which bypass those wrappers. During the
+    TTS combine stage pydub exports/concatenates dozens of segments, flashing a
+    console window for each one. This wraps ``subprocess.Popen`` itself so those
+    internal spawns also inherit the hidden-window flags from
+    :func:`_hidden_kwargs` — the one chokepoint every child process passes
+    through, regardless of who calls it.
+
+    No-op on non-Windows. Idempotent. Must be called once at startup, *before*
+    pydub/edge-tts are imported, so a ``from subprocess import Popen`` inside
+    those libraries binds to the wrapped class.
+    """
+    global _POPEN_PATCHED
+    if _POPEN_PATCHED or sys.platform != "win32":
+        return
+
+    _original_popen = subprocess.Popen
+
+    class _NoWindowPopen(_original_popen):  # type: ignore[valid-type, misc]
+        def __init__(self, *args, **kwargs):
+            hidden = _hidden_kwargs()
+            # OR our hidden-window creationflags into anything the caller passed
+            # so an explicit flag is preserved rather than clobbered.
+            kwargs["creationflags"] = (
+                kwargs.get("creationflags", 0) | hidden["creationflags"]
+            )
+            # Only inject the hidden STARTUPINFO when the caller supplied none;
+            # our own wrappers already pass one.
+            if kwargs.get("startupinfo") is None:
+                kwargs["startupinfo"] = hidden["startupinfo"]
+            super().__init__(*args, **kwargs)
+
+    subprocess.Popen = _NoWindowPopen  # type: ignore[misc]
+    _POPEN_PATCHED = True
+
+
 def reveal_in_file_manager(path) -> None:
     """Open ``path`` in the OS file manager without flashing a console window.
 

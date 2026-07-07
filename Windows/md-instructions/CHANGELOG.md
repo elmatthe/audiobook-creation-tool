@@ -15,6 +15,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+- **No more ffmpeg console windows flashing during the TTS combine stage.** When a
+  conversion finished and pydub/edge-tts stitched the per-segment MP3s together, each
+  internal ffmpeg spawn popped a `ffmpeg.EXE` console window on screen — dozens in a
+  row, stealing focus from whatever else the user was doing. The app's own ffmpeg calls
+  were already hidden via `shared.subprocess_utils`, but pydub's *internal* spawns
+  bypassed that wrapper. Added `install_no_window_guard()` (Windows-only, idempotent),
+  which wraps `subprocess.Popen` itself so every child process — including pydub's —
+  inherits the hidden-window flags. Installed once at the top of `launcher.main()`,
+  before pydub/edge-tts are imported. No-op on macOS; both script trees stay
+  byte-identical.
+
 ### Removed
 - All copyrighted web-novel test fixtures stripped from git history via
   `git filter-repo`. The entire `test-files/` folder is now gitignored and
