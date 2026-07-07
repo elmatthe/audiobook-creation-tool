@@ -4,7 +4,7 @@
 
 The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
-> **Status:** v0.4.0 — **Kokoro local AI voices now self-heal and stay self-contained.** The bootstrap guarantees the Kokoro stack (`kokoro` + `soundfile` + `scipy`) is installed in the project `.venv` on **every** launch and repairs it automatically (with a small progress window) if it ever goes missing — fixing the failure mode where a partial install silently broke the AI-voice path mid-batch with `No module named 'kokoro'`. The ~300 MB Kokoro‑82M model is now cached **inside the project tree** (`resources/models/huggingface/`) instead of your home folder, so the install is fully self-contained. A first-run pipeline **pre-warm** plus a single-retry wrapper absorbs the Windows Smart App Control / WDAC block that can hit Kokoro's unsigned native DLLs on first use. Verified end-to-end on Windows (Python 3.12): all five Kokoro voices pass a synthetic smoke test, a per-voice Chapter‑20 PDF→MP3 run, and the full 10-PDF batch with **zero failures**. Builds on v0.3.1's first live macOS pass and v0.3.0's series/track-numbering fix. See [Known Limitations](#known-limitations).
+> **Status:** v0.5.0 (in development) — internal repository restructure to a single cross-platform code tree; **no feature or tool-behaviour changes**. The latest published release is **v0.4.0** (self-healing Kokoro AI-voice install + fully self-contained model cache); the download links below point at v0.4.0 until the v0.5.0 release is published. See [Known Limitations](#known-limitations).
 
 ---
 
@@ -82,7 +82,7 @@ The app installs itself on first run. There is nothing to configure by hand.
 ### Windows
 
 1. Download `AudiobookTool-Windows-v0.4.0.zip` and extract it anywhere.
-2. Double‑click **`setup_and_run.bat`**.
+2. Double‑click **`Setup_and_Run-audiobook-creation-tool.bat`** (named `setup_and_run.bat` in the v0.4.0 zip).
 3. The **first** run opens a small setup window that installs a private Python environment, the audio libraries, and ffmpeg — and (optionally) pre‑downloads the Kokoro AI voice model. A progress bar and live log show what's happening.
 4. **Every run after that** opens the app instantly, with no console window.
 
@@ -90,7 +90,7 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 1. Download `AudiobookTool-MacOS-v0.4.0.zip` and extract it (double‑click the zip in Finder).
 2. **Drag the extracted `audiobook-creation-tool` folder out of Downloads** — onto your Desktop or into Applications. (macOS runs items launched straight from Downloads from a temporary read‑only copy, which can stop the app finding its files; moving the folder once in Finder clears that. If you skip this step the launcher shows a message telling you to do it.)
-3. Double‑click **`setup_and_run.command`** in Finder. The first time, macOS may block it — **right‑click → Open**, then confirm. After it starts, the setup Terminal window closes by itself.
+3. Double‑click **`Setup_and_Run-audiobook-creation-tool.command`** in Finder (named `setup_and_run.command` in the v0.4.0 zip). The first time, macOS may block it — **right‑click → Open**, then confirm. After it starts, the setup Terminal window closes by itself.
 4. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
 
 > The setup uses **winget** (Windows) or **Homebrew** (macOS) to fetch Python 3.12 and ffmpeg if they aren't already present. If neither is available, it opens the right download page and tells you exactly what to install. The app never crashes with a raw error because something is missing.
@@ -132,22 +132,24 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ```
 Audiobook-Creation-Tool/
-├── README.md                    # this file (repo root only — not duplicated per OS)
-├── setup_and_run.bat            # Windows double-click entry point
-├── setup_and_run.command        # macOS double-click entry point
-├── Windows/
-│   ├── requirements.txt         # pinned dependencies
-│   ├── md-instructions/         # Briefing.md, CHANGELOG.md
-│   ├── resources/               # icons, default cover, logs/, settings.json, bin/ (portable ffmpeg)
-│   └── scripts/
-│       ├── launcher.py          # the unified GUI
-│       ├── tts/                 # TTS engine (Edge + Kokoro), PDF/EPUB extraction, batch
-│       ├── mp3_tools/           # the five MP3/M4B tools
-│       └── shared/              # cross-cutting modules (see below)
-└── MacOS/                       # a mirror of Windows/ (scripts kept in lockstep)
+├── README.md                                       # this file
+├── Setup_and_Run-audiobook-creation-tool.bat       # Windows double-click entry point
+├── Setup_and_Run-audiobook-creation-tool.command   # macOS double-click entry point
+├── md-instructions/             # developer docs (Briefing, CHANGELOG, DECISIONS, handoff)
+├── scripts/
+│   ├── requirements.txt         # pinned dependencies (one cross-platform list)
+│   ├── verify.py                # mechanical test/dep/docs gate (dev-only)
+│   ├── Universal/               # ALL program code — single cross-platform tree
+│   │   ├── launcher.py          # the unified GUI
+│   │   ├── tts/                 # TTS engine (Edge + Kokoro), PDF/EPUB extraction, batch
+│   │   ├── mp3_tools/           # the five MP3/M4B tools
+│   │   └── shared/              # cross-cutting modules (see below)
+│   └── Windows/  MacOS/         # empty by design — only truly OS-specific code
+└── files/                       # dev assets + runtime state (logs, settings, model cache,
+                                 #   portable ffmpeg) — recreated as needed, never shipped
 ```
 
-The repo root deliberately holds **exactly five items** (README + two launchers + two OS folders) so a non‑technical user who unzips it sees only what they need.
+A release zip is even simpler: a user who extracts it sees only the README, one launcher, and `scripts/` — everything else is created on first run.
 
 ### `scripts/{tts, mp3_tools, shared}`
 
@@ -161,9 +163,9 @@ The repo root deliberately holds **exactly five items** (README + two launchers 
 - **Thread safety.** Every long operation runs on a worker thread. Tk variables are read **on the main thread** and handed to the worker as plain copies; the worker talks back only through a `queue.Queue` drained by an `after()` pump loop. This eliminates the classic *"main thread is not in main loop"* Tcl crash.
 - **Console suppression.** The GUI launches under `pythonw.exe`, and **every** subprocess call routes through `shared/subprocess_utils` (`CREATE_NO_WINDOW` + hidden `STARTUPINFO`). An audit confirms zero direct `subprocess.*` calls in tool code — so no black window flashes during use.
 - **Atomic settings.** `settings.py` writes JSON via a temp file + `os.replace`, and never raises on a missing or corrupt file — a bad settings file degrades to defaults instead of crashing.
-- **ffmpeg isolation.** `ffmpeg_utils.py` is the single place that resolves ffmpeg/ffprobe (bundled `resources/bin/` first, then PATH) and pins pydub to that binary, so behaviour is identical regardless of what's on the user's PATH.
+- **ffmpeg isolation.** `ffmpeg_utils.py` is the single place that resolves ffmpeg/ffprobe (bundled `files/bin/` first, then PATH) and pins pydub to that binary, so behaviour is identical regardless of what's on the user's PATH.
 - **Cooperative cancellation.** A reusable `cancellation.py` primitive (`ConversionCancelled` + `raise_if_cancelled`) backs the Cancel button in every tool: the button sets a `threading.Event`, and workers check it at natural checkpoints (between chapters / files / stages), clean up partial output, and log `Cancelled.`
-- **One codebase, two trees.** The `Windows/` and `MacOS/` `scripts/` directories are kept byte‑identical (verified by hash); platform differences live in `sys.platform` branches inside the shared code, not in divergent copies.
+- **One codebase, one tree.** Since v0.5.0 all program code lives in a single `scripts/Universal/` tree shared by both platforms; platform differences live in `sys.platform` branches inside the shared code, not in divergent copies. (`scripts/Windows/` and `scripts/MacOS/` exist for any future code that genuinely cannot be shared — both are empty today.)
 - **Audiobookshelf‑correct series tags.** Series metadata is written as the freeform MP4 atoms `----:com.apple.iTunes:SERIES` / `SERIES-PART`, which ffprobe (and therefore Audiobookshelf) surfaces as `series` / `series-part`. ffmpeg can't write these, so mutagen writes them immediately after the encode.
 
 ---
@@ -173,14 +175,14 @@ The repo root deliberately holds **exactly five items** (README + two launchers 
 Maintainers package the two distributable zips with the developer helper:
 
 ```
-python Windows/scripts/shared/release.py
+python scripts/Universal/shared/release.py
 ```
 
-It reads the version from `scripts/shared/version.py` (the single source of truth) and writes
-`dist/AudiobookTool-Windows-vX.Y.Z.zip` and `dist/AudiobookTool-MacOS-vX.Y.Z.zip`, each excluding
-machine‑specific artifacts (`.venv/`, `__pycache__/`, `*.pyc`, `resources/logs/`,
-`resources/settings.json`, `resources/bin/`) and placing `README.md` + the correct launcher at the
-archive root. It then prints the full release checklist. `release.py` is a build‑time tool only — it
+It reads the version from `scripts/Universal/shared/version.py` (the single source of truth) and
+writes `dist/AudiobookTool-Windows-vX.Y.Z.zip` and `dist/AudiobookTool-MacOS-vX.Y.Z.zip` — each
+containing `README.md`, the matching double-click launcher, and the `scripts/` tree, excluding
+machine‑specific artifacts (`.venv/`, `__pycache__/`, `*.pyc`; runtime state under `files/` is
+never packaged). It then prints the full release checklist. `release.py` is a build‑time tool only — it
 is never imported by the app.
 
 ---

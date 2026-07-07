@@ -3,10 +3,8 @@
 #  Auto-generated / machine-specific artifacts that must never be committed.
 # ─────────────────────────────────────────────────────────────────────────
 
-# Virtual environments (rebuilt fresh by setup_and_run on each machine)
+# Virtual environment (repo root; rebuilt fresh by Setup_and_Run on each machine)
 .venv/
-Windows/.venv/
-MacOS/.venv/
 .python_runtime/
 
 # Python bytecode / caches
@@ -14,6 +12,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
 # Build / packaging artifacts
 dist/
@@ -21,37 +20,25 @@ build/
 *.spec
 *.egg-info/
 
-# Bundled portable binaries (ffmpeg, etc.) — downloaded by the bootstrap
-Windows/resources/bin/
-MacOS/resources/bin/
+# Portable binaries (ffmpeg, etc.) — downloaded by the bootstrap
+files/bin/
 
-# Per-session logs and persisted settings (runtime state, not source)
-Windows/resources/logs/
-MacOS/resources/logs/
-Windows/resources/settings.json
-MacOS/resources/settings.json
+# Runtime-writable state: logs, settings.json, and the HuggingFace model
+# cache (~300 MB Kokoro weights, kept in-tree but never committed).
+# Delete files/runtime-data/ + files/bin/ + .venv/ for a full "uninstall".
+files/runtime-data/
 
-# HuggingFace model cache (~300 MB Kokoro weights) — kept in-tree, never committed
-Windows/resources/models/
-MacOS/resources/models/
-
-# Voice-verification harness outputs (generated MP3s — runtime, not source)
-Windows/resources/test-logs/
-MacOS/resources/test-logs/
-
-# Working test folder (per project test-log convention — never shipped)
+# Test logs / harness outputs (any folder named test-logs, at any depth)
 test-logs/
-Windows/test-logs/
-MacOS/test-logs/
 
 # ─────────────────────────────────────────────────────────────────────
-# test-files/  — entirely untracked.
-# The folder is for LOCAL testing only and never enters the repo.
-# Drop any input/output fixtures you need (PDFs, MP3s, M4Bs, EPUBs)
-# under here freely; nothing in this directory will be staged or
-# committed. To use a fixture in code, point at it via an env var or
-# ask the user for an absolute path — do not rely on it being in git.
+# files/test-files/  — entirely untracked.
+# LOCAL testing fixtures only (PDFs, MP3s, M4Bs, EPUBs — may include
+# copyrighted media); nothing under it is ever staged or committed.
+# To use a fixture in code, point at it via an env var (e.g.
+# KOKORO_TEST_PDF_FOLDER) or an absolute path — never rely on git.
 # ─────────────────────────────────────────────────────────────────────
+files/test-files/
 test-files/
 
 # Per-machine Claude Code settings (machine paths/permissions); rest of .claude/ is tracked.
