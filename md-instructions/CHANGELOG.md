@@ -15,6 +15,35 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — v0.5.0 Drop 3 (TTS improvement & hardening, 2026-07-07)
+- **Kokoro batch ignored the End-of-recording pause.** The batch path never passed
+  `end_silence_ms`, so every batch MP3 got the baked-in 3000 ms default regardless of the
+  GUI field. Batch now honors it exactly like single-file mode.
+- **Kokoro voices ignored the "After each paragraph block" field.** The GUI showed the
+  pause fields for Kokoro voices but passed none of them. The paragraph pause is now
+  mapped onto Kokoro's inter-chunk gap (single-file AND batch), verified end-to-end with
+  the real model (200 → 2000 ms setting produced exactly +1800 ms of output). The
+  sentence / title / chapter fields remain Edge-only for now — a deliberate deferral,
+  see DECISIONS.md.
+- **Batch folders-of-folders no longer collide.** Batch discovery always recursed into
+  subfolders (`rglob`) but wrote every MP3 flat into the output root, so two files with
+  the same name in different subfolders silently overwrote each other, and Resume
+  matched the wrong file. The output now mirrors the input subfolder tree (both the
+  Edge and Kokoro batch paths); Resume and the per-file temp chunk dirs follow the
+  mirrored path. Folders with files directly inside keep the exact flat layout as before.
+
+### Added — v0.5.0 Drop 3
+- **Batch folder mode accepts `.txt` alongside `.pdf`** on both engines — pre-extracted
+  text chapters no longer need to be PDFs. Mode label is now "Batch folder (PDF / TXT →
+  MP3)".
+- **`tts/generate_voice_samples.py`** — dev/QA helper (never imported by the app) that
+  writes one short sample per registered voice into `files/test-for-manual-listen-elmatthe/`
+  (gitignored). First run: 11/11 voices OK.
+- **Tests:** `files/tests/test_batch_convert_folders.py` (mirroring, same-stem collision
+  safety, `.txt` bypasses the PDF extractor, flat regression, mirrored Resume) and
+  `files/tests/test_kokoro_timing_wiring.py` (fake pipeline proves `end_silence_ms` /
+  `chunk_pause_ms` actually reach the output audio).
+
 ### Added — v0.5.0 Drop 2 (shared-metadata detection, 2026-07-07)
 - **M4B Metadata Editor: batch shared-value detection.** Loading multiple files (or a
   folder) now pre-fills every tag field whose value is identical across ALL loaded files

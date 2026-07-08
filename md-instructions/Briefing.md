@@ -75,7 +75,13 @@ flashing during use.
 ## Features
 
 - **TTS Audiobook** (`tts/epub2tts_gui.py`) — EPUB/PDF/TXT → MP3; 11 voices (6 Edge network +
-  5 Kokoro local AI); single file or batch folder-of-PDFs; per-chunk retry; Cancel.
+  5 Kokoro local AI); single file or batch folder (PDF / TXT; nested subfolders are mirrored
+  in the output so same-named files in different books never collide); per-chunk retry;
+  Cancel. Edge voices honor all five pause fields; Kokoro voices honor the paragraph pause
+  (mapped to the inter-chunk gap) and the end-of-recording pause — sentence/title/chapter
+  parity is deliberately deferred (see DECISIONS.md). Dev/QA helper
+  `tts/generate_voice_samples.py` writes one short sample per voice to
+  `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
 - **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → clean MP3 (libmp3lame VBR),
   optional bulk metadata + auto track numbers.
 - **MP3 Tool** (`mp3_tools/mp3_tool.py`) — combine MP3s into one, time-edit track ends, bulk

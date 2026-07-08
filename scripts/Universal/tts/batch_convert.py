@@ -1,4 +1,10 @@
-"""Batch convert a folder of PDFs to one MP3 per file."""
+"""Batch convert a folder of PDFs and/or TXT files to one MP3 per file.
+
+Nested input subfolders are mirrored under the output folder (a PDF at
+``input/Book 1/Chapter 1.pdf`` becomes ``output/Book 1/Chapter 1.mp3``), so
+same-named files in different subfolders never overwrite each other. Files
+directly in the input folder keep the original flat output layout.
+"""
 
 from __future__ import annotations
 
@@ -112,9 +118,23 @@ def convert_single_pdf(
     log=print,
     progress_report: Callable[[str, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    out_mp3: Path | None = None,
 ) -> tuple[str, Path, str | None]:
+    """Convert one source file (.pdf or .txt) to MP3.
+
+    ``out_mp3`` is the mirrored target computed by run_batch_convert; when
+    omitted (direct callers) it falls back to the flat ``output_dir/<stem>.mp3``.
+    """
     stem = pdf_path.stem
-    tmp_root = output_dir / ".tmp_chunks" / stem
+    if out_mp3 is None:
+        out_mp3 = output_dir / f"{stem}.mp3"
+    # Temp dir must be unique per SOURCE, not per stem — two same-named files in
+    # different subfolders would otherwise share (and clobber) one chunk dir.
+    try:
+        tmp_key = "__".join(out_mp3.relative_to(output_dir).with_suffix("").parts)
+    except ValueError:  # out_mp3 not under output_dir (direct caller)
+        tmp_key = stem
+    tmp_root = output_dir / ".tmp_chunks" / tmp_key
     last_err: str | None = None
 
     def _cancelled() -> bool:
@@ -134,7 +154,10 @@ def convert_single_pdf(
                 time.sleep(5)
 
             try:
-                text = extract_text_from_pdf(str(pdf_path))
+                if pdf_path.suffix.lower() == ".txt":
+                    text = pdf_path.read_text(encoding="utf-8")
+                else:
+                    text = extract_text_from_pdf(str(pdf_path))
                 chunks = split_into_chunks(text)
                 if not chunks:
                     last_err = "No text chunks after split"
@@ -162,7 +185,7 @@ def convert_single_pdf(
                     chunk_paths.append(cpath)
                     time.sleep(INTER_CHUNK_DELAY_SEC)
 
-                out_mp3 = output_dir / f"{stem}.mp3"
+                out_mp3.parent.mkdir(parents=True, exist_ok=True)
                 merge_mp3s(chunk_paths, str(out_mp3))
                 if progress_report is not None:
                     progress_report(stem, "completed")
@@ -197,7 +220,8 @@ def run_batch_convert(
     progress_callback: Callable[[str, int, int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[int, int, Path]:
-    """Convert each PDF under input_dir to an MP3 in output_dir. Returns (ok, fail, error_log_path)."""
+    """Convert each PDF/TXT under input_dir to an MP3 in output_dir, mirroring
+    any input subfolder structure. Returns (ok, fail, error_log_path)."""
     input_dir = Path(input_dir).resolve()
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -214,34 +238,48 @@ def run_batch_convert(
                 log(f"    Removed: {d.name}")
             log("  Cleanup complete. These PDFs will be re-processed from scratch.")
 
-    pdfs = sorted(input_dir.rglob("*.pdf"), key=_natural_sort_key)
+    # Suffix check instead of rglob("*.pdf") so .pdf/.txt match on every
+    # platform regardless of filename case.
+    sources = sorted(
+        (
+            p
+            for p in input_dir.rglob("*")
+            if p.is_file() and p.suffix.lower() in (".pdf", ".txt")
+        ),
+        key=_natural_sort_key,
+    )
+    # Mirror each source's path relative to input_dir under output_dir; files
+    # directly in input_dir keep the original flat layout (rel has no parent).
+    jobs: list[tuple[Path, Path]] = [
+        (p, output_dir / p.relative_to(input_dir).with_suffix(".mp3")) for p in sources
+    ]
     if resume:
-        kept: list[Path] = []
-        for p in pdfs:
-            if (output_dir / f"{p.stem}.mp3").exists():
+        kept: list[tuple[Path, Path]] = []
+        for p, target in jobs:
+            if target.exists():
                 log(f"Skipping (already exists): {p.name}")
             else:
-                kept.append(p)
-        pdfs = kept
+                kept.append((p, target))
+        jobs = kept
 
     log("============================================")
     log("  Batch TTS Converter — Steffan Neural")
     log("============================================")
     log(f"  Input folder  : {input_dir}")
     log(f"  Output folder : {output_dir}")
-    log(f"  PDFs found    : {len(pdfs)}")
+    log(f"  Files found   : {len(jobs)}")
     log(f"  Workers       : {workers}")
     log("============================================")
 
     error_log = output_dir / "batch_errors.log"
-    if not pdfs:
-        log("No PDFs to process.")
+    if not jobs:
+        log("No PDF or TXT files to process.")
         return 0, 0, error_log
 
     t0 = time.perf_counter()
     ok = 0
     fail = 0
-    total = len(pdfs)
+    total = len(jobs)
     completed_lock = threading.Lock()
     completed_so_far = [0]
 
@@ -265,12 +303,13 @@ def run_batch_convert(
                 log,
                 _report_progress,
                 cancel_check,
+                target,
             ): p
-            for p in pdfs
+            for p, target in jobs
         }
         iterator = as_completed(futures)
         if use_tqdm:
-            iterator = tqdm(iterator, total=len(futures), desc="Converting PDFs")
+            iterator = tqdm(iterator, total=len(futures), desc="Converting files")
         for fut in iterator:
             status, path, msg = fut.result()
             if status == "success":
@@ -307,16 +346,16 @@ def run_batch_convert(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Batch PDF to MP3 (Edge TTS)")
-    parser.add_argument("--input", required=True, help="Folder containing PDF files")
+    parser = argparse.ArgumentParser(description="Batch PDF/TXT to MP3 (Edge TTS)")
+    parser.add_argument("--input", required=True, help="Folder containing PDF/TXT files")
     parser.add_argument("--output", default="./output_mp3s/", help="Output folder for MP3s")
     parser.add_argument("--speaker", default=DEFAULT_SPEAKER, help="edge-tts voice name")
-    parser.add_argument("--workers", type=int, default=2, help="Parallel PDF jobs")
+    parser.add_argument("--workers", type=int, default=2, help="Parallel file jobs")
     parser.add_argument("--rate", default="+0%", help="Speech rate, e.g. +10%%")
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Skip PDFs that already have a matching MP3 in the output folder",
+        help="Skip files that already have a matching MP3 in the output folder",
     )
     args = parser.parse_args()
     run_batch_convert(

@@ -4,6 +4,29 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-07-07 — Kokoro pause fields: paragraph maps to the inter-chunk gap; full parity deferred
+
+**Decision:** For Kokoro voices, the GUI's "After each paragraph block" field drives
+`kokoro_file_to_mp3(chunk_pause_ms=…)` (the silence appended after every ~3000-char
+synthesis chunk) and "End of recording" drives `end_silence_ms`. The Between-sentences,
+After-title, and Before-chapter fields intentionally do **nothing** on Kokoro voices.
+Full per-sentence/title/chapter parity requires sentence-level synthesis inside
+`kokoro_synth` (Edge gets it from per-sentence clips) — that is a deliberate deferral to
+its own future drop and needs maintainer sign-off to expand. Do not "fix" the missing
+parity piecemeal in a bug hunt.
+
+**Why:** The Drop 3 plan scoped Kokoro timing to paragraph + end pause to keep the drop
+tractable and avoid a synth rewrite. Kokoro chunks are split on ~3000-char sentence
+boundaries, not paragraphs, so the mapping is approximate by design.
+
+**Alternatives considered:** sentence-tokenizing inside kokoro_synth (a rewrite — its own
+drop); leaving all pause fields dead on Kokoro (rejected — silently ignoring visible GUI
+fields is worse than an approximate mapping).
+
+— Decided by maintainer via drop `drop3-plan`, implemented by Claude Code, 2026-07-07
+
+---
+
 ## 2026-07-07 — No AI co-author trailers in commit messages, ever
 
 **Decision:** All commits on this repo are authored solely by the maintainer. Commit

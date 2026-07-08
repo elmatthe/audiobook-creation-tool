@@ -1,13 +1,13 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-v0.5.0 Drop 2 (metadata-editor shared detection) is **implementation-complete and verified**
-on branch `restructure-v0.5.0`, stacked directly on the Drop 1 commit `a7044d4` (maintainer
-ruling 2026-07-07: continue on this branch deliberately even though Drop 1 is pushed but not
-yet merged to master). All phases done incl. the Jack Ryan QA pass (14/14, no findings);
-`scripts/verify.py` → RESULT: PASS (26 passed, 3 env-gated skips). **Awaiting maintainer
-review, then ONE commit covering the whole drop** (per the DECISIONS.md commit-policy entry;
-the agent never pushes). Next after merge: Drop 3 (TTS), Drop 4 (script hardening), UI drop.
+v0.5.0 Drop 3 (TTS improvement, hardening, testing) is **complete, committed (single drop
+commit, maintainer-triggered 2026-07-07), merged to `master`, and pushed** along with the
+retained `restructure-v0.5.0` branch (kept as the base for the upcoming macOS work — do
+NOT delete it). `scripts/verify.py` → RESULT: PASS (34 passed, 3 env-gated skips) on the
+committed tree. **Next work happens on the MacBook Pro from `master`:** the Kokoro-on-macOS
+§2.4 investigation (Open Issues #1), then the Finder/Tahoe-style UI pass. Windows-side
+drops still pending after that: Drop 4 (script hardening), then the UI drop.
 
 ---
 
@@ -15,7 +15,9 @@ the agent never pushes). Next after merge: Drop 3 (TTS), Drop 4 (script hardenin
 
 | # | Severity | File | Description | Status | Found by |
 |---|----------|------|-------------|--------|----------|
-| — | — | — | No open issues. (Windows xHE-AAC decode is a documented known limitation, not a bug — see CHANGELOG [0.3.2].) | — | — |
+| 1 | Minor | scripts/Universal/tts/kokoro_synth.py | Drop 3 §2.4 (Kokoro on macOS) blocked: needs a live run on a real Mac to capture/classify the failure — this session is Windows (HOME-PC). Code review found nothing macOS-specific to fix blind; the plan forbids inventing a fix. Steps 1–4 of §2.4 still apply verbatim when a Mac session picks this up. | Open — blocked on hardware | Claude Code |
+| 2 | Minor | scripts/Universal/tts/kokoro_synth.py | CLI-only cosmetic: `kokoro_file_to_mp3`'s default `log=print` emits a `→` character, which raises UnicodeEncodeError on a cp1252-encoded Windows console (found while scripting Drop 3 verification). The GUI is unaffected (logs go through the Tk queue, never stdout). Flagged for review, not fixed — out of Drop 3 scope. | Open — flagged for maintainer | Claude Code |
+|   |       |     | (Windows xHE-AAC decode is a documented known limitation, not a bug — see CHANGELOG [0.3.2].) | | |
 
 ---
 
@@ -96,6 +98,39 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-07 — Drop 3 complete — DROP 3 DONE (no commit yet — maintainer reviews then
+  makes the single drop commit). Per `drop3-plan.md` (deleted on close-out):
+  **Phase 1** — batch Kokoro now passes `end_silence_ms=end_pause` (was baking the 3000 ms
+  default); `chunk_pause_ms=50` kwarg anchor confirmed pre-existing, untouched.
+  **Phase 2.1** — `paragraph_pause` hoisted on the main thread next to `end_pause`
+  (never read Tk vars off-thread) and passed as `chunk_pause_ms` into BOTH the
+  single-file and batch `kokoro_file_to_mp3` calls. Sentence/title/chapter parity
+  deliberately deferred — ADR added to DECISIONS.md.
+  **Phase 2.2** — `run_batch_convert` + the GUI Kokoro batch now mirror each source's
+  path relative to the input dir under the output dir (same-stem files in different
+  subfolders no longer overwrite); Resume checks the mirrored target; per-file temp
+  chunk dirs keyed off the relative path (they collided on stem too); flat inputs
+  keep the exact old flat layout. **Phase 2.3** — batch discovers `.txt` alongside
+  `.pdf` on both engines; `.txt` is read directly (PDF extractor bypassed — the GUI
+  Kokoro `_do_one` needed the same suffix branch, a necessary deviation from the
+  plan's "label + glob only" wording since `pdf_to_txt` would fail on `.txt`);
+  labels updated. **Phase 2.4** — BLOCKED (see Open Issues #1): needs a real Mac.
+  **Phase 3.1** — `tts/generate_voice_samples.py` added per plan verbatim (only
+  change: removed the plan's unused `import tempfile`); output folder gitignored;
+  live run 11/11 voices OK. **Phase 3.2** — 8 new tests in
+  `test_batch_convert_folders.py` (5: mirroring / same-stem PDFs via fitz / txt
+  bypasses extractor / flat regression / mirrored resume; fake `synthesize_chunk_mp3`,
+  no network) + `test_kokoro_timing_wiring.py` (3: fake `_get_pipeline`; duration
+  deltas prove `end_silence_ms`/`chunk_pause_ms` are applied). **Phase 3.3** — Edge
+  pause scaling verified live (small 10 269 ms vs large 23 769 ms — scales, no
+  escalation needed). Extra live QA: real-model Kokoro single-file (chunk 200→2000 ms
+  = exactly +1800 ms; end 0→3000 ms = exactly +3000 ms) and a real-Tk GUI smoke
+  driving the actual panel (batch radio → voice combobox event → spinboxes → Start)
+  over nested txt+pdf with same-stem books: mirrored tree, no collisions, 4/4 outputs.
+  Gates: compileall scripts/Universal + files/tests clean; `python scripts/verify.py`
+  → RESULT: PASS (34 passed, 3 skipped; 1 pre-existing pydub audioop warning).
+  Docs: CHANGELOG Drop 3 entries, Briefing TTS bullet, DECISIONS pause-mapping ADR.
+  — Claude Code
 - 2026-07-07 — Drop 2 Phase QA + close-out complete — DROP 2 DONE (no commit yet —
   maintainer reviews then makes the single drop commit). `files/tests/
   test_jack_ryan_final_product.py` added (env-gated on JACK_RYAN_M4B_FOLDER; `_m4bs()`
@@ -241,6 +276,41 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-07 — HOME-PC — Drop 3 — committed, merged to master, pushed
+- Changed: scripts/Universal/tts/epub2tts_gui.py (batch end_silence_ms fix; paragraph_pause
+  hoist + chunk_pause_ms into both Kokoro calls; Kokoro batch .pdf/.txt discovery with
+  mirrored output subfolders; mode/browse/docstring labels)
+- Changed: scripts/Universal/tts/batch_convert.py (mirrored output tree + collision-safe
+  temp dirs + .txt support; out_mp3 threaded through convert_single_pdf; docstrings/CLI text)
+- Added:   scripts/Universal/tts/generate_voice_samples.py (per-voice manual-listen QA)
+- Added:   files/tests/test_batch_convert_folders.py (5 tests)
+- Added:   files/tests/test_kokoro_timing_wiring.py (3 tests)
+- Changed: .gitignore (files/test-for-manual-listen-elmatthe/ — generated MP3 samples)
+- Changed: md-instructions/CHANGELOG.md ([Unreleased] Drop 3 Fixed + Added)
+- Changed: md-instructions/Briefing.md (TTS feature bullet)
+- Changed: md-instructions/DECISIONS.md (Kokoro pause-mapping ADR)
+- Changed: md-instructions/handoff.md (this file — focus, open issues, work log, sync log)
+- Deleted: md-instructions/drop3-plan.md (drop implemented)
+- Note:    md-instructions/Instructions_Template.md restored from HEAD — the working
+           tree showed it deleted alongside the untracked drop file (the drop was
+           evidently created from the template, same as before Drop 2), so the net
+           working-tree diff for it is zero.
+- Note:    Single Drop 3 commit made on restructure-v0.5.0 (stacked on 97758c2) at the
+           maintainer's explicit instruction, then fast-forward merged to master and
+           pushed. restructure-v0.5.0 RETAINED and pushed (base for macOS work).
+           No AI co-author trailers.
+- Note:    REMOTE ANOMALY FOUND AND RESOLVED at ship time: origin/master had been
+           force-moved to a stale pre-restructure line (a20fa21 "Delete AI-WORKSPACE.md",
+           a Jul 2 GitHub web-UI commit atop 391326e — the OLD test-files-scrub rewrite,
+           content-identical to our 45c66e5 but with no common ancestor). Maintainer
+           ruled it a stale accident: our line was force-pushed over it
+           (--force-with-lease), so a20fa21 is gone from master and the root
+           AI-WORKSPACE.md remains (as refreshed in 97758c2). If another machine still
+           has the old line locally, hard-reset its master to origin/master before
+           doing anything.
+- Note:    Drop 3 §2.4 (Kokoro on macOS) is NOT done — blocked on a real Mac (Open
+           Issues #1). It is the FIRST task for the MacBook session, from master.
 
 ### 2026-07-07 — HOME-PC — Drop 2 — not committed, not pushed
 - Changed: scripts/Universal/mp3_tools/m4b_metadata_editor.py (tag cache + _tags_for/

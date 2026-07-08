@@ -1,4 +1,4 @@
-"""Desktop GUI for epub2tts-edge (EPUB / PDF / TXT → MP3; batch PDF → MP3)."""
+"""Desktop GUI for epub2tts-edge (EPUB / PDF / TXT → MP3; batch PDF / TXT → MP3)."""
 
 from __future__ import annotations
 
@@ -165,7 +165,7 @@ def build_ui(parent: tk.Misc) -> None:
         modes, text="Single file (EPUB / PDF / TXT)", variable=mode_var, value="single"
     ).pack(side=tk.LEFT, padx=(0, 12))
     ttk.Radiobutton(
-        modes, text="Batch folder (PDFs → MP3)", variable=mode_var, value="batch"
+        modes, text="Batch folder (PDF / TXT → MP3)", variable=mode_var, value="batch"
     ).pack(side=tk.LEFT)
     r += 1
 
@@ -514,6 +514,10 @@ def build_ui(parent: tk.Misc) -> None:
             end_pause = int(end_pause_var.get() or "3000")
         except ValueError:
             end_pause = 3000
+        try:
+            paragraph_pause = int(paragraph_ms_var.get() or "700")
+        except ValueError:
+            paragraph_pause = 700
 
         busy.set()
         cancel_event.clear()
@@ -539,47 +543,77 @@ def build_ui(parent: tk.Misc) -> None:
                                 parts = _re_mod.split(r"(\d+)", p.stem)
                                 return [int(x) if x.isdigit() else x.lower() for x in parts]
 
-                            pdfs = sorted(Path(inp).rglob("*.pdf"), key=_natural_sort_key)
-                            if resume:
-                                pdfs = [
+                            # Discover .pdf + .txt and mirror input subfolders under the
+                            # output folder — identical rules to run_batch_convert (Edge).
+                            in_root = Path(inp)
+                            sources = sorted(
+                                (
                                     p
-                                    for p in pdfs
-                                    if not (Path(outd) / f"{p.stem}.mp3").exists()
-                                ]
+                                    for p in in_root.rglob("*")
+                                    if p.is_file()
+                                    and p.suffix.lower() in (".pdf", ".txt")
+                                ),
+                                key=_natural_sort_key,
+                            )
+                            jobs = [
+                                (p, Path(outd) / p.relative_to(in_root).with_suffix(".mp3"))
+                                for p in sources
+                            ]
+                            if resume:
+                                jobs = [(p, t) for p, t in jobs if not t.exists()]
 
-                            total = len(pdfs)
-                            log_q.put(("log", f"Kokoro batch: {total} PDFs to process.\n"))
+                            total = len(jobs)
+                            log_q.put(("log", f"Kokoro batch: {total} files to process.\n"))
                             ok = 0
                             fail = 0
 
                             speed = kokoro_speed
 
-                            def _do_one(pdf_path: Path) -> tuple[str, Path, str | None]:
+                            def _do_one(
+                                src_path: Path, out_target: Path
+                            ) -> tuple[str, Path, str | None]:
                                 if cancel_event.is_set():
-                                    return "cancelled", pdf_path, None
-                                stem = pdf_path.stem
-                                out_mp3 = str(Path(outd) / f"{stem}.mp3")
+                                    return "cancelled", src_path, None
+                                stem = src_path.stem
                                 try:
-                                    with tempfile.TemporaryDirectory(prefix=f"kk_{stem}_") as td:
-                                        txt_path = str(Path(td) / f"{stem}.txt")
-                                        pdf_to_txt(str(pdf_path), txt_path)
+                                    out_target.parent.mkdir(parents=True, exist_ok=True)
+                                    out_mp3 = str(out_target)
+                                    if src_path.suffix.lower() == ".txt":
                                         kokoro_file_to_mp3(
-                                            txt_path,
+                                            str(src_path),
                                             out_mp3,
                                             voice_id=current_voice_entry.voice_id,
                                             speed=speed,
+                                            end_silence_ms=end_pause,
+                                            chunk_pause_ms=paragraph_pause,
                                             log=lambda s: log_q.put(("log", s + "\n")),
                                             cancel_check=cancel_event.is_set,
                                         )
-                                    return "success", pdf_path, None
+                                    else:
+                                        with tempfile.TemporaryDirectory(
+                                            prefix=f"kk_{stem}_"
+                                        ) as td:
+                                            txt_path = str(Path(td) / f"{stem}.txt")
+                                            pdf_to_txt(str(src_path), txt_path)
+                                            kokoro_file_to_mp3(
+                                                txt_path,
+                                                out_mp3,
+                                                voice_id=current_voice_entry.voice_id,
+                                                speed=speed,
+                                                end_silence_ms=end_pause,
+                                                chunk_pause_ms=paragraph_pause,
+                                                log=lambda s: log_q.put(("log", s + "\n")),
+                                                cancel_check=cancel_event.is_set,
+                                            )
+                                    return "success", src_path, None
                                 except ConversionCancelled:
-                                    return "cancelled", pdf_path, None
+                                    return "cancelled", src_path, None
                                 except Exception as exc:
-                                    return "failed", pdf_path, str(exc)
+                                    return "failed", src_path, str(exc)
 
                             completed_so_far = [0]
                             with ThreadPoolExecutor(max_workers=max(1, min(w, 8))) as ex:
-                                futs = {ex.submit(_do_one, p): p for p in pdfs}
+                                futs = {ex.submit(_do_one, p, t): p for p, t in jobs}
                                 for fut in as_completed(futs):
                                     status, path, msg = fut.result()
                                     completed_so_far[0] += 1
@@ -694,6 +728,7 @@ def build_ui(parent: tk.Misc) -> None:
                                 voice_id=current_voice_entry.voice_id,
                                 speed=speed,
                                 end_silence_ms=end_ms,
+                                chunk_pause_ms=paragraph_pause,
                                 log=lambda s: log_q.put(("log", s + "\n")),
                                 cancel_check=cancel_event.is_set,
                             )
@@ -783,7 +818,7 @@ class QueueWriter(io.TextIOBase):
 
 def _browse_input(mode_var: tk.StringVar, input_var: tk.StringVar) -> None:
     if mode_var.get() == "batch":
-        p = filedialog.askdirectory(title="Input folder (PDFs)")
+        p = filedialog.askdirectory(title="Input folder (PDF / TXT)")
     else:
         p = filedialog.askopenfilename(
             title="Source file",
