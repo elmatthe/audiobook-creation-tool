@@ -1,13 +1,13 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-v0.5.0 Drop 1 (repository restructure) is **implementation-complete and verified** on branch
-`restructure-v0.5.0` (cut from master `e80ba7f`): all six phases done, `scripts/verify.py` →
-RESULT: PASS (19 tests), compileall clean, real .bat fast-path launch verified, release.py dry
-run clean. **Awaiting maintainer review, then ONE commit covering the whole drop + a
-maintainer-triggered push/force-push** (per the DECISIONS.md 2026-07-06 commit-policy entry —
-no per-phase commits for the entire v0.5.0 line; the agent never pushes). Drops 2–N (metadata,
-TTS, script hardening, UI) must NOT start until this restructure is merged.
+v0.5.0 Drop 2 (metadata-editor shared detection) is **implementation-complete and verified**
+on branch `restructure-v0.5.0`, stacked directly on the Drop 1 commit `a7044d4` (maintainer
+ruling 2026-07-07: continue on this branch deliberately even though Drop 1 is pushed but not
+yet merged to master). All phases done incl. the Jack Ryan QA pass (14/14, no findings);
+`scripts/verify.py` → RESULT: PASS (26 passed, 3 env-gated skips). **Awaiting maintainer
+review, then ONE commit covering the whole drop** (per the DECISIONS.md commit-policy entry;
+the agent never pushes). Next after merge: Drop 3 (TTS), Drop 4 (script hardening), UI drop.
 
 ---
 
@@ -96,6 +96,58 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-07 — Drop 2 Phase QA + close-out complete — DROP 2 DONE (no commit yet —
+  maintainer reviews then makes the single drop commit). `files/tests/
+  test_jack_ryan_final_product.py` added (env-gated on JACK_RYAN_M4B_FOLDER; `_m4bs()`
+  guards the unset var at collection time so verify/CI skip cleanly — agreed deviation
+  from the drop's verbatim code). Run against the real fixtures: **14/14 PASS, zero
+  findings** (all 12 books: title, author, cover, titled chapters, integer parts, one
+  consistent series name) — no Open Issues row needed. Unit tests
+  `test_m4b_metadata_editor_shared.py` added (7 tests: shared/varies, missing key,
+  album-implied, series_part display-only, unreadable-file exclusion, empty list,
+  strip-compare). Gates: compileall scripts/+files/tests clean; full suite 26 passed /
+  3 skipped (the one warning is the pre-existing pydub audioop deprecation, not Drop 2);
+  `python scripts/verify.py` → RESULT: PASS. Docs: CHANGELOG [Unreleased] Drop 2 entry;
+  Briefing metadata-editor bullet updated. Drop file `0.5.0-drop2-metadata.md` deleted.
+  — Claude Code
+- 2026-07-07 — Drop 2 Phase 3 complete (no commit — one-commit-per-drop rule).
+  `btn_add_folder` added to the `disable_inputs` widget set. Smoke vs the real fixture
+  tree (real UI instance, real `read_m4b_tags`, dialogs injected): Harry Potter 7 files →
+  artist 'J.K. Rowling' + series 'Harry Potter' pre-filled, Title blank; Shadow Slave /
+  Supreme Magus / Noble Queen also share Genre 'Web Novel'; Dungeon Crawler 8 files OK;
+  Jack Ryan OUTER folder → "No audiobooks found" box (subfolder hint shown), list
+  unchanged; Jack Ryan INNER folder → 12 files, Tom Clancy + 'Jack Ryan' shared;
+  single-file pre-fill unchanged (title + per-file readback w/ source atom); empty
+  folder → info box, list unchanged. series_part never pre-filled anywhere. Next:
+  Phase QA (Jack Ryan inspection test) + unit tests + verify + docs. — Claude Code
+- 2026-07-07 — Drop 2 Phase 2 complete (no commit — one-commit-per-drop rule). Added
+  "Open Folder…" button + `add_folder()` (non-recursive .m4b/.m4a/.mp4; "No audiobooks
+  found" box now explicitly says subfolders aren't searched — the drop's Jack Ryan
+  caveat); `_refresh_mode` n>1 branch now calls `_prefill_shared(n)` (shared values
+  pre-filled + snapshotted into `_prefill`, mode line names shared fields,
+  `_batch_series_readback` summarises series identical/varies/none). Docstrings
+  corrected vs the drop verbatim: module + `_prefill_shared` now state that shared
+  NON-series fields left unedited ARE written on Save (byte-identical rewrite —
+  maintainer ruling), only series keys are preserve-by-default. Verified via real Tk
+  instance w/ monkeypatched `_tags_for`: shared artist/genre/series pre-fill; differing
+  title blank; series_part never pre-filled; `_collect_tags` excludes unedited shared
+  series but includes shared artist; varies read-back correct; empty-list mode label
+  intact. py_compile clean. Next: Phase 3 (disable-state + manual smoke). — Claude Code
+- 2026-07-07 — Drop 2 Phase 1 complete (no commit — one-commit-per-drop rule). Per
+  `0.5.0-drop2-metadata.md`: added `self._tag_cache` to `__init__`, new `_tags_for()`
+  (cached, fault-tolerant read — a failing file is logged and excluded, never aborts) and
+  `_shared_tags()` (shared/varies across all readable files; `series_part` display-only;
+  album-implied series treated as absent) in `m4b_metadata_editor.py`; cache cleared in
+  `clear_list()` and `remove_selected()`. Purely additive — nothing calls the helpers yet.
+  Two agreed deviations from the drop's literal anchors: new methods inserted after the
+  complete `_prefill_from` body (the drop's mid-method anchor would break the file), and
+  (upcoming, QA phase) `_m4bs()` will guard the unset env var at collection time.
+  Maintainer rulings recorded: continue on `restructure-v0.5.0` atop unmerged Drop 1;
+  NO `album_artist` row this drop; NO preserve-by-default for shared non-series fields
+  (`_collect_tags` untouched). Verified: py_compile clean; `_shared_tags` on a stub —
+  empty list → `({}, set())`; 3 files sharing artist w/ differing titles + album-implied
+  series → `({'artist': 'X'}, {'title', 'series'})`. Next: Phase 2 (folder picker +
+  batch wiring). — Claude Code
 - 2026-07-07 — Phase 6 complete — DROP 1 DONE (no commit yet — maintainer reviews then makes
   the single drop commit). Bug hunt: whole-tree grep for stale tokens (`scripts\shared`,
   `resources\logs|bin|models|settings`, `Windows\...`, `MacOS\...`, `setup_and_run`) —
@@ -189,6 +241,26 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-07 — HOME-PC — Drop 2 — not committed, not pushed
+- Changed: scripts/Universal/mp3_tools/m4b_metadata_editor.py (tag cache + _tags_for/
+  _shared_tags/_prefill_shared/_batch_series_readback, Open Folder… button + add_folder,
+  batch branch of _refresh_mode, disable_inputs set, docstrings)
+- Added:   files/tests/test_m4b_metadata_editor_shared.py (7 detection unit tests)
+- Added:   files/tests/test_jack_ryan_final_product.py (env-gated QA inspection)
+- Changed: md-instructions/CHANGELOG.md ([Unreleased] Drop 2 entry)
+- Changed: md-instructions/Briefing.md (metadata-editor feature bullet)
+- Changed: md-instructions/handoff.md (this file — focus, work log, sync log)
+- Deleted: md-instructions/0.5.0-drop2-metadata.md (drop implemented)
+- Note:    Awaiting maintainer review → single Drop 2 commit on restructure-v0.5.0
+           (stacked on a7044d4). Agent does not push. No AI co-author trailers.
+- Note:    A SECOND separate commit follows Drop 2 (maintainer ruling, same precedent
+           as e80ba7f): the refreshed root AI-WORKSPACE.md + the synced copy at
+           files/vibe-coding-templates/AI-WORKSPACE.md. Pre-Drop-2 working-tree
+           leftovers resolved: Map-Repo-Structure.bat + REPO-STRUCTURE.md discarded
+           (scratch); md-instructions/Instructions_Template.md restored from HEAD
+           (deletion predated the session; the refreshed AI-WORKSPACE still
+           references it).
 
 ### 2026-07-07 — HOME-PC — not committed, not pushed
 - Entire v0.5.0 Drop 1 restructure sits UNCOMMITTED in the working tree of branch

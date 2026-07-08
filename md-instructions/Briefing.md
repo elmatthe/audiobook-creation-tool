@@ -88,6 +88,9 @@ flashing during use.
 - **M4B Metadata Editor** (`mp3_tools/m4b_metadata_editor.py`) — edit existing M4B tags without
   re-encoding; preserve-by-default (blank = unchanged); series detection across vendor freeform
   + movement atoms; auto-number series parts; per-file chapter-title import; writes copies.
+  Batch mode (multiple files or the "Open Folder…" picker, non-recursive) pre-fills fields
+  whose value is identical across all loaded files and marks differing ones "(varies)";
+  single-file mode is unchanged.
 
 ## Project Layout Notes
 

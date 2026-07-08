@@ -17,9 +17,12 @@ run), and all tag writes run against the **copy**.
 Behaviour:
 - **Single file:** the form is pre-filled from the file's existing tags. Editing
   a field and saving writes that field back (to the copy).
-- **Multiple files (batch mode):** the form starts blank with a batch notice.
-  Fields left **blank are not written** (each copy keeps the original's tag); any
-  field with a value **overwrites** that tag in every copy.
+- **Multiple files / folder (batch mode):** fields whose value is identical
+  across ALL loaded files are pre-filled (shared-value detection, Drop 2);
+  fields that differ are left blank and reported as "(varies)". Fields left
+  **blank are not written** (each copy keeps the original's tag); any field
+  with a value **overwrites** that tag in every copy. An "Open Folder…" button
+  loads every .m4b/.m4a/.mp4 directly inside a chosen folder (non-recursive).
 
 Series Name / Series Part are written as the freeform atoms
 ``----:com.apple.iTunes:SERIES`` / ``SERIES-PART`` (Briefing §6), which
@@ -134,6 +137,10 @@ class M4BMetadataEditorUI(ttk.Frame):
         # this snapshot, so unchanged pre-filled fields are genuinely wiped.
         self._prefill: dict[str, str] = {}
 
+        # Cache of read_m4b_tags() per file (Drop 2). Keyed by Path; populated
+        # lazily by _tags_for(); cleared whenever the file list changes.
+        self._tag_cache: dict[Path, dict] = {}
+
         # Per-file chapter-title import (Phase D). Buffers are keyed by Path so
         # they survive paging and reordering; counts cache each file's chapter
         # count (ffprobe) so paging doesn't re-probe repeatedly.
@@ -162,6 +169,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         top.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(10, 6))
         self.btn_add = ttk.Button(top, text="Open M4B File(s)", command=self.add_files)
         self.btn_add.pack(side=tk.LEFT)
+        self.btn_add_folder = ttk.Button(top, text="Open Folder…", command=self.add_folder)
+        self.btn_add_folder.pack(side=tk.LEFT, padx=(8, 0))
         self.btn_remove = ttk.Button(top, text="Remove Selected", command=self.remove_selected)
         self.btn_remove.pack(side=tk.LEFT, padx=(8, 0))
         self.btn_clear = ttk.Button(top, text="Clear List", command=self.clear_list)
@@ -309,15 +318,45 @@ class M4BMetadataEditorUI(ttk.Frame):
         settings.set(KEY_INPUT_DIR, str(Path(paths[0]).parent))
         self._refresh_mode()
 
+    def add_folder(self):
+        """Load every M4B/M4A/MP4 directly inside a chosen folder (non-recursive)."""
+        d = filedialog.askdirectory(
+            title="Select a folder of M4B files",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
+        )
+        if not d:
+            return
+        folder = Path(d)
+        found = sorted(
+            p for p in folder.iterdir()
+            if p.is_file() and p.suffix.lower() in {".m4b", ".m4a", ".mp4"}
+        )
+        if not found:
+            messagebox.showinfo(
+                "No audiobooks found",
+                f"No .m4b / .m4a / .mp4 files were found directly in:\n{folder}\n\n"
+                "Subfolders are not searched — if the books sit inside a subfolder, "
+                "pick that subfolder instead.",
+            )
+            return
+        for p in found:
+            if p not in self.files:
+                self.files.append(p)
+                self.listbox.insert(tk.END, str(p))
+        settings.set(KEY_INPUT_DIR, str(folder))
+        self._refresh_mode()
+
     def remove_selected(self):
         sel = list(self.listbox.curselection())
         for idx in reversed(sel):
             del self.files[idx]
             self.listbox.delete(idx)
+        self._tag_cache.clear()
         self._refresh_mode()
 
     def clear_list(self):
         self.files.clear()
+        self._tag_cache.clear()
         self.listbox.delete(0, tk.END)
         self._chap_buffers.clear()
         self._chap_counts.clear()
@@ -380,9 +419,7 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.mode_var.set("Single file — fields pre-filled from existing tags.")
             self._prefill_from(self.files[0])
         else:
-            self._clear_fields()
-            self.mode_var.set(f"Batch mode: {n} files — blank fields are left unchanged.")
-            self.series_readback_var.set("Detected on file: (multiple files loaded)")
+            self._prefill_shared(n)
         self._sync_chapter_pager()
         self._update_autonumber_hint()
 
@@ -463,6 +500,97 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.series_readback_var.set(self._series_readback_text(tags))
         if tags.get("has_cover"):
             self.log_write(f"{path.name}: existing cover present (leave Cover blank to keep it).\n")
+
+    def _tags_for(self, path: Path) -> dict | None:
+        """Return read_m4b_tags(path), cached. None (logged) if the read fails."""
+        if path in self._tag_cache:
+            return self._tag_cache[path]
+        try:
+            tags = metadata.read_m4b_tags(path)
+        except Exception as e:  # corrupt / locked file — skip, don't abort the load
+            self.log_write(f"Could not read tags from {path.name}: {e}\n")
+            self._tag_cache[path] = None
+            return None
+        self._tag_cache[path] = tags
+        return tags
+
+    def _shared_tags(self) -> tuple[dict, set[str]]:
+        """Compute values identical across ALL readable loaded files.
+
+        Returns (shared, varies): `shared` maps friendly key -> the common value
+        for every editable text field present-and-equal in every readable file;
+        `varies` is the set of editable keys that appear on some files but are not
+        identical across all of them (used to show a "(varies)" hint).
+
+        A key is shared only when EVERY readable file has it and all values match
+        after .strip(). album-implied series names and track-implied parts are
+        excluded (display-only, never written).
+        """
+        readable = [t for p in self.files if (t := self._tags_for(p)) is not None]
+        shared: dict = {}
+        varies: set[str] = set()
+        if not readable:
+            return shared, varies
+        for key, _attr, _label in _FIELDS:
+            # series_part is display-only here (owned by the auto-number toggle);
+            # it is summarised in the read-back, never pre-filled for writing.
+            if key == "series_part":
+                continue
+            vals = []
+            missing = False
+            for t in readable:
+                # album-implied series name is display-only -> treat as absent.
+                if key == "series" and t.get("series_source") == "album-implied":
+                    missing = True
+                    break
+                if key in t and str(t[key]).strip():
+                    vals.append(str(t[key]).strip())
+                else:
+                    missing = True
+                    break
+            if missing or not vals:
+                # It appears on *some* files but not identically on all -> "(varies)".
+                if any(key in t for t in readable):
+                    varies.add(key)
+                continue
+            if len(set(vals)) == 1:
+                shared[key] = vals[0]
+            else:
+                varies.add(key)
+        return shared, varies
+
+    def _prefill_shared(self, n: int):
+        """Batch mode: pre-fill fields whose value is identical across all files.
+
+        Shared values are snapshotted into self._prefill, so an unedited shared
+        Series Name is not written back (preserve-by-default via _SERIES_KEYS,
+        same as single-file mode). Shared NON-series fields left unedited ARE
+        written on Save — a byte-identical rewrite, matching the existing batch
+        rule that any non-blank field overwrites (maintainer ruling, Drop 2).
+        Fields that differ across files are left blank and named in the
+        mode/read-back hints as "(varies)".
+        """
+        self._clear_fields()
+        shared, varies = self._shared_tags()
+        label_by_key = {k: lbl for k, _a, lbl in _FIELDS}
+        for key, attr, _label in _FIELDS:
+            if key in shared:
+                getattr(self, attr).set(shared[key])
+                self._prefill[key] = shared[key]
+        shared_names = ", ".join(label_by_key[k] for k in shared) or "none"
+        self.mode_var.set(
+            f"Batch mode: {n} files — shared fields pre-filled ({shared_names}); "
+            "blank fields are left unchanged."
+        )
+        self.series_readback_var.set(self._batch_series_readback(shared, varies))
+
+    def _batch_series_readback(self, shared: dict, varies: set) -> str:
+        """One-line series summary for batch mode."""
+        if "series" in shared:
+            return f"Detected across all files: Series '{shared['series']}' (identical)"
+        if "series" in varies:
+            return "Detected across files: Series name varies — left blank"
+        return "Detected across files: no shared series name"
 
     # ----- cover -----
     def choose_cover(self):
@@ -703,6 +831,7 @@ class M4BMetadataEditorUI(ttk.Frame):
     def disable_inputs(self, state: bool):
         widgets = [
             self.btn_add,
+            self.btn_add_folder,
             self.btn_remove,
             self.btn_clear,
             self.btn_save,

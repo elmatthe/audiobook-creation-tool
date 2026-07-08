@@ -15,7 +15,27 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-_Nothing yet — v0.5.0 Drops 2+ (metadata, TTS, script hardening, UI) land here._
+### Added — v0.5.0 Drop 2 (shared-metadata detection, 2026-07-07)
+- **M4B Metadata Editor: batch shared-value detection.** Loading multiple files (or a
+  folder) now pre-fills every tag field whose value is identical across ALL loaded files
+  (Author/Artist, Album, Series Name, Genre, Year, …); fields that differ are left blank
+  and reported as "(varies)" in the mode line and series read-back. A shared Series Name
+  left unedited is still not written back (preserve-by-default, unchanged); shared
+  non-series fields left unedited are written back byte-identically, matching the
+  existing batch rule (maintainer ruling — see the Drop 2 notes in handoff.md).
+  Single-file behaviour is unchanged. Unreadable files are logged and excluded from the
+  detection instead of aborting the load. `series_part` is never pre-filled (still owned
+  solely by the Auto-number toggle).
+- **M4B Metadata Editor: "Open Folder…" button** — loads every `.m4b`/`.m4a`/`.mp4`
+  directly inside a chosen folder (non-recursive; the "No audiobooks found" message says
+  subfolders aren't searched). One action to load a whole series folder.
+- **QA: Jack Ryan finished-product inspection test**
+  (`files/tests/test_jack_ryan_final_product.py`, gated on `JACK_RYAN_M4B_FOLDER`) —
+  asserts every book in the local Jack Ryan fixture set (built with every tool except
+  TTS) has title, author, embedded cover, titled chapters, integer series parts, and one
+  consistent series name. First run: 14/14 PASS, no findings. Plus
+  `files/tests/test_m4b_metadata_editor_shared.py` covering the shared/varies detection
+  rules.
 
 ## [0.5.0] - 2026-07-06
 
