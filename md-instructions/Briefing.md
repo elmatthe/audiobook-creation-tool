@@ -122,8 +122,7 @@ Audiobook-Creation-Tool/
     ├── test-files/             ← local fixtures incl. copyrighted media (entirely untracked;
     │                             point tests at it via KOKORO_TEST_PDF_FOLDER)
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
-    ├── release-history/        ← one-shot docs from past releases (v0.3.1 set)
-    └── vibe-coding-templates/  ← workspace templates (source of verify.py etc.)
+    └── release-history/        ← one-shot docs from past releases (v0.3.1 set)
 ```
 
 Release zips (built by `shared/release.py` into `dist/`) contain README + the OS's launcher +

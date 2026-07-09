@@ -4,6 +4,28 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-07-08 — AI-WORKSPACE.md and files/vibe-coding-templates/ are excluded from version control
+
+**Decision:** Neither `AI-WORKSPACE.md` nor `files/vibe-coding-templates/` is tracked in git,
+effective this session. Both are listed in `.gitignore`. `AI-WORKSPACE.md` stays on disk as the
+authoritative *local* reference for this machine's conventions (including the HOME-MacOS
+section), but is never committed. `files/vibe-coding-templates/` is permanently removed from the
+tree and is not referenced in any doc.
+
+**Why:** Privacy — `AI-WORKSPACE.md` contains private machine/workspace details that should not
+be published to the public GitHub repo; the vibe-coding-templates were workspace scaffolding
+with no role in the shipped tool. Upstream commits that delete `AI-WORKSPACE.md` (e.g.
+`9c89479`) are therefore correct and must not be reverted.
+
+**Alternatives considered:** committing a redacted `AI-WORKSPACE.md` (rejected — the file's
+value is the private local detail; a redacted copy adds maintenance for no benefit); keeping the
+templates as dev-only reference (rejected — they duplicate the workspace tooling that lives
+outside the repo).
+
+— Decided by maintainer (Elijah Matthew), recorded by Claude Code, 2026-07-08
+
+---
+
 ## 2026-07-07 — Kokoro pause fields: paragraph maps to the inter-chunk gap; full parity deferred
 
 **Decision:** For Kokoro voices, the GUI's "After each paragraph block" field drives
