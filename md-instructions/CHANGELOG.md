@@ -15,6 +15,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Verified — v0.5.0 macOS component verify (2026-07-08)
+- **Per-tool live pass on macOS complete — all six tools work end-to-end on a real Mac**
+  under the new Finder-style shell (the `0.5.0-macos-component-verify` plan, Phases 1–5).
+  Kickoff gates green (Python 3.12.13 venv, edge-tts imports, `kokoro_is_healthy` →
+  `(True, 'ok')`, real `.command` fast-path launch); all 11 voice samples (6 Edge +
+  5 Kokoro) generated on macOS and approved by maintainer listen; every tool exercised
+  live with copy-based outputs and confirmed by the maintainer (screenshots reviewed).
+  No macOS-specific breakage found — zero code changes this drop. **One caveat:** the
+  M4B Converter was verified on a standard AAC-LC M4B; the Apple `aac_at` xHE-AAC/USAC
+  decode path (the documented Windows limitation's macOS counterpart) remains unverified
+  live — no USAC sample was on hand.
+
 ### Fixed — v0.5.0 Drop 3 (TTS improvement & hardening, 2026-07-07)
 - **Kokoro batch ignored the End-of-recording pause.** The batch path never passed
   `end_silence_ms`, so every batch MP3 got the baked-in 3000 ms default regardless of the
