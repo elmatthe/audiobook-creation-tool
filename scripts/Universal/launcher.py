@@ -6,6 +6,10 @@ panel on the right. Each tool exposes ``build_ui(parent)`` and is built into its
 own container the first time it is selected, then shown/hidden on later
 selections so in-progress state (file lists, typed metadata) survives switching.
 
+Theming lives in ``shared/ui_theme.py``: macOS gets a native-aqua Finder-style
+shell (source-list sidebar, toolbar strip, content card); Windows and other
+platforms keep the classic layout byte-for-byte.
+
 Run under ``pythonw.exe`` on Windows so no console window appears; all external
 binaries (ffmpeg/ffprobe) are invoked through ``shared.subprocess_utils`` which
 hides their console windows too.
@@ -41,13 +45,11 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import ffmpeg_utils, logging_setup, paths
+from shared import ffmpeg_utils, logging_setup, paths, ui_theme
 from shared import settings as app_settings
 from shared import subprocess_utils as sp
 
 APP_TITLE = "Audiobook Creation Tool"
-DEFAULT_GEOMETRY = "1024x720"
-MIN_SIZE = (920, 600)
 
 
 @dataclass(frozen=True)
@@ -95,17 +97,20 @@ TOOLS: list[ToolSpec] = [
         "m4b_metadata",
         "M4B Metadata",
         "mp3_tools.m4b_metadata_editor",
-        "Edit tags on existing M4B files; untouched fields are preserved. (Added in Phase 6.)",
+        "Edit tags, series info, and chapter titles on existing M4B files without re-encoding.",
     ),
 ]
 
 
-def _ui_font_family() -> str:
-    if sys.platform == "win32":
-        return "Segoe UI"
-    if sys.platform == "darwin":
-        return "Helvetica Neue"
-    return "TkDefaultFont"
+# Leading sidebar glyphs (macOS shell only; the classic layout has none).
+_TOOL_GLYPHS = {
+    "tts": "🎙",
+    "m4b_converter": "🔄",
+    "mp3_tool": "🎵",
+    "m4b_maker": "📚",
+    "cover": "🖼",
+    "m4b_metadata": "🏷",
+}
 
 
 class LauncherApp:
@@ -150,17 +155,18 @@ class LauncherApp:
     # ----- UI -----
     def _build_ui(self):
         self.root.title(APP_TITLE)
-        self.root.minsize(*MIN_SIZE)
+        self.theme = ui_theme.apply_theme(self.root, ttk.Style(self.root))
+        self.root.minsize(*self.theme["min_size"])
+        self.font_heading = self.theme["font_heading"]
+        self.font_button = self.theme["font_button"]
 
-        family = _ui_font_family()
-        self.font_heading = (family, 15, "bold")
-        self.font_button = (family, 11)
+        if self.theme["mode"] == "aqua":
+            self._build_ui_darwin()
+        else:
+            self._build_ui_classic()
 
-        try:
-            ttk.Style().theme_use("vista" if sys.platform == "win32" else "clam")
-        except tk.TclError:
-            pass
-
+    def _build_ui_classic(self):
+        """The pre-v0.5.0 layout — Windows rendering must stay byte-identical."""
         outer = ttk.Frame(self.root, padding=10)
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(0, weight=0)
@@ -193,6 +199,102 @@ class LauncherApp:
         )
         log_link.pack(side="right")
         log_link.bind("<Button-1>", lambda _e: self._open_logs())
+
+    def _build_ui_darwin(self):
+        """Finder-style shell: source-list sidebar, toolbar strip, content card.
+
+        Chrome is built from classic tk widgets because the aqua theme cannot
+        recolor native-drawn ttk widgets; the tool panels themselves stay ttk
+        and render as native aqua controls.
+        """
+        c = self.theme["colors"]
+        m = self.theme["metrics"]
+        self.root.configure(background=c["window"])
+
+        # Status bar (packed first so it can never be squeezed out).
+        status_outer = tk.Frame(self.root, bg=c["window"])
+        status_outer.pack(fill="x", side="bottom")
+        tk.Frame(status_outer, bg=c["separator"], height=1).pack(fill="x")
+        status = tk.Frame(status_outer, bg=c["window"])
+        status.pack(fill="x", padx=m["status_pad"][0], pady=m["status_pad"][1])
+        self.status_var = tk.StringVar(value="Ready.")
+        tk.Label(status, textvariable=self.status_var, bg=c["window"],
+                 fg=c["secondary"], font=self.theme["font_status"],
+                 anchor="w").pack(side="left")
+        log_link = tk.Label(status, text="Open log folder", bg=c["window"],
+                            fg=c["link"], cursor="pointinghand",
+                            font=self.theme["font_status"])
+        log_link.pack(side="right")
+        log_link.bind("<Button-1>", lambda _e: self._open_logs())
+
+        outer = tk.Frame(self.root, bg=c["window"])
+        outer.pack(fill="both", expand=True)
+
+        # Source-list sidebar
+        sidebar = tk.Frame(outer, bg=c["sidebar"], width=m["sidebar_width"])
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        tk.Label(sidebar, text="TOOLS", bg=c["sidebar"], fg=c["secondary"],
+                 font=self.theme["font_section"], anchor="w"
+                 ).pack(fill="x", padx=m["sidebar_pad"] + m["row_padx"],
+                        pady=(m["sidebar_pad"] + 2, 4))
+
+        self.sidebar_rows: dict[str, tuple[tk.Frame, tk.Label]] = {}
+        for spec in self._available_tools():
+            row = tk.Frame(sidebar, bg=c["sidebar"], height=m["row_height"])
+            row.pack(fill="x", padx=m["sidebar_pad"], pady=(0, m["row_gap"]))
+            row.pack_propagate(False)
+            glyph = _TOOL_GLYPHS.get(spec.key, "")
+            lbl = tk.Label(row, text=f"{glyph}  {spec.title}".strip(),
+                           bg=c["sidebar"], fg=c["text"],
+                           font=self.theme["font_row"], anchor="w",
+                           padx=m["row_padx"])
+            lbl.pack(fill="both", expand=True)
+            for w in (row, lbl):
+                w.bind("<Button-1>", lambda _e, s=spec: self.select_tool(s.key))
+                w.bind("<Enter>", lambda _e, k=spec.key: self._row_hover(k, True))
+                w.bind("<Leave>", lambda _e, k=spec.key: self._row_hover(k, False))
+            self.sidebar_rows[spec.key] = (row, lbl)
+
+        tk.Frame(outer, bg=c["separator"], width=1).pack(side="left", fill="y")
+
+        # Toolbar strip + content card
+        column = tk.Frame(outer, bg=c["window"])
+        column.pack(side="left", fill="both", expand=True)
+
+        toolbar = tk.Frame(column, bg=c["window"], height=m["toolbar_height"])
+        toolbar.pack(fill="x")
+        toolbar.pack_propagate(False)
+        self._toolbar_title = tk.Label(toolbar, text=APP_TITLE, bg=c["window"],
+                                       fg=c["text"], font=self.font_heading,
+                                       anchor="w")
+        self._toolbar_title.pack(side="left", padx=(m["content_pad"], 8))
+        self._toolbar_desc = tk.Label(toolbar, text="", bg=c["window"],
+                                      fg=c["secondary"],
+                                      font=self.theme["font_status"], anchor="w")
+        self._toolbar_desc.pack(side="left", fill="x", expand=True)
+        tk.Frame(column, bg=c["separator"], height=1).pack(fill="x")
+
+        card_holder = tk.Frame(column, bg=c["window"])
+        card_holder.pack(fill="both", expand=True)
+        card = tk.Frame(card_holder, bg=c["card"],
+                        highlightbackground=c["separator"], highlightthickness=1)
+        card.pack(fill="both", expand=True,
+                  padx=m["content_pad"], pady=m["content_pad"])
+
+        # The swappable content area keeps its ttk.Frame type — every tool's
+        # build_ui(parent) contract and container behaviour is unchanged.
+        self.content = ttk.Frame(card)
+        self.content.pack(fill="both", expand=True, padx=1, pady=1)
+
+    def _row_hover(self, key: str, entering: bool):
+        if key == self.current_key:
+            return
+        c = self.theme["colors"]
+        bg = c["hover"] if entering else c["sidebar"]
+        row, lbl = self.sidebar_rows[key]
+        row.configure(bg=bg)
+        lbl.configure(bg=bg)
 
     def _set_status(self, msg: str):
         self.status_var.set(msg)
@@ -259,7 +361,21 @@ class LauncherApp:
         self._set_status(f"{spec.title} failed to load.")
 
     def _highlight_selection(self, key: str):
-        # Light-touch selection cue: disable the active button, enable the rest.
+        if self.theme["mode"] == "aqua":
+            # Finder-style cue: accent highlight on the selected sidebar row,
+            # and the toolbar strip names the active tool.
+            c = self.theme["colors"]
+            for k, (row, lbl) in self.sidebar_rows.items():
+                bg = c["selection"] if k == key else c["sidebar"]
+                fg = c["selection_text"] if k == key else c["text"]
+                row.configure(bg=bg)
+                lbl.configure(bg=bg, fg=fg)
+            spec = next((t for t in TOOLS if t.key == key), None)
+            if spec:
+                self._toolbar_title.configure(text=spec.title)
+                self._toolbar_desc.configure(text=spec.description)
+            return
+        # Classic cue: disable the active button, enable the rest.
         for k, btn in self.buttons.items():
             btn.state(["disabled"] if k == key else ["!disabled"])
 
@@ -267,7 +383,7 @@ class LauncherApp:
     def _apply_default_geometry(self):
         # Always open at the default size — window size/position is intentionally
         # not persisted across sessions (only the last-selected tool is).
-        self.root.geometry(DEFAULT_GEOMETRY)
+        self.root.geometry(self.theme["geometry"])
 
     def _on_close(self):
         try:

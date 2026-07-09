@@ -30,6 +30,7 @@ from shared import metadata
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
+from shared import ui_theme
 
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
@@ -212,9 +213,10 @@ class M4BConverterUI(ttk.Frame):
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=sb2.set)
 
-        # Progress
-        self.progress = ttk.Progressbar(self, length=400, mode="determinate")
-        self.progress.pack(side=tk.BOTTOM, pady=(0, 10))
+        # Progress (bar + files-done/percentage label; updated only from the
+        # main-thread queue pump)
+        self.progress = ui_theme.ProgressIndicator(self, length=400)
+        self.progress.frame.pack(side=tk.BOTTOM, pady=(0, 10))
 
         for i in range(4):
             options.grid_columnconfigure(i, weight=1)
@@ -314,7 +316,7 @@ class M4BConverterUI(ttk.Frame):
 
         self._busy.set()
         self._cancel_event.clear()
-        self.progress.configure(maximum=len(params["files"]), value=0)
+        self.progress.update(0, len(params["files"]))
         self.disable_inputs(True)
         self.btn_cancel.configure(state=tk.NORMAL)
 
@@ -363,7 +365,7 @@ class M4BConverterUI(ttk.Frame):
                 if kind == "log":
                     self.log_write(payload)
                 elif kind == "progress":
-                    self.progress.configure(value=payload)
+                    self.progress.update(*payload)
                 elif kind == "done":
                     self.log_write(payload[0])
                     self._finish_idle()
@@ -496,7 +498,7 @@ class M4BConverterUI(ttk.Frame):
             except Exception as e:
                 self._log_q.put(("log", f"  ✗ Error: {e}\n"))
             finally:
-                self._log_q.put(("progress", idx))
+                self._log_q.put(("progress", (idx, total)))
 
         if cancelled:
             self._log_q.put(("done", (f"\nCancelled. Output so far: {outdir}\n", outdir)))

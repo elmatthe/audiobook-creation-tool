@@ -385,10 +385,24 @@ def read_book(
     trim_silence_db=DEFAULT_TRIM_SILENCE_DB,
     trim_chunk_ms=DEFAULT_TRIM_CHUNK_MS,
     cancel_check=None,
+    progress_callback=None,
 ):
     segments = []
     # Do not read these into the audio file:
     title_names_to_skip_reading = ['Title', 'blank']
+
+    # progress_callback(done, total) reports whole-book progress in paragraph
+    # units (the natural work step: each paragraph is a batch of network TTS
+    # round-trips). It runs on the calling (worker) thread, so a GUI caller
+    # must enqueue from it, never touch Tk widgets directly.
+    total_paragraphs = sum(len(ch["paragraphs"]) for ch in book_contents)
+    done_paragraphs = 0
+
+    def _tick(count=1):
+        nonlocal done_paragraphs
+        done_paragraphs += count
+        if progress_callback is not None and total_paragraphs > 0:
+            progress_callback(done_paragraphs, total_paragraphs)
 
     def _checkpoint():
         # Cooperative cancellation: only does work (and lazy-imports the exception)
@@ -408,6 +422,7 @@ def read_book(
         if os.path.isfile(partname):
             print(f"{partname} exists, skipping to next chapter")
             segments.append(partname)
+            _tick(len(chapter["paragraphs"]))
         else:
             if chapter["title"] in title_names_to_skip_reading:
                 print(f"Chapter name: \"{chapter['title']}\"  -  Note: The word \"{chapter['title']}\" will not be read into audio file.")
@@ -494,6 +509,7 @@ def read_book(
                     for file in to_remove:
                         os.remove(file)
                 files.append(ptemp)
+                _tick()
             # combine paragraphs into chapter
             append_silence(files[-1], chapter_trailing_pause)
             combined = AudioSegment.empty()

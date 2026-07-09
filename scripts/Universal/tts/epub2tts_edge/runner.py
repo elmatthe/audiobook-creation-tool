@@ -124,10 +124,15 @@ def run_conversion_job(
     overwrite: bool = False,
     epub_convert: bool = False,
     cancel_check=None,
+    progress_callback=None,
 ) -> str:
     """
     Convert EPUB (with epub_convert), PDF, or TXT to M4B or MP3.
     Returns the path to the final audio file.
+
+    ``progress_callback(done, total)`` reports paragraph-level progress from
+    ``read_book`` on the calling (worker) thread — GUI callers must enqueue
+    from it, never touch Tk widgets directly.
     """
     sourcefile = os.path.abspath(sourcefile)
     if not os.path.isfile(sourcefile):
@@ -174,6 +179,7 @@ def run_conversion_job(
             trim_tts_padding=trim_tts_padding,
             trim_silence_db=trim_silence_db,
             cancel_check=cancel_check,
+            progress_callback=progress_callback,
         )
 
         cover_local = None

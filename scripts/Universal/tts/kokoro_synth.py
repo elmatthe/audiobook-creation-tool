@@ -183,8 +183,14 @@ def kokoro_file_to_mp3(
     chunk_pause_ms: int = 50,
     log: Callable[[str], None] = print,
     cancel_check: Callable[[], bool] | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> None:
-    """Read plain text from file → Kokoro TTS → single MP3."""
+    """Read plain text from file → Kokoro TTS → single MP3.
+
+    ``progress_callback(done, total)`` is invoked after each synthesis chunk
+    (total = chunk count). It runs on the calling (worker) thread, so a GUI
+    caller must enqueue from it, never touch Tk widgets directly.
+    """
     src = Path(source_path)
     if not src.exists():
         raise FileNotFoundError(f"Source text file not found: {source_path}")
@@ -237,6 +243,8 @@ def kokoro_file_to_mp3(
 
             if not audio_chunks:
                 log(f"  Warning: chunk {idx} produced no audio, skipping.")
+                if progress_callback is not None:
+                    progress_callback(idx, len(chunks))
                 continue
 
             combined = np.concatenate(audio_chunks)
@@ -244,6 +252,8 @@ def kokoro_file_to_mp3(
             seg = AudioSegment.from_wav(chunk_wav)
             seg.export(chunk_mp3, format="mp3")
             segment_paths.append(chunk_mp3)
+            if progress_callback is not None:
+                progress_callback(idx, len(chunks))
 
         if not segment_paths:
             raise RuntimeError("Kokoro produced no audio segments.")

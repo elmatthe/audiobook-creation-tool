@@ -40,6 +40,7 @@ from shared import ffmpeg_utils
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
+from shared import ui_theme
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
 
 try:
@@ -481,6 +482,11 @@ class MP3ToolUI(ttk.Frame):
         self.btn_id3 = ttk.Button(grp, text="Write ID3 Tags", command=self.write_id3_tags)
         self.btn_id3.grid(row=7, column=0, columnspan=2, pady=8)
 
+        # Progress (bar + counter/percentage label; updated only from the
+        # main-thread queue pump)
+        self.progress = ui_theme.ProgressIndicator(frame, length=400)
+        self.progress.frame.pack(fill="x", pady=(8, 0))
+
         # Status
         self.status = tk.StringVar(value="")
         ttk.Label(frame, textvariable=self.status, foreground="blue").pack(pady=8)
@@ -550,6 +556,7 @@ class MP3ToolUI(ttk.Frame):
     def _begin_busy(self):
         self._busy.set()
         self._cancel_event.clear()
+        self.progress.reset()
         self._set_inputs_state(tk.DISABLED)
         self.btn_cancel.configure(state=tk.NORMAL)
 
@@ -572,6 +579,10 @@ class MP3ToolUI(ttk.Frame):
                 kind, payload = self._log_q.get_nowait()
                 if kind == "status":
                     self.status.set(payload)
+                elif kind == "progress":
+                    self.progress.update(*payload)
+                elif kind == "progress_ind":
+                    self.progress.set_indeterminate(payload)
                 elif kind == "info":
                     self.status.set(payload[0])
                     self._finish_idle()
@@ -592,6 +603,7 @@ class MP3ToolUI(ttk.Frame):
         self._cancel_event.clear()
         self._set_inputs_state(tk.NORMAL)
         self.btn_cancel.configure(state=tk.DISABLED)
+        self.progress.finish()
 
     # ---------- combine ----------
 
@@ -651,11 +663,13 @@ class MP3ToolUI(ttk.Frame):
             # FAST PATH
             if fast_allowed:
                 self._log_q.put(("status", "FAST mode: concatenating MP3s…"))
+                self._log_q.put(("progress_ind", "Concatenating…"))
                 raise_if_cancelled(cancel_check)
                 list_fast = build_dir / "inputs_fast.txt"
                 write_concat_listfile(files, list_fast)
                 if concat_mp3s_fast(list_fast, out_path, out_dir):
                     self._write_timestamps(files, gap, out_dir)  # keep timestamps
+                    self._log_q.put(("progress", (len(files), len(files))))
                     self._log_q.put(
                         ("info", (f"Done (FAST). Output: {out_path}", f"Combine complete.\nOutput: {out_path}"))
                     )
@@ -665,6 +679,7 @@ class MP3ToolUI(ttk.Frame):
 
             # SAFE PATH
             if self._safe_concat_with_optional_gaps(files, gap, out_path, out_dir, cancel_check):
+                self._log_q.put(("progress", (len(files), len(files))))
                 self._log_q.put(
                     ("info", (f"Done (SAFE). Output: {out_path}", f"Combine complete.\nOutput: {out_path}"))
                 )
@@ -693,6 +708,7 @@ class MP3ToolUI(ttk.Frame):
             if not normalize_to_wav(inp, norm, out_dir):
                 return False
             stage_paths.append(norm)
+            self._log_q.put(("progress", (idx, len(mp3s))))
 
             dur = ffprobe_duration_seconds(norm) or 0.0
             timestamps.append(
@@ -708,6 +724,7 @@ class MP3ToolUI(ttk.Frame):
                 current_time += gap_sec
 
         raise_if_cancelled(cancel_check)
+        self._log_q.put(("progress_ind", "Concatenating…"))
         write_concat_listfile(stage_paths, list_safe)
         ok = concat_wavs_to_mp3(list_safe, out_path, out_dir)
 
@@ -781,7 +798,7 @@ class MP3ToolUI(ttk.Frame):
 
         try:
             ok_count = 0
-            for src in files:
+            for idx, src in enumerate(files, start=1):
                 raise_if_cancelled(cancel_check)
                 dst = paths.avoid_input_overwrite(out_dir / src.name, files)
                 if delta > 0:
@@ -809,6 +826,7 @@ class MP3ToolUI(ttk.Frame):
                     if not ok:
                         save_error_log(out_dir, f"copy_no_change: {src.name}", args, err)
                 ok_count += int(ok)
+                self._log_q.put(("progress", (idx, len(files))))
 
             self._log_q.put(
                 (
@@ -893,7 +911,7 @@ class MP3ToolUI(ttk.Frame):
             # tag-writing stage so the original is never touched.
             targets: List[Optional[Path]] = []
             if abs(delta) > 1e-9:
-                for p in files:
+                for i, p in enumerate(files, start=1):
                     raise_if_cancelled(cancel_check)
                     dst = paths.avoid_input_overwrite(out_dir / p.name, files)
                     ok = (
@@ -902,8 +920,9 @@ class MP3ToolUI(ttk.Frame):
                         else trim_from_end_mp3(p, -delta, dst, out_dir)
                     )
                     targets.append(dst if ok else None)
+                    self._log_q.put(("progress", (i, len(files))))
             else:
-                for p in files:
+                for i, p in enumerate(files, start=1):
                     raise_if_cancelled(cancel_check)
                     dst = paths.avoid_input_overwrite(out_dir / p.name, files)
                     args = [
@@ -926,6 +945,7 @@ class MP3ToolUI(ttk.Frame):
                         targets.append(None)  # skip — never tag the original
                     else:
                         targets.append(dst)
+                    self._log_q.put(("progress", (i, len(files))))
 
             # Write ONLY allowed tags onto targets
             updated = 0
@@ -971,6 +991,8 @@ class MP3ToolUI(ttk.Frame):
                     updated += 1
                 except Exception as e:
                     self._log_q.put(("status", f"ID3 write failed for {p.name}: {e}"))
+                finally:
+                    self._log_q.put(("progress", (idx, total)))
 
             self._log_q.put(
                 (

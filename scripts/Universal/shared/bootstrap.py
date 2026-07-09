@@ -84,6 +84,11 @@ for _stream in (sys.stdout, sys.stderr):
 PREFERRED_PY = ("3.12", "3.11")
 WINGET_PYTHON_ID = "Python.Python.3.12"
 
+
+def _is_kokoro_compatible(ver: tuple[int, int] | None) -> bool:
+    """Kokoro's PyPI wheels require >=3.10,<3.13."""
+    return ver is not None and (3, 10) <= ver < (3, 13)
+
 # Portable ffmpeg fallback (Windows only) — used if winget is unavailable.
 FFMPEG_WIN_ZIP_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/"
@@ -564,6 +569,19 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog,
     (the self-healing recovery path). Returns False only if a working venv (ssl
     at minimum) cannot be produced.
     """
+    if VENV_DIR.exists():
+        # A venv built on >=3.13 can never install Kokoro. If the chosen base
+        # is Kokoro-compatible (<3.13), rebuild on it rather than reusing the
+        # incompatible venv forever.
+        venv_ver = _interp_version_argv([str(venv_python())])
+        base_ver = _interp_version_argv(py_argv)
+        if (venv_ver is not None and not _is_kokoro_compatible(venv_ver)
+                and _is_kokoro_compatible(base_ver)):
+            log.line(f"  Existing venv is Python {venv_ver[0]}.{venv_ver[1]} "
+                     f"(no Kokoro support) but Python {base_ver[0]}.{base_ver[1]} "
+                     "is available — rebuilding the venv on it.")
+            shutil.rmtree(VENV_DIR, ignore_errors=True)
+
     if VENV_DIR.exists() and not venv_is_valid():
         log.line("  Existing virtual environment is broken — removing it first.")
         shutil.rmtree(VENV_DIR, ignore_errors=True)
@@ -897,6 +915,22 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
 
     progress(0, "Locating a suitable Python…")
     py_argv = find_suitable_python(log, prefer_tk=not headless)
+    if py_argv is not None:
+        # A >=3.13 interpreter can build a venv but loses Kokoro (its wheels
+        # require <3.13). Before accepting it, try to install 3.12; keep the
+        # newer interpreter only if 3.12 truly cannot be had.
+        sel_ver = _interp_version_argv(py_argv)
+        if sel_ver is not None and not _is_kokoro_compatible(sel_ver):
+            log.line(f"Python {sel_ver[0]}.{sel_ver[1]} is too new for Kokoro "
+                     "(needs <3.13) — attempting to install Python 3.12…")
+            fixed = install_python(log, prefer_tk=not headless)
+            fixed_ver = _interp_version_argv(fixed) if fixed is not None else None
+            if _is_kokoro_compatible(fixed_ver):
+                py_argv = fixed
+            else:
+                log.line(f"  Python 3.12 could not be installed — continuing on "
+                         f"{sel_ver[0]}.{sel_ver[1]} — Edge TTS works, Kokoro "
+                         "voices disabled.")
     if py_argv is None:
         py_argv = install_python(log, prefer_tk=not headless)
     if py_argv is None:

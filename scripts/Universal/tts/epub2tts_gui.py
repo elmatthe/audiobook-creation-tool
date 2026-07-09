@@ -37,6 +37,7 @@ from ebooklib import epub as epub_mod
 from shared import ffmpeg_utils
 from shared import paths
 from shared.cancellation import ConversionCancelled
+from shared.ui_theme import ProgressIndicator, enable_mousewheel
 from tts.batch_convert import run_batch_convert
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
@@ -144,18 +145,11 @@ def build_ui(parent: tk.Misc) -> None:
     frm.bind("<Configure>", _sync_scrollregion)
     options_canvas.bind("<Configure>", _sync_form_width)
 
-    def _on_mousewheel(event: object) -> None:
-        if getattr(event, "delta", 0):
-            options_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
-
     # The launcher reuses one root across tools, so wheel binding is scoped to
-    # while the pointer is actually over this panel's canvas.
-    options_canvas.bind(
-        "<Enter>", lambda _e: options_canvas.bind_all("<MouseWheel>", _on_mousewheel)
-    )
-    options_canvas.bind(
-        "<Leave>", lambda _e: options_canvas.unbind_all("<MouseWheel>")
-    )
+    # while the pointer is over this panel (the wrap frame, not the canvas —
+    # the form frame covers the canvas, so the canvas itself almost never gets
+    # the pointer).
+    enable_mousewheel(options_canvas, hover_region=canvas_wrap)
 
     r = 0
     ttk.Label(frm, text="Mode").grid(row=r, column=0, sticky="w")
@@ -421,18 +415,22 @@ def build_ui(parent: tk.Misc) -> None:
                 kind, payload = log_q.get_nowait()
                 if kind == "log":
                     append_log(payload)
+                elif kind == "progress":
+                    progress.update(*payload)
                 elif kind == "done":
                     append_log(payload + "\n")
                     busy.clear()
                     cancel_event.clear()
                     go_btn.configure(state=tk.NORMAL)
                     cancel_btn.configure(state=tk.DISABLED)
+                    progress.finish()
                 elif kind == "err":
                     append_log(payload + "\n")
                     busy.clear()
                     cancel_event.clear()
                     go_btn.configure(state=tk.NORMAL)
                     cancel_btn.configure(state=tk.DISABLED)
+                    progress.finish()
                     messagebox.showerror("Error", payload)
         except queue.Empty:
             pass
@@ -523,6 +521,7 @@ def build_ui(parent: tk.Misc) -> None:
         cancel_event.clear()
         go_btn.configure(state=tk.DISABLED)
         cancel_btn.configure(state=tk.NORMAL)
+        progress.reset()
 
         def worker() -> None:
             qw = QueueWriter(log_q)
@@ -564,6 +563,8 @@ def build_ui(parent: tk.Misc) -> None:
 
                             total = len(jobs)
                             log_q.put(("log", f"Kokoro batch: {total} files to process.\n"))
+                            if total:
+                                log_q.put(("progress", (0, total)))
                             ok = 0
                             fail = 0
 
@@ -633,6 +634,9 @@ def build_ui(parent: tk.Misc) -> None:
                                             f"({completed_so_far[0]}/{total}): {msg}"
                                         )
                                     log_q.put(("log", line + "\n"))
+                                    log_q.put(
+                                        ("progress", (completed_so_far[0], total))
+                                    )
                                     if cancel_event.is_set():
                                         for f in futs:
                                             f.cancel()
@@ -657,6 +661,7 @@ def build_ui(parent: tk.Misc) -> None:
                                     f"[{ts}] {pdf_name} — FAILED -- ({completed_so_far}/{total})"
                                 )
                             log_q.put(("log", line + "\n"))
+                            log_q.put(("progress", (completed_so_far, total)))
 
                         ok, fail, _ = run_batch_convert(
                             inp,
@@ -731,6 +736,9 @@ def build_ui(parent: tk.Misc) -> None:
                                 chunk_pause_ms=paragraph_pause,
                                 log=lambda s: log_q.put(("log", s + "\n")),
                                 cancel_check=cancel_event.is_set,
+                                progress_callback=lambda d, t: log_q.put(
+                                    ("progress", (d, t))
+                                ),
                             )
                         log_q.put(("done", f"Kokoro conversion finished → {out_mp3}"))
                         return
@@ -752,6 +760,9 @@ def build_ui(parent: tk.Misc) -> None:
                             "trim_silence_db", float(DEFAULT_TRIM_SILENCE_DB)
                         ),
                         cancel_check=cancel_event.is_set,
+                        progress_callback=lambda d, t: log_q.put(
+                            ("progress", (d, t))
+                        ),
                         **{k: v for k, v in pause_kw.items() if k not in _skip},
                     )
                     log_q.put(("done", "Conversion finished."))
@@ -779,6 +790,10 @@ def build_ui(parent: tk.Misc) -> None:
         btn_row, text="Cancel", command=cancel_job, state=tk.DISABLED
     )
     cancel_btn.pack(side=tk.LEFT, padx=(8, 0))
+    # Progress (bar + counter/percentage label; updated only from pump_queue on
+    # the main thread — workers enqueue ("progress", (done, total)) messages).
+    progress = ProgressIndicator(btn_row, length=280)
+    progress.frame.pack(side=tk.LEFT, padx=(16, 0))
 
     # --- Log box (row 2): a labelled, multi-row pane that is always visible and
     # never crushed, matching the other tools. ---

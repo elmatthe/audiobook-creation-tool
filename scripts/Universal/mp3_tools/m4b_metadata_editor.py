@@ -61,6 +61,7 @@ from shared import metadata
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
+from shared import ui_theme
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
 
 APP_TITLE = "M4B Metadata Editor"
@@ -164,8 +165,48 @@ class M4BMetadataEditorUI(ttk.Frame):
 
     # ----- UI -----
     def _build_ui(self):
+        # The tag/settings sections are taller than the launcher window once a
+        # batch is loaded, so they live in a vertically scrollable canvas —
+        # the same canvas_wrap + create_window + scrollregion/width-sync +
+        # enable_mousewheel wiring as the TTS panel. The action buttons (row 1)
+        # and the Log (row 2) sit OUTSIDE the canvas so they are always
+        # visible, and the Log gets a fixed, larger height.
+        self.rowconfigure(0, weight=1)   # scrollable settings grow with window
+        self.rowconfigure(1, weight=0)   # action buttons — fixed, always visible
+        self.rowconfigure(2, weight=0)   # log box — fixed height, always visible
+        self.columnconfigure(0, weight=1)
+
+        canvas_wrap = ttk.Frame(self)
+        canvas_wrap.grid(row=0, column=0, sticky="nsew")
+        canvas_wrap.rowconfigure(0, weight=1)
+        canvas_wrap.columnconfigure(0, weight=1)
+        settings_canvas = tk.Canvas(canvas_wrap, highlightthickness=0, borderwidth=0)
+        settings_canvas.grid(row=0, column=0, sticky="nsew")
+        settings_sb = ttk.Scrollbar(
+            canvas_wrap, orient="vertical", command=settings_canvas.yview
+        )
+        settings_sb.grid(row=0, column=1, sticky="ns")
+        settings_canvas.configure(yscrollcommand=settings_sb.set)
+
+        body = ttk.Frame(settings_canvas)
+        _body_window = settings_canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def _sync_scrollregion(_event=None):
+            settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
+
+        def _sync_body_width(event):
+            # Make the body fill the canvas width so "fill=X" rows expand as before.
+            settings_canvas.itemconfigure(_body_window, width=event.width)
+
+        body.bind("<Configure>", _sync_scrollregion)
+        settings_canvas.bind("<Configure>", _sync_body_width)
+
+        # Wheel binding is scoped to while the pointer is over this panel (the
+        # wrap frame, not the canvas — the body frame covers the canvas).
+        ui_theme.enable_mousewheel(settings_canvas, hover_region=canvas_wrap)
+
         # Top: file actions
-        top = ttk.Frame(self)
+        top = ttk.Frame(body)
         top.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(10, 6))
         self.btn_add = ttk.Button(top, text="Open M4B File(s)", command=self.add_files)
         self.btn_add.pack(side=tk.LEFT)
@@ -179,7 +220,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.lbl_mode.pack(side=tk.RIGHT)
 
         # File list
-        list_frame = ttk.LabelFrame(self, text="M4B Files")
+        list_frame = ttk.LabelFrame(body, text="M4B Files")
         list_frame.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
         self.listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, height=5)
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -188,7 +229,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.listbox.configure(yscrollcommand=sb.set)
 
         # Metadata form
-        form_box = ttk.LabelFrame(self, text="Tags (blank fields are left unchanged)")
+        form_box = ttk.LabelFrame(body, text="Tags (blank fields are left unchanged)")
         form_box.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
         form = ttk.Frame(form_box)
         form.pack(fill=tk.X, padx=8, pady=8)
@@ -244,7 +285,7 @@ class M4BMetadataEditorUI(ttk.Frame):
 
         # Chapter Titles (optional) — paged, one page per loaded file, applied
         # positionally (line N -> chapter N; blank line = leave that chapter).
-        chap_box = ttk.LabelFrame(self, text="Chapter Titles (optional)")
+        chap_box = ttk.LabelFrame(body, text="Chapter Titles (optional)")
         chap_box.pack(side=tk.TOP, fill=tk.BOTH, expand=False, padx=12, pady=(0, 6))
         pager = ttk.Frame(chap_box)
         pager.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 2))
@@ -260,8 +301,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.chap_text.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(2, 8))
 
         # Output folder row — tagged copies are delivered here; originals are
-        # never touched.
-        outrow = ttk.Frame(self)
+        # never touched. Last row of the scrollable body.
+        outrow = ttk.Frame(body)
         outrow.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
         ttk.Label(outrow, text="Output folder:").pack(side=tk.LEFT)
         self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
@@ -271,9 +312,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_open_out = ttk.Button(outrow, text="Open", command=self.open_outdir)
         self.btn_open_out.pack(side=tk.LEFT, padx=(6, 0))
 
-        # Action buttons
+        # Action buttons (row 1): always visible, outside the scroll area.
         action = ttk.Frame(self)
-        action.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
+        action.grid(row=1, column=0, sticky="ew", padx=12, pady=(6, 6))
         self.btn_save = ttk.Button(action, text="Save Tags", command=self.save)
         self.btn_save.pack(side=tk.LEFT)
         self.btn_clear_tags = ttk.Button(
@@ -286,13 +327,16 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_remove_numbering.pack(side=tk.LEFT, padx=(8, 0))
         self.btn_cancel = ttk.Button(action, text="Cancel", command=self.cancel, state=tk.DISABLED)
         self.btn_cancel.pack(side=tk.LEFT, padx=(8, 0))
-        self.progress = ttk.Progressbar(action, mode="determinate", length=240)
-        self.progress.pack(side=tk.RIGHT)
+        # Progress (bar + files-done/percentage label; updated only from the
+        # main-thread queue pump)
+        self.progress = ui_theme.ProgressIndicator(action, length=240)
+        self.progress.frame.pack(side=tk.RIGHT)
 
-        # Log
+        # Log (row 2): a fixed, larger pane that is always visible and never
+        # crushed by the sections above (they scroll instead).
         logf = ttk.LabelFrame(self, text="Log")
-        logf.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=12, pady=(0, 10))
-        self.log = tk.Text(logf, height=8, wrap="word", state=tk.DISABLED)
+        logf.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 10))
+        self.log = tk.Text(logf, height=14, wrap="word", state=tk.DISABLED)
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
@@ -746,7 +790,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.series_readback_var.set("")
         self._busy.set()
         self._cancel_event.clear()
-        self.progress.configure(maximum=len(files), value=0)
+        self.progress.update(0, len(files))
         self.disable_inputs(True)
         self.btn_cancel.configure(state=tk.NORMAL)
         self.log_write(
@@ -806,7 +850,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         outdir = self.output_dir()  # read Tk var on the main thread
         self._busy.set()
         self._cancel_event.clear()
-        self.progress.configure(maximum=len(files), value=0)
+        self.progress.update(0, len(files))
         self.disable_inputs(True)
         self.btn_cancel.configure(state=tk.NORMAL)
         verb = "Clearing tags on" if clear_first else "Writing tags to"
@@ -862,7 +906,7 @@ class M4BMetadataEditorUI(ttk.Frame):
                 if kind == "log":
                     self.log_write(payload)
                 elif kind == "progress":
-                    self.progress.configure(value=payload)
+                    self.progress.update(*payload)
                 elif kind == "done":
                     ok, fail, cancelled = payload
                     self._finish_idle()
@@ -944,7 +988,7 @@ class M4BMetadataEditorUI(ttk.Frame):
                     self._log_q.put(("log", f"[{idx}/{total}] ✗ {f.name}: {e}\n"))
                     fail += 1
                 finally:
-                    self._log_q.put(("progress", idx))
+                    self._log_q.put(("progress", (idx, total)))
         except ConversionCancelled:
             cancelled = True
         self._log_q.put(("done", (ok, fail, cancelled)))
@@ -977,7 +1021,7 @@ class M4BMetadataEditorUI(ttk.Frame):
                     self._log_q.put(("log", f"[{idx}/{total}] ✗ {f.name}: {e}\n"))
                     fail += 1
                 finally:
-                    self._log_q.put(("progress", idx))
+                    self._log_q.put(("progress", (idx, total)))
         except ConversionCancelled:
             cancelled = True
         self._log_q.put(("done", (ok, fail, cancelled)))

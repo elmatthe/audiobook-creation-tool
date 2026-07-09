@@ -20,7 +20,9 @@ flashing during use.
 
 - **Language:** Python 3.12 (the bootstrap installs 3.12 specifically — PyPI `kokoro` wheels
   require <3.13; 3.13+ works but loses the Kokoro voices)
-- **GUI:** tkinter (single launcher window, sidebar + swappable content panel)
+- **GUI:** tkinter (single launcher window, sidebar + swappable content panel). macOS gets
+  a Finder-style shell on the native `aqua` theme; Windows keeps the classic look
+  byte-for-byte — the platform split lives in `shared/ui_theme.py`
 - **Key libraries:** edge-tts (network TTS), kokoro + torch (local AI TTS), mutagen (audio
   metadata), PyMuPDF/fitz (PDF text extraction), pydub + soundfile + numpy/scipy (audio
   assembly), ebooklib + beautifulsoup4 + lxml (EPUB parsing), nltk (sentence tokenization),
@@ -48,7 +50,11 @@ flashing during use.
   exposes `build_ui(parent_frame)`, is lazy-imported and guarded (a missing dependency renders
   an in-panel error, never a crash), built once and shown/hidden on selection so in-progress
   state survives switching. Installs `install_no_window_guard()` first so even pydub/edge-tts
-  *internal* ffmpeg spawns are console-hidden on Windows.
+  *internal* ffmpeg spawns are console-hidden on Windows. All theming comes from
+  `shared/ui_theme.apply_theme()`: on macOS a Finder-style shell (native aqua controls,
+  tinted source-list sidebar with hover/selection rows and glyphs, toolbar strip, content
+  card); on Windows/other the classic pre-v0.5.0 layout, unchanged (see DECISIONS.md
+  2026-07-08).
 - **`scripts/Universal/shared/`** — `paths.py` (single source of truth for every project
   path — everything derives from `REPO_ROOT`), `subprocess_utils.py` (hidden-console subprocess
   wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (resolves ffmpeg/ffprobe:
@@ -56,8 +62,12 @@ flashing during use.
   `settings.py` (atomic JSON at `files/runtime-data/settings.json`), `cancellation.py` (shared
   Cancel/threading.Event pattern), `metadata.py` (mutagen M4B tag read/write incl. series
   atoms + chapter-title re-mux), `logging_setup.py` (session logs, pruned to 30),
-  `version.py` (single source of truth), `release.py` (dev-only zip packager, never imported
-  by the app), `close_terminal.py` (macOS Terminal auto-close helper).
+  `ui_theme.py` (platform theming: aqua/Finder palette on macOS vs classic elsewhere, plus
+  the `enable_mousewheel` scroll-on-hover helper and the shared `ProgressIndicator` —
+  progressbar + counter/percentage label, main-thread-only API, used by all six tools),
+  `version.py` (single source of truth),
+  `release.py` (dev-only zip packager, never imported by the app), `close_terminal.py`
+  (macOS Terminal auto-close helper).
 - **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
@@ -65,8 +75,12 @@ flashing during use.
 - **Data flow (TTS):** GUI → `tts/epub2tts_edge/runner.run_conversion_job` (cwd-safe temp-dir
   wrapper) → Edge TTS, or `tts/pdf_extractor.pdf_to_txt` → `tts/kokoro_synth.kokoro_file_to_mp3`
   for the Kokoro path. Batch PDF folders go through `tts/batch_convert.py` (threaded, resume,
-  retry). Long operations run on worker threads with a Cancel button; **workers never read Tk
-  variables** (hoisted to the main thread — see DECISIONS/memory).
+  retry). Long operations run on worker threads with a Cancel button and a per-tool progress
+  indicator (determinate with a percentage where the total is known; indeterminate otherwise —
+  e.g. the M4B Maker's single concat/encode); **workers never read Tk variables** (hoisted to
+  the main thread — see DECISIONS/memory), and progress flows the same way: the worker enqueues
+  `("progress", (done, total))` on its existing queue and only the main-thread drain touches
+  the widget.
 - **Outputs are copy-based everywhere:** transforming tools write to a fresh auto-named
   `Downloads/<Tool>-N` folder (decided once per launch, created lazily); imported originals are
   never modified. The only in-place exception is the Cover Image tool's explicit overwrite
@@ -96,7 +110,9 @@ flashing during use.
   + movement atoms; auto-number series parts; per-file chapter-title import; writes copies.
   Batch mode (multiple files or the "Open Folder…" picker, non-recursive) pre-fills fields
   whose value is identical across all loaded files and marks differing ones "(varies)";
-  single-file mode is unchanged.
+  single-file mode is unchanged. The tag/settings sections scroll in a TTS-style canvas
+  (wheel/trackpad via `enable_mousewheel`); the action buttons and a fixed 14-row Log sit
+  below the scroll area, always visible.
 
 ## Project Layout Notes
 
@@ -136,16 +152,19 @@ published GitHub release — remote: [elmatthe/audiobook-creation-tool](https://
 ## High-Level State
 
 All six tools are built, live-verified on Windows (v0.1.0 test matrix: 18/18 applicable rows
-PASS; later releases re-verified their areas), and shipped through GitHub Releases v0.1.0–v0.4.0.
+PASS; later releases re-verified their areas) **and on macOS (2026-07-08: full per-tool live
+pass under the Finder shell — the `0.5.0-macos-component-verify` plan)**, and shipped through
+GitHub Releases v0.1.0–v0.4.0.
 v0.4.0 added Kokoro self-heal on every launch, the in-tree HF model cache, and the 5-voice
 verification harness. v0.5.0 is a multi-drop line: Drop 1 (this restructure — no tool behaviour
 changes), then metadata, TTS, script hardening, and UI drops.
 
 **Known limitations (documented, not bugs):**
 - **Windows xHE-AAC decode** — ffmpeg's native AAC decoder can't decode xHE-AAC (USAC) M4Bs;
-  macOS uses Apple's `aac_at` decoder and is fine. Confirmed limitation since v0.3.2.
-- **macOS live pass** — code is single-tree and compile-verified; the full live macOS test
-  matrix still needs a real Mac.
+  macOS routes decoding through Apple's `aac_at` decoder, which supports xHE-AAC. Confirmed
+  Windows limitation since v0.3.2. The macOS `aac_at` path is live-verified on standard
+  AAC-LC M4Bs, but an actual xHE-AAC/USAC decode on macOS is still unverified — no USAC
+  sample on hand (2026-07-08).
 - **Fresh one-click clean-machine install** (winget Python 3.12 + multi-GB torch + 300 MB
   model) is verified in pieces, not yet end-to-end on a virgin box.
 - The `.bat` entry point briefly flashes its own cmd window on launch (the GUI itself never

@@ -46,6 +46,7 @@ from shared import metadata
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
+from shared import ui_theme
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
 
 # Optional dependency for cover preview
@@ -535,8 +536,11 @@ class M4BMakerUI(ttk.Frame):
         bottom = ttk.Frame(self)
         bottom.pack(fill="x", padx=12, pady=(0, 10))
 
-        self.progress = ttk.Progressbar(bottom, mode="determinate")
-        self.progress.pack(fill="x", pady=(0, 4))
+        # Progress: a build is one long ffmpeg concat/encode with no meaningful
+        # sub-steps, so the bar runs indeterminate while working and shows 1/1
+        # on success. Updated only from the main-thread queue pump.
+        self.progress = ui_theme.ProgressIndicator(bottom)
+        self.progress.frame.pack(fill="x", pady=(0, 4))
 
         ttk.Label(bottom, textvariable=self.status, foreground="#4a6").pack(anchor="w")
 
@@ -664,9 +668,7 @@ class M4BMakerUI(ttk.Frame):
                 elif kind == "status":
                     self.status.set(payload)
                 elif kind == "progress":
-                    self.progress["value"] = payload
-                elif kind == "progress_max":
-                    self.progress["maximum"] = payload
+                    self.progress.update(*payload)
                 elif kind == "done":
                     self._finish_idle()
                     out_path, out_dir = payload
@@ -693,6 +695,7 @@ class M4BMakerUI(ttk.Frame):
         self._cancel_event.clear()
         self.disable_inputs(False)
         self.btn_cancel.configure(state=tk.DISABLED)
+        self.progress.finish()
 
     # ----- build -----
     def build(self):
@@ -730,8 +733,7 @@ class M4BMakerUI(ttk.Frame):
 
         self._busy.set()
         self._cancel_event.clear()
-        self.progress["maximum"] = len(params["files"])
-        self.progress["value"] = 0
+        self.progress.set_indeterminate()
         self.disable_inputs(True)
         self.btn_cancel.configure(state=tk.NORMAL)
 
@@ -847,7 +849,7 @@ class M4BMakerUI(ttk.Frame):
                 metadata.write_m4b_tags(out_path, series_tags)
 
             shutil.rmtree(tmp, ignore_errors=True)
-            self._log_q.put(("progress", len(files)))
+            self._log_q.put(("progress", (1, 1)))
             self._log_q.put(("done", (out_path, out_dir)))
 
         except ConversionCancelled:

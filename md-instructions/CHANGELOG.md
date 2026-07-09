@@ -15,6 +15,41 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — v0.5.0 UX progress + metadata layout (2026-07-08)
+- **Every tool now shows run progress.** New shared `ProgressIndicator` widget in
+  `scripts/Universal/shared/ui_theme.py` — a ttk.Progressbar plus a "done/total  pct%"
+  counter label with a main-thread-only `update / set_indeterminate / reset / finish`
+  API. Wired into all six tools strictly through each tool's existing
+  worker→queue→main-thread drain (the same channel that feeds its Log box), so workers
+  never touch Tk. **Determinate** where a total is known: M4B Converter (files),
+  Cover Image (images), M4B Metadata Editor (files — Save, Clear All Tags, and Remove
+  Series Numbering), MP3 Tool (per track in the SAFE combine path; per file in
+  time-edit and ID3), TTS (per file in Edge and Kokoro batch; per synthesis chunk in
+  Kokoro single; per paragraph in Edge single — via new optional `progress_callback`
+  parameters on `kokoro_file_to_mp3`, `read_book`, and `run_conversion_job`, additive
+  and default-off so non-GUI callers are unaffected). **Indeterminate** where no total
+  exists: the M4B Maker build (one long ffmpeg concat/encode with no observable
+  sub-steps — its old bar was effectively dead, sitting at 0 until a single end jump)
+  and the MP3 Tool's single-concat stages (FAST mode and the SAFE final concat).
+  Cancel and the Log behave exactly as before on every tool. Shared code — Windows
+  gets the same progress indication; the classic launcher layout is unchanged
+  (proven by a stubbed-win32 construct, 6/6 tools, no error panels).
+- **Tests:** `files/tests/test_ui_theme.py` gained a headless-guarded
+  ProgressIndicator state-contract test (determinate label math, clamping,
+  indeterminate switch and recovery, reset/finish semantics).
+
+### Changed — v0.5.0 UX progress + metadata layout (2026-07-08)
+- **M4B Metadata Editor layout.** The tag/settings sections (file actions, file list,
+  tag form, chapter titles, output row) now live in a vertically scrollable canvas
+  using exactly the TTS panel's wiring (wrap frame + Canvas + `create_window` +
+  scrollregion/width sync + `shared.ui_theme.enable_mousewheel`), and the **Log is a
+  fixed 14-row pane** below the scroll area next to the always-visible action buttons
+  (was 8 rows and competed for space with the fixed-height sections above).
+- **Stale launcher description fixed:** the M4B Metadata sidebar entry no longer reads
+  "(Added in Phase 6.)" — it now describes the tool like the other entries.
+- Removed a dead `progress_max` queue branch from the M4B Maker pump (nothing ever
+  enqueued that message kind).
+
 ### Verified — v0.5.0 macOS component verify (2026-07-08)
 - **Per-tool live pass on macOS complete — all six tools work end-to-end on a real Mac**
   under the new Finder-style shell (the `0.5.0-macos-component-verify` plan, Phases 1–5).
@@ -26,6 +61,54 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   M4B Converter was verified on a standard AAC-LC M4B; the Apple `aac_at` xHE-AAC/USAC
   decode path (the documented Windows limitation's macOS counterpart) remains unverified
   live — no USAC sample was on hand.
+
+### Added — v0.5.0 macOS UI shell (2026-07-08)
+- **Finder-style macOS launcher shell.** On macOS the launcher now uses the native
+  `aqua` ttk theme (real macOS controls in every tool panel, automatic light/dark)
+  with a Finder-style chrome: tinted source-list sidebar with hover + accent-color
+  selection rows and per-tool glyphs, a toolbar strip naming the active tool, a
+  hairline-bordered content card, and a refined status bar. All styling comes from
+  the new `scripts/Universal/shared/ui_theme.py` (`apply_theme`), the single
+  auditable platform split; fonts resolve to San Francisco via `.AppleSystemUIFont`.
+  **Windows (and any non-mac platform) renders byte-for-byte unchanged** — the
+  classic branch reproduces the pre-v0.5.0 look and was proven by constructing the
+  launcher under a stubbed `win32` platform. The `build_ui(parent)` tool contract,
+  lazy build-once/show-hide panels, last-tool restore, and load-error panel are all
+  untouched. Setup/run was live-verified on a real Mac first (fresh `.venv` build →
+  deps → ffmpeg → Kokoro healthy → GUI on screen).
+- **Tests:** `files/tests/test_ui_theme.py` — headless-guarded theme smoke tests
+  (current platform + stubbed win32/linux classic branches) and the
+  `enable_mousewheel` wiring test.
+
+### Fixed — v0.5.0 macOS UI shell (2026-07-08)
+- **Mouse wheel / two-finger trackpad scrolling never worked on the TTS options
+  panel** (pre-existing on Windows too — only dragging the scrollbar worked). The
+  panel's wheel handler was armed by `<Enter>`/`<Leave>` on the canvas itself, but
+  the form frame covers the canvas, so the pointer was always over child controls
+  and the binding never installed (and would tear down on every crossing into a
+  child). New shared helper `shared.ui_theme.enable_mousewheel(scroll_target,
+  hover_region)` binds the crossing events on the panel's wrap frame and ignores
+  `<Leave>` events with detail `NotifyInferior` (pointer moved into a child, still
+  inside the panel); the Leave side is bound at the Tcl level because tkinter never
+  delivers the crossing-detail field. Cross-platform fix in shared code — improves
+  Windows and macOS alike. The other tools' Listbox/Text scrollers already scroll
+  natively via Tk class bindings (verified live) and were left untouched.
+
+### Fixed — v0.5.0 macOS component verify (2026-07-07)
+- **Kokoro could never install on a Mac whose only Python is 3.13+** (the Drop 3 §2.4
+  open issue, root-caused on a live Mac). The bootstrap built the venv on Python 3.13,
+  but Kokoro's PyPI wheels require >=3.10,<3.13, so the requirements marker skipped the
+  wheel and every launch-time self-heal repair failed with "No matching distribution
+  found for kokoro==0.9.4". The cause was environmental (Python version), not
+  `kokoro_synth.py`. `bootstrap.py` now (1) tries to install Python 3.12 (brew
+  `python@3.12` + `python-tk@3.12`) before accepting a >=3.13 interpreter, keeping
+  3.13+ only as a degraded Edge-TTS-only fallback, and (2) rebuilds an existing
+  >=3.13 venv once a Kokoro-compatible (<3.13) base is available, so a previously
+  broken install heals itself on the next setup run. Windows behaviour unchanged
+  (it selects `py -3.12` directly and never enters these branches). New regression
+  test: `files/tests/test_bootstrap_python_version.py` (the `_is_kokoro_compatible`
+  version gate). Verified live: fresh setup on a 3.13-only Mac now produces a
+  Python 3.12.13 venv with `kokoro_is_healthy` → `(True, 'ok')`.
 
 ### Fixed — v0.5.0 Drop 3 (TTS improvement & hardening, 2026-07-07)
 - **Kokoro batch ignored the End-of-recording pause.** The batch path never passed
