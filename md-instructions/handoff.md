@@ -110,6 +110,24 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-09 — First-run setup crash FIXED (HOME-PC; direct commit to master —
+  standalone bug fix, not a drop). Live-reproduced on this machine: setup died
+  with `TypeError: 'SetupLog' object is not callable` at bootstrap.py:968 right
+  after the Kokoro model download. Root cause: `run_setup` passed its SetupLog
+  into `warmup_kokoro_pipeline(venv_py, log)`, which takes a plain str-callable
+  and does `log(...)` — the self-heal call site (line ~1279) already passed
+  `LOG.line` correctly. One-token fix: call site now passes `log.line`.
+  Audited every other logger hand-off in scripts/Universal (grep for
+  log/LOG arguments): line 968 was the sole callable-vs-SetupLog mismatch —
+  every other helper is typed `log: SetupLog` and receives one. New
+  `files/tests/test_bootstrap_setup_logging.py` (2 tests, fully headless:
+  install steps monkeypatched, warmup Popen faked): drives run_setup through
+  the exact warmup call with the real module LOG (confirmed to raise the
+  production TypeError against the pre-fix code via stash round-trip), plus a
+  direct `warmup_kokoro_pipeline(…, LOG.line)` logging-content check.
+  `python scripts/verify.py` → RESULT: PASS (48 passed, 3 skipped — was 46;
+  the +2 are the new tests). CHANGELOG [Unreleased] Fixed entry added.
+  — Claude Code
 - 2026-07-09 — HOME-PC sync + housekeeping (direct commit to master — standalone
   cleanup, not a drop). Synced this machine to origin/master `e7cecd1` (clean
   fast-forward from e546b69; local agent config — .claude/, .codex/, AI-WORKSPACE.md,
@@ -466,6 +484,16 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-09 — HOME-PC — first-run setup crash fix — committed to master, pushed
+- Changed: scripts/Universal/shared/bootstrap.py (run_setup warmup call site:
+  `log` → `log.line`)
+- Added:   files/tests/test_bootstrap_setup_logging.py (2 headless regression
+  tests for the warmup logging wiring)
+- Changed: md-instructions/CHANGELOG.md ([Unreleased] Fixed entry)
+- Changed: md-instructions/handoff.md (this file — work log, sync log)
+- Note:    Direct commit to master — standalone bug fix, not part of a drop.
+  No AI co-author trailers.
 
 ### 2026-07-09 — HOME-PC — sync + housekeeping — committed to master, pushed
 - Changed: .gitignore (.claude/ + .codex/ now ignored; the stale "rest of .claude/

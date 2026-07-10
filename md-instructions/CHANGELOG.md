@@ -15,6 +15,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — first-run setup crash after Kokoro download (2026-07-09)
+- **First-time setup crashed with `TypeError: 'SetupLog' object is not callable`
+  right after the Kokoro model downloaded.** `run_setup` passed its `SetupLog`
+  object into `warmup_kokoro_pipeline`, which expects a plain str-callable
+  (the self-heal path already passed `LOG.line` correctly). The call site now
+  passes the bound method `log.line`, matching the function's contract. Sole
+  instance of the mismatch — all other logger hand-offs in `bootstrap.py`
+  audited clean. Regression tests in
+  `files/tests/test_bootstrap_setup_logging.py` (headless: all install steps
+  stubbed, warmup subprocess faked) drive `run_setup` through the exact call
+  site and verify the warmup logs land through `SetupLog.line`.
+
 ### Added — v0.5.0 UX progress + metadata layout (2026-07-08)
 - **Every tool now shows run progress.** New shared `ProgressIndicator` widget in
   `scripts/Universal/shared/ui_theme.py` — a ttk.Progressbar plus a "done/total  pct%"
