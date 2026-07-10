@@ -44,8 +44,10 @@ files/test-for-manual-listen-elmatthe/
 files/test-files/
 test-files/
 
-# Per-machine Claude Code settings (machine paths/permissions); rest of .claude/ is tracked.
-.claude/settings.local.json
+# Agent config (.claude/, .codex/) — local per-machine wiring, removed from tracking
+# 2026-07-08 (d3443fe / e7cecd1); intentionally never tracked. Local copies stay on disk.
+.claude/
+.codex/
 
 # AI-WORKSPACE.md — private local reference (machine conventions incl. the HOME-MacOS
 # section); intentionally never tracked. The local copy stays on disk as-is.

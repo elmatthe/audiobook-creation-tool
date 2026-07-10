@@ -1,66 +1,25 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**UX progress + metadata layout drop (`0.5.0-ux-progress-and-metadata-layout.md`) —
-ALL PHASES (1–5) DONE on HOME-MacOS (2026-07-08), awaiting maintainer final sign-off
-+ the single drop commit.** Phase-4 layout was visually approved by the maintainer
-(scrolling, larger Log, de-staled description, progress all confirmed). Phase 5
-close-out: full suite 46 passed / 3 skipped; `python scripts/verify.py` →
-RESULT: PASS; Windows/classic path proven unchanged (scoped win32 stub on ui_theme →
-classic mode, Segoe UI, 6 ttk sidebar buttons, all six tools built, zero error
-panels); CHANGELOG [Unreleased] Added+Changed entries, Briefing (ui_theme /
-worker-progress / metadata-editor bullets), DECISIONS ADR (progress placement in
-ui_theme.py + the deliberate M4B Maker indeterminate call). Drop file deliberately
-NOT deleted and nothing committed (maintainer instruction — no .git on this copy;
-the maintainer carries files to a real clone, single commit, no AI co-author
-trailers).
-Work summary — Phase 2: shared `ProgressIndicator` (ttk.Progressbar +
-counter/percentage label, main-thread-only `update/set_indeterminate/reset/finish`
-API) in `shared/ui_theme.py` (NOT the launcher — tools import shared.*, never
-launcher.py) + headless-guarded test. Phase 3: progress wired into all six tools
-strictly through each tool's EXISTING worker queue/drain (workers only enqueue
-`("progress", (done, total))` / `("progress_ind", text)`; no off-thread widget
-violations found in any tool). Determinate: M4B Converter (files), Cover Image
-(images), M4B Metadata (files ×3 workers), MP3 Tool (SAFE-combine per track,
-time-edit + ID3 per file), TTS (Edge batch + Kokoro batch per file; Kokoro single
-per chunk and Edge single per paragraph via new additive `progress_callback=None`
-params in `kokoro_file_to_mp3` / `read_book` / `run_conversion_job`). Indeterminate:
-M4B Maker (single concat/encode — its old bar was dead: 0 until one jump at the end;
-dead `progress_max` queue kind removed) and MP3 Tool's single-concat stages (FAST
-mode, SAFE final concat). Phase 4: metadata editor tag/settings sections wrapped in
-the exact TTS-style scroll canvas (canvas_wrap + create_window + scrollregion/width
-sync + `enable_mousewheel`), Log enlarged to a fixed 14 rows outside the scroll
-area, stale "(Added in Phase 6.)" description fixed in launcher.py. Cancel + Log
-untouched on every tool. The two previous foci below also still await their single
-maintainer commits.
-
-## Previous Focus (component-verify drop — awaiting maintainer commit)
-**macOS component-verify drop (`0.5.0-macos-component-verify.md`) — ALL PHASES DONE on
-HOME-MacOS (2026-07-08), awaiting maintainer sign-off + the single drop commit.**
-Phase 1 kickoff gates green; Phase 2 (Kokoro §2.4) was already fixed 2026-07-07, health
-re-confirmed only; Phase 3 voice samples 11/11, approved by maintainer listen; Phase 4
-per-tool live pass — **all six tools confirmed working live on macOS** (maintainer reviewed
-screenshots), zero macOS-specific breakage, zero code changes; Phase 5 close-out — full
-suite 45 passed / 3 skipped, `python scripts/verify.py` → RESULT: PASS, docs updated.
-**Residual gap (not a bug):** M4B Converter was verified on a standard AAC-LC M4B only —
-the `aac_at` xHE-AAC/USAC decode path on macOS is still unverified (no USAC sample on
-hand); see Briefing known limitations. Drop file deliberately NOT deleted and nothing
-committed (maintainer instruction). Still no `.git` on this copy — the maintainer carries
-files to a real clone. Previous focus below (UI-shell drop close-out) also remains
-awaiting its single maintainer commit.
-
-## Previous Focus (UI-shell drop — awaiting maintainer commit)
-**macOS UI-shell drop (`0.5.0-macos-ui-shell.md`) — ALL PHASES DONE on HOME-MacOS
-(look approved by maintainer 2026-07-08; wheel/trackpad scroll fix added; Phase 5
-close-out complete, verify → RESULT: PASS).** Awaiting two maintainer actions:
-(1) live-test wheel/two-finger scrolling on the TTS panel, then (2) make the single
-drop commit (drop file deliberately NOT deleted and nothing committed until then).
-Earlier: the Kokoro-on-macOS §2.4 fix in `bootstrap.py` is live-verified on this
-machine and still uncommitted alongside this drop's work. **⚠ This Mac's working copy
-has NO `.git` directory** (not a clone — likely copied/zip-transferred), so nothing
-can be committed or pushed from this machine as-is; the maintainer must reconcile
-these changes onto a real clone. Windows-side drops still pending after this:
-Drop 4 (script hardening), then the Windows UI drop.
+**All three macOS drops are COMMITTED and MERGED — master is at `e7cecd1`.** The
+maintainer carried the MacBook working copy (which had no `.git`) onto the real clone
+and made the drop commits on 2026-07-08: `47c2397` (Finder UI shell + Kokoro 3.12
+venv fix + `enable_mousewheel` scroll helper + per-tool `ProgressIndicator` +
+M4B Metadata Editor scroll layout — the UI-shell and UX-progress drops together) and
+`eede04b` (macOS component verification — full six-tool live pass). The drop files
+were deleted at commit time. Any "awaiting maintainer commit / nothing committed"
+wording in the work log below is historical — trust git.
+Agent config was removed from version control in the same push (`9c89479`
+AI-WORKSPACE.md, `fd61dfb` gitignore, `d3443fe` .claude/, `e7cecd1` .codex/) and is
+now fully gitignored (housekeeping 2026-07-09); each machine keeps its local copies
+on disk, and they never come down with a clone/pull — that is expected.
+State: version v0.5.0 in development (v0.4.0 = latest published GitHub release);
+branch `restructure-v0.5.0` deleted 2026-07-09 (fully merged into master — served
+its purpose); HOME-PC synced to `e7cecd1` on 2026-07-09. The only open logged issue
+is #2 below (kokoro_synth.py cp1252 console cosmetic). Still pending per plan:
+Windows-side Drop 4 (script hardening), then the Windows UI drop. Residual
+verification gap (not a bug): the macOS `aac_at` xHE-AAC/USAC decode path remains
+unverified — no USAC sample on hand (see Briefing known limitations).
 
 ---
 
@@ -151,6 +110,22 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-09 — HOME-PC sync + housekeeping (direct commit to master — standalone
+  cleanup, not a drop). Synced this machine to origin/master `e7cecd1` (clean
+  fast-forward from e546b69; local agent config — .claude/, .codex/, AI-WORKSPACE.md,
+  files/vibe-coding-templates/ — backed up before the pull and restored after, since
+  the new commits delete them from tracking). Verified the three MacBook drops are
+  genuinely in the committed code (ui_theme.py apply_theme / enable_mousewheel /
+  ProgressIndicator, launcher _build_ui_darwin, bootstrap.py 3.12 gate +
+  test_bootstrap_python_version.py, metadata-editor scroll canvas + 14-row Log).
+  Housekeeping: deleted merged branch restructure-v0.5.0 locally (the remote copy
+  was already gone from GitHub; stale tracking ref pruned); dropped the redundant
+  pre-sync AI-WORKSPACE.md stash after confirming the edits are on disk; extended
+  .gitignore to cover .claude/ + .codex/ (they had been deleted from tracking but
+  not ignored, so restored local copies showed as untracked and could have been
+  swept into a commit) and removed the contradictory "rest of .claude/ is tracked"
+  comment; corrected this file's Current Focus (it still said the macOS drops were
+  awaiting commit). — Claude Code
 - 2026-07-08 — UX-progress drop Phase 5 — DROP DONE (MacBook session; no commit —
   no .git here; drop file NOT deleted per maintainer instruction). Maintainer
   approved the Phase-4 metadata layout visually (scroll, larger Log, description,
@@ -491,6 +466,21 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-09 — HOME-PC — sync + housekeeping — committed to master, pushed
+- Changed: .gitignore (.claude/ + .codex/ now ignored; the stale "rest of .claude/
+  is tracked" comment and the now-redundant .claude/settings.local.json rule
+  replaced by one agent-config block)
+- Changed: md-instructions/handoff.md (this file — Current Focus corrected to the
+  committed reality: macOS drops landed as 47c2397/eede04b and merged; work log +
+  sync log entries added)
+- Note:    Local master fast-forwarded e546b69 → e7cecd1. Branch restructure-v0.5.0
+  deleted locally (remote copy already gone; stale tracking ref pruned). Redundant
+  pre-sync AI-WORKSPACE.md stash dropped after confirming the edited files are on
+  disk. Local agent config preserved across the pull (backed up + restored; now
+  properly gitignored).
+- Note:    Direct commit to master — standalone housekeeping, not part of a drop.
+  No AI co-author trailers.
 
 ### 2026-07-08 — MacBook — UX-progress drop (all phases) — NOT committed (no .git on this copy)
 - Changed: scripts/Universal/shared/ui_theme.py (new ProgressIndicator class)
