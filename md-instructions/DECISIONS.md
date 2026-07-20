@@ -4,6 +4,40 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-07-19 — Batch-timing-parity rewrite implemented, measured, and ABANDONED by ear; the original chunk pipeline is the confirmed-preferred batch method
+
+**Decision:** The Edge batch path stays on its original chunk pipeline
+(`split_into_chunks` → one `edge_tts.Communicate` call per ~3000-char chunk →
+`merge_mp3s` with a flat 50 ms chunk join), which honors only `speaker` and `rate` and
+leaves all inter-sentence pacing to Edge's natural prosody. A full timing-parity
+rewrite — batch delegating each file to `run_conversion_job` in a child subprocess
+(thread-level delegation is unsafe: the engine's `os.chdir` is process-global, proven
+to corrupt concurrent conversions), plus per-path registry presets
+(`batch_timing_preset` overrides re-tuned so every non-Jenny voice matched its
+old-batch median gap within −22…0 ms) — was fully implemented and measured across
+all 7 Edge voices, hit its numeric targets almost exactly, and was then **abandoned
+after the maintainer's manual A/B listening: it sounded subjectively worse than the
+original batch method for every compared voice.** Do not blindly re-attempt this;
+sentence-level pause insertion plus per-chunk silence trimming audibly changes the
+speech character of a batch render in ways gap statistics do not capture. Any future
+attempt must lead with ear-testing, not measurements, and should start from the
+session records around this date (handoff work log, CHANGELOG notes).
+
+**Why:** The maintainer compared old-vs-new batch renders of the same chapter for six
+voices; despite median-gap parity, the new engine's output was consistently judged
+worse by ear. Measured-identical cadence is not perceived-identical audio: the old
+pipeline's single continuous synthesis per chunk preserves Edge's natural prosodic
+flow across sentences, while per-sentence synthesis + trim + inserted silence does
+not.
+
+**Consequences:** Batch mode intentionally ignores the five GUI pause fields (they
+apply to Edge single-file conversion only — documented in Briefing.md); Jenny's
+`timing_preset` (sentence 750 / paragraph 800) affects single-file mode only. The
+one surviving artifact of the effort is knowledge, recorded here.
+
+— Decided by maintainer (Elijah Matthew) after A/B listening, implemented-and-reverted
+by Claude Code, 2026-07-19
+
 ## 2026-07-08 — AI-WORKSPACE.md and files/vibe-coding-templates/ are excluded from version control
 
 **Decision:** Neither `AI-WORKSPACE.md` nor `files/vibe-coding-templates/` is tracked in git,

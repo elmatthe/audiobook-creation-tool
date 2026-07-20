@@ -44,6 +44,10 @@ files/test-for-manual-listen-elmatthe/
 files/test-files/
 test-files/
 
+# Voice-timing test corpus (copyrighted light-novel PDFs + rendered audio) —
+# same rule as files/test-files/: local fixtures only, never staged.
+files/livid-lady-test-files/
+
 # Per-machine Claude Code settings (machine paths/permissions); rest of .claude/ is tracked.
 .claude/settings.local.json
 

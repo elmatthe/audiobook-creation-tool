@@ -1,6 +1,75 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
+**Batch-timing-parity drop ABANDONED by maintainer decision after A/B listening
+(2026-07-19); Jenny voice addition kept; v0.5.1 committed to branch
+`add-jenny-voice` and pushed for a Windows second-verify pass.** The Phases 1–3
+engine work (subprocess delegation, pause-field threading, per-path
+`batch_timing_preset` overrides, batch harness, engine `rate` kwarg) hit its
+measured targets (every non-Jenny voice within −22…0 ms of its old-batch median)
+but sounded subjectively worse than the original chunk pipeline on the
+maintainer's six-voice A/B listen — reverted IN FULL from the working tree
+(nothing had been committed; see the do-not-retry ADR in DECISIONS.md
+2026-07-19 and the work-log entries below, which stand as the historical
+record). Final state: batch mode is byte-identical to pre-drop `master`
+(chunk pipeline, speaker+rate only, original "Steffan Neural" banner); the ONLY
+functional change vs master is the Jenny voice addition (registry entry
+750/800 single-file preset, smoke-test counts 12/7, generate_voice_samples
+filter args, gitignore entries, sample MP3) plus docs and the 0.5.1 version
+bump. Investigation artifacts (batch-baselines/, phase3-listen/, harness, child
+script) deleted; drop file deleted per convention. Maintainer pulls
+`add-jenny-voice` on Windows, verifies, and merges to master themself — do NOT
+merge or push to master from here. Phase 2 (engine change) is
+implemented: batch per-file conversion now delegates to `run_conversion_job` in a
+child subprocess per file (`tts/batch_convert_child.py` is the child entry;
+`_delegate_to_child` in `batch_convert.py` is the spawn/cancel/log seam and the
+test-fake point). All seven pause/trim fields + MP3 bitrate thread GUI →
+`run_batch_convert` → `convert_single_pdf` → child; presets NOT re-tuned (Phase 3
+measures against phase1 baselines). The engine gained ONE additive, default-inert
+kwarg: `rate="+0%"` through `run_conversion_job` → `read_book` →
+`run_edgespeak`/`parallel_edgespeak` (edge-tts's own default — needed because old
+batch honored the GUI Speech-rate field and the single-file engine had no rate
+support; single-file inertness proven live: post-change single-file intro render is
+millisecond-identical to the reference). Old chunk pipeline
+(`split_into_chunks`/`synthesize_chunk_mp3`/`merge_mp3s` + CHUNK_* constants)
+removed from batch_convert; "Steffan Neural" banner now shows the real voice.
+Live gates: workers=2 real batch → 2/2 mirrored outputs correct, no orphan
+children; cancel drill terminates the in-flight child cleanly; verify → RESULT:
+PASS (49 passed / 3 skipped; batch tests rewritten around the delegation seam,
+5→8). New-engine measurements in
+`files/livid-lady-test-files/batch-baselines/phase2-newengine.json`. **⚠ Phase 3
+conflict now quantified (maintainer decision required):** restoring old-batch
+cadence needs sentence-preset cuts of −162 ms (Steffan), −436…−458 ms (Andrew ×2,
+Ava ×2), Aria +70 ms, all of which would shift single-file identically under the
+shared preset — per-path presets (or accepting single-file cadence in batch) must
+be chosen before Phase 3 re-tuning. Jenny's batch is already −150 ms tighter than
+her old batch purely from the engine change. The Jenny preset-trim session's 6
+modified files (2026-07-19, further below) still await the same single drop commit.
+No behavior change: the only new code is the dev/QA harness
+`scripts/Universal/tts/batch_timing_harness.py` (never imported by the app);
+verify → RESULT: PASS (46 passed, 3 skipped). Decision: **delegate batch per-file
+conversion to `run_conversion_job` via a child subprocess per file** (thread-level
+delegation is disproven — a 2-thread demo corrupted/crashed on the process-global
+`os.chdir` in `runner.py` on 2/2 runs; a chdir-free engine refactor would touch ~30
+cwd-relative filename sites in the GPL-derived engine). Subprocess prototype passed
+at workers=1 (real PDF) and workers=2 (nested same-stem tree): mirrored absolute
+targets correct, no cross-contamination, parent cwd preserved, and the delegated
+render's gap profile is identical to the single-file reference (timing parity by
+construction). Baselines for all **7** Edge voices (drop says 6 — Jenny makes 7) ×
+{00-intro, 03-ch1-1} captured on the CURRENT engine →
+`files/livid-lady-test-files/batch-baselines/phase1-baseline.json` (+
+`phase1-variance.json`: Edge synthesis is deterministic run-to-run, gap means ±2 ms,
+so Phase 3's ±25 ms tolerance is measurable). Kokoro batch confirmed NOT on this
+path (inline GUI loop → `kokoro_file_to_mp3`; untouched by this drop). **⚠ Flag for
+the maintainer before Phase 3:** old-batch parity and single-file invariance are
+mutually exclusive under one shared preset — e.g. Steffan's old batch median gap is
+~770 ms but his single-file (= new-batch) measured gap is ~951 ms at the same preset;
+matching old batch within ±25 ms forces preset cuts that would audibly change
+single-file mode. Resolution options recorded in the Phase 1 summary. The Jenny
+preset-trim session's 6 modified files (2026-07-19, further below) still await the
+same single drop commit.
+
+## Previous Focus (UX progress + metadata layout drop — awaiting maintainer commit)
 **UX progress + metadata layout drop (`0.5.0-ux-progress-and-metadata-layout.md`) —
 ALL PHASES (1–5) DONE on HOME-MacOS (2026-07-08), awaiting maintainer final sign-off
 + the single drop commit.** Phase-4 layout was visually approved by the maintainer
@@ -151,6 +220,103 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-19 — Batch-timing-parity drop ABANDONED + Jenny addition shipped to branch
+  (MacBook session). Maintainer listened to all six Phase-3 A/B pairs: the rewritten
+  batch engine, despite median-gap parity within −22…0 ms, sounded subjectively worse
+  than the original chunk method — full working-tree revert ordered and executed
+  (nothing was ever committed). Surgical handling: voice_registry.py hand-reverted
+  (batch_timing_preset field, effective_preset(), _batch_override(), six overrides
+  and Phase-3 comments removed; Jenny's entry restored verbatim to her original
+  addition incl. original comment); test_tts_smoke.py kept the 12/7 counts but lost
+  the effective_preset contract test; plain `git checkout` (diffs verified pure
+  Phase-2/3 first) for batch_convert.py (banner fix reverted with it),
+  epub2tts_gui.py, epub2tts_edge.py + runner.py (rate kwarg), and
+  test_batch_convert_folders.py (back to the original 5 fake-synth tests);
+  batch_convert_child.py + batch_timing_harness.py deleted; batch-baselines/ +
+  phase3-listen/ investigation data deleted (Jenny's pre-drop samples kept);
+  Instructions_Template.md restored from HEAD (deleted only as a side effect of
+  drop-file creation — same precedent as Drop 3). Docs: DECISIONS do-not-retry ADR;
+  CHANGELOG revert note + 0.5.1 entry; Briefing pause-fields accuracy fix + version
+  line; version.py 0.5.0 → 0.5.1; drop file batch-timing-parity.md deleted last.
+  verify → RESULT: PASS. Committed as ONE commit on new branch `add-jenny-voice`
+  (Jenny addition + docs/version + revert record), pushed to origin; master
+  untouched — maintainer does the Windows verify + merge. — Claude Code
+- 2026-07-19 — Batch-timing-parity drop Phase 3 DONE (MacBook session; no commit per
+  drop). Per-path presets prototyped per maintainer option (a): registry field
+  `batch_timing_preset` (partial dict, None default) + `effective_preset(v, mode)`
+  merge helper + `_batch_override()` factory; GUI `_on_voice_selected` now loads
+  the effective preset for the current mode and both mode radios re-invoke it
+  (lambda for late binding — the radios are built before the handler exists).
+  Harness renders batch with the effective batch preset and records the merged
+  preset in its JSON. Tuning: two measured iterations (first pass undershot
+  medians ~45 ms — the trim residual measured at presets 780–820 shrinks at
+  340–640, so Phase-2's implied values were systematically tight); final values
+  land every non-Jenny voice within −22…0 ms of its old-batch ch1-1 median.
+  Title/chapter batch overrides = 0 (beyond the maintainer's given sentence
+  numbers, flagged): the old batch never inserted them, and with 0 the title gap
+  is the voice's natural residual — intro title gaps landed within 5–64 ms of old
+  batch for five voices (Steffan +113, his residual runs long), trails within
+  ±60 ms. Choppiness check for the low-preset voices (AndrewM 423 / Andrew 410 /
+  AvaM 373 / Ava 344): new minimum gaps are HIGHER than old batch's own natural
+  minimums (e.g. Ava 375 vs 218, Steffan 363 vs 232) — the preset acts as a floor;
+  remaining sub-200 ms gaps are comma-scale, present in old batch too. No numeric
+  sign of clipping; agent cannot literally listen — old-vs-new A/B samples for all
+  six voices staged in files/livid-lady-test-files/phase3-listen/ for the
+  maintainer's ear gate. Tests: new per-path merge + single-file-verbatim contract
+  test in test_tts_smoke (50 passed / 3 skipped); verify RESULT: PASS. — Claude Code
+- 2026-07-19 — Batch-timing-parity drop Phase 2 DONE (MacBook session; no commit per
+  drop). Engine change per the Phase-1 decision: `convert_single_pdf` rewritten to
+  spawn `batch_convert_child.py` (new, ~68 lines) via `shared.subprocess_utils.popen`
+  — child installs the no-window guard + configure_pydub + ensure_punkt itself
+  (fresh process), turns SIGTERM into SystemExit so the engine's finally cleans its
+  temp dir, renders into a private absolute dir under `.tmp_chunks/<tmp_key>`
+  (existing orphan-cleanup covers it), prints `BATCH_CHILD_SAVED::` on success;
+  parent moves `<stem> (<voice>).mp3` onto the mirrored target. Cancel: parent polls
+  cancel_check every 0.5 s and terminate()s the child (grace 10 s then kill) — faster
+  than the old between-chunk checkpoint; per-PDF retry loop unchanged around the
+  spawn; network retry lives in the engine (run_edgespeak 3×, finer than the old
+  per-chunk retry); per-file progress_report unchanged; child stdout pumped on a
+  thread, only retry/error-ish lines forwarded (log stays as quiet as the old
+  pipeline), full tail kept for failure messages; `-X utf8 -u` on the child guards
+  the cp1252-console issue (Open Issues #2 class). `run_batch_convert` gained
+  mp3_bitrate + 7 optional pause kwargs (None → engine defaults, engine stays the
+  single source of truth). GUI: pause_kw now built for batch too (validation dialog
+  now also fires on bad pause fields at batch start — new, correct) and passed with
+  bitrate into run_batch_convert; Kokoro single/batch paths untouched. Harness
+  updated to pass each voice's preset pause fields (same mapping as the GUI) and
+  self-describe the engine in its JSON. Tests: fake seam moved from
+  synthesize_chunk_mp3 to `_delegate_to_child`; same five scenarios preserved
+  (same-stem test no longer needs fitz — parent never parses PDFs) + new
+  pause-threading, engine-defaults, and cancel tests (5→8). Proofs: single-file
+  intro render on new code millisecond-identical to reference (20.215 s /
+  961-942-949 ms gaps); live workers=2 batch 2/2 mirrored, 0 orphans; cancel drill
+  clean; verify RESULT: PASS (49/3). Measured new engine on all 7 voices × 2
+  sources → phase2-newengine.json; conflict numbers recorded in Current Focus.
+  — Claude Code
+- 2026-07-19 — Batch-timing-parity drop Phase 1 DONE (MacBook session; no commit per
+  drop). Traced GUI batch invocation: in batch mode `pause_kw` is never built
+  (epub2tts_gui.py:462 gates it on mode=="single"); Edge batch receives only
+  speaker/rate/workers/resume, though every pause Tk var is readable on the main
+  thread at start_job — threading them through is pure plumbing. Kokoro batch is an
+  inline GUI loop (lines ~534–649), not `run_batch_convert` — out of blast radius.
+  Chose subprocess-per-file delegation after disproving in-process thread delegation
+  live (chdir race: 2/2 runs failed — `sntnc*.mp3` written/read across the wrong tmp
+  dirs, CouldntDecodeError, one thread's finally-chdir targets a dir the other
+  rmtree'd) and sizing the chdir-free refactor as too invasive (~30 bare relative
+  filenames in read_book/make_mp3/make_m4b). Prototype (scratchpad) proved the
+  delegated shape: child renders to a private absolute dir, parent moves
+  `<stem> (voice).mp3` to the mirrored target; workers=1 real PDF + workers=2 nested
+  same-stem TXT tree both correct, cwd stable, delegated gaps == single-file
+  reference (961/942/949 ms). Built `scripts/Universal/tts/batch_timing_harness.py`
+  (renders via the real `convert_single_pdf`, measures gaps with pydub at
+  −50 dBFS/150 ms, writes JSON) and captured baselines: 7 Edge voices ×
+  {00-intro, 03-ch1-1} → batch-baselines/phase1-baseline.json; variance run shows
+  Edge is deterministic (±2 ms), so ±25 ms tolerance is real. Surprise flagged: batch
+  medians (Steffan ~770, Jenny ~1000, Andrew ~452 ms) sit far from single-file
+  measured gaps at the same presets (Steffan ~951 ms), so Phase 3's "match old batch"
+  and "don't change single-file" conflict under one shared preset — maintainer input
+  needed on resolution (per-path preset values vs. accepting single-file cadence in
+  batch). verify → RESULT: PASS. — Claude Code
 - 2026-07-08 — UX-progress drop Phase 5 — DROP DONE (MacBook session; no commit —
   no .git here; drop file NOT deleted per maintainer instruction). Maintainer
   approved the Phase-4 metadata layout visually (scroll, larger Log, description,
@@ -491,6 +657,24 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-19 — MacBook — Jenny voice + batch-rework revert — committed to `add-jenny-voice`, pushed (NOT merged to master)
+- Changed: scripts/Universal/tts/voice_registry.py (Jenny VoiceEntry, 750/800 single-file preset)
+- Changed: files/tests/test_tts_smoke.py (voice counts 11→12, edge 6→7)
+- Changed: scripts/Universal/tts/generate_voice_samples.py (reusable voice-filter CLI args)
+- Changed: .gitignore (files/livid-lady-test-files/ voice-timing corpus)
+- Changed: scripts/Universal/shared/version.py (0.5.0 → 0.5.1)
+- Changed: md-instructions/CHANGELOG.md (Jenny entries + rework-reverted 0.5.1 note)
+- Changed: md-instructions/Briefing.md (12 voices / 7 Edge; batch pause-fields limitation
+  made explicit; version line 0.5.1)
+- Changed: md-instructions/DECISIONS.md (batch-rewrite-abandoned-by-ear ADR)
+- Changed: md-instructions/handoff.md (this file — focus, work log, sync log)
+- Note:    ALL batch-engine work from the abandoned drop reverted before commit —
+  batch_convert.py / epub2tts_gui.py / epub2tts_edge.py / runner.py /
+  test_batch_convert_folders.py are byte-identical to master; batch_convert_child.py,
+  batch_timing_harness.py, and the drop file batch-timing-parity.md never committed.
+- Note:    Maintainer pulls this branch on HOME-PC for a second verify pass and merges
+  to master themself. No AI co-author trailers.
 
 ### 2026-07-08 — MacBook — UX-progress drop (all phases) — NOT committed (no .git on this copy)
 - Changed: scripts/Universal/shared/ui_theme.py (new ProgressIndicator class)
