@@ -120,6 +120,18 @@ VOICES: list[VoiceEntry] = [
         timing_preset=_edge_preset(sentence=780, paragraph=830),
     ),
     VoiceEntry(
+        backend="edge",
+        voice_id="en-US-JennyNeural",
+        display_label="Jenny — en-US Female",
+        group_label="Microsoft Edge TTS — English (US)",
+        # Measured against Steffan on the same source: in single-file mode Jenny's
+        # real gaps are already ~75ms SHORTER than his (877ms vs 951ms), so this is
+        # a deliberately minimal trim, not a correction. Her extra gappiness on
+        # full-book runs comes from Edge's own prosody in the batch path, which
+        # ignores these fields entirely — see CHANGELOG 2026-07-19.
+        timing_preset=_edge_preset(sentence=750, paragraph=800),
+    ),
+    VoiceEntry(
         backend="kokoro",
         voice_id="af_heart",
         display_label="Heart (af_heart) — US Female (Kokoro default)",

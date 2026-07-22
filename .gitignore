@@ -44,6 +44,10 @@ files/test-for-manual-listen-elmatthe/
 files/test-files/
 test-files/
 
+# Voice-timing test corpus (copyrighted light-novel PDFs + rendered audio) —
+# same rule as files/test-files/: local fixtures only, never staged.
+files/livid-lady-test-files/
+
 # Agent config (.claude/, .codex/) — local per-machine wiring, removed from tracking
 # 2026-07-08 (d3443fe / e7cecd1); intentionally never tracked. Local copies stay on disk.
 .claude/

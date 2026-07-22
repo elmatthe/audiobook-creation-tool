@@ -15,17 +15,53 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-### Fixed — first-run setup crash after Kokoro download (2026-07-09)
-- **First-time setup crashed with `TypeError: 'SetupLog' object is not callable`
-  right after the Kokoro model downloaded.** `run_setup` passed its `SetupLog`
-  object into `warmup_kokoro_pipeline`, which expects a plain str-callable
-  (the self-heal path already passed `LOG.line` correctly). The call site now
-  passes the bound method `log.line`, matching the function's contract. Sole
-  instance of the mismatch — all other logger hand-offs in `bootstrap.py`
-  audited clean. Regression tests in
-  `files/tests/test_bootstrap_setup_logging.py` (headless: all install steps
-  stubbed, warmup subprocess faked) drive `run_setup` through the exact call
-  site and verify the warmup logs land through `SetupLog.line`.
+### Added — Jenny Edge TTS voice (2026-07-19)
+- **New Edge voice: Jenny (`en-US-JennyNeural`)** in `scripts/Universal/tts/voice_registry.py`,
+  appended after Ava as the last en-US Female entry. Uses the same
+  `_edge_preset(sentence=780, paragraph=830)` timing as Aria and Ava. Voice roster is now
+  12 (7 Edge + 5 Kokoro); `files/tests/test_tts_smoke.py` counts updated to match.
+- **Note:** this entry was requested as Sara (`en-US-SaraNeural`), but that voice is not
+  offered by edge-tts — it exists in the paid Azure Speech Service, not the free Edge
+  read-aloud endpoint that `edge-tts` queries. Confirmed against the live voice list: the
+  only "Sara" match is `ta-LK-SaranyaNeural`, and the en-US female roster is Ana, Aria,
+  AvaMultilingual, Ava, EmmaMultilingual, Emma, Jenny, Michelle. Jenny was substituted by
+  maintainer decision. Shipping the unavailable ID would have added a dropdown entry that
+  failed only at synthesis time.
+
+### Changed — Jenny timing trim + pause-path measurements (2026-07-19)
+- **Jenny's `timing_preset` trimmed:** `sentence 780→750`, `paragraph 830→800`
+  (−30 ms each, ~4%). Title/chapter/end/trim/rate unchanged. No other voice touched.
+- **Measured finding — the preset was not the driver.** Matched single-file renders of
+  `00-intro-a-livid-lady-7` and `03-ch1-1-a-livid-lady-7` show Jenny's real inter-sentence
+  gaps were already *shorter* than Steffan's (877 ms vs 951 ms on the intro; 894 ms vs
+  984 ms on prose), despite near-identical presets. Ordering held at every silence
+  threshold from −40 to −60 dBFS, so it is not a detection artifact. Steffan simply
+  retains more residual trailing silence per chunk after `trim_tts_chunk_file`.
+- **Root cause of the "stop-and-start" feel is the batch path, not the preset.**
+  `batch_convert.run_batch_convert` accepts only `speaker` and `rate` — it never receives
+  the five pause fields, and its pipeline (`split_into_chunks` → `synthesize_chunk_mp3` →
+  `merge_mp3s`) does no sentence tokenization and inserts silence only *between* ~3000-char
+  chunks (`CHUNK_PAUSE_MS = 50`) and at end of file. Every inter-sentence gap in a batch
+  render is therefore Edge's own prosody. Measured batch-mode gaps: Jenny ~995 ms vs
+  Steffan ~800 ms on prose (~195 ms gappier) — the inverse of single-file mode, and the
+  mode the full-book test used. **Jenny's preset has no effect on batch/folder runs.**
+- **Known-issue note:** `Briefing.md` states "Edge voices honor all five pause fields."
+  That holds for single-file conversion only; Edge *batch folder* mode honors `rate` alone.
+  (Briefing.md now states this limitation explicitly — it is deliberate, see the
+  2026-07-19 DECISIONS.md entry.)
+
+### Changed — batch-timing rework attempted and reverted; version 0.5.1 (2026-07-19)
+- **A batch-timing-parity rewrite was implemented, measured, and reverted the same day.**
+  Batch per-file conversion was routed through the single-file timing-aware engine (child
+  subprocess per file) with per-path registry presets re-tuned to match every non-Jenny
+  voice's old-batch cadence within −22…0 ms of its measured median gap. Despite hitting
+  the numeric targets, the maintainer's A/B listening judged the new engine subjectively
+  worse than the original batch method for every compared voice, and the entire change
+  was reverted from the working tree before ever being committed. Batch mode is exactly
+  the original chunk pipeline; no shipped behavior changed. Full rationale and the
+  do-not-retry guidance: DECISIONS.md 2026-07-19.
+- **Version bumped 0.5.0 → 0.5.1** (`shared/version.py`): the Jenny voice addition above
+  is the sole functional change riding this bump.
 
 ### Added — v0.5.0 UX progress + metadata layout (2026-07-08)
 - **Every tool now shows run progress.** New shared `ProgressIndicator` widget in

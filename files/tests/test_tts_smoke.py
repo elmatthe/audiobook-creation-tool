@@ -12,12 +12,12 @@ def test_voice_registry_shape_and_lookup():
     from tts import voice_registry as vr
 
     labels = vr.display_labels()
-    assert len(vr.VOICES) == 11, "6 Edge + 5 Kokoro voices"
-    assert len(labels) == len(set(labels)) == 11
+    assert len(vr.VOICES) == 12, "7 Edge + 5 Kokoro voices"
+    assert len(labels) == len(set(labels)) == 12
 
     edge = [v for v in vr.VOICES if v.backend == "edge"]
     kokoro = [v for v in vr.VOICES if v.backend == "kokoro"]
-    assert len(edge) == 6 and len(kokoro) == 5
+    assert len(edge) == 7 and len(kokoro) == 5
     assert {v.voice_id for v in kokoro} == {
         "af_heart", "af_bella", "am_michael", "bf_emma", "bm_george",
     }

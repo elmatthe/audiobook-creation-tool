@@ -5,4 +5,4 @@ the distribution zips, and available to any future about-box / ``--version``
 output.
 """
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"

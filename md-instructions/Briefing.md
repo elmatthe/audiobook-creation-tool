@@ -88,12 +88,15 @@ flashing during use.
 
 ## Features
 
-- **TTS Audiobook** (`tts/epub2tts_gui.py`) — EPUB/PDF/TXT → MP3; 11 voices (6 Edge network +
+- **TTS Audiobook** (`tts/epub2tts_gui.py`) — EPUB/PDF/TXT → MP3; 12 voices (7 Edge network +
   5 Kokoro local AI); single file or batch folder (PDF / TXT; nested subfolders are mirrored
   in the output so same-named files in different books never collide); per-chunk retry;
-  Cancel. Edge voices honor all five pause fields; Kokoro voices honor the paragraph pause
-  (mapped to the inter-chunk gap) and the end-of-recording pause — sentence/title/chapter
-  parity is deliberately deferred (see DECISIONS.md). Dev/QA helper
+  Cancel. Edge voices honor all five pause fields in **single-file** conversion; Edge
+  **batch folder** mode honors speaker + rate only — inter-sentence pacing there is
+  Edge's natural prosody by deliberate decision (a timing-aware batch rewrite was
+  built, measured, and rejected by ear — see DECISIONS.md 2026-07-19). Kokoro voices
+  honor the paragraph pause (mapped to the inter-chunk gap) and the end-of-recording
+  pause — sentence/title/chapter parity is deliberately deferred (see DECISIONS.md). Dev/QA helper
   `tts/generate_voice_samples.py` writes one short sample per voice to
   `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
 - **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → clean MP3 (libmp3lame VBR),
@@ -146,7 +149,7 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 
 ## Current Version
 
-v0.5.0 (restructure line in progress on branch `restructure-v0.5.0`; v0.4.0 is the latest
+v0.5.1 (v0.5.0 line plus the Jenny Edge voice; v0.4.0 is the latest
 published GitHub release — remote: [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool))
 
 ## High-Level State
