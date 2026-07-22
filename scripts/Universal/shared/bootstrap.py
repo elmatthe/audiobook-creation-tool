@@ -965,7 +965,7 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         # Pre-warm the pipeline so Smart App Control / WDAC evaluates Kokoro's
         # unsigned native DLLs during this install dialog, not on first synthesis.
         if kokoro_is_healthy(venv_python())[0]:
-            warmup_kokoro_pipeline(venv_python(), log)
+            warmup_kokoro_pipeline(venv_python(), log.line)
 
     progress(total, "Setup complete.")
     return True, "Setup complete."
