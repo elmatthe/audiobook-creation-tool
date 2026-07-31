@@ -1,7 +1,7 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 0 COMPLETE, STOPPED at the Phase 1
+**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 1 COMPLETE, STOPPED at the Phase 2
 approval gate.** Plan file: `md-instructions/0.6.0-drop1-windows-ui-prototype.md`
 (Plan 1 of nine planned v0.6.x instruction drops; the remaining eight are named in
 the plan's sequencing note but are **not drafted and must not be started**).
@@ -13,10 +13,21 @@ plan's stated planning-audit baseline**, so there is **zero drift** to explain.
 The desktop checkout was 10 commits behind at `695045c` and fast-forwarded cleanly
 (no divergence, no merge, no reset, no stash).
 
+**Phase 0 commit:** `0971a20e24fc196967da97d1b204375dc549ad5a` (docs only).
+**Phase 1 commit:** see the Session Sync Log entry below.
+
 **Phase 0 result:** baseline established and green. No theme, launcher, tool-panel,
 test, `requirements.txt`, or `version.py` source was edited — Phase 0 is
 reorient/synchronize/record only. `version.py` remains `0.5.1`; no version bump and
 no v0.6.0 release is part of this drop.
+
+**Phase 1 result:** the Windows design system exists and is proven isolated. Two
+files changed — `scripts/Universal/shared/ui_theme.py` (+795/-7) and
+`files/tests/test_ui_theme.py` (+429/-13). **Nothing was converted:** the launcher,
+all six tool panels, `requirements.txt` and `version.py` are byte-identical to
+Phase 0. A live run of the real launcher confirms every one of the 283 widgets
+across the six panels and all 14 launcher-chrome widgets still carries an **empty**
+style string, i.e. still renders through the native `vista` theme.
 
 **Hard boundaries carried forward (from the plan):**
 - Only the **Windows launcher shell** and the **Windows M4B Metadata Editor** may ever
@@ -31,11 +42,134 @@ no v0.6.0 release is part of this drop.
   explicit user *approved* / *changes requested* decision. Screenshots existing is
   not approval.
 
-**Next proposed phase:** Phase 1 — build isolated Windows design primitives in
-`scripts/Universal/shared/ui_theme.py` (explicit Windows branch, semantic colour and
-metric tokens, namespaced `ACT`-prefixed ttk styles, classic-Tk token helpers), extend
-`files/tests/test_ui_theme.py`, and convert **nothing**. **Awaiting explicit user
-approval before starting.**
+**Next proposed phase:** Phase 2 — convert the **Windows launcher shell only**
+(background, sidebar/navigation, heading/content shell, selected-tool state, status
+area, log-folder action) using the Phase 1 primitives; preserve the six-tool
+registry/order, availability logic, lazy build-once containers, error panels, saved
+selection and state preservation; keep the content host compatible with the five
+classic panels; extend `files/tests/test_launcher_smoke.py`. **Not started. Awaiting
+explicit user approval.**
+
+### Phase 1 — Windows design primitives (2026-07-31, HOME-PC)
+
+**What it is.** `shared/ui_theme.py` now routes each platform explicitly —
+`darwin -> "aqua"`, `win32 -> "windows"`, everything else -> `"classic"`. Windows is
+never inferred from "not macOS" any more. The Windows branch keeps the **native
+`vista` base theme** and layers a dark design system on top as namespaced styles and
+token dictionaries. Nothing is applied to a widget automatically: a panel opts in by
+naming an `ACT.*` style or by calling `style_tk_widget()`.
+
+**The isolation mechanism (this is the part later phases must not break).**
+`vista` draws buttons, entries, comboboxes, spinboxes, checkbuttons, radiobuttons,
+notebook tabs, progressbars, scrollbars, Treeview fields/headings and labelframes
+with native Windows theme parts that **ignore** `-background`/`-foreground`. Switching
+the app to `clam` would recolor them but would also silently restyle the five panels
+this drop must leave alone. So each recolorable element is *cloned* into the live
+theme under the prefix:
+
+```
+ttk::style element create ACT.Button.border from clam Button.border
+```
+
+and the `ACT.*` styles are laid out from those clones. Generic `TFrame` / `TLabel` /
+`TButton` / `TEntry` / `TCombobox` / `Treeview` / … are never created, configured or
+re-laid-out, so an unconverted panel keeps native vista rendering while a converted
+one gets a fully colorable dark control set from the same toolkit.
+`element_create` raises `Duplicate element` on re-entry, so the clone step is guarded
+and `apply_theme` is idempotent.
+
+**Rule for Phase 2/3 and for Plan 9 later:** every variant style needs its **own**
+layout. ttk resolves a name by stripping leading components, so `ACT.Primary.TButton`
+falls back to plain `TButton` — the native vista button — unless it is given the
+`ACT.TButton` layout explicitly. `_ACT_LAYOUTS` does this for every variant; adding a
+new variant means adding it there too, or the dark fill silently will not stick.
+
+**API introduced (all in `shared/ui_theme.py`):**
+
+| Name | What it is |
+|---|---|
+| `WINDOWS_STYLE_PREFIX` | `"ACT"`. Every registered style begins with it; nothing outside it is touched. |
+| `theme["mode"]` | now `"windows"` on win32 (was `"classic"`). `launcher.py` only tests `== "aqua"`, so it still takes the classic build path — that is why Phase 1 changes nothing on screen. |
+| `theme["base_theme"]` | the ttk theme actually in use (`"vista"`, or `"clam"`/`"default"` when vista is unavailable). |
+| `theme["colors"]` | 35 semantic colour roles (surfaces, text, accent/focus, status, fields/selection, scrollbars, Shared Metadata). Nonempty on Windows; still `None` on the classic branch. |
+| `theme["metrics"]` | 26 spacing/sizing tokens (sidebar width, row height, pads, gap scale, control padding, border/scroll widths, `content_max_width`). |
+| `theme["fonts"]` | 11-entry Segoe UI type scale + `Consolas` mono. `font_heading`/`font_button` keep their historical values so the bundle is still a drop-in for the classic launcher. |
+| `theme["styles"]` | semantic key → ttk style name (`theme["styles"]["primary_button"] == "ACT.Primary.TButton"`). **Panels must look styles up here, not hard-code the string.** |
+| `style_tk_widget(widget, theme, role="surface", **overrides)` | the one sanctioned way to colour classic Tk widgets ttk cannot style (`Canvas`, `Listbox`, `Text`, `Frame`). Roles: `window, surface, elevated, muted, sidebar, shared, field, list, text, log, canvas, divider`. Unsupported options are dropped so one call works for every widget class; `overrides` win; unknown role raises `ValueError`; **no-op on any non-Windows bundle**, so panels may call it unconditionally. Returns the applied option dict. |
+
+**Explicitly unchanged:** `apply_theme(root, style)` signature, `DEFAULT_GEOMETRY`,
+`MIN_SIZE`, `enable_mousewheel`, and the whole `ProgressIndicator` class (`update`,
+`set_indeterminate`, `reset`, `finish`, main-thread contract). `ProgressIndicator`
+deliberately still uses the *generic* styles — five unconverted panels instantiate it,
+and a test asserts its widgets carry an empty style string.
+
+**Phase 1 automated results (repo venv, Python 3.12.10):**
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | PASS — **16 passed** in 0.15s (was 5) |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_launcher_smoke.py` | PASS — 1 passed, 1 warning in 1.54s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_shared.py` | PASS — 7 passed in 0.03s |
+| `.venv\Scripts\python.exe -m pytest -q` (full suite) | PASS — **59 passed, 3 skipped**, 1 warning in 3.64s (was 48/3) |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** — pytest 59 passed/3 skipped; deps all `==`-pinned; docs de-templated |
+| `git diff --check` | clean (no whitespace errors) |
+
+The 1 warning is still the pre-existing pydub `audioop` DeprecationWarning; the 3
+skips are the pre-existing env-gated suites. Neither is new.
+
+**What the 11 new theme tests actually assert:** explicit `"windows"` mode and a
+backwards-compatible bundle; every colour parses as `#rrggbb` and every required
+semantic role exists; WCAG contrast floors on all seven surfaces (primary text ≥7:1,
+secondary ≥4.5:1, disabled ≥3:1, focus ring ≥3:1, status/accent ≥4.5:1 on the card,
+`inverse`-on-accent and `selection_text`-on-selection ≥4.5:1); metrics are
+non-negative ints with sane layout minimums; every style name starts with `ACT.`, has
+a layout, and roots in a cloned element rather than a native one; hover / pressed /
+selected / disabled / focus / danger states are defined and actually resolve to
+different values; **generic styles are byte-identical before and after applying the
+Windows theme** (layout + configure + background/foreground/fieldbackground lookups +
+state maps, for 18 generic styles); re-applying three times is idempotent; the branch
+still returns a full bundle when `vista` raises; one real widget per style builds and
+renders; and `style_tk_widget` applies/drops/overrides correctly and is a genuine
+no-op on the classic bundle.
+
+**Live Windows evidence (real `LauncherApp`, real Tk window, not a mock):**
+- `theme["mode"] == "windows"`, `ttk` theme in use still `vista`.
+- All six tools registered in order and selected twice: **zero** error panels,
+  6 containers with stable object identity (build-once intact), state marker survived
+  switch-away/back, `last_tool` round-tripped, geometry `1024x720`, minsize
+  `(920, 600)` — identical to the Phase 0 baseline.
+- Style audit across the whole widget tree: `tts` 63, `m4b_converter` 38, `mp3_tool`
+  41, `m4b_maker` 53, `cover` 24, `m4b_metadata` 64 widgets — **the only distinct
+  style string in every panel is `""`**, and the 14 launcher-chrome widgets are the
+  same. Zero widgets use an `ACT.*` style anywhere in the application.
+- Generic lookups after theming: `TButton`/`TFrame`/`TLabel`/`TEntry`/`TCombobox` →
+  `SystemButtonFace`, `Treeview` → `SystemWindow` (native vista values), while
+  `ACT.Primary.TButton` → `#4f8ff7`. Both facts are true at the same time, which is
+  the whole point of the namespace.
+
+### Phase 1 limitations and open items
+
+1. **No visual/eyes-on inspection.** Everything above is behaviour and style-resolution
+   evidence gathered programmatically. Nothing has been *looked at*, and by design
+   nothing is visible yet — no widget uses the new styles. Appearance remains Phase 5's
+   gate, and the exact colour values are approved through screenshots, not by these
+   tests.
+2. **`ttk.Combobox` popdown list is not themed.** The dropdown is a classic Tk listbox
+   reachable only through the global option database
+   (`option_add("*TCombobox*Listbox.background", ...)`), which would leak straight into
+   the five unconverted panels' comboboxes. Deliberately not done. If Phase 3 needs a
+   dark popdown it must be scoped per-widget, and the leakage test must still pass.
+3. **Element clones are per-interpreter.** `ACT.*` elements are created in the live ttk
+   theme of the Tk interpreter that `apply_theme` was called on. That is fine for the
+   app (one root) and for the tests (module-scoped root); a second `tk.Tk()` would need
+   its own `apply_theme` call. Not a defect, just the contract.
+4. **macOS still not verified live** (unchanged from Phase 0). aqua preservation is
+   proven only by the untouched `_apply_darwin` code path plus monkeypatched-platform
+   tests. Not claimed as passed.
+5. **Optional tooling:** Context7 was not needed — the question was "can vista host
+   cloned clam elements", which was answered by probing the actual Tk 8.6 build in the
+   repo venv rather than by reading documentation. Superpowers' executing-plans flow
+   structured the phase. Nothing was auto-installed.
 
 ### Phase 0 baseline evidence (2026-07-31, HOME-PC)
 
@@ -351,6 +485,35 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-31 — v0.6.0 Drop 1 **Phase 1 complete** (HOME-PC session; per-phase commit on
+  the implementation branch). Built the isolated Windows design system in
+  `shared/ui_theme.py` and extended `files/tests/test_ui_theme.py` from 5 tests to 16.
+  **Converted nothing** — the launcher and all six panels are untouched, and a live
+  style audit through the real `LauncherApp` proves it (297 widgets, every one with an
+  empty style string; generic ttk styles still resolve to the native vista values).
+  Key engineering decision: keep `vista` as the base theme and clone the recolorable
+  `clam` elements into it under an `ACT.` prefix, because vista's native parts ignore
+  colour options and a global switch to `clam` would have restyled the five panels this
+  drop must not touch. Probed the actual Tk 8.6 build in the repo venv to confirm
+  `element create … from clam` works for all 28 required elements before writing any
+  production code. Every style variant gets an explicit layout, otherwise ttk resolves
+  e.g. `ACT.Primary.TButton` down to the native `TButton` and the dark fill silently
+  does not stick — that trap is documented in the module and in Current Focus above.
+  Also added `style_tk_widget()` as the single sanctioned way to colour `Canvas` /
+  `Listbox` / `Text`, so no panel ever carries its own hex literal.
+  **Diagnostic-notice investigation** (requested before editing): the two earlier IDE
+  notices — "70 new diagnostic issues in 1 file" and "26 new diagnostic issues in 1
+  file" — were **Markdown editor-linter notices, not Python or source errors**. They
+  fired while `md-instructions/handoff.md` and the drop plan were being written in
+  Phase 0 (line-length / list-spacing style rules). `mcp__ide__getDiagnostics` now
+  reports **zero** diagnostics for the whole workspace, including
+  `handoff.md`, the drop file and `shared/ui_theme.py`, and
+  `python -m compileall scripts files/tests` exits 0 with no output. No baseline source
+  problem exists and nothing was broadened to "fix" them.
+  Results: focused theme suite 16 passed; launcher smoke 1 passed; metadata shared
+  7 passed; full suite 59 passed / 3 skipped / 1 warning; `verify.py` **RESULT: PASS**;
+  `git diff --check` clean. `requirements.txt`, `version.py` (still `0.5.1`), both setup
+  launchers and every tool module are unchanged. Stopped at the Phase 2 approval gate.
 - 2026-07-31 — v0.6.0 Drop 1 **Phase 0 complete** (HOME-PC session; committed and pushed
   on the implementation branch per the plan's per-phase commit contract, which
   supersedes the v0.5.0-only one-commit-per-drop rule). Read order completed first:
@@ -821,6 +984,39 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 1 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
+- Base:    `0971a20e24fc196967da97d1b204375dc549ad5a` (Phase 0). No pull needed —
+  `master` and `origin/master` are both still `1da1e547` and were not touched.
+- Changed: `scripts/Universal/shared/ui_theme.py` (+795 / -7) — explicit `win32`
+  branch returning `mode="windows"`, 35 semantic colours, 26 metrics, an 11-entry font
+  scale, 41 `ACT`-namespaced ttk styles in `theme["styles"]` (plus 4 widget-owned
+  sub-styles) built from 24 explicit layouts over 28 cloned `clam` elements, and the
+  new `style_tk_widget()` helper for classic Tk widgets. `apply_theme` signature,
+  `DEFAULT_GEOMETRY`, `MIN_SIZE`, `enable_mousewheel` and `ProgressIndicator` are
+  unchanged.
+- Changed: `files/tests/test_ui_theme.py` (+429 / -13) — 5 tests → 16. Adds the Windows
+  bundle/colour/metric contracts, WCAG contrast floors, style-namespace and
+  widget-state coverage, a real-widget build pass, the missing-native-theme fallback,
+  idempotent re-application, `style_tk_widget` behaviour, and the **generic-style
+  isolation** test that compares 18 generic styles before/after theming. The classic
+  Linux/other and macOS aqua assertions are preserved as they were.
+- Changed: `md-instructions/handoff.md` (this file — Phase 1 section, API table,
+  isolation rule for later phases, limitations, work-log entry, this sync entry)
+- Note:    **Nothing was converted.** `launcher.py`, all six tool modules,
+  `scripts/requirements.txt`, `scripts/Universal/shared/version.py` (`0.5.1`), both
+  setup launchers and `files/UI-Current-Screenshots/` are untouched. `git status`
+  shows only the three files above.
+- Note:    IDE diagnostics investigated before editing, as instructed. Both earlier
+  notices (70 and 26 issues) were **Markdown linter output on the documentation files
+  written during Phase 0**, not Python errors. Workspace diagnostics are now empty and
+  `compileall` over `scripts` + `files/tests` exits 0. No genuine baseline source
+  problem; nothing unrelated was fixed.
+- Note:    **Untracked `config-template.toml` still left alone at the repo root** — not
+  edited, staged, committed or deleted. Staging was done by explicit path only.
+- Verify:  `.venv\Scripts\python.exe scripts/verify.py` → **RESULT: PASS**
+  (pytest 59 passed / 3 skipped; deps `==`-pinned; docs de-templated).
+  `git diff --check` clean before and after this handoff update.
 
 ### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 0 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Pulled:  `master` fast-forwarded `695045c` → `1da1e547ce85d6e5c8a5b34fb549ffa8b93f6318`
