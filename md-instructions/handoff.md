@@ -1,6 +1,137 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
+**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 0 COMPLETE, STOPPED at the Phase 1
+approval gate.** Plan file: `md-instructions/0.6.0-drop1-windows-ui-prototype.md`
+(Plan 1 of nine planned v0.6.x instruction drops; the remaining eight are named in
+the plan's sequencing note but are **not drafted and must not be started**).
+
+**Branch:** `feature/0.6.0-drop1-windows-ui-prototype`
+**Start SHA (actual implementation base):** `1da1e547ce85d6e5c8a5b34fb549ffa8b93f6318`
+— this is `origin/master` after a fast-forward-only pull, and it is **identical to the
+plan's stated planning-audit baseline**, so there is **zero drift** to explain.
+The desktop checkout was 10 commits behind at `695045c` and fast-forwarded cleanly
+(no divergence, no merge, no reset, no stash).
+
+**Phase 0 result:** baseline established and green. No theme, launcher, tool-panel,
+test, `requirements.txt`, or `version.py` source was edited — Phase 0 is
+reorient/synchronize/record only. `version.py` remains `0.5.1`; no version bump and
+no v0.6.0 release is part of this drop.
+
+**Hard boundaries carried forward (from the plan):**
+- Only the **Windows launcher shell** and the **Windows M4B Metadata Editor** may ever
+  be converted by this plan. TTS Audiobook, M4B Converter, MP3 Tool, M4B Maker, and
+  Cover Image Resizer must stay unconverted and protected from ttk style leakage —
+  before *and* after screenshot approval. Their conversion belongs to Plan 9.
+- macOS aqua/Finder and the Linux/other fallback must remain unchanged.
+- No toolkit switch away from tkinter/ttk, no new runtime dependency,
+  no `requirements.txt` change, no release.
+- Phase 5 has a hard **visual approval gate**: the exact ten-image 1920×1080
+  100%/125% matrix under `files/UI-Prototype-Screenshots/v0.6.0-drop1/`, then an
+  explicit user *approved* / *changes requested* decision. Screenshots existing is
+  not approval.
+
+**Next proposed phase:** Phase 1 — build isolated Windows design primitives in
+`scripts/Universal/shared/ui_theme.py` (explicit Windows branch, semantic colour and
+metric tokens, namespaced `ACT`-prefixed ttk styles, classic-Tk token helpers), extend
+`files/tests/test_ui_theme.py`, and convert **nothing**. **Awaiting explicit user
+approval before starting.**
+
+### Phase 0 baseline evidence (2026-07-31, HOME-PC)
+
+**Environment**
+- Windows 11 Pro 10.0.26200, HOME-PC, repo at
+  `…\MyProjects\Home-PC\Audiobook-Creation-Tool`
+- Repo venv `.venv\Scripts\python.exe` → Python 3.12.10
+- `bootstrap.py --self-test`: venv valid, requirements found, HF_HOME →
+  `files/runtime-data/models/huggingface`, `kokoro health = True (ok)`,
+  tkinter/ssl/venv/tcl_tk all True, ffmpeg on PATH (`C:\ffmpeg\bin\ffmpeg.EXE`),
+  ffprobe available, launch target `scripts/Universal/launcher.py` present.
+
+**Automated baseline (no source edits)**
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | PASS — 5 passed in 0.18s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_launcher_smoke.py` | PASS — 1 passed, 1 warning in 8.90s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_shared.py` | PASS — 7 passed in 0.03s |
+| `.venv\Scripts\python.exe -m pytest -q` (full suite) | PASS — 48 passed, 3 skipped, 1 warning in 8.41s |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** — pytest 48 passed / 3 skipped; deps all `==`-pinned; docs de-templated |
+| `git diff --check` | clean (no whitespace errors, no output) |
+
+The single warning is the long-standing pydub `audioop` DeprecationWarning, not a
+regression. The 3 skips are the pre-existing env-gated suites.
+
+**Windows launcher six-tool manual baseline** — a real (non-withdrawn) Tk window was
+opened on this machine through the real `LauncherApp` and every tool was selected once
+in registry order, then a second full pass was made to prove build-once and state
+preservation:
+
+- Registry order (6/6, unchanged): `tts`, `m4b_converter`, `mp3_tool`, `m4b_maker`,
+  `cover`, `m4b_metadata` — titles "TTS Audiobook", "M4B Converter", "MP3 Tool",
+  "M4B Maker", "Cover Image", "M4B Metadata".
+- Error panels raised across both passes: **none** (`_show_load_error` was
+  instrumented and never fired).
+- Build-once: 6 containers after pass 1, still 6 after pass 2, and every container's
+  object identity was unchanged — panels are shown/hidden, never rebuilt.
+- State preservation: a marker attribute set on the M4B Metadata container survived a
+  full switch-away/switch-back cycle.
+- `last_tool` persisted and read back correctly (`m4b_metadata`); `settings.json` was
+  snapshotted and restored, so the baseline left no trace.
+- Build-all wall time 1.601 s (per-tool 0.015–0.077 s).
+- Realised window: `1024x720+104+104`, minsize `(920, 600)`.
+
+**Pre-prototype Windows theme contract** (what Phase 1 must extend without breaking) —
+`shared.ui_theme.apply_theme()` on `win32` returns:
+
+```
+mode          = "classic"        ttk theme in use = "vista"
+family        = "Segoe UI"       font_heading = ("Segoe UI", 15, "bold")
+geometry      = "1024x720"       font_button  = ("Segoe UI", 11)
+min_size      = (920, 600)
+colors        = None             metrics      = None
+```
+
+`colors`/`metrics` being `None` on Windows is exactly the gap Phase 1 closes. Public
+surface to preserve: `DEFAULT_GEOMETRY`, `MIN_SIZE`, `ProgressIndicator`,
+`apply_theme`, `enable_mousewheel`.
+
+**Before-state screenshot inventory** — all **8** images present and untouched under
+`files/UI-Current-Screenshots/`: `cover-image-resizer-current-ui.png`,
+`m4b-converter-current-ui.png`, `m4b-maker-current-ui.png`,
+`m4b-metadata-current-ui-1.png`, `m4b-metadata-current-ui-2.png`,
+`mp3-tool-current-ui.png`, `tts-audiobook-current-ui-1.png`,
+`tts-audiobook-current-ui-2.png`. (The plan says "eight before-state images"; the
+matrix is 8 files covering 6 tools — TTS and M4B Metadata each have two.)
+
+### Phase 0 limitations and open items (recorded, not silently passed)
+
+1. **No visual/eyes-on inspection was performed.** The six-tool pass was driven
+   programmatically through the real `LauncherApp` on a real Tk window; an agent
+   cannot judge appearance. This is a baseline of *behaviour*, not of *looks* —
+   appearance is Phase 5's gate.
+2. **`md-instructions/` filename casing.** The maintainer had renamed the four
+   permanent docs on disk to the AI-WORKSPACE casing (`Changelog.md`, `Decisions.md`,
+   `Handoff.md`). Git tracks them as `CHANGELOG.md`, `DECISIONS.md`, `handoff.md`, and
+   because `core.ignorecase=true` on Windows the rename was never staged — the
+   fast-forward checkout restored the tracked casing. **Not changed, and deliberately
+   out of Phase 0 scope:** `scripts/verify.py` hard-codes
+   `md-instructions/CHANGELOG.md`, so a real case-rename needs a `verify.py` edit,
+   which this drop is forbidden from touching. The live filenames are
+   `Briefing.md` / `CHANGELOG.md` / `DECISIONS.md` / `handoff.md`, and the plan
+   references those same names. **Maintainer decision needed** if the AI-WORKSPACE
+   casing is wanted — it should be its own housekeeping commit, not part of this drop.
+3. **macOS not verified this session.** No Mac was available; the macOS Finder/aqua
+   preservation requirement is proven only through monkeypatched platform-branch
+   tests. A live macOS pass remains open for Plan 9 and is **not** claimed as passed.
+4. **Git identity on this checkout** is `Elijah Matthew <elijahmatthew015@gmail.com>`,
+   not the `elmatthe <elmatthe@ualberta.ca>` pair in AI-WORKSPACE. Left as-is (the
+   repo does not lack an identity); flagged only so it is a conscious choice.
+5. **Optional tooling:** Sequential Thinking / Context7 were available but not needed
+   in Phase 0 — no external library documentation question arose. Superpowers'
+   executing-plans flow was used to structure the phase. No tool was auto-installed.
+
+## Previous Focus (v0.5.1 — shipped to master)
 **Batch-timing-parity drop ABANDONED by maintainer decision after A/B listening
 (2026-07-19); Jenny voice addition kept; v0.5.1 committed to branch
 `add-jenny-voice` and pushed for a Windows second-verify pass.** The Phases 1–3
@@ -220,6 +351,39 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-31 — v0.6.0 Drop 1 **Phase 0 complete** (HOME-PC session; committed and pushed
+  on the implementation branch per the plan's per-phase commit contract, which
+  supersedes the v0.5.0-only one-commit-per-drop rule). Read order completed first:
+  AI-WORKSPACE.md, Briefing, CHANGELOG, DECISIONS, handoff, the full drop file, and
+  `.claude/skills/audio-processing/SKILL.md` (present and read; `fullstack-bridge-sync`
+  inspected and correctly not applicable — no backend/frontend contract work here).
+  Worktree protection: the checkout carried an unstaged deletion of
+  `md-instructions/Instructions_Template.md` plus untracked `Map-Repo-Structure.bat`,
+  `REPO-STRUCTURE.md`, and the new drop file. All four were copied to a scratch backup
+  **before** touching git; nothing was reset, discarded, stashed, or overwritten. The
+  incoming history deleted `Instructions_Template.md` itself (`9dcf49c`), so the
+  fast-forward absorbed the local deletion with a zero net diff, and `220b6dc`/`65d3855`
+  added `.gitignore` rules that now cover both convenience tools — `git check-ignore`
+  confirms `Map-Repo-Structure.bat` (line 75) and `REPO-STRUCTURE.md` (line 59).
+  Sync: `git fetch --prune` then `git pull --ff-only origin master` — 10 commits,
+  `695045c..1da1e54`, strictly fast-forward (verified with `git merge-base --is-ancestor`
+  before pulling). Start SHA `1da1e547ce85d6e5c8a5b34fb549ffa8b93f6318` **equals** the
+  plan's planning-audit baseline, so no drift analysis was needed; the incoming diff
+  was the v0.5.1 Jenny line, the 8 `files/UI-Current-Screenshots/` images, gitignore
+  hardening, and docs. Branch `feature/0.6.0-drop1-windows-ui-prototype` cut from the
+  updated master. Baseline (all with the repo venv, Python 3.12.10, **no source
+  edits**): focused suites 5 / 1 / 7 passed; full suite 48 passed, 3 skipped;
+  `scripts/verify.py` → **RESULT: PASS**; `git diff --check` clean. Six-tool manual
+  baseline driven on a real Tk window through the real `LauncherApp`: 6/6 registered in
+  order, zero error panels over two full passes, container identity stable (build-once
+  proven), a state marker survived switch-away/back, `last_tool` round-tripped, 1.601 s
+  build-all, window `1024x720`/minsize `(920,600)`. Pre-prototype Windows theme contract
+  captured verbatim (`mode="classic"`, vista, Segoe UI, `colors=None`, `metrics=None`) —
+  that `None` pair is the Phase 1 target. **Nothing was converted, restyled, or
+  redesigned.** Limitations recorded above rather than glossed: no eyes-on visual check,
+  no live macOS, and the `md-instructions/` case-rename left alone because `verify.py`
+  hard-codes `CHANGELOG.md` and this drop may not weaken or edit the gate. Next: Phase 1
+  (Windows design primitives only) — **awaiting explicit user approval**. — Claude Code
 - 2026-07-19 — Batch-timing-parity drop ABANDONED + Jenny addition shipped to branch
   (MacBook session). Maintainer listened to all six Phase-3 A/B pairs: the rewritten
   batch engine, despite median-gap parity within −22…0 ms, sounded subjectively worse
@@ -657,6 +821,43 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 0 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
+- Pulled:  `master` fast-forwarded `695045c` → `1da1e547ce85d6e5c8a5b34fb549ffa8b93f6318`
+  (`git pull --ff-only`, 10 commits, no divergence). Incoming: v0.5.1 Jenny line,
+  8 `files/UI-Current-Screenshots/*.png`, `.gitignore` hardening,
+  `md-instructions/Instructions_Template.md` deleted upstream, docs, `version.py` 0.5.1.
+- Added:   `md-instructions/0.6.0-drop1-windows-ui-prototype.md` (the active temporary
+  drop — tracked on purpose so its Phase 6 deletion is a recorded git event, matching
+  how `drop3-plan.md` / `0.5.0-drop2-metadata.md` were handled)
+- Changed: `md-instructions/handoff.md` (this file — new Current Focus with the Phase 0
+  baseline evidence, limitations, and next phase; work log; this sync entry)
+- Note:    **No program, theme, launcher, tool-panel, or test source was touched.**
+  `scripts/requirements.txt` and `scripts/Universal/shared/version.py` (still `0.5.1`)
+  are byte-identical to `origin/master` — confirmed with `git diff` against the remote.
+  `files/UI-Current-Screenshots/` preserved unchanged.
+- Note:    Worktree carried pre-existing user work — an unstaged deletion of
+  `Instructions_Template.md` and untracked `Map-Repo-Structure.bat` /
+  `REPO-STRUCTURE.md`. Nothing was reset, discarded, stashed, or overwritten; all were
+  backed up to scratch first. Upstream deleted the template itself and gitignored both
+  convenience tools, so the working tree resolved with a zero net diff.
+- Note:    The maintainer's on-disk case-rename of the four permanent docs
+  (`Changelog.md` / `Decisions.md` / `Handoff.md`) did **not** survive the pull —
+  `core.ignorecase=true` meant git never saw it. Live tracked names remain
+  `Briefing.md` / `CHANGELOG.md` / `DECISIONS.md` / `handoff.md`. Renaming needs a
+  `scripts/verify.py` edit (it hard-codes `CHANGELOG.md`), which this drop may not make;
+  raised for a separate maintainer decision.
+- Note:    **Untracked `config-template.toml` left alone at the repo root.** It is not
+  this session's work (file mtime 2026-07-17, contents are the raw scaffolder template
+  with `[PROJECT_NAME]` placeholders) and it appeared in `git status` only partway
+  through the session, so an external process (VS Code / a scaffolder run) wrote it.
+  It is neither committed nor deleted. Per AI-WORKSPACE the committed root file is
+  `config.toml`, not `config-template.toml`, and this repo has neither tracked — so
+  this is scaffolding drift for the maintainer to resolve, not drop work. Staging was
+  done by explicit path, never `git add -A`, so it cannot be swept in.
+- Note:    Phase 0 is committed and pushed on the implementation branch only. `master`
+  is untouched. Per-phase commits are this plan's explicit contract (§1.5); the v0.5.0
+  one-commit-per-drop ADR does not apply to the v0.6.x line. No AI co-author trailers.
 
 ### 2026-07-19 — MacBook — Jenny voice + batch-rework revert — committed to `add-jenny-voice`, pushed (NOT merged to master)
 - Changed: scripts/Universal/tts/voice_registry.py (Jenny VoiceEntry, 750/800 single-file preset)
