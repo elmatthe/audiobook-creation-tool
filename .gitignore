@@ -69,3 +69,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Windows Batch Files
+Map-Repo-Structure.bat
