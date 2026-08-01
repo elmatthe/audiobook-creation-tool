@@ -1,7 +1,7 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 2 COMPLETE, STOPPED at the Phase 3
+**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 3 COMPLETE, STOPPED at the Phase 4
 approval gate.** Plan file: `md-instructions/0.6.0-drop1-windows-ui-prototype.md`
 (Plan 1 of nine planned v0.6.x instruction drops; the remaining eight are named in
 the plan's sequencing note but are **not drafted and must not be started**).
@@ -15,7 +15,8 @@ The desktop checkout was 10 commits behind at `695045c` and fast-forwarded clean
 
 **Phase 0 commit:** `0971a20e24fc196967da97d1b204375dc549ad5a` (docs only).
 **Phase 1 commit:** `9cd7fb8e04e11d64f9303d0f44a7ca3f3723af51`.
-**Phase 2 commit:** see the Session Sync Log entry below.
+**Phase 2 commit:** `b2e5285958a8d7adcc19a4c17d45f1e55fd7e900`.
+**Phase 3 commit:** see the Session Sync Log entry below.
 
 **Phase 0 result:** baseline established and green. No theme, launcher, tool-panel,
 test, `requirements.txt`, or `version.py` source was edited — Phase 0 is
@@ -52,12 +53,245 @@ The five unconverted panels (and the not-yet-converted metadata editor) still ca
 an empty style string on every widget. One genuine geometry regression was measured
 and is **open for a maintainer decision** — see *Phase 2 limitations* below.
 
-**Next proposed phase:** Phase 3 — convert the **Windows M4B Metadata Editor** and
-build the visual specimens (Shared Metadata surface, Summary/Details presentation-only
-specimen, optional developer-only fixture under `files/tests/`); preserve every
-existing control, callback, worker, progress/log state, Cancel path, copy-only output
-and read-only-original safeguard, and the public `build_ui(parent)` entry point.
+**Phase 3 result:** the Windows M4B Metadata Editor is converted and is now the
+**only** converted tool panel. Six files touched (two new). The panel forks on
+`theme["mode"]`: `windows` builds the new card layout, every other mode builds the
+historical layout byte-for-byte. The maintainer-approved `sidebar_width` correction
+(232 → 180) shipped with it and gave the tool panels **+52px of width** back at every
+window size. The five unconverted panels still carry **zero** namespaced styles.
+Full detail in *Phase 3* below; the one thing still open is the **vertical** part of
+the Phase 2 geometry regression, which the width change could not address.
+
+**Next proposed phase:** Phase 4 — automated and functional regression hardening:
+review the whole diff for generic-style leakage and unintended changes, complete the
+Section 11 manual functional matrix on Windows (dialogs, list/pages, safe save on
+copies, Clear All Tags, Remove Series Numbering, Cancel mid-run, the controlled error
+path), re-check resize/keyboard behaviour, and record the macOS smoke requirement.
 **Not started. Awaiting explicit user approval.**
+
+### Phase 3 — M4B Metadata Editor + visual specimens (2026-07-31, HOME-PC)
+
+**What it is.** `mp3_tools/m4b_metadata_editor.py` now forks its presentation:
+
+| Mode | Build path | Result |
+|---|---|---|
+| `windows` | `_build_ui_windows()` | the new card layout, built entirely from `ACT.*` |
+| `aqua` / `classic` | `_build_ui_classic()` | the pre-v0.6.0 layout, byte-for-byte |
+
+Both forks create **exactly the same widgets and attributes**, so every method below
+the builders — callbacks, workers, the queue pump, `disable_inputs`, the Cancel path,
+`_collect_tags`, `_shared_tags` — is shared and has no idea which one drew the screen.
+Nothing about metadata reading/writing, field precedence, file order, output paths,
+filenames, tag namespaces, chapter logic, thread boundaries or cancellation timing was
+touched.
+
+**Entry point.** `build_ui(parent)` is unchanged. It gained an optional
+`theme=None` second parameter: when omitted (which is what the launcher does) the panel
+resolves the platform bundle itself via `ui_theme.apply_theme`, which is idempotent by
+contract. The parameter exists so the developer-only fixture — and, later, the launcher
+— can hand in a bundle already applied instead of re-resolving it. Every existing caller
+keeps working untouched.
+
+**The new section/card hierarchy** (row 0 scrolls; rows 1 and 2 never do):
+
+```
+row 0  scrollable canvas  ── Audiobook Files      (ACT.TLabelframe)
+                          ── Shared Metadata      (ACT.Shared.TLabelframe)  <- distinct
+                          ── Chapter Titles (optional)  (ACT.TLabelframe)
+                          ── Output                     (ACT.TLabelframe)
+row 1  action bar   progress line, then Save / Clear All Tags / Remove Numbering / Cancel
+row 2  Log          (ACT.TLabelframe + ACT-styled Text)
+```
+
+**Visual mapping of every pre-existing control** (nothing was dropped, hidden or
+renamed):
+
+| Control | New home | Style |
+|---|---|---|
+| Open M4B File(s) / Open Folder… / Remove Selected / Clear List | Audiobook Files, toolbar row | `button` |
+| File list (`listbox`) | Audiobook Files | `style_tk_widget(…, "list")` + `vscrollbar` |
+| `mode_var` notice (shared/"(varies)") | Shared Metadata caption block | `shared_secondary` |
+| Title, Author/Artist, Album, Year, Genre, Comment | Shared Metadata grid (Year \| Genre share a row) | `shared_label` + `entry` |
+| Cover image entry + Browse… + Clear | Shared Metadata grid, last row | `entry`, `button` |
+| Series Name, Series Part, Auto-number toggle | Shared Metadata → Series sub-group | `shared_label`, `entry`, `shared_checkbutton` |
+| `series_readback_var`, `autonumber_hint_var` | Shared Metadata, under the sub-group | `shared_secondary` |
+| Chapter pager ◀ / ▶ / page label / hint / text | Chapter Titles card | `button`, `label`, `secondary_label`, `style_tk_widget(…, "text")` |
+| Output folder entry + Browse… + Open | Output card | `entry`, `button` |
+| Progress bar + counter | Action bar, own line, natural width, left-aligned | `progressbar`, `status_label` |
+| Save Tags | Action bar | `primary_button` |
+| Clear All Tags / Remove Series Numbering | Action bar | `danger_button` |
+| Cancel | Action bar, right-aligned | `button` |
+| Log | Row 2 card | `style_tk_widget(…, "log")` + `vscrollbar` |
+
+**Shared Metadata, and what it deliberately is not.** Every metadata field in this
+editor is *already* batch-wide — a non-blank value is written to every loaded file, and
+the existing shared-value detection reports which of them matched across the batch and
+which "(varies)". The card is a visual statement of that behaviour, using the Phase 1
+`ACT.Shared.TLabelframe` surface (muted accent fill, accent border, accent header) so it
+reads as the universal section at a glance. It adds **nothing**: no populated-global-
+overrides-per-book precedence, no per-book field disabling, no multi-book workspace, no
+one-page-per-M4B workflow — those are Plan 6 / Plan 8. A test asserts no field in the
+card is disabled by the grouping, and `test_m4b_metadata_editor_shared.py` (7 tests,
+untouched) still owns the shared/"(varies)" semantics.
+
+**Summary/Details, and what it deliberately is not.** It is **not** in the runtime
+editor — putting a Summary/Details control there would be a non-functional control in a
+user-facing panel, which the plan forbids. It lives in the developer-only fixture as a
+component sheet: an `ACT.TNotebook` with Summary and Details tabs, plus the primary /
+secondary / danger / ghost / disabled action swatches. The sheet labels itself with
+`SPECIMEN_NOTE`, which states in so many words that there is no filtering, no separate
+log buffers, no technical-log routing, no job snapshot, no ETA, no Retry Failed and no
+Pause/Resume — all Plan 3. A test asserts that text is present and that no button on the
+sheet has a command bound to it.
+
+**The developer-only fixture — `files/tests/manual_windows_ui_prototype.py`.** Needed,
+because the Phase 5 matrix requires a populated editor and a mid-run editor, and a real
+batch finishes far too fast to photograph while a populated batch would otherwise need
+real audiobooks on the screenshot machine. Runtime isolation is enforced four ways and
+asserted by `test_manual_fixture_is_developer_only_and_unreachable_at_runtime`:
+
+1. pytest cannot collect it — the filename is not `test_*` and it declares no test
+   functions (the test greps the source to prove it).
+2. The launcher cannot reach it — it is in no `launcher.TOOLS` entry.
+3. It is not in the shipped tree — it lives under `files/`, and the test asserts no copy
+   exists anywhere under `scripts/`.
+4. It patches nothing. Every state is reached by calling the editor's own public methods
+   (`_populate` seeds `files`/`_tag_cache`/`_chap_counts` then calls the real
+   `_refresh_mode`; `_make_busy` calls the real `disable_inputs`/`progress.update`). A
+   test asserts none of its canned paths exist on disk, so it is fully offline.
+
+States: `empty`, `populated`, `active-run`, `specimen`.
+
+**`sidebar_width` 232 → 180 (maintainer-approved).** Measured content-host size:
+
+| Window | Classic (master) | Phase 2 (rail 232) | Phase 3 (rail 180) | Recovered |
+|---|---|---|---|---|
+| 920×600 (minimum) | 796×561 | 669×457 | **721×457** | +52 w |
+| 1024×720 (default) | 900×673 | 773×577 | **825×577** | +52 w |
+| Maximized 1920×1009 | — | — | 1721×866 | +52 w |
+
+Navigation is still comfortable: the widest row ("TTS Audiobook") wants 115px against
+160px of rail interior — 45px of slack for 125% scaling. A test pins the token at 180
+and a launcher test asserts every row still fits.
+
+**Is the M4B Converter's primary action and Log reachable again? Partly — honestly:**
+
+| Window | `Convert M4Bs → MP3s` row | Log box |
+|---|---|---|
+| 1024×720 (default) | **YES** — mapped, fully inside the host | **YES** — mapped, fully inside the host |
+| 920×600 (minimum) | **NO** — unmapped, ~19px past the host bottom | **NO** — unmapped, ~110px past |
+
+The rail change gave back **width**, and width was the whole of the new-in-Phase-2
+horizontal overflow — so at the default size that panel is fully usable again. The
+remaining clip at the minimum size is **vertical**, caused by the launcher's header
+strip (~96px), and neither lever for that (`MIN_SIZE` / `DEFAULT_GEOMETRY`) was changed,
+per the maintainer's decision. Recorded, not fixed.
+
+**Panel fit after the change** (requested size minus host; positive = overflow):
+
+| Panel | 1024×720 | 920×600 |
+|---|---|---|
+| TTS Audiobook | −204 w / −50 h | −100 w / +70 h |
+| M4B Converter | −57 w / +102 h | +47 w / +222 h |
+| MP3 Tool | −227 w / +278 h | −123 w / +398 h |
+| M4B Maker | +23 w / +187 h | +127 w / +307 h |
+| Cover Image | −140 w / +21 h | −36 w / +141 h |
+| **M4B Metadata (converted)** | **−165 w / −61 h** | −61 w / +59 h |
+
+The converted editor is now the best-fitting panel of the six: it needs no scrolling at
+all at the default size, where before Phase 3 it overflowed by 77px horizontally.
+
+**Combobox popdown: not needed, limitation carried forward.** The editor owns no
+combobox, so Phase 3 never had to style the popdown list. It remains unthemed and
+remains a Plan 9 problem; no `option_add()` was used anywhere (the diff scan is clean).
+
+**Phase 3 automated results (repo venv, Python 3.12.10):**
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_shared.py` | PASS — 7 passed in 0.03s (unchanged) |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_ui.py` | PASS — **12 passed** in 0.45s (new file) |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | PASS — **17 passed** in 0.13s (was 16) |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_launcher_smoke.py` | PASS — **11 passed**, 1 warning in 2.23s (was 10) |
+| `.venv\Scripts\python.exe -m pytest -q` (full suite) | PASS — **82 passed, 3 skipped**, 1 warning in 4.91s (was 68/3) |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** — pytest 82 passed / 3 skipped in 4.86s; deps `==`-pinned; docs de-templated |
+| `git diff --check` | clean (only the benign LF→CRLF notices) |
+
+The 1 warning is still the pre-existing pydub `audioop` DeprecationWarning; the 3 skips
+are still the pre-existing `JACK_RYAN_M4B_FOLDER`-gated tests. Neither is new.
+
+**What the new tests prove.** `test_m4b_metadata_editor_ui.py` (12): the panel still
+builds and exposes all 24 required widgets and 24 required callbacks, one Tk var per
+field correctly bound to its entry, the idle starting state, the busy→idle transition
+across every guarded widget, shared-value prefill driven through the real widget tree,
+and a non-Windows theme building the historical layout with zero namespaced styles. On
+Windows: only `ACT.*` styles are used and no ttk widget was left generic; the generic
+styles are byte-identical before and after building it; Listbox/Text/Canvas go through
+`style_tk_widget` rather than local literals; the scroll region is still one canvas with
+its scoped `%d`-substituted wheel binding; the Shared Metadata surface is unique,
+contains every batch field and disables none of them; and Save/Cancel/progress/Log are
+outside the scroll region while the form, list and chapter pages are inside it. Plus the
+two fixture-isolation tests. `test_launcher_smoke.py` gained the narrowed-rail test and
+its isolation test now distinguishes the converted panel (>40 ACT-styled widgets, none
+generic) from the five unconverted ones (zero ACT styles between them).
+`test_ui_theme.py` gained the Shared Metadata surface-family test and the pinned rail
+width.
+
+**Draft visual review (real app, real Tk, HOME-PC, 1920×1080 @ 100%).** Draft only —
+scratchpad images, deliberately **not** committed; the ten-image 100%/125% matrix is
+Phase 5.
+
+| Check | Result |
+|---|---|
+| Narrower rail still shows all six tool names clearly | PASS — widest row 115px in a 160px interior |
+| Nav selection / hover / pressed / disabled / keyboard focus | PASS — unchanged from Phase 2, verified again after narrowing |
+| Editor is a hierarchy redesign, not a recolor | PASS — four titled cards, a distinct shared surface, an action bar and a log, where the old panel was one flat stack of labelframes |
+| Shared Metadata visually distinct and recognizable | PASS — accent-blue border and header on the muted fill, clearly different from the neutral cards above and below it |
+| Every existing control reachable (layout or deliberate scroll) | PASS — all present; the form scrolls, the actions and log do not |
+| Primary actions, progress, Cancel, status, log reachable | PASS at 1024×720, 920×600 and maximized (measured, not eyeballed: all mapped and inside the host at the minimum) |
+| File list / chapters / fields / cover / output scroll correctly | PASS |
+| Mouse-wheel affects the intended area | PASS — wheel over the form scrolls the form; over the Log scrolls the Log; unchanged wiring |
+| Tab / Shift+Tab order sensible, no focus trap | PASS — a 31-stop closed loop: rail (6) → file actions → list → shared fields → cover → series → chapters → output → primary actions → log folder. Disabled controls (Cancel, the pager arrows with no files) are correctly skipped |
+| Five classic panels remain unconverted | PASS — in the running app and by test |
+| ttk still `vista` | PASS |
+| Content-host measurements re-recorded at 920×600 / 1024×720 | PASS — table above |
+| Remaining classic-panel overflow reported honestly | PASS — table above; M4B Converter at the minimum is still clipped |
+| Summary/Details specimen is clearly presentation-only | PASS — headed "component specimen" with the explicit note; not in the product |
+| Fixture unreachable from the runtime launcher | PASS — in-app and by test |
+
+### Phase 3 limitations and open items
+
+1. **The vertical half of the Phase 2 geometry regression is still open.** The approved
+   rail change fixed the width. The ~96px of height the shell costs the panels (header
+   strip + card frame) is untouched, and that is what still clips M4B Converter's
+   `Convert M4Bs → MP3s` row (~19px) and Log (~110px) at the 920×600 minimum. The
+   maintainer's decision was to leave `MIN_SIZE`/`DEFAULT_GEOMETRY` alone for now and
+   re-assess at Phase 5 against the full 100%/125% matrix. Context that still applies:
+   M4B Converter, MP3 Tool and M4B Maker already overflow at 920×600 on master too.
+2. **The editor's scroll viewport is shallow at the minimum size** — about 206px at
+   920×600 (about 330px at the 1024×720 default, and the whole form fits without
+   scrolling when maximized). The form is a deliberate scroll region and the action bar
+   and Log stay visible, which is the plan's requirement, but at the absolute minimum
+   window size only the Audiobook Files card is visible without scrolling. Flagged for
+   the Phase 5 review rather than fixed by shrinking the Log.
+3. **No 125% scaling pass yet** (carried from Phase 2). Nothing added in Phase 3 uses a
+   fixed pixel height — the cards size from their own fonts — but the true 125% pass is
+   Phase 5 and is **not** claimed.
+4. **`ttk.Combobox` popdown still unthemed** (carried from Phases 1–2). Phase 3 did not
+   need it; the editor owns no combobox. Still a Plan 9 item.
+5. **macOS still not verified live** (carried from Phases 0–2). The editor's non-Windows
+   fork is asserted to build the historical layout with zero namespaced styles via an
+   explicit classic bundle, and `_build_ui_darwin`/`_apply_darwin` were not touched, but
+   no Mac was available. Not claimed as passed.
+6. **One transient observed in the verify gate.** A single `scripts/verify.py` run
+   reported `65 passed, 20 skipped` instead of `82 passed, 3 skipped` — 17 extra skips,
+   exactly the size of `test_ui_theme.py`, whose module-scoped fixture skips when
+   `tk.Tk()` cannot open a display. It happened once, immediately after several GUI
+   scripts had created and destroyed Tk roots, and did not reproduce on the same command
+   before or after (both `82 passed, 3 skipped`). Recorded because the headless guard
+   converts that condition into skips rather than failures, so a transient can quietly
+   reduce coverage while the gate still says PASS. The guard predates this drop; not
+   changed here.
 
 ### Phase 2 — Windows launcher shell (2026-07-31, HOME-PC)
 
@@ -652,6 +886,45 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-31 — v0.6.0 Drop 1 **Phase 3 complete** (HOME-PC session; per-phase commit on
+  the implementation branch). Converted the **Windows M4B Metadata Editor** — the only
+  tool panel this plan may ever convert — and built the visual specimens.
+  `m4b_metadata_editor.py` now forks on `theme["mode"]`: `_build_ui_windows()` draws four
+  titled cards (Audiobook Files, Shared Metadata, Chapter Titles, Output) in a scroll
+  region, with an action bar and a Log that never scroll away; `_build_ui_classic()` is
+  the old layout kept byte-for-byte for macOS and Linux/other. **Both forks create the
+  same widgets and attributes**, so every callback, worker, queue pump, busy/idle
+  transition, Cancel path and copy-only write below the builders is shared code that
+  cannot tell them apart — no metadata, output, threading or cancellation behaviour was
+  touched. `build_ui(parent)` is unchanged; it gained an optional, backwards-compatible
+  `theme=None` parameter (the launcher still calls it with one argument).
+  **Shared Metadata** groups every batch-wide field on the Phase 1 accent surface. Every
+  one of those fields already applied to every loaded file, so the card states existing
+  behaviour visually — it adds no precedence, disables no field, and implements nothing
+  from Plan 6/8. **Summary/Details is deliberately NOT in the runtime editor** (that
+  would be a non-functional control in a user-facing panel); it is a component sheet in
+  the new developer-only fixture, labelled in its own text as presentation-only with no
+  filtering/ETA/Retry/Pause-Resume — all Plan 3.
+  `files/tests/manual_windows_ui_prototype.py` is the fixture: not pytest-collectable,
+  not in `launcher.TOOLS`, not under `scripts/`, patches nothing (it drives the editor's
+  own public methods with canned in-memory data), and touches no file on disk. All four
+  isolation properties are asserted by a test.
+  **The approved `sidebar_width` 232 → 180 shipped with it** and gave every tool panel
+  +52px of width back: content host 669×457 → **721×457** at the minimum and 773×577 →
+  **825×577** at the default. Widest nav row is 115px in a 160px interior, so the rail is
+  still comfortable. **Half the Phase 2 regression is fixed and half is not, and the
+  split is exactly width vs height:** at 1024×720 M4B Converter's `Convert M4Bs → MP3s`
+  row and Log are fully visible again (measured, mapped, inside the host); at the 920×600
+  minimum they are still clipped by ~19px and ~110px, because that deficit is vertical
+  and `MIN_SIZE`/`DEFAULT_GEOMETRY` were left alone per the maintainer's decision.
+  Tests: new `test_m4b_metadata_editor_ui.py` (12), `test_ui_theme.py` 16 → 17,
+  `test_launcher_smoke.py` 10 → 11, full suite 68 → **82 passed, 3 skipped**.
+  `ui_theme.py` gained four styles only — `ACT.Shared.TFrame`, `ACT.Shared.TLabel`,
+  `ACT.SharedSecondary.TLabel`, `ACT.Shared.TCheckbutton` — so the Shared Metadata
+  surface has its own frame/label/toggle family instead of borrowing the "muted" one,
+  whose token merely happens to be the same colour today. `launcher.py` was **not**
+  edited. Draft review at 1024×720 / 920×600 / maximized, including a measured 31-stop
+  Tab loop with no trap (scratchpad images, not committed).
 - 2026-07-31 — v0.6.0 Drop 1 **Phase 2 complete** (HOME-PC session; per-phase commit on
   the implementation branch). Converted the **Windows launcher shell only**:
   `_build_ui_windows()` in `launcher.py` builds a dark navigation rail, a header strip
@@ -1187,6 +1460,54 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 3 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
+- Base:    `b2e5285958a8d7adcc19a4c17d45f1e55fd7e900` (Phase 2). No pull needed —
+  `master` and `origin/master` are both still `1da1e547` and were not touched.
+- Changed: `scripts/Universal/mp3_tools/m4b_metadata_editor.py` (+373 / -9) — the
+  presentation fork (`_build_ui` dispatcher, `_build_ui_classic` holding the old body
+  verbatim, the new `_build_ui_windows`, the `_wrap_with` caption helper), a theme-aware
+  `__init__`, the optional `theme=None` parameter on `build_ui`, and an expanded module
+  docstring. Every method from `add_files` down is unchanged.
+- Changed: `scripts/Universal/shared/ui_theme.py` (+21 / -2) — `sidebar_width` 232 → 180
+  (maintainer-approved, with the reason in a comment) plus four new namespaced styles
+  for the Shared Metadata surface (`ACT.Shared.TFrame`, `ACT.Shared.TLabel`,
+  `ACT.SharedSecondary.TLabel`, `ACT.Shared.TCheckbutton`, the last with its own explicit
+  layout). No generic style was created, configured or re-laid-out.
+- Added:   `files/tests/test_m4b_metadata_editor_ui.py` (12 tests) — preserved public
+  contract, busy/idle, shared-value prefill through the real widget tree, the non-Windows
+  fork, and the Windows-only style/isolation/scroll/Shared-Metadata assertions plus the
+  two fixture-isolation tests.
+- Added:   `files/tests/manual_windows_ui_prototype.py` — the developer-only visual
+  fixture (`empty` / `populated` / `active-run` / `specimen`). Not pytest-collectable,
+  not reachable from the launcher, not in the shipped tree, patches nothing, offline.
+- Changed: `files/tests/test_ui_theme.py` (+49 / -5) — the pinned 180px rail and the
+  Shared Metadata surface-family test; new styles added to the build-everything test.
+- Changed: `files/tests/test_launcher_smoke.py` (+51 / -3) — the narrowed-rail regression
+  test, and the isolation test now separates the converted editor from the five
+  unconverted panels instead of requiring all six to be style-free.
+- Changed: `md-instructions/handoff.md` (this file — Phase 3 section, hierarchy and
+  control-mapping tables, Shared Metadata / Summary-Details boundaries, fixture isolation,
+  the rail measurements, the M4B Converter reachability answer, limitations, work-log
+  entry, this sync entry)
+- Note:    **`scripts/Universal/launcher.py` was NOT edited.** The narrower rail exposed
+  no launcher-owned defect.
+- Note:    **Only the metadata editor was converted.** `scripts/requirements.txt`,
+  `scripts/Universal/shared/version.py` (still `0.5.1`), both setup launchers,
+  `scripts/Universal/tts/`, the other five tool modules and
+  `files/UI-Current-Screenshots/` are untouched — confirmed with `git diff --name-only
+  HEAD` over each path (empty). A grep of the added lines under `scripts/` for
+  `style.configure|style.map|style.layout|option_add|#rrggbb` returns only the three new
+  `ACT.Shared*` configure calls; no hex literal and no `option_add` entered the drop.
+- Note:    **Open item carried forward:** the vertical half of the Phase 2 geometry
+  regression. Width is fixed; M4B Converter's primary action and Log are reachable again
+  at 1024×720 but still clipped at the 920×600 minimum. `MIN_SIZE`/`DEFAULT_GEOMETRY`
+  left unchanged per the maintainer's decision; re-assess at Phase 5.
+- Note:    **Untracked `config-template.toml` still left alone at the repo root** — not
+  edited, staged, committed, moved or deleted. Staging was done by explicit path only.
+- Verify:  `.venv\Scripts\python.exe scripts/verify.py` → **RESULT: PASS**
+  (pytest 82 passed / 3 skipped; deps `==`-pinned; docs de-templated).
+  `git diff --check` clean before and after this handoff update.
 
 ### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 2 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Base:    `9cd7fb8e04e11d64f9303d0f44a7ca3f3723af51` (Phase 1). No pull needed —

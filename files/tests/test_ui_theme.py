@@ -212,6 +212,13 @@ def test_windows_metrics_are_usable(windows_theme):
     assert m["row_height"] >= 28
     assert m["content_max_width"] > m["sidebar_width"]
 
+    # Phase 3, maintainer-approved: the rail was narrowed 232 -> 180 because the
+    # wider one cost the tool panels 110px of content width and clipped a
+    # primary action at the 920x600 minimum. Pinned exactly, so a later widening
+    # has to be a decision rather than a drift.
+    # (test_launcher_smoke asserts the tool names still fit inside it.)
+    assert m["sidebar_width"] == 180
+
 
 # ---------------------------------------------------------------------------
 # Windows branch — style namespace, states, and isolation
@@ -230,7 +237,8 @@ def test_windows_styles_are_namespaced_and_registered(windows_theme):
     # silently ignored.
     for key in ("button", "primary_button", "danger_button", "ghost_button",
                 "nav_button", "entry", "combobox", "spinbox", "checkbutton",
-                "muted_checkbutton", "radiobutton", "notebook", "progressbar",
+                "muted_checkbutton", "shared_checkbutton", "radiobutton",
+                "notebook", "progressbar",
                 "vscrollbar", "hscrollbar", "treeview", "labelframe",
                 "shared_labelframe", "separator"):
         name = theme["styles"][key]
@@ -290,7 +298,8 @@ def test_windows_styles_define_widget_states(windows_theme):
         assert style.lookup(name, "foreground", ["disabled"]) == c["disabled"]
 
     # Toggles: the indicator changes on selected/disabled.
-    for key in ("checkbutton", "radiobutton", "muted_checkbutton"):
+    for key in ("checkbutton", "radiobutton", "muted_checkbutton",
+                "shared_checkbutton"):
         name = s[key]
         base = style.lookup(name, "indicatorbackground")
         assert style.lookup(name, "indicatorbackground", ["selected"]) != base
@@ -302,6 +311,39 @@ def test_windows_styles_define_widget_states(windows_theme):
         != style.lookup("ACT.TNotebook.Tab", "background")
     assert style.lookup(s["vscrollbar"], "background", ["active"]) \
         == c["scroll_thumb_hover"]
+
+
+def test_shared_metadata_surface_family(windows_theme):
+    """The Shared Metadata surface has its own frame/label/toggle styles.
+
+    Phase 1 shipped the labelframe and its header; Phase 3 needed to put plain
+    labels, sub-frames and a checkbutton on that surface too. Those deliberately
+    do *not* borrow the "muted" family: ``muted`` and ``shared_bg`` happen to be
+    the same colour today, and a converted panel must not silently depend on
+    two independent tokens staying equal.
+    """
+    style, theme = windows_theme
+    c, s = theme["colors"], theme["styles"]
+
+    for key in ("shared_surface", "shared_label", "shared_secondary",
+                "shared_checkbutton", "shared_labelframe", "shared_header"):
+        assert key in s, key
+        assert s[key].startswith("ACT."), s[key]
+        assert style.layout(s[key]), f"{s[key]} has no layout"
+        assert style.lookup(s[key], "background") == c["shared_bg"], key
+
+    assert style.lookup(s["shared_label"], "foreground") == c["text"]
+    assert style.lookup(s["shared_secondary"], "foreground") == c["secondary"]
+    assert style.lookup(s["shared_header"], "foreground") == c["shared_header"]
+    assert style.lookup(s["shared_label"], "foreground", ["disabled"]) \
+        == c["disabled"]
+    assert style.lookup(s["shared_checkbutton"], "indicatorbackground",
+                        ["selected"]) == c["accent"]
+
+    # Distinct from a normal card, which is the entire point of the surface.
+    assert style.lookup(s["card"], "background") != c["shared_bg"]
+    assert style.lookup(s["shared_labelframe"], "bordercolor") \
+        == c["shared_border"] != c["border"]
 
 
 def test_windows_theme_does_not_replace_generic_styles(tk_root, monkeypatch):
@@ -377,19 +419,21 @@ def test_windows_widgets_build_with_act_styles(tk_root, monkeypatch):
         for key in ("label", "title", "heading", "subheading", "section",
                     "secondary_label", "status_label", "link_label",
                     "success_label", "warning_label", "danger_label",
-                    "sidebar_label", "muted_label", "shared_header"):
+                    "sidebar_label", "muted_label", "shared_header",
+                    "shared_label", "shared_secondary"):
             ttk.Label(host, text=key, style=s[key]).pack()
         for key in ("button", "primary_button", "danger_button",
                     "ghost_button", "nav_button"):
             ttk.Button(host, text=key, style=s[key]).pack()
-        for key in ("surface", "card", "elevated", "muted", "sidebar",
-                    "divider", "toolbar"):
+        for key in ("surface", "card", "elevated", "muted", "shared_surface",
+                    "sidebar", "divider", "toolbar"):
             ttk.Frame(host, style=s[key]).pack()
         ttk.Entry(host, style=s["entry"]).pack()
         ttk.Combobox(host, style=s["combobox"], values=["a"]).pack()
         ttk.Spinbox(host, style=s["spinbox"], from_=1, to=5).pack()
         ttk.Checkbutton(host, text="c", style=s["checkbutton"]).pack()
         ttk.Checkbutton(host, text="m", style=s["muted_checkbutton"]).pack()
+        ttk.Checkbutton(host, text="s", style=s["shared_checkbutton"]).pack()
         ttk.Radiobutton(host, text="r", style=s["radiobutton"]).pack()
         ttk.Labelframe(host, text="g", style=s["labelframe"]).pack()
         ttk.Labelframe(host, text="Shared", style=s["shared_labelframe"]).pack()

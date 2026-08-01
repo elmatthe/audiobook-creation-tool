@@ -248,7 +248,11 @@ _WINDOWS_COLORS: dict[str, str | bool] = {
 #: magic numbers.
 _WINDOWS_METRICS: dict[str, object] = {
     # shell
-    "sidebar_width": 232,
+    # 180, not 232: Phase 2 measured the rail costing the tool panels 110px of
+    # content width against the classic shell, which clipped a primary action at
+    # the 920x600 minimum. 180 recovers 52px and still leaves ~44px of slack
+    # after the longest tool name at 125% scaling (maintainer-approved, Phase 3).
+    "sidebar_width": 180,
     "row_height": 34,
     "row_padx": 12,
     "row_gap": 2,
@@ -289,6 +293,7 @@ _WINDOWS_STYLES: dict[str, str] = {
     "card": "ACT.Card.TFrame",
     "elevated": "ACT.Elevated.TFrame",
     "muted": "ACT.Muted.TFrame",
+    "shared_surface": "ACT.Shared.TFrame",
     "sidebar": "ACT.Sidebar.TFrame",
     "divider": "ACT.Divider.TFrame",
     "toolbar": "ACT.Toolbar.TFrame",
@@ -307,6 +312,8 @@ _WINDOWS_STYLES: dict[str, str] = {
     "sidebar_label": "ACT.Sidebar.TLabel",
     "muted_label": "ACT.Muted.TLabel",
     "shared_header": "ACT.SharedHeader.TLabel",
+    "shared_label": "ACT.Shared.TLabel",
+    "shared_secondary": "ACT.SharedSecondary.TLabel",
     # buttons
     "button": "ACT.TButton",
     "primary_button": "ACT.Primary.TButton",
@@ -320,6 +327,7 @@ _WINDOWS_STYLES: dict[str, str] = {
     "checkbutton": "ACT.TCheckbutton",
     "radiobutton": "ACT.TRadiobutton",
     "muted_checkbutton": "ACT.Muted.TCheckbutton",
+    "shared_checkbutton": "ACT.Shared.TCheckbutton",
     # containers / indicators
     "labelframe": "ACT.TLabelframe",
     "shared_labelframe": "ACT.Shared.TLabelframe",
@@ -453,6 +461,7 @@ for _variant, _base in (
     ("ACT.Ghost.TButton", "ACT.TButton"),
     ("ACT.Nav.TButton", "ACT.TButton"),
     ("ACT.Muted.TCheckbutton", "ACT.TCheckbutton"),
+    ("ACT.Shared.TCheckbutton", "ACT.TCheckbutton"),
     ("ACT.Shared.TLabelframe", "ACT.TLabelframe"),
     ("ACT.Shared.TLabelframe.Label", "ACT.TLabelframe.Label"),
 ):
@@ -543,6 +552,10 @@ def _register_windows_styles(
     style.configure("ACT.Card.TFrame", background=c["surface"])
     style.configure("ACT.Elevated.TFrame", background=c["elevated"])
     style.configure("ACT.Muted.TFrame", background=c["muted"])
+    # The Shared Metadata surface gets its own frame/label/toggle family rather
+    # than borrowing the "muted" ones: the two tokens happen to be equal today,
+    # and a converted panel must not silently depend on that.
+    style.configure("ACT.Shared.TFrame", background=c["shared_bg"])
     style.configure("ACT.Sidebar.TFrame", background=c["sidebar"])
     style.configure("ACT.Toolbar.TFrame", background=c["window"])
     # A 1px hairline: pack/grid this frame with height=1 or width=1.
@@ -577,8 +590,13 @@ def _register_windows_styles(
                     foreground=c["text"], font=f["body"])
     style.configure("ACT.SharedHeader.TLabel", background=c["shared_bg"],
                     foreground=c["shared_header"], font=f["subheading"])
+    style.configure("ACT.Shared.TLabel", background=c["shared_bg"],
+                    foreground=c["text"], font=f["body"])
+    style.configure("ACT.SharedSecondary.TLabel", background=c["shared_bg"],
+                    foreground=c["secondary"], font=f["small"])
     for name in ("ACT.TLabel", "ACT.Heading.TLabel", "ACT.Subheading.TLabel",
-                 "ACT.Secondary.TLabel", "ACT.Muted.TLabel"):
+                 "ACT.Secondary.TLabel", "ACT.Muted.TLabel",
+                 "ACT.Shared.TLabel", "ACT.SharedSecondary.TLabel"):
         style.map(name, foreground=[("disabled", c["disabled"])])
 
     # --- buttons -----------------------------------------------------------
@@ -729,6 +747,7 @@ def _register_windows_styles(
     # --- toggles -----------------------------------------------------------
     for name, surface in (("ACT.TCheckbutton", c["surface"]),
                           ("ACT.Muted.TCheckbutton", c["muted"]),
+                          ("ACT.Shared.TCheckbutton", c["shared_bg"]),
                           ("ACT.TRadiobutton", c["surface"])):
         style.configure(
             name, background=surface, foreground=c["text"], font=f["body"],
