@@ -1,7 +1,7 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 3 COMPLETE, STOPPED at the Phase 4
+**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 4 COMPLETE, STOPPED at the Phase 5
 approval gate.** Plan file: `md-instructions/0.6.0-drop1-windows-ui-prototype.md`
 (Plan 1 of nine planned v0.6.x instruction drops; the remaining eight are named in
 the plan's sequencing note but are **not drafted and must not be started**).
@@ -16,7 +16,8 @@ The desktop checkout was 10 commits behind at `695045c` and fast-forwarded clean
 **Phase 0 commit:** `0971a20e24fc196967da97d1b204375dc549ad5a` (docs only).
 **Phase 1 commit:** `9cd7fb8e04e11d64f9303d0f44a7ca3f3723af51`.
 **Phase 2 commit:** `b2e5285958a8d7adcc19a4c17d45f1e55fd7e900`.
-**Phase 3 commit:** see the Session Sync Log entry below.
+**Phase 3 commit:** `d8d0b1b7aec1b62d80989ffb791cda313fb22763`.
+**Phase 4 commit:** see the Session Sync Log entry below.
 
 **Phase 0 result:** baseline established and green. No theme, launcher, tool-panel,
 test, `requirements.txt`, or `version.py` source was edited — Phase 0 is
@@ -62,12 +63,250 @@ window size. The five unconverted panels still carry **zero** namespaced styles.
 Full detail in *Phase 3* below; the one thing still open is the **vertical** part of
 the Phase 2 geometry regression, which the width change could not address.
 
-**Next proposed phase:** Phase 4 — automated and functional regression hardening:
-review the whole diff for generic-style leakage and unintended changes, complete the
-Section 11 manual functional matrix on Windows (dialogs, list/pages, safe save on
-copies, Clear All Tags, Remove Series Numbering, Cancel mid-run, the controlled error
-path), re-check resize/keyboard behaviour, and record the macOS smoke requirement.
-**Not started. Awaiting explicit user approval.**
+**Phase 4 result:** the prototype was audited, regression-tested and functionally
+exercised on Windows, and **no source defect caused by Phases 1–3 was found**, so
+Phase 4 is **test-and-documentation-only**: one new test file, no production-source
+change. The whole-diff audit proves every non-Windows code path and every
+behavioural method is byte-identical to `master`, and the Section 11 matrix ran
+against the real launcher and the real editor on disposable fixtures with SHA-256
+evidence at every step. Full detail in *Phase 4* below.
+
+**Next proposed phase:** Phase 5 — capture the evidence and stop at the hard visual
+gate: confirm Phase 4 is still green, complete both true Windows display-scaling
+passes, capture the exact ten-image 1920×1080 100%/125% matrix into
+`files/UI-Prototype-Screenshots/v0.6.0-drop1/`, write the visual comparison against
+`files/UI-Current-Screenshots/`, and ask for an explicit *approved* / *changes
+requested* decision. **Not started. Awaiting explicit user approval.**
+
+### Phase 4 — regression hardening (2026-08-01, HOME-PC)
+
+**Outcome: no production-source change.** The plan's source-change rule is "fix only
+a genuine regression caused by Phases 1–3". The audit and the functional matrix found
+none, so nothing under `scripts/` was edited. One file was added:
+`files/tests/test_prototype_regression.py` (12 tests).
+
+#### Whole-diff audit (`1da1e547..d8d0b1b`, the complete Phase 1–3 diff)
+
+Nine files changed overall: three sources, four test files, the drop plan and this
+handoff. Findings, each with the evidence rather than an assertion:
+
+| Audit item | Finding | Evidence |
+|---|---|---|
+| Generic ttk style leakage | **None.** Every `style.configure` / `style.map` / `style.layout` on an added line names an `ACT.*` style or a loop variable bound only to `ACT.*` names | grep of all 1338 added source lines |
+| `ACT.*` reaching the five unconverted panels | **None.** 0 namespaced styles in each of the five; 19 in the converted editor | live app walk + `test_launcher_smoke` + the new whole-app snapshot test |
+| Missing explicit layouts | **None.** Every style in `theme["styles"]`, plus the four sub-styles, has a layout, and every natively-drawn class roots in a cloned `ACT.` element | `test_windows_styles_are_namespaced_and_registered` |
+| Global option-database changes | **None.** `option_add` / `option_clear` / `tk_setPalette` appear nowhere in `scripts/` | repo-wide grep |
+| Panel-wide hardcoded colours/fonts/metrics | **None.** All 34 hex literals live in `_WINDOWS_COLORS` in `ui_theme.py`; `launcher.py` and the editor contain **zero** | per-file grep of added lines |
+| Windows leaking into aqua / Linux-other | **None.** `_apply_darwin`, `_apply_classic`, `_classic_font_family`, `_resolve_color`, `_blend`, `_is_dark`, `_mac_font_family`, `enable_mousewheel` and all five `ProgressIndicator` methods are **byte-identical** to master; `apply_theme` gained only the `win32` arm | AST-level definition compare, master vs HEAD |
+| Metadata semantics | **Unchanged.** `shared/metadata.py` untouched; all 46 editor definitions from `add_files` down are byte-identical | `git diff --name-only` + AST compare |
+| Output paths / collision / copy-only / original protection | **Unchanged.** `shared/paths.py` untouched; `_save_worker` and `_remove_numbering_worker` byte-identical | as above, plus the new worker tests and the live matrix |
+| Settings persistence | **Unchanged.** `shared/settings.py` untouched; the editor still writes only `m4b_metadata.input_dir` and `m4b_metadata.cover_dir`; the launcher only `last_tool` | AST compare + `test_no_new_persisted_settings_arrived_with_the_new_presentation` |
+| Workers / queues / cancellation / threading / audio | **Unchanged.** Both workers, `_start_job`, `cancel`, `disable_inputs`, `_pump_queue`, `_finish_idle` byte-identical; `shared/cancellation.py` untouched | AST compare |
+| Launcher lifecycle / ordering / build-once / saved selection / error panels / status / log folder | **Unchanged.** `TOOLS`, `select_tool`, `_load_tool_into`, `_available_tools`, `_module_exists`, `__init__`, `_on_close`, `_open_logs`, `_apply_default_geometry`, `_build_ui_classic`, `_build_ui_darwin` all byte-identical. Only `_build_ui` (routing), `_highlight_selection` (new `windows` arm, aqua arm and classic tail identical) and `_show_load_error` (the old body moved verbatim into an `else:`) changed | AST + statement-level compare |
+| Runtime access to the developer-only fixture | **None.** Not in `TOOLS`, not under `scripts/`, not pytest-collectable | `test_manual_fixture_is_developer_only_and_unreachable_at_runtime` |
+| `requirements.txt` / `version.py` / setup launchers / unrelated tools | **Untouched.** `git diff --name-only 1da1e547..HEAD` over all of them returns empty; `version.py` still `VERSION = "0.5.1"` | direct check |
+
+**The load-bearing audit result:** at the definition level, `mp3_tools/m4b_metadata_editor.py`
+has **46 byte-identical definitions** and exactly **three changed** (`__init__`,
+`_build_ui`, `build_ui`) plus three added (`_build_ui_classic`, `_build_ui_windows`,
+`_wrap_with`). `_build_ui_classic` is statement-for-statement master's `_build_ui`
+minus its two trailing state syncs, which moved to the dispatcher and now run for
+**both** forks. That is what makes "no metadata, output, threading or cancellation
+change" a proof rather than a claim.
+
+**One correction to the Phase 3 record.** Phase 3 said the two forks create "exactly
+the same widgets and attributes". Measured: they create the same widget *set* and the
+same widget *types* for every attribute either fork's shared code touches, but the
+Windows fork additionally names one label that the classic fork leaves anonymous —
+`self.lbl_chap_hint`. Nothing reads it, `disable_inputs` does not touch it, and no
+contract depends on it, so it is not a defect; the earlier wording was just slightly
+too strong.
+
+#### Tests added (`files/tests/test_prototype_regression.py`, 12)
+
+Only what Phases 1–3 did not already cover, and behaviour over appearance:
+
+| Test | What it pins down |
+|---|---|
+| `test_save_worker_writes_only_copies_and_never_the_originals` | every write lands in the output folder, every original is byte-identical, and the copies really are copies |
+| `test_save_worker_never_overwrites_an_input_when_output_is_the_input_folder` | the `avoid_input_overwrite` guard, i.e. output folder == input folder is safe |
+| `test_remove_numbering_worker_is_copy_only_too` | the same contract for the second worker |
+| `test_cancel_before_the_first_file_writes_nothing` | a pre-set cancel writes nothing and reports `(0, 0, cancelled)` |
+| `test_cancel_mid_run_finishes_the_current_file_and_stops_the_rest` | the documented semantics: the in-flight file completes, later files stop, only whole copies exist |
+| `test_cancellation_uses_the_shared_primitive` | cancellation still travels through `shared.cancellation`, not a local flag |
+| `test_both_build_forks_expose_the_same_surface` | all 16 `disable_inputs` targets exist with the same types on both forks, and busy → idle behaves identically |
+| `test_an_aqua_bundle_builds_the_historical_layout` | macOS takes the unconverted fork — the check is on `mode`, not on `sys.platform` |
+| `test_building_the_whole_app_leaves_the_generic_styles_untouched` | 16 generic styles byte-identical across theme + shell + **all six panels** building (Phase 1 covered theme only, Phase 3 one panel) |
+| `test_the_runtime_editor_contains_no_plan_3_6_or_8_controls` | no notebook, no Summary/Details/ETA/Retry/Pause/Resume/filter/per-book wording, exactly the two historical Text areas, and no button without a command |
+| `test_shared_metadata_grouping_adds_no_precedence_or_disabling` | a populated shared field disables nothing and overrides nothing |
+| `test_no_new_persisted_settings_arrived_with_the_new_presentation` | the panel still writes only its two historical dialog-location keys |
+
+The first six need no display (they call the unbound workers on a stub, like the
+existing shared-value tests); the Windows-only ones skip elsewhere.
+
+#### Windows manual functional matrix (Section 11)
+
+**Fixtures.** Generated rather than copied: every real file in `files/test-files/` is
+0.5–3 GB and the matrix copies each input again, so three ~3.4 KB M4Bs were built with
+ffmpeg — real AAC audio, three real chapters, real tags (shared artist / album / year /
+genre / comment, differing titles, track numbers 1–3) — plus one deliberately invalid
+`BROKEN.m4b`. They travel the same mutagen/ffmpeg paths at 1/50000th the size, and
+nothing irreplaceable was ever in the working directory.
+
+**Location and disposability.** Everything lived in the session scratchpad
+(`…\Temp\claude\…\scratchpad\p4\work\`), **outside the repository**: `src/` (sources),
+`bulk2/` (400 copies for the cancel run) and eight `out-*/` folders. **Nothing was
+committed** — `git status` after the run showed only the new test file and the
+pre-existing untracked `config-template.toml`. `settings.json` was snapshotted before
+and byte-restored after every run (`settings_restored: true` both times). No stray
+`Downloads/M4B-Metadata-N` folder was created.
+
+**Method.** The real `LauncherApp` built the real converted editor; every check calls
+the production callback the button is wired to. `filedialog` and `messagebox` were
+scripted so a "cancelled" dialog returns exactly what Tk returns when the user presses
+Cancel. Nothing in the editor, the workers, metadata or the output logic was patched.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Dialog safety — open and cancel Add M4B / Add Folder / cover / output | **PASS** — all four opened with their real titles; files, listbox, cover, output folder and `settings.json` bytes all identical before and after; panel still usable |
+| 2 | File list — import one, import many, order, selection, Remove Selected, Clear List, re-import | **PASS** — 1 → 3 files, a re-added duplicate is not duplicated, multi-selection `(0, 2)` removed both, Clear List emptied everything and reset the notice, re-import restored all three in import order |
+| 3 | Shared metadata + chapter pages | **PASS** — batch notice named the shared fields (Author/Artist, Album, Year, Genre, Comment); Title varies → left blank; pager stepped 1→2→3 and back with the label and hint following the selected file; `btn_chap_prev` correctly disabled on page 1; **all 8 fields `normal`** — nothing disabled by the grouping; single-file load re-prefilled from the file itself |
+| 4 | Safe Save on disposable copies | **PASS** — 3 outputs in the redirected folder, the edited Comment applied, every unrelated tag (title/artist/album/year/genre/series/series_part) preserved, all 3 chapters intact per file, **all source SHA-256 unchanged**, no output path equals an input path, returned to idle |
+| 5 | Clear All Tags — both confirmation choices | **PASS** — declining did nothing (not busy, output folder never created, sources unchanged); accepting produced 3 copies with title/artist/album/genre/year/series/cover **gone**, chapters kept, and the one field the user had edited re-applied (the documented `only_edited` behaviour); sources unchanged |
+| 6 | Remove Series Numbering — both confirmation choices | **PASS** — declining did nothing; accepting removed `series` / `series_part` / `track` on the copies while title, artist and album survived and all 3 chapters were kept; sources unchanged |
+| 7 | Cancel during work | **PASS** — 400 disposable inputs, no artificial delay added. Cancel pressed 400 ms in while busy with 8 files done: the button was enabled, went disabled on press, the event was set, the log recorded "Cancelling… will stop after the current file.", the in-flight file (#9) finished, files 10–400 stopped, the run reported "Cancelled. 9 saved, 0 failed.", the UI returned to idle with **every** control restored, all 400 inputs byte-identical, every one of the 9 outputs a complete copy (no zero-byte or truncated file), and the next run after the cancel completed normally with the event cleared |
+| 8 | Controlled error path | **PASS** — the invalid fixture was reported at load ("Could not read tags"), the run logged `[2/3] ✗ … : not a MP4 file`, finished "Done. 2 saved, 1 failed.", raised the existing "Completed with errors" warning, kept the UI responsive, left the sources unchanged, and a subsequent safe save completed normally. Note (pre-existing, not introduced here): the invalid file *is* copied to the output folder before the tag write fails, so an untagged copy is left behind — that is the existing copy-then-write order, unchanged by this drop |
+| 9 | Launcher lifecycle after all of the above | **PASS** — six tools in order, **zero** error panels, 6 containers with identical object identity across three full sweeps, the editor object and its typed state preserved, the `selected` flag on exactly the active row, no row disabled, status correct, log-folder action worked |
+
+#### Resize, scrolling and keyboard (HOME-PC, 1920×1080 @ 100%)
+
+Measured on the real mapped window — "reachable" means mapped **and** the widget's box
+lies inside the content host, not an eyeball.
+
+| | 1024×720 | 920×600 | Maximized |
+|---|---|---|---|
+| Window | 1024×720 | 920×600 | 1920×1009 |
+| Content host | 825×577 | 721×457 | 1721×866 |
+| Editor scroll viewport | 326 px | 206 px | 615 px |
+| Form requested height | 1083 px | 1083 px | 1083 px |
+| Save / Clear All Tags / Remove Numbering / Cancel | reachable, 0 px clipped | reachable, 0 px clipped | reachable, 0 px clipped |
+| Progress bar + counter | reachable, 0 px clipped | reachable, 0 px clipped | reachable, 0 px clipped |
+| Log | reachable, 0 px clipped | reachable, 0 px clipped | reachable, 0 px clipped |
+| Status bar + log button visible | yes | yes | yes |
+| Six nav rows visible | yes | yes | yes |
+| Form region scrolls | yes | yes | yes |
+| Log scrolls independently of the form | yes | yes | yes |
+
+- **Nav rows at `sidebar_width = 180`:** widest 115 px (TTS Audiobook) against a 160 px
+  interior — 45 px of slack for 125%. All six readable at all three sizes.
+- **Mouse-wheel scoping:** unchanged — one canvas in the editor, `<Enter>`/`<Leave>`
+  bound on the hover wrap, and the Leave side still carries the `%d` crossing-detail
+  substitution that keeps the binding alive over child widgets.
+- **Keyboard:** a **31-stop closed loop with no trap** — rail (6) → file actions → list
+  → the seven shared fields → cover Browse/Clear → series + auto-number → chapter text
+  → output → Save / Clear All Tags / Remove Series Numbering → Open log folder. The
+  disabled Cancel and the disabled pager arrows are correctly skipped.
+- **Selection / hover / pressed / disabled / focus:** unchanged from Phases 2–3.
+- **Five classic panels:** still unconverted (0 `ACT.*` styles each, in the live app).
+- **ttk theme:** still `vista`.
+- **Correction to the Phase 3 record:** Phase 3 said the whole form fits without
+  scrolling when maximized. Re-measured, it does not — the form wants 1083 px against a
+  615 px viewport even maximized, so the editor's form is a scroll region at **all
+  three** sizes. That is permitted by the plan (§7.3 requires deliberate scrolling, not
+  zero scrolling) and the action bar and Log stay outside it, but the earlier claim was
+  wrong and is corrected here.
+
+#### Phase 4 automated results (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_shared.py` | PASS — 7 passed in 0.03s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_ui.py` | PASS — 12 passed in 0.45s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | PASS — 17 passed, **0 skipped**, in 0.13s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_launcher_smoke.py` | PASS — 11 passed, 1 warning in 2.35s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_prototype_regression.py` | PASS — **12 passed**, 1 warning in 1.74s (new) |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_metadata_smoke.py` | PASS — 4 passed in 0.01s |
+| `.venv\Scripts\python.exe -m pytest -q` (full suite) | PASS — **94 passed, 3 skipped**, 1 warning in 5.33s |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** — pytest 94 passed / 3 skipped in 5.03s; deps `==`-pinned; docs de-templated |
+| `.venv\Scripts\python.exe -m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+**Baseline change explained:** 82 → 94 passed is exactly the 12 new tests in
+`test_prototype_regression.py`. Nothing else moved. The 1 warning is still the
+pre-existing pydub `audioop` DeprecationWarning; the 3 skips are still the three
+`JACK_RYAN_M4B_FOLDER`-gated tests in `test_jack_ryan_final_product.py`, confirmed by
+name with `pytest -rs`.
+
+**The Tk skip transient DID recur — once — and is reported rather than smoothed over.**
+On the post-handoff verification pass, one full-suite run reported **77 passed, 20
+skipped**: 17 fewer passes and 17 more skips than the baseline. `scripts/verify.py`,
+run seconds later in the same command, reported `94 passed, 3 skipped` and **PASS**.
+
+- **Which module:** `test_ui_theme.py`. It is the only module with exactly 17 tests,
+  all 17 hang off its module-scoped `tk_root` fixture, and 94 − 77 = 20 − 3 = 17. The
+  three baseline skips are the `JACK_RYAN_M4B_FOLDER`-gated tests, confirmed by name.
+- **The reason string was not captured.** The bad run was not under `-rs`, and the
+  condition would not reproduce afterwards. The only path that can turn those 17 into
+  skips is the fixture's `except tk.TclError -> pytest.skip("Tk cannot open a display
+  here: …")`, so the underlying event is a transient failure of `tk.Tk()` on this
+  machine, most likely under the load of several pytest processes creating and
+  destroying Tk roots back to back — which is exactly what preceded it both times.
+- **Retried, hard.** 22 further full-suite runs, including 16 that deliberately
+  re-created the trigger (four or five focused Tk suites immediately before the full
+  suite): **94 passed, 3 skipped every single time, 0 deviations.** `test_ui_theme.py`
+  run explicitly on its own gave **17 passed, 0 skipped** on every attempt.
+- **Not accepted as equivalent.** The recorded Phase 4 result is the 94/3 baseline; the
+  77/20 run is logged as an environment transient, not as coverage.
+- **The guard was not rewritten**, per the plan — it is not a reproducible defect, and
+  a narrow fix would need its own justification. What it does mean is worth stating
+  plainly: when this fires, the theme suite silently vanishes from the run and
+  `verify.py` still says PASS, because the gate cannot tell "17 tests skipped" from
+  "17 tests never existed". That is a real, if rare, blind spot in the gate. It predates
+  this drop and belongs to whoever hardens `verify.py`, not to Plan 1.
+
+### Phase 4 limitations and open items
+
+1. **Live macOS is still deferred — the exact smoke test still required.** No Mac was
+   available this session, so nothing macOS is claimed as passed. What Plan 1 still
+   needs on HOME-MacOS, precisely: (a) launch through
+   `Setup_and_Run-audiobook-creation-tool.command` and confirm the Finder/aqua shell is
+   visually unchanged from v0.5.1 — source-list sidebar, toolbar strip, content card,
+   accent selection row; (b) select all six tools and confirm each opens with no error
+   panel and no dark chrome; (c) open the M4B Metadata Editor and confirm it renders the
+   **historical** layout (one flat stack of labelframes, native aqua controls) and **not**
+   the card layout; (d) confirm the editor's file list, chapter pager, Save/Cancel and
+   Log behave as they did on v0.5.1; (e) confirm `ttk` is still `aqua`. Automated
+   coverage exists and is reported separately: `test_apply_theme_on_current_platform`
+   (aqua arm), `test_classic_branch_other_platform`,
+   `test_non_windows_theme_builds_the_unconverted_layout` and the new
+   `test_an_aqua_bundle_builds_the_historical_layout` — plus the audit fact that
+   `_apply_darwin` and `_build_ui_darwin` are byte-identical to master. That is
+   evidence, **not** a live pass. Carried into Phase 5.
+2. **The vertical half of the Phase 2 geometry regression is still open, and is
+   deliberately not fixed here.** `MIN_SIZE` and `DEFAULT_GEOMETRY` are unchanged. The
+   M4B Converter's `Convert M4Bs → MP3s` row and Log are still clipped at the 920×600
+   minimum (~19 px and ~110 px). Phase 5 decision, per the maintainer.
+3. **The editor's form viewport is shallow at 920×600** (206 px) and, corrected above,
+   the form scrolls at every size including maximized. Not fixed in Phase 4 — that would
+   be visual redesign, which this phase is forbidden.
+4. **No 125% scaling pass yet.** Everything above is 100%. The true 125% pass is Phase 5.
+5. **`ttk.Combobox` popdown still unthemed** (carried from Phases 1–3). Plan 9 item.
+6. **The matrix used generated fixtures, not the real library.** Deliberate — see
+   *Fixtures* above. It means the matrix did not exercise a multi-hour, multi-GB file or
+   an unusual real-world tagger namespace. The real-library behaviour of those code
+   paths is unchanged by this drop (they are byte-identical to master), so this is a
+   scope note rather than a gap, but it is not the same as a full-size run.
+7. **One pre-existing behaviour surfaced by check 8, not introduced here:** an
+   unreadable input is copied into the output folder before the tag write fails, leaving
+   an untagged copy behind. That is master's copy-then-write order. Recorded, not
+   changed — Phase 4 may only fix regressions caused by Phases 1–3.
+8. **The Tk skip transient recurred once** (see the automated-results section above for
+   the full account). Two occurrences now — Phase 3 and Phase 4 — both 17 extra skips,
+   both unreproducible afterwards (22 clean retries this time), both leaving
+   `verify.py` reporting PASS. The guard was deliberately not rewritten. The residual
+   risk is that the gate cannot distinguish a skipped suite from an absent one.
+9. Pre-existing Open Issue #2 (`kokoro_synth` CLI-only cp1252 `UnicodeEncodeError`)
+   remains open and out of scope.
 
 ### Phase 3 — M4B Metadata Editor + visual specimens (2026-07-31, HOME-PC)
 
@@ -886,6 +1125,46 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-01 — v0.6.0 Drop 1 **Phase 4 complete** (HOME-PC session; per-phase commit on
+  the implementation branch). Regression hardening, and the headline is what did *not*
+  happen: **no production-source change**. The plan permits a source edit only for a
+  genuine regression caused by Phases 1–3, and the audit plus the functional matrix
+  found none, so the only file added is `files/tests/test_prototype_regression.py`
+  (12 tests). **Whole-diff audit** of `1da1e547..d8d0b1b` at the definition level rather
+  than by reading the diff: in `m4b_metadata_editor.py`, 46 definitions are
+  byte-identical to master and exactly three changed (`__init__`, `_build_ui`,
+  `build_ui`); `_build_ui_classic` is statement-for-statement master's `_build_ui` minus
+  its two trailing state syncs, which moved to the dispatcher and now run for both
+  forks. In `ui_theme.py`, `_apply_darwin`, `_apply_classic`, `enable_mousewheel` and all
+  five `ProgressIndicator` methods are byte-identical; only `apply_theme` changed, by the
+  addition of the `win32` arm. In `launcher.py`, `TOOLS`, `select_tool`,
+  `_load_tool_into`, `_build_ui_classic` and `_build_ui_darwin` are byte-identical; the
+  aqua arm of `_highlight_selection` and the whole body of `_show_load_error` were moved
+  verbatim, not rewritten. Zero `option_add` anywhere; all 34 hex literals live in
+  `_WINDOWS_COLORS` and neither `launcher.py` nor the editor contains one; `metadata.py`,
+  `paths.py`, `settings.py`, `cancellation.py`, `requirements.txt`, `version.py`, both
+  setup launchers and the five other tool modules are untouched. **Section 11 matrix**
+  ran against the real launcher and the real editor with scripted dialogs, on generated
+  ~3.4 KB M4B fixtures in the scratchpad (the real library files are 0.5–3 GB and the
+  matrix copies every input again): dialog cancel, file-list operations, shared/varies
+  prefill, chapter paging, Safe Save, both Clear All Tags confirmation choices, both
+  Remove Series Numbering choices, Cancel mid-run over 400 inputs, the controlled error
+  path, and launcher lifecycle afterwards — **all pass**, with source SHA-256 verified
+  unchanged at seven checkpoints and `settings.json` byte-restored. The cancel run is the
+  one worth naming: pressed 400 ms in with 8 files done, the in-flight file finished, 391
+  later files stopped, every partial output was a complete copy, all 400 inputs were
+  byte-identical, and the next run after it completed normally. **Two corrections to the
+  Phase 3 record**, both honest rather than convenient: the two forks are not attribute-
+  identical (Windows names one extra label, `lbl_chap_hint`, that nothing reads), and the
+  editor's form does **not** fit without scrolling when maximized (1083 px wanted against
+  a 615 px viewport). Tests 82 → **94 passed, 3 skipped**; `verify.py` **PASS**;
+  `compileall` exit 0; `git diff --check` clean. The Phase 3 Tk skip transient **did
+  recur once** (one run of `77 passed, 20 skipped` — `test_ui_theme.py`'s 17 tests
+  skipping on a transient `tk.Tk()` failure) and would not reproduce in 22 further
+  runs, 16 of them deliberately re-creating the trigger; it is logged as an environment
+  transient, not accepted as coverage, and the pre-existing guard was left alone per the
+  plan. Live macOS remains **deferred**, with the exact five-step smoke test now written
+  down. Stopped at the Phase 5 gate.
 - 2026-07-31 — v0.6.0 Drop 1 **Phase 3 complete** (HOME-PC session; per-phase commit on
   the implementation branch). Converted the **Windows M4B Metadata Editor** — the only
   tool panel this plan may ever convert — and built the visual specimens.
@@ -1460,6 +1739,36 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-01 — HOME-PC — v0.6.0 Drop 1 Phase 4 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
+- Base:    `d8d0b1b7aec1b62d80989ffb791cda313fb22763` (Phase 3). No pull needed —
+  `master` and `origin/master` are both still `1da1e547` and were not touched.
+- Added:   `files/tests/test_prototype_regression.py` — 12 tests covering only what
+  Phases 1–3 left uncovered: the copy-only/original-protection contract in both workers,
+  the input==output collision guard, cooperative cancellation (pre-set, mid-run, and via
+  the shared primitive), build-fork surface parity, an aqua bundle taking the
+  unconverted fork, generic-style isolation across a **whole app build**, the absence of
+  any Plan 3/6/8 control in the runtime editor, the Shared Metadata card adding no
+  precedence or disabling, and no new persisted settings.
+- Changed: `md-instructions/handoff.md` — Current Focus moved to the Phase 5 gate, a
+  Phase 4 section (audit table with evidence per item, the tests-added table, the
+  9-row functional matrix, the three-size resize/scroll/keyboard table, the automated
+  results table), eight Phase 4 limitations including the written-out macOS smoke test,
+  a Work Log entry and this entry.
+- **No production source was changed.** `scripts/` is byte-identical to `d8d0b1b`;
+  `requirements.txt` and `version.py` (still `0.5.1`) are untouched, as are both setup
+  launchers and all five unconverted tool modules.
+- Not committed, by design: the generated M4B fixtures, the 400 bulk copies, the eight
+  output folders, the audit/matrix/geometry probe scripts and their JSON results — all
+  in the session scratchpad outside the repository. `settings.json` was snapshotted and
+  byte-restored after every run.
+- Verified before commit: focused suites 7 / 12 / 17 / 11 / 12 / 4 passed; full suite
+  **94 passed, 3 skipped**, 1 pre-existing warning; `scripts/verify.py` **RESULT: PASS**;
+  `compileall` exit 0; `git diff --check` clean. One full-suite run in the middle of the
+  pass reported `77 passed, 20 skipped` (the Tk transient); it did not reproduce in 22
+  retries and is recorded, not accepted — see *Phase 4 limitations* item 8.
+- Worktree after push: only the pre-existing untracked `config-template.toml`, which was
+  not edited, staged, moved or deleted at any point.
 
 ### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 3 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Base:    `b2e5285958a8d7adcc19a4c17d45f1e55fd7e900` (Phase 2). No pull needed —
