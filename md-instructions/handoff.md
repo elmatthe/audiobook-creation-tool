@@ -1,8 +1,12 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 4 COMPLETE, STOPPED at the Phase 5
-approval gate.** Plan file: `md-instructions/0.6.0-drop1-windows-ui-prototype.md`
+**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 5 EVIDENCE CAPTURED. STOPPED AT THE HARD
+VISUAL GATE, awaiting an explicit maintainer `APPROVED` or `CHANGES REQUESTED`.**
+The ten screenshots existing is **not** approval, and nothing in the permanent docs
+(`Briefing.md`, `CHANGELOG.md`, `DECISIONS.md`, `README.md`, `version.py`) has been
+updated with any prototype-acceptance claim. Plan file:
+`md-instructions/0.6.0-drop1-windows-ui-prototype.md`
 (Plan 1 of nine planned v0.6.x instruction drops; the remaining eight are named in
 the plan's sequencing note but are **not drafted and must not be started**).
 
@@ -17,7 +21,8 @@ The desktop checkout was 10 commits behind at `695045c` and fast-forwarded clean
 **Phase 1 commit:** `9cd7fb8e04e11d64f9303d0f44a7ca3f3723af51`.
 **Phase 2 commit:** `b2e5285958a8d7adcc19a4c17d45f1e55fd7e900`.
 **Phase 3 commit:** `d8d0b1b7aec1b62d80989ffb791cda313fb22763`.
-**Phase 4 commit:** see the Session Sync Log entry below.
+**Phase 4 commit:** `9d4f58cdb24f0963552490d73273acaec1369589`.
+**Phase 5 commit:** see the Session Sync Log entry below.
 
 **Phase 0 result:** baseline established and green. No theme, launcher, tool-panel,
 test, `requirements.txt`, or `version.py` source was edited — Phase 0 is
@@ -71,12 +76,230 @@ behavioural method is byte-identical to `master`, and the Section 11 matrix ran
 against the real launcher and the real editor on disposable fixtures with SHA-256
 evidence at every step. Full detail in *Phase 4* below.
 
-**Next proposed phase:** Phase 5 — capture the evidence and stop at the hard visual
-gate: confirm Phase 4 is still green, complete both true Windows display-scaling
-passes, capture the exact ten-image 1920×1080 100%/125% matrix into
-`files/UI-Prototype-Screenshots/v0.6.0-drop1/`, write the visual comparison against
-`files/UI-Current-Screenshots/`, and ask for an explicit *approved* / *changes
-requested* decision. **Not started. Awaiting explicit user approval.**
+**Phase 5 result:** the exact ten-image matrix exists at
+`files/UI-Prototype-Screenshots/v0.6.0-drop1/`, captured from the real application at
+1920×1080 in **two true Windows display-scaling passes** (100% and 125% — Windows did
+the scaling, not Tk, not an image editor). **No production source changed:**
+`git diff --name-only 9d4f58c..HEAD -- scripts/ files/tests/` is empty. Two files
+were added to the repository beyond the PNGs: none. Full detail in *Phase 5* below.
+
+**Next proposed phase:** Phase 6 — approved closeout. **Entry condition not met.** It
+requires the maintainer's explicit `APPROVED` on the ten screenshots. Until then, no
+permanent doc is updated, the plan file is not deleted, nothing is merged, and no other
+v0.6.x plan begins.
+
+### Phase 5 — visual evidence capture (2026-08-01, HOME-PC)
+
+**Branch and SHA the images were generated from:**
+`feature/0.6.0-drop1-windows-ui-prototype` @ `9d4f58cdb24f0963552490d73273acaec1369589`
+(Phase 4 HEAD). No source was edited before, during or after capture.
+
+#### Environment and how each scaling pass was verified
+
+| | 100% pass | 125% pass |
+|---|---|---|
+| Physical resolution | 1920×1080 | 1920×1080 |
+| Display used | primary (rect `0,0–1920,1080`) | secondary (rect `-1920,0–0,1080`) |
+| `GetDpiForMonitor(MDT_EFFECTIVE_DPI)` | **96 → 100%** | **120 → 125%** |
+| Window state | maximized | maximized |
+| Captured image size | 1920×1032 | 1920×1020 |
+| ttk base theme | `vista` | `vista` |
+
+Scaling was verified by enumerating every monitor with `EnumDisplayMonitors` and reading
+`GetDpiForMonitor` from a process explicitly set to `PER_MONITOR_AWARE_V2`, so the number
+is the monitor's real effective DPI rather than whatever the app happens to believe.
+Windows was **not** touched by script or registry — the maintainer changed the scale in
+Settings → System → Display.
+
+**Why the 125% pass ran on the second display, and why that is equivalent.** When asked,
+the maintainer set 125% on the secondary display; the primary stayed at 100%. That is
+sufficient, and not an approximation, because of the finding below: the application is
+**DPI-unaware**, so Windows bitmap-scales its window whenever the window's display is not
+at 100%. An unaware app on a 125% *primary* is virtualized in exactly the same way (it
+sees a 1536×864 screen and Windows stretches the result to 1920×1080). The pixels are
+produced by the same Windows scaler either way, and a screen capture reads the
+framebuffer, so the physical panel is irrelevant to the image. If the maintainer wants
+the second pass re-shot on a 125% primary, say so at the gate and it will be redone.
+
+**The load-bearing finding of this phase: the application is DPI-unaware.**
+`GetProcessDpiAwareness` returns `0 / UNAWARE`, and neither `.venv\Scripts\python.exe`,
+`.venv\Scripts\pythonw.exe`, nor the base Python 3.12.10 interpreter they come from
+carries a `dpiAware` manifest entry. `pythonw.exe` is what
+`Setup_and_Run-audiobook-creation-tool.bat` launches, so this is the real end-user path.
+Consequences, measured rather than assumed:
+
+- At 100% there is no virtualization: 1:1 pixels, text fully sharp.
+- At 125% Windows scales the **whole window as a bitmap**. The app's own coordinate space
+  never changes — Tk still reports 96 px/inch and the maximized window is 1536×793
+  *logical*, stretched to 1920×1020 *physical*. Text is therefore slightly soft rather
+  than crisply re-rendered at 120 DPI.
+- The good news is the direct consequence of the same fact: **nothing clips, overlaps,
+  reflows or truncates at 125%**, because every dimension scales by the identical factor.
+  The 125% layout is pixel-proportional to the 100% layout.
+- Nothing was done about it. Making the app DPI-aware is a production behaviour change
+  (a manifest or a `SetProcessDpiAwareness` call at startup) and Phase 5 is evidence-only.
+  It is raised at the gate as a decision, not fixed.
+
+#### The ten evidence images
+
+All ten are full maximized application windows, uncropped, unannotated, unedited.
+
+| # | Path (under `files/UI-Prototype-Screenshots/v0.6.0-drop1/`) | Source | State |
+|---|---|---|---|
+| 1 | `windows-100-launcher-overview.png` | **runtime app** | real `LauncherApp`, M4B Metadata selected, six nav rows, header, status bar + log action |
+| 2 | `windows-100-m4b-metadata-empty.png` | **runtime app** | same window, empty editor, form scrolled to the foot so Chapter Titles / Output / action bar / Log are all shown |
+| 3 | `windows-100-m4b-metadata-populated.png` | runtime app + **developer fixture data** | 3 canned books, shared fields pre-filled, Title varying → blank |
+| 4 | `windows-100-m4b-metadata-active-run.png` | runtime app + **developer fixture state** | inputs locked, progress 2/3 67%, Cancel enabled, live log |
+| 5 | `windows-100-summary-details-specimen.png` | **developer fixture** | Summary/Details component sheet + action-hierarchy swatch |
+| 6–10 | the same five as `windows-125-*.png` | identical sources and states | true 125% Windows scaling |
+
+**What came from the developer-only fixture, stated plainly.** Images 1 and 2 are the
+shipped application with nothing added. Images 3 and 4 are the shipped launcher hosting
+the shipped editor, with `files/tests/manual_windows_ui_prototype.py`'s canned books
+(`_populate`) and its controlled busy state (`_make_busy`) applied — the fixture calls the
+editor's own public methods, so the widgets, styles and state on screen are the real ones.
+Image 5 is entirely the fixture's specimen sheet, and it carries its own on-screen
+`VISUAL SPECIMEN — presentation only` disclaimer naming every Plan 3 behaviour it does
+*not* have. The fixture remains unreachable from the runtime launcher
+(`test_manual_fixture_is_developer_only_and_unreachable_at_runtime`).
+
+**No private data.** The capture process ran with `USERPROFILE` pointed at
+`C:\Users\Public`, so the editor's default output folder renders as
+`C:\Users\Public\Downloads\M4B-Metadata-1` and the fixture's fictional books as
+`C:\Users\Public\Audiobooks\Samples\…`. Those paths are still computed by the shipped code
+from `Path.home()`; only the profile location differs. No username, no real audiobook
+title, no real path and no real log content appears in any of the ten images. (For
+contrast, the committed before-state `m4b-metadata-current-ui-2.png` does show the
+maintainer's real profile path.)
+
+#### Visual comparison against `files/UI-Current-Screenshots/`
+
+Compared against `m4b-metadata-current-ui-1.png` / `-2.png` (same tool, same window size).
+
+| Aspect | Current (v0.5.1) | Prototype |
+|---|---|---|
+| Hierarchy | one flat stack of hairline labelframes; no grouping beyond the frame captions | four titled cards — Audiobook Files, **Shared Metadata**, Chapter Titles, Output — each with its own surface, border and internal rhythm |
+| Shared/batch fields | indistinguishable from any other field | a separate muted-navy surface with an accent border, an accent header, an explanatory caption and the batch notice inside it |
+| Form layout | every label right-aligned with a trailing colon, one field per row, one full-width column | labels left-aligned without colons, a deliberate two-up row (Year \| Genre), a `Series` sub-group behind its own divider and header |
+| Action hierarchy | four visually identical grey buttons | filled accent **Save Tags**, two outlined red destructive actions, a neutral Cancel pushed to the right edge |
+| Progress | a bare grey trough floating at the right of the action row | its own full-width line above the buttons, accent fill, with a `2/3 67%` counter |
+| Navigation | "Tools" heading, six raised buttons, active tool shown by **disabling** it (greyed, unreachable by keyboard) | a `TOOLS` rail with flat rows, active tool marked by the ttk `selected` state (soft accent fill, left-aligned) and still keyboard-reachable |
+| Context | none — nothing on screen names the active tool | a header strip with the tool's title and one-line description |
+| Log | plain proportional text box | elevated surface, `Consolas` mono, themed scrollbar |
+
+**Against the plan's nine approval criteria** (§10, assessed — the decision is the
+maintainer's):
+
+1. Hierarchy/layout redesign rather than a recolour — **yes**; the composition, grouping, label alignment, action hierarchy and progress placement all changed, not just the palette.
+2. Launcher and editor feel like one application — **yes**; identical surface ladder, one type scale, one accent, one border token.
+3. Text / selection / disabled / focus readable — **yes**; contrast is asserted numerically in `test_windows_colors_are_valid_and_readable` (≥7:1 primary, ≥4.5:1 secondary, ≥3:1 disabled and focus, on all seven surfaces), and the active-run image shows the disabled state legible but clearly inactive.
+4. No clipping, overlap, truncated action or lost status at either scaling — **yes**, measured: 0 px clipped on Save / Clear All Tags / Remove Series Numbering / Cancel / progress bar / progress label / Log at all three sizes and both scalings.
+5. Scrolling deliberate and discoverable — **yes**; the form is a scroll region with a visible themed scrollbar at every size, and the action bar and Log sit outside it.
+6. Shared Metadata visibly distinct — **yes**; own fill, own accent border, own header colour, own caption.
+7. Summary/Details has a visual relationship without pretending the behaviour exists — **partly, and one honest limitation**: the tab pairing, the selected/unselected tab states and the Summary treatment are all visible, but a `ttk.Notebook` shows one pane at a time, so the **Details pane's content is not visible in either specimen image**. Its treatment is the same mono-on-elevated log surface visible in images 4 and 9. If the maintainer wants both panes side by side, that is a `CHANGES REQUESTED` item for the fixture.
+8. The five unconverted panels have not silently adopted prototype styles — **yes**: 0 `ACT.*` styles in each of the five in the live app, 19 in the editor.
+9. No fragile per-machine hacks — **yes**; no registry edit, no image assets, no machine-specific workaround. The one environment nicety is the neutral `USERPROFILE`, used only to keep a username out of the pictures.
+
+**Two further observations, neither fixed:**
+- In the active-run images the launcher status bar still reads `M4B Metadata — ready.`
+  while a run is in progress. That is pre-existing v0.5.1 behaviour (the shell's status is
+  set on tool switch, never by a tool's run) and is unchanged by this drop, but with a
+  prominent status bar in the new shell it is more noticeable than it used to be.
+- The window title bar is drawn by Windows in the system's light theme above a dark app.
+  Tk cannot set the immersive dark title bar without a Win32 `DwmSetWindowAttribute` call.
+  Out of scope here; noted for Plan 9.
+
+#### Geometry review — measured at both scalings
+
+Same method as Phase 4: on the real mapped window, "reachable" = mapped **and** the box
+lies inside the content host; "clipped" is the real overflow in pixels.
+
+| | 1024×720 | 920×600 | Maximized |
+|---|---|---|---|
+| Content host @100% | 825×577 | 721×457 | 1721×866 |
+| Content host @125% | 825×577 | 721×457 | **1337×650** |
+| Editor form viewport @100% | 326 px | 206 px | 615 px |
+| Editor form viewport @125% | 326 px | 206 px | **399 px** |
+| Form required height (both) | 1083 px | 1083 px | 1083 px |
+| Editor Save / Clear / Remove / Cancel / progress / Log | 0 px clipped, both scalings | 0 px clipped, both scalings | 0 px clipped, both scalings |
+| Six nav labels readable | yes | yes | yes |
+| Status bar + log action visible | yes | yes | yes |
+| **M4B Converter primary action** | reachable | **clipped 19 px, both scalings** | reachable |
+| **M4B Converter Log** | reachable | **clipped 108 px bottom + 75 px right, both scalings** | reachable |
+
+- `sidebar_width` is 180; the widest nav row needs 115 px against a 160 px interior — 45 px
+  of slack, unchanged at 125% because the app is DPI-unaware.
+- **The clipping does not become materially worse at 125% — it is byte-identical.** At
+  1024×720 and 920×600 every measurement matches the 100% pass exactly, because those are
+  logical sizes and the app never sees the DPI change. The only 125% difference is
+  maximized, where the logical window is 1536×793 instead of 1920×1009, so the editor's
+  form viewport falls 615 → 399 px and simply scrolls more.
+- The editor's form is a scroll region at all three sizes and both scalings (form wants
+  1083 px, never gets it). Permitted by §7.3; stated so the images are read correctly.
+
+#### Phase 5 automated results (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | PASS — **17 passed, 0 skipped**, in 0.15s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_launcher_smoke.py` | PASS — 11 passed, 1 warning in 2.45s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_shared.py` | PASS — 7 passed in 0.03s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_ui.py` | PASS — 12 passed in 0.54s |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_prototype_regression.py` | PASS — 12 passed, 1 warning in 1.94s |
+| `.venv\Scripts\python.exe -m pytest -q -rs` (full suite) | PASS — **94 passed, 3 skipped**, 1 warning in 5.86s |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** — pytest 94 passed / 3 skipped in 5.80s; deps `==`-pinned; docs de-templated |
+| `.venv\Scripts\python.exe -m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+Identical to the Phase 4 baseline, which is the expected result for a phase that changes
+no code. The 1 warning is the pre-existing pydub `audioop` DeprecationWarning; the 3 skips
+are the three `JACK_RYAN_M4B_FOLDER`-gated tests in `test_jack_ryan_final_product.py`,
+named by `-rs`.
+
+**The Tk skip transient did NOT recur in Phase 5.** All 17 `test_ui_theme.py` tests
+executed on every run, both in the focused suite and inside the full suite (94 = 82 + 12,
+with the theme module's 17 present). The guard was not touched, per the plan; the blind
+spot recorded in *Phase 4 limitations* item 8 remains open and unowned by Plan 1.
+
+### Phase 5 limitations and open items
+
+1. **THE GATE ITSELF IS OPEN.** The maintainer has not approved anything. Screenshots
+   existing is not approval. Nothing may be merged, no permanent doc updated, no plan
+   file deleted, and no other v0.6.x plan started until an explicit `APPROVED`.
+2. **The application is DPI-unaware** (see above). At 125% Windows bitmap-scales the whole
+   window, so text is soft rather than re-rendered at 120 DPI. Nothing clips as a result,
+   and nothing was changed — making the app DPI-aware is a production change and needs a
+   maintainer decision. This is the single most consequential finding of Phase 5.
+3. **The 125% pass ran on the secondary 1920×1080 display**, which was the one set to 125%.
+   Argued equivalent above (an unaware app is bitmap-scaled identically on a 125%
+   primary). Re-shootable on request.
+4. **`MIN_SIZE` / `DEFAULT_GEOMETRY` decision is still open** — the M4B Converter's primary
+   action and Log remain clipped at the 920×600 minimum (19 px / 108 px + 75 px), the same
+   at both scalings. The Phase 5 recommendation is **option 1: change nothing now** —
+   the clipping is in an *unconverted* panel that Plan 9 will rebuild, the converted editor
+   clips nothing at any size, raising `MIN_SIZE` would be a theme-contract change made for
+   a panel this drop is forbidden to touch, and `test_windows_metrics_are_usable` /
+   `test_apply_theme_on_current_platform` both pin the current values. If the maintainer
+   would rather close it now, option 2 (raise only `MIN_SIZE` to about 920×740) removes the
+   clipping without changing the launch size — but it belongs in Plan 9 with the panel
+   rebuild, not here.
+5. **The Details pane's content is not visible in the specimen images** (a notebook shows
+   one pane at a time). Limitation of the single-image slot, not of the design.
+6. **Live macOS remains deferred and is NOT claimed as passed.** No Mac was available. The
+   exact five-step smoke test is preserved verbatim in *Phase 4 limitations* item 1 and
+   carries forward unchanged. It is not a blocker for this Windows visual gate: the
+   non-Windows code paths are byte-identical to `master` and are covered by
+   `test_apply_theme_on_current_platform` (aqua arm), `test_classic_branch_other_platform`,
+   `test_non_windows_theme_builds_the_unconverted_layout` and
+   `test_an_aqua_bundle_builds_the_historical_layout`. That is evidence, not a live pass.
+7. **`ttk.Combobox` popdown still unthemed** (Plan 9), and the **Windows title bar stays
+   light** over the dark app (needs a Win32 DWM call; Plan 9).
+8. **Pre-existing and untouched:** the launcher status bar does not follow a tool's run;
+   an unreadable input is copied before its tag write fails, leaving an untagged copy; and
+   Open Issue #2 (`kokoro_synth` CLI-only cp1252 `UnicodeEncodeError`).
+9. **No production source changed in Phase 5.**
+   `git diff --name-only 9d4f58c..HEAD -- scripts/ files/tests/` is empty; `version.py` is
+   still `0.5.1`; `requirements.txt` and both setup launchers are untouched.
 
 ### Phase 4 — regression hardening (2026-08-01, HOME-PC)
 
@@ -1125,6 +1348,47 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-01 — v0.6.0 Drop 1 **Phase 5 evidence captured; STOPPED at the hard visual
+  gate** (HOME-PC session; per-phase commit on the implementation branch). The ten-image
+  matrix required by §10 now exists under
+  `files/UI-Prototype-Screenshots/v0.6.0-drop1/`, with the plan's exact filenames, in two
+  **true** Windows display-scaling passes at 1920×1080 — Windows did the scaling, not Tk's
+  internal scaling, not a resized window, not an enlarged image. Scaling was verified per
+  pass by reading `GetDpiForMonitor(MDT_EFFECTIVE_DPI)` from a `PER_MONITOR_AWARE_V2`
+  process: 96 (100%) on the primary and 120 (125%) on the secondary. Images 1–2 are the
+  shipped `LauncherApp` with nothing added; 3–4 are the shipped launcher hosting the
+  shipped editor with the developer fixture's canned books and controlled busy state
+  applied through the editor's own public methods; 5 is the fixture's Summary/Details
+  sheet, which carries its own on-screen presentation-only disclaimer. `USERPROFILE` was
+  pointed at `C:\Users\Public` for the captures so no username, real path or real
+  audiobook title appears in any image — the paths are still computed by the shipped code.
+  **The finding of the phase: the application is DPI-unaware** — `GetProcessDpiAwareness`
+  returns `UNAWARE`, and neither the venv's `python.exe`/`pythonw.exe` nor the base
+  Python 3.12.10 they copy carries a `dpiAware` manifest, and `pythonw.exe` is what the
+  setup launcher runs. So at 125% Windows bitmap-scales the entire window: text is soft
+  rather than re-rendered at 120 DPI, but by the same token **nothing clips, overlaps or
+  reflows**, and the 125% geometry is byte-identical to 100% at 1024×720 and 920×600
+  (only the maximized logical window shrinks, 1920×1009 → 1536×793, so the editor's form
+  viewport falls 615 → 399 px and scrolls more). Not fixed: DPI awareness is a production
+  behaviour change and Phase 5 is evidence-only, so it is raised at the gate as a
+  decision. The carried-forward M4B Converter clipping at the 920×600 minimum was
+  re-measured at both scalings and is unchanged (19 px action, 108 px + 75 px Log); the
+  recommendation is to leave `MIN_SIZE` and `DEFAULT_GEOMETRY` alone because the clipping
+  is in a panel Plan 9 will rebuild and the converted editor clips nothing anywhere. The
+  visual comparison against `files/UI-Current-Screenshots/` is written up in the Phase 5
+  section: card hierarchy replacing a flat labelframe stack, a distinct Shared Metadata
+  surface, a real primary/destructive/neutral action hierarchy, an accent progress line, a
+  navigation rail whose active row stays keyboard-reachable instead of being disabled, and
+  a header strip that names the active tool. One honest limitation on the specimen: a
+  notebook shows one pane at a time, so the Details pane's content is not visible in either
+  specimen image. **No production source changed** — `scripts/` and `files/tests/` are
+  byte-identical to Phase 4 HEAD `9d4f58c`, `version.py` is still `0.5.1`. Verification is
+  unchanged from the Phase 4 baseline: focused suites 17 / 11 / 7 / 12 / 12, full suite
+  **94 passed, 3 skipped**, `verify.py` **RESULT: PASS**, `compileall` exit 0,
+  `git diff --check` clean; all 17 theme tests executed and the Tk skip transient did not
+  recur. **Nothing is approved.** The permanent docs are deliberately untouched and the
+  plan file is not deleted; Phase 6 cannot start until the maintainer replies `APPROVED`
+  or `CHANGES REQUESTED`.
 - 2026-08-01 — v0.6.0 Drop 1 **Phase 4 complete** (HOME-PC session; per-phase commit on
   the implementation branch). Regression hardening, and the headline is what did *not*
   happen: **no production-source change**. The plan permits a source edit only for a
@@ -1739,6 +2003,39 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-01 — HOME-PC — v0.6.0 Drop 1 Phase 5 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
+- Base:    `9d4f58cdb24f0963552490d73273acaec1369589` (Phase 4). No pull needed —
+  `master` and `origin/master` are both still `1da1e547` and were not touched.
+- Added:   `files/UI-Prototype-Screenshots/v0.6.0-drop1/` — exactly **ten** PNGs with the
+  plan's §10 filenames: `windows-100-launcher-overview.png`,
+  `windows-100-m4b-metadata-empty.png`, `windows-100-m4b-metadata-populated.png`,
+  `windows-100-m4b-metadata-active-run.png`,
+  `windows-100-summary-details-specimen.png`, and the same five as `windows-125-*`.
+  Full maximized application windows at 1920×1080; uncropped, unannotated, unedited.
+- Changed: `md-instructions/handoff.md` — Current Focus moved to the open visual gate, a
+  Phase 5 section (environment + how each scale was verified, the DPI-awareness finding,
+  the ten-image table with fixture provenance, the visual comparison against
+  `files/UI-Current-Screenshots/`, the assessment against the nine §10 criteria, the
+  two-scaling geometry table, the automated-results table), nine Phase 5 limitations, a
+  Work Log entry and this entry.
+- **No production source was changed.** `git diff --name-only 9d4f58c..HEAD -- scripts/
+  files/tests/` is empty. `requirements.txt`, both setup launchers, all six tool modules,
+  `shared/`, and `version.py` (still `0.5.1`) are untouched. `verify.py` and the
+  pre-existing Tk headless guard were not modified.
+- Not committed, by design: the capture and geometry probe scripts and their JSON output,
+  and the trial captures — all in the session scratchpad outside the repository. No test
+  fixture, settings file, log, generated audio, output file or draft screenshot entered
+  the repository; `settings.json` was snapshotted and byte-restored around every capture.
+- Verified before commit: focused suites 17 / 11 / 7 / 12 / 12 passed; full suite
+  **94 passed, 3 skipped**, 1 pre-existing warning; `scripts/verify.py` **RESULT: PASS**;
+  `compileall` exit 0; `git diff --check` clean. All 17 `test_ui_theme.py` tests executed
+  — the Tk skip transient did not recur this session. Every one of the ten PNGs was
+  opened and reviewed before committing.
+- Worktree after push: only the pre-existing untracked `config-template.toml`, which was
+  not edited, staged, moved or deleted at any point.
+- **Status: STOPPED at the hard visual gate.** Awaiting an explicit maintainer `APPROVED`
+  or `CHANGES REQUESTED`. Nothing merged, no permanent doc updated, plan file not deleted.
 
 ### 2026-08-01 — HOME-PC — v0.6.0 Drop 1 Phase 4 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Base:    `d8d0b1b7aec1b62d80989ffb791cda313fb22763` (Phase 3). No pull needed —
