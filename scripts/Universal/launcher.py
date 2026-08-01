@@ -6,9 +6,21 @@ panel on the right. Each tool exposes ``build_ui(parent)`` and is built into its
 own container the first time it is selected, then shown/hidden on later
 selections so in-progress state (file lists, typed metadata) survives switching.
 
-Theming lives in ``shared/ui_theme.py``: macOS gets a native-aqua Finder-style
-shell (source-list sidebar, toolbar strip, content card); Windows and other
-platforms keep the classic layout byte-for-byte.
+Theming lives in ``shared/ui_theme.py`` and the shell is chosen from
+``theme["mode"]``:
+
+- ``aqua`` (macOS) — a native Finder-style shell: source-list sidebar, toolbar
+  strip, content card.
+- ``windows`` — the v0.6.0 dark shell: navigation rail, header strip with the
+  active tool's name/description, framed content card, status bar with a log
+  action. Built entirely from the ``ACT.*`` styles in the theme bundle.
+- ``classic`` (Linux/other) — the pre-v0.5.0 layout, byte-for-byte.
+
+**The content host is never styled.** ``self.content`` and each tool's
+container stay plain, unstyled ``ttk.Frame``s in every mode, so a panel that
+has not been converted inherits nothing from the shell and keeps rendering
+through the platform's generic ttk styles. A converted panel opts in by naming
+``ACT.*`` styles itself.
 
 Run under ``pythonw.exe`` on Windows so no console window appears; all external
 binaries (ffmpeg/ffprobe) are invoked through ``shared.subprocess_utils`` which
@@ -162,6 +174,8 @@ class LauncherApp:
 
         if self.theme["mode"] == "aqua":
             self._build_ui_darwin()
+        elif self.theme["mode"] == "windows":
+            self._build_ui_windows()
         else:
             self._build_ui_classic()
 
@@ -199,6 +213,102 @@ class LauncherApp:
         )
         log_link.pack(side="right")
         log_link.bind("<Button-1>", lambda _e: self._open_logs())
+
+    def _build_ui_windows(self):
+        """The v0.6.0 dark Windows shell — navigation rail, header, card, status.
+
+        Every widget here names an ``ACT.*`` style from ``theme["styles"]``;
+        no generic style is configured and no value is hard-coded, so the five
+        unconverted panels are untouched (see ``shared/ui_theme.py``).
+
+        Nothing in this method uses a fixed pixel height: the header and status
+        bar size themselves from their own fonts so 125% display scaling grows
+        them instead of clipping them. The sidebar is the one fixed dimension
+        (``metrics["sidebar_width"]``), which has ample slack for the longest
+        tool name at 125%.
+        """
+        s = self.theme["styles"]
+        c = self.theme["colors"]
+        m = self.theme["metrics"]
+        self.root.configure(background=c["window"])
+
+        # --- status bar (packed first so it can never be squeezed out) -------
+        status_outer = ttk.Frame(self.root, style=s["window"])
+        status_outer.pack(fill="x", side="bottom")
+        ttk.Frame(status_outer, style=s["divider"], height=1).pack(fill="x")
+        status = ttk.Frame(status_outer, style=s["window"],
+                           padding=(m["status_pad"][0], m["status_pad"][1]))
+        status.pack(fill="x")
+        self.status_var = tk.StringVar(value="Ready.")
+        self._status_label = ttk.Label(
+            status, textvariable=self.status_var, style=s["status_label"],
+            anchor="w",
+        )
+        self._status_label.pack(side="left", fill="x", expand=True)
+        # A real button rather than the classic clickable label: it takes
+        # keyboard focus, shows the theme's focus ring, and fires on Enter and
+        # Space. The action itself is unchanged.
+        self._log_button = ttk.Button(
+            status, text="Open log folder", style=s["ghost_button"],
+            command=self._open_logs, takefocus=True,
+        )
+        self._log_button.pack(side="right", padx=(m["gap_md"], 0))
+
+        outer = ttk.Frame(self.root, style=s["window"])
+        outer.pack(fill="both", expand=True)
+
+        # --- navigation rail --------------------------------------------------
+        sidebar = ttk.Frame(outer, style=s["sidebar"], width=m["sidebar_width"])
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        ttk.Label(sidebar, text="TOOLS", style=s["sidebar_label"], anchor="w"
+                  ).pack(fill="x", padx=m["sidebar_pad"] + m["row_padx"],
+                         pady=(m["gap_lg"], m["gap_sm"]))
+
+        for spec in self._available_tools():
+            b = ttk.Button(
+                sidebar, text=spec.title, style=s["nav_button"],
+                command=lambda key=spec.key: self.select_tool(key),
+            )
+            b.pack(fill="x", padx=m["sidebar_pad"], pady=(0, m["row_gap"]))
+            self.buttons[spec.key] = b
+
+        ttk.Frame(outer, style=s["divider"], width=1).pack(side="left", fill="y")
+
+        # --- header strip + content card -------------------------------------
+        column = ttk.Frame(outer, style=s["window"])
+        column.pack(side="left", fill="both", expand=True)
+
+        header = ttk.Frame(column, style=s["toolbar"],
+                           padding=(m["content_pad"], m["gap_md"],
+                                    m["content_pad"], m["gap_sm"]))
+        header.pack(fill="x")
+        self._toolbar_title = ttk.Label(header, text=APP_TITLE, style=s["title"],
+                                        anchor="w")
+        self._toolbar_title.pack(fill="x")
+        self._toolbar_desc = ttk.Label(header, text="", style=s["status_label"],
+                                       anchor="w")
+        self._toolbar_desc.pack(fill="x", pady=(m["gap_xs"], 0))
+        ttk.Frame(column, style=s["divider"], height=1).pack(fill="x")
+
+        # Deliberately the tight end of the spacing scale rather than
+        # ``content_pad``: the rail plus this card frame already cost the tool
+        # panels 143px of width against the classic shell, and every one of
+        # those pixels is content the five unconverted panels cannot reflow.
+        card_holder = ttk.Frame(column, style=s["window"])
+        card_holder.pack(fill="both", expand=True, padx=m["gap_sm"],
+                         pady=(m["gap_sm"], m["gap_sm"]))
+        # A 1px hairline frame drawn *around* the content host, so the card has
+        # a border without the host itself carrying a style a panel could
+        # inherit from.
+        card = ttk.Frame(card_holder, style=s["divider"])
+        card.pack(fill="both", expand=True)
+
+        # Deliberately unstyled: the swappable content area keeps the generic
+        # ttk.Frame background so an unconverted panel renders exactly as it
+        # does on master, and the converted editor paints over it in Phase 3.
+        self.content = ttk.Frame(card)
+        self.content.pack(fill="both", expand=True, padx=1, pady=1)
 
     def _build_ui_darwin(self):
         """Finder-style shell: source-list sidebar, toolbar strip, content card.
@@ -351,11 +461,32 @@ class LauncherApp:
             "launcher again to reinstall requirements.\n\n"
             f"{traceback.format_exc()}"
         )
-        frame = ttk.Frame(container, padding=16)
-        frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text=f"{spec.title}", font=self.font_heading).pack(anchor="w")
-        txt = tk.Text(frame, wrap="word", height=18)
-        txt.pack(fill="both", expand=True, pady=(8, 0))
+        # This panel is launcher-owned chrome, not tool content, so on Windows
+        # it is themed. It is the one thing inside a tool container that may
+        # carry an ACT.* style — and it only exists when that tool failed to
+        # build, which the smoke tests assert never happens.
+        if self.theme["mode"] == "windows":
+            s, m = self.theme["styles"], self.theme["metrics"]
+            frame = ttk.Frame(container, padding=m["content_pad"], style=s["window"])
+            frame.pack(fill="both", expand=True)
+            ttk.Label(frame, text=f"{spec.title}", style=s["title"]).pack(anchor="w")
+            # ACT.Danger.TLabel sits on the card surface; this banner sits on
+            # the window background, so the danger tone is taken from the same
+            # token instead (still no literal, and no style is redefined).
+            ttk.Label(frame, text="This tool could not be loaded.",
+                      style=s["status_label"],
+                      foreground=self.theme["colors"]["danger"],
+                      ).pack(anchor="w", pady=(2, 0))
+            txt = tk.Text(frame, wrap="word", height=18,
+                          font=self.theme["fonts"]["mono"])
+            ui_theme.style_tk_widget(txt, self.theme, "log")
+            txt.pack(fill="both", expand=True, pady=(m["gap_md"], 0))
+        else:
+            frame = ttk.Frame(container, padding=16)
+            frame.pack(fill="both", expand=True)
+            ttk.Label(frame, text=f"{spec.title}", font=self.font_heading).pack(anchor="w")
+            txt = tk.Text(frame, wrap="word", height=18)
+            txt.pack(fill="both", expand=True, pady=(8, 0))
         txt.insert("1.0", msg)
         txt.configure(state=tk.DISABLED)
         self._set_status(f"{spec.title} failed to load.")
@@ -370,6 +501,18 @@ class LauncherApp:
                 fg = c["selection_text"] if k == key else c["text"]
                 row.configure(bg=bg)
                 lbl.configure(bg=bg, fg=fg)
+            spec = next((t for t in TOOLS if t.key == key), None)
+            if spec:
+                self._toolbar_title.configure(text=spec.title)
+                self._toolbar_desc.configure(text=spec.description)
+            return
+        if self.theme["mode"] == "windows":
+            # The nav rail marks the active tool with the standard ttk
+            # ``selected`` state flag, which ACT.Nav.TButton maps to the soft
+            # accent fill. Unlike the classic cue the row stays enabled, so it
+            # remains reachable by Tab and keeps its focus ring.
+            for k, btn in self.buttons.items():
+                btn.state(["selected"] if k == key else ["!selected"])
             spec = next((t for t in TOOLS if t.key == key), None)
             if spec:
                 self._toolbar_title.configure(text=spec.title)

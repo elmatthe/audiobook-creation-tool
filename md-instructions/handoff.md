@@ -1,7 +1,7 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 1 COMPLETE, STOPPED at the Phase 2
+**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 2 COMPLETE, STOPPED at the Phase 3
 approval gate.** Plan file: `md-instructions/0.6.0-drop1-windows-ui-prototype.md`
 (Plan 1 of nine planned v0.6.x instruction drops; the remaining eight are named in
 the plan's sequencing note but are **not drafted and must not be started**).
@@ -14,7 +14,8 @@ The desktop checkout was 10 commits behind at `695045c` and fast-forwarded clean
 (no divergence, no merge, no reset, no stash).
 
 **Phase 0 commit:** `0971a20e24fc196967da97d1b204375dc549ad5a` (docs only).
-**Phase 1 commit:** see the Session Sync Log entry below.
+**Phase 1 commit:** `9cd7fb8e04e11d64f9303d0f44a7ca3f3723af51`.
+**Phase 2 commit:** see the Session Sync Log entry below.
 
 **Phase 0 result:** baseline established and green. No theme, launcher, tool-panel,
 test, `requirements.txt`, or `version.py` source was edited — Phase 0 is
@@ -42,13 +43,179 @@ style string, i.e. still renders through the native `vista` theme.
   explicit user *approved* / *changes requested* decision. Screenshots existing is
   not approval.
 
-**Next proposed phase:** Phase 2 — convert the **Windows launcher shell only**
-(background, sidebar/navigation, heading/content shell, selected-tool state, status
-area, log-folder action) using the Phase 1 primitives; preserve the six-tool
-registry/order, availability logic, lazy build-once containers, error panels, saved
-selection and state preservation; keep the content host compatible with the five
-classic panels; extend `files/tests/test_launcher_smoke.py`. **Not started. Awaiting
-explicit user approval.**
+**Phase 2 result:** the Windows launcher shell is converted and recognizably
+redesigned — dark navigation rail, header strip naming the active tool, framed
+content card, status bar with a focusable log action. Two files changed:
+`scripts/Universal/launcher.py` (+151/-8) and `files/tests/test_launcher_smoke.py`
+(+299/-0). **`shared/ui_theme.py` was NOT edited** — the Phase 1 API was sufficient.
+The five unconverted panels (and the not-yet-converted metadata editor) still carry
+an empty style string on every widget. One genuine geometry regression was measured
+and is **open for a maintainer decision** — see *Phase 2 limitations* below.
+
+**Next proposed phase:** Phase 3 — convert the **Windows M4B Metadata Editor** and
+build the visual specimens (Shared Metadata surface, Summary/Details presentation-only
+specimen, optional developer-only fixture under `files/tests/`); preserve every
+existing control, callback, worker, progress/log state, Cancel path, copy-only output
+and read-only-original safeguard, and the public `build_ui(parent)` entry point.
+**Not started. Awaiting explicit user approval.**
+
+### Phase 2 — Windows launcher shell (2026-07-31, HOME-PC)
+
+**What it is.** `launcher.py` now routes three shells off `theme["mode"]`:
+`aqua` -> `_build_ui_darwin` (untouched), `windows` -> the new `_build_ui_windows`,
+anything else -> `_build_ui_classic` (untouched). macOS and Linux/other are
+byte-identical to Phase 1; only the Windows arm is new.
+
+**Layout and style mapping** (every widget names a `theme["styles"]` key — no hex
+literal and no magic number reaches `launcher.py`):
+
+| Region | Widget | Style key |
+|---|---|---|
+| Application background | `root.configure(background=…)` | `colors["window"]` |
+| Navigation rail | `ttk.Frame`, fixed `metrics["sidebar_width"]` | `sidebar` |
+| Rail header ("TOOLS") | `ttk.Label` | `sidebar_label` |
+| Tool rows (6) | `ttk.Button`, `command=select_tool` | `nav_button` |
+| Rail / column rules | `ttk.Frame` width or height 1 | `divider` |
+| Header strip | `ttk.Frame` | `toolbar` |
+| Active tool name | `ttk.Label` | `title` |
+| Active tool description | `ttk.Label` | `status_label` |
+| Content card frame | `ttk.Frame` (1px hairline around the host) | `divider` |
+| Content host (`self.content`) | `ttk.Frame` | **none — deliberately unstyled** |
+| Status bar | `ttk.Frame` | `window` |
+| Status text | `ttk.Label` (`status_var`) | `status_label` |
+| Open log folder | `ttk.Button`, `command=_open_logs` | `ghost_button` |
+| Load-failure panel | `ttk.Frame` / `ttk.Label` / `tk.Text` | `window`, `title`, `status_label`, `style_tk_widget(…, "log")` |
+
+**How the content host isolates the five classic panels.** `self.content` and every
+per-tool container stay **plain, unstyled `ttk.Frame`s in every mode**. ttk has no
+style inheritance, so a child that names no style resolves the *generic* `TFrame` /
+`TButton` / `TEntry` — exactly what it resolved on master. The shell therefore cannot
+leak into a panel even in principle: there is nothing to inherit from. The card
+*border* is drawn by a hairline frame wrapped **around** the host rather than by
+styling the host itself, which is what lets the border exist without the host
+carrying a style. The one thing inside a container that may carry an `ACT.*` style is
+the launcher-owned load-failure panel, which only exists when a tool failed to build
+— and the smoke tests assert that never happens.
+
+**Selection cue.** The rail marks the active tool with the standard ttk `selected`
+state flag, which `ACT.Nav.TButton` maps to the soft accent fill plus primary text.
+Unlike the classic cue (which *disables* the active button) no row is ever disabled,
+so every row stays reachable by Tab and keeps its focus ring. `Open log folder` was
+promoted from a clickable `tk.Label` to a real `ttk.Button` for the same reason —
+it now takes focus and fires on Enter/Space. Both actions are otherwise unchanged.
+
+**No fixed pixel heights.** The header and status bar size themselves from their own
+fonts, so 125% display scaling grows them instead of clipping them. `sidebar_width`
+is the only fixed dimension; the longest tool name needs 112px of the 212px available
+inside the rail, so it has slack at 125%.
+
+**Phase 2 automated results (repo venv, Python 3.12.10):**
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_launcher_smoke.py` | PASS — **10 passed**, 1 warning in 2.18s (was 1) |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | PASS — 16 passed in 0.12s (unchanged) |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_shared.py` | PASS — 7 passed in 0.03s (unchanged) |
+| `.venv\Scripts\python.exe -m pytest -q` (full suite) | PASS — **68 passed, 3 skipped**, 1 warning in 4.42s (was 59/3) |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** — pytest 68 passed/3 skipped; deps `==`-pinned; docs de-templated |
+| `git diff --check` | clean (only the benign LF→CRLF notice) |
+
+The 1 warning is still the pre-existing pydub `audioop` DeprecationWarning; the 3
+skips are the pre-existing env-gated suites. Neither is new.
+
+**What the 9 new launcher tests assert:** the six tools stay in `TOOLS` order and each
+gets a nav control in that order; three full sweeps of all six panels produce zero
+error panels, no new containers, and the *same container objects* (build-once intact);
+a real typed value in the metadata editor survives switching away through three other
+tools and back; a valid saved `last_tool` is restored and **only that tool is built**
+(the rest stay lazy); an unknown saved key falls back to the first available tool; a
+saved tool whose module has gone missing drops out of the registry, gets no nav row,
+and falls back safely; every launcher-owned widget carries the intended `ACT.*` style
+and **every** non-empty style string anywhere in the shell is `ACT.*`-prefixed;
+selection moves the `selected` flag rather than accumulating it and no row is left
+disabled; and no widget inside any tool container carries an `ACT.*` style, while
+`TButton`/`TFrame` still resolve to `SystemButtonFace` and `ACT.Primary.TButton` to
+the accent. The last three are Windows-only and skip elsewhere, because
+monkeypatching `sys.platform` for a whole launcher build would also lie to the six
+tool modules while they construct.
+
+**Draft visual review (real app, real Tk window, HOME-PC, 1920×1080 @ 100%).** Not
+the Phase 5 matrix — draft images live in the session scratchpad and are deliberately
+**not** committed.
+
+| Check | Result |
+|---|---|
+| Recognizably redesigned Windows shell | PASS — dark rail + header + card + status bar, not a recolor |
+| Six tools, existing order, all open | PASS — 6/6, zero error panels |
+| Selected / hover / pressed / disabled / focus visible | PASS — accent-soft selected fill; focus ring visible on both a nav row and the log button |
+| Five non-prototype panels keep classic presentation | PASS — TTS, M4B Converter, MP3 Tool, M4B Maker, Cover render exactly as on master |
+| No child-panel `ACT.*` styling | PASS — verified in-app and by test |
+| Switching preserves identity and state | PASS |
+| Saved last-tool restore / invalid fallback | PASS |
+| Status text and log-folder action | PASS — status updates per tool; log button focusable and fires |
+| ttk theme still `vista` | PASS |
+| Normal (1024×720) / minimum (920×600) / maximized (1920×1009) | PASS for launcher-owned controls — nothing overlaps or clips at any of the three; status and log action stay visible and reachable |
+| Content host seam around classic panels | PASS — the host is unstyled, so a classic panel sits on the same background it always had; no unreadable seam |
+| **Usable panel area at minimum size** | **OPEN — regression, see below** |
+
+### Phase 2 limitations and open items
+
+1. **The new shell costs the tool panels real space, and at the 920×600 minimum that
+   clips a primary action.** Measured content-host size (both shells, same build,
+   same panels):
+
+   | Window | Classic shell (master) | Windows shell (Phase 2) | Delta |
+   |---|---|---|---|
+   | 920×600 (minimum) | 796×561 | 669×457 | −127 w, −104 h |
+   | 1024×720 (default) | 900×673 | 773×577 | −127 w, −96 h |
+
+   110 of the 127 lost pixels are the navigation rail: `metrics["sidebar_width"]` is
+   232 where the classic sidebar was ~122 including its padding. The rest is the
+   header strip and the card frame. I already took the card frame down from
+   `content_pad` to `gap_sm`, which recovered 16 w / 12 h; that is everything
+   reclaimable inside `launcher.py` without changing a Phase 1 token.
+
+   Effect, by panel requested-size vs host:
+   - **Already true on master:** M4B Converter (+118 h), MP3 Tool (+294 h) and
+     M4B Maker (+203 h) overflow at 920×600 on the *classic* shell too. Panels
+     overflowing at the minimum size is a pre-existing condition, not a new class
+     of bug.
+   - **New in Phase 2 at the default 1024×720:** M4B Maker (+75 w) and M4B Metadata
+     (+77 w) now overflow *horizontally* where they had 52/50px of slack, and every
+     panel's vertical overflow grows by ~96px.
+   - **Concretely visible:** M4B Converter at 920×600 no longer shows its
+     `Convert M4Bs → MP3s` row or its Log box; on master at the same size it does.
+
+   **I did not fix this, on purpose.** The two real levers are
+   `metrics["sidebar_width"]` and `MIN_SIZE`, both of which live in
+   `shared/ui_theme.py` — a file this phase was told to leave alone unless the
+   launcher exposed a *missing primitive*, which this is not. It is a value/geometry
+   decision, and the plan (§7.1, §7.2) says token values and any geometry change are
+   approved by the maintainer with evidence, not chosen by the implementer.
+   **Options for the maintainer, cheapest first:**
+   (a) drop `sidebar_width` 232 → 180 (recovers 52 w; the existing test floor is
+   `>= 180`, so it still passes); (b) raise `MIN_SIZE`/`DEFAULT_GEOMETRY` with the
+   evidence above — note `MIN_SIZE` is shared with macOS; (c) accept it, on the
+   grounds that Plan 9 converts these panels to the denser new design anyway and
+   they already overflow at the minimum size today.
+
+2. **No 125% scaling pass yet.** The draft review was 100% only. Nothing in the shell
+   uses a fixed height, and the rail has 100px of text slack, but the true 125% pass
+   is Phase 5 work and is **not** claimed as done.
+
+3. **Draft review is not visual approval.** The mandatory ten-image 1920×1080
+   100%/125% matrix under `files/UI-Prototype-Screenshots/v0.6.0-drop1/` remains
+   Phase 5, and the draft images are not committed.
+
+4. **`ttk.Combobox` popdown list is still unthemed** (carried from Phase 1). The
+   dropdown is a classic Tk listbox reachable only through the global option database,
+   which would leak into the five unconverted panels. The launcher owns no combobox,
+   so this did not bite in Phase 2; if Phase 3 needs a dark popdown it must be scoped
+   per-widget with the isolation tests still green.
+
+5. **macOS still not verified live** (unchanged from Phases 0–1). `_build_ui_darwin`
+   and `_apply_darwin` were not touched, and the aqua/classic branch tests pass, but
+   no Mac was available. Not claimed as passed.
 
 ### Phase 1 — Windows design primitives (2026-07-31, HOME-PC)
 
@@ -485,6 +652,42 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-07-31 — v0.6.0 Drop 1 **Phase 2 complete** (HOME-PC session; per-phase commit on
+  the implementation branch). Converted the **Windows launcher shell only**:
+  `_build_ui_windows()` in `launcher.py` builds a dark navigation rail, a header strip
+  naming the active tool, a framed content card and a status bar with a focusable
+  "Open log folder" button — all from `theme["styles"]` / `theme["colors"]` /
+  `theme["metrics"]`, so not one hex literal or magic number entered `launcher.py`.
+  `shared/ui_theme.py` was **not** edited: the Phase 1 API (41 styles + `style_tk_widget`)
+  covered the whole shell, which is the strongest evidence the design system is right.
+  `files/tests/test_launcher_smoke.py` grew from 1 test to 10.
+  **The isolation trick that matters:** `self.content` and every per-tool container are
+  left as *plain, unstyled* `ttk.Frame`s. ttk has no style inheritance, so an unconverted
+  panel resolves the generic `TFrame`/`TButton`/`TEntry` exactly as it does on master —
+  the shell cannot leak into a panel even in principle, because there is nothing to
+  inherit from. The card border is a 1px hairline frame wrapped *around* the host rather
+  than a style *on* the host, which is what buys the border without giving the host a
+  style. Verified in the running app: zero of the panels' widgets carry an `ACT.*` style
+  while every non-empty style in the shell itself is `ACT.*`.
+  Two behaviour changes, both deliberate and both improvements: the active nav row is
+  marked with the ttk `selected` flag instead of being *disabled* (so it stays reachable
+  by Tab and keeps its focus ring), and the log-folder action became a real `ttk.Button`
+  instead of a clickable label (focusable, fires on Enter/Space). The action itself,
+  `_open_logs`, is unchanged.
+  **Regression found and escalated rather than papered over:** the new shell costs the
+  tool panels 127px of width and ~100px of height against the classic shell (110px of
+  that is the 232px `sidebar_width` token). At the 920×600 minimum the M4B Converter's
+  `Convert M4Bs → MP3s` row and Log box fall outside the visible area, where on master
+  they fit. I reclaimed everything reclaimable inside `launcher.py` (card padding
+  `content_pad` → `gap_sm`, +16w/+12h) and stopped there: the two real levers are
+  `sidebar_width` and `MIN_SIZE`, both in `shared/ui_theme.py`, and both are maintainer
+  value/geometry decisions under plan §7.1–§7.2 — not a "missing primitive" this phase
+  was authorized to add. Full numbers, per-panel overflow, and three costed options are
+  in *Phase 2 limitations* above. Worth noting for context: M4B Converter, MP3 Tool and
+  M4B Maker already overflow at 920×600 on master, so this makes an existing condition
+  worse rather than creating a new class of bug.
+  Draft visual review done at 1024×720, 920×600 and maximized 1920×1009 on this machine
+  (scratchpad images, not committed — the ten-image 100%/125% matrix is Phase 5).
 - 2026-07-31 — v0.6.0 Drop 1 **Phase 1 complete** (HOME-PC session; per-phase commit on
   the implementation branch). Built the isolated Windows design system in
   `shared/ui_theme.py` and extended `files/tests/test_ui_theme.py` from 5 tests to 16.
@@ -984,6 +1187,45 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 2 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
+- Base:    `9cd7fb8e04e11d64f9303d0f44a7ca3f3723af51` (Phase 1). No pull needed —
+  `master` and `origin/master` are both still `1da1e547` and were not touched.
+- Changed: `scripts/Universal/launcher.py` (+151 / -8) — new `_build_ui_windows()`
+  (navigation rail, header strip, framed content card, status bar with a focusable
+  log button), a `windows` arm in `_build_ui()` and in `_highlight_selection()`
+  (ttk `selected` flag instead of disabling the active row), a themed arm in
+  `_show_load_error()`, and an updated module docstring. `_build_ui_classic`,
+  `_build_ui_darwin`, `_row_hover`, `select_tool`, `_load_tool_into`, `TOOLS`,
+  `_available_tools`, `_apply_default_geometry`, `_open_logs`, `_on_close`,
+  `_configure_hf_cache` and `main()` are unchanged.
+- Changed: `files/tests/test_launcher_smoke.py` (+299 / -0) — 1 test → 10. Adds
+  registry order, build-once/no-rebuild across three sweeps, a real typed state marker
+  surviving switching, valid-saved-tool restore (with the other five still lazy),
+  invalid-key fallback, missing-module fallback, `ACT.*` chrome styling, selected-state
+  handling, and the child-panel style-isolation test. The original build-all test is
+  preserved verbatim.
+- Changed: `md-instructions/handoff.md` (this file — Phase 2 section, layout/style
+  mapping table, isolation explanation, draft-review table, limitations, work-log
+  entry, this sync entry)
+- Note:    **`shared/ui_theme.py` was NOT edited.** The Phase 1 API covered the entire
+  shell, so no new style, token or helper was needed and the isolation tests did not
+  have to change.
+- Note:    **Only the launcher shell was converted.** All six tool modules,
+  `scripts/requirements.txt`, `scripts/Universal/shared/*` (including `version.py`,
+  still `0.5.1`), both setup launchers and `files/UI-Current-Screenshots/` are
+  untouched — confirmed with `git diff --name-only HEAD` over each of those paths
+  (empty). `git status` shows only the three files above.
+- Note:    **Open geometry regression escalated, not silently accepted** — the shell
+  costs the tool panels 127px width / ~100px height vs the classic shell, which clips
+  M4B Converter's primary action row at the 920×600 minimum. Full measurements and
+  three costed options are in *Phase 2 limitations*. Deliberately not fixed here
+  because both levers live in `ui_theme.py` and are maintainer decisions.
+- Note:    **Untracked `config-template.toml` still left alone at the repo root** — not
+  edited, staged, committed or deleted. Staging was done by explicit path only.
+- Verify:  `.venv\Scripts\python.exe scripts/verify.py` → **RESULT: PASS**
+  (pytest 68 passed / 3 skipped; deps `==`-pinned; docs de-templated).
+  `git diff --check` clean before and after this handoff update.
 
 ### 2026-07-31 — HOME-PC — v0.6.0 Drop 1 Phase 1 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Base:    `0971a20e24fc196967da97d1b204375dc549ad5a` (Phase 0). No pull needed —
