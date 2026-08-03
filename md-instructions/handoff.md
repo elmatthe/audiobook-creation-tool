@@ -1,12 +1,16 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 1 (Windows UI prototype) — PHASE 5 EVIDENCE CAPTURED. STOPPED AT THE HARD
-VISUAL GATE, awaiting an explicit maintainer `APPROVED` or `CHANGES REQUESTED`.**
-The ten screenshots existing is **not** approval, and nothing in the permanent docs
-(`Briefing.md`, `CHANGELOG.md`, `DECISIONS.md`, `README.md`, `version.py`) has been
-updated with any prototype-acceptance claim. Plan file:
-`md-instructions/0.6.0-drop1-windows-ui-prototype.md`
+**v0.6.0 Drop 1 (Windows UI prototype) — APPROVED 2026-08-02 and CLOSED OUT. PLAN 1 IS
+COMPLETE.** The maintainer replied `APPROVED` to the Phase 5 ten-image matrix and the
+functional evidence. Phase 6 recorded the accepted contract in the permanent docs and
+deleted the temporary drop; the plan file
+`md-instructions/0.6.0-drop1-windows-ui-prototype.md` **no longer exists** (deleted in the
+Phase 6 commit, as the workflow requires).
+
+**Approval is of a design contract, not a release.** `version.py` is still `0.5.1`, there is
+no v0.6.0 release heading anywhere, nothing was merged to `master`, and no release package
+was built. **Next implementation-planning target: Plan 2 — undrafted and unstarted.**
 (Plan 1 of nine planned v0.6.x instruction drops; the remaining eight are named in
 the plan's sequencing note but are **not drafted and must not be started**).
 
@@ -22,7 +26,11 @@ The desktop checkout was 10 commits behind at `695045c` and fast-forwarded clean
 **Phase 2 commit:** `b2e5285958a8d7adcc19a4c17d45f1e55fd7e900`.
 **Phase 3 commit:** `d8d0b1b7aec1b62d80989ffb791cda313fb22763`.
 **Phase 4 commit:** `9d4f58cdb24f0963552490d73273acaec1369589`.
-**Phase 5 commit:** see the Session Sync Log entry below.
+**Phase 5 commit (the approved evidence SHA):** `b2e809fe4e25f5aaaef1684b5998bc652374de87`.
+**Phase 6 commit (closeout):** the branch HEAD created by the Session Sync Log entry below —
+a commit cannot name its own SHA, so read it with
+`git log -1 feature/0.6.0-drop1-windows-ui-prototype`. It is also stated in the Phase 6
+summary returned to the maintainer.
 
 **Phase 0 result:** baseline established and green. No theme, launcher, tool-panel,
 test, `requirements.txt`, or `version.py` source was edited — Phase 0 is
@@ -83,10 +91,133 @@ the scaling, not Tk, not an image editor). **No production source changed:**
 `git diff --name-only 9d4f58c..HEAD -- scripts/ files/tests/` is empty. Two files
 were added to the repository beyond the PNGs: none. Full detail in *Phase 5* below.
 
-**Next proposed phase:** Phase 6 — approved closeout. **Entry condition not met.** It
-requires the maintainer's explicit `APPROVED` on the ten screenshots. Until then, no
-permanent doc is updated, the plan file is not deleted, nothing is merged, and no other
-v0.6.x plan begins.
+**Phase 6 result:** closeout only — the accepted contract is now recorded in `Briefing.md`,
+`CHANGELOG.md` and `DECISIONS.md`, this file carries the approval record, and the temporary
+drop is deleted. **No production code changed in Phase 6** (`git diff --name-only
+b2e809f..HEAD -- scripts/ files/` is empty). `README.md`, `AI-WORKSPACE.md`, both setup
+launchers, `scripts/requirements.txt` and `version.py` are untouched.
+
+### Phase 6 — approved closeout (2026-08-02, HOME-PC)
+
+#### The approval record
+
+**On 2026-08-02 the maintainer replied `APPROVED`** to the Phase 5 phase summary, the ten
+screenshots and the functional evidence. The decisions recorded with that approval, verbatim
+in substance:
+
+| # | Approval decision |
+|---|---|
+| 1 | The complete ten-image visual matrix is **approved**. |
+| 2 | The 125% images captured on the **secondary** 1920×1080 display are accepted as valid evidence; **no primary-monitor reshoot** is required. |
+| 3 | The current Summary/Details specimen is **sufficient** — no additional Details screenshot, no change to the specimen. |
+| 4 | Keep `MIN_SIZE = (920, 600)` and `DEFAULT_GEOMETRY = (1024, 720)` **unchanged**. |
+| 5 | The remaining **M4B Converter** minimum-height clipping is **deferred to its Plan 9 conversion**. |
+| 6 | The **DPI-unaware** behaviour does **not** block Plan 1 approval, because the app stays usable and unclipped at 125% — but it must be recorded prominently as **unresolved Windows work** for Plan 9 or an appropriately scoped future plan, and **must not be fixed during Phase 6**. |
+| 7 | **Live macOS testing remains an explicitly approved deferral** and must never be called passed. |
+| 8 | **tkinter/ttk is approved** as the continuing UI toolkit for the broader Plan 9 conversion. |
+| 9 | The **five unconverted panels remain deferred to Plan 9**. |
+| 10 | **Plan 2 is the next implementation-planning target** after Plan 1 closes. |
+
+**Approved evidence path and SHA:** `files/UI-Prototype-Screenshots/v0.6.0-drop1/` (ten PNGs)
+at Phase 5 SHA `b2e809fe4e25f5aaaef1684b5998bc652374de87`, branch
+`feature/0.6.0-drop1-windows-ui-prototype`. All ten remain present and unmodified; Phase 6
+did not touch, re-shoot, crop or re-encode any image.
+
+**Phase 6 start SHA:** `b2e809fe4e25f5aaaef1684b5998bc652374de87`
+**Phase 6 end SHA:** recorded in the Session Sync Log entry below.
+
+#### Exact permanent-document updates
+
+| Document | What was added |
+|---|---|
+| `md-instructions/Briefing.md` | Tech-stack GUI bullet rewritten for the three explicit theme branches and ttk's continued acceptance; the launcher architecture bullet now describes all three shells and the deliberately unstyled content host; the `shared/` bullet names `style_tk_widget`; **three new architecture bullets** — the Windows design system (semantic tokens, no panel-local literals), the `ACT.*` isolation contract (why cloning clam elements into vista is the mechanism, and why ttk's lack of style inheritance is what makes it structural), and the conversion boundary; the editor feature entry gained its Windows presentation fork, plus new entries for the Shared Metadata visual treatment and the developer-only Summary/Details specimen; the layout tree now shows both screenshot directories; **three new known limitations** (DPI-unaware, unchanged geometry + converter clipping, unthemed combobox popdown and light title bar); High-Level State gained the v0.6.0 Drop 1 approval paragraph and a standing non-Windows preservation contract naming the four tests that hold it. |
+| `md-instructions/CHANGELOG.md` | Three entries **beneath the existing `[Unreleased]` heading** — Added (theme primitives, `ACT.*` namespacing, launcher shell, converted editor, Shared Metadata treatment, developer-only specimen, the ten evidence images), Changed (`sidebar_width` 232 → 180 with the measurement that justified it, and the explicit note that `MIN_SIZE`/`DEFAULT_GEOMETRY` are unchanged), and Added — regression protection (the twelve new tests and what they pin down, plus the unresolved DPI note). **No v0.6.0 release heading was created and no release is claimed.** |
+| `md-instructions/DECISIONS.md` | One newest-first, dated, signed ADR: *"The Windows dark design system is APPROVED as the durable UI contract; tkinter/ttk stays; geometry, DPI awareness and live macOS are explicitly deferred."* Records the contract, the evidence path and Phase 5 SHA, the namespaced isolation rule, why ttk remains acceptable (with a "do not propose a toolkit change" instruction to future sessions), macOS/Linux preservation, the geometry deferral, the live-macOS deferral, DPI awareness as unresolved future work, and the alternatives rejected. **No historical entry was rewritten and the Decisions 1–55 planning register was not duplicated.** |
+| `md-instructions/handoff.md` | This section, the Current Focus rewrite, the Definition-of-Done assessment below, a Work Log entry and a Session Sync Log entry. |
+| `README.md` | **Unchanged**, deliberately — the user-facing launch/setup procedure did not change, and the drop is visual and unreleased. |
+| `AI-WORKSPACE.md` | **Unchanged**, deliberately — never edited or published as part of a drop. |
+| `scripts/Universal/shared/version.py` | **Unchanged** — still `VERSION = "0.5.1"`. |
+| `scripts/requirements.txt` | **Unchanged** — no dependency was added, removed or re-pinned in the entire drop. |
+
+#### Temporary-drop deletion
+
+`md-instructions/0.6.0-drop1-windows-ui-prototype.md` was **deleted** in the Phase 6 commit,
+as the workflow requires once a plan is implemented and verified. It was a tracked file, so
+the deletion is recorded in git history and the plan text remains recoverable from any
+Phase 0–5 commit. **No other plan or documentation file was deleted.** The durable record of
+what that plan established now lives in `Briefing.md` (architecture), `CHANGELOG.md`
+(what changed), `DECISIONS.md` (why, and what was deferred) and this file (state and evidence).
+
+#### Plan 1 — Definition of Done assessment
+
+| Definition-of-Done item | Result |
+|---|---|
+| Started from an updated, clean `master` with the actual start SHA recorded | **MET** — `1da1e547`, recorded in Phase 0 and above; zero drift from the plan's audit baseline |
+| Centralized semantic Windows tokens, metrics, fonts and namespaced ttk/Tk helpers in the existing shared architecture | **MET** — `shared/ui_theme.py`; no new module tree, no new dependency |
+| Windows launcher shell is a meaningful dark hierarchy/layout redesign | **MET** — approved on the evidence; rail + header + content card + status bar, not a recolour |
+| The M4B Metadata Editor is the only converted tool panel | **MET** — 19 `ACT.*` styles in the editor, 0 in each of the other five, measured in the live app |
+| The five classic panels were not converted and were protected from style leakage | **MET** — snapshot tests across theme application, editor construction and a whole app build |
+| macOS retains Finder/aqua and the Linux/other fallback is unchanged | **MET at the code level** (byte-identical functions + four automated tests). **Live macOS is an approved deferral — NOT claimed as passed.** |
+| All six panels build, switch and preserve state per the current contract | **MET** — `test_launcher_smoke.py`, plus three live sweeps in the Phase 4 matrix |
+| Every editor input, action, page, worker, progress/log state, Cancel path, copy-only output and read-only-original safeguard still works | **MET** — the nine-area Section 11 matrix on disposable fixtures, with source SHA-256 verified unchanged at seven checkpoints |
+| Shared Metadata has the approved distinct treatment without Plan 6/8 behaviour | **MET** |
+| Summary/Details has an approved presentation-only specimen without Plan 3 behaviour | **MET** |
+| The exact ten-image 1920×1080 100%/125% matrix exists at the approved path | **MET** |
+| The user explicitly approved the matrix after reviewing functional results | **MET** — `APPROVED`, 2026-08-02 |
+| Focused tests, full pytest, `git diff --check` and `verify.py` pass at closeout | **MET** — counts in the Phase 6 results table below |
+| Required manual checks passed, or an explicit user-approved deferral recorded; no unperformed check called passed | **MET** — the only deferral is live macOS, explicitly approved (decision 7), and it is nowhere described as a pass |
+| `requirements.txt` unchanged and `version.py` still `0.5.1` | **MET** |
+| Briefing / CHANGELOG / DECISIONS / handoff have accurate, non-duplicated closeout updates; `README.md` unchanged unless its user instructions truly changed | **MET** — README deliberately unchanged |
+| No Plan 2/3/6/8/9 feature work, toolkit switch, runtime dependency, release package or speculative architecture entered the drop | **MET** |
+| The temporary instruction file is deleted and the branch is clean after its final commit | **MET** |
+
+**All eighteen items are satisfied**, with the single deferral (live macOS) explicitly
+approved by the maintainer rather than assumed. **Plan 1 is complete.**
+
+#### Carried-forward limitations (open, and owned by later work)
+
+1. **DPI awareness — unresolved Windows work.** The app is DPI-unaware, so at 125% Windows
+   bitmap-scales the window and text is soft. Did not block approval (nothing clips, the app
+   stays usable); recorded in `Briefing.md` and `DECISIONS.md`. A fix needs a manifest or a
+   `SetProcessDpiAwareness` call **plus** a re-measure of every fixed pixel metric and fresh
+   screenshot evidence. **Plan 9 or a scoped future plan.**
+2. **Live macOS verification of the v0.6.0 line — approved deferral, never a pass.** The exact
+   five-step smoke test is preserved in *Phase 4 limitations* item 1.
+3. **M4B Converter clipping at the 920×600 minimum** (~19 px action, ~108 px + 75 px Log,
+   identical at both scalings) — deferred to that panel's Plan 9 conversion. `MIN_SIZE` and
+   `DEFAULT_GEOMETRY` stay unchanged.
+4. **The five unconverted panels** remain classic and deferred to Plan 9.
+5. **`ttk.Combobox` popdown unthemed** and the **window title bar stays light** over the dark
+   app (needs a Win32 `DwmSetWindowAttribute` call) — both Plan 9.
+6. **The editor's form scrolls at every size**, including maximized (it wants 1083 px). Permitted
+   by plan §7.3 and visible in the approved evidence; not a defect.
+7. **The `verify.py` skip blind spot** — the gate cannot distinguish "a suite was skipped" from
+   "a suite does not exist", so the Tk transient seen in Phases 3 and 4 could hide a whole
+   module while still reporting PASS. It did not recur in Phases 5 or 6. Pre-existing; owned by
+   whoever hardens `verify.py`, not by Plan 1.
+8. **Pre-existing and untouched:** the launcher status bar does not follow a tool's run; an
+   unreadable input is copied before its tag write fails, leaving an untagged copy; Open
+   Issue #2 (`kokoro_synth` CLI-only cp1252 `UnicodeEncodeError`).
+
+#### Phase 6 verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | PASS — **17 passed, 0 skipped** |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_launcher_smoke.py` | PASS — 11 passed, 1 warning |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_shared.py` | PASS — 7 passed |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_m4b_metadata_editor_ui.py` | PASS — 12 passed |
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_prototype_regression.py` | PASS — 12 passed, 1 warning |
+| `.venv\Scripts\python.exe -m pytest -q -rs` (full suite) | PASS — **94 passed, 3 skipped**, 1 warning |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** |
+| `.venv\Scripts\python.exe -m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+Exact timings are in the Session Sync Log entry. Unchanged from the Phase 4/5 baseline, which
+is the expected result for a documentation-only phase. The 1 warning is the pre-existing pydub
+`audioop` DeprecationWarning; the 3 skips are the three `JACK_RYAN_M4B_FOLDER`-gated tests in
+`test_jack_ryan_final_product.py`, named by `-rs`. All 17 theme tests executed; the Tk skip
+transient did not recur.
 
 ### Phase 5 — visual evidence capture (2026-08-01, HOME-PC)
 
@@ -263,19 +394,24 @@ spot recorded in *Phase 4 limitations* item 8 remains open and unowned by Plan 1
 
 ### Phase 5 limitations and open items
 
-1. **THE GATE ITSELF IS OPEN.** The maintainer has not approved anything. Screenshots
-   existing is not approval. Nothing may be merged, no permanent doc updated, no plan
-   file deleted, and no other v0.6.x plan started until an explicit `APPROVED`.
+1. ~~**THE GATE ITSELF IS OPEN.**~~ **RESOLVED 2026-08-02 — the maintainer replied
+   `APPROVED`.** Recorded in *Phase 6* above. (Nothing was merged on approval; approval is
+   of the design contract, not a release.)
 2. **The application is DPI-unaware** (see above). At 125% Windows bitmap-scales the whole
    window, so text is soft rather than re-rendered at 120 DPI. Nothing clips as a result,
    and nothing was changed — making the app DPI-aware is a production change and needs a
    maintainer decision. This is the single most consequential finding of Phase 5.
 3. **The 125% pass ran on the secondary 1920×1080 display**, which was the one set to 125%.
    Argued equivalent above (an unaware app is bitmap-scaled identically on a 125%
-   primary). Re-shootable on request.
-4. **`MIN_SIZE` / `DEFAULT_GEOMETRY` decision is still open** — the M4B Converter's primary
-   action and Log remain clipped at the 920×600 minimum (19 px / 108 px + 75 px), the same
-   at both scalings. The Phase 5 recommendation is **option 1: change nothing now** —
+   primary). **RESOLVED 2026-08-02 — the maintainer accepted those images as valid evidence
+   and required no primary-monitor reshoot** (approval decision 2).
+4. **`MIN_SIZE` / `DEFAULT_GEOMETRY`** — **DECIDED 2026-08-02: option 1, change nothing**
+   (approval decisions 4 and 5); the converter clipping is deferred to that panel's Plan 9
+   conversion. The reasoning that was put to the maintainer is kept below, unchanged.
+
+   The M4B Converter's primary action and Log remain clipped at the 920×600 minimum
+   (19 px / 108 px + 75 px), the same at both scalings. The Phase 5 recommendation was
+   **option 1: change nothing now** —
    the clipping is in an *unconverted* panel that Plan 9 will rebuild, the converted editor
    clips nothing at any size, raising `MIN_SIZE` would be a theme-contract change made for
    a panel this drop is forbidden to touch, and `test_windows_metrics_are_usable` /
@@ -1348,6 +1484,39 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-02 — v0.6.0 Drop 1 **APPROVED and CLOSED OUT — Plan 1 is complete** (HOME-PC
+  session; final per-phase commit on the implementation branch). The maintainer replied
+  `APPROVED` to the ten-image matrix and the functional evidence, with ten explicit
+  decisions recorded in the Phase 6 section: the matrix is approved as-is; the 125% images
+  shot on the secondary display are valid evidence with no reshoot required; the current
+  Summary/Details specimen is sufficient; `MIN_SIZE` and `DEFAULT_GEOMETRY` stay unchanged
+  and the M4B Converter clipping defers to that panel's Plan 9 conversion; DPI-unawareness
+  does not block approval but must be recorded prominently as unresolved Windows work and
+  must not be fixed during closeout; live macOS remains an approved deferral that is never
+  to be called passed; **tkinter/ttk is approved as the continuing toolkit**; the five
+  classic panels defer to Plan 9; Plan 2 is the next planning target. Phase 6 is
+  **documentation-only** — `git diff --name-only b2e809f..HEAD -- scripts/ files/` is empty.
+  `Briefing.md` gained the Windows design system, the `ACT.*` isolation contract (including
+  *why* it is structural — ttk has no style inheritance, so a panel naming no style resolves
+  the generic one and stays native), the conversion boundary, the editor's presentation
+  fork, the Shared-Metadata-is-visual-only statement, the developer-only specimen, three new
+  known limitations, and a standing non-Windows preservation contract naming the four tests
+  that hold it. `CHANGELOG.md` gained three entries **beneath** the existing `[Unreleased]`
+  heading — **no v0.6.0 release heading was created and no release is claimed**.
+  `DECISIONS.md` gained one newest-first signed ADR recording the approved contract, the
+  evidence path and Phase 5 SHA `b2e809f`, why ttk stays (with an explicit "do not propose a
+  toolkit change" note to future sessions), macOS/Linux preservation, and the three
+  deferrals. `README.md` and `AI-WORKSPACE.md` are deliberately unchanged, `version.py` is
+  still `0.5.1`, and `scripts/requirements.txt` was never touched in the whole drop. The
+  temporary drop `md-instructions/0.6.0-drop1-windows-ui-prototype.md` was **deleted**, as
+  the workflow requires; it was tracked, so the plan text stays recoverable from any
+  Phase 0–5 commit. All eighteen Definition-of-Done items are satisfied, with the single
+  deferral (live macOS) explicitly approved rather than assumed. Verification unchanged from
+  baseline: focused 17 / 11 / 7 / 12 / 12, full suite **94 passed, 3 skipped**, `verify.py`
+  **RESULT: PASS**, `compileall` exit 0, `git diff --check` clean, all 17 theme tests
+  executed, ten PNGs still present and untouched. **Nothing was merged to `master`**, the
+  feature branch was not deleted, no release work was done, and **Plan 2 is neither drafted
+  nor started.**
 - 2026-08-01 — v0.6.0 Drop 1 **Phase 5 evidence captured; STOPPED at the hard visual
   gate** (HOME-PC session; per-phase commit on the implementation branch). The ten-image
   matrix required by §10 now exists under
@@ -2003,6 +2172,53 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-02 — HOME-PC — v0.6.0 Drop 1 Phase 6 (approved closeout) — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
+- Base:    `b2e809fe4e25f5aaaef1684b5998bc652374de87` (Phase 5 — the approved evidence SHA).
+  No pull needed — `master` and `origin/master` are both still `1da1e547` and were not
+  touched. Phase 0–5 commits all confirmed as ancestors of HEAD before editing.
+- Changed: `md-instructions/Briefing.md` — tech-stack GUI bullet, the launcher architecture
+  bullet, the `shared/` bullet, **three new architecture bullets** (Windows design system,
+  the `ACT.*` isolation contract, the conversion boundary), the M4B Metadata Editor feature
+  entry plus new Shared Metadata and Summary/Details-specimen entries, the layout tree (both
+  screenshot directories), **three new known limitations** (DPI-unaware, unchanged geometry +
+  converter clipping, unthemed combobox popdown and light title bar), and High-Level State
+  (the v0.6.0 Drop 1 approval paragraph and the standing non-Windows preservation contract).
+- Changed: `md-instructions/CHANGELOG.md` — three entries beneath the existing `[Unreleased]`
+  heading (Added: theme primitives / `ACT.*` namespacing / launcher shell / converted editor /
+  Shared Metadata treatment / developer-only specimen / the ten evidence images; Changed:
+  `sidebar_width` 232 → 180 with `MIN_SIZE` and `DEFAULT_GEOMETRY` explicitly unchanged;
+  Added: the regression protection for the five classic panels and the non-Windows paths,
+  with the unresolved DPI note). **No v0.6.0 release heading; no release claimed.**
+- Changed: `md-instructions/DECISIONS.md` — one newest-first, dated, signed ADR
+  (2026-08-02) recording the approved contract, evidence path + Phase 5 SHA, namespaced
+  isolation, why tkinter/ttk stays, macOS/Linux preservation, the geometry deferral, the
+  live-macOS deferral, DPI awareness as unresolved future work, and the rejected
+  alternatives. No historical entry rewritten; the Decisions 1–55 register not duplicated.
+- Changed: `md-instructions/handoff.md` — Current Focus rewritten to the approved/closed
+  state, a Phase 6 section (the ten approval decisions, the evidence path and approval SHA,
+  the exact permanent-document updates, the drop deletion, the eighteen-row Definition-of-Done
+  assessment, the carried-forward limitations, the verification table), three Phase 5
+  limitations marked resolved by the approval, a Work Log entry and this entry.
+- **Deleted (planned): `md-instructions/0.6.0-drop1-windows-ui-prototype.md`** — the
+  temporary instruction drop, removed as the workflow requires now that Plan 1 is
+  implemented, verified and approved. It was tracked, so the plan text remains recoverable
+  from any Phase 0–5 commit. **No other plan or documentation file was deleted.**
+- **Unchanged, deliberately:** `README.md` (the user launch/setup procedure did not change),
+  `AI-WORKSPACE.md`, `scripts/Universal/shared/version.py` (still `0.5.1`),
+  `scripts/requirements.txt`, both `Setup_and_Run-*` launchers, and **all production code** —
+  `git diff --name-only b2e809f..HEAD -- scripts/ files/` is empty, so the ten approved PNGs
+  are also byte-identical to what was approved.
+- Verified before commit: `test_ui_theme.py` 17 passed / **0 skipped**;
+  `test_launcher_smoke.py` 11 passed; `test_m4b_metadata_editor_shared.py` 7 passed;
+  `test_m4b_metadata_editor_ui.py` 12 passed; `test_prototype_regression.py` 12 passed; full
+  suite **94 passed, 3 skipped**, 1 pre-existing pydub `audioop` warning; `scripts/verify.py`
+  **RESULT: PASS**; `compileall` exit 0; `git diff --check` clean. Exactly ten PNGs remain in
+  the evidence directory. The Tk skip transient did not recur.
+- Worktree after push: only the pre-existing untracked `config-template.toml`, which was not
+  edited, staged, moved or deleted at any point in this drop.
+- **Status: Plan 1 COMPLETE.** Not merged to `master`, feature branch not deleted, no release
+  work performed, Plan 2 neither drafted nor started.
 
 ### 2026-08-01 — HOME-PC — v0.6.0 Drop 1 Phase 5 — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Base:    `9d4f58cdb24f0963552490d73273acaec1369589` (Phase 4). No pull needed —
