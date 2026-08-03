@@ -15,6 +15,79 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — shared output reservation, collision and mirroring services (v0.6.0 Drop 2 Phase 3, 2026-08-03)
+
+> Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`.
+> **No tool consumes these services yet** — Phase 4 migrates the six panels, so current
+> user-facing output behaviour is byte-for-byte unchanged.
+
+- **`scripts/Universal/shared/output_paths.py`** — the platform-neutral output foundation for
+  `<base>/<Tool>-Outputs/<Tool>-N/`. Tk-free, subprocess-free, network-free, and independent of
+  the working directory. **Planning is pure; materialisation is explicit:** every `plan_*`
+  function, the sanitizer and the collision service touch nothing, and only
+  `ensure_output_base()` and `reserve_run_directory()` create anything — directories only,
+  never a file and never anything source-side.
+- **Central tool-parent registry** — `TOOL_OUTPUT_PARENTS` derives the six folders
+  (`TTS-Audiobook-Outputs`, `M4B-Converter-Outputs`, `MP3-Tool-Outputs`, `M4B-Maker-Outputs`,
+  `Cover-Image-Outputs`, `M4B-Metadata-Outputs`) from the existing `paths.TOOL_SLUGS`, so a slug
+  is never written down twice. An unknown tool key raises `UnknownToolError` instead of becoming
+  an unchecked path fragment, and a test proves the mapping matches the launcher's six tools.
+- **Atomic run reservation** — `mkdir()` without `exist_ok` is the correctness boundary: it
+  either creates `<Tool>-N` or raises `FileExistsError`, so two concurrent runs can never claim
+  the same number. There is deliberately no existence check first, because that is exactly the
+  check-then-create race the plan forbids. The search is bounded, failures carry diagnostics,
+  and `release_if_empty()` removes a reserved directory **only** while it is still empty.
+- **Filename sanitisation** — reduces a path to its last component, strips control characters,
+  replaces the Windows-forbidden set, normalises Unicode to NFC, strips trailing dots and spaces
+  (Windows drops them on write, which would silently merge two distinct names), defuses reserved
+  device names with or without an extension (`CON.txt` → `_CON.txt`), and truncates the stem to
+  255 characters while preserving the extension. Only the **final** suffix is treated as the
+  extension, so `Book 1.5 - Extras.m4b` keeps its title.
+- **Collision numbering** — the requested name first, then `stem-1.ext`, `stem-2.ext`. A
+  `DestinationPlanner` is created per run, never shared globally, and combines existing files
+  and directories with names the batch has already planned, so two proposed outputs cannot
+  select one destination before either file exists. Comparison is case-insensitive on every
+  platform, deliberately: both shipping targets are case-insensitive, and an extra `-1` is a
+  better failure than an overwrite.
+- **Input protection and containment** — `assert_not_input`, `assert_outside_source_trees`,
+  `assert_contained` (which normalises without requiring the path to exist, so an unresolved
+  child is checked rather than assumed safe) and `assert_no_link_in`, which refuses a
+  destination established through a symlink or junction **even when the link points back inside
+  the root** — the case containment alone cannot catch. Nothing in this module deletes anything.
+- **Pure path planning** — `plan_flat` (individually selected files land directly in the run
+  directory without recreating parent trees, per Decision 31A), `plan_mirrored` (one declared
+  root, relative parents preserved) and `plan_multi_root` (each root gets a collision-safe
+  container, so `Books` and `Books-1` keep two trees apart). A source outside its declared root
+  is rejected rather than silently flattened. Plans are frozen dataclasses of tuples.
+
+### Changed — `paths.next_output_dir()` marked for removal (v0.6.0 Drop 2 Phase 3)
+
+- Documented as a **compatibility wrapper scheduled for removal in Phase 4**: the pre-Plan-2
+  behaviour (non-atomic check-then-create, computed at `build_ui()` time and frozen for the
+  session, no configurable base, no tool parent). **Behaviour is unchanged** — five tool panels
+  still call it — and `test_output_paths.py` records the exact five call sites, so a sixth
+  caller fails the suite and Phase 4's removals are visible in the diff.
+
+### Added — output-service regression coverage (v0.6.0 Drop 2 Phase 3)
+
+- `files/tests/test_output_paths.py` (144 tests) covering base resolution (default, absolute,
+  `~`, relative fallback, no env expansion, nothing created, cwd-independence, unwritable),
+  the complete tool mapping and unknown-key rejection, reservation (layout, no files, existing
+  directory skipped, repeat runs, **8-thread concurrency**, bounded failure, diagnostics,
+  immutability, captured snapshot, empty-only release), sanitisation (every forbidden
+  character, control characters, trailing dots/spaces, blank/`.`/`..`, reserved names with and
+  without extensions, whole-path reduction, length limit, Unicode including NFC normalisation,
+  spaces and apostrophes, determinism, final-suffix rule), collisions (existing file, existing
+  directory, planned-only, combined, already-numbered names, sanitisation-induced, case-only,
+  independent trackers, determinism, nothing created, bounded), safety (input equality,
+  source-tree protection, containment, traversal, absolute-child injection, root-as-destination,
+  non-existent children, link escape and link-back-inside-root, nothing deleted), and planning
+  (flat, one-root, multi-root, duplicate root labels, same-stem files, sanitised components,
+  determinism, immutability, no filesystem writes, no input modification, no escape).
+- Windows note: directory-link tests run via **junctions**, which need neither Developer Mode
+  nor elevation. The single file-symlink test skips on this machine with the exact reason
+  (`WinError 1314`); the pure containment logic it guards is covered by the non-link tests.
+
 ### Added — Preferences & Data, once-per-launch warnings and Reset Preferences (v0.6.0 Drop 2 Phase 2, 2026-08-03)
 
 > Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`.

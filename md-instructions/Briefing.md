@@ -81,6 +81,8 @@ flashing during use.
   `config.py` (the typed effective-configuration core — see *Configuration* below),
   `preferences_ui.py` (the Preferences & Data dialog and the once-per-launch configuration
   warning — presentation only, see *Preferences & Data* below),
+  `output_paths.py` (output base, run reservation, sanitisation, collisions, containment and
+  mirroring — built in Phase 3, consumed by the tools from Phase 4; see *Output services*),
   `settings.py` (atomic JSON at `files/runtime-data/settings.json`, plus reset/reload and
   explicit write-failure reporting), `cancellation.py` (shared
   Cancel/threading.Event pattern), `metadata.py` (mutagen M4B tag read/write incl. series
@@ -124,6 +126,49 @@ flashing during use.
   the committed TOML. `settings.reset()` clears every mutable preference atomically and touches
   nothing else — no `.venv`, model, binary, log, output or source file; clearing downloaded
   data is a separate, differently confirmed action that does not exist yet.
+- **Output services (v0.6.0 Drop 2 Phase 3) — built, tested, and not yet consumed.**
+  `shared/output_paths.py` is the platform-neutral foundation every tool adopts in Phase 4.
+  **Nothing in the application calls it yet**; the five legacy `paths.next_output_dir()` call
+  sites remain live and unchanged, and a test pins that exact list so a sixth caller fails and
+  Phase 4's removals are visible.
+  **Planning is pure; materialisation is explicit.** Every `plan_*` function, the sanitizer and
+  the collision service compute paths and touch nothing. Only `ensure_output_base()` and
+  `reserve_run_directory()` create anything, and only directories — never a file, never
+  anything source-side. Tk-free, subprocess-free, network-free, working-directory-independent.
+  **Layout** `<base>/<Tool>-Outputs/<Tool>-N/`. `TOOL_OUTPUT_PARENTS` derives the six parent
+  folders from the existing `paths.TOOL_SLUGS`, so a slug is never written down twice; an
+  unknown tool key raises `UnknownToolError` rather than becoming an unchecked path fragment.
+  **Reservation is atomic:** `mkdir()` without `exist_ok` either creates the run directory or
+  raises `FileExistsError`, so concurrent runs can never claim the same number — there is
+  deliberately no "does it exist?" check first, because that is the race. The search is bounded,
+  the result is a frozen `RunReservation` carrying the configuration snapshot the run was
+  planned against, and `release_if_empty()` removes a reserved directory **only** while it is
+  still empty.
+  **Sanitisation** (`sanitize_component`) reduces a path to its last element, strips control
+  characters, replaces the Windows-forbidden set, normalises Unicode to NFC, strips trailing
+  dots and spaces (Windows drops them on write, which would silently merge two names), defuses
+  reserved device names with or without an extension, and truncates the stem to 255 characters
+  while keeping the extension. Only the **final** suffix is treated as the extension —
+  `Book 1.5 - Extras.m4b` keeps its title, which matters far more often than `.tar.gz` does.
+  **Collisions** try the requested name first, then `stem-1.ext`, `stem-2.ext`. A
+  `DestinationPlanner` is created per run — never shared globally — and combines what exists on
+  disk with what the batch has already planned, so two proposed outputs cannot select one
+  destination before either file exists. Comparison is case-insensitive on every platform:
+  Windows and macOS are case-insensitive anyway, and erring toward an extra `-1` beats erring
+  toward an overwrite.
+  **Safety:** `assert_contained` normalises without requiring the path to exist, so an
+  unresolved child is checked rather than assumed safe; `assert_no_link_in` refuses a
+  destination established through a symlink or junction *even when the link points back inside
+  the root*, which containment alone cannot catch; `assert_not_input` and
+  `assert_outside_source_trees` keep outputs off the inputs and out of the source tree. Every
+  failure is a typed `OutputPathError` carrying a human-readable `message` and a separate
+  technical `detail`. **Nothing here deletes anything.**
+  **Planning:** `plan_flat` puts individually selected files straight into the run directory
+  without recreating parent trees (Decision 31A), numbering same-named files;
+  `plan_mirrored` reproduces each source's relative parent under one declared root;
+  `plan_multi_root` gives each root a collision-safe container (`Books`, `Books-1`) so one
+  root's tree can never merge into another's. A source outside its declared root is rejected
+  rather than silently flattened.
 - **Preferences & Data (v0.6.0 Drop 2 Phase 2).** `shared/preferences_ui.py` holds the
   cross-platform dialog and the launch-warning window. It is **presentation only**: every
   rule it enforces lives in `shared/config.py` and `shared/settings.py` and is tested

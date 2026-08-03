@@ -87,6 +87,20 @@ def downloads_dir() -> Path:
 def next_output_dir(tool_name: str, *, create: bool = False) -> Path:
     """Return ``Downloads/<tool_name>-N`` for the lowest free positive ``N``.
 
+    .. deprecated:: v0.6.0 Drop 2 Phase 3
+
+       **Compatibility wrapper, scheduled for removal in Phase 4.** This is the
+       pre-Plan-2 behaviour: a non-atomic check-then-create scan of Downloads,
+       computed once at ``build_ui()`` time and frozen for the whole session,
+       with no configurable base and no tool parent folder. Five tool panels
+       still call it, so it stays until Phase 4 migrates them.
+
+       New code must use ``shared.output_paths.reserve_run_directory()``, which
+       reserves ``<base>/<Tool>-Outputs/<Tool>-N`` atomically at validated run
+       start. ``files/tests/test_output_paths.py`` pins the removal: it records
+       the exact five call sites that may still use this function, so adding a
+       sixth fails and Phase 4 removing the last one is visible.
+
     ``N`` starts at 1 and increments only to avoid a folder that already exists
     at call time. With ``create=True`` the folder (and parents) is created;
     otherwise the path is returned without touching the filesystem.

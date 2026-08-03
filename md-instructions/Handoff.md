@@ -2,7 +2,97 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 2 COMPLETE. Phases 3–9 are unstarted and pending explicit maintainer approval.**
+PHASE 3 COMPLETE. Phases 4–9 are unstarted and pending explicit maintainer approval.**
+
+### Phase 3 — output reservation, collision, and mirroring services (2026-08-03, HOME-PC)
+
+**Result: the platform-neutral output foundation exists and is exhaustively tested, and
+absolutely nothing consumes it yet.** Two files added, one comment-only modification. Current
+user-facing output behaviour is unchanged; `version.py` is still `0.5.1`.
+
+**Phase 3 start SHA:** `e16fd42dcb54a6f34a4d79a498fa681f18ef6e6b` (approved Phase 2).
+
+#### What was built — `scripts/Universal/shared/output_paths.py`
+
+| Area | Contract |
+|---|---|
+| Layout | `<base>/<Tool>-Outputs/<Tool>-N/` |
+| Tool parents | `TOOL_OUTPUT_PARENTS`, derived from the existing `paths.TOOL_SLUGS` so a slug is never written twice. Unknown key → `UnknownToolError`, never a path fragment. |
+| Base | `resolve_output_base(snapshot)` reads the captured Phase 1 snapshot; `ensure_output_base()` is the only creation step and proves writability before a run starts. |
+| Reservation | `mkdir()` **without** `exist_ok` is the race boundary — no existence check first. Bounded, diagnosable, returns a frozen `RunReservation` carrying the run's config snapshot. |
+| Release | `release_if_empty()` removes a reserved directory **only** while empty. |
+| Sanitisation | Path→last component, control chars, forbidden set, NFC, trailing dots/spaces, reserved device names (with or without extension), 255-char limit preserving the extension. |
+| Collisions | requested name → `stem-1.ext` → `stem-2.ext`. Per-run `DestinationPlanner`, never global; disk state + planned names combined; case-insensitive everywhere. |
+| Safety | `assert_contained` (handles non-existent children), `assert_no_link_in`, `assert_not_input`, `assert_outside_source_trees`. Typed `OutputPathError` with message/detail split. **Deletes nothing.** |
+| Planning | `plan_flat`, `plan_mirrored`, `plan_multi_root` — all pure, all returning frozen plans. |
+
+**Planning is pure; materialisation is explicit.** Only `ensure_output_base()` and
+`reserve_run_directory()` create anything, and only directories. Tk-free, subprocess-free,
+network-free, working-directory-independent — all asserted.
+
+#### Three findings worth recording
+
+1. **The junction escape is caught by containment, not by the link check.** `resolve()` follows
+   a junction, so a link pointing *outside* the run directory normalises outside the root and
+   containment rejects it. A link pointing *back inside* the root resolves to a contained path
+   and passes containment entirely — that is the case `assert_no_link_in` exists for, and it now
+   has its own test. Both defences are needed; neither is redundant.
+2. **Windows reports `<tmp>/NUL` as existing.** The OS resolves the device name, so a test that
+   asserted the un-created root did not exist failed. That is Windows device semantics, not a
+   defect — and it is exactly the hazard the sanitiser defuses (`NUL` → `_NUL`).
+3. **Directory-link tests run via junctions.** `mklink /J` needs neither Developer Mode nor
+   elevation, so the link-safety tests get real coverage on an ordinary account rather than
+   being skipped wholesale. Only the file-symlink test still needs the privilege.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_output_paths.py` | **143 passed, 1 skipped** |
+| `-m pytest -q files/tests/{test_config,test_settings,test_repository_contract,test_preferences_ui,test_launcher_smoke,test_prototype_regression,test_batch_convert_folders}.py` | **226 passed** |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all executed |
+| `-m pytest --collect-only -q files/tests/` | **439 collected** (was 295) |
+| `-m pytest -q -rs files/tests/` | **435 passed, 4 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** across five checks |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | **clean, exit 0 — zero notices** |
+
++144 collected = exactly the new file. The 1 warning is the pre-existing pydub `audioop`
+`DeprecationWarning`.
+
+#### Skips — named, with exact reasons
+
+| Skip | Reason |
+|---|---|
+| `test_a_linked_destination_name_is_refused` | This account cannot create a **file** symlink: `OSError WinError 1314 — A required privilege is not held by the client`. Windows needs Developer Mode or elevation for file symlinks; a junction cannot stand in for a file. The pure containment logic it guards is covered by the non-link containment tests, and the two directory-link tests **did** run via junctions. **Not claimed as passed.** |
+| 3 × `test_jack_ryan_final_product.py` | Pre-existing, gated on `JACK_RYAN_M4B_FOLDER`. |
+
+#### Scope held
+
+No tool panel imports or calls the new service (asserted per module). The launcher does not
+either. `paths.next_output_dir()` is unchanged in behaviour and now documented as a
+compatibility wrapper scheduled for removal in Phase 4, with a test recording the exact five
+call sites so a sixth fails and Phase 4's removals show in the diff. No cleanup, no post-exit
+behaviour, no Cover source-side mode, no M4B Maker custom destination, no Plan 3 importing.
+Preferences and the launch warning still pass unchanged.
+
+#### Still pending — not claimed as passed
+
+1. **Windows 125% display scaling** — deferred to the later manual-validation phase by
+   maintainer decision; system scaling was not changed during Phase 3.
+2. **Live macOS** — explicit deferral.
+3. **Phase 2 screenshot evidence** — assigned to Phase 8.
+
+### Next action
+
+**Phase 4 — standard output integration across all six tools.** Not started. It requires
+explicit maintainer approval before any work begins.
+
+---
+
+## Phase 2 record (v0.6.0 Drop 2, approved 2026-08-03)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 2 COMPLETE.**
 
 ### Phase 2 — Preferences, warning presentation, Reset Preferences (2026-08-03, HOME-PC)
 
@@ -1866,6 +1956,44 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 3 — shared output reservation, collision and
+  mirroring services** (HOME-PC). Added `shared/output_paths.py`: the platform-neutral
+  foundation for `<base>/<Tool>-Outputs/<Tool>-N/`, built and exhaustively tested but
+  **consumed by nothing**. Planning is pure and materialisation explicit — only
+  `ensure_output_base()` and `reserve_run_directory()` create anything, and only directories.
+  `TOOL_OUTPUT_PARENTS` derives the six parent folders from the existing `paths.TOOL_SLUGS` so
+  a slug is never written down twice, and an unknown tool key raises rather than becoming a
+  path fragment. Reservation uses `mkdir()` **without** `exist_ok` as the race boundary with no
+  prior existence check — proven by an 8-thread barrier test giving eight distinct directories
+  numbered 1–8 — bounded, diagnosable, returning a frozen `RunReservation` that carries the
+  run's configuration snapshot; `release_if_empty()` removes a reserved directory only while it
+  is still empty. Sanitisation reduces a path to its last component, strips control characters
+  and trailing dots/spaces (Windows drops those on write, which would silently merge two names),
+  replaces the forbidden set, normalises to NFC, defuses reserved device names with or without
+  an extension, and truncates to 255 characters keeping the extension; only the **final** suffix
+  counts as the extension, so `Book 1.5 - Extras.m4b` keeps its title. Collisions try the
+  requested name then `stem-1.ext`/`stem-2.ext` through a per-run `DestinationPlanner` that
+  combines disk state with already-planned names and compares case-insensitively on every
+  platform (both shipping targets are case-insensitive; an extra `-1` beats an overwrite).
+  Safety adds containment that handles non-existent children, link refusal, input-equality and
+  source-tree protection, all raising typed errors with a message/detail split, and **nothing in
+  the module deletes anything**. Planning provides flat (Decision 31A — no parent trees
+  recreated), one-root mirrored, and multi-root with collision-safe containers (`Books`,
+  `Books-1`). **Three findings recorded:** a junction escaping the root is caught by containment
+  rather than the link check (`resolve()` follows it), while a junction pointing *back inside*
+  the root passes containment and is caught only by `assert_no_link_in` — both defences are
+  needed and both now have tests; Windows reports `<tmp>/NUL` as existing because the OS
+  resolves the device name, which is the very hazard the sanitiser defuses; and directory-link
+  tests run via `mklink /J` junctions, which need neither Developer Mode nor elevation, so link
+  safety got real coverage instead of a blanket skip. Marked `paths.next_output_dir()` as a
+  compatibility wrapper scheduled for Phase 4 removal — **behaviour unchanged** — with a test
+  recording the exact five call sites so a sixth fails and Phase 4's removals are visible.
+  Suite 295 → **439 collected, 435 passed, 4 skipped, 1 warning**; theme suite 17/17 executed;
+  `verify.py` **RESULT: PASS**; `compileall` exit 0; `git diff --check` **completely clean**.
+  The one new skip is the file-symlink test (`WinError 1314`, no privilege on this account),
+  named and **not** claimed as passed. No tool panel or the launcher imports the new service, no
+  current output behaviour changed, no cleanup exists, `version.py` is still `0.5.1`, and
+  `config-template.toml` was never touched. Phase 4 is not started.
 - 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 2 — Preferences, warning presentation, and Reset
   Preferences** (HOME-PC). Ran the identifier integrity check first: the garbled
   `output_barectory` from the pasted summary **does not exist anywhere in the repository**;
@@ -2651,6 +2779,47 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 3 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 3 start SHA:** `e16fd42dcb54a6f34a4d79a498fa681f18ef6e6b`
+(the approved Phase 2 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (2):**
+- `scripts/Universal/shared/output_paths.py` — output base, tool-parent registry, atomic run
+  reservation, sanitisation, collision service, containment/link/input safety, and the flat /
+  one-root / multi-root planners.
+- `files/tests/test_output_paths.py` — 144 tests.
+
+**Files modified (5):**
+- `scripts/Universal/shared/paths.py` — **docstring only**. `next_output_dir()` is marked a
+  compatibility wrapper scheduled for removal in Phase 4; no code and no behaviour changed.
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 3
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact and unrenamed; no alias exists.
+- `md-instructions/don't-delete/` holds all four permanent references, unmoved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged (blob
+  `94b05edc3211efe531be018fbc442c240df8db42`, verified at start and at commit).
+- Root `config.toml` unchanged, valid and machine-agnostic — `verify.py`'s `config` check passes.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- No tool panel and not the launcher imports `output_paths`; `preferences_ui.py` and
+  `launcher.py` are untouched by this phase.
+
+**Verification:** 439 collected; 435 passed, 4 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` **clean, zero notices**.
+The one new skip is the file-symlink test (`WinError 1314`); directory-link safety ran for real
+via junctions. Windows 125% scaling, live macOS and Phase 2 screenshots remain **pending**, not
+passed.
+
+**Next:** Phase 4 (standard output integration across all six tools) — **not started**, pending
+explicit maintainer approval. No merge, PR, tag, release, version bump, branch deletion or
+force-push was performed or is authorised.
 
 ### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 2 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
 

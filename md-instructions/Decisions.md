@@ -4,6 +4,81 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-03 — Output planning is pure and materialisation is explicit; `mkdir` is the reservation race boundary; collisions are case-insensitive everywhere; only the final suffix is an extension
+
+**Decision (v0.6.0 Drop 2, Phase 3).** Five choices behind `shared/output_paths.py`. None of
+them is visible to a user yet — no tool consumes the module until Phase 4 — but they are the
+shape every later phase builds on.
+
+**1. Planning is pure; materialisation is explicit and narrow.** Every `plan_*` function, the
+sanitizer and the collision service compute paths and touch nothing. Only `ensure_output_base()`
+and `reserve_run_directory()` create anything, and only directories. **Why:** it makes the
+entire surface testable in a temporary tree with no mocking, and it makes "merely opening a tool
+creates no folder" a structural property rather than a discipline. It is also what lets a plan
+be built on the main thread and handed to a worker, which is the pattern every tool already
+uses for its job snapshot.
+
+**2. `mkdir` without `exist_ok` *is* the reservation race boundary.** There is deliberately no
+"does this number exist?" check before the create — that check-then-create sequence is exactly
+the race the plan forbids. `mkdir` either creates the directory or raises `FileExistsError`;
+the loop simply moves to the next number. **Why it matters:** two tools running concurrently, or
+one tool started twice, would otherwise silently share a run directory. An 8-thread test with a
+barrier proves all eight get distinct directories numbered 1–8. The loop is bounded so a wedged
+directory cannot hang a worker. **Do not "optimise" this by pre-scanning the parent.**
+
+**3. Collision comparison is case-insensitive on every platform.** Windows and macOS are both
+case-insensitive by default, so `Book.m4b` and `book.m4b` are one file there. Making the
+comparison platform-dependent would make a plan differ between the two machines this project
+ships to; making it case-insensitive everywhere keeps plans identical and errs toward an extra
+`-1` rather than toward an overwrite. On a case-sensitive Linux box the cost is one redundant
+suffix; the alternative cost is data loss. **The safer direction is the default.**
+
+**4. Only the *final* suffix is treated as the extension.** `Path.suffixes` would call
+`.5 - Extras.m4b` the extension of `Book 1.5 - Extras.m4b` and mangle it; audiobook filenames
+contain dots constantly, and multi-part extensions like `.tar.gz` never appear in this
+project's outputs. So `archive.tar.gz` collides to `archive.tar-1.gz`, which loses nothing, and
+`Book 1.5 - Extras.m4b` collides to `Book 1.5 - Extras-1.m4b`, which is right. The drop's
+"preserve the complete suffix" is satisfied — the extension is never truncated or lost — and
+its own examples (`stem-1.ext`, `Book-1.m4b`) are all single-suffix.
+
+**5. Link safety is a separate check from containment, because containment cannot catch it
+all.** A junction pointing *outside* the run directory is caught by containment: `resolve()`
+follows it and the destination normalises outside the root. But a junction pointing *back
+inside* the root resolves to a contained path and passes containment entirely — and following
+it would still mean establishing a destination through a link an attacker or a stray tool
+placed there. `assert_no_link_in` walks every existing component and refuses any reparse point,
+which is what closes that gap. Both tests exist, and the second one exists precisely because
+the first does not cover it.
+
+**Trailing dots and spaces are stripped deliberately.** Windows silently drops them when
+writing, so `Book.m4b` and `Book.m4b ` would land on one file after the collision service had
+already decided they were two different names. Stripping them in the sanitizer makes the
+collision check see what the filesystem will see.
+
+**Windows link testing uses junctions.** `mklink /J` needs neither Developer Mode nor
+elevation, so the directory-link safety tests get real coverage on an ordinary account instead
+of being skipped. Only the file-symlink test still requires the privilege and skips with its
+exact `WinError 1314` reason recorded.
+
+**`paths.next_output_dir()` stays untouched until Phase 4.** It is marked as a compatibility
+wrapper scheduled for removal, and a test records the exact five panels that still call it — so
+a sixth caller fails the suite and Phase 4's removals show up in the diff. Phase 3 changes no
+current output behaviour at all.
+
+**Alternatives considered:** a lock file or a global counter for run numbers (rejected —
+`mkdir` is already atomic on every filesystem this runs on, and a lock file adds a stale-state
+failure mode); platform-dependent case comparison (rejected — see 3); `Path.suffixes` for
+multi-part extensions (rejected — see 4); rewriting a traversal attempt to something safe
+instead of raising (rejected — silently "fixing" `../..` hides a real defect in the caller);
+letting the planner create directories as it goes (rejected — it would make every planning test
+require a filesystem and would break the "opening a tool creates no folder" guarantee).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md`,
+implemented and recorded by Claude Code, 2026-08-03 (HOME-PC, Windows 11, repo venv
+Python 3.12.10)
+
+---
+
 ## 2026-08-03 — The Preferences dialog is presentation-only and platform-neutral; the launch-warning guard lives in the config layer; the Clear Downloaded Data placeholder carries no command
 
 **Decision (v0.6.0 Drop 2, Phase 2).** Four choices worth not re-litigating.
