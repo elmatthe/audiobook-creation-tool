@@ -2,7 +2,118 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 1 COMPLETE. Phases 2–9 are unstarted and pending explicit maintainer approval.**
+PHASE 2 COMPLETE. Phases 3–9 are unstarted and pending explicit maintainer approval.**
+
+### Phase 2 — Preferences, warning presentation, Reset Preferences (2026-08-03, HOME-PC)
+
+**Result: the Preferences & Data surface exists on both platforms, warnings are reported once
+per launch, and Reset Preferences works — with no tool-output change and no cleanup behaviour
+of any kind.** Two files added, four modified. `version.py` is still `0.5.1`.
+
+**Phase 2 start SHA:** `56076fe4baf32626fa82ad7ecad78dad8c0235e2` (approved Phase 1).
+
+#### Identifier integrity check — no defect found
+
+The pasted Phase 1 summary showed a garbled `output_barectory`. That string **does not exist
+anywhere in the repository** (`git grep barectory` → no match). The committed code, tests and
+schema consistently use the persisted settings key `output_base_directory` and the TOML key
+`output.base_directory` — 11 occurrences across `config.py`, `test_config.py` and
+`test_settings.py`, all canonical. The garbling was a display artefact in the pasted text.
+**No correction was needed and none was made.**
+
+#### What was built
+
+| Area | Outcome |
+|---|---|
+| Entry point | `Preferences & Data…` in the launcher status bar on **all three shells** — `ACT.Ghost.TButton` on Windows, native unstyled `ttk.Button` on aqua and classic — plus `Ctrl+,` and `Cmd+,` bound unconditionally. `takefocus=True`, so it is in the Tab order everywhere. |
+| Dialog | New `shared/preferences_ui.py`. Non-modal, Escape-closable, single-instance: the launcher holds the one live reference and repeated activation **focuses** it. |
+| Output base | Shows the effective value **and its source**; default-or-custom radio, editable path, Browse. Validated through the Phase 1 rules; saving creates no folder; success reloads the snapshot immediately. |
+| Reset | Confirms, clears mutable preferences only, refreshes fields and source, reports failure honestly. Cancel changes nothing. |
+| Cleanup | Disabled `Clear Downloaded Data` placeholder with **no command at all**. |
+| Warning | `config.take_launch_warning()` guard + one non-modal aggregated window per launch. |
+
+#### Two defects found and fixed while building
+
+1. **A failed settings write left the cache ahead of the file.** `settings.set()`/`update()`
+   mutated the in-memory dict and then returned `False` if the atomic write failed, so the
+   running app believed a preference that never reached disk. Both now roll the change back on
+   failure — which is what makes the dialog's *"the previous setting is still in use"* true.
+2. **The dialog did not fit the supported minimum.** The first build measured **689 px tall
+   under the Windows theme**, against the app's own `920×600` minimum; the unstyled build was
+   556 px, so a fit test that only exercised the unstyled bundle passed and hid it. Fixed by
+   layout, not by relaxing the test: Entry/Browse/Save share one row, Reset sits on its card's
+   heading row, outer padding moved to the tight end of the spacing scale. Now **618×596 px on
+   Windows, 630×488 px unstyled**, no whole-dialog scrolling. The fit test now asserts the
+   Windows path explicitly, and a companion test proves Save/Reset/Close/Browse all sit inside
+   the dialog's own height and are keyboard-reachable.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_preferences_ui.py` | **65 passed** |
+| `-m pytest -q -rs files/tests/test_config.py` | **68 passed** |
+| `-m pytest -q -rs files/tests/test_settings.py` | **25 passed** |
+| `-m pytest -q -rs files/tests/test_repository_contract.py` | **40 passed** |
+| `-m pytest -q -rs files/tests/test_launcher_smoke.py` | **11 passed** |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all executed |
+| `-m pytest -q -rs files/tests/test_prototype_regression.py` | **12 passed** |
+| `-m pytest --collect-only -q files/tests/` | **295 collected** (was 230) |
+| `-m pytest -q -rs files/tests/` | **292 passed, 3 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** across five checks |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | **clean, exit 0 — zero notices** |
+
+The 1 warning is the pre-existing pydub `audioop` `DeprecationWarning`; the 3 skips are the
+`JACK_RYAN_M4B_FOLDER`-gated tests. +65 collected = exactly the new file.
+
+#### Live Windows manual verification — PASSED (2026-08-03, HOME-PC)
+
+Windows 11, 1920×1080 **primary display at 100% scaling**, Tk reporting 96 px/inch, repo venv
+Python 3.12.10, driven against the **real** `LauncherApp` with the settings layer redirected to
+a temporary file (the maintainer's real `settings.json` was never read or written).
+
+| Check | Observed |
+|---|---|
+| Launcher opens | 1024×720 at default geometry, `minsize=(920, 600)` |
+| Preferences opens | 618×596, title `Preferences & Data` |
+| Repeated activation | same object returned, **1** toplevel open |
+| Keyboard traversal | Radiobutton → Save → Reset Preferences… → Close, cycling |
+| Effective value + source | `C:\Users\…\Downloads\Audiobook-Creation-Tool-Outputs` — "Using the default Downloads location (config.toml leaves it unset)." |
+| Rejected relative path | `Outputs` → refused, error status, nothing saved |
+| Rejected environment variable | `%USERPROFILE%/Outputs` → refused (stays literal, therefore relative) |
+| Accepted absolute path | saved; **folder not created**; source became "your saved preference" |
+| Reset cancelled | returned False, "Reset cancelled. Nothing was changed.", value kept |
+| Reset confirmed | success, mode back to default, effective back to Downloads |
+| Failure presentation | injected write failure → "Your preferences could not be saved. The previous setting is still in use." and the prior value still in force |
+| Cleanup placeholder | label `Clear Downloaded Data`, state `('disabled',)`, **command `''`**, caption as specified |
+| Escape | dialog closed |
+| Once-per-launch warning | temporary malformed config in a fake repo root → **1** window, second call returned `None`, summary listed both bad keys as bullets with no traceback |
+| Fit at 1024×720 | dialog 618×596, fits 920×600 |
+| Fit at 920×600 minimum | dialog 618×596, Save and Close both inside the form |
+| Maximized | launcher 1920×1009, dialog fits the screen |
+
+#### Manual checks still PENDING — not claimed as passed
+
+1. **Windows 125% display scaling.** Requires the maintainer to change Settings → System →
+   Display; it cannot be set from here without altering the machine's configuration. The app
+   is DPI-unaware (Plan 1 finding), so Windows bitmap-scales the whole window uniformly and
+   nothing can clip differentially — but that is *reasoning*, not evidence, and it is recorded
+   as pending, not as a pass.
+2. **Live macOS.** An explicit deferral, as this phase's instructions direct.
+3. **Screenshot evidence** for the new surfaces. Deferred to Phase 8's manual matrix, which
+   owns the evidence collection; Phase 2 recorded measurements instead of adding image files.
+
+### Next action
+
+**Phase 3 — shared output reservation, collision, and mirroring services.** Not started. It
+requires explicit maintainer approval before any work begins.
+
+---
+
+## Phase 1 record (v0.6.0 Drop 2, approved 2026-08-03)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 1 COMPLETE.**
 
 Active drop: `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`
 (temporary; deleted only in its approved Phase 9 closeout).
@@ -1755,6 +1866,43 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 2 — Preferences, warning presentation, and Reset
+  Preferences** (HOME-PC). Ran the identifier integrity check first: the garbled
+  `output_barectory` from the pasted summary **does not exist anywhere in the repository**;
+  `output_base_directory` (settings key) and `output.base_directory` (TOML key) are used
+  consistently in all 11 places, so no correction was needed. Added
+  `shared/preferences_ui.py` — a non-modal, single-instance Preferences & Data dialog plus the
+  once-per-launch warning window — and wired a `Preferences & Data…` status-bar entry point
+  into all three launcher shells (ACT ghost button on Windows, native `ttk.Button` on aqua and
+  classic) with `Ctrl+,` / `Cmd+,` bound on every platform. The dialog is presentation only:
+  styles come from `_style()`, which returns `""` where `theme["styles"]` is absent, so the
+  Windows build is fully `ACT.*` and the macOS build fully native **from one code path with no
+  `sys.platform` branch**. It shows the effective output base and its source, validates through
+  the Phase 1 rules (absolute or `~` only; relative and environment-variable forms rejected),
+  creates no folder, saves atomically, reloads the snapshot immediately, and keeps every raw
+  traceback out of the GUI while logging the detail. Reset Preferences confirms, clears mutable
+  settings only, refreshes the fields, and reports failure honestly. Clear Downloaded Data is a
+  visibly disabled placeholder with **no command at all**, AST-asserted alongside "no
+  shutil/subprocess/os import and no rmtree/unlink/remove/Popen call". Moved the once-per-launch
+  guard into `config.take_launch_warning()` (with `reset_launch_warning_guard()` for tests) so a
+  reload storm cannot become a dialog storm and the contract is assertable headlessly.
+  **Two real defects found and fixed while building:** `settings.set()`/`update()` left the
+  in-memory cache ahead of the file after a failed atomic write (now rolled back, which is what
+  makes "the previous setting is still in use" true); and the dialog measured **689 px tall
+  under the Windows theme** against the app's own `920×600` minimum while the unstyled build was
+  556 px, so a fit test exercising only the unstyled bundle had passed and hidden it — fixed by
+  layout (Entry/Browse/Save on one row, Reset on its heading row, tighter outer padding) to
+  **618×596 Windows / 630×488 unstyled**, and the fit test now asserts the Windows path
+  explicitly. Retargeted `test_repository_contract.py`'s Phase 1 "no GUI surface" guard to the
+  new phase boundary rather than deleting it: the launcher may name Preferences, but is
+  AST-checked to define no cleanup function and call nothing destructive. Suite 230 → **295
+  collected, 292 passed, 3 skipped, 1 warning**; theme suite 17/17 executed; `verify.py`
+  **RESULT: PASS**; `compileall` exit 0; `git diff --check` **completely clean**. Live Windows
+  manual pass at 1920×1080 / 100% scaling against the real launcher with settings redirected to
+  a temp file — every check green. **Pending, not claimed:** 125% scaling (needs the maintainer
+  to change the display setting), live macOS (explicit deferral), and screenshot evidence
+  (Phase 8 owns the matrix). No tool-output behaviour changed, no cleanup exists, `version.py`
+  is still `0.5.1`, and `config-template.toml` was never touched. Phase 3 is not started.
 - 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 1 — canonical-file gate and configuration core**
   (HOME-PC). Four files added, eight modified, none deleted or renamed. Added the committed
   root `config.toml` (written from the plan, never from the maintainer's unrelated
@@ -2503,6 +2651,55 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 2 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 2 start SHA:** `56076fe4baf32626fa82ad7ecad78dad8c0235e2`
+(the approved Phase 1 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (2):**
+- `scripts/Universal/shared/preferences_ui.py` — the Preferences & Data dialog, the
+  single-instance entry point, and the once-per-launch configuration-warning window.
+- `files/tests/test_preferences_ui.py` — 65 tests.
+
+**Files modified (5):**
+- `scripts/Universal/launcher.py` — `Preferences & Data…` in all three status bars,
+  `open_preferences()` single-instance handling, `_bind_preferences_accelerators()`,
+  `present_configuration_warnings()` scheduled with `after(0, …)`.
+- `scripts/Universal/shared/config.py` — public `validate_output_base()`, plus the
+  platform-neutral launch-warning guard (`take_launch_warning`, `launch_warning_pending`,
+  `reset_launch_warning_guard`).
+- `scripts/Universal/shared/settings.py` — `set()`/`update()` now roll the in-memory change
+  back when the atomic write fails.
+- `files/tests/test_repository_contract.py` — the Phase 1 "no GUI surface" guard retargeted to
+  the Phase 2/6 boundary (AST-checked: no cleanup function, no destructive call).
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 2
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact and unrenamed; no alias exists (asserted by `verify.py` and the
+  contract suite).
+- `md-instructions/don't-delete/` holds all four permanent references, unmoved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged (blob
+  `94b05edc3211efe531be018fbc442c240df8db42`).
+- Root `config.toml` unchanged and still valid/machine-agnostic — `verify.py`'s `config` check
+  passes and a test asserts its bytes survive a save-then-reset cycle.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- `shared/paths.py` and all six tool panels untouched; a test asserts no panel references
+  `preferences_ui` or the cleanup label.
+
+**Verification:** 295 collected; 292 passed, 3 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` **clean, zero notices**.
+Live Windows manual pass at 1920×1080 / 100%; 125% scaling, live macOS and screenshot evidence
+recorded as pending, not as passes.
+
+**Next:** Phase 3 (shared output reservation, collision, mirroring) — **not started**, pending
+explicit maintainer approval. No merge, PR, tag, release, version bump, branch deletion or
+force-push was performed or is authorised.
 
 ### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 1 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
 

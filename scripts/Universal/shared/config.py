@@ -614,6 +614,16 @@ def is_allowlisted_setting(key: str) -> bool:
     return key in SETTINGS_OVERLAY
 
 
+def validate_output_base(raw: str) -> tuple[Path | None, str]:
+    """Public form of the output-base rule, for a UI that must explain itself.
+
+    Returns ``(resolved_path, "")`` when *raw* is acceptable, or
+    ``(None, reason)`` where *reason* is written for a person. Nothing is
+    created, written or persisted — this only answers the question.
+    """
+    return _resolve_output_base(raw, None)
+
+
 def set_output_base(value: str | Path | None) -> bool:
     """Persist the user's output-base choice and refresh the snapshot.
 
@@ -641,3 +651,41 @@ def reset_preferences() -> bool:
     ok = app_settings.reset()
     invalidate()
     return ok
+
+
+# --------------------------------------------------------------------------- #
+# The once-per-launch warning guard
+# --------------------------------------------------------------------------- #
+#
+# Diagnostics are produced on every load, but a user must be told about them
+# once per application launch — not once per reload, and never once per bad key.
+# The guard lives here rather than in the UI so it is platform-neutral, so a
+# headless test can assert it, and so a reload storm cannot turn into a dialog
+# storm. The UI asks; this module decides whether there is anything left to say.
+
+_launch_warning_consumed = False
+
+
+def take_launch_warning() -> str | None:
+    """The aggregated summary the first time it is asked for, then ``None``.
+
+    Consumes the guard on the first call whether or not there was anything to
+    report, so a later reload — or reopening Preferences — cannot resurrect the
+    launch warning.
+    """
+    global _launch_warning_consumed
+    if _launch_warning_consumed:
+        return None
+    _launch_warning_consumed = True
+    return get_effective().warning_summary() or None
+
+
+def launch_warning_pending() -> bool:
+    """Whether the guard is still unconsumed. For tests and diagnostics."""
+    return not _launch_warning_consumed
+
+
+def reset_launch_warning_guard() -> None:
+    """Re-arm the guard. Tests use this; the application never needs to."""
+    global _launch_warning_consumed
+    _launch_warning_consumed = False

@@ -79,6 +79,8 @@ flashing during use.
   wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (resolves ffmpeg/ffprobe:
   `files/bin/` → PATH; pins pydub to the resolved binaries; xHE-AAC decoder selection),
   `config.py` (the typed effective-configuration core — see *Configuration* below),
+  `preferences_ui.py` (the Preferences & Data dialog and the once-per-launch configuration
+  warning — presentation only, see *Preferences & Data* below),
   `settings.py` (atomic JSON at `files/runtime-data/settings.json`, plus reset/reload and
   explicit write-failure reporting), `cancellation.py` (shared
   Cancel/threading.Event pattern), `metadata.py` (mutagen M4B tag read/write incl. series
@@ -122,6 +124,34 @@ flashing during use.
   the committed TOML. `settings.reset()` clears every mutable preference atomically and touches
   nothing else — no `.venv`, model, binary, log, output or source file; clearing downloaded
   data is a separate, differently confirmed action that does not exist yet.
+- **Preferences & Data (v0.6.0 Drop 2 Phase 2).** `shared/preferences_ui.py` holds the
+  cross-platform dialog and the launch-warning window. It is **presentation only**: every
+  rule it enforces lives in `shared/config.py` and `shared/settings.py` and is tested
+  without Tk. The launcher reaches it from a status-bar `Preferences & Data…` button —
+  an `ACT.Ghost.TButton` on Windows, a native unstyled `ttk.Button` on macOS/Linux — plus
+  `Ctrl+,` / `Cmd+,` bound on every platform. The launcher holds the one live instance, so
+  repeated activation **focuses** rather than stacking duplicates; the window is non-modal
+  and Escape closes it. Styling goes through `_style(theme, name)`, which returns `""`
+  wherever `theme["styles"]` is absent — a widget naming no style resolves the platform's
+  generic one, which is the same mechanism that keeps the five unconverted panels native.
+  There is no platform-specific *logic* in the file.
+  The dialog shows the effective output base **and where it came from** (built-in default /
+  `config.toml` / your saved preference), offers default-or-custom with Browse, validates
+  through the Phase 1 rules (absolute or `~` only; relative rejected; environment variables
+  never expanded), and **never creates the folder** — saving stores a preference, nothing
+  more. A save persists atomically and reloads the snapshot immediately; a failed write is
+  rolled back in memory as well as on disk, so "the previous setting is still in use" is
+  literally true. No raw traceback ever reaches the GUI; the technical detail goes to the log.
+  **Reset Preferences** confirms first, clears mutable preferences only through
+  `settings.reset()`, refreshes the fields and source line, and reports failure instead of
+  claiming success. It never edits `config.toml` and never touches `.venv`, models, binaries,
+  logs, outputs or source media. **Clear Downloaded Data is a disabled placeholder** carrying
+  no command at all — Phase 6 of this plan owns the inventory, confirmation and deletion.
+  **Configuration warnings are presented once per launch**: `config.take_launch_warning()`
+  owns the guard (platform-neutral, so a reload storm cannot become a dialog storm and a test
+  can re-arm it with `reset_launch_warning_guard()`), and the launcher shows one non-modal
+  window carrying the whole aggregated summary — never one dialog per bad key, never a
+  blocking `messagebox`, and never a reason to fail startup.
 - **Windows design system (v0.6.0 Drop 1 — approved 2026-08-02).** A centralized set of
   *semantic* tokens in `shared/ui_theme.py`, consumed only through the theme bundle:
   `_WINDOWS_COLORS` (surfaces window/sidebar/surface/elevated/muted/border/divider, text

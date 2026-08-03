@@ -4,6 +4,75 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-03 — The Preferences dialog is presentation-only and platform-neutral; the launch-warning guard lives in the config layer; the Clear Downloaded Data placeholder carries no command
+
+**Decision (v0.6.0 Drop 2, Phase 2).** Four choices worth not re-litigating.
+
+**1. `preferences_ui.py` decides nothing.** Every rule the dialog enforces — what a valid
+output base is, what precedence applies, what a reset clears — lives in `shared/config.py`
+and `shared/settings.py` and is tested without Tk. The dialog collects choices and shows
+results. **Why:** the Plan 2 contract requires configuration, path and reset logic to be
+platform-neutral and testable headlessly; the moment a validation rule lives in a widget
+callback, it can only be tested by building a window.
+
+**Styling degrades instead of branching.** `_style(theme, name)` returns `""` wherever
+`theme["styles"]` is absent, and a ttk widget naming no style resolves the platform's generic
+one. So the Windows build is fully `ACT.*` and the macOS build is fully native from a single
+code path, with **no `sys.platform` branch anywhere in the file**. This is the same mechanism
+that keeps the five unconverted panels native — not a coincidence, and worth preserving.
+
+**2. The once-per-launch guard belongs in the configuration layer, not the UI.**
+`config.take_launch_warning()` consumes the guard; `reset_launch_warning_guard()` re-arms it
+for tests. **Why:** diagnostics are produced on *every* load, so a UI-owned flag would let a
+reload storm become a dialog storm, and a headless test could not assert the "at most once"
+contract at all. Putting it beside the thing that generates diagnostics makes the rule
+testable without a display and makes "reopening Preferences must not repeat the warning" fall
+out for free rather than needing its own special case.
+
+**The warning is a non-modal `Toplevel`, not a `messagebox`.** The drop calls for a
+*nonblocking* summary presented after the root window is ready. A `messagebox` is modal by
+definition, so it was rejected; a plain `Toplevel` with a Close button shows the whole
+aggregated summary at once — one window for every diagnostic, never one per bad key — and
+cannot block the launcher. A failure to present it is caught and logged: **a warning about
+configuration must never itself become a startup failure.**
+
+**3. The Clear Downloaded Data placeholder carries no command.** It is created disabled *and*
+with no callback at all, so there is nothing to invoke even if some future code re-enabled it,
+and `preferences_ui.py` is AST-asserted to import no `shutil`/`subprocess`/`os` and to call no
+`rmtree`/`unlink`/`remove`/`Popen`. **Why:** "disabled" is a UI state that a one-line change
+can undo; "there is no function to call" is a structural guarantee. Phase 6 owns the catalog,
+the confirmation, the coordinator and the deletions.
+
+**4. A failed settings write is now rolled back in memory.** `settings.set()`/`update()`
+previously mutated the cache and then returned `False` if the atomic write failed, leaving the
+running application believing a preference that never reached disk. They now restore the
+previous value on failure. **Why:** the dialog tells the user "the previous setting is still in
+use" after a failed save, and that sentence has to be true. Found by building the failure path
+rather than by a bug report; regression-tested from both the settings layer and the dialog.
+
+**Layout, measured rather than assumed.** The first build was **689 px tall under the Windows
+theme** — taller than the application's own `920×600` minimum — while the unstyled build was
+556 px, so a test that only exercised the unstyled bundle passed and hid it. Entry/Browse/Save
+now share one row, Reset sits on its card's heading row, and the outer padding uses the tight
+end of the spacing scale: **618×596 px on Windows, 630×488 px unstyled**, no whole-dialog
+scrolling. The fit test now asserts the Windows path explicitly. `MIN_SIZE = (920, 600)` and
+`DEFAULT_GEOMETRY = "1024x720"` are unchanged.
+
+**Alternatives considered:** a modal `messagebox` for the warning (rejected — the drop requires
+nonblocking, and one modal per key was explicitly forbidden); a UI-owned "already warned" flag
+(rejected — untestable headlessly and vulnerable to reload storms); omitting the Clear
+Downloaded Data control until Phase 6 (rejected — the maintainer expressly wants the disabled
+placeholder, so it ships inert and clearly labelled); a menubar instead of a status-bar button
+(rejected — the launcher has no menubar on any platform, and adding one is a shell change Plan
+1 did not sanction); a scroll region to solve the height (rejected — the fit contract says
+adaptive layout first, and scrolling is for genuinely unbounded content).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md`,
+implemented and recorded by Claude Code, 2026-08-03 (HOME-PC, Windows 11, 1920×1080 at 100%
+scaling, repo venv Python 3.12.10)
+
+---
+
 ## 2026-08-03 — Configuration is a three-layer precedence with a one-key mutable overlay; the four documentation names are a permanent, mechanically enforced contract; the maximized-fit rule is the Plan 9 acceptance target
 
 **Decision (v0.6.0 Drop 2, Phase 1).** Five things are settled and later plans should build on

@@ -305,11 +305,29 @@ def test_the_application_version_is_unchanged():
     assert VERSION == "0.5.1"
 
 
-def test_phase_one_added_no_gui_surface():
-    """No Preferences dialog, cleanup UI or launcher entry point belongs to Phase 1."""
-    launcher = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(encoding="utf-8")
-    for later_phase in ("Preferences", "Clear Downloaded Data", "Reset Preferences"):
-        assert later_phase not in launcher
+def test_the_launcher_carries_no_cleanup_behaviour():
+    """Phase 2 added Preferences; actual downloaded-data cleanup is Phase 6.
+
+    This guard moved with the phase boundary rather than being deleted: the
+    launcher may now name Preferences, but nothing in it may inventory, spawn,
+    schedule or delete anything.
+    """
+    import ast
+
+    source = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(encoding="utf-8")
+    assert "Preferences" in source, "Phase 2 owns the Preferences entry point"
+
+    tree = ast.parse(source)
+    defined = {n.name for n in ast.walk(tree)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    for phase_six in ("clear_downloaded_data", "run_cleanup", "schedule_cleanup",
+                      "_cleanup", "delete_assets"):
+        assert phase_six not in defined
+
+    called = {n.func.attr for n in ast.walk(tree)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    for destructive in ("rmtree", "unlink", "rmdir"):
+        assert destructive not in called
 
 
 def test_phase_one_added_no_output_run_reservation():

@@ -15,6 +15,71 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Preferences & Data, once-per-launch warnings and Reset Preferences (v0.6.0 Drop 2 Phase 2, 2026-08-03)
+
+> Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`.
+> No tool-output behaviour changed and no downloaded-data cleanup exists yet.
+
+- **`Preferences & Data…` in the launcher status bar**, on all three shells: an
+  `ACT.Ghost.TButton` beside "Open log folder" on Windows, a native unstyled `ttk.Button` on
+  macOS and Linux. Both `Ctrl+,` and `Cmd+,` are bound, so the conventional shortcut works on
+  whichever platform emits it. The launcher holds the single live instance, so activating the
+  entry point again **focuses** the open window rather than stacking duplicates.
+- **`scripts/Universal/shared/preferences_ui.py`** — the non-modal dialog plus the launch
+  warning window. Presentation only: every rule it enforces lives in the Phase 1 modules and
+  is tested without Tk. Styles are looked up through `_style()`, which returns `""` where
+  `theme["styles"]` does not exist, so macOS and Linux keep native rendering with no
+  platform-specific logic in the file.
+- **Output-location preference** — shows the effective base *and its source* (built-in
+  default / `config.toml` / your saved preference), with default-or-custom radio choice, an
+  editable path and Browse. Validation is the Phase 1 rule set: absolute or `~`-based only,
+  relative paths rejected rather than resolved against the working directory, environment
+  variables never expanded. **Saving stores a preference and creates no folder.** A successful
+  save persists atomically and reloads the effective snapshot immediately.
+- **Reset Preferences** — explains its scope, requires confirmation, clears mutable
+  preferences only through the Phase 1 atomic reset, refreshes the visible fields and source
+  line, and reports failure rather than claiming success. Cancelling changes nothing. It never
+  edits `config.toml` and never touches `.venv`, models, binaries, logs, outputs or media.
+- **Clear Downloaded Data placeholder** — visibly disabled, captioned "Available after
+  downloaded-data management is implemented", and carrying **no command at all**, so there is
+  nothing to invoke even if something re-enabled it. Phase 6 owns the real behaviour.
+- **Once-per-launch configuration warning** — `config.take_launch_warning()` owns a
+  platform-neutral guard (with `reset_launch_warning_guard()` for tests), and the launcher
+  presents one non-modal window carrying the whole aggregated summary after the root window
+  exists. Never one dialog per bad key, never a blocking `messagebox`, never a reason to fail
+  startup; technical detail goes to the session log and stays out of the visible text.
+
+### Fixed — a failed settings write left the in-memory cache ahead of the file (v0.6.0 Drop 2 Phase 2)
+
+- `settings.set()` and `settings.update()` mutated the cache and then reported failure if the
+  atomic write did not land, so the running application believed a preference that was never
+  saved. Both now **roll the change back in memory** when the write fails, which is what makes
+  the dialog's "the previous setting is still in use" literally true. Found while building the
+  failed-save path; covered by regression tests in `test_settings.py` and `test_preferences_ui.py`.
+
+### Changed — layout of the Preferences dialog to fit the supported minimum (v0.6.0 Drop 2 Phase 2)
+
+- The first build measured **689×626 px under the Windows theme**, taller than the app's own
+  `920×600` minimum. Entry/Browse/Save now share one row, Reset sits on its card's heading row,
+  and the outer padding uses the tight end of the spacing scale. The bounded form is now
+  **618×596 px on Windows and 630×488 px unstyled**, with no whole-dialog scrolling — local
+  scrolling remains reserved for genuinely growing content, of which this dialog has none.
+
+### Added — Preferences & Data regression coverage (v0.6.0 Drop 2 Phase 2)
+
+- `files/tests/test_preferences_ui.py` (65 tests): entry-point wiring, keyboard reachability,
+  both accelerators, single-instance/focus-existing behaviour, effective value and source
+  display, every accepted and rejected output-base form, no-directory-creation, atomic save,
+  failed-write rollback, immediate reload, reset confirm/cancel/success/failure, UI refresh,
+  `config.toml` byte-identity, unrelated assets untouched, the disabled placeholder and its
+  absent command, warning aggregation and deduplication, the once-per-session guard under a
+  twenty-iteration reload storm, technical detail logged but not displayed, `ACT.*` isolation
+  across dialog construction, the exact window constants, and the measured fit at `920×600`
+  under **both** the Windows theme and the unstyled path.
+- `test_repository_contract.py`'s Phase 1 "no GUI surface" guard moved with the phase boundary:
+  the launcher may now name Preferences, but is AST-checked to define no cleanup function and
+  call no destructive filesystem operation.
+
 ### Added — committed `config.toml`, the configuration core and the canonical-name gate (v0.6.0 Drop 2 Phase 1, 2026-08-03)
 
 > Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`

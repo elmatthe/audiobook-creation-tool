@@ -136,20 +136,49 @@ def save() -> bool:
     return _write(_load())
 
 
+def _restore(data: dict[str, Any], previous: dict[str, Any], keys) -> None:
+    """Undo an in-memory mutation so the cache matches what is on disk."""
+    for key in keys:
+        if key in previous:
+            data[key] = previous[key]
+        else:
+            data.pop(key, None)
+
+
 def set(key: str, value: Any, *, autosave: bool = True) -> bool:
     """Store ``value`` under ``key``; persist immediately unless ``autosave`` is False.
 
     Returns whether the value reached disk (always True when ``autosave`` is
-    False, since nothing was attempted).
+    False, since nothing was attempted). **A failed write is rolled back in
+    memory**, so a caller that reports "the previous setting is still in use"
+    is telling the truth rather than leaving the cache ahead of the file.
     """
-    _load()[key] = value
-    return save() if autosave else True
+    data = _load()
+    previous = {key: data[key]} if key in data else {}
+    data[key] = value
+    if not autosave:
+        return True
+    if save():
+        return True
+    _restore(data, previous, [key])
+    return False
 
 
 def update(values: dict[str, Any], *, autosave: bool = True) -> bool:
-    """Merge ``values`` into the settings; persist once unless ``autosave`` is False."""
-    _load().update(values)
-    return save() if autosave else True
+    """Merge ``values`` into the settings; persist once unless ``autosave`` is False.
+
+    Rolls the whole merge back in memory if the write fails, for the same
+    reason as :func:`set`.
+    """
+    data = _load()
+    previous = {k: data[k] for k in values if k in data}
+    data.update(values)
+    if not autosave:
+        return True
+    if save():
+        return True
+    _restore(data, previous, list(values))
+    return False
 
 
 def reset() -> bool:

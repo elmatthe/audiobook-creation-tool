@@ -57,11 +57,14 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import ffmpeg_utils, logging_setup, paths, ui_theme
+from shared import ffmpeg_utils, logging_setup, paths, preferences_ui, ui_theme
 from shared import settings as app_settings
 from shared import subprocess_utils as sp
 
 APP_TITLE = "Audiobook Creation Tool"
+
+#: Label of the cross-platform Preferences & Data entry point in the status bar.
+PREFERENCES_LABEL = preferences_ui.MENU_LABEL
 
 
 @dataclass(frozen=True)
@@ -134,9 +137,13 @@ class LauncherApp:
         self.containers: dict[str, ttk.Frame] = {}
         self.current_key: str | None = None
         self.buttons: dict[str, ttk.Button] = {}
+        # The one live Preferences window. Held here so repeated activation
+        # focuses it instead of stacking duplicates.
+        self.preferences_dialog = None
 
         self._build_ui()
         self._apply_default_geometry()
+        self._bind_preferences_accelerators()
 
         # Open the last-used tool, or the first available one.
         last = app_settings.get("last_tool")
@@ -147,6 +154,10 @@ class LauncherApp:
             self.select_tool(start_key)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Configuration diagnostics are reported once, after the window exists,
+        # so a bad value can never turn into a startup failure.
+        self.root.after(0, self.present_configuration_warnings)
 
     # ----- which tools actually exist (Metadata Editor lands in Phase 6) -----
     def _available_tools(self) -> list[ToolSpec]:
@@ -213,6 +224,12 @@ class LauncherApp:
         )
         log_link.pack(side="right")
         log_link.bind("<Button-1>", lambda _e: self._open_logs())
+        # A real button, not a link label: Preferences must be keyboard-reachable
+        # on every platform, and the classic shell has no styling to preserve.
+        self.preferences_button = ttk.Button(
+            status, text=PREFERENCES_LABEL, command=self.open_preferences, takefocus=True
+        )
+        self.preferences_button.pack(side="right", padx=(0, 12))
 
     def _build_ui_windows(self):
         """The v0.6.0 dark Windows shell — navigation rail, header, card, status.
@@ -253,6 +270,13 @@ class LauncherApp:
             command=self._open_logs, takefocus=True,
         )
         self._log_button.pack(side="right", padx=(m["gap_md"], 0))
+        # Same ghost treatment as the log action, so the status bar keeps one
+        # visual language and both actions stay in the Tab order.
+        self.preferences_button = ttk.Button(
+            status, text=PREFERENCES_LABEL, style=s["ghost_button"],
+            command=self.open_preferences, takefocus=True,
+        )
+        self.preferences_button.pack(side="right", padx=(m["gap_md"], 0))
 
         outer = ttk.Frame(self.root, style=s["window"])
         outer.pack(fill="both", expand=True)
@@ -336,6 +360,13 @@ class LauncherApp:
                             font=self.theme["font_status"])
         log_link.pack(side="right")
         log_link.bind("<Button-1>", lambda _e: self._open_logs())
+        # A native aqua ttk.Button rather than another link label: Preferences
+        # has to be keyboard-reachable, and an unstyled ttk widget is exactly
+        # what keeps macOS rendering natively.
+        self.preferences_button = ttk.Button(
+            status, text=PREFERENCES_LABEL, command=self.open_preferences, takefocus=True
+        )
+        self.preferences_button.pack(side="right", padx=(0, m["row_padx"]))
 
         outer = tk.Frame(self.root, bg=c["window"])
         outer.pack(fill="both", expand=True)
@@ -412,6 +443,42 @@ class LauncherApp:
     def _open_logs(self):
         paths.logs_dir()  # ensure it exists
         sp.reveal_in_file_manager(paths.LOGS_DIR)
+
+    # ----- Preferences & Data -----
+    def _bind_preferences_accelerators(self):
+        """Ctrl+, and Cmd+, — the conventional Preferences shortcut on each OS.
+
+        Both are bound unconditionally: a shortcut that the platform never
+        emits simply never fires, which is cheaper than branching on
+        ``sys.platform`` for a key binding.
+        """
+        for sequence in preferences_ui.ACCELERATORS:
+            try:
+                self.root.bind_all(sequence, lambda _e: self.open_preferences())
+            except tk.TclError:
+                pass
+
+    def open_preferences(self):
+        """Open Preferences & Data, or focus the window that is already open."""
+        self.preferences_dialog = preferences_ui.open_preferences(
+            self.root, self.theme, self.preferences_dialog, logger=self.logger
+        )
+        self._set_status("Preferences & Data.")
+        return self.preferences_dialog
+
+    def present_configuration_warnings(self):
+        """Report configuration diagnostics once per launch. Never fatal."""
+        try:
+            summary = preferences_ui.present_launch_warnings(
+                self.root, self.theme, logger=self.logger
+            )
+        except Exception:
+            # A warning about configuration must never itself break the launch.
+            self.logger.exception("Could not present configuration warnings")
+            return None
+        if summary:
+            self._set_status("Some settings could not be used — safe defaults are in force.")
+        return summary
 
     # ----- tool switching -----
     def select_tool(self, key: str):
