@@ -20,9 +20,14 @@ flashing during use.
 
 - **Language:** Python 3.12 (the bootstrap installs 3.12 specifically — PyPI `kokoro` wheels
   require <3.13; 3.13+ works but loses the Kokoro voices)
-- **GUI:** tkinter (single launcher window, sidebar + swappable content panel). macOS gets
-  a Finder-style shell on the native `aqua` theme; Windows keeps the classic look
-  byte-for-byte — the platform split lives in `shared/ui_theme.py`
+- **GUI:** tkinter/ttk (single launcher window, sidebar + swappable content panel). Three
+  explicit platform branches live in `shared/ui_theme.py`: macOS gets a Finder-style shell
+  on the native `aqua` theme; **Windows gets the v0.6.0 dark design system** (see *Windows
+  design system* below); Linux/other keeps the historical classic look. Windows is routed
+  explicitly on `sys.platform == "win32"` — never inferred from "not macOS".
+  **tkinter/ttk is the approved toolkit going forward**: the v0.6.0 Drop 1 prototype was
+  built, reviewed against screenshot evidence and approved on 2026-08-02, which settled the
+  open question of whether ttk could carry a modern dark UI without a toolkit switch.
 - **Key libraries:** edge-tts (network TTS), kokoro + torch (local AI TTS), mutagen (audio
   metadata), PyMuPDF/fitz (PDF text extraction), pydub + soundfile + numpy/scipy (audio
   assembly), ebooklib + beautifulsoup4 + lxml (EPUB parsing), nltk (sentence tokenization),
@@ -51,10 +56,16 @@ flashing during use.
   an in-panel error, never a crash), built once and shown/hidden on selection so in-progress
   state survives switching. Installs `install_no_window_guard()` first so even pydub/edge-tts
   *internal* ffmpeg spawns are console-hidden on Windows. All theming comes from
-  `shared/ui_theme.apply_theme()`: on macOS a Finder-style shell (native aqua controls,
+  `shared/ui_theme.apply_theme()`, which returns one backwards-compatible bundle and picks
+  the shell from `theme["mode"]`: **aqua** — a Finder-style shell (native aqua controls,
   tinted source-list sidebar with hover/selection rows and glyphs, toolbar strip, content
-  card); on Windows/other the classic pre-v0.5.0 layout, unchanged (see DECISIONS.md
-  2026-07-08).
+  card), unchanged since v0.5.0 (see DECISIONS.md 2026-07-08); **windows** — the v0.6.0
+  dark shell (navigation rail, header strip naming the active tool and its description,
+  framed content card, status bar with a focusable "Open log folder" button); **classic**
+  (Linux/other) — the pre-v0.5.0 layout, byte-for-byte. **The content host is never
+  styled:** `self.content` and every tool container stay plain, unstyled `ttk.Frame`s in
+  all three modes, which is the structural reason an unconverted panel inherits nothing
+  from the shell.
 - **`scripts/Universal/shared/`** — `paths.py` (single source of truth for every project
   path — everything derives from `REPO_ROOT`), `subprocess_utils.py` (hidden-console subprocess
   wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (resolves ffmpeg/ffprobe:
@@ -62,12 +73,47 @@ flashing during use.
   `settings.py` (atomic JSON at `files/runtime-data/settings.json`), `cancellation.py` (shared
   Cancel/threading.Event pattern), `metadata.py` (mutagen M4B tag read/write incl. series
   atoms + chapter-title re-mux), `logging_setup.py` (session logs, pruned to 30),
-  `ui_theme.py` (platform theming: aqua/Finder palette on macOS vs classic elsewhere, plus
-  the `enable_mousewheel` scroll-on-hover helper and the shared `ProgressIndicator` —
+  `ui_theme.py` (platform theming — the aqua/Finder palette, the Windows design system and
+  the classic fallback, plus `style_tk_widget` for classic Tk widgets ttk cannot style, the
+  `enable_mousewheel` scroll-on-hover helper and the shared `ProgressIndicator` —
   progressbar + counter/percentage label, main-thread-only API, used by all six tools),
   `version.py` (single source of truth),
   `release.py` (dev-only zip packager, never imported by the app), `close_terminal.py`
   (macOS Terminal auto-close helper).
+- **Windows design system (v0.6.0 Drop 1 — approved 2026-08-02).** A centralized set of
+  *semantic* tokens in `shared/ui_theme.py`, consumed only through the theme bundle:
+  `_WINDOWS_COLORS` (surfaces window/sidebar/surface/elevated/muted/border/divider, text
+  primary/secondary/disabled/inverse, accent + hover/pressed/soft, focus, success/warning/
+  danger, field/selection/scrollbar roles, and the Shared Metadata background/border/header),
+  `_WINDOWS_METRICS` (sidebar width, row height, spacing scale, card/field/button padding,
+  border and focus widths, scroll width, progress thickness), and `_windows_fonts` (title,
+  heading, subheading, section, body, row, small, status, button, mono). **A panel must never
+  re-declare a hex literal or a magic number** — it reads `theme["colors"]`,
+  `theme["metrics"]`, `theme["fonts"]`, or names a style from `theme["styles"]`. Classic Tk
+  widgets (`Canvas`, `Listbox`, `Text`) are coloured through the one sanctioned helper,
+  `ui_theme.style_tk_widget(widget, theme, role)`, which is a no-op on any non-Windows
+  bundle so panels may call it unconditionally. These primitives are the extension point
+  later plans build on.
+- **The `ACT.*` style-isolation contract — the load-bearing rule.** `vista` stays the base
+  ttk theme, and every style this project registers is namespaced `ACT.*`
+  (`ui_theme.WINDOWS_STYLE_PREFIX`). Generic `TFrame` / `TLabel` / `TButton` / `TEntry` /
+  `Treeview` / … are **never** created, reconfigured or re-laid-out, and there is no
+  `option_add` / `tk_setPalette` anywhere in `scripts/`. Because `vista` draws buttons,
+  entries, comboboxes, scrollbars, notebook tabs and Treeview headings with native parts
+  that ignore `-background`, each recolorable element is *cloned* out of `clam` into the
+  live theme (`ttk::style element create ACT.Button.border from clam Button.border`) and the
+  `ACT.*` styles are laid out from those clones. ttk has no style inheritance — a widget
+  naming no style resolves the generic one — so an unconverted panel keeps native vista
+  rendering while a converted panel opts in explicitly. Every `ACT.*` widget-class variant
+  needs its own entry in `_ACT_LAYOUTS` or it silently falls back to the native look.
+  `files/tests/test_ui_theme.py`, `test_launcher_smoke.py`, `test_m4b_metadata_editor_ui.py`
+  and `test_prototype_regression.py` all assert this isolation, the last of them across a
+  whole application build.
+- **Conversion boundary (still in force).** The **Windows launcher shell** and the
+  **M4B Metadata Editor** are the only converted surfaces. **TTS Audiobook, M4B Converter,
+  MP3 Tool, M4B Maker and Cover Image Resizer remain classic** and must stay that way until
+  the Plan 9 conversion drop — measured live, they carry **zero** `ACT.*` styles between
+  them, against 19 in the editor. Approval of the prototype did not add them to its scope.
 - **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
@@ -114,8 +160,37 @@ flashing during use.
   Batch mode (multiple files or the "Open Folder…" picker, non-recursive) pre-fills fields
   whose value is identical across all loaded files and marks differing ones "(varies)";
   single-file mode is unchanged. The tag/settings sections scroll in a TTS-style canvas
-  (wheel/trackpad via `enable_mousewheel`); the action buttons and a fixed 14-row Log sit
+  (wheel/trackpad via `enable_mousewheel`); the action buttons and a fixed Log sit
   below the scroll area, always visible.
+  **Presentation (v0.6.0 Drop 1):** the panel forks on `theme["mode"]`. On Windows it builds
+  a card layout from the `ACT.*` design system — an "Audiobook Files" card, the **Shared
+  Metadata** surface, "Chapter Titles (optional)", "Output", then the always-visible action
+  bar and Log. **Every other mode builds the historical layout byte-for-byte**, so macOS and
+  Linux are untouched. The fork is presentation only: both branches create the same widgets
+  and attributes, and every callback, worker, queue, progress, cancel path and busy/idle
+  transition below the builders is shared and unaware of which one drew the screen. Nothing
+  about metadata reading/writing, field precedence, file order, output paths, filenames, tag
+  namespaces, chapter logic, thread boundaries or cancellation timing differs between them.
+- **Shared Metadata (visual treatment only).** The editor's existing batch-wide fields are
+  grouped on a distinct muted-navy surface with an accent border, accent header and a
+  caption reading "These values are written to every loaded file. Blank fields are left
+  unchanged." **This is a visual statement of behaviour that already existed** — the same
+  shared-value / "(varies)" detection shipped in v0.5.0. It adds **no** per-book override,
+  **no** field precedence, **no** disabling and **no** workspace: Decision 20B's full
+  populated-global-overrides model needs the Plan 6 data model and the Plan 8 editor
+  workflow and does **not** exist today. `test_shared_metadata_grouping_adds_no_precedence_or_disabling`
+  pins that down.
+- **Summary/Details specimen (presentation only, developer-only).**
+  `files/tests/manual_windows_ui_prototype.py` is a developer fixture, **not part of the
+  product and not part of the test suite**: pytest cannot collect it, it is not in
+  `launcher.TOOLS`, it lives under `files/` rather than the shipped `scripts/` tree, and
+  nothing in the product imports it. It renders the *production* theme primitives and the
+  *production* editor to reach populated, active-run and Summary/Details states that are
+  otherwise slow or non-deterministic to photograph. Its Summary/Details sheet is a visual
+  component specimen carrying its own on-screen disclaimer: there is **no** filtering, **no**
+  dual log buffers, **no** technical-log routing, **no** job snapshot, **no** ETA, **no**
+  Retry Failed and **no** Pause/Resume. That behaviour belongs to Plan 3 and is absent from
+  the shipped panel, which contains no notebook at all.
 
 ## Project Layout Notes
 
@@ -141,6 +216,10 @@ Audiobook-Creation-Tool/
     ├── test-files/             ← local fixtures incl. copyrighted media (entirely untracked;
     │                             point tests at it via KOKORO_TEST_PDF_FOLDER)
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
+    ├── UI-Current-Screenshots/ ← the v0.5.1 before-state UI reference (8 images, tracked)
+    ├── UI-Prototype-Screenshots/v0.6.0-drop1/
+    │                           ← the APPROVED v0.6.0 Drop 1 evidence: 10 images, 1920x1080
+    │                             maximized, true 100% and true 125% Windows scaling (tracked)
     └── release-history/        ← one-shot docs from past releases (v0.3.1 set)
 ```
 
@@ -162,7 +241,53 @@ v0.4.0 added Kokoro self-heal on every launch, the in-tree HF model cache, and t
 verification harness. v0.5.0 is a multi-drop line: Drop 1 (this restructure — no tool behaviour
 changes), then metadata, TTS, script hardening, and UI drops.
 
+**v0.6.0 Drop 1 (Windows UI prototype) — approved 2026-08-02, not released.** The Windows
+design system, the converted launcher shell and the converted M4B Metadata Editor passed the
+maintainer's visual gate against the ten-image evidence matrix under
+`files/UI-Prototype-Screenshots/v0.6.0-drop1/` (1920×1080, maximized, true 100% and true 125%
+Windows display scaling). **Approval is of the design contract, not a release:** `version.py`
+is still `0.5.1`, no v0.6.0 exists, and the remaining five panels are unconverted. The eight
+further v0.6.x plans are named in the sequencing note but undrafted; **Plan 2 is the next
+implementation-planning target.**
+
+**Non-Windows preservation is a standing contract.** macOS `aqua`/Finder and the Linux/other
+`classic` fallback must not change as Windows evolves. At the v0.6.0 Drop 1 approval this was
+proven by AST-level comparison against `master`: `_apply_darwin`, `_apply_classic`,
+`_classic_font_family`, `_resolve_color`, `_blend`, `_is_dark`, `_mac_font_family`,
+`enable_mousewheel`, all five `ProgressIndicator` methods, `launcher._build_ui_darwin` and
+`launcher._build_ui_classic` are **byte-identical**; `apply_theme` gained only its `win32`
+arm. Four automated tests keep it that way (`test_apply_theme_on_current_platform` aqua arm,
+`test_classic_branch_other_platform`, `test_non_windows_theme_builds_the_unconverted_layout`,
+`test_an_aqua_bundle_builds_the_historical_layout`). **A live macOS re-verification of the
+v0.6.0 line has not been performed** — it is an explicitly approved deferral, not a pass, and
+the exact five-step smoke test is written out in `handoff.md`.
+
 **Known limitations (documented, not bugs):**
+- **The application is DPI-unaware on Windows — unresolved future work, not finished
+  behaviour.** `GetProcessDpiAwareness` returns `UNAWARE`, and neither the venv's
+  `python.exe` / `pythonw.exe` nor the base Python 3.12.10 they are copied from carries a
+  `dpiAware` manifest entry; `pythonw.exe` is what `Setup_and_Run` launches, so this is the
+  real end-user path. At 100% scaling there is no virtualization and rendering is 1:1. At
+  125% Windows bitmap-scales the whole window: the app's coordinate space never changes (Tk
+  still reports 96 px/inch), so **text is slightly soft rather than re-rendered at 120 DPI**.
+  The same fact is why **nothing clips, overlaps or reflows at 125%** — every dimension
+  scales by an identical factor, and the measured geometry at 1024×720 and 920×600 is
+  byte-identical to the 100% pass. This did **not** block the v0.6.0 Drop 1 approval because
+  the app stays usable and unclipped, but it is **explicitly unresolved Windows work**
+  reserved for Plan 9 or an appropriately scoped future plan. Fixing it means a manifest or
+  a `SetProcessDpiAwareness` call at startup plus a re-measure of every fixed pixel metric —
+  a real behaviour change, deliberately not attempted during the prototype.
+- **Windows geometry, deliberately unchanged.** `MIN_SIZE = (920, 600)` and
+  `DEFAULT_GEOMETRY = "1024x720"` stay as they are. At the 920×600 minimum the **M4B
+  Converter's** primary action and Log are still clipped (~19 px and ~108 px bottom + 75 px
+  right, identical at both scaling levels). That panel is unconverted and Plan 9 will rebuild
+  it, so the clipping is deferred there rather than fixed by widening the minimum on behalf
+  of a layout that is about to change. The converted editor clips nothing at any size or
+  scaling; its long form is a deliberate scroll region at every size, with the action bar and
+  Log outside it.
+- **The Windows `ttk.Combobox` popdown is unthemed** (Tk draws it as a native list ttk
+  cannot restyle), and the **window title bar stays light** above the dark app (Tk would need
+  a Win32 `DwmSetWindowAttribute` call). Both are Plan 9 items.
 - **Windows xHE-AAC decode** — ffmpeg's native AAC decoder can't decode xHE-AAC (USAC) M4Bs;
   macOS routes decoding through Apple's `aac_at` decoder, which supports xHE-AAC. Confirmed
   Windows limitation since v0.3.2. The macOS `aac_at` path is live-verified on standard

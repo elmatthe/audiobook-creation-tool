@@ -4,6 +4,96 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-02 — The Windows dark design system is APPROVED as the durable UI contract; tkinter/ttk stays; geometry, DPI awareness and live macOS are explicitly deferred
+
+**Decision:** After reviewing the ten-image screenshot matrix, the maintainer **approved** the
+v0.6.0 Drop 1 Windows UI prototype. What is approved is a *design contract*, not a release:
+`version.py` remains `0.5.1`, no v0.6.0 exists, and nothing merged to `master` on approval.
+The contract, which later plans must follow rather than re-litigate:
+
+- **Centralized semantic tokens.** Windows colours, metrics and fonts live in
+  `shared/ui_theme.py` and reach panels only through the theme bundle
+  (`theme["colors"] / ["metrics"] / ["fonts"] / ["styles"]`) or `ui_theme.style_tk_widget()`
+  for the classic Tk widgets ttk cannot style. **A panel may not declare a hex literal or a
+  layout magic number.**
+- **`ACT.*` namespaced style isolation.** `vista` stays the base theme; every style this
+  project registers is prefixed `ACT.`; generic ttk styles are never created, reconfigured or
+  re-laid-out; no `option_add` / `tk_setPalette` anywhere. Recolorable elements are cloned out
+  of `clam` into the live theme because vista's native parts ignore colour options. ttk has no
+  style inheritance, so an unconverted panel resolving the generic style is exactly what keeps
+  it native — the isolation is structural, not a convention.
+- **Converted surfaces are the launcher shell and the M4B Metadata Editor. Only those.**
+  TTS Audiobook, M4B Converter, MP3 Tool, M4B Maker and Cover Image Resizer stay classic until
+  Plan 9. Approval did **not** widen Plan 1's scope.
+- **Shared Metadata is a visual treatment of behaviour that already exists.** It adds no
+  per-book override, no precedence, no disabling. Decision 20B's full model still requires the
+  Plan 6 workspace and the Plan 8 editor workflow.
+- **Summary/Details is a presentation-only specimen** in a developer-only, launcher-unreachable
+  fixture. No Plan 3 behaviour (filtering, dual log buffers, technical-log routing, job
+  snapshots, ETA, Retry Failed, Pause/Resume) exists in the product.
+- **Non-Windows behaviour is preserved and must stay preserved.** macOS `aqua`/Finder and the
+  Linux/other `classic` fallback are byte-identical to the pre-drop `master` at the function
+  level, and four automated tests hold that line.
+
+**Approved evidence:** `files/UI-Prototype-Screenshots/v0.6.0-drop1/` — ten images, 1920×1080,
+maximized, five states at true 100% and the same five at true 125% Windows display scaling,
+captured at Phase 5 SHA **`b2e809fe4e25f5aaaef1684b5998bc652374de87`** on branch
+`feature/0.6.0-drop1-windows-ui-prototype`. The 125% pass was captured on the secondary
+1920×1080 display (the one set to 125%); the maintainer accepted it as valid evidence and
+required no primary-monitor reshoot. The current specimen is accepted as sufficient — no
+additional Details screenshot is to be added.
+
+**Why tkinter/ttk remains acceptable (the question this drop existed to settle):** the hard
+part — a genuinely modern dark UI without a toolkit switch — works. Cloning clam elements into
+the live vista theme produced a fully colourable dark control set (buttons, entries,
+comboboxes, spinboxes, checkbuttons, notebook tabs, scrollbars, Treeview, labelframes,
+progressbars) while five panels kept byte-identical native rendering, proven by snapshot tests
+across a whole application build. No image assets were needed to fake controls, no new runtime
+dependency was added, and no per-machine hack was required. The two things ttk genuinely cannot
+reach — the `Combobox` popdown and the window title bar — are narrow and separately solvable.
+**Do not propose a toolkit change for the remaining conversion.**
+
+**Geometry: deliberately unchanged.** `MIN_SIZE = (920, 600)` and
+`DEFAULT_GEOMETRY = "1024x720"` stay as they are. The M4B Converter's primary action and Log
+remain clipped at the 920×600 minimum (~19 px, and ~108 px bottom + 75 px right), identical at
+both scaling levels. That panel is unconverted and Plan 9 will rebuild it, so widening the
+application minimum on behalf of a layout that is about to change would be a theme-contract
+change made for the wrong reason. The converted editor clips nothing at any size or scaling;
+its long form is a deliberate scroll region at every size (plan §7.3 requires deliberate
+scrolling, not zero scrolling), with the action bar and Log outside it. **Deferred to the
+Plan 9 conversion of that panel.**
+
+**DPI awareness: explicitly unresolved future work, and explicitly not a blocker.** The
+application is DPI-**unaware** — `GetProcessDpiAwareness` returns `UNAWARE`, and neither the
+venv's `python.exe`/`pythonw.exe` nor the base Python 3.12.10 they copy carries a `dpiAware`
+manifest; `pythonw.exe` is what `Setup_and_Run` launches, so this is the real user path. At
+125% Windows therefore bitmap-scales the whole window: text is soft rather than re-rendered at
+120 DPI. The maintainer accepted this for Plan 1 **because the app remains usable and nothing
+clips** — the same uniform scaling that softens the text is why the layout cannot break, and
+the measured geometry at 1024×720 and 920×600 is byte-identical between the two passes. It is
+recorded here as **unresolved Windows work for Plan 9 or an appropriately scoped future plan**,
+not as finished behaviour. A fix means a manifest or a `SetProcessDpiAwareness` call at startup
+**plus** a re-measure of every fixed pixel metric and fresh screenshot evidence; it was
+deliberately not attempted during closeout.
+
+**Live macOS: an approved deferral, never a pass.** No Mac was available across Phases 4–6, so
+the v0.6.0 line has **not** been live-verified on macOS and must not be described as such. The
+exact five-step smoke test is preserved in `handoff.md`. Automated aqua-branch coverage plus
+the byte-identical non-Windows code paths are *evidence*, not a live pass. This deferral did
+not block approval because the drop changes no non-Windows code path.
+
+**Alternatives considered:** switching toolkits (rejected — the prototype proved ttk sufficient
+and the cost is enormous); converting the other five panels now (rejected — approval
+establishes the contract Plan 9 applies, and unconverted panels are what makes the isolation
+claim testable); raising `MIN_SIZE` to clear the converter clipping now (rejected — see
+Geometry); fixing DPI awareness during closeout (rejected — a production behaviour change would
+invalidate the visual evidence just approved).
+
+— Approved by maintainer (Elijah Matthew) 2026-08-02 after reviewing the ten-image matrix;
+recorded by Claude Code, 2026-08-02
+
+---
+
 ## 2026-07-19 — Batch-timing-parity rewrite implemented, measured, and ABANDONED by ear; the original chunk pipeline is the confirmed-preferred batch method
 
 **Decision:** The Edge batch path stays on its original chunk pipeline

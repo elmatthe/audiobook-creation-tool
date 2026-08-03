@@ -40,6 +40,19 @@ across the loaded files in list order (a single file gets just that number).
 Refactored like the other tools: UI is built by build_ui(parent); the save runs
 on a worker thread with a Cancel button (cooperative cancellation between files)
 via shared.cancellation; a standalone main() is kept for debugging.
+
+Presentation (v0.6.0 Drop 1, Phase 3): the panel forks on ``theme["mode"]``.
+On Windows it builds a card layout from the ``ACT.*`` design system in
+``shared/ui_theme.py`` — an "Audiobook Files" card, the distinct **Shared
+Metadata** surface (muted accent fill/border/header) holding every batch-wide
+tag field plus the series sub-group, then Chapter Titles, Output, an
+always-visible action bar and an always-visible Log. Every other platform
+builds the historical layout byte-for-byte. **Nothing about metadata reading,
+writing, precedence, file order, output paths, threading or cancellation
+differs between the two** — both forks create the same widgets and attributes
+and every method below is shared. The Shared Metadata grouping is a visual
+statement of the batch behaviour that already exists; it adds no per-book
+override, disables no field, and implements no Plan 6/8 precedence.
 """
 
 import queue
@@ -104,10 +117,32 @@ def _remembered_dir(key: str) -> Path:
 
 
 class M4BMetadataEditorUI(ttk.Frame):
-    """The M4B Metadata Editor as an embeddable frame."""
+    """The M4B Metadata Editor as an embeddable frame.
 
-    def __init__(self, parent: tk.Misc):
-        super().__init__(parent)
+    ``theme`` is the optional ``shared.ui_theme`` bundle. It is resolved from
+    the platform when omitted, so every existing caller — including the
+    launcher's ``module.build_ui(container)`` — keeps working unchanged. It
+    exists so a developer-only fixture (or a future launcher) can hand the
+    panel a bundle it already applied instead of re-resolving it.
+
+    The presentation forks on ``theme["mode"]``: ``windows`` builds the v0.6.0
+    card layout from the ``ACT.*`` design system; every other mode builds the
+    historical layout byte-for-byte, so macOS aqua and Linux/other are
+    untouched. Both forks create exactly the same widgets and attributes, so
+    every callback, worker, cancel path and busy/idle transition below is
+    shared and unaware of which one built the screen.
+    """
+
+    def __init__(self, parent: tk.Misc, theme: dict | None = None):
+        if theme is None:
+            theme = ui_theme.apply_theme(parent.winfo_toplevel(), ttk.Style(parent))
+        windows = theme.get("mode") == "windows"
+        if windows:
+            super().__init__(parent, style=theme["styles"]["window"])
+        else:
+            super().__init__(parent)
+        self.theme = theme
+        self._windows = windows
 
         self.files: list[Path] = []
 
@@ -165,6 +200,16 @@ class M4BMetadataEditorUI(ttk.Frame):
 
     # ----- UI -----
     def _build_ui(self):
+        """Build the panel, then run the two state syncs both forks need."""
+        if self._windows:
+            self._build_ui_windows()
+        else:
+            self._build_ui_classic()
+        self._update_chap_buttons()  # disabled until files are loaded
+        self._update_autonumber_hint()  # set the initial (toggle-off) hint text
+
+    def _build_ui_classic(self):
+        """The pre-v0.6.0 layout. macOS and Linux/other must stay byte-identical."""
         # The tag/settings sections are taller than the launcher window once a
         # batch is loaded, so they live in a vertically scrollable canvas —
         # the same canvas_wrap + create_window + scrollregion/width-sync +
@@ -342,8 +387,322 @@ class M4BMetadataEditorUI(ttk.Frame):
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=sb2.set)
 
-        self._update_chap_buttons()  # disabled until files are loaded
-        self._update_autonumber_hint()  # set the initial (toggle-off) hint text
+    # ----- Windows presentation (v0.6.0 Drop 1) -----
+    @staticmethod
+    def _wrap_with(label: ttk.Label, host: tk.Misc, slack: int):
+        """Keep a caption's wraplength tied to its container's real width.
+
+        A fixed wraplength would either clip or force the card wider than the
+        window (a label's requested width propagates), which is exactly the
+        kind of horizontal overflow this layout has to avoid at 920x600.
+        """
+        def _resize(event):
+            width = max(160, event.width - slack)
+            if abs(int(label.cget("wraplength") or 0) - width) > 4:
+                label.configure(wraplength=width)
+        host.bind("<Configure>", _resize, add="+")
+
+    def _build_ui_windows(self):
+        """The v0.6.0 Windows layout: titled cards on the dark shell.
+
+        Same three-row skeleton as the classic build — scrollable body (row 0),
+        always-visible action bar (row 1), always-visible Log (row 2) — so the
+        scroll region, the scoped mouse-wheel wiring and the "primary actions
+        never scroll away" contract are unchanged. Only the composition and the
+        styling differ.
+
+        Every colour, font, pad and style name comes from the theme bundle, so
+        no hex literal or magic number is written here, and every style used is
+        ``ACT.*``-namespaced — the five unconverted panels are untouched.
+        """
+        s = self.theme["styles"]
+        m = self.theme["metrics"]
+        f = self.theme["fonts"]
+
+        self.rowconfigure(0, weight=1)   # scrollable settings grow with window
+        self.rowconfigure(1, weight=0)   # action bar — fixed, always visible
+        self.rowconfigure(2, weight=0)   # log — fixed height, always visible
+        self.columnconfigure(0, weight=1)
+
+        # --- scrollable body: identical wiring to the classic build ----------
+        canvas_wrap = ttk.Frame(self, style=s["window"])
+        canvas_wrap.grid(row=0, column=0, sticky="nsew")
+        canvas_wrap.rowconfigure(0, weight=1)
+        canvas_wrap.columnconfigure(0, weight=1)
+        settings_canvas = tk.Canvas(canvas_wrap, highlightthickness=0, borderwidth=0)
+        ui_theme.style_tk_widget(settings_canvas, self.theme, "window")
+        settings_canvas.grid(row=0, column=0, sticky="nsew")
+        settings_sb = ttk.Scrollbar(
+            canvas_wrap, orient="vertical", style=s["vscrollbar"],
+            command=settings_canvas.yview,
+        )
+        settings_sb.grid(row=0, column=1, sticky="ns")
+        settings_canvas.configure(yscrollcommand=settings_sb.set)
+
+        body = ttk.Frame(settings_canvas, style=s["window"],
+                         padding=(m["gap_md"], m["gap_md"], m["gap_md"], 0))
+        _body_window = settings_canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def _sync_scrollregion(_event=None):
+            settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
+
+        def _sync_body_width(event):
+            settings_canvas.itemconfigure(_body_window, width=event.width)
+
+        body.bind("<Configure>", _sync_scrollregion)
+        settings_canvas.bind("<Configure>", _sync_body_width)
+        ui_theme.enable_mousewheel(settings_canvas, hover_region=canvas_wrap)
+
+        # --- card 1: the imported files --------------------------------------
+        files_card = ttk.Labelframe(body, text="Audiobook Files",
+                                    style=s["labelframe"])
+        files_card.pack(side=tk.TOP, fill=tk.X, pady=(0, m["card_gap"]))
+
+        file_actions = ttk.Frame(files_card, style=s["card"])
+        file_actions.pack(fill=tk.X)
+        self.btn_add = ttk.Button(file_actions, text="Open M4B File(s)",
+                                  style=s["button"], command=self.add_files)
+        self.btn_add.pack(side=tk.LEFT)
+        self.btn_add_folder = ttk.Button(file_actions, text="Open Folder…",
+                                         style=s["button"], command=self.add_folder)
+        self.btn_add_folder.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
+        self.btn_remove = ttk.Button(file_actions, text="Remove Selected",
+                                     style=s["button"], command=self.remove_selected)
+        self.btn_remove.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
+        self.btn_clear = ttk.Button(file_actions, text="Clear List",
+                                    style=s["button"], command=self.clear_list)
+        self.btn_clear.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
+
+        list_row = ttk.Frame(files_card, style=s["card"])
+        list_row.pack(fill=tk.BOTH, expand=True, pady=(m["gap_sm"], 0))
+        self.listbox = tk.Listbox(list_row, selectmode=tk.EXTENDED, height=5,
+                                  font=f["row"], activestyle="none")
+        ui_theme.style_tk_widget(self.listbox, self.theme, "list")
+        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb = ttk.Scrollbar(list_row, orient="vertical", style=s["vscrollbar"],
+                           command=self.listbox.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.listbox.configure(yscrollcommand=sb.set)
+
+        # --- card 2: Shared Metadata -----------------------------------------
+        # The drop's distinct batch-wide surface: muted accent fill, accent
+        # border, accent header (ACT.Shared.TLabelframe). Every field in here is
+        # written to *every* loaded file — which is exactly what the existing
+        # shared-value / "(varies)" detection already reports, so the grouping
+        # is a visual statement of behaviour that already exists. It adds no
+        # precedence, no per-book override and disables nothing (Plan 6/8).
+        shared_card = ttk.Labelframe(body, text="Shared Metadata",
+                                     style=s["shared_labelframe"])
+        shared_card.pack(side=tk.TOP, fill=tk.X, pady=(0, m["card_gap"]))
+
+        caption = ttk.Label(
+            shared_card, style=s["shared_secondary"], justify="left",
+            text=("These values are written to every loaded file. Blank fields are "
+                  "left unchanged."),
+        )
+        caption.pack(anchor="w")
+        self._wrap_with(caption, shared_card, m["card_pad"] * 2)
+
+        # The existing mode/"(varies)" notice lives here: it reports which
+        # shared fields were pre-filled and which differ across the batch.
+        self.lbl_mode = ttk.Label(shared_card, textvariable=self.mode_var,
+                                  style=s["shared_secondary"], justify="left")
+        self.lbl_mode.pack(anchor="w", pady=(m["gap_xs"], m["gap_md"]))
+        self._wrap_with(self.lbl_mode, shared_card, m["card_pad"] * 2)
+
+        form = ttk.Frame(shared_card, style=s["shared_surface"])
+        form.pack(fill=tk.X)
+        # Equal weights so the one two-up row (Year | Genre) splits evenly; the
+        # full-width fields span both and are unaffected.
+        form.columnconfigure(1, weight=1)
+        form.columnconfigure(3, weight=1)
+
+        attr_by_key = {key: attr for key, attr, _label in _FIELDS}
+        label_by_key = {key: label for key, _attr, label in _FIELDS}
+        entry_by_key: dict[str, ttk.Entry] = {}
+
+        def _field(key: str, row: int, col: int, span: int, **grid):
+            ttk.Label(form, text=label_by_key[key], style=s["shared_label"]).grid(
+                row=row, column=col, sticky="w",
+                padx=(0, m["gap_sm"]), pady=m["gap_xs"],
+            )
+            ent = ttk.Entry(form, textvariable=getattr(self, attr_by_key[key]),
+                            style=s["entry"])
+            ent.grid(row=row, column=col + 1, columnspan=span, sticky="we",
+                     padx=(0, m["gap_md"]), pady=m["gap_xs"], **grid)
+            entry_by_key[key] = ent
+            return ent
+
+        _field("title", 0, 0, 3)
+        _field("artist", 1, 0, 3)
+        _field("album", 2, 0, 3)
+        _field("year", 3, 0, 1)
+        _field("genre", 3, 2, 1)
+        _field("comment", 4, 0, 3)
+
+        # Cover row.
+        ttk.Label(form, text="Cover image", style=s["shared_label"]).grid(
+            row=5, column=0, sticky="w", padx=(0, m["gap_sm"]), pady=m["gap_xs"])
+        self.entry_cover = ttk.Entry(form, textvariable=self.var_cover_path,
+                                     style=s["entry"])
+        self.entry_cover.grid(row=5, column=1, columnspan=2, sticky="we",
+                              padx=(0, m["gap_sm"]), pady=m["gap_xs"])
+        cover_btns = ttk.Frame(form, style=s["shared_surface"])
+        cover_btns.grid(row=5, column=3, sticky="w")
+        self.btn_cover = ttk.Button(cover_btns, text="Browse…", style=s["button"],
+                                    command=self.choose_cover)
+        self.btn_cover.pack(side=tk.LEFT)
+        self.btn_cover_clear = ttk.Button(
+            cover_btns, text="Clear", style=s["button"],
+            command=lambda: self.var_cover_path.set(""),
+        )
+        self.btn_cover_clear.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
+
+        # Series sub-group, inside the same shared surface.
+        ttk.Frame(shared_card, style=s["divider"], height=1).pack(
+            fill=tk.X, pady=(m["gap_md"], m["gap_md"]))
+        ttk.Label(shared_card, text="Series", style=s["shared_header"]).pack(anchor="w")
+
+        series = ttk.Frame(shared_card, style=s["shared_surface"])
+        series.pack(fill=tk.X, pady=(m["gap_sm"], 0))
+        series.columnconfigure(1, weight=1)
+
+        ttk.Label(series, text=label_by_key["series"], style=s["shared_label"]).grid(
+            row=0, column=0, sticky="w", padx=(0, m["gap_sm"]), pady=m["gap_xs"])
+        entry_by_key["series"] = ttk.Entry(series, textvariable=self.var_series,
+                                           style=s["entry"])
+        entry_by_key["series"].grid(row=0, column=1, columnspan=2, sticky="we",
+                                    pady=m["gap_xs"])
+
+        ttk.Label(series, text=label_by_key["series_part"],
+                  style=s["shared_label"]).grid(
+            row=1, column=0, sticky="w", padx=(0, m["gap_sm"]), pady=m["gap_xs"])
+        entry_by_key["series_part"] = ttk.Entry(
+            series, textvariable=self.var_series_part, style=s["entry"], width=10)
+        entry_by_key["series_part"].grid(row=1, column=1, sticky="w",
+                                         pady=m["gap_xs"])
+        self.chk_autonumber = ttk.Checkbutton(
+            series, text="Auto-number across files", variable=self.var_autonumber,
+            style=s["shared_checkbutton"], command=self._update_autonumber_hint,
+        )
+        self.chk_autonumber.grid(row=1, column=2, sticky="w", padx=(m["gap_md"], 0))
+
+        # Field widgets in _FIELDS order — disable_inputs() and the busy state
+        # walk this list, so the order stays the historical one.
+        self._field_widgets = [entry_by_key[key] for key, _attr, _label in _FIELDS]
+        self.var_series_part.trace_add(
+            "write", lambda *_: self._update_autonumber_hint())
+
+        self.lbl_series_readback = ttk.Label(
+            shared_card, textvariable=self.series_readback_var,
+            style=s["shared_secondary"], justify="left",
+        )
+        self.lbl_series_readback.pack(anchor="w", pady=(m["gap_md"], 0))
+        self._wrap_with(self.lbl_series_readback, shared_card, m["card_pad"] * 2)
+
+        self.lbl_autonumber_hint = ttk.Label(
+            shared_card, textvariable=self.autonumber_hint_var,
+            style=s["shared_secondary"], justify="left",
+        )
+        self.lbl_autonumber_hint.pack(anchor="w", pady=(m["gap_xs"], 0))
+        self._wrap_with(self.lbl_autonumber_hint, shared_card, m["card_pad"] * 2)
+
+        # --- card 3: chapter titles ------------------------------------------
+        chap_card = ttk.Labelframe(body, text="Chapter Titles (optional)",
+                                   style=s["labelframe"])
+        chap_card.pack(side=tk.TOP, fill=tk.BOTH, expand=False,
+                       pady=(0, m["card_gap"]))
+        pager = ttk.Frame(chap_card, style=s["card"])
+        pager.pack(fill=tk.X)
+        self.btn_chap_prev = ttk.Button(pager, text="◀", width=3,
+                                        style=s["button"], command=self._chap_prev)
+        self.btn_chap_prev.pack(side=tk.LEFT)
+        ttk.Label(pager, textvariable=self.chap_pager_var, style=s["label"]).pack(
+            side=tk.LEFT, padx=m["gap_sm"])
+        self.btn_chap_next = ttk.Button(pager, text="▶", width=3,
+                                        style=s["button"], command=self._chap_next)
+        self.btn_chap_next.pack(side=tk.LEFT)
+        self.lbl_chap_hint = ttk.Label(chap_card, textvariable=self.chap_hint_var,
+                                       style=s["secondary_label"], justify="left")
+        self.lbl_chap_hint.pack(anchor="w", pady=(m["gap_sm"], 0))
+        self._wrap_with(self.lbl_chap_hint, chap_card, m["card_pad"] * 2)
+        self.chap_text = tk.Text(chap_card, height=6, wrap="none", font=f["mono"])
+        ui_theme.style_tk_widget(self.chap_text, self.theme, "text")
+        self.chap_text.pack(fill=tk.BOTH, expand=True, pady=(m["gap_sm"], 0))
+
+        # --- card 4: output ---------------------------------------------------
+        out_card = ttk.Labelframe(body, text="Output", style=s["labelframe"])
+        out_card.pack(side=tk.TOP, fill=tk.X, pady=(0, m["card_gap"]))
+        outrow = ttk.Frame(out_card, style=s["card"])
+        outrow.pack(fill=tk.X)
+        ttk.Label(outrow, text="Folder", style=s["label"]).pack(side=tk.LEFT)
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
+                                      style=s["entry"])
+        self.entry_outdir.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                               padx=(m["gap_sm"], m["gap_sm"]))
+        self.btn_browse_out = ttk.Button(outrow, text="Browse…", style=s["button"],
+                                         command=self.choose_outdir)
+        self.btn_browse_out.pack(side=tk.LEFT)
+        self.btn_open_out = ttk.Button(outrow, text="Open", style=s["button"],
+                                       command=self.open_outdir)
+        self.btn_open_out.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
+        out_note = ttk.Label(
+            out_card, style=s["secondary_label"], justify="left",
+            text=("Tagged copies are written here. The files you import are never "
+                  "modified."),
+        )
+        out_note.pack(anchor="w", pady=(m["gap_sm"], 0))
+        self._wrap_with(out_note, out_card, m["card_pad"] * 2)
+
+        # --- row 1: action bar (never scrolls away) ---------------------------
+        # Progress sits on its own full-width line above the buttons so it can
+        # never be pushed off the right edge at the 920x600 minimum.
+        action = ttk.Frame(self, style=s["window"],
+                           padding=(m["gap_md"], m["gap_sm"]))
+        action.grid(row=1, column=0, sticky="ew")
+        self.progress = ui_theme.ProgressIndicator(action, length=240)
+        # Per-instance restyling only: ProgressIndicator itself stays generic,
+        # because five unconverted panels build their own from the same class.
+        self.progress.frame.configure(style=s["window"])
+        self.progress.bar.configure(style=s["progressbar"])
+        self.progress.label.configure(style=s["status_label"])
+        # Natural width, left-aligned: a full-width trough reads as an empty box
+        # when the panel is idle, which is most of the time.
+        self.progress.frame.pack(anchor="w", pady=(0, m["gap_sm"]))
+
+        buttons = ttk.Frame(action, style=s["window"])
+        buttons.pack(fill=tk.X)
+        self.btn_save = ttk.Button(buttons, text="Save Tags",
+                                   style=s["primary_button"], command=self.save)
+        self.btn_save.pack(side=tk.LEFT)
+        self.btn_clear_tags = ttk.Button(
+            buttons, text="Clear All Tags (keep chapters)", style=s["danger_button"],
+            command=self.on_clear_all_tags,
+        )
+        self.btn_clear_tags.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
+        self.btn_remove_numbering = ttk.Button(
+            buttons, text="Remove Series Numbering", style=s["danger_button"],
+            command=self.on_remove_series_numbering,
+        )
+        self.btn_remove_numbering.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
+        self.btn_cancel = ttk.Button(buttons, text="Cancel", style=s["button"],
+                                     command=self.cancel, state=tk.DISABLED)
+        self.btn_cancel.pack(side=tk.RIGHT)
+
+        # --- row 2: log (never scrolls away) ----------------------------------
+        logf = ttk.Labelframe(self, text="Log", style=s["labelframe"])
+        logf.grid(row=2, column=0, sticky="nsew",
+                  padx=m["gap_md"], pady=(0, m["gap_md"]))
+        log_row = ttk.Frame(logf, style=s["card"])
+        log_row.pack(fill=tk.BOTH, expand=True)
+        self.log = tk.Text(log_row, height=8, wrap="word", state=tk.DISABLED,
+                           font=f["mono"])
+        ui_theme.style_tk_widget(self.log, self.theme, "log")
+        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb2 = ttk.Scrollbar(log_row, orient="vertical", style=s["vscrollbar"],
+                            command=self.log.yview)
+        sb2.pack(side=tk.RIGHT, fill=tk.Y)
+        self.log.configure(yscrollcommand=sb2.set)
 
     # ----- file actions -----
     def add_files(self):
@@ -1027,9 +1386,14 @@ class M4BMetadataEditorUI(ttk.Frame):
         self._log_q.put(("done", (ok, fail, cancelled)))
 
 
-def build_ui(parent: tk.Misc) -> M4BMetadataEditorUI:
-    """Build the M4B Metadata Editor UI into ``parent`` and return the frame."""
-    ui = M4BMetadataEditorUI(parent)
+def build_ui(parent: tk.Misc, theme: dict | None = None) -> M4BMetadataEditorUI:
+    """Build the M4B Metadata Editor UI into ``parent`` and return the frame.
+
+    ``theme`` is optional and backwards-compatible: the launcher's existing
+    ``module.build_ui(container)`` call is unchanged, and the panel resolves the
+    platform theme itself when nothing is passed.
+    """
+    ui = M4BMetadataEditorUI(parent, theme=theme)
     ui.pack(fill=tk.BOTH, expand=True)
     return ui
 

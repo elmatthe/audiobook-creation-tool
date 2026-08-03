@@ -15,6 +15,68 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Windows design system, converted launcher shell and M4B Metadata Editor (v0.6.0 Drop 1, approved 2026-08-02)
+
+> Prototype work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`
+> and there is no v0.6.0 heading. Approved against the ten-image evidence matrix under
+> `files/UI-Prototype-Screenshots/v0.6.0-drop1/`.
+
+- **Centralized Windows theme primitives** in `scripts/Universal/shared/ui_theme.py`: an
+  explicit `win32` branch returning semantic colour roles (surfaces, text, accent, focus,
+  status, field/selection/scrollbar, and the Shared Metadata surface), a metrics/spacing
+  scale, a typography scale, and a `theme["styles"]` name map. Added `style_tk_widget()` for
+  the classic Tk widgets ttk cannot style (`Canvas` / `Listbox` / `Text`), a no-op on
+  non-Windows bundles. Panels read tokens from the bundle — no panel-local hex literals.
+- **Namespaced `ACT.*` ttk styles** built by cloning recolorable `clam` elements into the
+  live `vista` theme, so a dark control set is available without switching the application's
+  base theme. No generic ttk style is created, reconfigured or re-laid-out, and there is no
+  `option_add` / `tk_setPalette` anywhere in `scripts/`.
+- **Redesigned Windows launcher shell** (`launcher.py`): navigation rail, header strip naming
+  the active tool and its description, framed content card, and a status bar whose "Open log
+  folder" action is a real focusable button. The active tool is marked with the ttk `selected`
+  state instead of being disabled, so it stays keyboard-reachable. The six-tool registry and
+  order, availability logic, lazy build-once containers, error panels, saved last-tool
+  selection and panel-state preservation are all unchanged.
+- **Converted M4B Metadata Editor** (`mp3_tools/m4b_metadata_editor.py`) — the only converted
+  tool panel. The Windows presentation is a card layout (Audiobook Files, Shared Metadata,
+  Chapter Titles, Output, a fixed action bar and a fixed Log); every other platform builds the
+  historical layout byte-for-byte. `build_ui(parent)` is unchanged and gained an optional
+  backwards-compatible `theme` argument.
+- **Shared Metadata visual treatment** — the editor's existing batch-wide fields grouped on a
+  distinct muted-accent surface with its own border, header and caption. Presentation only: no
+  per-book override, no field precedence, no disabling, no workspace behaviour.
+- **Developer-only Summary/Details specimen** (`files/tests/manual_windows_ui_prototype.py`) —
+  a non-collected, launcher-unreachable fixture that renders production theme primitives and
+  the production editor to reach deterministic populated, active-run and Summary/Details
+  states for screenshots. The specimen carries an on-screen disclaimer; it adds no filtering,
+  log buffers, ETA, retry or pause/resume behaviour to the product.
+- **Ten-image approval evidence** committed under
+  `files/UI-Prototype-Screenshots/v0.6.0-drop1/` — 1920×1080, maximized, five states at true
+  100% and the same five at true 125% Windows display scaling.
+
+### Changed — Windows navigation rail width (v0.6.0 Drop 1)
+
+- `sidebar_width` 232 → **180 px** after measurement showed the wider rail cost the tool panels
+  110 px of content width and clipped a primary action at the 920×600 minimum. This returned
+  52 px of width to every panel at every window size. `MIN_SIZE` (920×600) and
+  `DEFAULT_GEOMETRY` (1024×720) are deliberately unchanged.
+
+### Added — regression protection for the classic panels and the non-Windows paths (v0.6.0 Drop 1)
+
+- `files/tests/test_prototype_regression.py` (12 tests) plus extensions to
+  `test_ui_theme.py`, `test_launcher_smoke.py` and `test_m4b_metadata_editor_ui.py`. Together
+  they assert: the generic ttk styles are byte-identical before and after theme application,
+  after the converted editor is built, and across a **whole application build**; the five
+  unconverted panels (TTS Audiobook, M4B Converter, MP3 Tool, M4B Maker, Cover Image Resizer)
+  carry zero `ACT.*` styles; macOS aqua and Linux/other bundles build the historical editor
+  layout; the copy-only output contract, the input==output collision guard and read-only
+  originals hold in both workers; cooperative cancellation still runs through
+  `shared.cancellation`; both build forks expose the same surface to every shared method; no
+  Plan 3/6/8 control reached the shipped panel; and no new persisted setting was introduced.
+- **Known and unresolved:** the application is DPI-unaware on Windows, so at 125% scaling
+  Windows bitmap-scales the window (text is soft; nothing clips). Recorded as future work,
+  not fixed in this drop.
+
 ### Added — Jenny Edge TTS voice (2026-07-19)
 - **New Edge voice: Jenny (`en-US-JennyNeural`)** in `scripts/Universal/tts/voice_registry.py`,
   appended after Ava as the last en-US Female entry. Uses the same
