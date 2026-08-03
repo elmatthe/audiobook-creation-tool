@@ -15,6 +15,73 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — committed `config.toml`, the configuration core and the canonical-name gate (v0.6.0 Drop 2 Phase 1, 2026-08-03)
+
+> Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`
+> and there is no v0.6.0 heading. No GUI or tool-output behaviour changed in this phase.
+
+- **Committed root `config.toml`** — the project's documented, commented, machine-agnostic
+  defaults: `project.{name,version,python_min,entry_point,platforms}`, `output.base_directory`,
+  `logging.max_sessions` and `importing.large_result_warning_threshold`. Safe to hand-edit: an
+  unusable value falls back and is reported rather than stopping the application. Personal
+  choices still live in the gitignored `files/runtime-data/settings.json`, which is the only
+  file the application writes.
+- **`scripts/Universal/shared/config.py`** — one typed, immutable `EffectiveConfig` snapshot
+  (frozen dataclasses, tuples, `MappingProxyType`) built from **code defaults → valid
+  `config.toml` values → the allowlisted mutable-settings overlay**. Per-key validation, so one
+  bad value never discards a good neighbour; missing/malformed TOML falls back without raising;
+  unknown sections and keys are ignored and reported once; `Diagnostic` records source, key, a
+  human-readable fallback and separate technical `detail`; `warning_summary()` aggregates and
+  deduplicates with no traceback in it; `get_effective()` / `reload()` / `invalidate()` give
+  deterministic caching. Standard-library `tomllib` only — **no new dependency**. The module is
+  Tk-free, takes injected paths for testing, and never creates a directory.
+- **Output-base rules** — empty means `~/Downloads/Audiobook-Creation-Tool-Outputs`; a
+  non-empty value must be absolute or `~`-based. A **relative path is rejected** instead of
+  being resolved against the working directory, and environment variables are **never**
+  expanded, so `%USERPROFILE%\…` and `$HOME/…` stay literal (and are therefore rejected).
+  Resolving a base computes a path; nothing is created. Phase 3 owns run folders.
+- **Settings reset and reload** (`shared/settings.py`) — `reset()` clears every mutable
+  preference through the atomic temp-file-then-replace boundary; `save()`/`set()`/`update()`
+  now **report success as a bool** instead of failing silently; `last_load_error()` explains a
+  malformed file, which is **never rewritten during a load**; `use_path()` is the injection
+  seam so tests never touch the maintainer's real preferences. Reset deliberately touches
+  nothing but `settings.json` — no `.venv`, model, binary, log, output or source file.
+- **Configurable log retention** — `logging_setup` reads `logging.max_sessions` through the
+  effective configuration, importing it lazily inside the function so retention can read config
+  while config never reads logging. Any failure at all falls back to 30; logging must come up.
+- **Permanent documentation-name gate** — `verify.py` gained a `docnames` check that compares
+  the **real directory entries** (`os.listdir`) against the exact canonical names, and a
+  `config` check that fails on any diagnostic from the committed file.
+
+### Fixed — `verify.py` was validating a document that no longer exists (v0.6.0 Drop 2 Phase 1)
+
+- `scripts/verify.py` read `md-instructions/CHANGELOG.md`. That name has not existed since the
+  documents were recased to `Changelog.md` / `Decisions.md` / `Handoff.md`, and the gate kept
+  reporting `PASS` **only because a path lookup on Windows is case-insensitive** — on a
+  case-sensitive filesystem the `docs` check would have failed outright. The reference is now
+  canonical, and the new `docnames` check enumerates real directory entries so the same class
+  of defect cannot hide again. **The documents were not renamed**; the reference was wrong.
+- Remaining active references corrected to the canonical casing: `README.md`'s layout tree,
+  `Briefing.md`'s pointers and cross-references, and `release.py`'s printed release checklist.
+  Archived one-shot notes under `files/release-history/` keep their historical wording.
+
+### Added — regression protection for the configuration contract (v0.6.0 Drop 2 Phase 1)
+
+- `files/tests/test_config.py` (68), `files/tests/test_settings.py` (25) and
+  `files/tests/test_repository_contract.py` (40) — 133 new tests. They pin down: the committed
+  file is valid, documented and machine-agnostic; missing/malformed TOML, wrong types, out-of-
+  range numbers, blank name, version drift, bad `python_min`, bad entry point and unknown
+  platforms each fall back alone; unknown keys aggregate into one diagnostic; every output-base
+  form (empty, absolute, `~`, relative, env-var, wrong type); precedence and the one-key
+  overlay allowlist; malformed `settings.json` reported without being rewritten; atomic write,
+  write-failure reporting and reset; cache invalidation; retention from config and its
+  fallback; and that the gate **fails** a missing canonical file, any case-variant alias, a
+  deleted permanent reference, an invalid config, version drift and malformed TOML — proved
+  against temporary trees, because a case-insensitive filesystem will not let a real alias be
+  staged beside the canonical file.
+- Tests use temporary directories and injected paths throughout: none reads, writes or resets
+  the maintainer's real settings, Downloads folder, logs, outputs, `.venv` or model cache.
+
 ### Added — Windows design system, converted launcher shell and M4B Metadata Editor (v0.6.0 Drop 1, approved 2026-08-02)
 
 > Prototype work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`

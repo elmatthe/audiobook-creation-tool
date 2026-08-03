@@ -4,6 +4,91 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-03 — Configuration is a three-layer precedence with a one-key mutable overlay; the four documentation names are a permanent, mechanically enforced contract; the maximized-fit rule is the Plan 9 acceptance target
+
+**Decision (v0.6.0 Drop 2, Phase 1).** Five things are settled and later plans should build on
+them rather than re-litigate them.
+
+**1. Precedence is code defaults → `config.toml` → an allowlisted mutable overlay.** A
+committed, commented root `config.toml` holds the project's documented defaults;
+`shared/config.py` resolves one typed, immutable `EffectiveConfig` snapshot from it. The
+overlay is deliberately **one key** — `output_base_directory` in `settings.json` overriding
+`output.base_directory` — declared in `config.SETTINGS_OVERLAY`, which is the whole allowlist.
+Anything else in `settings.json` is either known user state (`last_tool`, remembered dialog
+directories, voice, bitrate) that is skipped silently, or an unrecognised key that is ignored
+with one diagnostic.
+
+**Why a whitelist rather than "any settings key may override its TOML twin":** a name-matching
+rule would silently promote a future preference into a configuration override the moment
+someone happened to name it after a TOML key. An explicit table makes every override a
+deliberate, reviewable line of code. **Do not add a key to it without a plan that says so.**
+
+**Why the existing user-state keys got no TOML counterpart:** they are per-user memory, not
+project configuration; inventing `[state] last_tool = …` would put a machine-specific value in
+a committed, shipped file for no benefit.
+
+**2. Validation is per key, and the runtime and the repository gate deliberately disagree.**
+At runtime a bad value falls back and warns — a user's hand-edit must never stop the
+application from starting, and one bad key must never discard its valid neighbours.
+`scripts/verify.py` does the opposite and **fails on any diagnostic**, because a *committed*
+file that needs a fallback is a defect being shipped. Both use the same loader, so the rules
+cannot drift apart. Diagnostics carry a human-readable `message` and a separate technical
+`detail`, so a summary can never leak a traceback while the log keeps everything.
+
+**3. Relative output bases are rejected; environment variables are never expanded.** A
+relative path would mean something different depending on where the launcher was started
+from, so it is refused rather than resolved against the working directory. `~` **is** expanded
+because it is portable and machine-agnostic; `%USERPROFILE%` / `$HOME` are **not**, which
+makes them literal, therefore relative, therefore rejected. This is a safety boundary, not an
+oversight — arbitrary shell-style expansion in a path that later feeds output and (in Plan 2's
+later phases) cleanup is exactly the wrong place for surprises.
+
+**4. The four documentation names are permanent and mechanically enforced.**
+`md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md`, in exactly that
+casing. Never rename, recase, duplicate or alias them; never recreate `CHANGELOG.md`,
+`DECISIONS.md` or `handoff.md`. The gate compares **real directory entries** via `os.listdir`
+rather than calling `Path.exists()`. That distinction is the whole point: `verify.py` had been
+reading `md-instructions/CHANGELOG.md` ever since the documents were recased, and reported
+`PASS` for weeks purely because a Windows path lookup is case-insensitive — on a case-sensitive
+filesystem the gate would have failed outright. The stale *reference* was the bug; the files
+were correct. `files/tests/test_repository_contract.py` proves the gate rejects a missing
+canonical file, every case-variant alias, and a deleted `don't-delete/` reference, using
+temporary trees because a case-insensitive filesystem will not let a real alias be staged
+beside its canonical twin.
+
+**5. The maximized-fit rule is the Plan 9 acceptance target and binds new UI now.** At
+1920×1080 on Windows at 100% and 125%, plus the approved live macOS reference display, the
+maximized launcher must show each complete tool view without a whole-panel or whole-form
+scrollbar where practical, reached through adaptive layout rather than by wrapping a tool in a
+permanently scrolling canvas. Scrolling stays valid for genuinely unbounded content (file
+lists, book collections, chapter titles, logs, thumbnail browsers) and must stay local to that
+region with primary actions, Cancel/Pause/Resume, progress, status and output access still
+reachable. At `920×600` the requirement is graceful adaptation, not simultaneous visibility.
+`MIN_SIZE = (920, 600)` and `DEFAULT_GEOMETRY = "1024x720"` are **unchanged**. The M4B
+Metadata Editor's permanently scrolling form remains an accepted Plan 1 limitation that Plan 9
+must reflow — recording the target here does not reopen the Plan 1 approval.
+
+**Structural rule worth keeping:** `shared/config.py` must never import `logging_setup`.
+Retention reads configuration, so the dependency runs one way only; `logging_setup` imports
+config lazily *inside* `configured_max_sessions()` and falls back to 30 on any failure,
+because logging has to come up even when configuration cannot.
+
+**Alternatives considered:** a TOML parser dependency such as `tomlkit` (rejected — stdlib
+`tomllib` is sufficient for reading, and the plan forbids a new dependency without proving the
+standard library insufficient); letting the GUI write `config.toml` (rejected — the committed
+file must stay machine-agnostic and diffable, so user choices go to `settings.json`); making
+the runtime *fail* on an invalid config to match the gate (rejected — a non-technical user who
+mistypes a number must still get their application); mutable overlay by name-matching
+(rejected — see above); renaming `Changelog.md` back to `CHANGELOG.md` to make the stale
+reference correct (rejected outright — the maintainer's canonical names are the contract, and
+the reference was what was wrong).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md`,
+implemented and recorded by Claude Code, 2026-08-03 (HOME-PC, Windows 11, repo venv
+Python 3.12.10)
+
+---
+
 ## 2026-08-02 — The Windows dark design system is APPROVED as the durable UI contract; tkinter/ttk stays; geometry, DPI awareness and live macOS are explicitly deferred
 
 **Decision:** After reviewing the ten-image screenshot matrix, the maintainer **approved** the

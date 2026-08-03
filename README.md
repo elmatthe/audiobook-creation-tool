@@ -135,7 +135,8 @@ Audiobook-Creation-Tool/
 ├── README.md                                       # this file
 ├── Setup_and_Run-audiobook-creation-tool.bat       # Windows double-click entry point
 ├── Setup_and_Run-audiobook-creation-tool.command   # macOS double-click entry point
-├── md-instructions/             # developer docs (Briefing, CHANGELOG, DECISIONS, handoff)
+├── config.toml                  # documented project defaults (safe to edit; falls back)
+├── md-instructions/             # developer docs (Briefing, Changelog, Decisions, Handoff)
 ├── scripts/
 │   ├── requirements.txt         # pinned dependencies (one cross-platform list)
 │   ├── verify.py                # mechanical test/dep/docs gate (dev-only)

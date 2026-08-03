@@ -129,7 +129,7 @@ def _print_checklist() -> None:
     print("=" * 64)
     steps = [
         "All test matrix cells PASS (see Briefing).",
-        f"CHANGELOG [Unreleased] -> [{VERSION}] - <date>.",
+        f"Changelog.md [Unreleased] -> [{VERSION}] - <date>.",
         f"Version bumped in scripts/Universal/shared/version.py = {VERSION}.",
         "Build both zips (this script) -> dist/.",
         "Attach both zips to the GitHub Release; update README download links.",

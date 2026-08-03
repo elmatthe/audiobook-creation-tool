@@ -2,8 +2,16 @@
 
 > **Audience:** future AI sessions and any new contributor.
 > **Purpose:** the single document that fully orients a new session without the user re-explaining
-> anything. Version history lives in `CHANGELOG.md`; architectural decisions in `DECISIONS.md`;
-> in-flight work and open bugs in `handoff.md`.
+> anything. Version history lives in `Changelog.md`; architectural decisions in `Decisions.md`;
+> in-flight work and open bugs in `Handoff.md`.
+>
+> **These four names are a permanent contract** — `Briefing.md`, `Changelog.md`, `Decisions.md`,
+> `Handoff.md`, in exactly that casing. Never rename, recase, duplicate or alias them, and never
+> recreate the old `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` spellings. `scripts/verify.py`
+> enforces this by reading the real directory entries (`os.listdir`) rather than calling
+> `Path.exists()`, because a path lookup on Windows and macOS is case-insensitive and would
+> happily report a non-existent `CHANGELOG.md` as present. `files/tests/test_repository_contract.py`
+> holds the same line, including the permanent references under `md-instructions/don't-delete/`.
 
 ## What This Project Does
 
@@ -59,7 +67,7 @@ flashing during use.
   `shared/ui_theme.apply_theme()`, which returns one backwards-compatible bundle and picks
   the shell from `theme["mode"]`: **aqua** — a Finder-style shell (native aqua controls,
   tinted source-list sidebar with hover/selection rows and glyphs, toolbar strip, content
-  card), unchanged since v0.5.0 (see DECISIONS.md 2026-07-08); **windows** — the v0.6.0
+  card), unchanged since v0.5.0 (see Decisions.md 2026-07-08); **windows** — the v0.6.0
   dark shell (navigation rail, header strip naming the active tool and its description,
   framed content card, status bar with a focusable "Open log folder" button); **classic**
   (Linux/other) — the pre-v0.5.0 layout, byte-for-byte. **The content host is never
@@ -70,9 +78,12 @@ flashing during use.
   path — everything derives from `REPO_ROOT`), `subprocess_utils.py` (hidden-console subprocess
   wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (resolves ffmpeg/ffprobe:
   `files/bin/` → PATH; pins pydub to the resolved binaries; xHE-AAC decoder selection),
-  `settings.py` (atomic JSON at `files/runtime-data/settings.json`), `cancellation.py` (shared
+  `config.py` (the typed effective-configuration core — see *Configuration* below),
+  `settings.py` (atomic JSON at `files/runtime-data/settings.json`, plus reset/reload and
+  explicit write-failure reporting), `cancellation.py` (shared
   Cancel/threading.Event pattern), `metadata.py` (mutagen M4B tag read/write incl. series
-  atoms + chapter-title re-mux), `logging_setup.py` (session logs, pruned to 30),
+  atoms + chapter-title re-mux), `logging_setup.py` (session logs, retention read from
+  `logging.max_sessions`),
   `ui_theme.py` (platform theming — the aqua/Finder palette, the Windows design system and
   the classic fallback, plus `style_tk_widget` for classic Tk widgets ttk cannot style, the
   `enable_mousewheel` scroll-on-hover helper and the shared `ProgressIndicator` —
@@ -80,6 +91,37 @@ flashing during use.
   `version.py` (single source of truth),
   `release.py` (dev-only zip packager, never imported by the app), `close_terminal.py`
   (macOS Terminal auto-close helper).
+- **Configuration (v0.6.0 Drop 2 Phase 1).** A committed, commented **root `config.toml`**
+  holds the project's documented defaults; `shared/config.py` turns it into one *typed,
+  immutable* `EffectiveConfig` snapshot. **Precedence, last wins: code defaults → valid
+  values from `config.toml` → the allowlisted mutable settings overlay.** The overlay is
+  exactly one key today — `output_base_directory` in `settings.json` overriding
+  `output.base_directory` — and `config.SETTINGS_OVERLAY` is the whole of it, so no other
+  stored preference can reach the configuration however it is spelled. Existing user state
+  (`last_tool`, remembered dialog directories, voice, bitrate) stays a plain setting and
+  deliberately has **no** TOML counterpart.
+  **Every key is validated on its own**, so one bad value never discards a good neighbour, and
+  a missing or malformed file can never stop the application from starting: it falls back and
+  records a `Diagnostic` (source, key, human-readable fallback, plus technical `detail` kept
+  out of the summary). Unknown sections/keys are ignored and reported **once**, aggregated and
+  deduplicated by `warning_summary()`. A snapshot is frozen dataclasses + tuples +
+  `MappingProxyType`, so an operation that captures one at run start cannot have it shift
+  underneath; `get_effective()` caches, `reload()`/`invalidate()` rebuild deterministically.
+  Loading configuration **never creates a directory** — resolving the output base computes a
+  path and nothing more. The module is Tk-free, platform-neutral, takes injected paths for
+  testing, and **never imports `logging_setup`**: retention reads config, so the dependency
+  runs one way only. `logging_setup.configured_max_sessions()` imports config lazily inside
+  the function and falls back to 30 on *any* failure, because logging must always come up.
+  Schema: `project.{name,version,python_min,entry_point,platforms}`, `output.base_directory`,
+  `logging.max_sessions` (1–1000), `importing.large_result_warning_threshold` (validated now;
+  Plan 3 owns the behaviour that consumes it). An empty output base means
+  `~/Downloads/Audiobook-Creation-Tool-Outputs`; a non-empty one must be absolute or `~`-based
+  — a **relative path is rejected** rather than resolved against the working directory, and
+  environment variables are **never** expanded (`%USERPROFILE%`/`$HOME` stay literal, and are
+  therefore rejected as relative). The GUI writes `settings.json` only and **never** rewrites
+  the committed TOML. `settings.reset()` clears every mutable preference atomically and touches
+  nothing else — no `.venv`, model, binary, log, output or source file; clearing downloaded
+  data is a separate, differently confirmed action that does not exist yet.
 - **Windows design system (v0.6.0 Drop 1 — approved 2026-08-02).** A centralized set of
   *semantic* tokens in `shared/ui_theme.py`, consumed only through the theme bundle:
   `_WINDOWS_COLORS` (surfaces window/sidebar/surface/elevated/muted/border/divider, text
@@ -124,7 +166,7 @@ flashing during use.
   retry). Long operations run on worker threads with a Cancel button and a per-tool progress
   indicator (determinate with a percentage where the total is known; indeterminate otherwise —
   e.g. the M4B Maker's single concat/encode); **workers never read Tk variables** (hoisted to
-  the main thread — see DECISIONS/memory), and progress flows the same way: the worker enqueues
+  the main thread — see Decisions.md / memory), and progress flows the same way: the worker enqueues
   `("progress", (done, total))` on its existing queue and only the main-thread drain touches
   the widget.
 - **Outputs are copy-based everywhere:** transforming tools write to a fresh auto-named
@@ -140,9 +182,9 @@ flashing during use.
   Cancel. Edge voices honor all five pause fields in **single-file** conversion; Edge
   **batch folder** mode honors speaker + rate only — inter-sentence pacing there is
   Edge's natural prosody by deliberate decision (a timing-aware batch rewrite was
-  built, measured, and rejected by ear — see DECISIONS.md 2026-07-19). Kokoro voices
+  built, measured, and rejected by ear — see Decisions.md 2026-07-19). Kokoro voices
   honor the paragraph pause (mapped to the inter-chunk gap) and the end-of-recording
-  pause — sentence/title/chapter parity is deliberately deferred (see DECISIONS.md). Dev/QA helper
+  pause — sentence/title/chapter parity is deliberately deferred (see Decisions.md). Dev/QA helper
   `tts/generate_voice_samples.py` writes one short sample per voice to
   `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
 - **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → clean MP3 (libmp3lame VBR),
@@ -202,10 +244,13 @@ Audiobook-Creation-Tool/
 ├── Setup_and_Run-audiobook-creation-tool.bat / .command   ← the ONLY user-facing entry files
 ├── .venv/                      ← auto-built by the bootstrap (gitignored)
 ├── .claude/  .codex/           ← agent wiring
-├── md-instructions/            ← Briefing, CHANGELOG, DECISIONS, handoff (+ temporary drops)
+├── config.toml                 ← committed project defaults (validated by verify.py)
+├── md-instructions/            ← Briefing, Changelog, Decisions, Handoff (+ temporary drops)
 ├── scripts/
 │   ├── requirements.txt        ← single pinned cross-platform list
 │   ├── verify.py               ← mechanical gate: pytest + pinned deps + de-templated docs
+│   │                             + exact canonical doc names (os.listdir, no alias)
+│   │                             + a valid committed config.toml (fails on any diagnostic)
 │   ├── Universal/              ← ALL program code (launcher.py, tts/, mp3_tools/, shared/)
 │   ├── Windows/  MacOS/        ← empty by design (.gitkeep) — only truly OS-specific code
 └── files/                      ← dev-only + runtime (nothing here ships in release zips)
@@ -260,7 +305,7 @@ arm. Four automated tests keep it that way (`test_apply_theme_on_current_platfor
 `test_classic_branch_other_platform`, `test_non_windows_theme_builds_the_unconverted_layout`,
 `test_an_aqua_bundle_builds_the_historical_layout`). **A live macOS re-verification of the
 v0.6.0 line has not been performed** — it is an explicitly approved deferral, not a pass, and
-the exact five-step smoke test is written out in `handoff.md`.
+the exact five-step smoke test is written out in `Handoff.md`.
 
 **Known limitations (documented, not bugs):**
 - **The application is DPI-unaware on Windows — unresolved future work, not finished
@@ -277,6 +322,24 @@ the exact five-step smoke test is written out in `handoff.md`.
   reserved for Plan 9 or an appropriately scoped future plan. Fixing it means a manifest or
   a `SetProcessDpiAwareness` call at startup plus a re-measure of every fixed pixel metric —
   a real behaviour change, deliberately not attempted during the prototype.
+- **The final GUI fit contract (target for Plan 9, binding on all new UI now).** At the
+  reference environments — Windows 11 at 1920×1080 with both 100% and 125% display scaling,
+  plus the approved live macOS reference display — the **maximized** launcher must show each
+  complete tool view **without a whole-panel or whole-form scrollbar where practical**: the
+  bounded configuration sections, primary actions, run controls, progress/status and output
+  location all visible at once. Reach that with adaptive layout (responsive columns, compact
+  spacing, wrapping, collapsible secondary material, local list sizing) rather than by putting
+  a whole tool inside a permanently scrolling canvas. **Scrolling stays valid for genuinely
+  unbounded content** — imported-file lists, book/job collections, chapter-title collections,
+  long metadata/result details, Summary/Details logs, thumbnail browsers — and must be kept
+  *local to that region*, with primary actions, Cancel/Pause/Resume, progress, status and
+  output access still reachable. "Full screen" here means the ordinary window maximized by the
+  OS; it does **not** mean an F11 borderless mode and does **not** change the startup geometry
+  or force auto-maximizing. At the `920×600` minimum no plan promises every variable-length
+  section is simultaneously visible — the requirement is graceful adaptation: no unreachable
+  primary action, no unresolvable overlap, no clipped confirmation button. `MIN_SIZE` and
+  `DEFAULT_GEOMETRY` are unchanged (below). The M4B Metadata Editor's permanently scrolling
+  form is an accepted Plan 1 limitation, not the final target; Plan 9 owns the reflow.
 - **Windows geometry, deliberately unchanged.** `MIN_SIZE = (920, 600)` and
   `DEFAULT_GEOMETRY = "1024x720"` stay as they are. At the 920×600 minimum the **M4B
   Converter's** primary action and Log are still clipped (~19 px and ~108 px bottom + 75 px

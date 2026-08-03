@@ -2,12 +2,123 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 0 COMPLETE. Phases 1–9 are unstarted and pending explicit maintainer approval.**
+PHASE 1 COMPLETE. Phases 2–9 are unstarted and pending explicit maintainer approval.**
 
 Active drop: `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`
 (temporary; deleted only in its approved Phase 9 closeout).
 
 **Branch:** `feature/0.6.0-drop2-config-output-maintenance-foundation`
+**Phase 0 start SHA (= verified `origin/master` at fetch time):**
+`bada8a3dee87acf6a6619252bd31cdee429f1711`
+**Phase 0 commit:** `ca10c5beb8d2ac6a89ce345a7ba96f733de5df42` (approved 2026-08-03)
+**Phase 1 commit:** the branch HEAD created by the Session Sync Log entry below — a commit
+cannot name its own SHA, so read it with
+`git log -1 feature/0.6.0-drop2-config-output-maintenance-foundation`.
+
+### Phase 1 — canonical-file gate and configuration core (2026-08-03, HOME-PC)
+
+**Result: the documentation contract is now mechanically enforced and the configuration core
+exists, with no GUI, no tool-output change and no new dependency.** Ten files changed, four
+added. `version.py` is still `0.5.1`.
+
+#### What was built
+
+| Area | Outcome |
+|---|---|
+| Root `config.toml` | **New, committed, commented, machine-agnostic.** `project.{name,version,python_min,entry_point,platforms}`, `output.base_directory`, `logging.max_sessions`, `importing.large_result_warning_threshold`. Written from the Plan 2 specification; the maintainer's unrelated `config-template.toml` was **not** opened, copied or referenced. |
+| `shared/config.py` | **New, 660 lines.** One typed, immutable `EffectiveConfig` (frozen dataclasses + tuples + `MappingProxyType`) built as **code defaults → valid TOML → allowlisted settings overlay**. Per-key validation, `Diagnostic` records, `warning_summary()` aggregation/deduplication, `get_effective()` / `reload()` / `invalidate()`. Standard-library `tomllib` only. |
+| `shared/settings.py` | Extended narrowly: `reset()`, bool returns from `save()`/`set()`/`update()`, `last_load_error()`, `invalidate()`, and `use_path()` as the test-injection seam. A malformed file is **never rewritten during a load**. |
+| `shared/logging_setup.py` | `configured_max_sessions()` reads `logging.max_sessions` through the effective configuration, importing config **lazily inside the function**, and falls back to 30 on any failure. |
+| `scripts/verify.py` | Canonical `Changelog.md` reference, plus two new checks: `docnames` and `config`. |
+| Tests | Three new files, **133 tests**, all using temporary directories and injected paths. |
+
+#### Precedence and the mutable overlay
+
+`config.SETTINGS_OVERLAY` is the entire allowlist and today contains exactly one entry:
+`output_base_directory` → `output.base_directory`. Known user-state keys (`last_tool`,
+remembered input/cover/output directories, voice, bitrate) stay legitimate settings, are
+skipped silently, and deliberately have **no** invented TOML counterpart. Anything else in
+`settings.json` is ignored with one aggregated diagnostic. A whitelist was chosen over
+name-matching so a future preference cannot silently become a configuration override — see the
+2026-08-03 ADR in `Decisions.md`.
+
+#### The runtime and the gate deliberately disagree
+
+At runtime an invalid value **falls back and warns**, per key, so a user's hand-edit can never
+stop the application starting and one bad key never discards a good neighbour. `verify.py`
+**fails on any diagnostic** from the committed file, because a shipped file that needs a
+fallback is a defect. Both use the same loader, so the two rule sets cannot drift.
+
+#### The casing defect recorded in Phase 0 is fixed — correctly
+
+`scripts/verify.py:34` read `md-instructions/CHANGELOG.md`, a name that has not existed since
+the documents were recased. **The reference was wrong; the files were right**, so the reference
+moved and no document was renamed. The new `docnames` check compares **real directory entries**
+(`os.listdir`) against the exact canonical names rather than calling `Path.exists()`, which is
+what let the defect hide on NTFS. Other active references corrected: `README.md`'s layout tree,
+`Briefing.md`'s pointers and cross-references, and `release.py`'s printed release checklist.
+Left deliberately historical: the archived `files/release-history/*.md` notes, this file's own
+Phase 1–6 Plan 1 entries, the protected `don't-delete/` references, the active drop's own
+instruction text, and the dated `# … see CHANGELOG 2026-07-19` comment in `voice_registry.py`
+(a pointer to a historical entry inside an unrelated tool module).
+
+#### Proof the gate is real, not NTFS luck
+
+`verify.py`'s two new checks take optional paths so the suite can drive them against temporary
+trees — necessary because a case-insensitive filesystem will not let a real alias be staged
+beside its canonical twin. `test_repository_contract.py` proves the gate **fails** on: a
+missing canonical document; `CHANGELOG.md` in place of `Changelog.md`; each lowercase alias; a
+deleted `don't-delete/` reference; a missing `don't-delete/` directory; an invalid committed
+config; project-version drift; malformed TOML; and a missing config file. It also asserts
+`verify.py` holds no stale alias as a real string value (AST-parsed, so the docstring may keep
+explaining the defect without tripping the test that enforces the fix).
+
+#### Verification (repo venv, Python 3.12.10, HOME-PC, Windows 11)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_repository_contract.py` | **40 passed** |
+| `-m pytest -q -rs files/tests/test_config.py` | **68 passed** |
+| `-m pytest -q -rs files/tests/test_settings.py` | **25 passed** |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all theme tests executed |
+| `-m pytest --collect-only -q files/tests/` | **230 collected** (was 97) |
+| `-m pytest -q -rs files/tests/` | **227 passed, 3 skipped, 1 warning** (was 94/3/1) |
+| `scripts/verify.py` | **RESULT: PASS** — pytest, deps, docs, **docnames**, **config** |
+| `-m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | 225 notices, **all** on the three CRLF markdown files; **zero** on any `.py` or `.toml` |
+
+The 1 warning is the pre-existing pydub `audioop` `DeprecationWarning`. The 3 skips are the
+`JACK_RYAN_M4B_FOLDER`-gated tests. **No test was lost:** 97 → 230 collected is +133, exactly
+the new files.
+
+#### `git diff --check`, stated honestly
+
+Every notice is the **inherited CRLF condition** recorded in Phase 0: the blobs GitHub stored
+for `Briefing.md`, `Changelog.md` and `Decisions.md` use CRLF, so each added line reads as
+trailing whitespace. Per the maintainer's Phase 0 decision, no renormalisation was run and no
+formatting pass was performed; the edits inherited each file's existing endings, so the diffs
+stayed line-based (+83 / +67 / +85) instead of becoming whole-file rewrites. **Phase 1
+introduced no new whitespace error** — the check names no `.py`, `.toml` or `README.md` line.
+
+#### What Phase 1 deliberately did not do
+
+No Preferences dialog, no visible configuration-warning presentation, no GUI Reset control, no
+Clear Downloaded Data, no post-exit cleanup, no run reservation, no collision or mirroring
+service, no tool migration, no Cover source-side mode, no M4B Maker custom destination, no
+Plan 3 import behaviour. `shared/paths.py` and all six tool panels are **untouched**;
+`launcher.py` is untouched. `test_repository_contract.py` asserts the launcher gained no
+Preferences/Reset/Cleanup surface and that `config.py` defines no run-reservation or mirroring
+function and performs no filesystem write.
+
+### Next action
+
+**Phase 2 — Preferences, warning presentation, and Reset Preferences.** Not started. It
+requires explicit maintainer approval before any work begins.
+
+---
+
+## Phase 0 record (v0.6.0 Drop 2, approved 2026-08-03)
+
 **Phase 0 start SHA (= verified `origin/master` at fetch time):**
 `bada8a3dee87acf6a6619252bd31cdee429f1711`
 **Local `master`:** fast-forwarded `1da1e547…` → `bada8a3…` (`--ff-only`, no merge commit, no
@@ -1644,6 +1755,40 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 1 — canonical-file gate and configuration core**
+  (HOME-PC). Four files added, eight modified, none deleted or renamed. Added the committed
+  root `config.toml` (written from the plan, never from the maintainer's unrelated
+  `config-template.toml`) and `shared/config.py`: one typed, immutable `EffectiveConfig`
+  resolved as **code defaults → valid `config.toml` → allowlisted mutable overlay**, with
+  per-key validation so one bad value never discards a good neighbour, safe fallback for a
+  missing or malformed file, unknown keys aggregated into one diagnostic, `Diagnostic` records
+  separating the human-readable message from the technical detail, and deterministic
+  `get_effective()` / `reload()` / `invalidate()`. Standard-library `tomllib` only — **no new
+  dependency**. The overlay allowlist is exactly one key (`output_base_directory`); existing
+  user state got no invented TOML counterpart. Output bases: empty means
+  `~/Downloads/Audiobook-Creation-Tool-Outputs`; non-empty must be absolute or `~`-based; a
+  relative path is **rejected** rather than resolved against the cwd; environment variables are
+  **never** expanded. Extended `shared/settings.py` with `reset()`, bool write results,
+  `last_load_error()` and a `use_path()` injection seam — a malformed file is never rewritten
+  during a load. Routed log retention through `logging.max_sessions` with the config import
+  **inside** `configured_max_sessions()` so retention can read config while config never reads
+  logging, falling back to 30 on any failure. **Fixed the Phase 0 casing defect the right way:**
+  `verify.py` now reads `Changelog.md`, and its new `docnames` check compares real directory
+  entries (`os.listdir`) instead of `Path.exists()`, so the NTFS case-insensitivity that hid the
+  bug cannot hide it again; a new `config` check fails on any diagnostic from the committed
+  file. Other active references corrected in `README.md`, `Briefing.md` and `release.py`;
+  archived release-history notes, the protected `don't-delete/` references and this file's own
+  Plan 1 history were left historical on purpose. Added 133 tests across
+  `test_repository_contract.py` (40), `test_config.py` (68) and `test_settings.py` (25), all on
+  temporary directories and injected paths — the suite never touches the maintainer's real
+  settings, Downloads, logs, outputs, `.venv` or model cache, and it proves the gate *fails* on
+  a missing canonical file, every alias, a deleted permanent reference, an invalid config,
+  version drift and malformed TOML. Suite 97 → **230 collected, 227 passed, 3 skipped, 1
+  warning**; theme suite 17/17 executed; `verify.py` **RESULT: PASS** across five checks;
+  `compileall` exit 0. `git diff --check` reports only the inherited CRLF markdown condition —
+  zero new whitespace errors in any `.py` or `.toml`. **No GUI or tool-output behaviour
+  changed**, `shared/paths.py`, `launcher.py` and all six tool panels are untouched, and
+  `version.py` is still `0.5.1`. Phase 2 is not started.
 - 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 0 — reorientation, repository invariants and
   baseline evidence** (HOME-PC). Read `AI-WORKSPACE.md`, the four permanent `don't-delete/`
   planning references, the four canonical docs, and the active drop in full, then inspected the
@@ -2358,6 +2503,59 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 1 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 1 start SHA:** `ca10c5beb8d2ac6a89ce345a7ba96f733de5df42`
+(the approved Phase 0 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (4):**
+- `config.toml` (root) — the committed, commented, machine-agnostic project defaults.
+- `scripts/Universal/shared/config.py` — the typed effective-configuration core.
+- `files/tests/test_config.py` — 68 tests.
+- `files/tests/test_settings.py` — 25 tests.
+- `files/tests/test_repository_contract.py` — 40 tests.
+
+**Files modified (8):**
+- `scripts/verify.py` — canonical `Changelog.md` reference; new `docnames` and `config` checks;
+  both take optional paths so the suite can prove they fail on a broken tree.
+- `scripts/Universal/shared/settings.py` — `reset()`, bool write results, `last_load_error()`,
+  `invalidate()`, `use_path()`; no load-time rewrite of a malformed file.
+- `scripts/Universal/shared/logging_setup.py` — retention from `logging.max_sessions` with a
+  lazy, always-falling-back config read.
+- `scripts/Universal/shared/release.py` — one printed checklist line, `CHANGELOG` →
+  `Changelog.md`. No packaging behaviour changed (that is Phase 8).
+- `README.md` — two lines: the layout tree's doc names, plus the new root `config.toml`.
+- `md-instructions/Briefing.md` — the permanent-filename contract, a new *Configuration*
+  architecture bullet, the final maximized-fit/local-scroll rule, the `shared/` and `verify.py`
+  descriptions, and its own stale cross-references.
+- `md-instructions/Changelog.md` — three `[Unreleased]` entries (Added / Fixed / Added —
+  regression protection). **No v0.6.0 release heading was created.**
+- `md-instructions/Decisions.md` — one newest-first, dated, signed ADR. **No historical entry
+  was rewritten.**
+- `md-instructions/Handoff.md` — this section, the Phase 1 record above, and a Work Log entry.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact and unrenamed; no `CHANGELOG.md` / `DECISIONS.md` / `handoff.md`
+  alias exists — now asserted by both `verify.py` and `test_repository_contract.py`.
+- `md-instructions/don't-delete/` holds all four permanent references, unmoved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` remains **untracked and byte-for-byte unchanged** (blob
+  `94b05edc3211efe531be018fbc442c240df8db42`); it was never opened as a source for
+  `config.toml`, and a test asserts no file under `scripts/` references it.
+- `version.py` unchanged at `0.5.1`; `scripts/requirements.txt` unchanged (no new dependency).
+- `shared/paths.py`, `launcher.py` and all six tool panels untouched.
+
+**Verification:** 230 collected; 227 passed, 3 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS` across five checks; `compileall` exit 0; `git diff --check` clean of
+new errors (inherited CRLF markdown only).
+
+**Next:** Phase 2 (Preferences, warning presentation, Reset Preferences) — **not started**,
+pending explicit maintainer approval. No merge, PR, tag, release, version bump, branch deletion
+or force-push was performed or is authorised.
 
 ### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 0 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
 
