@@ -1,6 +1,166 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
+**v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
+PHASE 0 COMPLETE. Phases 1–9 are unstarted and pending explicit maintainer approval.**
+
+Active drop: `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`
+(temporary; deleted only in its approved Phase 9 closeout).
+
+**Branch:** `feature/0.6.0-drop2-config-output-maintenance-foundation`
+**Phase 0 start SHA (= verified `origin/master` at fetch time):**
+`bada8a3dee87acf6a6619252bd31cdee429f1711`
+**Local `master`:** fast-forwarded `1da1e547…` → `bada8a3…` (`--ff-only`, no merge commit, no
+reset, no stash, no rewrite). Local `master` and `origin/master` are equal.
+
+### Plan 1 ancestry — verified, not assumed
+
+| Required commit | Present in `origin/master` ancestry |
+|---|---|
+| Plan 1 merge (PR #2) `86933e6510c6303cadf3437dc295d000ffa9ee82` | **YES** (`git merge-base --is-ancestor` → 0) |
+| Plan 1 feature head `f3d70e8c9017f2fec3ae459c1438dd71b42f9ef0` | **YES** |
+| Previous local `master` `1da1e547ce85d6e5c8a5b34fb549ffa8b93f6318` | **YES** — so the update was a true fast-forward |
+
+The branch `feature/0.6.0-drop1-windows-ui-prototype` still exists locally and on `origin`
+at `f3d70e8` and was **not** deleted. All ten approved screenshots under
+`files/UI-Prototype-Screenshots/v0.6.0-drop1/` are present and unmodified.
+
+**What the two commits above the Plan 1 merge are.** `origin/master` gained
+`d2d6f0e` ("Delete md-instructions directory") and `bada8a3` ("Add files via upload") after
+PR #2. Inspected commit-by-commit, that pair is the maintainer's GitHub-web rename of the
+documentation to its canonical casing plus the addition of the permanent planning references:
+
+- `CHANGELOG.md` → `Changelog.md`, `DECISIONS.md` → `Decisions.md`, `handoff.md` → `Handoff.md`
+  (`Briefing.md` unchanged in name);
+- new `md-instructions/don't-delete/` holding the Approved Plan Series Map, Decision
+  Register 1–55, and the 2026-07-31 Planning Handoff.
+
+No source, test, or screenshot was touched by either commit. This is the reason the four
+canonical names are now correct in the repository while `scripts/verify.py` still points at
+the old casing — see the baseline defect below.
+
+### Planning artifacts (authorized, now tracked)
+
+Two authorized Plan 2 planning artifacts were placed in the worktree by the maintainer and are
+committed in this Phase 0 commit:
+
+- `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` — the active temporary drop;
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — permanent program index.
+
+The only other untracked worktree item is the pre-existing root `config-template.toml`. It is
+**unrelated user work**: not edited, staged, committed, renamed, copied or used as a source for
+Plan 2's future `config.toml`. It remains untracked and byte-for-byte unchanged.
+
+### Phase 0 baseline evidence (2026-08-03, HOME-PC, repo venv Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all theme tests executed |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_launcher_smoke.py` | 11 passed, 1 warning |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_m4b_metadata_editor_shared.py` | 7 passed |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_m4b_metadata_editor_ui.py` | 12 passed |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_prototype_regression.py` | 12 passed, 1 warning |
+| `.venv\Scripts\python.exe -m pytest --collect-only -q files/tests/` | **97 tests collected** |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/` (full suite) | **94 passed, 3 skipped, 1 warning** |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** (exit 0) — but see the casing defect below |
+| `.venv\Scripts\python.exe -m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+The 1 warning is the pre-existing pydub `audioop` `DeprecationWarning`. The 3 skips are the
+`JACK_RYAN_M4B_FOLDER`-gated tests in `test_jack_ryan_final_product.py`, named by `-rs`. The
+merged-master baseline is therefore **identical** to the Plan 1 closeout baseline
+(94 passed / 3 skipped) — no test was lost by the merge or the documentation rename.
+
+### Baseline defect recorded, NOT fixed in Phase 0
+
+`scripts/verify.py:34` still reads `REPO_ROOT / "md-instructions" / "CHANGELOG.md"`. That file
+name no longer exists — the canonical name is `Changelog.md`. The gate still reports
+`RESULT: PASS` **only because NTFS is case-insensitive**, so `Path("md-instructions/CHANGELOG.md").exists()`
+returns `True` while `"CHANGELOG.md"` is absent from the directory listing. Proven directly:
+
+```
+actual filenames on disk: ['0.6.0-drop2-…md', 'Briefing.md', 'Changelog.md', 'Decisions.md', 'Handoff.md']
+CHANGELOG.md    exists()=True   exact-name-present=False
+DECISIONS.md    exists()=True   exact-name-present=False
+handoff.md      exists()=True   exact-name-present=False
+```
+
+On a case-sensitive filesystem the `docs` check would FAIL. This is a genuine cross-platform
+verification defect and is **Phase 1's** work (drop §5, §8 Phase 1 task 2): fix the reference,
+never rename the document. Phase 0 changed no production code.
+
+### Second baseline finding recorded, NOT fixed in Phase 0 — CRLF in the web-uploaded docs
+
+`git diff --check` (worktree vs index — the gate this drop names) is **clean, exit 0**. But
+`git diff --cached --check` reports 224 whitespace notices on the Phase 0 commit. They are
+**entirely pre-existing**, not introduced here:
+
+- **209 of them are `md-instructions/Handoff.md`** — one per added line. The blob GitHub stored
+  for this file in `bada8a3` uses **CRLF**, because a web upload bypasses the `.gitattributes`
+  `* text=auto` clean filter. `git diff --check` reads each `\r` as trailing whitespace. Every
+  line I added inherited the file's existing CRLF, so the diff stays minimal (209 insertions,
+  **0 deletions**) rather than becoming a whole-file rewrite.
+- **8 + 7 are the two new planning artifacts** — the maintainer's markdown hard-break trailing
+  double-spaces on their header lines, plus one "new blank line at EOF" each. That is authored
+  file content, not damage.
+
+Scale check: `git show bada8a3 --check` emits **9202** notices, against **52** for the
+agent-authored Plan 1 closeout `f3d70e8`. The condition arrived with the web upload.
+
+Deliberately not fixed: normalizing `Handoff.md` to LF would rewrite ~2,800 lines and bury the
+Phase 0 diff, and reformatting the maintainer's planning artifacts exceeds the one factual
+status correction Phase 0 permits. Cosmetic only — CRLF in `.md` breaks nothing on either
+platform. Flagged for the maintainer to decide; a `git add --renormalize md-instructions/`
+in a scoped later phase would clear it in one commit.
+
+### Skills audited for Plan 2
+
+| Skill | Location | Verdict |
+|---|---|---|
+| `audio-processing` | `.claude/skills/audio-processing/SKILL.md` | **Will use** — its copy-first/never-overwrite-in-place rule, `shutil.copy2` + temp-then-replace pattern, and subprocess-list/`shlex.quote` rule map directly onto Plan 2's collision service, the Cover replace-original atomic write, and the launcher/bootstrap cleanup coordination. |
+| `fullstack-bridge-sync` | `.claude/skills/fullstack-bridge-sync/` | **Not applicable** — Python↔TypeScript API contract syncing; this project has no frontend/backend split. |
+| `.codex/skills/` | — | Directory does not exist on this machine; nothing to audit. |
+
+User-scope plugin capabilities (Superpowers, Sequential Thinking, Context7) remain available
+and will be used proportionally where they fit; none was needed for Phase 0. No new skill,
+plugin, or dependency was installed — the drop forbids expanding `.claude/`/`.codex/` scope.
+
+### Implementation surface inspected (read-only, Phase 0)
+
+- `shared/paths.py` — `TOOL_SLUGS` (six stable slugs), `downloads_dir()`, `next_output_dir()`
+  (non-atomic check-then-name, `Downloads/<Tool>-N`, no configurable base), `avoid_input_overwrite()`.
+- `shared/settings.py` — 83 lines; lazy `_cache`, forgiving load, atomic `save()` via
+  `mkstemp`+`os.replace`; **no allowlist, no reset API, no cache invalidation, no diagnostics**.
+- `shared/logging_setup.py` — hard-coded `MAX_SESSIONS = 30`.
+- `shared/bootstrap.py` — 1408 lines, stdlib+Tk only, pre-venv; `--launch-only` fast path and
+  `--self-test`; the correct coordination boundary for post-exit cleanup.
+- `shared/release.py` — packages README + the OS launcher + the whole `scripts/` tree; **no
+  root `config.toml`** is packaged today.
+- `shared/ui_theme.py` — 1076 lines; `DEFAULT_GEOMETRY = "1024x720"`, `MIN_SIZE = (920, 600)`,
+  `WINDOWS_STYLE_PREFIX = "ACT"`, `style_tk_widget`, `enable_mousewheel`, `ProgressIndicator`.
+- `launcher.py` — 573 lines; six-tool registry, three shell branches, no Preferences entry point.
+- Tool panels: TTS (`epub2tts_gui.py:90`), M4B Converter (`:95`), MP3 Tool (`:372`),
+  M4B Maker (`:397`) and M4B Metadata (`:194`) all call `paths.next_output_dir(SLUG)` **at
+  panel-build time**, which is exactly what drop §6.4 requires moving to validated run start.
+  `cover_resizer.py` has **no** run folder at all — it writes beside the source with an
+  `overwrite` checkbox (`:191`), so Plan 2 gives it the standard default plus the approved
+  opt-in source-side mode.
+- Root launchers: `.bat` (78 lines, `pythonw.exe` no-console fast path), `.command` (214 lines).
+- `scripts/verify.py` (168 lines), `.gitignore`, `.gitattributes`, `scripts/requirements.txt`
+  (all `==`-pinned), `files/tests/` (18 test modules + `conftest.py` + the developer-only
+  `manual_windows_ui_prototype.py`).
+
+`version.py` remains `VERSION = "0.5.1"`. No version bump, tag, release, merge, or PR occurred.
+
+### Next action
+
+**Phase 1 — canonical-file gate and configuration core.** Not started. It requires explicit
+maintainer approval before any work begins.
+
+---
+
+## Previous Focus (v0.6.0 Drop 1 — Plan 1, approved 2026-08-02, merged through PR #2)
 **v0.6.0 Drop 1 (Windows UI prototype) — APPROVED 2026-08-02 and CLOSED OUT. PLAN 1 IS
 COMPLETE.** The maintainer replied `APPROVED` to the Phase 5 ten-image matrix and the
 functional evidence. Phase 6 recorded the accepted contract in the permanent docs and
@@ -1484,6 +1644,32 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 0 — reorientation, repository invariants and
+  baseline evidence** (HOME-PC). Read `AI-WORKSPACE.md`, the four permanent `don't-delete/`
+  planning references, the four canonical docs, and the active drop in full, then inspected the
+  whole implementation surface read-only. Fetched `origin` with `--no-prune`, which moved
+  `origin/master` `1da1e54…` → `bada8a3…`; commit-by-commit inspection showed the two new
+  commits are the maintainer's GitHub-web documentation recasing (`CHANGELOG.md`/`DECISIONS.md`/
+  `handoff.md` → `Changelog.md`/`Decisions.md`/`Handoff.md`) plus the three permanent
+  `md-instructions/don't-delete/` references — no source, test or screenshot touched.
+  Verified by `git merge-base --is-ancestor` that `origin/master` contains the Plan 1 merge
+  `86933e6…`, the Plan 1 feature head `f3d70e8…` and the old local head `1da1e547…`, then
+  fast-forwarded local `master` with `--ff-only`. The FF was initially blocked because three
+  `don't-delete/` files sat untracked in the worktree; each was proved **byte-identical** to
+  the incoming blob with `git hash-object` (`7bd35c2`, `b4979cf`, `8076626`), backed up to the
+  session scratchpad, removed, and re-verified identical after the FF wrote them — no user
+  content was altered or lost. Created
+  `feature/0.6.0-drop2-config-output-maintenance-foundation` from the verified `master`
+  (the branch existed neither locally nor on `origin` beforehand; nothing was overwritten).
+  Baseline: 97 collected, **94 passed / 3 skipped / 1 warning**, 17 theme tests all executed,
+  `verify.py` `RESULT: PASS`, `compileall` exit 0, `git diff --check` clean — identical to the
+  Plan 1 closeout baseline, so the merge and rename cost no tests. Recorded (and deliberately
+  did **not** fix) the `scripts/verify.py:34` `CHANGELOG.md` casing defect, proving it is
+  masked only by NTFS case-insensitivity. Audited installed skills: `audio-processing` will be
+  used, `fullstack-bridge-sync` is not applicable, `.codex/skills/` does not exist.
+  **No production code changed**; the commit carries the two authorized planning artifacts plus
+  this file and the master index. The unrelated untracked root `config-template.toml` was left
+  untouched. Phase 1 is not started and awaits explicit maintainer approval.
 - 2026-08-02 — v0.6.0 Drop 1 **APPROVED and CLOSED OUT — Plan 1 is complete** (HOME-PC
   session; final per-phase commit on the implementation branch). The maintainer replied
   `APPROVED` to the ten-image matrix and the functional evidence, with ten explicit
@@ -2172,6 +2358,53 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 0 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** `feature/0.6.0-drop2-config-output-maintenance-foundation`, created from
+`master` @ `bada8a3dee87acf6a6619252bd31cdee429f1711` (= `origin/master`). The branch did not
+exist locally or on `origin` before this session; nothing was overwritten or force-pushed.
+
+**Remote reconciliation:** `git fetch origin --no-prune` → `origin/master` `1da1e54..bada8a3`.
+Local `master` fast-forwarded with `git merge --ff-only` (no merge commit, no reset, no stash,
+no rewrite, no branch deleted). Local `master` == `origin/master` == `bada8a3`.
+
+**Files added (tracked for the first time):**
+- `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` — the authorized active
+  Plan 2 drop (833 lines), placed by the maintainer.
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — permanent program index (336 lines), placed by the maintainer.
+
+**Files changed:**
+- `md-instructions/Handoff.md` — new Plan 2 Current Focus with ancestry proof, planning-artifact
+  status, full baseline evidence, the recorded `verify.py` casing defect, the skill audit, the
+  read-only surface inspection, and the next action; the Plan 1 block demoted to
+  *Previous Focus*; a Work Log entry and this Session Sync Log entry.
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — §5 Plan 2 status row and §15 next-action updated with the real branch and start SHA.
+- `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` — Status line only,
+  corrected from "not yet authorized for implementation" to the authorized/in-progress state.
+
+**Files deleted:** none.
+
+**Production code changed:** **none.** `git diff --name-status bada8a3..HEAD` touches only
+`md-instructions/`. `scripts/`, `files/`, both root launchers, `.gitignore`, `.gitattributes`,
+`README.md` and `version.py` (still `0.5.1`) are untouched.
+
+**Protected-contract checks at commit time:**
+- The four canonical names are exact and unrenamed: `Briefing.md`, `Changelog.md`,
+  `Decisions.md`, `Handoff.md`. No `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` alias exists.
+- `md-instructions/don't-delete/` holds all four permanent references; nothing removed or moved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` remains **untracked and byte-for-byte unchanged**; it is not in
+  the index, the commit, or any diff.
+
+**Verification:** 97 collected; 94 passed, 3 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` clean.
+
+**Next:** Phase 1 (canonical-file gate and configuration core) — **not started**, pending
+explicit maintainer approval. No merge, PR, tag, release, version bump or branch deletion was
+performed or is authorized.
 
 ### 2026-08-02 — HOME-PC — v0.6.0 Drop 1 Phase 6 (approved closeout) — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Base:    `b2e809fe4e25f5aaaef1684b5998bc652374de87` (Phase 5 — the approved evidence SHA).
