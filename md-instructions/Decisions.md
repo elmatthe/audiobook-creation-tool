@@ -4,6 +4,82 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-04 — Cover replacement is gated three ways and installed atomically; the temporary sibling lives beside its source; a custom destination is the user's folder, so cleanup may never remove it
+
+**Decision (v0.6.0 Drop 2, Phase 5).** The two destination exceptions of Decision 10A now
+exist. Five choices behind them.
+
+**1. Replacement needs three independent gates, and each is inert alone.** The
+`Save beside source images` toggle, the `Replace original files` radio, and the per-run
+confirmation. `effective_mode()` is the single place that combines them, and it returns a safe
+mode unless *both* switches are open — so a stale radio behind a switched-off toggle cannot do
+anything, and turning the toggle off actively resets the action. **Why three rather than a
+confirmation alone:** a confirmation is the last thing a user reads, and people click through
+last things. Two deliberate, visible selections mean the dialog is a confirmation of an
+intention the user already expressed, not the first time they learn what is about to happen.
+
+**2. The temporary sibling is written beside the source, not in the system temp directory.**
+An atomic install requires the temporary file and its target on the same filesystem;
+`%TEMP%` frequently is not (a different drive, a different volume). Writing beside the source
+guarantees it. `tempfile.mkstemp` supplies uniqueness atomically, so the name cannot collide
+with the source, another planned temporary, or an unrelated file. The distinctive
+`.act-tmp-` prefix is not decoration: `discard_temporary()` **refuses** any path without it, so
+a cleanup path can never be talked into deleting a user's file.
+
+**3. The order is write → validate → replace, and never delete-then-rename.** The finished
+image is reopened and its dimensions checked *before* it is installed, so a truncated or
+unreadable write cannot reach the original. `os.replace` is atomic on both Windows and POSIX,
+so there is no instant where the original is missing. Delete-then-rename was rejected outright:
+it opens a window where a crash loses the file entirely. Everything before the `os.replace`
+call is recoverable — which is why the failure tests inject at three different points (write,
+validation, replace) and all three assert the original is byte-for-byte intact.
+
+**4. A partial batch tells the truth.** Files already installed stay installed; the run reports
+"N of M original(s) replaced; any not reached are unchanged." The confirmation says the same
+thing in advance. **Why not roll back:** a rollback would need a second copy of every original,
+which is the very duplication the user opted out of by choosing replacement — and a failed
+rollback is worse than an honest report.
+
+**5. Numbered copies start at `-1`, and sequences are per source directory.** Beside a source,
+the unnumbered name *is* the source, so offering it would mean proposing to overwrite the file
+being read; `plan_beside()` therefore starts at index 1 and asserts the result differs from the
+source. Sequences are tracked per directory so two same-named images in different folders each
+get their own `-1` rather than sharing one counter — which is what a user who imported
+`shoot1/cover.jpg` and `shoot2/cover.jpg` expects to see.
+
+**The bug this phase found before it shipped.** Phase 4's cancellation path ran
+`shutil.rmtree(out_dir)` unconditionally. That is correct for a reserved run, which belongs
+entirely to one build — but in the new custom-destination mode `out_dir` **is the folder the
+user chose**, so cancelling a build would have deleted it and everything in it. Cancellation now
+branches on the mode and removes only this operation's own staging and its own partial output.
+Staging in custom mode also moved to an operation-owned `tempfile.mkdtemp()`, so a user's folder
+never sees a `build/` directory or an `ERROR.txt`. **Any future cleanup added to this tool must
+ask the same question first: does this path belong to us, or to the user?**
+
+**Testing note worth keeping.** The confirmation dialog is built by
+`build_replacement_dialog()`, separate from the modal `_ask_replacement()` wrapper, because
+driving a real modal loop headlessly hangs. The wording lives in `replacement_message()` and
+`replacement_button_label()` so the dialog and the suite read the *same* text — a test that
+restated the wording would let the two drift, and this is the one message a user relies on
+before an irreversible action. Real focus cannot be observed on a withdrawn root, so the
+dialog records `default_widget` explicitly and the suite asserts that plus a source-level check
+that `focus_set` targets Cancel and nothing targets Replace.
+
+**Alternatives considered:** a typed confirmation phrase (rejected by the maintainer — the two
+explicit selections, exact count, safe default and labelled destructive button are the approved
+strong confirmation); `messagebox.askyesno` (rejected — a bare Yes/No cannot carry
+"Replace 3 Original Files", and its default is not reliably the safe answer); rolling a partial
+batch back (rejected — see 4); keeping the temporary file in the system temp directory
+(rejected — see 2); allowing replacement of formats that fall back to `.jpg` (rejected — the
+written file would not be the source's name, so it is refused before the dialog with a pointer
+to numbered copies).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md` plus the
+exact confirmation wording supplied for Phase 5, implemented and recorded by Claude Code,
+2026-08-04 (HOME-PC, Windows 11, repo venv Python 3.12.10, ffmpeg and Pillow present)
+
+---
+
 ## 2026-08-03 — The output base is managed only in Preferences; per-tool Browse controls are removed; the Cover overwrite option is disabled until Phase 5 rebuilds it safely
 
 **Decision (v0.6.0 Drop 2, Phase 4).** All six tools now write to

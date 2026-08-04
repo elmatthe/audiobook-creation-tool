@@ -1088,11 +1088,24 @@ def test_the_cleanup_placeholder_is_still_disabled_and_inert():
     assert "command=self.clear" not in source
 
 
-def test_no_cover_source_side_or_maker_custom_destination_exists():
-    for relative in ("mp3_tools/cover_resizer.py", "mp3_tools/m4b_maker.py"):
+def test_the_two_approved_exceptions_exist_and_no_others():
+    """Phase 5 added exactly the two destination exceptions Decision 10A allows."""
+    cover = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py").read_text(
+        encoding="utf-8"
+    )
+    maker = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_maker.py").read_text(
+        encoding="utf-8"
+    )
+    assert "Save beside source images" in cover
+    assert "Create numbered copies" in cover and "Replace original files" in cover
+    assert "Choose custom destination" in maker
+
+    # No third exception route arrived anywhere.
+    for relative in ("mp3_tools/m4b_converter.py", "mp3_tools/mp3_tool.py",
+                     "mp3_tools/m4b_metadata_editor.py", "tts/epub2tts_gui.py"):
         source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
-        assert "Save beside source images" not in source
-        assert "Choose custom destination" not in source
+        assert "Save beside source" not in source
+        assert "custom destination" not in source.lower()
 
 
 def test_no_plan_three_importing_behaviour_arrived():

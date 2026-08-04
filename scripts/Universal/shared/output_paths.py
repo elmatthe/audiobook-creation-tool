@@ -30,6 +30,7 @@ import os
 import re
 import stat
 import sys
+import tempfile
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
@@ -499,12 +500,19 @@ class DestinationPlanner:
                 return False
         return True
 
-    def plan(self, name: str, *, subdir: PurePath | str | None = None) -> Path:
+    def plan(
+        self, name: str, *, subdir: PurePath | str | None = None, start_index: int = 0
+    ) -> Path:
         """Reserve the next free destination for *name* under an optional subdir.
 
         The requested (sanitised) name is tried first; on conflict the plan's
         ``stem-1.ext`` / ``stem-2.ext`` sequence is used. Returns the planned
         path and records it — **no file or directory is created**.
+
+        ``start_index=1`` skips the unnumbered name and begins at ``stem-1.ext``.
+        Cover Image's source-side mode needs that: beside a source, the
+        unnumbered name *is* the source, so offering it would mean proposing to
+        overwrite the very file being read.
         """
         safe_name = sanitize_component(name)
         directory = self.root
@@ -514,12 +522,13 @@ class DestinationPlanner:
                 directory = self.root / relative
         assert_contained(self.root, directory / safe_name)
 
-        candidate = directory / safe_name
-        if self._is_free(candidate):
-            self._taken.add(self._key(candidate))
-            return candidate
+        if start_index <= 0:
+            candidate = directory / safe_name
+            if self._is_free(candidate):
+                self._taken.add(self._key(candidate))
+                return candidate
 
-        for index in range(1, MAX_COLLISION_ATTEMPTS + 1):
+        for index in range(max(1, start_index), MAX_COLLISION_ATTEMPTS + 1):
             candidate = directory / numbered_variant(safe_name, index)
             if self._is_free(candidate):
                 self._taken.add(self._key(candidate))
@@ -786,3 +795,222 @@ def _relative_parent(source: Path, source_root_n: Path) -> PurePath:
             f"{source_n} is not under {source_root_n}",
         ) from None
     return sanitize_relative(PurePath(relative).parent)
+
+
+# --------------------------------------------------------------------------- #
+# The two approved exception roots (v0.6.0 Drop 2 Phase 5)
+# --------------------------------------------------------------------------- #
+#
+# Decision 10A allows exactly two departures from "everything lands in the
+# reserved run": Cover Image writing beside its sources, and the M4B Maker
+# writing straight into a directory the user picked. Both are opt-in, both are
+# expressed here rather than inside a panel, and neither weakens the normal
+# reserved-run rules — assert_no_link_in, assert_not_input and the collision
+# service apply exactly as they do everywhere else.
+
+#: Prefix for plan-owned temporary siblings. Distinctive on purpose: cleanup
+#: must be able to tell its own artifact from a user's file at a glance.
+TEMP_SIBLING_PREFIX = ".act-tmp-"
+
+
+class SourceSidePlanner:
+    """Numbered copies beside each source, tracked per source directory.
+
+    One :class:`DestinationPlanner` per parent directory, so two sources in
+    different folders never share a collision sequence — and two sources in the
+    *same* folder do. Numbering starts at ``stem-1.ext`` because the unnumbered
+    name is the source itself.
+    """
+
+    def __init__(self, *, check_filesystem: bool = True):
+        self._check_filesystem = check_filesystem
+        self._by_directory: dict[str, DestinationPlanner] = {}
+
+    def _planner_for(self, directory: Path) -> DestinationPlanner:
+        key = str(_normalise(directory)).casefold()
+        planner = self._by_directory.get(key)
+        if planner is None:
+            planner = DestinationPlanner(directory, check_filesystem=self._check_filesystem)
+            self._by_directory[key] = planner
+        return planner
+
+    def plan_beside(self, source: Path, *, name: str | None = None) -> Path:
+        """The next free ``stem-N.ext`` beside *source*. Creates nothing.
+
+        ``name`` overrides the filename when the writer will produce a
+        different extension than the source carries.
+        """
+        source = Path(source)
+        planned = self._planner_for(source.parent).plan(
+            name or source.name, start_index=1
+        )
+        if _normalise(planned) == _normalise(source):
+            # Unreachable while start_index=1, but a silent overwrite is the one
+            # outcome this whole class exists to prevent, so assert it.
+            raise UnsafePathError(
+                "a numbered copy would have replaced its own source",
+                f"planned {planned} for source {source}",
+            )
+        return planned
+
+    @property
+    def directory_count(self) -> int:
+        return len(self._by_directory)
+
+
+def temporary_sibling(source: Path, *, suffix: str | None = None) -> Path:
+    """Create a unique, empty, plan-owned temporary file beside *source*.
+
+    Beside it deliberately: an atomic replacement requires the temporary file
+    and its target to share a filesystem, which a system temp directory cannot
+    guarantee. ``mkstemp`` supplies uniqueness atomically, so the name can
+    collide with neither the source, another planned temporary, nor an
+    unrelated existing file.
+
+    The caller owns the returned path and must remove it if the operation does
+    not reach its replacement boundary.
+    """
+    source = Path(source)
+    directory = source.parent
+    if not directory.is_dir():
+        raise UnsafePathError(
+            "the folder holding this image is not available",
+            f"{directory} is not a directory",
+        )
+    if _is_link(directory):
+        raise UnsafePathError(
+            "the folder holding this image is a link, which is not written through",
+            f"{directory} is a symlink or junction",
+        )
+    try:
+        handle, name = tempfile.mkstemp(
+            prefix=f"{TEMP_SIBLING_PREFIX}{source.stem}-",
+            suffix=suffix if suffix is not None else source.suffix,
+            dir=str(directory),
+        )
+    except OSError as exc:
+        raise OutputPathError(
+            f"a temporary file could not be created next to {source.name}",
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+    os.close(handle)
+    return Path(name)
+
+
+def discard_temporary(path) -> bool:
+    """Remove a plan-owned temporary sibling. Never touches anything else.
+
+    Refuses any path that does not carry :data:`TEMP_SIBLING_PREFIX`, so a
+    cleanup path can never be talked into deleting a user's file.
+    """
+    if path is None:
+        return False
+    path = Path(path)
+    if not path.name.startswith(TEMP_SIBLING_PREFIX):
+        raise UnsafePathError(
+            "refusing to remove a file that is not a temporary artifact",
+            f"{path} does not carry the temporary prefix",
+        )
+    try:
+        if _is_link(path):
+            return False
+        path.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def atomic_replace(temporary: Path, target: Path) -> None:
+    """Install *temporary* over *target* in one same-filesystem operation.
+
+    ``os.replace`` is atomic on both Windows and POSIX, so there is never a
+    moment where the target is missing. Deliberately **not** a delete-then-
+    rename: that leaves a window where a crash loses the original outright.
+    """
+    temporary, target = Path(temporary), Path(target)
+    if not temporary.name.startswith(TEMP_SIBLING_PREFIX):
+        raise UnsafePathError(
+            "only a plan-owned temporary file may be installed over a source",
+            f"{temporary} does not carry the temporary prefix",
+        )
+    if _is_link(target):
+        raise UnsafePathError(
+            "the target is a link, which is not replaced",
+            f"{target} is a symlink or junction",
+        )
+    try:
+        os.replace(temporary, target)
+    except OSError as exc:
+        raise OutputPathError(
+            f"{target.name} could not be replaced",
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+
+def validate_source_for_replacement(source: Path) -> Path:
+    """Prove *source* may be replaced in place, or raise :class:`UnsafePathError`.
+
+    Run for every file **before** the confirmation dialog, so the count shown
+    is the count that can actually be processed and a rejected import can never
+    reach the replacement boundary.
+    """
+    source = Path(source)
+    if _is_link(source):
+        raise UnsafePathError(
+            f"{source.name} is a link, which is never replaced in place",
+            f"{source} is a symlink or junction",
+        )
+    if not source.exists():
+        raise UnsafePathError(f"{source.name} no longer exists", str(source))
+    if not source.is_file():
+        raise UnsafePathError(f"{source.name} is not a file", str(source))
+    resolved = _normalise(source)
+    if _is_link(resolved.parent):
+        raise UnsafePathError(
+            f"the folder holding {source.name} is a link",
+            f"{resolved.parent} is a symlink or junction",
+        )
+    return resolved
+
+
+def validate_custom_destination(raw) -> Path:
+    """Prove a user-chosen output directory is usable, or raise.
+
+    Used by the M4B Maker's custom-destination mode. Establishes writability
+    with a plan-owned temporary file that is removed again, so an unrelated
+    file in the user's folder is never created, touched or overwritten.
+    """
+    if raw is None or not str(raw).strip():
+        raise OutputBaseError(
+            "choose a destination folder first", "custom destination was blank"
+        )
+    candidate = Path(str(raw).strip()).expanduser()
+    if not candidate.is_absolute():
+        raise OutputBaseError("the destination must be a full path", f"got {raw!r}")
+    if _is_link(candidate):
+        raise UnsafePathError(
+            "the destination folder is a link, which is not used as an output destination",
+            f"{candidate} is a symlink or junction",
+        )
+    if not candidate.exists():
+        raise OutputBaseError(
+            f"the destination folder does not exist: {candidate}", "missing directory"
+        )
+    if not candidate.is_dir():
+        raise OutputBaseError(
+            f"the destination is a file, not a folder: {candidate}", "not a directory"
+        )
+    resolved = _normalise(candidate)
+    try:
+        handle, probe = tempfile.mkstemp(prefix=TEMP_SIBLING_PREFIX, dir=str(resolved))
+    except OSError as exc:
+        raise OutputBaseError(
+            f"the destination folder cannot be written to: {resolved}",
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+    os.close(handle)
+    try:
+        os.unlink(probe)
+    except OSError:
+        pass
+    return resolved

@@ -15,6 +15,72 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Cover Image source-side modes and M4B Maker custom destination (v0.6.0 Drop 2 Phase 5, 2026-08-04)
+
+> The two destination exceptions Decision 10A allows, both opt-in and both off by default.
+> Standard modes are unchanged and remain the default. `version.py` remains `0.5.1`.
+
+- **Cover Image: `Save beside source images`** replaces the Phase 4 disabled placeholder. It is
+  off on every fresh build, exposes exactly `Create numbered copies` (preselected) and
+  `Replace original files` (never the default), and switching it off resets the action — so a
+  Replace selection cannot survive as a hidden mode. Nothing about it is persisted.
+- **Numbered copies** write beside each source starting at `stem-1.ext`, because beside a source
+  the unnumbered name *is* the source. Collision sequences are tracked **per source directory**,
+  so two same-named images in different folders each get their own `-1`. Sources are never
+  opened for writing, and no standard run is reserved.
+- **Replacement requires three independent gates** — the toggle, the radio, and a per-run
+  confirmation titled *"Confirm replacement of original images"*. Cancel is the focused default,
+  Escape and closing the window cancel, the destructive button is labelled
+  `Replace N Original Files`, the exact captured count is shown, and the dialog is rebuilt every
+  run so nothing can be remembered or suppressed. Declining creates no run, no output and no
+  temporary file.
+- **Replacement is atomic.** Each source is validated *before* the dialog (links, missing files,
+  directories and formats that cannot round-trip in place are refused there). Then a complete
+  `.act-tmp-…` sibling is written **in the source's own directory** — same filesystem, so the
+  install can be atomic — the finished image's size is validated, and only then does
+  `os.replace` install it. **Never delete-then-rename.** A failure or cancellation before that
+  boundary leaves the original byte-for-byte unchanged and removes only this operation's own
+  temporary file. A partial batch reports truthfully: files already installed stay installed.
+- **M4B Maker: `Choose custom destination`.** Off on every fresh build; the path and Browse
+  controls exist only while it is on, and the widget is read in exactly one place, so a stale
+  hidden path cannot steer a standard build. The chosen directory is validated before anything
+  starts — absolute, existing, a directory, not a link, and writable, proved with a temporary
+  probe that is removed again so no user file is created or touched. The finished `.m4b` goes
+  **straight in with no nested `M4B-Maker-N`**, using the same sanitisation and collision
+  numbering as everywhere else. Imported MP3s and the cover image are only ever read.
+- **New shared APIs** in `output_paths.py`: `SourceSidePlanner`, `temporary_sibling()`,
+  `discard_temporary()` (refuses anything without the `.act-tmp-` prefix), `atomic_replace()`
+  (refuses to install a non-temporary file, and refuses a linked target),
+  `validate_source_for_replacement()`, `validate_custom_destination()`, and a `start_index`
+  argument on `DestinationPlanner.plan()`.
+
+### Fixed — cancelling a custom-destination build would have deleted the user's folder (v0.6.0 Drop 2 Phase 5)
+
+- The Phase 4 cancellation path ran `shutil.rmtree(out_dir)` unconditionally, which is correct
+  for a reserved run that belongs entirely to one build — but in the new custom-destination mode
+  `out_dir` **is the folder the user chose**, so cancelling would have destroyed it and
+  everything in it. Cancellation now removes only this operation's own staging directory and its
+  own partial output; the reserved-run branch is unchanged. Found while wiring the custom mode,
+  before it could ship. Covered by a source-level guard test asserting the destructive `rmtree`
+  sits behind the custom-mode check.
+
+### Added — Phase 5 regression coverage (v0.6.0 Drop 2 Phase 5)
+
+- `files/tests/test_cover_source_side.py` (34) — numbered-copy planning and collisions,
+  per-directory independence, duplicate imports, no output-base writes, confirmed replacement,
+  temporary-sibling placement and uniqueness, injected write/validation/replace failures all
+  preserving the original, cancellation, partial-batch truthfulness, no source opened for
+  writing before the boundary, link/missing/directory/unsupported-format refusal, and the full
+  confirmation contract (count, plural, wording, focused Cancel, Escape, window close, fresh
+  dialog per run, no suppression path).
+- `files/tests/test_maker_custom_destination.py` (31) — toggle state and visibility, stale-path
+  inertness, no persistence, every destination-validation rejection, validation failure
+  reserving no run, direct output with no nested run, sanitised titles, existing and planned
+  collisions, the final-suffix rule, containment, staging and cleanup boundaries, source safety,
+  and no Plan 7 behaviour.
+- Phase 4's Cover placeholder tests were superseded by Phase 5 state tests, and two Phase 4
+  scope guards were retargeted from "no exceptions exist" to "exactly these two exist".
+
 ### Changed — all six tools now write to the configured output base (v0.6.0 Drop 2 Phase 4, 2026-08-03)
 
 > **This changes where finished files appear.** Standard outputs move from

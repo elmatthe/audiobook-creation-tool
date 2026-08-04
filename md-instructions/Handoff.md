@@ -2,7 +2,100 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 4 COMPLETE. Phases 5–9 are unstarted and pending explicit maintainer approval.**
+PHASE 5 COMPLETE. Phases 6–9 are unstarted and pending explicit maintainer approval.**
+
+### Phase 5 — Cover Image and M4B Maker exceptions (2026-08-04, HOME-PC)
+
+**Result: both Decision 10A exceptions exist, opt-in and off by default, with the standard
+modes unchanged.** Two files added, six modified. `version.py` is still `0.5.1`.
+
+**Phase 5 start SHA:** `abdd1cfa10f4ceb9f666bf4455169bdaddac300e` (approved Phase 4).
+
+#### Cover Image
+
+| Aspect | Behaviour |
+|---|---|
+| Toggle | `Save beside source images`, **off on every fresh build**, nothing persisted |
+| Choices | `Create numbered copies` (preselected) / `Replace original files` (never default) |
+| Turning off | Resets the action, so a Replace selection cannot survive as a hidden mode |
+| Numbered | `stem-1.ext` beside each source, per-directory collision sequences |
+| Replace gates | toggle **and** radio **and** per-run confirmation — each inert alone |
+| Confirmation | Title *"Confirm replacement of original images"*, exact count, focused Cancel, Escape/close cancel, `Replace N Original Files`, rebuilt every run |
+| Pre-validation | Links, missing files, directories and non-round-trippable formats refused **before** the dialog |
+| Install | complete `.act-tmp-…` sibling → validate size → `os.replace`. **Never delete-then-rename** |
+| Failure | original byte-for-byte unchanged; only this operation's temporary file removed |
+| Partial batch | truthful: "N of M original(s) replaced; any not reached are unchanged" |
+
+#### M4B Maker
+
+Toggle `Choose custom destination`, off on every fresh build; path and Browse revealed only
+while on; `custom_destination()` is the single read point, so a stale hidden path cannot steer
+a standard build. Validation (absolute, existing, directory, not a link, writable via a probe
+that is removed again) runs before anything starts, and a failure reserves **no** run. Output
+goes straight in with **no nested `M4B-Maker-N`**, using the shared sanitiser and collision
+numbering. Staging moved to an operation-owned `tempfile.mkdtemp()`.
+
+#### The bug this phase found before it shipped
+
+Phase 4's cancellation ran `shutil.rmtree(out_dir)` unconditionally. Correct for a reserved run
+— but in custom mode `out_dir` **is the user's own folder**, so cancelling a build would have
+deleted it and everything in it. Cancellation now branches on the mode and removes only this
+operation's staging and its own partial output. A source-level guard test asserts the
+destructive `rmtree` sits behind the custom-mode check.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_cover_source_side.py` | **33 passed, 1 skipped** |
+| `-m pytest -q -rs files/tests/test_maker_custom_destination.py` | **31 passed** |
+| `-m pytest -q files/tests/test_tool_output_integration.py` | **70 passed** |
+| `-m pytest -q -rs files/tests/test_output_paths.py` | 143 passed, 1 skipped |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** |
+| `-m pytest -q -rs files/tests/` | **569 passed, 5 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean |
+
+**Against the Phase 4 baseline (503 collected / 499 passed / 4 skipped):** 574 collected now,
++71. That is +34 Cover source-side, +31 Maker custom destination, +7 net in
+`test_tool_output_integration.py` (five Phase 4 placeholder tests replaced by five Phase 5
+state tests, two Phase 4 guards replaced by two Phase 5 guards, plus five new), and −1 in
+`test_output_paths.py` (two exception guards merged into one). The fifth skip is new: the
+Cover link-refusal test needs a **file** symlink, which this account cannot create.
+
+#### Live Windows fixture verification — PASSED (2026-08-04, HOME-PC, real ffmpeg + Pillow)
+
+Temporary output base, generated images and tones, settings redirected to a temp file.
+
+| Check | Observed |
+|---|---|
+| Cover standard | `Cover-Image-Outputs/Cover-Image-1` → `cover.jpg`; source folder unchanged |
+| Cover numbered ×2 | `art-1.jpg` then `art-2.jpg` beside the source; original unchanged |
+| Cover replacement | confirmation asked for 1 file (`Replace 1 Original File`); image went 400×200 → 64×64; neighbour `keep-me.png` untouched |
+| Cover failed replacement | injected failure before the boundary → original **and** sibling byte-identical, **no** `.act-tmp-` file left |
+| Maker standard | `M4B-Maker-Outputs/M4B-Maker-1` → `Standard Book.m4b` |
+| Maker custom ×2 | `My_Book__Title.m4b` then `My_Book__Title-1.m4b` **directly** in the chosen folder; `pre-existing.txt` kept; **no nested run** |
+| Exception modes | final base tree contains **only** `Cover-Image-1` and `M4B-Maker-1` — no unused standard runs |
+| All sources | mp3, cover and image fixtures byte-identical except the one deliberately replaced disposable copy |
+
+#### Still pending — not claimed as passed
+
+1. **Windows 125% display scaling** — deferred to the later manual-validation phase.
+2. **Live macOS** — explicit deferral.
+3. **Phase 2 screenshot evidence** — assigned to Phase 8.
+4. **TTS live synthesis** — still pending, unchanged and untouched by this phase.
+
+### Next action
+
+**Phase 6 — downloaded-data inventory and confirmation UI.** Not started. It requires explicit
+maintainer approval before any work begins.
+
+---
+
+## Phase 4 record (v0.6.0 Drop 2, approved 2026-08-04)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 4 COMPLETE.**
 
 ### Phase 4 — standard output integration across all six tools (2026-08-03, HOME-PC)
 
@@ -2060,6 +2153,40 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-04 — v0.6.0 Drop 2 (Plan 2) **Phase 5 — Cover Image and M4B Maker exceptions**
+  (HOME-PC). Implemented both Decision 10A destination exceptions, opt-in and off by default,
+  leaving the Phase 4 standard modes untouched. Cover Image's disabled placeholder became a real
+  `Save beside source images` toggle with exactly two choices; replacement needs **three
+  independent gates** — toggle, radio and a per-run confirmation — and `effective_mode()` is the
+  single place that combines them, so either switch alone yields a safe mode. Numbered copies
+  use the new `SourceSidePlanner`, which starts at `stem-1.ext` (beside a source the unnumbered
+  name *is* the source) and keeps a separate collision sequence per source directory. Every
+  source is validated before the dialog, so the count shown is the count that can be processed
+  and links, missing files, directories and formats that cannot round-trip in place are refused
+  there rather than mid-run. Replacement writes a complete `.act-tmp-…` sibling **in the
+  source's own directory** so the install can be atomic, validates the finished image's size,
+  then calls `os.replace` — never delete-then-rename — and a failure at any of those three
+  points leaves the original byte-for-byte unchanged with only this operation's temporary file
+  removed. `discard_temporary()` refuses any path lacking the prefix, so cleanup cannot be
+  talked into deleting a user's file. A partial batch reports truthfully. M4B Maker gained
+  `Choose custom destination`: controls revealed only while on, one read point so a stale hidden
+  path cannot steer a standard build, full pre-validation (absolute, existing, directory, not a
+  link, writable via a probe that is removed again), direct output with **no nested
+  `M4B-Maker-N`**, and staging moved to an operation-owned `tempfile.mkdtemp()`. **Found and
+  fixed a serious bug before it shipped:** Phase 4's cancellation ran `shutil.rmtree(out_dir)`
+  unconditionally, which in custom mode would have deleted the *user's own folder* and
+  everything in it; cancellation now branches on the mode and removes only operation-owned
+  artifacts. Added `test_cover_source_side.py` (34) and `test_maker_custom_destination.py` (31);
+  Phase 4's Cover placeholder tests were superseded and two scope guards retargeted from "no
+  exceptions exist" to "exactly these two exist". Suite 503 → **574 collected, 569 passed, 5
+  skipped, 1 warning** (the new skip is the Cover file-symlink refusal, which needs a privilege
+  this account lacks); theme 17/17; `verify.py` **RESULT: PASS**; `compileall` exit 0;
+  `git diff --check` clean. Live Windows fixture pass on disposable generated fixtures across
+  all six checks, including an injected pre-boundary failure that left the original and its
+  sibling byte-identical with no temporary file left behind, and a final base tree proving the
+  exception modes reserved **no** standard runs. **Pending, not claimed:** 125% scaling, live
+  macOS, Phase 8 screenshots, and TTS live synthesis (untouched by this phase). Phase 6 is not
+  started.
 - 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 4 — standard output integration across all six
   tools** (HOME-PC). Stopped first at the §G blocker (the drop never rules on Cover Image's
   already-shipped destructive `Overwrite original files` checkbox during migration) and resumed
@@ -2916,6 +3043,49 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-04 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 5 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 5 start SHA:** `abdd1cfa10f4ceb9f666bf4455169bdaddac300e`
+(the approved Phase 4 head, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (2):**
+- `files/tests/test_cover_source_side.py` — 34 tests.
+- `files/tests/test_maker_custom_destination.py` — 31 tests.
+
+**Files modified (6):**
+- `scripts/Universal/shared/output_paths.py` — `SourceSidePlanner`, `temporary_sibling()`,
+  `discard_temporary()`, `atomic_replace()`, `validate_source_for_replacement()`,
+  `validate_custom_destination()`, and `start_index` on `DestinationPlanner.plan()`.
+- `scripts/Universal/mp3_tools/cover_resizer.py` — the source-side toggle and two choices, the
+  confirmation dialog and its wording helpers, `written_suffix()`, the reworked worker.
+- `scripts/Universal/mp3_tools/m4b_maker.py` — the custom-destination toggle, validation,
+  direct output, operation-owned staging, and the corrected cancellation branch.
+- `files/tests/test_tool_output_integration.py`, `files/tests/test_output_paths.py` —
+  phase-boundary updates.
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 5
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact; no alias. `md-instructions/don't-delete/` intact (4 files).
+- All ten Plan 1 screenshots unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged
+  (`94b05edc3211efe531be018fbc442c240df8db42`, verified at start and at commit).
+- Root `config.toml` unchanged, valid and machine-agnostic.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- Preferences, launch warnings and the disabled Clear Downloaded Data placeholder unchanged.
+- No cleanup coordinator, no post-exit behaviour, no Phase 6 catalog.
+
+**Verification:** 574 collected; 569 passed, 5 skipped, 1 warning; theme 17/17;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` clean. Live Windows fixture
+pass on disposable fixtures. 125% scaling, live macOS, Phase 8 screenshots and TTS live
+synthesis remain **pending**, not passed.
+
+**Next:** Phase 6 (downloaded-data inventory and confirmation UI) — **not started**, pending
+explicit maintainer approval.
 
 ### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 4 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
 

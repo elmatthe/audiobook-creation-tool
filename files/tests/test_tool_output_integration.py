@@ -352,12 +352,13 @@ def test_maker_staging_stays_inside_its_run(output_base):
     assert op.assert_contained(reservation.run_directory, staging / "chapters.ffmeta.txt")
 
 
-def test_maker_has_no_custom_destination_feature():
+def test_maker_has_no_output_base_bypass():
+    """Phase 5 added the custom destination; the base-bypassing browse stays gone."""
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_maker.py").read_text(
         encoding="utf-8"
     )
-    assert "Choose custom destination" not in source
-    assert "choose_outdir" not in source
+    assert "choose_outdir" not in source, "the old output-folder browse must stay removed"
+    assert "Choose custom destination" in source
 
 
 # --------------------------------------------------------------------------- #
@@ -365,35 +366,67 @@ def test_maker_has_no_custom_destination_feature():
 # --------------------------------------------------------------------------- #
 
 
-def test_cover_overwrite_placeholder_is_visible_and_disabled(fresh_root, output_base):
+def test_cover_source_side_toggle_is_off_on_a_fresh_build(fresh_root, output_base):
+    """Phase 5 replaced the disabled placeholder with a real, safe-by-default toggle."""
     from mp3_tools import cover_resizer
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
-    assert ui.chk_overwrite.winfo_manager(), "the control must stay visible"
-    assert str(ui.chk_overwrite.cget("state")) == "disabled"
-    assert "available in a later update" in str(ui.chk_overwrite.cget("text"))
+    assert ui.chk_source_side.cget("text") == cover_resizer.SOURCE_SIDE_LABEL
+    assert ui.var_source_side.get() is False
+    assert ui.var_source_action.get() == cover_resizer.ACTION_NUMBERED
+    assert ui.effective_mode() == cover_resizer.MODE_STANDARD
 
 
-def test_cover_overwrite_variable_starts_and_stays_false(fresh_root, output_base):
+def test_cover_choices_are_disabled_until_the_mode_is_enabled(fresh_root, output_base):
     from mp3_tools import cover_resizer
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
-    assert ui.var_overwrite.get() is False
-    ui.disable_inputs(True)
-    assert str(ui.chk_overwrite.cget("state")) == "disabled"
-    ui.disable_inputs(False)
-    assert str(ui.chk_overwrite.cget("state")) == "disabled", "must not re-enable when idle"
-    assert ui.var_overwrite.get() is False
+    assert str(ui.rb_numbered.cget("state")) == "disabled"
+    assert str(ui.rb_replace.cget("state")) == "disabled"
+
+    ui.var_source_side.set(True)
+    ui._on_source_side_change()
+    assert str(ui.rb_numbered.cget("state")) == "normal"
+    assert str(ui.rb_replace.cget("state")) == "normal"
 
 
-def test_cover_captured_worker_parameter_is_forced_false():
-    """Not merely a disabled widget: the captured parameter is a literal."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py").read_text(
-        encoding="utf-8"
-    )
-    assert '"overwrite": False,' in source
-    assert '"overwrite": self.var_overwrite.get()' not in source
-    assert "self.var_overwrite.set(False)" in source
+def test_cover_turning_the_mode_off_discards_a_replace_selection(fresh_root, output_base):
+    from mp3_tools import cover_resizer
+
+    ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
+    ui.var_source_side.set(True)
+    ui._on_source_side_change()
+    ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
+    assert ui.effective_mode() == cover_resizer.ACTION_REPLACE
+
+    ui.var_source_side.set(False)
+    ui._on_source_side_change()
+    assert ui.var_source_action.get() == cover_resizer.ACTION_NUMBERED
+    assert ui.effective_mode() == cover_resizer.MODE_STANDARD
+
+
+def test_cover_rebuilding_the_panel_never_restores_replacement(fresh_root, output_base):
+    from mp3_tools import cover_resizer
+
+    first = cover_resizer.build_ui(ttk.Frame(fresh_root))
+    first.var_source_side.set(True)
+    first.var_source_action.set(cover_resizer.ACTION_REPLACE)
+
+    second = cover_resizer.build_ui(ttk.Frame(fresh_root))
+    assert second.var_source_side.get() is False
+    assert second.var_source_action.get() == cover_resizer.ACTION_NUMBERED
+    assert second.effective_mode() == cover_resizer.MODE_STANDARD
+
+
+def test_cover_replacement_is_not_persisted_as_a_preference(fresh_root, output_base):
+    from mp3_tools import cover_resizer
+
+    ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
+    ui.var_source_side.set(True)
+    ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
+    stored = app_settings.all_settings()
+    assert not any("replace" in str(k).lower() or "replace" in str(v).lower()
+                   for k, v in stored.items())
 
 
 def test_cover_standard_output_goes_only_into_the_reserved_run(output_base, tmp_path):
@@ -427,37 +460,53 @@ def test_cover_leaves_imported_originals_untouched(output_base, tmp_path):
     assert cover_resizer.next_version_path  # dormant legacy helper still importable
 
 
-def test_cover_has_no_phase_five_source_side_interface():
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py").read_text(
-        encoding="utf-8"
-    )
-    for phase_five in ("Save beside source images", "Create numbered copies",
-                       "Replace original files", "askyesno", "askokcancel"):
-        assert phase_five not in source, phase_five
+def test_cover_replacement_requires_all_three_gates(fresh_root, output_base, tmp_path):
+    """The Phase 4 "unreachable" guard becomes the Phase 5 three-gate guard."""
+    from mp3_tools import cover_resizer
+
+    Image = pytest.importorskip("PIL.Image")
+    src = tmp_path / "src" / "cover.jpg"
+    src.parent.mkdir(parents=True)
+    Image.new("RGB", (80, 40), (10, 20, 30)).save(src)
+
+    ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
+    ui.files = [src]
+
+    # Gate 1 closed: the radio alone is inert.
+    ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
+    assert ui.effective_mode() == cover_resizer.MODE_STANDARD
+
+    # Gate 2 closed: the toggle alone yields numbered copies.
+    ui.var_source_side.set(True)
+    ui.var_source_action.set(cover_resizer.ACTION_NUMBERED)
+    assert ui.effective_mode() == cover_resizer.ACTION_NUMBERED
+
+    # Both open: still only *reaches* the confirmation, which gate 3 owns.
+    ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
+    assert ui.effective_mode() == cover_resizer.ACTION_REPLACE
 
 
-def test_cover_replacement_is_unreachable_from_the_phase_four_path():
-    """The dormant branch exists but nothing can select it.
+def test_cover_declining_confirmation_starts_nothing(fresh_root, output_base, tmp_path,
+                                                     monkeypatch):
+    from mp3_tools import cover_resizer
 
-    Every ``"overwrite"`` entry in a captured parameter dict must be the
-    literal ``False`` — not a widget read — so re-enabling the checkbox alone
-    could never route an operation into the source-side branch.
-    """
-    import ast
+    Image = pytest.importorskip("PIL.Image")
+    src = tmp_path / "src" / "cover.jpg"
+    src.parent.mkdir(parents=True)
+    Image.new("RGB", (80, 40), (10, 20, 30)).save(src)
+    before = src.read_bytes()
 
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py").read_text(
-        encoding="utf-8"
-    )
-    captured = []
-    for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, ast.Dict):
-            continue
-        for key, value in zip(node.keys, node.values):
-            if isinstance(key, ast.Constant) and key.value == "overwrite":
-                captured.append(value)
-    assert captured, "the overwrite parameter must be captured explicitly"
-    for value in captured:
-        assert isinstance(value, ast.Constant) and value.value is False, ast.dump(value)
+    ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
+    ui.files = [src]
+    ui.var_source_side.set(True)
+    ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
+    monkeypatch.setattr(ui, "confirm_replacement", lambda count: False)
+
+    ui.start_resize()
+    assert src.read_bytes() == before
+    assert not output_base.exists(), "declining must not reserve a run"
+    strays = [p.name for p in src.parent.iterdir()]
+    assert strays == ["cover.jpg"], strays
 
 
 # --------------------------------------------------------------------------- #
@@ -806,8 +855,9 @@ def test_the_cover_worker_writes_only_into_its_run(output_base, tmp_path):
     reservation = op.reserve_run_directory("cover")
     host = _Q()
     cover_resizer.CoverResizerUI.resize_worker(host, {
-        "size": 64, "letterbox": True, "overwrite": False, "files": [a, b],
-        "run_dir": reservation.run_directory, "planner": reservation.planner(),
+        "size": 64, "letterbox": True, "mode": cover_resizer.MODE_STANDARD,
+        "files": [a, b], "run_dir": reservation.run_directory,
+        "planner": reservation.planner(), "source_planner": None,
     })
 
     produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())

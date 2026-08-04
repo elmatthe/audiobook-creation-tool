@@ -142,14 +142,37 @@ flashing during use.
   Clear All Tags and Remove Series Numbering — and staging (`build/`, WAV normalisation,
   ffmetadata) stays inside that run, so cleanup can never reach another run, the tool parent or
   the base.
-  **Cover Image, Phase 4 disposition:** standard resizes go to the reserved run; nothing is
-  written beside a source any more. The legacy *"Overwrite original files"* control is visible
-  but **disabled**, its variable forced `False`, and the captured worker parameter is the
-  literal `False` rather than a widget read — so re-enabling the checkbox alone could not route
-  an operation into the source-side branch. `next_version_path()` and that branch are dormant
-  legacy code reserved for **Phase 5**, which owns the complete safe redesign (deliberate mode
-  toggle, explicit numbered-copy/replace choice, strong per-run confirmation, atomic
-  replacement).
+- **The two destination exceptions (v0.6.0 Drop 2 Phase 5).** Decision 10A allows exactly two
+  departures from "everything lands in the reserved run", both opt-in and both expressed in
+  `shared/output_paths.py` rather than inside a panel.
+  **Cover Image — `Save beside source images`.** Off on every fresh build, with
+  `Create numbered copies` preselected and `Replace original files` never the default; turning
+  the toggle off resets the action, so a Replace selection cannot survive as a hidden mode.
+  *Numbered copies* use `SourceSidePlanner`, which keeps one collision sequence **per source
+  directory** and starts at `stem-1.ext` — beside a source the unnumbered name *is* the source.
+  *Replacement* needs three independent gates: the toggle, the radio, and a per-run
+  confirmation ("Confirm replacement of original images") whose Cancel is the focused default,
+  where Escape and closing both cancel, and which is rebuilt every run so nothing can be
+  remembered or suppressed. Every source is validated **before** the dialog, so the count shown
+  is the count that can be processed; links, missing files, directories and formats the writer
+  cannot round-trip in place (anything outside `.jpg/.jpeg/.png/.heic/.heif`, which fall back
+  to `.jpg`) are refused there rather than mid-run. Each replacement writes a complete
+  `.act-tmp-…` sibling in the source's own directory — same filesystem, so the install can be
+  atomic — validates the finished image's size, then calls `os.replace`. **Never
+  delete-then-rename.** A failure or cancellation before that boundary leaves the original
+  byte-for-byte unchanged and removes only this operation's own temporary file;
+  `discard_temporary()` refuses any path lacking the temporary prefix. A partial batch reports
+  truthfully: files already installed stay installed.
+  **M4B Maker — `Choose custom destination`.** Off on every fresh build; the path and Browse
+  controls exist only while it is on, and `custom_destination()` is the single place the widget
+  is read, so a stale hidden path cannot steer a standard build. The chosen directory is
+  validated before anything starts (absolute, existing, a directory, not a link, writable —
+  proved with a temporary probe that is removed again, so no user file is created or touched)
+  and a validation failure reserves **no** run. The finished `.m4b` goes straight in, with the
+  usual sanitisation and collision numbering and **no nested `M4B-Maker-N`**. Staging moves to
+  an operation-owned `tempfile.mkdtemp()` so the user's folder is never littered, and — the
+  important one — cancellation no longer `rmtree`s `out_dir`, because in custom mode that is
+  the user's own folder; it removes only this operation's staging and its own partial output.
   **Planning is pure; materialisation is explicit.** Every `plan_*` function, the sanitizer and
   the collision service compute paths and touch nothing. Only `ensure_output_base()` and
   `reserve_run_directory()` create anything, and only directories — never a file, never
