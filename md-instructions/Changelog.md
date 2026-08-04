@@ -15,6 +15,69 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — all six tools now write to the configured output base (v0.6.0 Drop 2 Phase 4, 2026-08-03)
+
+> **This changes where finished files appear.** Standard outputs move from
+> `Downloads/<Tool>-N` to `<output base>/<Tool>-Outputs/<Tool>-N/`, where the base defaults to
+> `Downloads/Audiobook-Creation-Tool-Outputs` and is changed in Preferences & Data. No release
+> has shipped; `version.py` remains `0.5.1`.
+
+- **Every output-producing action reserves its own run at validated start.** TTS Convert, M4B
+  Converter Convert, MP3 Tool Combine / Time Edit / Write ID3, M4B Maker Build, Cover Image
+  Resize, and the M4B Metadata Editor's Write Tags / Clear All Tags / Remove Series Numbering
+  each reserve one atomic run directory **after** their inputs validate. Opening the launcher,
+  building a panel, importing, browsing, switching tools or failing validation now creates
+  **no directory at all** — previously five panels picked a `Downloads/<Tool>-N` number at
+  `build_ui()` time and froze it for the whole session.
+- **Duplicate filenames can no longer overwrite each other.** All six tools plan destinations
+  through the shared batch planner, so two imports with the same name from different folders
+  produce `Book.mp3` and `Book-1.mp3`. The old `avoid_input_overwrite()` guarded only against
+  writing *onto an input*, so this was a real silent-overwrite hole in the Converter, MP3 Tool
+  and Metadata Editor.
+- **Filenames go through one central sanitiser.** M4B Maker's local regex is gone; titles like
+  `My<Book>:Title` become `My_Book__Title.m4b`, with Windows reserved names, control
+  characters, trailing dots/spaces and length limits handled the same way everywhere.
+- **Staging is contained.** MP3 Tool combine staging moved from `edited_mp3s-N` beside a
+  user-chosen save path into the operation's own reserved run; M4B Maker's `build/` and the
+  editor's copies were already per-run and now provably cannot reach another run, the tool
+  parent or the output base.
+- **Per-tool output Browse controls removed.** The output base is managed in Preferences & Data;
+  a per-panel override would bypass it. Each panel now shows its tool folder read-only and
+  names the actual reserved run once an operation starts. Input and cover folder history is
+  unchanged. The M4B Maker's opt-in custom destination remains Phase 5 work.
+- **Cover Image no longer writes beside your source images.** Standard resizes land in the
+  reserved run. The *"Overwrite original files"* control is now **visible but disabled** and
+  captioned *"available in a later update"*, its variable forced `False` and the captured
+  worker parameter a literal `False`. Phase 5 owns the safe redesign — deliberate source-side
+  mode, explicit numbered-copy/replace choice, strong per-run confirmation, atomic replacement.
+- `paths.next_output_dir()` and `paths.avoid_input_overwrite()` are retained as documented
+  dormant compatibility API; **nothing in the shipped tree calls either**, and a test enforces
+  that. `mp3_tool.next_available_folder()` and `BASE_OUTPUT_DIRNAME` were removed outright.
+
+### Fixed — `stem` reference orphaned during the Converter migration (v0.6.0 Drop 2 Phase 4)
+
+- Routing the M4B Converter through the shared planner removed the local `stem` assignment
+  while the metadata fallback title still referenced it, so every conversion failed with
+  `name 'stem' is not defined` and produced no output. Caught by driving the **real worker** on
+  a generated fixture — every planner-level test passed. `files/tests/test_tool_output_integration.py`
+  now runs the actual Converter, Time Edit and Cover workers so this class of regression cannot
+  pass again.
+
+### Added — Phase 4 integration coverage (v0.6.0 Drop 2 Phase 4)
+
+- `files/tests/test_tool_output_integration.py` (68 tests): nothing created by launcher
+  startup, panel construction, tool switching or opening Preferences; no panel promises an
+  unreserved run number; per-tool parents; sequential and 6-thread concurrent reservation;
+  captured snapshots surviving a mid-run preference change; per-tool destination, collision and
+  containment behaviour; the Cover placeholder's disabled state, forced-`False` variable and
+  literal captured parameter; AST guards that reservation happens only in action handlers and
+  that no Phase 5/6/7 or Plan 3 behaviour arrived; and real-worker runs for the Converter, MP3
+  time-edit and Cover Image on generated fixtures.
+- Existing tests updated for the new phase boundary: the Plan 1 editor surface lists drop
+  `btn_browse_out`/`choose_outdir`, the copy-only collision assertions expect the approved
+  `stem-1.ext` numbering, and the Phase 3 "no tool consumes the service" guards were inverted
+  to "every tool consumes it".
+
 ### Added — shared output reservation, collision and mirroring services (v0.6.0 Drop 2 Phase 3, 2026-08-03)
 
 > Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`.

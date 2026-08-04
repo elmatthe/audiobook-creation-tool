@@ -2,7 +2,111 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 3 COMPLETE. Phases 4–9 are unstarted and pending explicit maintainer approval.**
+PHASE 4 COMPLETE. Phases 5–9 are unstarted and pending explicit maintainer approval.**
+
+### Phase 4 — standard output integration across all six tools (2026-08-03, HOME-PC)
+
+**Result: every tool now writes to `<output base>/<Tool>-Outputs/<Tool>-N/`, reserved at
+validated operation start.** One file added, ten modified. `version.py` is still `0.5.1`.
+
+**Phase 4 start SHA:** `10819f1b7cc0d7ddb1b8c51ae870a44c694a3fdc` (approved Phase 3).
+
+#### The §G blocker and its ruling
+
+Phase 4 stopped before any edit because the drop specifies Cover Image's Phase 4 default and
+its Phase 5 source-side mode but never rules on the **already-shipped destructive
+`Overwrite original files` checkbox** in between. The maintainer approved **Option A**: keep it
+visible but disabled, captioned *"available in a later update"*. Implemented past the widget
+state on purpose — `var_overwrite` forced `False` **and** the captured worker parameter is the
+literal `False`, so re-enabling the checkbox alone cannot reach the source-side branch.
+
+#### Per-tool disposition
+
+| Tool | Destination | Notes |
+|---|---|---|
+| TTS Audiobook | `TTS-Audiobook-Outputs/TTS-Audiobook-N` | Reserved in `run_job` after input validation. Mirroring, voices, timing, retry untouched. |
+| M4B Converter | `M4B-Converter-Outputs/M4B-Converter-N` | Batch planner; duplicate stems now number instead of overwriting. Decoder/xHE-AAC untouched. |
+| MP3 Tool | `MP3-Tool-Outputs/MP3-Tool-N` | **Three** reservations — combine, time edit, ID3 — each its own run. Combine staging moved from `edited_mp3s-N` into the run. Time-only-through-Write-ID3 preserved. |
+| M4B Maker | `M4B-Maker-Outputs/M4B-Maker-N` | Local sanitise regex replaced by the central sanitiser; `build/` staging inside the run. |
+| Cover Image | `Cover-Image-Outputs/Cover-Image-N` | No longer writes beside sources. Overwrite control disabled per Option A. |
+| M4B Metadata | `M4B-Metadata-Outputs/M4B-Metadata-N` | Plan-before-copy; copy-only contract intact; `avoid_input_overwrite` gone. |
+
+#### Legacy helpers
+
+- `paths.next_output_dir()` and `paths.avoid_input_overwrite()` — retained as **documented
+  dormant compatibility API**; a test asserts nothing under `scripts/Universal` calls either.
+- `mp3_tool.next_available_folder()` and `BASE_OUTPUT_DIRNAME` — **removed outright**.
+- `cover_resizer.next_version_path()` and its `overwrite` branch — **dormant legacy reserved
+  for Phase 5**, unreachable from the Phase 4 UI and operation-start path.
+- Per-tool output Browse controls and `choose_outdir` — **removed** (they would bypass the
+  configured base). `_browse_dir` retired from TTS.
+
+#### Two real bugs
+
+1. **Found and fixed by the migration:** `avoid_input_overwrite()` only guarded against writing
+   *onto an input*, so two imports with the same name from different folders silently
+   overwrote each other in the Converter, MP3 Tool and Metadata Editor. The batch planner
+   closes it — verified live (`Track A.mp3` + `Track A-1.mp3`).
+2. **Introduced and caught by the live check:** routing the Converter through the planner
+   removed its local `stem` assignment while the metadata fallback title still used it — every
+   conversion failed with `name 'stem' is not defined` and produced nothing. **Every
+   planner-level test passed.** Only driving the real worker on a generated fixture exposed it.
+   The suite now runs the actual Converter, time-edit and Cover workers.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_tool_output_integration.py` | **68 passed** |
+| `-m pytest -q -rs files/tests/test_output_paths.py` | 143 passed, 1 skipped |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all executed |
+| `-m pytest --collect-only -q files/tests/` | **503 collected** (was 439) |
+| `-m pytest -q -rs files/tests/` | **499 passed, 4 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** across five checks |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean |
+
+#### Live Windows fixture verification — PASSED (2026-08-03, HOME-PC, real ffmpeg + PIL)
+
+Temporary output base, generated tone/image fixtures, settings redirected to a temp file. The
+maintainer's real preferences, Downloads folder, outputs and media were never touched.
+
+| Check | Observed |
+|---|---|
+| MP3 Tool time edit | `MP3-Tool-Outputs/MP3-Tool-1` → `Track A.mp3`, `Track A-1.mp3`, `Track B.mp3` |
+| MP3 Tool Write ID3 | `MP3-Tool-2` (distinct), `TIT2 = Phase 4 Title` |
+| MP3 Tool combine FAST | `MP3-Tool-1` → `Combined Book.mp3` + timestamps + `build/` inside the run |
+| MP3 Tool combine SAFE (gap 0.2) | `MP3-Tool-2`, distinct run |
+| M4B Converter | `M4B-Converter-Outputs/M4B-Converter-1` → `Book.mp3` |
+| M4B Converter duplicate stems | `Book.mp3` + `Book-1.mp3` |
+| M4B Maker | `M4B-Maker-1` → `My_Book__Title.m4b` (central sanitiser); second build → `M4B-Maker-2` |
+| Cover Image | `Cover-Image-1` → `cover.jpg`, `cover-1.jpg`; **nothing beside the sources** |
+| Cover placeholder | widget state `disabled`, variable `False` |
+| M4B Metadata | `M4B-Metadata-1` → `Book.m4b`; original byte-identical |
+| Forced collision | existing `Track A.mp3` → `Track A-1.mp3` → `Track A-2.mp3` |
+| Validation failure | run count unchanged — no directory created |
+| All fixtures | mp3, m4b and image sources **byte-identical** after every run |
+
+#### Still pending — not claimed as passed
+
+1. **Windows 125% display scaling** — deferred to the later manual-validation phase by
+   maintainer decision; scaling was not changed during Phase 4.
+2. **Live macOS** — explicit deferral.
+3. **Phase 2 screenshot evidence** — assigned to Phase 8.
+4. **TTS live synthesis** — not run: Edge TTS needs the network and Kokoro needs the ~300 MB
+   model. TTS's destination, mirroring and validation-before-reservation are covered by
+   automated tests and an AST guard; **the synthesis path itself was not live-exercised.**
+
+### Next action
+
+**Phase 5 — Cover Image and M4B Maker exceptions.** Not started. It requires explicit
+maintainer approval before any work begins.
+
+---
+
+## Phase 3 record (v0.6.0 Drop 2, approved 2026-08-03)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 3 COMPLETE.**
 
 ### Phase 3 — output reservation, collision, and mirroring services (2026-08-03, HOME-PC)
 
@@ -1956,6 +2060,39 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 4 — standard output integration across all six
+  tools** (HOME-PC). Stopped first at the §G blocker (the drop never rules on Cover Image's
+  already-shipped destructive `Overwrite original files` checkbox during migration) and resumed
+  on the maintainer's **Option A** ruling: keep it visible but disabled, captioned "available
+  in a later update", with `var_overwrite` forced `False` **and** the captured worker parameter
+  a literal `False`, so re-enabling the widget alone cannot reach the source-side branch.
+  Migrated all six tools to `<output base>/<Tool>-Outputs/<Tool>-N/`, reserved atomically at
+  **validated operation start** — five panels previously picked a `Downloads/<Tool>-N` number
+  at `build_ui()` time and froze it for the session. Every output-producing action reserves its
+  own run: MP3 Tool's combine, time-edit and ID3 are three, as are the editor's Write Tags,
+  Clear All Tags and Remove Series Numbering. All destinations now go through the shared batch
+  planner, central sanitiser, containment and input-protection checks. Removed the per-tool
+  output Browse controls (they would bypass the configured base; the base is managed in
+  Preferences & Data and the Maker's opt-in custom destination is Phase 5), moved MP3 combine
+  staging from `edited_mp3s-N` beside a user-chosen path into the run, and replaced M4B Maker's
+  local sanitise regex with the central one. **Two real bugs:** the migration *closed* a silent
+  overwrite — `avoid_input_overwrite()` guarded only against writing onto an input, so two
+  same-named imports from different folders overwrote each other in three tools — and it
+  *introduced* one, an orphaned `stem` reference that made every conversion fail with
+  `name 'stem' is not defined`; **every planner-level test passed**, and only driving the real
+  worker on a generated fixture caught it, so the suite now runs the actual Converter,
+  time-edit and Cover workers. Retired `next_available_folder`/`BASE_OUTPUT_DIRNAME` outright;
+  `next_output_dir` and `avoid_input_overwrite` stay as documented dormant API with a test
+  proving nothing shipped calls them. Added `test_tool_output_integration.py` (68 tests) and
+  updated the Plan 1 editor surface lists, the copy-only collision assertions (now the approved
+  `stem-1.ext`) and the inverted Phase 3 scope guards. Suite 439 → **503 collected, 499 passed,
+  4 skipped, 1 warning**; theme 17/17; `verify.py` **RESULT: PASS**; `compileall` exit 0;
+  `git diff --check` clean. Live Windows fixture pass with real ffmpeg and PIL across all six
+  tools on a temporary base — every source byte-identical, nothing written beside a Cover
+  source, validation failure creating no run. **Pending, not claimed:** 125% scaling, live
+  macOS, Phase 8 screenshots, and TTS live synthesis (needs network/model). Added the README
+  output-location note. `version.py` still `0.5.1`; `config-template.toml` untouched. Phase 5
+  is not started.
 - 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 3 — shared output reservation, collision and
   mirroring services** (HOME-PC). Added `shared/output_paths.py`: the platform-neutral
   foundation for `<base>/<Tool>-Outputs/<Tool>-N/`, built and exhaustively tested but
@@ -2779,6 +2916,59 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 4 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 4 start SHA:** `10819f1b7cc0d7ddb1b8c51ae870a44c694a3fdc`
+(the approved Phase 3 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (1):**
+- `files/tests/test_tool_output_integration.py` — 68 Phase 4 tests, including real-worker runs.
+
+**Files modified (10):**
+- `scripts/Universal/tts/epub2tts_gui.py` — reserve in `run_job` after validation; read-only
+  destination display; `_browse_dir` retired.
+- `scripts/Universal/mp3_tools/m4b_converter.py` — reserve in `start_convert`; batch planner;
+  `stem` restored from the planned destination.
+- `scripts/Universal/mp3_tools/mp3_tool.py` — one `_reserve_run()` seam used by combine, time
+  edit and ID3; combine staging inside the run; `next_available_folder` and
+  `BASE_OUTPUT_DIRNAME` removed; the combine filename is now a name prompt, not a save dialog.
+- `scripts/Universal/mp3_tools/m4b_maker.py` — reserve in `build`; central sanitiser replaces
+  the local regex.
+- `scripts/Universal/mp3_tools/cover_resizer.py` — standard output into the reserved run;
+  Option A disabled placeholder; dormant legacy branch documented.
+- `scripts/Universal/mp3_tools/m4b_metadata_editor.py` — `_reserve_run()` for both action
+  paths; workers take the batch planner; plan-before-copy; `avoid_input_overwrite` gone.
+- `scripts/Universal/shared/output_paths.py` — added `destination_hint()` and
+  `ensure_tool_parent()` for read-only displays and explicit reveals.
+- `scripts/Universal/shared/paths.py` — **docstrings only**; both legacy helpers marked dormant.
+- `files/tests/test_output_paths.py`, `test_prototype_regression.py`,
+  `test_m4b_metadata_editor_ui.py`, `test_mp3_tool_smoke.py` — phase-boundary updates.
+- `README.md` — the output-location note (no first-run popup, no other rewrite).
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 4
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact; no alias. `md-instructions/don't-delete/` intact (4 files).
+- All ten Plan 1 screenshots unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged
+  (`94b05edc3211efe531be018fbc442c240df8db42`, verified at start and at commit).
+- Root `config.toml` unchanged, valid and machine-agnostic.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- Preferences, launch warnings and the disabled Clear Downloaded Data placeholder unchanged;
+  `preferences_ui.py` does not import `output_paths`.
+
+**Verification:** 503 collected; 499 passed, 4 skipped, 1 warning; theme 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` clean. Live Windows fixture
+pass across all six tools. 125% scaling, live macOS, Phase 8 screenshots and TTS live synthesis
+remain **pending**, not passed.
+
+**Next:** Phase 5 (Cover Image and M4B Maker exceptions) — **not started**, pending explicit
+maintainer approval. No merge, PR, tag, release, version bump, branch deletion or force-push
+was performed or is authorised.
 
 ### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 3 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
 

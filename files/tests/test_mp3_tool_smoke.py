@@ -28,9 +28,12 @@ def test_concat_listfile_escaping(tmp_path):
     assert content.endswith("\n")
 
 
-def test_next_available_folder_increments(tmp_path):
-    base = tmp_path / "out"
-    first = mp3_tool.next_available_folder(base)
-    assert first == base and first.is_dir()
-    second = mp3_tool.next_available_folder(base)
-    assert second == Path(f"{base}-1") and second.is_dir()
+def test_the_local_run_folder_helper_was_retired(tmp_path):
+    """v0.6.0 Drop 2 Phase 4 replaced it with the shared atomic reservation.
+
+    ``next_available_folder`` used a check-then-create scan beside a
+    user-chosen save path; combine staging now lives inside the operation's own
+    reserved run directory.
+    """
+    assert not hasattr(mp3_tool, "next_available_folder")
+    assert not hasattr(mp3_tool, "BASE_OUTPUT_DIRNAME")

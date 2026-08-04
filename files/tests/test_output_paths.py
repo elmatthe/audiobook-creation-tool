@@ -1019,8 +1019,8 @@ def test_the_module_imports_no_tk_subprocess_or_network():
         assert not any(forbidden in name for name in imported), forbidden
 
 
-def test_no_tool_panel_consumes_the_new_service_yet():
-    """Phase 4 migrates the tools; Phase 3 only builds the foundation."""
+def test_every_tool_panel_consumes_the_shared_service():
+    """The guard flipped with the phase boundary: Phase 4 migrated all six."""
     tool_modules = [
         "mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
         "mp3_tools/m4b_maker.py", "mp3_tools/m4b_metadata_editor.py",
@@ -1028,38 +1028,41 @@ def test_no_tool_panel_consumes_the_new_service_yet():
     ]
     for relative in tool_modules:
         source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
-        assert "output_paths" not in source, relative
-        assert "reserve_run_directory" not in source, relative
+        assert "output_paths" in source, relative
+        assert "reserve_run_directory(TOOL_KEY)" in source, relative
 
 
-def test_the_launcher_does_not_consume_the_new_service():
+def test_the_launcher_still_does_not_reserve_output():
+    """The launcher hosts panels; it never claims an output directory."""
     source = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(encoding="utf-8")
-    assert "output_paths" not in source
+    assert "reserve_run_directory" not in source
 
 
-def test_the_legacy_wrapper_is_still_in_place_and_marked_for_removal():
-    """Phase 3 must not change current tool-output behaviour."""
+def test_no_production_code_calls_the_legacy_output_helpers():
+    """Phase 4 finished the migration: every legacy call site is gone.
+
+    ``next_output_dir`` and ``avoid_input_overwrite`` remain **defined** in
+    ``shared/paths.py`` as documented dormant compatibility API, but nothing in
+    the shipped tree calls either any more — the shared reservation and the
+    batch planner are now the single authority for a destination.
+    """
+    callers = set()
+    for path in (REPO_ROOT / "scripts" / "Universal").rglob("*.py"):
+        if path.name == "paths.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        if "next_output_dir(" in source or "avoid_input_overwrite(" in source:
+            callers.add(path.relative_to(REPO_ROOT / "scripts" / "Universal").as_posix())
+    assert callers == set(), f"legacy output helper still called by {sorted(callers)}"
+
+
+def test_the_legacy_helpers_survive_as_documented_dormant_api():
     source = (REPO_ROOT / "scripts" / "Universal" / "shared" / "paths.py").read_text(
         encoding="utf-8"
     )
     assert "def next_output_dir" in source
-    assert "scheduled for removal in Phase 4" in source
-
-
-def test_exactly_the_known_legacy_call_sites_remain(tmp_path):
-    """Pins the migration: a sixth caller fails, and Phase 4 removals show up."""
-    expected = {
-        "mp3_tools/m4b_converter.py", "mp3_tools/m4b_maker.py",
-        "mp3_tools/m4b_metadata_editor.py", "mp3_tools/mp3_tool.py",
-        "tts/epub2tts_gui.py",
-    }
-    found = set()
-    for path in (REPO_ROOT / "scripts" / "Universal").rglob("*.py"):
-        if path.name == "paths.py":
-            continue
-        if "next_output_dir(" in path.read_text(encoding="utf-8"):
-            found.add(path.relative_to(REPO_ROOT / "scripts" / "Universal").as_posix())
-    assert found == expected
+    assert "def avoid_input_overwrite" in source
+    assert "no longer called by any shipped tool" in source
 
 
 def test_no_cleanup_or_post_exit_behaviour_exists_anywhere():

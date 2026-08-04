@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 
 # Make the scripts/ root importable so `shared.*` resolves whether this tool is
 # run standalone (python mp3_tools/mp3_tool.py) or imported by the launcher.
@@ -37,6 +37,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import ffmpeg_utils
+from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
@@ -51,11 +52,11 @@ except Exception:
     MutagenMP3 = None
 
 APP_TITLE = "MP3 Tool v5.7 (Fast-first + Auto-fallback)"
-BASE_OUTPUT_DIRNAME = "edited_mp3s"
 
 # Auto-named output folder slug (v0.1.1): time-edit / ID3 outputs and the
 # combined MP3 default into Downloads/<SLUG>-N. The imported MP3s are read-only.
-SLUG = paths.TOOL_SLUGS["mp3_tool"]
+TOOL_KEY = "mp3_tool"
+SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
 # settings.json key (input dir only remembers the dialog location; the output
 # folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
@@ -114,16 +115,6 @@ def write_concat_listfile(paths: List[Path], listfile: Path):
     with listfile.open("w", encoding="utf-8") as f:
         for p in paths:
             f.write(ffmpeg_escape_listfile_path(p) + "\n")
-
-
-def next_available_folder(base: Path) -> Path:
-    i = 0
-    while True:
-        cand = base if i == 0 else Path(f"{base}-{i}")
-        if not cand.exists():
-            cand.mkdir(parents=True, exist_ok=True)
-            return cand
-        i += 1
 
 
 def ffprobe_duration_seconds(path: Path) -> Optional[float]:
@@ -369,7 +360,8 @@ class MP3ToolUI(ttk.Frame):
         # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
         # time. Browse redirects it for this run only (never persisted); the
         # folder is created lazily on the first operation.
-        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
+        self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        self._last_run_dir: Optional[Path] = None
 
         frame = ttk.Frame(self)
         frame.pack(padx=10, pady=10, fill="both", expand=True)
@@ -396,10 +388,17 @@ class MP3ToolUI(ttk.Frame):
         outrow = ttk.Frame(frame)
         outrow.pack(fill="x", pady=(0, 6))
         ttk.Label(outrow, text="Output folder:").pack(side="left")
-        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
-        self.entry_outdir.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        self.btn_browse_out = ttk.Button(outrow, text="Browse…", command=self.choose_outdir)
-        self.btn_browse_out.pack(side="left")
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
+                                      state="readonly")
+        self.entry_outdir.pack(side="left", fill="x", expand=True, padx=(6, 0))
+
+        hintrow = ttk.Frame(frame)
+        hintrow.pack(fill="x")
+        ttk.Label(
+            hintrow,
+            text="Each operation gets its own numbered run folder here. "
+                 "Change the location in Preferences & Data.",
+        ).pack(side="left", padx=(0, 6))
 
         # Gap
         gaprow = ttk.Frame(frame)
@@ -499,16 +498,23 @@ class MP3ToolUI(ttk.Frame):
 
     # ---------- output folder ----------
 
-    def choose_outdir(self):
-        cur = self.var_outdir.get().strip()
-        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
-        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
-        if d:
-            self.var_outdir.set(d)
-
     def output_dir(self) -> Path:
-        val = self.var_outdir.get().strip()
-        return Path(val) if val else paths.next_output_dir(SLUG)
+        """The last reserved run, or this tool's parent folder before any run."""
+        if self._last_run_dir is not None:
+            return self._last_run_dir
+        return Path(self.var_outdir.get().strip())
+
+    def _reserve_run(self) -> Optional[object]:
+        """Reserve one run for a validated operation. None means do not start."""
+        try:
+            reservation = output_paths.reserve_run_directory(TOOL_KEY)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror(APP_TITLE, exc.message)
+            return None
+        self._last_run_dir = reservation.run_directory
+        self.var_outdir.set(str(reservation.run_directory))
+        self._log_q.put(("status", f"Output folder: {reservation.run_directory}"))
+        return reservation
 
     # ---------- file list ops ----------
 
@@ -568,10 +574,12 @@ class MP3ToolUI(ttk.Frame):
             self.btn_combine,
             self.btn_time,
             self.btn_id3,
-            self.entry_outdir,
-            self.btn_browse_out,
         ):
             w.configure(state=state)
+        # The destination display is never typeable; it only greys out.
+        self.entry_outdir.configure(
+            state=tk.DISABLED if state == tk.DISABLED else "readonly"
+        )
 
     def _pump_queue(self):
         try:
@@ -621,27 +629,28 @@ class MP3ToolUI(ttk.Frame):
             return
         gap = max(0.0, gap)
 
-        # Default the save location to the auto-named Downloads/<SLUG>-N (or its
-        # parent if that folder hasn't been created yet this session).
-        outdir = self.output_dir()
-        combine_initialdir = str(outdir if outdir.exists() else outdir.parent)
-        out_path = filedialog.asksaveasfilename(
-            title="Save combined MP3 as…",
-            defaultextension=".mp3",
-            initialdir=combine_initialdir,
-            initialfile="combined.mp3",
-            filetypes=[("MP3 files", "*.mp3")],
+        # The user names the file; the folder is this operation's reserved run,
+        # so a combine can never be steered outside the configured output base.
+        chosen = simpledialog.askstring(
+            APP_TITLE, "Name for the combined MP3:", initialvalue="combined.mp3",
+            parent=self,
         )
-        if not out_path:
+        if chosen is None:
             return
-        out_path = Path(out_path)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        reservation = self._reserve_run()
+        if reservation is None:
+            return
+        planner = reservation.planner()
+        out_path = planner.plan(chosen or "combined.mp3")
+        output_paths.assert_not_input(out_path, self.file_list)
 
         params = {
             "files": list(self.file_list),
             "gap": gap,
             "fast_first": self.fast_first_var.get(),
             "out_path": out_path,
+            "run_dir": reservation.run_directory,
         }
         self._begin_busy()
         threading.Thread(target=self._combine_worker, args=(params,), daemon=True).start()
@@ -652,8 +661,9 @@ class MP3ToolUI(ttk.Frame):
         gap = params["gap"]
         out_path = params["out_path"]
 
-        base_out_dir = out_path.parent / BASE_OUTPUT_DIRNAME
-        out_dir = next_available_folder(base_out_dir)
+        # Staging lives inside this operation's own reserved run, so cleanup
+        # can never reach another run, the tool parent or the output base.
+        out_dir = params["run_dir"]
         build_dir = out_dir / "build"
         build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -785,7 +795,15 @@ class MP3ToolUI(ttk.Frame):
             messagebox.showwarning(APP_TITLE, "Enter a numeric value (can be negative).")
             return
 
-        params = {"files": list(self.file_list), "delta": delta, "outdir": self.output_dir()}
+        reservation = self._reserve_run()
+        if reservation is None:
+            return
+        params = {
+            "files": list(self.file_list),
+            "delta": delta,
+            "outdir": reservation.run_directory,
+            "planner": reservation.planner(),
+        }
         self._begin_busy()
         threading.Thread(target=self._time_edit_worker, args=(params,), daemon=True).start()
 
@@ -794,13 +812,14 @@ class MP3ToolUI(ttk.Frame):
         files = params["files"]
         delta = params["delta"]
         out_dir = params["outdir"]
-        out_dir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
+        planner = params["planner"]
 
         try:
             ok_count = 0
             for idx, src in enumerate(files, start=1):
                 raise_if_cancelled(cancel_check)
-                dst = paths.avoid_input_overwrite(out_dir / src.name, files)
+                dst = planner.plan(src.name)
+                output_paths.assert_not_input(dst, files)
                 if delta > 0:
                     ok = add_silence_to_mp3(src, delta, dst, out_dir)
                 elif delta < 0:
@@ -881,8 +900,13 @@ class MP3ToolUI(ttk.Frame):
             "auto_num": self.auto_number_var.get(),
             "start_num": start_num,
             "chapter_titles": chapter_titles,
-            "outdir": self.output_dir(),
+            "outdir": None,   # replaced by the reservation below
         }
+        reservation = self._reserve_run()
+        if reservation is None:
+            return
+        params["outdir"] = reservation.run_directory
+        params["planner"] = reservation.planner()
         self._begin_busy()
         threading.Thread(target=self._id3_worker, args=(params,), daemon=True).start()
 
@@ -898,9 +922,10 @@ class MP3ToolUI(ttk.Frame):
         start_num = params["start_num"]
         chapter_titles = params["chapter_titles"]
 
-        # Output folder for ID3 operations (Downloads/<SLUG>-N by default).
+        # This operation's reserved run. ID3 tags are only ever written to
+        # copies placed here; the imported originals are never opened for write.
         out_dir = params["outdir"]
-        out_dir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
+        planner = params["planner"]
 
         try:
             # Prepare targets in the output folder — ID3 tags are only ever
@@ -913,7 +938,8 @@ class MP3ToolUI(ttk.Frame):
             if abs(delta) > 1e-9:
                 for i, p in enumerate(files, start=1):
                     raise_if_cancelled(cancel_check)
-                    dst = paths.avoid_input_overwrite(out_dir / p.name, files)
+                    dst = planner.plan(p.name)
+                    output_paths.assert_not_input(dst, files)
                     ok = (
                         add_silence_to_mp3(p, delta, dst, out_dir)
                         if delta > 0
@@ -924,7 +950,8 @@ class MP3ToolUI(ttk.Frame):
             else:
                 for i, p in enumerate(files, start=1):
                     raise_if_cancelled(cancel_check)
-                    dst = paths.avoid_input_overwrite(out_dir / p.name, files)
+                    dst = planner.plan(p.name)
+                    output_paths.assert_not_input(dst, files)
                     args = [
                         ffmpeg_utils.ffmpeg_cmd(),
                         "-hide_banner",

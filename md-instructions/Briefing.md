@@ -126,11 +126,30 @@ flashing during use.
   the committed TOML. `settings.reset()` clears every mutable preference atomically and touches
   nothing else — no `.venv`, model, binary, log, output or source file; clearing downloaded
   data is a separate, differently confirmed action that does not exist yet.
-- **Output services (v0.6.0 Drop 2 Phase 3) — built, tested, and not yet consumed.**
-  `shared/output_paths.py` is the platform-neutral foundation every tool adopts in Phase 4.
-  **Nothing in the application calls it yet**; the five legacy `paths.next_output_dir()` call
-  sites remain live and unchanged, and a test pins that exact list so a sixth caller fails and
-  Phase 4's removals are visible.
+- **Output services (v0.6.0 Drop 2 Phases 3–4) — built in Phase 3, adopted by all six tools
+  in Phase 4.** `shared/output_paths.py` is the platform-neutral foundation. Every standard
+  output now lands in `<base>/<Tool>-Outputs/<Tool>-N/`, reserved **at validated operation
+  start** — not at `build_ui()` time. Opening the launcher, building a panel, importing,
+  browsing, switching tools or failing validation creates **no** directory at all. The legacy
+  `paths.next_output_dir()` and `paths.avoid_input_overwrite()` are now dormant compatibility
+  API called by nothing in the shipped tree, and a test asserts that.
+  **Per-tool destinations:** TTS `TTS-Audiobook-Outputs`, M4B Converter `M4B-Converter-Outputs`,
+  MP3 Tool `MP3-Tool-Outputs`, M4B Maker `M4B-Maker-Outputs`, Cover Image `Cover-Image-Outputs`,
+  M4B Metadata `M4B-Metadata-Outputs`. Each panel shows its tool folder read-only and names the
+  actual reserved run once an operation starts; the base is changed only in Preferences & Data,
+  so no per-tool browse control can bypass it. Every output-producing action reserves its own
+  run — MP3 Tool's combine, time-edit and ID3 each get one, as do the editor's Write Tags,
+  Clear All Tags and Remove Series Numbering — and staging (`build/`, WAV normalisation,
+  ffmetadata) stays inside that run, so cleanup can never reach another run, the tool parent or
+  the base.
+  **Cover Image, Phase 4 disposition:** standard resizes go to the reserved run; nothing is
+  written beside a source any more. The legacy *"Overwrite original files"* control is visible
+  but **disabled**, its variable forced `False`, and the captured worker parameter is the
+  literal `False` rather than a widget read — so re-enabling the checkbox alone could not route
+  an operation into the source-side branch. `next_version_path()` and that branch are dormant
+  legacy code reserved for **Phase 5**, which owns the complete safe redesign (deliberate mode
+  toggle, explicit numbered-copy/replace choice, strong per-run confirmation, atomic
+  replacement).
   **Planning is pure; materialisation is explicit.** Every `plan_*` function, the sanitizer and
   the collision service compute paths and touch nothing. Only `ensure_output_base()` and
   `reserve_run_directory()` create anything, and only directories — never a file, never
@@ -244,10 +263,11 @@ flashing during use.
   the main thread — see Decisions.md / memory), and progress flows the same way: the worker enqueues
   `("progress", (done, total))` on its existing queue and only the main-thread drain touches
   the widget.
-- **Outputs are copy-based everywhere:** transforming tools write to a fresh auto-named
-  `Downloads/<Tool>-N` folder (decided once per launch, created lazily); imported originals are
-  never modified. The only in-place exception is the Cover Image tool's explicit overwrite
-  toggle.
+- **Outputs are copy-based everywhere:** since v0.6.0 Drop 2 Phase 4 every transforming tool
+  writes into a run directory reserved at validated operation start under
+  `<output base>/<Tool>-Outputs/<Tool>-N/`; imported originals are only ever read. There is
+  currently **no** in-place exception — the Cover Image overwrite control is disabled and its
+  parameter forced `False` until Phase 5 rebuilds it as a confirmed source-side mode.
 
 ## Features
 

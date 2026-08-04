@@ -53,17 +53,16 @@ def ensure_dir(path: Path) -> Path:
 # Output-folder resolution (v0.1.1)
 # --------------------------------------------------------------------------- #
 #
-# Every transforming tool delivers its results to an auto-named subfolder of the
-# user's Downloads directory: ``Downloads/<ToolName>-N``. The ``-N`` suffix is the
-# lowest positive integer that does not already collide with an existing folder
-# *at the moment it is computed* — and each tool computes it exactly once, at
-# build_ui() time, so the number stays fixed for the whole session (recomputing
-# per-save would shift the number mid-session). The folder itself is created
-# lazily on the first successful write, so merely opening a tool never litters
-# Downloads with empty folders.
+# Since v0.6.0 Drop 2 Phase 4 every tool delivers its results to
+# ``<output base>/<Tool>-Outputs/<Tool>-N/``, reserved atomically at validated
+# operation start by ``shared.output_paths.reserve_run_directory()``. The two
+# helpers below are the pre-Plan-2 route and are now dormant (see their
+# docstrings); this module remains the single source of the slugs themselves.
 #
 # Canonical tool-name slugs (keep these stable — they are user-visible folder
-# names). One per tool, matching the launcher sidebar:
+# names). One per tool, matching the launcher sidebar.
+# ``output_paths.TOOL_OUTPUT_PARENTS`` derives ``<slug>-Outputs`` from this map,
+# so a slug is never written down twice:
 TOOL_SLUGS: dict[str, str] = {
     "tts": "TTS-Audiobook",
     "m4b_converter": "M4B-Converter",
@@ -87,19 +86,20 @@ def downloads_dir() -> Path:
 def next_output_dir(tool_name: str, *, create: bool = False) -> Path:
     """Return ``Downloads/<tool_name>-N`` for the lowest free positive ``N``.
 
-    .. deprecated:: v0.6.0 Drop 2 Phase 3
+    .. deprecated:: v0.6.0 Drop 2 Phase 3, retired in Phase 4
 
-       **Compatibility wrapper, scheduled for removal in Phase 4.** This is the
-       pre-Plan-2 behaviour: a non-atomic check-then-create scan of Downloads,
-       computed once at ``build_ui()`` time and frozen for the whole session,
-       with no configurable base and no tool parent folder. Five tool panels
-       still call it, so it stays until Phase 4 migrates them.
+       **Dormant compatibility API — no longer called by any shipped tool.**
+       Phase 4 migrated all six panels away from it. This is the pre-Plan-2
+       behaviour: a non-atomic check-then-create scan of Downloads, computed
+       once at ``build_ui()`` time and frozen for the whole session, with no
+       configurable base and no tool parent folder.
 
        New code must use ``shared.output_paths.reserve_run_directory()``, which
        reserves ``<base>/<Tool>-Outputs/<Tool>-N`` atomically at validated run
-       start. ``files/tests/test_output_paths.py`` pins the removal: it records
-       the exact five call sites that may still use this function, so adding a
-       sixth fails and Phase 4 removing the last one is visible.
+       start. ``files/tests/test_output_paths.py`` asserts that nothing under
+       ``scripts/Universal`` calls this function any more, so a regression
+       would fail the suite. It is kept only so an out-of-tree caller does not
+       break; a later plan may delete it outright.
 
     ``N`` starts at 1 and increments only to avoid a folder that already exists
     at call time. With ``create=True`` the folder (and parents) is created;
@@ -126,6 +126,16 @@ def avoid_input_overwrite(out_path: Path, inputs) -> Path:
     that is neither an input nor an already-existing file. This is the
     input==output collision guard used when a tool's output folder happens to be
     the same folder the inputs were loaded from.
+
+    .. deprecated:: v0.6.0 Drop 2 Phase 4
+
+       **Dormant compatibility API — no longer called by any shipped tool.**
+       It guarded only against writing *onto an input*, so two imported files
+       with the same stem from different folders could still overwrite each
+       other. ``shared.output_paths.DestinationPlanner`` replaced it: it tracks
+       existing files *and* names already planned in the same batch, and uses
+       the plan's ``stem-1.ext`` numbering. Use that plus
+       ``output_paths.assert_not_input`` for any new destination.
     """
     resolved_inputs: set[Path] = set()
     for p in inputs:

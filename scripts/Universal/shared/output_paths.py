@@ -112,6 +112,35 @@ def tool_parent_dir(base: Path, tool_key: str) -> Path:
     return Path(base) / tool_parent_name(tool_key)
 
 
+def destination_hint(tool_key: str, effective=None) -> str:
+    """Where this tool's next run will go, for a read-only display.
+
+    Pure: a panel can show this at build time without creating a directory or
+    promising a run number that has not been reserved. The run folder appears
+    only when a validated operation starts.
+    """
+    return str(tool_parent_dir(resolve_output_base(effective), tool_key))
+
+
+def ensure_tool_parent(tool_key: str, effective=None) -> Path:
+    """Create and return ``<base>/<Tool>-Outputs`` for an explicit reveal.
+
+    Used by "Open output folder" so a user always lands somewhere real. It
+    creates the base and the tool parent — never a numbered run, which only
+    :func:`reserve_run_directory` may do.
+    """
+    base = ensure_output_base(resolve_output_base(effective))
+    parent = tool_parent_dir(base, tool_key)
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise OutputBaseError(
+            f"the folder for this tool could not be created: {parent}",
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+    return parent
+
+
 # --------------------------------------------------------------------------- #
 # Output base
 # --------------------------------------------------------------------------- #

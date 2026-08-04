@@ -4,6 +4,76 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-03 — The output base is managed only in Preferences; per-tool Browse controls are removed; the Cover overwrite option is disabled until Phase 5 rebuilds it safely
+
+**Decision (v0.6.0 Drop 2, Phase 4).** All six tools now write to
+`<output base>/<Tool>-Outputs/<Tool>-N/`, reserved at validated operation start. Four choices
+came with that.
+
+**1. Per-tool output-folder Browse controls are gone.** Five panels had an editable output
+field with a Browse button, defaulted at `build_ui()` time to a `Downloads/<Tool>-N` guess.
+Under Plan 2 the output base is a *configuration* value managed in Preferences & Data, and a
+per-panel override would bypass it — the plan explicitly forbids stale output-folder fields
+that route around the configured base. Each panel now shows its tool folder read-only and names
+the actual reserved run once an operation starts. **Why not keep Browse and validate it?**
+Because that is the M4B Maker *custom destination* feature, which Decision 10A and the drop
+assign to Phase 5 with its own validation and containment rules; shipping an unvalidated
+version of it in Phase 4 would pre-empt that design. Input and cover folder history is
+untouched — those are dialog conveniences, not destinations.
+
+**2. Reservation happens at operation start, and only there.** The old model picked a number
+when the panel was built and froze it for the session, which meant the displayed folder was a
+*prediction*: two tools open at once could show the same number, and the number could be taken
+by anything else before the first save. Now nothing is created until inputs validate, and the
+number comes from the atomic `mkdir` at that moment. A displayed path therefore never promises
+a run that does not exist. An AST test asserts `reserve_run_directory` is called only from
+action handlers, never from `build_ui` or `__init__` — attributing to the *innermost* enclosing
+function, because TTS's `run_job` is a closure defined inside its builder.
+
+**3. Each output-producing action gets its own run — not one run per panel session.** MP3
+Tool's combine, time-edit and ID3 are three separate operations, as are the editor's Write
+Tags, Clear All Tags and Remove Series Numbering. Sharing one run across them would mix
+unrelated results and make "which files came from which action?" unanswerable. It also keeps
+cancellation cleanup honest: staging belongs to exactly one operation, so it can never reach
+another run, the tool parent or the base.
+
+**4. Cover Image's legacy overwrite control is disabled, not removed and not left live.** This
+was the §G blocker: the drop specifies the Phase 4 default and the Phase 5 source-side mode but
+never rules on the already-shipped destructive checkbox in between. The maintainer chose the
+disabled-placeholder route, and the implementation goes past the widget state deliberately:
+`var_overwrite` is forced `False` and the captured worker parameter is the **literal** `False`
+rather than a widget read, so re-enabling the checkbox alone could not route an operation into
+the source-side branch. `next_version_path()` and that branch are retained as dormant legacy
+code — removing them would be churn Phase 5 immediately undoes — and a test asserts the
+parameter is a literal and that no Phase 5 interface (mode toggle, numbered-copy/replace
+choice, confirmation dialog) exists yet.
+
+**A real bug this migration exposed and fixed.** `avoid_input_overwrite()` only guarded against
+writing *onto an input*. Two imported files with the same name from different folders silently
+overwrote each other in the Converter, MP3 Tool and Metadata Editor. The shared batch planner
+tracks existing files *and* already-planned names, so the second becomes `Book-1.mp3`.
+
+**A real bug this migration introduced, and what it changed about testing.** Routing the
+Converter through the planner removed its local `stem` assignment while the metadata fallback
+title still used it — every conversion failed with `name 'stem' is not defined` and produced
+nothing. **Every planner-level test passed**, because they exercised destinations rather than
+the worker body. It was caught by driving the real worker on a generated tone fixture. The
+lesson is recorded in the suite: `test_tool_output_integration.py` now runs the actual
+Converter, time-edit and Cover workers, so a migration that breaks a worker cannot pass again.
+
+**Alternatives considered:** keeping the Browse field but validating it against the base
+(rejected — that is Phase 5's custom-destination feature); one reservation per panel session
+(rejected — see 3); removing the Cover overwrite code entirely (rejected — Phase 5 rebuilds it,
+so deleting it is churn); deleting `next_output_dir`/`avoid_input_overwrite` now (rejected —
+kept as documented dormant API in case of an out-of-tree caller, with a test proving nothing
+shipped calls them).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md` and the
+Option A ruling on the Cover control, implemented and recorded by Claude Code, 2026-08-03
+(HOME-PC, Windows 11, repo venv Python 3.12.10, ffmpeg present)
+
+---
+
 ## 2026-08-03 — Output planning is pure and materialisation is explicit; `mkdir` is the reservation race boundary; collisions are case-insensitive everywhere; only the final suffix is an extension
 
 **Decision (v0.6.0 Drop 2, Phase 3).** Five choices behind `shared/output_paths.py`. None of

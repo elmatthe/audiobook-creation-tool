@@ -43,6 +43,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import ffmpeg_utils
 from shared import metadata
+from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
@@ -66,7 +67,8 @@ APP_TITLE = "M4B Maker v5.0 (Fast-first + Auto-fallback)"
 
 # Auto-named output folder slug (v0.1.1): the built .m4b is delivered into
 # Downloads/<SLUG>-N. The input MP3s are only ever read.
-SLUG = paths.TOOL_SLUGS["m4b_maker"]
+TOOL_KEY = "m4b_maker"
+SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
 # settings.json keys (input/cover dirs only remember the dialog location; the
 # output folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
@@ -394,7 +396,8 @@ class M4BMakerUI(ttk.Frame):
         # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
         # time. Browse redirects it for this run only (never persisted); the
         # folder is created lazily on the first build.
-        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
+        self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        self._last_run_dir = None
 
         self.status = tk.StringVar(value="Added 0 files. Total: 0")
 
@@ -451,10 +454,20 @@ class M4BMakerUI(ttk.Frame):
         outrow = ttk.Frame(self)
         outrow.pack(fill="x", padx=12, pady=(0, 4))
         ttk.Label(outrow, text="Output folder:").pack(side="left")
-        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
+                                      state="readonly")
         self.entry_outdir.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        self.btn_browse_out = ttk.Button(outrow, text="Browse…", command=self.choose_outdir)
-        self.btn_browse_out.pack(side="left")
+        # No per-tool browse: the output base is managed in Preferences & Data,
+        # and a per-panel override would bypass it. The M4B Maker's opt-in
+        # custom destination is Phase 5 of this plan, not Phase 4.
+
+        hintrow = ttk.Frame(self)
+        hintrow.pack(fill="x", padx=12, pady=(0, 4))
+        ttk.Label(
+            hintrow,
+            text="Each build gets its own numbered run folder here. "
+                 "Change the location in Preferences & Data.",
+        ).pack(side="left")
 
         # Controls row
         ctrls = ttk.Frame(self)
@@ -588,16 +601,11 @@ class M4BMakerUI(ttk.Frame):
         self.log_text.config(state=tk.DISABLED)
 
     # ----- output folder -----
-    def choose_outdir(self):
-        cur = self.var_outdir.get().strip()
-        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
-        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
-        if d:
-            self.var_outdir.set(d)
-
     def output_dir(self) -> Path:
-        val = self.var_outdir.get().strip()
-        return Path(val) if val else paths.next_output_dir(SLUG)
+        """The last reserved run, or this tool's parent folder before any build."""
+        if self._last_run_dir is not None:
+            return self._last_run_dir
+        return Path(self.var_outdir.get().strip())
 
     # ----- cover -----
     def choose_cover(self):
@@ -653,11 +661,11 @@ class M4BMakerUI(ttk.Frame):
             self.btn_build,
             self.entry_silence,
             self.chk_fast,
-            self.entry_outdir,
-            self.btn_browse_out,
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
+        # The destination display is never typeable; it only greys out.
+        self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
 
     def _pump_queue(self):
         try:
@@ -728,8 +736,16 @@ class M4BMakerUI(ttk.Frame):
             "cover_path": self.cover_path if (self.cover_path and self.cover_path.exists()) else None,
         }
 
-        out_dir = self.output_dir()
-        out_dir.mkdir(parents=True, exist_ok=True)  # lazy create on first build
+        # Everything above validated; only now is a run directory reserved.
+        try:
+            reservation = output_paths.reserve_run_directory(TOOL_KEY)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
+            return
+        out_dir = reservation.run_directory
+        self._last_run_dir = out_dir
+        self.var_outdir.set(str(out_dir))
+        params["planner"] = reservation.planner()
 
         self._busy.set()
         self._cancel_event.clear()
@@ -788,9 +804,11 @@ class M4BMakerUI(ttk.Frame):
             raise_if_cancelled(cancel_check)
 
             # Output name
+            # One central sanitiser and one collision service, not a local regex.
             base_name = params["title"] or params["album"] or "audiobook"
-            base_name = re.sub(r'[\\/:*?"<>|]+', "_", base_name) or "audiobook"
-            out_path = paths.avoid_input_overwrite(out_dir / f"{base_name}.m4b", files)
+            out_path = params["planner"].plan(f"{base_name}.m4b")
+            output_paths.assert_not_input(out_path, files)
+            base_name = out_path.stem
 
             # Metadata
             meta = {

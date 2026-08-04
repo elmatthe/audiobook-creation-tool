@@ -6,8 +6,18 @@ any parent frame, so it can live inside the launcher's content panel. Running
 this file directly still opens it in its own window via :func:`main`.
 
 Phase 5: Cancel button (cooperative, checked between images) and a remembered
-input folder via shared.settings (default = home). Resized images are written
-next to their source, so this tool has no separate output folder.
+input folder via shared.settings (default = home).
+
+v0.6.0 Drop 2 Phase 4: standard output moved off the source folder. Every
+validated resize reserves one run under
+``<output base>/Cover-Image-Outputs/Cover-Image-N/`` and writes there; imported
+originals are only ever read. The legacy "Overwrite original files" control is
+visible but **disabled** and its parameter is forced ``False`` — Plan 2 Phase 5
+owns the complete safe source-side redesign (deliberate mode toggle, explicit
+numbered-copy/replace choice, strong per-run confirmation, atomic replacement).
+:func:`next_version_path` and the ``overwrite`` branch below are therefore
+**dormant legacy code reserved for Phase 5**, unreachable from the Phase 4 UI
+and operation-start path.
 """
 
 import queue
@@ -24,6 +34,8 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import output_paths
+from shared import paths
 from shared import settings
 from shared import ui_theme
 
@@ -41,6 +53,9 @@ APP_TITLE = "Audiobook Cover Resizer v1.1"
 TARGET_SIZE = 1024  # default square size for covers
 
 # settings.json keys (Phase 5)
+TOOL_KEY = "cover"
+SLUG = paths.TOOL_SLUGS[TOOL_KEY]
+
 KEY_INPUT_DIR = "cover_resizer.input_dir"
 
 
@@ -134,6 +149,12 @@ class CoverResizerUI(ttk.Frame):
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
 
+        # Where the next run will go, shown read-only. The numbered run folder
+        # is reserved when a validated resize starts, so building this panel
+        # creates nothing. The base is changed in Preferences & Data.
+        self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        self._last_run_dir = None
+
         # Top buttons
         top = ttk.Frame(self)
         top.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 6))
@@ -188,15 +209,34 @@ class CoverResizerUI(ttk.Frame):
         )
 
         row += 1
+        # Disabled placeholder: Phase 5 rebuilds this as the confirmed
+        # source-side mode. Forced False and never read from the widget.
         self.var_overwrite = tk.BooleanVar(value=False)
         self.chk_overwrite = ttk.Checkbutton(
             options,
-            text="Overwrite original files (no -1 copy; old image is replaced)",
+            text="Overwrite original files — available in a later update",
             variable=self.var_overwrite,
+            state="disabled",
         )
         self.chk_overwrite.grid(
             row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 8)
         )
+
+        row += 1
+        ttk.Label(options, text="Output folder:").grid(
+            row=row, column=0, sticky="e", padx=8, pady=(2, 2)
+        )
+        self.entry_outdir = ttk.Entry(
+            options, textvariable=self.var_outdir, state="readonly"
+        )
+        self.entry_outdir.grid(row=row, column=1, columnspan=2, sticky="we",
+                               padx=8, pady=(2, 2))
+        row += 1
+        ttk.Label(
+            options,
+            text="Each resize gets its own numbered run folder here. "
+                 "Change the location in Preferences & Data.",
+        ).grid(row=row, column=1, columnspan=2, sticky="w", padx=8, pady=(0, 8))
 
         # Log + progress
         logf = ttk.LabelFrame(self, text="Log")
@@ -283,12 +323,27 @@ class CoverResizerUI(ttk.Frame):
             messagebox.showerror("Bad size", "Target size must be positive.")
             return
 
+        # Validated; only now is a run directory reserved.
+        try:
+            reservation = output_paths.reserve_run_directory(TOOL_KEY)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
+            return
+
+        self.var_overwrite.set(False)          # the widget is disabled; do not trust it
         params = {
             "size": size,
             "letterbox": self.var_letterbox.get(),
-            "overwrite": self.var_overwrite.get(),
+            "overwrite": False,                # Phase 5 owns source-side output
             "files": list(self.files),
+            "run_dir": reservation.run_directory,
+            "planner": reservation.planner(),
         }
+        self.var_outdir.set(str(reservation.run_directory))
+        self._last_run_dir = reservation.run_directory
+        self._log_q.put(
+            ("log", f"\nOutput folder: {reservation.run_directory}\n")
+        )
 
         self._busy.set()
         self._cancel_event.clear()
@@ -313,11 +368,14 @@ class CoverResizerUI(ttk.Frame):
             self.btn_clear,
             self.entry_size,
             self.chk_letterbox,
-            self.chk_overwrite,
             self.btn_convert,
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
+        # Stays disabled in both states: Phase 5 owns the source-side redesign.
+        self.chk_overwrite.configure(state=tk.DISABLED)
+        # The destination display is never typeable; it only greys out.
+        self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
 
     def log_write(self, text: str):
         self.log.insert(tk.END, text)
@@ -352,7 +410,9 @@ class CoverResizerUI(ttk.Frame):
         files = params["files"]
         size = params["size"]
         letterbox = params["letterbox"]
+        # Always False in Phase 4 — the source-side path below is dormant.
         overwrite = params["overwrite"]
+        planner = params["planner"]
         total = len(files)
         cancelled = False
 
@@ -362,11 +422,12 @@ class CoverResizerUI(ttk.Frame):
                 break
             temp_out = None
             try:
-                if overwrite:
+                if overwrite:  # pragma: no cover - dormant until Phase 5
                     temp_out = next_version_path(in_file)  # make a temp with -1
                     final_out = in_file
                 else:
-                    temp_out = next_version_path(in_file)
+                    temp_out = planner.plan(in_file.name)
+                    output_paths.assert_not_input(temp_out, files)
                     final_out = temp_out
 
                 self._log_q.put(("log", f"\n[{idx}/{total}] Resizing:\n {in_file}\n -> {final_out}\n"))
