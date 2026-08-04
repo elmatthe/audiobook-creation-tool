@@ -18,8 +18,10 @@ Platform-neutral and Tk-free by construction: paths and an effective
 configuration snapshot come in, immutable plans and typed errors come out.
 Nothing here reads or writes media, spawns a process, or touches the network.
 
-**Nothing in the application consumes this module yet.** Phase 4 migrates the
-six tools; until then ``shared.paths.next_output_dir`` remains the live path.
+**All six tools consume this module** since v0.6.0 Drop 2 Phase 4. The
+pre-Plan-2 route (``shared.paths.next_output_dir`` /
+``shared.paths.avoid_input_overwrite``) is dormant and called by nothing in the
+shipped tree; a test in ``files/tests/test_output_paths.py`` enforces that.
 """
 
 from __future__ import annotations
