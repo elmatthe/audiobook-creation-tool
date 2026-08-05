@@ -4,6 +4,75 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-04 — The cleanup catalog is a closed set of four IDs, a request may never carry a path, nothing is selected by default, an unreadable size is said out loud, and Phase 6 fails closed rather than pretending
+
+**Decision (v0.6.0 Drop 2, Phase 6).** The downloaded-data inventory and its confirmation now
+exist. Six choices behind them.
+
+**1. Exactly four asset IDs, in a closed catalog that cannot grow at runtime.**
+`virtual_environment`, `portable_binaries`, `downloaded_models`, `application_logs` — held as
+frozen dataclasses inside a tuple behind a `MappingProxyType`. **Why closed rather than
+discovered:** a cleanup feature that enumerates "regenerable-looking" directories is one
+mislabelled folder away from deleting someone's work. Every ID here was approved individually
+and maps to a directory this project created and can recreate. The audit did notice other
+regenerable-looking directories; none were added, per the drop's instruction to stop and ask.
+Settings, `config.toml`, outputs, source media, repository source/docs/tests and anything
+system-installed are absent by construction, not by a filter that could be widened later.
+
+**2. A request carries enumerated IDs and no path — ever.** There is no `path`, `target`,
+`directory`, `root`, `command` or executable field in the request or the result schema, and a
+test asserts that of every field name plus the serialized bytes. **Why this specific shape:**
+the dangerous version of this feature is one where a widget, a JSON file or a TOML key can
+name a directory that reaches a recursive delete. Making the schema physically incapable of
+expressing a path removes that whole class of bug rather than defending against it. The single
+ID→path mapping takes an always-explicit repository root, has no default, and returns nothing
+until the result is proved to be the exact compiled target, contained, non-protected and
+link-free. Normalisation deliberately uses `abspath` rather than `resolve()`, because
+`resolve()` would *follow* a junction and quietly hand back somewhere else on the machine —
+the exact failure the check exists to catch.
+
+**3. Nothing is selected by default, and nothing is remembered.** Every checkbox is created
+unchecked on every open; missing and unsafe rows have no usable control; `selected_ids()`
+intersects "ticked" with "eligible" so a forced variable yields nothing. **Why no "recommended"
+preset:** a preselected destructive set converts a deliberate act into a default one, and the
+whole safety argument for this feature rests on the user having chosen each item. Selection is
+never persisted for the same reason — a remembered choice is a choice made in a context the
+user can no longer see.
+
+**4. An unreadable size is reported, not guessed.** An estimate that skipped a link or hit a
+permission error comes back `complete=False`, the row reads `1.2 MB (at least)`, and the
+confirmation says *"plus data whose size could not be read safely."* **Why not just show the
+partial number:** the figure is the user's main basis for consenting, and a total that silently
+under-reports is a lie told at exactly the wrong moment. Links are never followed during
+estimation, so a junction cannot inflate — or redirect — the walk.
+
+**5. One custom confirmation, Cancel as the focused default, no suppression.** Not a
+`messagebox`: this needs the item list, the sizes, the effect lines and the exclusions in one
+place. The destructive button is never the default, so a reflexive Return dismisses it safely;
+Escape and the window-close control both cancel; and the window is rebuilt from the live
+selection every time, so there is no cached text and no "don't ask again" to find. This mirrors
+the Phase 5 replacement confirmation deliberately — the two most dangerous actions in the app
+should behave identically under the user's hands.
+
+**6. Phase 6 fails closed rather than pretending.** Accepting builds one validated request and
+passes it to a callback; the production callback returns `False` and the dialog says *"Cleanup
+did not start. Safe post-exit cleanup is not available yet. No data was changed, and Audiobook
+Creation Tool will remain open."* **Why ship a dead end at all:** the alternative was to hold
+the UI back until Phase 7, which would have meant designing the request schema, the
+authorization rules and the confirmation *against* an executor rather than before one — and the
+safety properties above are precisely the ones that are cheap to establish first and expensive
+to retrofit. A callback that raises is treated identically to one that refuses, so a future
+coordinator crashing can never leave the app claiming cleanup was scheduled.
+
+**A note for Phase 7.** `AssetDefinition.removes_target_itself` already records the difference
+between removing `.venv` and emptying the other three, and `requires_post_exit` already records
+which assets are open while the app runs. Those are inputs to the coordinator, not decisions it
+should make again.
+
+— Claude Code, on the maintainer's instruction (v0.6.0 Drop 2 Phase 6)
+
+---
+
 ## 2026-08-04 — Cover replacement is gated three ways and installed atomically; the temporary sibling lives beside its source; a custom destination is the user's folder, so cleanup may never remove it
 
 **Decision (v0.6.0 Drop 2, Phase 5).** The two destination exceptions of Decision 10A now

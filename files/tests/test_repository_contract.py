@@ -232,12 +232,28 @@ def test_the_committed_config_file_exists_at_the_repository_root():
 
 
 def test_config_template_toml_is_not_the_projects_config():
-    """The maintainer's unrelated root file must never become config.toml."""
+    """The maintainer's unrelated root file must never become config.toml.
+
+    Phase 6 names it in exactly one place — ``maintenance.PROTECTED_RELATIVE``,
+    the list of paths a cleanup target may never be or contain. That is the
+    opposite of using it, so the file is allowed to appear there and nowhere
+    else; the assertions below pin it to that one list.
+    """
     verify = load_verify()
     assert verify.CONFIG_FILE.name == "config.toml"
-    source = (REPO_ROOT / "scripts").rglob("*.py")
-    for path in source:
-        assert "config-template.toml" not in path.read_text(encoding="utf-8"), path
+    maintenance_module = REPO_ROOT / "scripts" / "Universal" / "shared" / "maintenance.py"
+    for path in (REPO_ROOT / "scripts").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if path == maintenance_module:
+            continue
+        assert "config-template.toml" not in text, path
+
+    from shared import maintenance
+
+    assert "config-template.toml" in maintenance.PROTECTED_RELATIVE
+    body = maintenance_module.read_text(encoding="utf-8")
+    assert body.count("config-template.toml") == 1, "named once, as protected only"
+    assert "tomllib" not in body and "open(" not in body
 
 
 def test_the_config_gate_passes_against_the_committed_file():

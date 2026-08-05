@@ -455,47 +455,55 @@ def test_reset_leaves_every_unrelated_asset_untouched(fresh_root, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Clear Downloaded Data placeholder
+# Clear Downloaded Data entry point
 # --------------------------------------------------------------------------- #
+#
+# Phase 6 replaced the inert Phase 2 placeholder with a real review dialog. The
+# guards below moved with that boundary rather than being deleted: Preferences
+# may now open the review, but it still may not delete, spawn or persist
+# anything. The dialog's own behaviour is covered in
+# ``test_preferences_maintenance_ui.py``.
 
 
-def test_the_cleanup_placeholder_is_present_and_labelled(fresh_root):
+def test_the_cleanup_entry_is_present_and_labelled(fresh_root):
     dialog = make_dialog(fresh_root)
     assert dialog.button_cleanup.cget("text") == preferences_ui.CLEANUP_BUTTON_LABEL
     assert dialog.label_cleanup_placeholder.cget("text") == (
         preferences_ui.CLEANUP_PLACEHOLDER_TEXT
     )
-    assert "not" not in preferences_ui.CLEANUP_PLACEHOLDER_TEXT.lower() or True
 
 
-def test_the_cleanup_placeholder_is_visibly_disabled(fresh_root):
+def test_the_cleanup_caption_does_not_claim_deletion_works_yet(fresh_root):
+    caption = preferences_ui.CLEANUP_PLACEHOLDER_TEXT
+    assert "Nothing is deleted yet." in caption
+
+
+def test_the_cleanup_entry_is_a_separate_action_from_reset(fresh_root):
     dialog = make_dialog(fresh_root)
-    assert str(dialog.button_cleanup.cget("state")) == "disabled"
-    assert "disabled" in dialog.button_cleanup.state()
+    assert dialog.button_cleanup is not dialog.button_reset
+    assert str(dialog.button_cleanup.cget("command")) != str(
+        dialog.button_reset.cget("command")
+    )
 
 
-def test_the_cleanup_placeholder_has_no_callable_action(fresh_root):
-    """Not merely disabled: there is no command to invoke at all."""
-    dialog = make_dialog(fresh_root)
-    assert str(dialog.button_cleanup.cget("command")) == ""
-    assert dialog.button_cleanup.invoke() == ""
-
-
-def test_no_cleanup_or_deletion_behaviour_exists_in_phase_two():
-    """Phase 6 owns the catalog, the coordinator and the deletions."""
+def test_preferences_itself_still_deletes_spawns_and_persists_nothing():
+    """The Phase 2 guard at its new home: the Phase 7 boundary."""
     import ast
 
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     defined = {n.name for n in ast.walk(tree)
-               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    for phase_six in ("clear_downloaded_data", "cleanup", "delete_assets", "run_cleanup"):
-        assert phase_six not in defined
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+    for phase_seven in ("clear_downloaded_data", "delete_assets", "run_cleanup",
+                        "schedule_cleanup", "write_request", "persist_request",
+                        "wait_for_exit", "CleanupCoordinator"):
+        assert phase_seven not in defined
 
     called = {n.func.attr for n in ast.walk(tree)
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
-    for destructive in ("rmtree", "unlink", "remove", "rmdir", "Popen", "run", "system"):
+    for destructive in ("rmtree", "unlink", "remove", "rmdir", "Popen", "run",
+                        "system", "quit", "write_text", "write_bytes"):
         assert destructive not in called
 
     imported: set[str] = set()

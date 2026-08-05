@@ -232,13 +232,43 @@ flashing during use.
   **Reset Preferences** confirms first, clears mutable preferences only through
   `settings.reset()`, refreshes the fields and source line, and reports failure instead of
   claiming success. It never edits `config.toml` and never touches `.venv`, models, binaries,
-  logs, outputs or source media. **Clear Downloaded Data is a disabled placeholder** carrying
-  no command at all — Phase 6 of this plan owns the inventory, confirmation and deletion.
+  logs, outputs or source media. **Clear Downloaded Data is a separate action** that opens the
+  inventory described below; it is never bundled into Reset and never shares its confirmation.
   **Configuration warnings are presented once per launch**: `config.take_launch_warning()`
   owns the guard (platform-neutral, so a reload storm cannot become a dialog storm and a test
   can re-arm it with `reset_launch_warning_guard()`), and the launcher shows one non-modal
   window carrying the whole aggregated summary — never one dialog per bad key, never a
   blocking `messagebox`, and never a reason to fail startup.
+- **Downloaded-data maintenance (`shared/maintenance.py`, v0.6.0 Drop 2 Phase 6).** Inventory
+  and confirmation only — **execution remains Phase 7, and no deletion code exists yet.** The
+  module is platform-neutral, Tk-free, imports neither `shutil` nor `subprocess`, and calls no
+  deletion or process primitive; tests assert that structurally. The catalog is a **closed set
+  of exactly four IDs** held as frozen dataclasses behind a `MappingProxyType`, so it cannot
+  grow at runtime: `virtual_environment` → `.venv` (removed whole, always post-exit),
+  `portable_binaries` → `files/bin`, `downloaded_models` → `files/runtime-data/models`, and
+  `application_logs` → `files/runtime-data/logs` (contents only; post-exit, since the session
+  log is open). System ffmpeg is never included, and settings, `config.toml`, outputs, source
+  media and repository source/docs/tests are absent by construction rather than by a filter.
+  **An ID becomes a path in exactly one place.** `authorized_target(asset_id, repo_root)` takes
+  an always-explicit root — there is no default, so a test cannot be handed the real project by
+  accident — and returns a path only after proving it is the exact compiled target, inside the
+  root, not the root, not equal to / inside / containing any protected location, and not reached
+  through a symlink, junction or reparse point at any level. Normalisation uses `abspath`, never
+  `resolve()`, so a link is *detected* instead of followed. **No arbitrary path can ever reach a
+  delete:** the request and result schemas (version 1, immutable, validated in `__post_init__`,
+  strict allowlist on deserialize) carry enumerated asset IDs only and have no `path`, `target`,
+  `directory`, `root`, `command` or executable field at all. Size estimation is read-only
+  (`scandir`/`lstat`), never follows a directory link, tolerates files vanishing mid-walk, and
+  reports an unreadable subtree as an *incomplete* estimate — `1.2 MB (at least)`, and *"plus
+  data whose size could not be read safely"* in the confirmation — rather than a false exact
+  total. The dialog opens with **every box unchecked**, disables missing and unsafe rows, keeps
+  `Review Selected Data…` disabled until something eligible is deliberately ticked, persists no
+  selection, and measures sizes on a worker thread with every Tk update returned to the main
+  thread. The confirmation is one custom window (never a Yes/No box) rebuilt from the live
+  selection each time, with Cancel as the focused default and no suppression path. Accepting
+  builds one immutable request and hands it to an injected callback and nothing else; the
+  production callback **fails closed**, reporting that cleanup did not start, that no data was
+  changed, and that the app remains open.
 - **Windows design system (v0.6.0 Drop 1 — approved 2026-08-02).** A centralized set of
   *semantic* tokens in `shared/ui_theme.py`, consumed only through the theme bundle:
   `_WINDOWS_COLORS` (surfaces window/sidebar/surface/elevated/muted/border/divider, text

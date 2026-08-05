@@ -15,6 +15,59 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Downloaded-data inventory and confirmation (v0.6.0 Drop 2 Phase 6, 2026-08-04)
+
+> The Clear Downloaded Data flow now exists end to end **except the deletion**. Phase 6
+> inventories, lets the user select, confirms in the strongest terms, and builds one immutable
+> request. **Nothing is deleted, scheduled, spawned or written.** The post-exit coordinator that
+> acts on a request is Phase 7 and is not implemented. `version.py` remains `0.5.1`.
+
+- **New `shared/maintenance.py`** — platform-neutral, Tk-free, and provably non-destructive: it
+  imports neither `shutil` nor `subprocess`, calls no deletion or process primitive, and defines
+  no executor, coordinator or persistence function. Tests assert all of that structurally.
+- **A closed catalog of exactly four assets** — `virtual_environment` (`.venv`),
+  `portable_binaries` (`files/bin`), `downloaded_models` (`files/runtime-data/models`) and
+  `application_logs` (`files/runtime-data/logs`) — held as frozen dataclasses behind a
+  `MappingProxyType`, so it cannot be extended at runtime. Settings, `config.toml`, outputs,
+  source media, repository source/docs/tests and anything system-installed are absent by
+  construction, and system ffmpeg is called out as never removed.
+- **IDs map to paths in exactly one place.** `authorized_target()` takes an always-explicit
+  repository root and returns a path only after proving it is the exact compiled target, inside
+  the root, not the root, not equal to / inside / containing any protected location, and not
+  reached through a symlink, junction or reparse point at any level. Normalisation uses
+  `abspath`, never `resolve()`, so a link is detected rather than followed.
+- **Read-only size estimation** using `scandir`/`lstat` only. It never follows a directory link,
+  tolerates files vanishing mid-walk, and reports an unreadable subtree as an *incomplete*
+  estimate — shown as `1.2 MB (at least)` — instead of raising or inventing an exact total.
+- **Safe selection defaults.** Every checkbox is created unchecked on every open, missing and
+  unsafe items have no usable control, `Review Selected Data…` stays disabled until something
+  eligible is deliberately ticked, and no selection is ever persisted or restored. Reset
+  Preferences remains a separate action.
+- **Immutable, versioned request and result schemas** (schema version 1) carrying enumerated
+  asset IDs only. Neither schema has a `path`, `target`, `directory`, `root`, `command` or
+  executable field, so no string from JSON, TOML or a widget can name something to delete.
+  Validation runs in `__post_init__` and deserialization uses a strict allowlist where a missing
+  *or* extra field is a refusal. The result schema is defined for Phase 7 to consume; Phase 6
+  never creates one.
+- **The Clear Downloaded Data dialog** replaces the Phase 2 disabled placeholder. Sizes are
+  measured on a worker thread with every Tk update returned to the main thread, so opening the
+  dialog never stalls and closing it mid-walk updates nothing.
+- **One custom confirmation**, never a generic Yes/No box, rebuilt from the live selection every
+  time and impossible to suppress. Cancel is the focused default and is what Escape and the
+  window-close control both do; the destructive button is `Clear N Selected Items and Close` and
+  is never the default.
+
+### Changed — the Preferences cleanup entry is live, but still fails closed (v0.6.0 Drop 2 Phase 6)
+
+- Accepting the confirmation builds one validated request and hands it to an injected callback —
+  and nothing else. In production that callback is `unavailable_cleanup_handler`, which refuses,
+  so the dialog reports *"Cleanup did not start. Safe post-exit cleanup is not available yet. No
+  data was changed, and Audiobook Creation Tool will remain open."* and both windows stay usable.
+  A callback that raises is treated the same way, so a future coordinator failing can never leave
+  the app claiming success.
+- The Phase 2 scope guards moved to the Phase 7 boundary rather than being relaxed: Preferences
+  may now open the review, but still may not delete, spawn, persist or close anything.
+
 ### Added — Cover Image source-side modes and M4B Maker custom destination (v0.6.0 Drop 2 Phase 5, 2026-08-04)
 
 > The two destination exceptions Decision 10A allows, both opt-in and both off by default.

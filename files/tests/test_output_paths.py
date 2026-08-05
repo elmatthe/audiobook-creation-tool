@@ -1079,13 +1079,15 @@ def test_no_cleanup_or_post_exit_behaviour_exists_anywhere():
                 assert word not in source, relative
 
 
-def test_the_cleanup_placeholder_is_still_disabled_and_inert():
+def test_the_cleanup_flow_still_reaches_no_deletion():
+    """Phase 6 gave the entry point a dialog; it still deletes nothing."""
     from shared import preferences_ui
 
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
-    assert 'state="disabled"' in source
     assert "CLEANUP_PLACEHOLDER_TEXT" in source
-    assert "command=self.clear" not in source
+    assert "unavailable_cleanup_handler" in source
+    for destructive in ("shutil", "rmtree", "os.remove", "Popen"):
+        assert destructive not in source, destructive
 
 
 def test_the_two_approved_exceptions_exist_and_no_others():

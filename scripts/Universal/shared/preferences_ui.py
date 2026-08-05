@@ -1,9 +1,18 @@
-"""The Preferences & Data dialog and the once-per-launch configuration warning.
+"""Preferences & Data: output preferences, reset, and downloaded-data cleanup.
 
-Presentation only. Every rule this dialog enforces — what a valid output base
-is, what precedence applies, what a reset clears — lives in ``shared.config``
-and ``shared.settings`` and is tested without Tk. This module collects choices
-and shows results; it decides nothing.
+Presentation only. Every rule these dialogs enforce — what a valid output base
+is, what precedence applies, what a reset clears, which downloaded assets exist,
+what they are allowed to point at, how big they are — lives in ``shared.config``,
+``shared.settings`` and ``shared.maintenance`` and is tested without Tk. This
+module collects choices and shows results; it decides nothing.
+
+Nothing here deletes. The Clear Downloaded Data flow inventories, lets the user
+select, confirms in the strongest terms, builds one immutable
+:class:`~shared.maintenance.CleanupRequest` and hands it to an injected
+callback. Until Phase 7 supplies the real post-exit coordinator that callback is
+:func:`~shared.maintenance.unavailable_cleanup_handler`, which fails closed:
+nothing is written, nothing is started, the app stays open, and the user is told
+so plainly rather than being told cleanup was scheduled.
 
 Platform handling follows the Plan 1 contract. On Windows every widget names an
 ``ACT.*`` style from ``theme["styles"]``; on macOS and Linux that map is absent,
@@ -18,17 +27,19 @@ and browse flows deterministically without a real message box.
 
 from __future__ import annotations
 
+import queue
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import config
+from . import config, maintenance, paths
 
 DIALOG_TITLE = "Preferences & Data"
 MENU_LABEL = "Preferences & Data…"
 
-#: Shown beside the disabled Clear Downloaded Data button. Phase 6 of this plan
-#: owns the real behaviour; nothing here deletes, scans, inventories or spawns.
-CLEANUP_PLACEHOLDER_TEXT = "Available after downloaded-data management is implemented"
+#: Shown beside the Clear Downloaded Data button. It reviews and confirms; the
+#: post-exit coordinator that actually removes anything is Phase 7.
+CLEANUP_PLACEHOLDER_TEXT = "Review what can be safely removed. Nothing is deleted yet."
 CLEANUP_BUTTON_LABEL = "Clear Downloaded Data"
 
 #: Keyboard accelerators — the platform-conventional Preferences shortcuts.
@@ -86,12 +97,19 @@ class PreferencesDialog(tk.Toplevel):
     window instead of stacking duplicates.
     """
 
-    def __init__(self, master, theme=None, *, confirm=None, ask_directory=None, logger=None):
+    def __init__(self, master, theme=None, *, confirm=None, ask_directory=None,
+                 logger=None, repo_root=None, start_cleanup=None):
         super().__init__(master)
         self.theme = theme or {}
         self._confirm = confirm if confirm is not None else self._default_confirm
         self._ask_directory = ask_directory if ask_directory is not None else self._default_browse
         self._logger = logger
+        #: Always explicit downstream, so the suite inventories a fake tree.
+        self._repo_root = paths.REPO_ROOT if repo_root is None else repo_root
+        self._start_cleanup = start_cleanup
+        #: The one live cleanup window, held for the same reason the launcher
+        #: holds this one: repeated activation focuses rather than stacks.
+        self.cleanup_dialog = None
 
         self.title(DIALOG_TITLE)
         self.transient(master)
@@ -251,11 +269,11 @@ class PreferencesDialog(tk.Toplevel):
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(gap_sm, 0))
 
     def _build_cleanup_section(self, parent, row: int) -> None:
-        """The Clear Downloaded Data placeholder — inert by construction.
+        """Clear Downloaded Data — a separate action, never bundled with Reset.
 
-        The button carries **no** command: it is created disabled and without a
-        callback, so there is nothing to invoke even if something re-enabled it.
-        Phase 6 of this plan owns the real inventory, confirmation and deletion.
+        Deliberately its own card with its own button: a reset of preferences
+        and a removal of downloaded data are different decisions and are never
+        offered as one control or one confirmation.
         """
         t = self.theme
         gap_sm = _metric(t, "gap_sm", 8)
@@ -263,7 +281,8 @@ class PreferencesDialog(tk.Toplevel):
         card.columnconfigure(1, weight=1)
 
         self.button_cleanup = ttk.Button(
-            card, text=CLEANUP_BUTTON_LABEL, style=_style(t, "button"), state="disabled"
+            card, text=CLEANUP_BUTTON_LABEL, style=_style(t, "button"),
+            command=self.open_cleanup,
         )
         self.button_cleanup.grid(row=1, column=0, sticky="w", pady=(gap_sm, 0))
         self.label_cleanup_placeholder = ttk.Label(
@@ -401,6 +420,15 @@ class PreferencesDialog(tk.Toplevel):
         self._set_status("Preferences reset. Defaults are back in force.", "success")
         return True
 
+    def open_cleanup(self):
+        """Open the Clear Downloaded Data review, or focus the open one."""
+        self.cleanup_dialog = open_cleanup_dialog(
+            self, self.theme, self.cleanup_dialog,
+            repo_root=self._repo_root, start_cleanup=self._start_cleanup,
+            logger=self._logger,
+        )
+        return self.cleanup_dialog
+
     def focus_dialog(self) -> None:
         """Bring this window forward — the single-instance path."""
         try:
@@ -441,6 +469,468 @@ def open_preferences(master, theme=None, existing=None, **kwargs):
     dialog = PreferencesDialog(master, theme, **kwargs)
     dialog.focus_dialog()
     return dialog
+
+
+# --------------------------------------------------------------------------- #
+# Clear Downloaded Data — inventory and selection
+# --------------------------------------------------------------------------- #
+
+
+class CleanupDialog(tk.Toplevel):
+    """The itemized downloaded-data review. Selects and confirms; deletes nothing.
+
+    Safe by construction rather than by discipline:
+
+    * every checkbox is created unchecked, on every open, and no selection is
+      ever written down or read back — closing and reopening starts over;
+    * a missing or unsafe item has no usable checkbox at all;
+    * ``Review Selected Data…`` stays disabled until something eligible is
+      deliberately ticked;
+    * the size walk runs on a worker thread and every Tk update is applied on
+      the main thread through ``after``, because a full ``.venv`` walk on the
+      Tk thread would freeze the window.
+    """
+
+    WRAP = 620
+
+    def __init__(self, master, theme=None, *, repo_root=None, start_cleanup=None,
+                 logger=None, confirm_factory=None, measure=True):
+        super().__init__(master)
+        self.theme = theme or {}
+        self._repo_root = paths.REPO_ROOT if repo_root is None else repo_root
+        #: Phase 6's production callback fails closed. Phase 7 replaces it.
+        self._start_cleanup = (
+            maintenance.unavailable_cleanup_handler if start_cleanup is None
+            else start_cleanup
+        )
+        self._logger = logger
+        self._confirm_factory = confirm_factory or CleanupConfirmationDialog
+
+        self.title(maintenance.CLEANUP_DIALOG_TITLE)
+        self.transient(master)
+        self.resizable(True, True)
+
+        colors = self.theme.get("colors") or {}
+        if self.theme.get("mode") == "windows" and colors.get("window"):
+            self.configure(background=colors["window"])
+
+        #: The request handed to the callback on the last acceptance. Held for
+        #: the suite and for logging; never persisted.
+        self.last_request = None
+        self._closed = False
+        self._after_id = None
+        self._queue: queue.Queue = queue.Queue()
+        self._vars: dict[str, tk.BooleanVar] = {}
+        self._rows: dict[str, dict] = {}
+        self.var_status = tk.StringVar(value=maintenance.NOTHING_SELECTED_TEXT)
+        self._status_kind = "info"
+
+        # Unmeasured first: the rows paint immediately and the sizes arrive
+        # from the worker, so opening the dialog is never a stall.
+        self.items = maintenance.inventory(self._repo_root, measure=False)
+        self._build()
+        self._on_selection_change()
+
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.bind("<Escape>", lambda _e: self.close())
+        self.update_idletasks()
+        self.minsize(max(560, self.winfo_reqwidth()), max(320, self.winfo_reqheight()))
+
+        if measure:
+            self.start_inventory()
+
+    # -- construction ------------------------------------------------------ #
+
+    def _build(self) -> None:
+        t = self.theme
+        gap_sm = _metric(t, "gap_sm", 8)
+        gap_md = _metric(t, "gap_md", 12)
+
+        outer = ttk.Frame(self, style=_style(t, "window"), padding=gap_md)
+        outer.pack(fill="both", expand=True)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(2, weight=1)
+
+        ttk.Label(outer, text=maintenance.CLEANUP_DIALOG_TITLE,
+                  style=_style(t, "title")).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            outer, text=maintenance.CLEANUP_INTRO, style=_style(t, "secondary_label"),
+            wraplength=self.WRAP, justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(2, gap_md))
+
+        # The one region allowed to grow: four rows today, and a local scroll
+        # rather than a scrolling dialog if a later plan adds more.
+        self.item_frame = ttk.Frame(outer, style=_style(t, "card"),
+                                    padding=_metric(t, "card_pad", 14))
+        self.item_frame.grid(row=2, column=0, sticky="nsew")
+        self.item_frame.columnconfigure(0, weight=1)
+
+        for index, item in enumerate(self.items):
+            self._build_row(self.item_frame, index * 2, item)
+
+        footer = ttk.Frame(outer, style=_style(t, "window"))
+        footer.grid(row=3, column=0, sticky="ew", pady=(gap_md, 0))
+        footer.columnconfigure(0, weight=1)
+
+        self.label_status = ttk.Label(
+            footer, textvariable=self.var_status, style=_style(t, "secondary_label"),
+            wraplength=self.WRAP - 220, justify="left",
+        )
+        self.label_status.grid(row=0, column=0, sticky="w", padx=(0, gap_sm))
+        self.button_cancel = ttk.Button(
+            footer, text=maintenance.CANCEL_BUTTON_LABEL, style=_style(t, "button"),
+            command=self.close,
+        )
+        self.button_cancel.grid(row=0, column=1, sticky="e", padx=(0, gap_sm))
+        self.button_review = ttk.Button(
+            footer, text=maintenance.REVIEW_BUTTON_LABEL,
+            style=_style(t, "primary_button"), command=self.review_selection,
+            state="disabled",
+        )
+        self.button_review.grid(row=0, column=2, sticky="e")
+
+        # Cancel is the safe landing place for the keyboard on open.
+        self.button_cancel.focus_set()
+        self.default_widget = self.button_cancel
+
+    def _build_row(self, parent, row: int, item) -> None:
+        t = self.theme
+        gap_sm = _metric(t, "gap_sm", 8)
+        parent.columnconfigure(0, weight=1)
+
+        var = tk.BooleanVar(value=False)          # unchecked, always
+        self._vars[item.asset_id] = var
+        check = ttk.Checkbutton(
+            parent, text=item.display_name, variable=var,
+            style=_style(t, "checkbutton"), command=self._on_selection_change,
+        )
+        check.grid(row=row, column=0, sticky="w", pady=(gap_sm if row else 0, 0))
+        if not item.selectable:
+            check.configure(state="disabled")
+
+        state = ttk.Label(parent, text=item.state_text,
+                          style=_style(t, "secondary_label"))
+        state.grid(row=row, column=1, sticky="e", padx=(gap_sm, gap_sm),
+                   pady=(gap_sm if row else 0, 0))
+        size = ttk.Label(parent, text=item.size_text, style=_style(t, "label"))
+        size.grid(row=row, column=2, sticky="e", pady=(gap_sm if row else 0, 0))
+
+        detail = ttk.Label(
+            parent, text=self._detail_text(item), style=_style(t, "secondary_label"),
+            wraplength=self.WRAP - 40, justify="left",
+        )
+        detail.grid(row=row + 1, column=0, columnspan=3, sticky="w", padx=(20, 0))
+
+        self._rows[item.asset_id] = {
+            "check": check, "state": state, "size": size, "detail": detail,
+        }
+
+    @staticmethod
+    def _detail_text(item) -> str:
+        """The consequence, or the reason this item cannot be chosen."""
+        return item.problem if item.problem else item.consequence
+
+    # -- background inventory --------------------------------------------- #
+
+    def start_inventory(self) -> None:
+        """Measure sizes off the Tk thread; results land through :meth:`_poll`."""
+        root = self._repo_root
+        result_queue = self._queue
+
+        def work():
+            try:
+                result_queue.put(("items", maintenance.inventory(root, measure=True)))
+            except Exception as exc:                      # never kill the worker
+                result_queue.put(("error", exc))
+
+        self._worker = threading.Thread(target=work, daemon=True)
+        self._worker.start()
+        self._poll()
+
+    def _poll(self) -> None:
+        """Drain the worker's queue on the main thread. Safe after close."""
+        if self._closed or not self._alive():
+            return
+        try:
+            kind, payload = self._queue.get_nowait()
+        except queue.Empty:
+            self._after_id = self.after(60, self._poll)
+            return
+        if kind == "items":
+            self.apply_measured(payload)
+        else:
+            self._log(f"cleanup inventory failed: {payload!r}")
+            self._set_status("Some sizes could not be read. Nothing was changed.",
+                             "error")
+
+    def _alive(self) -> bool:
+        try:
+            return bool(self.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def apply_measured(self, items) -> None:
+        """Repaint sizes and details from a measured snapshot.
+
+        Every write is guarded: the worker can finish after the user has closed
+        the window, and updating a destroyed widget must be a no-op rather than
+        a traceback.
+        """
+        if self._closed or not self._alive():
+            return
+        self.items = tuple(items)
+        try:
+            for item in self.items:
+                widgets = self._rows.get(item.asset_id)
+                if not widgets:
+                    continue
+                widgets["state"].configure(text=item.state_text)
+                widgets["size"].configure(text=item.size_text)
+                widgets["detail"].configure(text=self._detail_text(item))
+                if not item.selectable:
+                    # A target that became unsafe while we measured loses both
+                    # its tick and its control.
+                    self._vars[item.asset_id].set(False)
+                    widgets["check"].configure(state="disabled")
+        except tk.TclError:
+            return
+        self._on_selection_change()
+
+    # -- selection --------------------------------------------------------- #
+
+    def selected_ids(self) -> tuple[str, ...]:
+        """Ticked *and* eligible, in catalog order. Never anything else."""
+        eligible = {i.asset_id for i in self.items if i.selectable}
+        return tuple(
+            item.asset_id for item in self.items
+            if item.asset_id in eligible and self._vars[item.asset_id].get()
+        )
+
+    def _on_selection_change(self) -> None:
+        chosen = self.selected_ids()
+        try:
+            summary = maintenance.summarise_selection(self.items, chosen)
+        except maintenance.MaintenanceError:
+            # Cannot happen through the UI; if it ever did, refuse to proceed
+            # rather than describe a selection we could not verify.
+            self._set_status(maintenance.NOTHING_SELECTED_TEXT, "info")
+            self._set_review_enabled(False)
+            return
+        self._set_status(maintenance.selected_total_text(summary), "info")
+        self._set_review_enabled(bool(summary.asset_ids))
+
+    def _set_review_enabled(self, enabled: bool) -> None:
+        try:
+            self.button_review.configure(state="normal" if enabled else "disabled")
+        except tk.TclError:
+            pass
+
+    def _set_status(self, message: str, kind: str = "info") -> None:
+        self._status_kind = kind
+        self.var_status.set(message)
+        style_name = {"success": "success_label", "error": "danger_label"}.get(
+            kind, "secondary_label"
+        )
+        try:
+            self.label_status.configure(style=_style(self.theme, style_name))
+        except tk.TclError:
+            pass
+
+    @property
+    def status_kind(self) -> str:
+        return self._status_kind
+
+    def _log(self, message: str) -> None:
+        if self._logger is not None:
+            try:
+                self._logger.warning(message)
+            except Exception:
+                pass
+
+    # -- review and confirm ------------------------------------------------ #
+
+    def build_confirmation(self):
+        """The confirmation window for the current selection, built fresh.
+
+        Split from :meth:`review_selection` so the suite can inspect and drive
+        the real dialog without entering its modal loop.
+        """
+        chosen = self.selected_ids()
+        body = maintenance.confirmation_body(self.items, chosen)
+        return self._confirm_factory(self, body, len(chosen), self.theme)
+
+    def review_selection(self) -> bool:
+        """Confirm, then hand one validated request to the callback.
+
+        Returns True only when the callback accepted it. Declining, or a
+        callback that refuses, changes nothing at all.
+        """
+        chosen = self.selected_ids()
+        if not chosen:
+            self._set_status(maintenance.NOTHING_SELECTED_TEXT, "info")
+            return False
+
+        window = self.build_confirmation()
+        if not window.show():
+            self._set_status("Cleanup cancelled. Nothing was changed.", "info")
+            return False
+        return self.submit(chosen)
+
+    def submit(self, chosen) -> bool:
+        """Validate, build the immutable request, and call only the callback."""
+        try:
+            request = maintenance.build_request(chosen)
+        except maintenance.MaintenanceError as exc:
+            self._log(f"cleanup request refused: {exc}")
+            self._set_status("That selection could not be prepared. Nothing was "
+                             "changed.", "error")
+            return False
+
+        self.last_request = request
+        started = False
+        try:
+            started = bool(self._start_cleanup(request))
+        except Exception as exc:                      # a callback must never crash us
+            self._log(f"cleanup handoff raised {type(exc).__name__}: {exc}")
+            started = False
+
+        if not started:
+            # Fail closed: say so exactly, and leave everything usable.
+            self._set_status(maintenance.CLEANUP_UNAVAILABLE_MESSAGE, "error")
+            self._log("cleanup did not start; no data was changed")
+            return False
+        return True
+
+    def close(self) -> None:
+        """Cancel: stop polling first, then destroy. Nothing is written."""
+        self._closed = True
+        if self._after_id is not None:
+            try:
+                self.after_cancel(self._after_id)
+            except tk.TclError:
+                pass
+            self._after_id = None
+        try:
+            self.destroy()
+        except tk.TclError:
+            pass
+
+    def focus_dialog(self) -> None:
+        try:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+        except tk.TclError:
+            pass
+
+
+def open_cleanup_dialog(master, theme=None, existing=None, **kwargs):
+    """Focus the live cleanup review, or create the one instance."""
+    if _is_alive(existing):
+        existing.focus_dialog()
+        return existing
+    dialog = CleanupDialog(master, theme, **kwargs)
+    dialog.focus_dialog()
+    return dialog
+
+
+# --------------------------------------------------------------------------- #
+# The strong confirmation
+# --------------------------------------------------------------------------- #
+
+
+class CleanupConfirmationDialog(tk.Toplevel):
+    """One custom confirmation, never a generic Yes/No box.
+
+    Cancel is the focused default and the destructive button never is, so a
+    reflexive Return dismisses the dialog safely. Escape and the window close
+    control both cancel. There is no "don't ask again": the window is rebuilt
+    from the live selection every time it is needed.
+    """
+
+    #: Wide enough that each item's consequence stays on one line. Every line
+    #: that wraps costs ~19px of height, and with all four items selected this
+    #: is the difference between comfortably inside the 920x600 supported
+    #: minimum and pressing against it.
+    WRAP = 780
+
+    def __init__(self, master, body: str, count: int, theme=None):
+        super().__init__(master)
+        self.theme = theme or {}
+        t = self.theme
+        self.title(maintenance.CONFIRM_TITLE)
+        self.transient(master)
+        self.resizable(False, False)
+
+        colors = t.get("colors") or {}
+        if t.get("mode") == "windows" and colors.get("window"):
+            self.configure(background=colors["window"])
+
+        self.result = False
+        self.body_text = body
+
+        pad = _metric(t, "gap_md", 12)
+        gap_sm = _metric(t, "gap_sm", 8)
+
+        outer = ttk.Frame(self, style=_style(t, "window"), padding=pad)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(outer, text=maintenance.CONFIRM_TITLE,
+                  style=_style(t, "heading")).pack(anchor="w", pady=(0, gap_sm))
+        self.label_message = ttk.Label(
+            outer, text=body, style=_style(t, "label"),
+            wraplength=self.WRAP, justify="left",
+        )
+        self.label_message.pack(anchor="w")
+
+        actions = ttk.Frame(outer, style=_style(t, "window"))
+        actions.pack(fill="x", pady=(pad, 0))
+        self.btn_confirm = ttk.Button(
+            actions, text=maintenance.confirmation_button_label(count),
+            style=_style(t, "danger_button"), command=self.confirm,
+        )
+        self.btn_confirm.pack(side="right")
+        self.btn_cancel = ttk.Button(
+            actions, text=maintenance.CANCEL_BUTTON_LABEL,
+            style=_style(t, "button"), command=self.cancel,
+        )
+        self.btn_cancel.pack(side="right", padx=(0, gap_sm))
+
+        # Recorded as well as set: focus cannot be observed reliably on a
+        # withdrawn root, so the intended default is stated explicitly.
+        self.default_widget = self.btn_cancel
+        self.btn_cancel.focus_set()
+
+        self.bind("<Escape>", lambda _e: self.cancel())
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+        self.update_idletasks()
+
+    def cancel(self) -> None:
+        self.result = False
+        self._finish()
+
+    def confirm(self) -> None:
+        self.result = True
+        self._finish()
+
+    def _finish(self) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        try:
+            self.destroy()
+        except tk.TclError:
+            pass
+
+    def show(self) -> bool:
+        """Run modally and report the choice. False on every safe exit."""
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
+        return bool(self.result)
 
 
 # --------------------------------------------------------------------------- #

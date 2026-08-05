@@ -2,7 +2,226 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 5 COMPLETE. Phases 6–9 are unstarted and pending explicit maintainer approval.**
+PHASE 6 COMPLETE. Phases 7–9 are unstarted and pending explicit maintainer approval.**
+
+### Phase 6 — Downloaded-data inventory and confirmation UI (2026-08-04, HOME-PC)
+
+**Result: the itemized cleanup model and its whole user flow exist, and nothing can delete
+anything.** Phase 6 inventories, selects, confirms and builds one immutable request — then
+fails closed, because the coordinator that would act on that request is Phase 7. Three files
+added, five modified. `version.py` is still `0.5.1`.
+
+**Phase 6 start SHA:** `89cca58914a9d94eb6d480c802e6021d2a09e872` (approved Phase 5).
+
+#### Scope implemented
+
+The exact four-item catalog; canonical ID→target mapping with full authorization; present/
+missing inventory; safe size estimation; a selection model with no destructive default;
+immutable versioned request and result schemas with strict validation; the Clear Downloaded
+Data dialog; the strong confirmation; and the fail-closed production callback.
+
+**Phase 7 was not started.** No deletion executor, no coordinator, no request persistence, no
+maintenance-state directory, no process spawning, no post-exit wait, no launcher or
+`bootstrap.py` change, no `.venv` rebuild, no next-launch result presentation.
+
+#### The catalog — exactly four IDs, and no way to add a fifth at runtime
+
+| Asset ID | Display name | Target (relative to the supplied root) | Post-exit | Removes |
+|---|---|---|---|---|
+| `virtual_environment` | Private Python environment | `.venv` | yes | the directory itself |
+| `portable_binaries` | Portable binaries | `files/bin` | no | contents |
+| `downloaded_models` | Downloaded voice models | `files/runtime-data/models` | no | contents |
+| `application_logs` | Application logs | `files/runtime-data/logs` | yes | contents |
+
+`CATALOG` is a tuple of frozen dataclasses and `CATALOG_BY_ID` a `MappingProxyType`, so neither
+can be extended or edited. `ASSET_IDS` is the one deterministic order used by rows, requests,
+totals and confirmation lines.
+
+#### Target authorization — how an ID becomes a path
+
+`authorized_target(asset_id, repo_root)` is the only mapping, and the root is **always
+explicit** (no default, so the suite cannot accidentally be handed the real project). Before a
+path is returned it must be the exact compiled target, inside the root, not the root itself,
+not equal to / inside / containing any `PROTECTED_RELATIVE` entry (`.git`, `scripts`,
+`md-instructions`, `files/tests`, both screenshot folders, `settings.json`, `config.toml`,
+`config-template.toml`, `README.md`, `AI-WORKSPACE.md`, both root launchers), and reached
+without crossing a symlink, junction or reparse point at any level including the root. Paths
+are normalised with `abspath`, never `resolve()`, precisely so a junction is *detected* rather
+than silently followed. `assert_authorized()` re-derives and compares, so a path that did not
+come from the mapping cannot pass.
+
+`config-template.toml` appears in this codebase exactly once, in that protected list. That is
+the opposite of using it, and `test_repository_contract.py` now pins it to that single place.
+
+#### Inventory and size estimation
+
+`estimate_size()` walks with `os.scandir`/`lstat` only — read-only by construction, no open,
+no timestamp touch. It never follows a directory link (the link is recorded as a problem and
+the estimate becomes incomplete), tolerates files vanishing mid-walk as normal, and turns an
+unreadable subtree into a recorded problem rather than a traceback. An incomplete estimate is
+shown as `1.2 MB (at least)` and never as an exact figure.
+
+`inventory(root, measure=False)` does no walking at all, which is what lets the dialog paint
+instantly; the measured pass runs on a worker thread and every Tk update returns to the main
+thread through `after`. A missing target is a normal state. A wrong-type or unsafe target is
+*present but unavailable*, carrying the sentence the row shows.
+
+#### Selection — safe by construction
+
+Every checkbox is created unchecked on every open. Missing and unsafe rows have no usable
+control. `selected_ids()` intersects "ticked" with "eligible", so even a forced variable
+yields nothing. `Review Selected Data…` is disabled until something eligible is deliberately
+ticked. Nothing is persisted or restored — closing and reopening starts over. Reset
+Preferences remains a separate button with a separate command and is never bundled.
+`summarise_selection()` refuses an ID that is unknown, duplicated, missing or unsafe, and
+reports `complete=False` rather than inventing a total when a size is unknown.
+
+#### Request and result schemas
+
+Schema version `1`. A request carries **only** `schema_version`, `asset_ids` (an immutable
+tuple in catalog order), `process_id`, a tz-aware UTC `created_at`, and a UUID `request_id`.
+There is no `path`, `target`, `directory`, `root`, `command` or executable field anywhere in
+either schema — a test asserts that of every field name, and another asserts a serialized
+request contains no `/` or `\` at all. Validation lives in `__post_init__`, so no construction
+path (direct or deserialized) yields an invalid object; `bool` is excluded explicitly from the
+integer checks. Deserialization uses a strict allowlist: a missing *or* extra field is a
+refusal. Clock, PID and request-ID are injectable for deterministic tests.
+
+The result schema (`removed` / `missing` / `failed` / `refused`, non-negative bytes, immutable
+outcomes in catalog order) is defined so Phase 7 inherits a fixed boundary. **Phase 6 creates
+no result during normal use.**
+
+#### The dialog and the confirmation
+
+Title `Clear Downloaded Data`, with the approved introduction. Each row shows display name,
+`Present`/`Missing`, size (or `Calculating…`, or a truthful minimum), and its consequence or
+its safety explanation. Footer: a running total, `Cancel`, and `Review Selected Data…`.
+
+The confirmation is one custom window titled `Confirm clearing downloaded data`, built fresh
+from the live selection every time. Cancel is the focused default and is what Escape and the
+window-close control both do; the destructive button is `Clear 1 Selected Item and Close` /
+`Clear {N} Selected Items and Close` and is never the default. There is no suppression path.
+
+**Declining creates nothing, calls nothing and changes nothing.** Accepting builds exactly one
+validated immutable request and passes it to the injected callback — nothing else. In
+production that callback is `maintenance.unavailable_cleanup_handler`, which returns `False`,
+and the dialog then shows verbatim:
+
+> Cleanup did not start. Safe post-exit cleanup is not available yet. No data was changed, and
+> Audiobook Creation Tool will remain open.
+
+Both dialogs stay open and usable. A callback that *raises* is treated identically — the
+handoff is wrapped, so a future coordinator's crash can never leave the app claiming success.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q files/tests/test_maintenance.py` | **171 passed** |
+| `-m pytest -q files/tests/test_preferences_maintenance_ui.py` | **61 passed** |
+| `-m pytest -q files/tests/test_preferences_ui.py` | 65 passed |
+| `-m pytest -q files/tests/test_config.py` | 68 passed |
+| `-m pytest -q files/tests/test_settings.py` | 25 passed |
+| `-m pytest -q files/tests/test_repository_contract.py` | 40 passed |
+| `-m pytest -q -rs files/tests/test_output_paths.py` | 143 passed, 1 skipped |
+| `-m pytest -q files/tests/test_tool_output_integration.py` | 71 passed |
+| `-m pytest -q -rs files/tests/test_cover_source_side.py` | 33 passed, 1 skipped |
+| `-m pytest -q files/tests/test_maker_custom_destination.py` | 31 passed |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** |
+| `-m pytest --collect-only -q files/tests` | **807 collected** |
+| `-m pytest -q -rs files/tests` (×3) | **802 passed, 5 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** (5/5 checks) |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean, exit 0 |
+
+**Against the Phase 5 baseline (574 collected / 569 passed / 5 skipped / 1 warning):** 807
+collected, **+233** — `test_maintenance.py` +171, `test_preferences_maintenance_ui.py` +61,
+`test_tool_output_integration.py` +1 (two boundary guards became three). `test_preferences_ui.py`
+stays at 65: four Phase 2 placeholder tests were replaced by four Phase 6 entry-point tests, the
+guard among them narrowed to the Phase 7 boundary rather than dropped. Collected == executed;
+the five skips are the same documented five (three Jack Ryan fixture-folder skips, two
+file-symlink skips needing a Windows privilege this account lacks). The one warning is the
+pre-existing pydub `audioop` DeprecationWarning. **No Tk/display skip burst occurred in any
+Phase 6 run.**
+
+One new-test-only issue was found and fixed rather than tolerated: a dialog's background
+inventory thread could finalise a discarded Tk variable, raising `Variable.__del__: main thread
+is not in main loop`. The test helper now leaves `measure` off by default, the three
+background tests join their worker, and the fixture collects on the main thread. Six
+consecutive clean runs followed.
+
+#### Temporary-root fixture verification — PASSED (2026-08-04, HOME-PC)
+
+Disposable fake root `…\Temp\act-phase6-*\fake-repo`, driving the production catalog,
+inventory, selection, confirmation and fail-closed callback with **only the root injected**.
+Windows theme, 1920×1080, Tk scaling 1.3333, 96 px/in.
+
+| Fake file | Bytes | | Asset | Expected | Observed |
+|---|---|---|---|---|---|
+| `.venv/pyvenv.cfg` | 120 | | `virtual_environment` | 3 520 = 3.4 KB | Present, **3.4 KB** |
+| `.venv/Lib/site-packages/pkg/__init__.py` | 3 400 | | `portable_binaries` | 51 200 = 50.0 KB | Present, **50.0 KB** |
+| `files/bin/ffmpeg.exe` | 51 200 | | `downloaded_models` | 262 144 = 256.0 KB | Present, **256.0 KB** |
+| `files/runtime-data/models/kokoro/model.onnx` | 262 144 | | `application_logs` | 2 000 = 2.0 KB | Present, **2.0 KB** |
+| `files/runtime-data/logs/session-1.log` | 900 | | | | |
+| `files/runtime-data/logs/session-2.log` | 1 100 | | | | |
+
+Decoy neighbours `config.toml`, `settings.json`, `scripts/Universal/launcher.py` and
+`md-instructions/Briefing.md` were present throughout and never appeared in the inventory.
+
+- Preferences cleanup button **enabled**; opening twice returned the **same** window.
+- Initial state: `selected_ids() == ()`, every box unchecked, Review **disabled**, status
+  `Nothing selected.`
+- Degraded second root: missing `.venv` → **Missing/DISABLED**; a junctioned `models` pointing
+  at a 999 999-byte folder → **Present/DISABLED**, *"this item is a shortcut or link, which is
+  never followed or removed"*. Force-ticking both still yielded `()`, and the linked folder was
+  **never walked**.
+- Totals: `1 item selected — about 2.0 KB` → `2 items selected — about 52.0 KB` →
+  `4 items selected — about 311.4 KB`.
+- Confirmation: exact title, exact body (all four items with state, size and consequence;
+  `Estimated space to be freed: 311.4 KB.`; the close notice; the four applicable effect lines;
+  the exclusion notice; the final question), Cancel default, `WM_DELETE_WINDOW → cancel`,
+  Escape bound, **766×559** — inside 920×600. Singular label verified as
+  `Clear 1 Selected Item and Close`.
+- Declining: `result=False`, window destroyed, **no request built**, fake root byte-identical.
+- Accepting: exactly one `CleanupRequest`, fields
+  `['asset_ids','created_at','process_id','request_id','schema_version']`, IDs in catalog
+  order, tz-aware UTC, payload containing no path of any kind. `submit()` returned **False**,
+  the status matched the approved fail-closed wording **exactly**, and the cleanup dialog,
+  Preferences and the Tk root all remained alive.
+- Geometry: cleanup dialog **718×414** requested (minsize 631×413), whole dialog inside
+  920×600; only the item-list row carries grid weight and the actions sit below it, so growth
+  can never displace them. Preferences unchanged at 618×596.
+- **Nothing written:** fake-root hashes and listing identical (10/10 files), and no
+  request/result/maintenance-state/`.act-` file created anywhere under the temporary tree.
+- **Real project untouched:** all 6 size walks were under the temporary root, none under the
+  repository; the real `.venv`, `files/bin` (absent on this machine), `files/runtime-data/models`
+  and `…/logs` fingerprints (mtime + entry count + names) were identical before and after.
+
+#### Pending evidence — accurately pending, not passed
+
+| Item | State |
+|---|---|
+| Windows 125% scaling | **Pending** — deferred to Phase 8; system scaling was not changed |
+| Live macOS | **Pending** — approved deferral; the aqua path is import/build-tested only |
+| Screenshot evidence for the new surfaces | **Pending** — assigned to Phase 8 |
+| Live TTS synthesis | **Pending** — independent of Phase 6 and deliberately not run |
+
+#### Repository state
+
+`git status --short` shows only `?? config-template.toml`; `git diff --name-status` is empty.
+`config-template.toml` is untracked, unstaged and still hashes
+`94b05edc3211efe531be018fbc442c240df8db42`. The four canonical documents keep their exact
+names with no alias, `md-instructions/don't-delete/` keeps its four references, and the ten
+approved Plan 1 screenshots are unmodified. `master` and `origin/master` remain `bada8a3`;
+the Plan 1 feature head remains `f3d70e8`.
+
+#### Next action
+
+**Phase 7 — Safe post-exit cleanup and launcher/bootstrap coordination.** It requires new
+explicit maintainer approval, and it is the first phase in this drop that is able to delete
+anything.
+
+---
 
 ### Phase 5 — Cover Image and M4B Maker exceptions (2026-08-04, HOME-PC)
 

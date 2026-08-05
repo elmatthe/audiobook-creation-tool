@@ -686,22 +686,37 @@ def _enclosing(tree_, target):
     return best
 
 
-def test_the_disabled_cleanup_placeholder_is_untouched():
+def test_preferences_still_reserves_no_output():
     from shared import preferences_ui
 
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
-    assert 'state="disabled"' in source
     assert preferences_ui.CLEANUP_PLACEHOLDER_TEXT
     assert "output_paths" not in source, "Preferences does not reserve output"
 
 
 def test_no_cleanup_coordinator_or_post_exit_behaviour_exists():
-    for relative in ("shared/output_paths.py", "shared/preferences_ui.py", "launcher.py",
-                     "shared/bootstrap.py"):
+    """Phase 6 builds a request; Phase 7 owns everything that acts on one.
+
+    ``preferences_ui`` is exempted from the name check because it now names the
+    request type it hands off — the exemption is paid for by the stricter
+    behavioural check below, which requires the fail-closed handler.
+    """
+    for relative in ("shared/output_paths.py", "launcher.py", "shared/bootstrap.py"):
         source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
         for phase_six_or_seven in ("cleanup_request", "CleanupRequest", "post_exit",
-                                   "clear_downloaded_data"):
+                                   "clear_downloaded_data", "maintenance"):
             assert phase_six_or_seven not in source, f"{relative}: {phase_six_or_seven}"
+
+
+def test_the_cleanup_handoff_still_fails_closed():
+    from shared import maintenance, preferences_ui
+
+    source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
+    assert "unavailable_cleanup_handler" in source
+    assert "CLEANUP_UNAVAILABLE_MESSAGE" in source
+    assert maintenance.unavailable_cleanup_handler(
+        maintenance.build_request(["application_logs"])
+    ) is False
 
 
 def test_no_plan_three_importing_behaviour_arrived():
