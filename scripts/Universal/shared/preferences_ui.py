@@ -9,10 +9,12 @@ module collects choices and shows results; it decides nothing.
 Nothing here deletes. The Clear Downloaded Data flow inventories, lets the user
 select, confirms in the strongest terms, builds one immutable
 :class:`~shared.maintenance.CleanupRequest` and hands it to an injected
-callback. Until Phase 7 supplies the real post-exit coordinator that callback is
-:func:`~shared.maintenance.unavailable_cleanup_handler`, which fails closed:
-nothing is written, nothing is started, the app stays open, and the user is told
-so plainly rather than being told cleanup was scheduled.
+callback — in the shipped app, :func:`shared.cleanup_state.start_cleanup`, which
+saves the request and starts a separate helper process outside the virtual
+environment. This module closes the application only after that helper has
+positively acknowledged the request, and if anything at all goes wrong it says
+so plainly, keeps every window open and leaves every asset untouched. The
+deletion itself happens in another process, after this one has exited.
 
 Platform handling follows the Plan 1 contract. On Windows every widget names an
 ``ACT.*`` style from ``theme["styles"]``; on macOS and Linux that map is absent,
@@ -32,13 +34,13 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import config, maintenance, paths
+from . import cleanup_state, config, maintenance, paths
 
 DIALOG_TITLE = "Preferences & Data"
 MENU_LABEL = "Preferences & Data…"
 
-#: Shown beside the Clear Downloaded Data button. It reviews and confirms; the
-#: post-exit coordinator that actually removes anything is Phase 7.
+#: Shown beside the Clear Downloaded Data button. Reviewing is always safe: the
+#: removal itself happens in another process, after this one has closed.
 CLEANUP_PLACEHOLDER_TEXT = "Review what can be safely removed. Nothing is deleted yet."
 CLEANUP_BUTTON_LABEL = "Clear Downloaded Data"
 
@@ -98,7 +100,8 @@ class PreferencesDialog(tk.Toplevel):
     """
 
     def __init__(self, master, theme=None, *, confirm=None, ask_directory=None,
-                 logger=None, repo_root=None, start_cleanup=None):
+                 logger=None, repo_root=None, start_cleanup=None,
+                 close_application=None):
         super().__init__(master)
         self.theme = theme or {}
         self._confirm = confirm if confirm is not None else self._default_confirm
@@ -107,6 +110,7 @@ class PreferencesDialog(tk.Toplevel):
         #: Always explicit downstream, so the suite inventories a fake tree.
         self._repo_root = paths.REPO_ROOT if repo_root is None else repo_root
         self._start_cleanup = start_cleanup
+        self._close_application = close_application
         #: The one live cleanup window, held for the same reason the launcher
         #: holds this one: repeated activation focuses rather than stacks.
         self.cleanup_dialog = None
@@ -425,7 +429,7 @@ class PreferencesDialog(tk.Toplevel):
         self.cleanup_dialog = open_cleanup_dialog(
             self, self.theme, self.cleanup_dialog,
             repo_root=self._repo_root, start_cleanup=self._start_cleanup,
-            logger=self._logger,
+            close_application=self._close_application, logger=self._logger,
         )
         return self.cleanup_dialog
 
@@ -489,20 +493,38 @@ class CleanupDialog(tk.Toplevel):
     * the size walk runs on a worker thread and every Tk update is applied on
       the main thread through ``after``, because a full ``.venv`` walk on the
       Tk thread would freeze the window.
+
+    Accepting hands the request to the handoff and waits for the cleanup helper
+    to acknowledge it. Only then is the application closed — and while that wait
+    is in flight the buttons are disabled, so a second click cannot start a
+    second helper.
     """
 
     WRAP = 620
 
+    #: Milliseconds the success message stays on screen before the app closes,
+    #: so the user reads why the window is going away.
+    CLOSE_DELAY_MS = 700
+
     def __init__(self, master, theme=None, *, repo_root=None, start_cleanup=None,
-                 logger=None, confirm_factory=None, measure=True):
+                 close_application=None, logger=None, confirm_factory=None,
+                 measure=True, close_delay=None):
         super().__init__(master)
         self.theme = theme or {}
         self._repo_root = paths.REPO_ROOT if repo_root is None else repo_root
-        #: Phase 6's production callback fails closed. Phase 7 replaces it.
+        #: The production handoff: save the request, start the helper outside
+        #: the virtual environment, and report whether it acknowledged.
         self._start_cleanup = (
-            maintenance.unavailable_cleanup_handler if start_cleanup is None
-            else start_cleanup
+            self._default_start_cleanup if start_cleanup is None else start_cleanup
         )
+        self._close_application = (
+            self._default_close_application if close_application is None
+            else close_application
+        )
+        self._close_delay = self.CLOSE_DELAY_MS if close_delay is None else close_delay
+        #: True from the moment a handoff begins until it fails. It never goes
+        #: back to False after success, because success ends with the app gone.
+        self._handoff_pending = False
         self._logger = logger
         self._confirm_factory = confirm_factory or CleanupConfirmationDialog
 
@@ -759,6 +781,18 @@ class CleanupDialog(tk.Toplevel):
         body = maintenance.confirmation_body(self.items, chosen)
         return self._confirm_factory(self, body, len(chosen), self.theme)
 
+    def _default_start_cleanup(self, request):
+        """The shipped handoff. Persisting and spawning live outside this module."""
+        return cleanup_state.start_cleanup(request, self._repo_root,
+                                           logger=self._logger)
+
+    def _default_close_application(self) -> None:
+        """Close the whole application, not just this window."""
+        try:
+            self.nametowidget(".").destroy()
+        except tk.TclError:
+            pass
+
     def review_selection(self) -> bool:
         """Confirm, then hand one validated request to the callback.
 
@@ -769,6 +803,8 @@ class CleanupDialog(tk.Toplevel):
         if not chosen:
             self._set_status(maintenance.NOTHING_SELECTED_TEXT, "info")
             return False
+        if self._handoff_pending:
+            return False
 
         window = self.build_confirmation()
         if not window.show():
@@ -776,8 +812,33 @@ class CleanupDialog(tk.Toplevel):
             return False
         return self.submit(chosen)
 
+    def _set_busy(self, busy: bool) -> None:
+        """Disable the controls while a handoff is in flight, and re-enable after.
+
+        Repeated clicks cannot reach the handoff a second time — the flag is
+        checked as well — but a dead-looking button during a bounded wait is
+        also what tells the user the click landed.
+        """
+        state = "disabled" if busy else "normal"
+        for widget in (getattr(self, "button_review", None),
+                       getattr(self, "button_cancel", None)):
+            try:
+                if widget is not None:
+                    widget.configure(state=state)
+            except tk.TclError:
+                pass
+        if not busy:
+            self._on_selection_change()
+
     def submit(self, chosen) -> bool:
-        """Validate, build the immutable request, and call only the callback."""
+        """Validate, build the immutable request, and hand it to the callback.
+
+        True means the cleanup helper positively acknowledged the request and
+        the application is closing. False means nothing was written, nothing was
+        started and nothing was removed — and it says so.
+        """
+        if self._handoff_pending:
+            return False
         try:
             request = maintenance.build_request(chosen)
         except maintenance.MaintenanceError as exc:
@@ -787,19 +848,47 @@ class CleanupDialog(tk.Toplevel):
             return False
 
         self.last_request = request
-        started = False
+        self._handoff_pending = True
+        self._set_busy(True)
+        self._set_status(maintenance.CLEANUP_PREPARING_MESSAGE, "info")
         try:
-            started = bool(self._start_cleanup(request))
+            self.update_idletasks()
+        except tk.TclError:
+            pass
+
+        outcome = None
+        try:
+            outcome = self._start_cleanup(request)
         except Exception as exc:                      # a callback must never crash us
             self._log(f"cleanup handoff raised {type(exc).__name__}: {exc}")
-            started = False
+            outcome = None
 
-        if not started:
+        if not outcome:
             # Fail closed: say so exactly, and leave everything usable.
-            self._set_status(maintenance.CLEANUP_UNAVAILABLE_MESSAGE, "error")
+            detail = getattr(outcome, "detail", "") or ""
+            message = maintenance.CLEANUP_FAILED_MESSAGE
+            if detail:
+                message = f"{message} {detail}"
+            self._handoff_pending = False
+            self._set_busy(False)
+            self._set_status(message, "error")
             self._log("cleanup did not start; no data was changed")
             return False
+
+        self._set_status(maintenance.CLEANUP_SCHEDULED_MESSAGE, "success")
+        self._log(f"cleanup acknowledged for {', '.join(request.asset_ids)}; closing")
+        self._close_after_acceptance()
         return True
+
+    def _close_after_acceptance(self) -> None:
+        """Close the application, briefly after the success message is painted."""
+        if self._close_delay and self._close_delay > 0:
+            try:
+                self.after(self._close_delay, self._close_application)
+                return
+            except tk.TclError:
+                pass
+        self._close_application()
 
     def close(self) -> None:
         """Cancel: stop polling first, then destroy. Nothing is written."""
@@ -1015,3 +1104,98 @@ def present_launch_warnings(master, theme=None, logger=None, dialog_factory=None
         # a warning about configuration become a startup failure.
         pass
     return summary
+
+
+# --------------------------------------------------------------------------- #
+# What the last cleanup actually did, shown once on the next launch
+# --------------------------------------------------------------------------- #
+
+
+class CleanupResultDialog(tk.Toplevel):
+    """One summary of a finished cleanup: every item, its outcome, what to do next.
+
+    Non-modal and dismissible, like the configuration warning: reporting what
+    already happened must never block a launch.
+    """
+
+    WRAP = 520
+
+    def __init__(self, master, result, theme=None):
+        super().__init__(master)
+        self.theme = theme or {}
+        t = self.theme
+        self.result = result
+        self.title(maintenance.RESULT_DIALOG_TITLE)
+        self.transient(master)
+
+        colors = t.get("colors") or {}
+        if t.get("mode") == "windows" and colors.get("window"):
+            self.configure(background=colors["window"])
+
+        pad = _metric(t, "content_pad", 16)
+        gap_sm = _metric(t, "gap_sm", 8)
+        gap_md = _metric(t, "gap_md", 12)
+
+        outer = ttk.Frame(self, style=_style(t, "window"), padding=pad)
+        outer.pack(fill="both", expand=True)
+
+        self.heading_text = maintenance.result_heading(result)
+        ttk.Label(outer, text=self.heading_text, style=_style(t, "heading")).pack(
+            anchor="w"
+        )
+        self.body_text = maintenance.result_body(result)
+        self.label_body = ttk.Label(
+            outer, text=self.body_text, style=_style(t, "label"),
+            wraplength=self.WRAP, justify="left",
+        )
+        self.label_body.pack(anchor="w", pady=(gap_sm, gap_md))
+        ttk.Label(
+            outer, text=maintenance.RESULT_LOG_LINE,
+            style=_style(t, "secondary_label"), wraplength=self.WRAP, justify="left",
+        ).pack(anchor="w", pady=(0, gap_md))
+
+        self.button_close = ttk.Button(outer, text="Continue",
+                                       style=_style(t, "primary_button"),
+                                       command=self.destroy)
+        self.button_close.pack(anchor="e")
+        self.button_close.focus_set()
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.update_idletasks()
+        self.minsize(max(420, self.winfo_reqwidth()), max(220, self.winfo_reqheight()))
+
+
+def present_cleanup_result(master, theme=None, repo_root=None, logger=None,
+                           dialog_factory=None):
+    """Show the last cleanup's outcome once, if there is one to show.
+
+    Returns the result that was presented, or ``None``. Reading executes
+    nothing: an unusable record is logged and moved aside by the state layer,
+    never acted on. The record is retired only after the window was built, so a
+    failure to display it does not lose the report.
+    """
+    root = paths.REPO_ROOT if repo_root is None else repo_root
+    try:
+        result = cleanup_state.load_result(root)
+    except Exception:
+        result = None
+    if result is None:
+        return None
+
+    if logger is not None:
+        try:
+            for outcome in result.outcomes:
+                logger.info("cleanup %s: %s %s", outcome.asset_id, outcome.status,
+                            outcome.message)
+        except Exception:
+            pass
+
+    factory = dialog_factory if dialog_factory is not None else CleanupResultDialog
+    try:
+        factory(master, result, theme)
+    except tk.TclError:
+        # No display. Leave the record in place so the next launch can report it
+        # rather than silently discarding what happened.
+        return None
+    cleanup_state.mark_result_presented(root, result)
+    return result

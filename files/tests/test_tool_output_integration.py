@@ -708,15 +708,36 @@ def test_no_cleanup_coordinator_or_post_exit_behaviour_exists():
             assert phase_six_or_seven not in source, f"{relative}: {phase_six_or_seven}"
 
 
-def test_the_cleanup_handoff_still_fails_closed():
-    from shared import maintenance, preferences_ui
+def test_the_cleanup_handoff_still_fails_closed(tmp_path):
+    """A helper that cannot be started must never look like a scheduled cleanup.
+
+    Behavioural rather than textual: the handoff runs against a disposable fake
+    root with a spawn that refuses, and must report failure, withdraw its own
+    request and leave the tree byte-identical.
+    """
+    from shared import cleanup_state, maintenance, preferences_ui
+
+    root = tmp_path / "fake-repo"
+    (root / "files" / "runtime-data" / "logs").mkdir(parents=True)
+    (root / "files" / "runtime-data" / "logs" / "s.log").write_bytes(b"l" * 20)
+    before = {p.relative_to(root).as_posix(): p.read_bytes()
+              for p in root.rglob("*") if p.is_file()}
+
+    def refuse(_command):
+        raise OSError("no such interpreter")
+
+    outcome = cleanup_state.start_cleanup(
+        maintenance.build_request(["application_logs"]), root,
+        python=Path(sys.executable), spawn=refuse, sleep=lambda _s: None,
+    )
+    assert bool(outcome) is False
+    assert not cleanup_state.request_path(root).exists()
+    assert {p.relative_to(root).as_posix(): p.read_bytes()
+            for p in root.rglob("*") if p.is_file()} == before
 
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
-    assert "unavailable_cleanup_handler" in source
-    assert "CLEANUP_UNAVAILABLE_MESSAGE" in source
-    assert maintenance.unavailable_cleanup_handler(
-        maintenance.build_request(["application_logs"])
-    ) is False
+    assert "CLEANUP_FAILED_MESSAGE" in source
+    assert "CLEANUP_SCHEDULED_MESSAGE" in source
 
 
 def test_no_plan_three_importing_behaviour_arrived():

@@ -15,6 +15,66 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Safe post-exit cleanup and result reporting (v0.6.0 Drop 2 Phase 7, 2026-08-06)
+
+> Clear Downloaded Data now completes: the request the Phase 6 flow builds is saved, handed to
+> a separate helper process running outside the virtual environment, and executed only after
+> the application has exited. The next launch reports exactly what happened. `version.py`
+> remains `0.5.1`; nothing is released, tagged or merged.
+
+- **New `shared/cleanup_state.py`** — the client half of the boundary. One project-owned
+  maintenance folder at `files/runtime-data/maintenance/`, chosen rather than configurable,
+  validated on every use to be inside the repository and outside all four removable targets.
+  Requests, acknowledgements and results are written atomically (temporary file, flush, fsync,
+  `os.replace`), so a crash can never leave a half-written request that reads as authorization.
+  It removes only its own named state files and its own `.act-maint-` temporary writes.
+- **New `shared/cleanup_worker.py`** — the coordinator, and the only code in the project that
+  deletes a catalog asset. Standard-library only through its whole path, started detached with
+  an argument vector and `shell=False` by a Python interpreter that is verified to be outside
+  any virtual environment, and given its repository root by its own file location rather than
+  by anything a request carries.
+- **Acknowledgement before shutdown.** The app closes only after the helper has started, loaded
+  *that* request, validated it, checked the root and state folder, and signalled it is ready to
+  wait. Users see *"Cleanup is ready. Audiobook Creation Tool will now close…"* only then.
+- **A truthful failure everywhere else.** A failed save, a missing verified interpreter, a spawn
+  error, a timeout or a handoff that raised all produce *"Cleanup did not start. No data was
+  changed, and Audiobook Creation Tool will remain open,"* the request is withdrawn, and every
+  asset is left exactly as it was. Repeated clicks cannot start a second helper.
+- **Exactly one attempt.** The helper waits for the requesting process to exit — bound to that
+  precise process on Windows, so a recycled process id cannot satisfy the wait — retires the
+  request *before* the first deletion, deletes once, writes one result, and exits. It never
+  retries, loops or relaunches. Requests older than six hours are refused.
+- **Deletion re-authorized at the last moment.** Every target is re-derived from its enumerated
+  ID and re-checked for containment, protected paths, type and links immediately before acting;
+  the earlier inventory is not treated as permission. `.venv` is removed entirely, the other
+  three keep their folder and lose their contents, a missing target is a successful no-op, and a
+  target swapped for a junction is refused rather than followed. Links found inside a target are
+  detached, never descended into.
+- **Failures are collected, not hidden.** A locked file fails that item, the pass continues
+  through the rest of the tree and on to the later assets, and the result says which ones and
+  why.
+- **A report on the next launch**, shown once, listing every selected item as removed, already
+  gone, failed or left alone for safety, with the space freed and recovery advice when anything
+  was not removed. It never claims complete success if something failed, and a corrupt record is
+  moved aside and never executed.
+
+### Changed — Preferences hands off instead of failing closed (v0.6.0 Drop 2 Phase 7, 2026-08-06)
+
+- `shared/preferences_ui.py` now routes an accepted confirmation to the real handoff and closes
+  the application once it is acknowledged. It still imports no `os`, `shutil` or `subprocess`,
+  still calls no deletion or process primitive, and never imports the coordinator.
+- `launcher.py` passes its ordinary close path to Preferences and queues the previous run's
+  report after the configuration warnings. A launch with no maintenance state does no extra
+  work.
+- `shared/maintenance.py` gained the approved handoff wording, the report wording and public
+  path helpers so the coordinator applies the same link and containment rules rather than a
+  second implementation of them. It still deletes nothing and imports neither `shutil` nor
+  `subprocess`.
+- **`bootstrap.py` and both root launchers are unchanged.** A removed `.venv` already falls
+  through their fast path to the ordinary setup that rebuilds it; routing cleanup through
+  `bootstrap.py` was rejected because importing it holds a log file open inside one of the
+  removable targets.
+
 ### Added — Downloaded-data inventory and confirmation (v0.6.0 Drop 2 Phase 6, 2026-08-04)
 
 > The Clear Downloaded Data flow now exists end to end **except the deletion**. Phase 6

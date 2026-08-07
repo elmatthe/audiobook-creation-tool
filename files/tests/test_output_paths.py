@@ -1079,14 +1079,20 @@ def test_no_cleanup_or_post_exit_behaviour_exists_anywhere():
                 assert word not in source, relative
 
 
-def test_the_cleanup_flow_still_reaches_no_deletion():
-    """Phase 6 gave the entry point a dialog; it still deletes nothing."""
+def test_the_cleanup_flow_still_deletes_nothing_from_the_gui():
+    """Phase 7 gave the flow a real handoff; the GUI process still deletes nothing.
+
+    The guard moved to the Phase 8 boundary rather than being dropped: the
+    dialog now hands a request to ``cleanup_state``, which persists it and
+    starts a separate process — so this module still may not contain a deletion
+    primitive, a process spawn, or the coordinator itself.
+    """
     from shared import preferences_ui
 
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
     assert "CLEANUP_PLACEHOLDER_TEXT" in source
-    assert "unavailable_cleanup_handler" in source
-    for destructive in ("shutil", "rmtree", "os.remove", "Popen"):
+    assert "cleanup_state.start_cleanup(" in source
+    for destructive in ("shutil", "rmtree", "os.remove", "Popen", "cleanup_worker"):
         assert destructive not in source, destructive
 
 

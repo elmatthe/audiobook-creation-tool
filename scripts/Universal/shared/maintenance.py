@@ -8,11 +8,14 @@ choice; it decides nothing.
 
 **This module deletes nothing.** It has no executor, no coordinator, no process
 spawning and no persistence, and it imports neither ``shutil`` nor
-``subprocess``. Phase 7 of the v0.6.0 Drop 2 plan owns the post-exit coordinator
-that consumes a :class:`CleanupRequest` and produces a :class:`CleanupResult`;
-both schemas are defined here so that boundary is fixed and tested before any
-code is able to act on it. ``files/tests/test_maintenance.py`` asserts the
-absence of every destructive primitive, so a regression fails the suite.
+``subprocess``. It is the shared vocabulary of both sides of the cleanup
+boundary: the GUI builds a :class:`CleanupRequest` here, and the separate
+non-venv coordinator (``shared.cleanup_worker``, started through
+``shared.cleanup_state``) is the only code that acts on one and the only code
+that produces a :class:`CleanupResult`. Keeping the schemas, the target rules
+and the wording here — and the acting there — is what makes the safe half
+testable in isolation. ``files/tests/test_maintenance.py`` asserts the absence
+of every destructive primitive, so a regression fails the suite.
 
 The safety model is deliberately narrow:
 
@@ -254,6 +257,30 @@ def _is_link(path: Path) -> bool:
     except (OSError, AttributeError):
         return False
     return bool(attributes & reparse)
+
+
+def absolute(path) -> Path:
+    """Public :func:`_abs` — absolute, cwd-independent, links left unresolved."""
+    return _abs(path)
+
+
+def same_path(first, second) -> bool:
+    """Whether two paths name the same location under this filesystem's casing."""
+    return _key(_abs(first)) == _key(_abs(second))
+
+
+def is_within(root, candidate) -> bool:
+    """Whether *candidate* is strictly inside *root*. Equality is not "inside"."""
+    return _within(_abs(root), _abs(candidate))
+
+
+def is_link(path) -> bool:
+    """Public :func:`_is_link` — symlink, junction, or any other reparse point.
+
+    Exported so the coordinator applies the same rule this module applies,
+    rather than a second implementation that could drift from it.
+    """
+    return _is_link(Path(path))
 
 
 def compiled_target(asset_id, repo_root) -> Path:
@@ -594,12 +621,31 @@ FINAL_QUESTION = (
     "models can be rebuilt or downloaded again. Continue?"
 )
 
-#: Shown when the user accepts and Phase 7's coordinator does not exist yet.
-#: Phase 6 fails closed: it never claims cleanup was scheduled.
+#: Shown when a caller supplied no coordinator handoff at all, so the request
+#: was built and then deliberately dropped. Never reached by the shipped app,
+#: which always hands off to the real coordinator; kept because a caller with no
+#: handoff must still be told the truth rather than shown nothing.
 CLEANUP_UNAVAILABLE_MESSAGE = (
     "Cleanup did not start. Safe post-exit cleanup is not available yet. No data was "
     "changed, and Audiobook Creation Tool will remain open."
 )
+
+#: Said only after the coordinator has positively acknowledged the request —
+#: never on the strength of having started a process.
+CLEANUP_SCHEDULED_MESSAGE = (
+    "Cleanup is ready. Audiobook Creation Tool will now close, and the selected "
+    "downloaded data will be cleared after the app exits."
+)
+
+#: Said whenever persistence, launch or acknowledgement failed. The headline is
+#: fixed; a short non-sensitive detail may be appended after it.
+CLEANUP_FAILED_MESSAGE = (
+    "Cleanup did not start. No data was changed, and Audiobook Creation Tool will "
+    "remain open."
+)
+
+#: Shown while the handoff is in flight, so a bounded wait is never a silent one.
+CLEANUP_PREPARING_MESSAGE = "Preparing cleanup — waiting for the cleanup helper to start…"
 
 
 def freed_space_line(summary: SelectionSummary) -> str:
@@ -928,18 +974,100 @@ def result_from_dict(data) -> CleanupResult:
 
 
 # --------------------------------------------------------------------------- #
-# The Phase 6 boundary
+# Presenting a finished cleanup — pure text, so the wording is tested without Tk
+# --------------------------------------------------------------------------- #
+
+RESULT_DIALOG_TITLE = "Downloaded data cleanup"
+
+#: What each closed status is called in front of a non-technical user.
+STATUS_TEXT: Mapping[str, str] = MappingProxyType({
+    "removed": "Removed",
+    "missing": "Nothing was there",
+    "failed": "Could not be removed",
+    "refused": "Left alone for safety",
+})
+
+RESULT_HEADING_COMPLETE = "The downloaded data you selected was cleared."
+RESULT_HEADING_NOTHING = "There was nothing left to clear."
+RESULT_HEADING_PARTIAL = "Some of the downloaded data could not be cleared."
+RESULT_RECOVERY_LINE = (
+    "Nothing else was changed. You can try again from Preferences & Data → Clear "
+    "Downloaded Data, or remove the remaining files yourself while the app is closed."
+)
+RESULT_LOG_LINE = "Full technical details are in the session log."
+RESULT_UNREADABLE_MESSAGE = (
+    "The record of the last cleanup could not be read, so no summary is shown. "
+    "Nothing was changed by reading it."
+)
+
+
+def result_is_complete(result: CleanupResult) -> bool:
+    """True only when every outcome removed something or found nothing there."""
+    return all(o.status in ("removed", "missing") for o in result.outcomes)
+
+
+def result_freed_bytes(result: CleanupResult) -> tuple[int, bool]:
+    """``(bytes known to be freed, whether every figure was known)``."""
+    known = sum(o.bytes_freed or 0 for o in result.outcomes)
+    complete = all(
+        o.bytes_freed is not None for o in result.outcomes if o.status == "removed"
+    )
+    return known, complete
+
+
+def result_heading(result: CleanupResult) -> str:
+    """One honest headline: never "cleared" when anything failed or was refused."""
+    if not result_is_complete(result):
+        return RESULT_HEADING_PARTIAL
+    if all(o.status == "missing" for o in result.outcomes):
+        return RESULT_HEADING_NOTHING
+    return RESULT_HEADING_COMPLETE
+
+
+def result_body(result: CleanupResult) -> str:
+    """Every selected item, its outcome, the space freed, and what to do next.
+
+    A size is only ever reported for an item that actually reported one; an
+    unknown figure is left out rather than invented.
+    """
+    lines: list[str] = []
+    for outcome in result.outcomes:
+        definition = CATALOG_BY_ID[outcome.asset_id]
+        line = f"  • {definition.display_name} — {STATUS_TEXT[outcome.status]}"
+        if outcome.status == "removed" and outcome.bytes_freed:
+            line += f" ({format_bytes(outcome.bytes_freed)} freed)"
+        lines.append(line)
+        if outcome.message:
+            lines.append(f"      {outcome.message}")
+
+    known, complete = result_freed_bytes(result)
+    lines.append("")
+    if complete:
+        lines.append(f"Space freed: {format_bytes(known)}.")
+    else:
+        lines.append(
+            f"Space freed: at least {format_bytes(known)}, plus data whose size was "
+            "not measured."
+        )
+    if not result_is_complete(result):
+        lines.append("")
+        lines.append(RESULT_RECOVERY_LINE)
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# The no-coordinator fallback
 # --------------------------------------------------------------------------- #
 
 
 def unavailable_cleanup_handler(request: CleanupRequest) -> bool:
-    """The production callback until Phase 7 replaces it: fail closed.
+    """The handoff used when a caller supplies none of its own: fail closed.
 
     Accepting the confirmation validates and constructs the request and hands
-    it here. This returns False — nothing is written, nothing is started,
-    nothing is deleted and the application stays open — and the caller shows
-    :data:`CLEANUP_UNAVAILABLE_MESSAGE`. It deliberately does **not** raise:
-    a refusal is a normal, reportable outcome, not a crash.
+    it to a callback. This one returns False — nothing is written, nothing is
+    started, nothing is deleted and the application stays open — and the caller
+    shows :data:`CLEANUP_UNAVAILABLE_MESSAGE`. It deliberately does **not**
+    raise: a refusal is a normal, reportable outcome, not a crash.
     """
     if not isinstance(request, CleanupRequest):
         raise SchemaError("not a cleanup request")

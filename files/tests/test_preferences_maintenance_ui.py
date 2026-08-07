@@ -164,7 +164,8 @@ class Recorder:
         return self.accepts
 
 
-def make_cleanup(root, fake, *, theme=None, start_cleanup=None, measure=False):
+def make_cleanup(root, fake, *, theme=None, start_cleanup=None, measure=False,
+                 close_application=None):
     """The real dialog against a fake repository root.
 
     ``measure`` defaults off here so a test does not leave a daemon worker
@@ -175,6 +176,7 @@ def make_cleanup(root, fake, *, theme=None, start_cleanup=None, measure=False):
     return preferences_ui.CleanupDialog(
         root, theme if theme is not None else {}, repo_root=fake,
         start_cleanup=start_cleanup, measure=measure,
+        close_application=close_application or (lambda: None), close_delay=0,
     )
 
 
@@ -460,18 +462,37 @@ def test_cancel_is_the_focused_default_not_the_destructive_button(fresh_root, tm
     assert window.btn_cancel.cget("text") == "Cancel"
 
 
-def test_only_cancel_ever_takes_initial_focus_in_the_source():
-    """Focus is unobservable on a withdrawn root, so the source is asserted."""
+def test_only_cancel_ever_takes_initial_focus_in_a_destructive_dialog():
+    """Focus is unobservable on a withdrawn root, so the source is asserted.
+
+    Scoped to the two windows that can lead to a deletion. Phase 7's read-only
+    report window is deliberately allowed to focus its own dismiss button — it
+    offers no destructive action at all — and is checked separately below.
+    """
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
+    destructive = {"CleanupDialog", "CleanupConfirmationDialog"}
     targets = set()
     for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "focus_set"):
-            value = node.func.value
-            if isinstance(value, ast.Attribute):
-                targets.add(value.attr)
+        if not (isinstance(node, ast.ClassDef) and node.name in destructive):
+            continue
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "focus_set"):
+                value = inner.func.value
+                if isinstance(value, ast.Attribute):
+                    targets.add(value.attr)
     assert targets == {"button_cancel", "btn_cancel"}, targets
+
+
+def test_the_report_window_has_no_destructive_control():
+    source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    report = next(node for node in ast.walk(tree)
+                  if isinstance(node, ast.ClassDef) and node.name == "CleanupResultDialog")
+    body = ast.dump(report)
+    for destructive in ("build_request", "start_cleanup", "submit", "review_selection"):
+        assert destructive not in body, destructive
 
 
 def test_the_confirmation_rebuilds_from_the_live_selection(fresh_root, tmp_path):
@@ -571,22 +592,32 @@ def test_the_request_carries_ids_only_and_no_path(fresh_root, tmp_path):
     assert ".venv" not in str(payload)
 
 
-def test_the_production_callback_is_the_fail_closed_handler(fresh_root, tmp_path):
+def test_the_production_handoff_is_the_coordinator_start(fresh_root, tmp_path):
+    """Phase 7 replaced the fail-closed default with the real handoff.
+
+    The handoff still cannot delete: it persists a request and starts a separate
+    process, and this dialog closes only if that process acknowledges.
+    """
+    from shared import cleanup_state
+
     dialog = make_cleanup(fresh_root, fake_root(tmp_path))
-    assert dialog._start_cleanup is maintenance.unavailable_cleanup_handler
+    assert dialog._start_cleanup == dialog._default_start_cleanup
+    source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
+    assert "cleanup_state.start_cleanup(" in source
+    assert callable(cleanup_state.start_cleanup)
 
 
-def test_the_production_path_reports_the_exact_fail_closed_message(fresh_root, tmp_path):
+def test_the_production_path_reports_the_exact_failure_message(fresh_root, tmp_path):
     fake = fake_root(tmp_path)
     before = snapshot(fake)
-    dialog = make_cleanup(fresh_root, fake)          # no injected callback
+    dialog = make_cleanup(fresh_root, fake, start_cleanup=Recorder())
     select(dialog, "virtual_environment", "application_logs")
 
     assert dialog.submit(dialog.selected_ids()) is False
-    assert dialog.var_status.get() == maintenance.CLEANUP_UNAVAILABLE_MESSAGE
+    assert dialog.var_status.get() == maintenance.CLEANUP_FAILED_MESSAGE
     assert dialog.var_status.get() == (
-        "Cleanup did not start. Safe post-exit cleanup is not available yet. No data "
-        "was changed, and Audiobook Creation Tool will remain open."
+        "Cleanup did not start. No data was changed, and Audiobook Creation Tool "
+        "will remain open."
     )
     assert dialog.status_kind == "error"
     assert snapshot(fake) == before
@@ -594,7 +625,8 @@ def test_the_production_path_reports_the_exact_fail_closed_message(fresh_root, t
 
 def test_failing_closed_leaves_both_dialogs_usable(fresh_root, tmp_path):
     fake = fake_root(tmp_path)
-    prefs = preferences_ui.PreferencesDialog(fresh_root, {}, repo_root=fake)
+    prefs = preferences_ui.PreferencesDialog(fresh_root, {}, repo_root=fake,
+                                             start_cleanup=Recorder())
     dialog = prefs.open_cleanup()
     select(dialog, "application_logs")
     dialog.submit(dialog.selected_ids())
@@ -615,7 +647,7 @@ def test_a_callback_that_raises_still_fails_closed(fresh_root, tmp_path):
     dialog = make_cleanup(fresh_root, fake, start_cleanup=exploding)
     select(dialog, "application_logs")
     assert dialog.submit(dialog.selected_ids()) is False
-    assert dialog.var_status.get() == maintenance.CLEANUP_UNAVAILABLE_MESSAGE
+    assert dialog.var_status.get().startswith(maintenance.CLEANUP_FAILED_MESSAGE)
     assert dialog.winfo_exists()
     assert snapshot(fake) == before
 

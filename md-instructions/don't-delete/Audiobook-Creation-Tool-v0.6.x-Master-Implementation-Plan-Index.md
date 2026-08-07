@@ -92,7 +92,7 @@ The user's local root `config-template.toml` is an unrelated, pre-existing untra
 | Plan | Release checkpoint | Temporary drop | Status | Depends on |
 |---:|---|---|---|---|
 | 1 | v0.6.0 Drop 1 | `0.6.0-drop1-windows-ui-prototype.md` | **Complete, approved, and merged through PR #2** | v0.5.1 baseline |
-| 2 | v0.6.0 Drop 2 | `0.6.0-drop2-config-output-maintenance-foundation.md` | **Approved and in progress — Phases 0–6 complete and approved through Phase 5; Phase 6 complete 2026-08-04 and awaiting review; Phases 7–9 pending maintainer approval.** Branch `feature/0.6.0-drop2-config-output-maintenance-foundation`, start SHA `bada8a3dee87acf6a6619252bd31cdee429f1711` | Plan 1 |
+| 2 | v0.6.0 Drop 2 | `0.6.0-drop2-config-output-maintenance-foundation.md` | **Approved and in progress — Phases 0–7 complete and approved through Phase 6; Phase 7 complete 2026-08-06 and awaiting review; Phases 8–9 pending maintainer approval.** Branch `feature/0.6.0-drop2-config-output-maintenance-foundation`, start SHA `bada8a3dee87acf6a6619252bd31cdee429f1711` | Plan 1 |
 | 3 | v0.6.0 Drop 3 | `0.6.0-drop3-shared-job-controls-importing.md` | Planned; not drafted | Plans 1–2 |
 | 4 | v0.6.1 | `0.6.1-tts-cover-workflows.md` | Planned; not drafted | Plans 1–3 |
 | 5 | v0.6.2 | `0.6.2-m4b-converter-upgrade.md` | Planned; not drafted | Plans 1–3 |
@@ -345,7 +345,7 @@ Plan 2 begins from the latest verified `origin/master`, on its own feature branc
 | Plan 1 feature head reachable | `f3d70e8c9017f2fec3ae459c1438dd71b42f9ef0` — confirmed; branch retained on `origin` |
 | Baseline test result | 97 collected; 94 passed, 3 skipped, 1 warning; theme suite 17/17 executed |
 | `scripts/verify.py` | `RESULT: PASS` — with the recorded pre-existing `CHANGELOG.md` casing defect at `verify.py:34`, masked only by case-insensitive Windows paths; Phase 1 fixes the reference, never the filename |
-| Phase reached | Phases 0–5 complete and approved; Phase 6 (downloaded-data inventory and confirmation) complete 2026-08-04 and awaiting review; Phase 7 pending explicit maintainer approval |
+| Phase reached | Phases 0–6 complete and approved; Phase 7 (safe post-exit cleanup and launcher/bootstrap coordination) complete 2026-08-06 and awaiting review; Phase 8 pending explicit maintainer approval |
 
 Full evidence lives in `md-instructions/Handoff.md` (Current Focus + Session Sync Log).
 

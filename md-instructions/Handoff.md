@@ -2,7 +2,262 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 6 COMPLETE. Phases 7–9 are unstarted and pending explicit maintainer approval.**
+PHASE 7 COMPLETE. Phases 8–9 are unstarted and pending explicit maintainer approval.**
+
+### Phase 7 — Safe post-exit cleanup and launcher/bootstrap coordination (2026-08-06, HOME-PC)
+
+**Result: the Clear Downloaded Data flow now actually clears data — in a separate process,
+after the application has exited, and only ever the four enumerated items.** Two files added,
+six modified. `bootstrap.py` and both root launchers are untouched. `version.py` is still
+`0.5.1`.
+
+**Phase 7 start SHA:** `6dfd37e6d4658a1ec7a08070e777962c5e3fde73` (approved Phase 6). The
+ending SHA is the commit carrying this section; it is quoted in the phase summary.
+
+**Phase 8 was not started.** No packaging or archive change, no screenshot matrix, no live
+macOS run, no live TTS synthesis check, no version bump, tag, merge or branch deletion.
+
+#### The maintenance-state location
+
+`files/runtime-data/maintenance/`, derived from a verified repository root and never
+configurable. It satisfies every condition the drop requires: inside the repository, outside
+`.venv`, outside `files/bin`, outside `files/runtime-data/models`, outside
+`files/runtime-data/logs`, not any protected path, and unreachable from a request — a request
+has no field that could name it. `state_dir()` re-validates all of that on **every** call,
+including that no level of the path is a symlink, junction or reparse point. It is already
+covered by the `files/runtime-data/` ignore rule, and release archives contain only `scripts/`
+plus the root launcher and README, so it can never ship.
+
+| File | Written by | Purpose |
+|---|---|---|
+| `cleanup-request.json` | the GUI | the one active request |
+| `cleanup-accepted.json` | the coordinator | proof it loaded and validated *that* request |
+| `cleanup-request.consumed.json` | the coordinator | the request, retired before the first deletion |
+| `cleanup-request.unusable.json` | the GUI | a stale or corrupt predecessor, moved aside not deleted |
+| `cleanup-result.json` | the coordinator | the one immutable result |
+| `cleanup-result.presented.json` | the GUI | the result, retired after it was shown |
+| `cleanup-result.unreadable.json` | the GUI | a corrupt result, moved aside and never executed |
+| `cleanup-coordinator.log` | the coordinator | technical detail, deliberately not in `logs/` |
+
+`STATE_FILENAMES` is the complete allowlist. `state_file()` refuses any other name, and the
+only files this layer removes are those names plus its own `.act-maint-` temporary writes —
+`_discard_own_file()` raises rather than removing anything else.
+
+#### Atomic writes
+
+`write_json()` writes to a `tempfile.mkstemp` file in the same folder, flushes, `fsync`s,
+closes, then `os.replace`s. A crash leaves either the previous file or the new one, never a
+half-written request that a coordinator could read as authorization. A failed replace discards
+only its own temporary file. `sweep_temporary_files()` removes abandoned temporary writes older
+than an hour, strictly name-matched.
+
+#### The coordinator and its interpreter boundary
+
+`scripts/Universal/shared/cleanup_worker.py`, started as `python cleanup_worker.py --run
+--request-id <uuid>` — an argument vector, `shell=False`, detached, `CREATE_NO_WINDOW`, stdio
+to `DEVNULL`. The only three things in that vector are a verified interpreter, this module's
+own sibling file, and a UUID; nothing from a request participates, so a folder with spaces, an
+apostrophe or non-ASCII characters is simply one argv element and quoting cannot be got wrong.
+
+The interpreter is **verified, not assumed**: candidates are `sys._base_executable`, then
+`sys.base_prefix`, then `PATH`; anything inside the repository is rejected before it is even
+probed; and the survivor must itself report that `sys.prefix == sys.base_prefix`. The
+coordinator imports only `argparse`, `os`, `stat`, `sys`, `datetime`, `pathlib` plus
+`shared.maintenance` and `shared.cleanup_state`, which are themselves standard-library only —
+so it keeps working while `.venv` is being deleted. It derives the repository root from its own
+`__file__` and proves it by finding itself again at
+`<root>/scripts/Universal/shared/cleanup_worker.py`; the current working directory is never
+consulted.
+
+#### The acknowledgement handshake and the close sequence
+
+1. The dialog builds one immutable request and disables its own controls.
+2. `cleanup_state.start_cleanup()` re-validates by round-tripping the request through the
+   strict schema, then persists it atomically. An **active** request — valid, recent, and its
+   requesting process still alive — is never displaced; the handoff refuses and says so.
+3. The coordinator is started. It loads the request, checks it is the one named on its command
+   line, checks it is not stale and does not name the coordinator itself, validates the root
+   and the state folder, opens a handle to the requesting process, and only **then** writes the
+   acknowledgement.
+4. The GUI waits for that acknowledgement, bounded at 20 s, giving up early if the helper
+   process dies first. Only a payload matching that exact request id, schema version and a
+   plausible coordinator process id counts.
+5. On acknowledgement the dialog shows *"Cleanup is ready. Audiobook Creation Tool will now
+   close…"* and closes the whole application 700 ms later, through an injected callback that
+   the launcher wires to its ordinary close path (so the last-used tool is still remembered).
+6. On **any** failure — persistence, no verified interpreter, spawn error, timeout, or a
+   handoff that raised — the request is withdrawn, the headline is *"Cleanup did not start. No
+   data was changed…"* with a short specific detail appended, and both windows stay open and
+   usable. The success sentence is never shown on the strength of having started a process.
+
+A withdrawal that races a late acknowledgement is resolved by withdrawing **first** and then
+looking once more: either the acknowledgement is seen and success is reported, or the
+coordinator finds no request and refuses. `_handoff_pending` plus disabled buttons make a
+second click a no-op, so repeated clicks cannot start a second helper.
+
+#### Waiting for the requesting process
+
+On Windows the handle is opened *before* acknowledgement and the wait blocks in
+`WaitForSingleObject`, so it is bound to that exact process object and a recycled process id
+cannot satisfy it. Elsewhere it sleeps between `os.kill(pid, 0)` probes. Either way it is
+bounded (15 minutes) and never a busy loop. Beyond process-id reuse, a request older than six
+hours, or dated more than five minutes in the future, is refused outright.
+
+If the application never closes, the coordinator consumes the request, records **every**
+selected item as `refused` with *"Audiobook Creation Tool was still running, so nothing was
+removed,"* and exits. It never retries and never relaunches.
+
+#### Deletion semantics — exactly four, re-authorized at the last moment
+
+| ID | What is removed |
+|---|---|
+| `virtual_environment` | the `.venv` directory itself |
+| `portable_binaries` | the contents of `files/bin`; the folder stays |
+| `downloaded_models` | the contents of `files/runtime-data/models`; the folder stays |
+| `application_logs` | the contents of `files/runtime-data/logs`; the folder stays |
+
+The inventory the user saw is **not** authorization. Immediately before acting,
+`process_asset()` re-derives the target from its enumerated ID and re-runs every Phase 6
+check — exact compiled target, containment, repository root, protected paths, links at every
+level — then re-inspects the type with `lstat`. A target swapped for a junction between review
+and execution is `refused`, not followed. A target that is no longer a folder is `refused`. A
+missing target is `missing`, a successful no-op.
+
+The walk is post-order and iterative over `scandir`/`lstat` with `follow_symlinks=False`
+throughout. A link found *inside* a target is detached (`unlink`, falling back to `rmdir` for a
+Windows junction) and never descended into, so whatever it points at is neither counted nor
+touched. A read-only file gets its attribute cleared once and is retried. Every failure is
+collected and the pass continues — through the rest of the tree and on to the later selected
+assets — so one locked file cannot hide the rest of the work.
+
+The request is consumed (`os.replace` to `cleanup-request.consumed.json`) **before** the first
+deletion, so a crash mid-pass can never replay. If the file is gone at that moment — the
+requester withdrew it — the run stops and deletes nothing.
+
+#### The result and the next launch
+
+One `CleanupResult` per run, written atomically, containing per-asset `removed` / `missing` /
+`failed` / `refused`, bytes freed, and a short message. It has no path field of any kind, and
+messages quote names relative to the target, never absolute paths.
+
+On the next ordinary launch the launcher queues `present_downloaded_data_report()` after the
+configuration warnings. It deserializes through the strict schema; a corrupt or unsupported
+record is moved to `cleanup-result.unreadable.json`, logged, and **never executed**. The report
+lists every selected asset with its outcome, states the space freed (or *"at least …, plus data
+whose size was not measured"* when a figure is unknown), and never claims complete success if
+anything failed or was refused — a partial run gets the recovery line telling the user what is
+still there and that they can try again from Preferences & Data. The record is retired to
+`cleanup-result.presented.json` only **after** the window was built, so a display failure does
+not lose the report. There is no retry button: a future cleanup starts as a fresh confirmed
+request.
+
+#### Launcher and bootstrap changes
+
+**None to `bootstrap.py`, none to either root launcher.** They were read against the
+requirement and already satisfy it: the `.bat` fast path is `if exist
+".venv\Scripts\pythonw.exe"`, so a removed environment falls through to the ordinary first-run
+setup that rebuilds it, and `bootstrap.venv_is_valid()` does the same for the `--launch-only`
+route. Routing cleanup *through* `bootstrap.py` was considered and rejected: importing it opens
+a log file inside `files/runtime-data/logs/`, which is one of the four selectable targets, and
+on Windows that open handle would block the very deletion the run was asked to perform. The
+coordinator therefore logs into the maintenance folder instead. Normal setup, repair, the daily
+fast path, no-visible-console behaviour, interpreter selection, venv creation and dependency
+installation are all unchanged.
+
+`launcher.py` gained exactly two things: it passes its ordinary close path to Preferences as
+`close_application`, and it queues the report. Neither adds work to a launch with no
+maintenance state — `load_result()` returns immediately when the file is absent, and the state
+folder is not even created.
+
+#### Automated evidence
+
+| Suite | Result |
+|---|---|
+| `test_cleanup_state.py` (new) | 72 passed |
+| `test_cleanup_worker.py` (new) | 64 passed |
+| `test_cleanup_handoff_ui.py` (new) | 30 passed |
+| `test_maintenance.py` + `test_preferences_maintenance_ui.py` | 233 passed |
+| `test_preferences_ui.py`, `test_config.py`, `test_settings.py`, `test_repository_contract.py` | 198 passed |
+| `test_output_paths.py` + `test_tool_output_integration.py` | 214 passed, 1 skipped |
+| `test_cover_source_side.py`, `test_maker_custom_destination.py`, `test_launcher_smoke.py` | 75 passed, 1 skipped |
+| `test_ui_theme.py` | 17 passed, 0 skipped |
+| complete suite | **969 passed, 5 skipped, 1 warning** |
+| `pytest --collect-only` | **974 collected** |
+
+974 = the Phase 6 baseline of 807 + 167 added (72 + 64 + 30 + 1 new report-window guard).
+Collected equals executed. The five skips are the documented five (three Jack Ryan fixture
+folder, two file-symlink `WinError 1314`); the one warning is the pre-existing pydub `audioop`
+deprecation.
+
+**One transient:** the very first full run after the new files were written reported 11 extra
+environment-dependent skips (the junction and base-interpreter guards). It did not recur — every
+run since returned exactly 969/5. No skip guard was weakened to get there.
+
+Four Phase 6 guards moved to the Phase 8 boundary rather than being dropped: the Preferences
+"deletes, spawns and persists nothing" guard (still true — persistence and spawning live in
+`cleanup_state`), the cleanup-flow guard in `test_output_paths.py`, the handoff guard in
+`test_tool_output_integration.py` (now behavioural: a helper that cannot start must leave the
+tree byte-identical), and the initial-focus guard, which is now scoped to the two windows that
+can lead to a deletion so the read-only report window may focus its own dismiss button.
+
+#### The disposable end-to-end drill (Windows 11, HOME-PC, 2026-08-06)
+
+Real root: `…\MyProjects\Home-PC\Audiobook-Creation-Tool`. Disposable root:
+`…\scratchpad\Réal's Drill Copy\Audiobook Tool` — deliberately containing a space, an
+apostrophe and a non-ASCII character. Proven before anything destructive ran: the two paths
+differ, neither is inside the other, the disposable root is not a drive root, not the home
+folder and not an ancestor of the real repository. 138 code files were copied; runtime data,
+`.git` and `.venv` were not.
+
+The drill ran the **real production interfaces**, and the requesting process ran from the
+disposable copy's own `.venv` — the environment it was about to have removed:
+
+- the dialog opened with `()` selected and `Review Selected Data…` disabled;
+- all four rows read Present with sizes `11.5 MB / 6.0 KB / 72.0 KB / 768 bytes`;
+- the confirmation carried the exact approved title, the four consequences, the freed-space
+  line, the close notice, the four effect lines, the exclusion notice and the final question;
+- accepting wrote one request, the coordinator (a separate process id, base interpreter)
+  acknowledged it, and the status read the exact scheduled sentence;
+- nothing was deleted at that point — `.venv/Scripts/python.exe`, `files/bin/ffmpeg.exe` and a
+  log file were all still present when the GUI closed itself;
+- after the requesting process exited, the four items were removed with byte totals matching
+  the fixtures **exactly** (12,088,166 / 6,144 / 73,728 / 768), `.venv` gone entirely and the
+  three container folders present and empty;
+- `settings.json`, `config.toml`, `config-template.toml`, a decoy `my-audiobook-output.m4b`,
+  `scripts/`, `md-instructions/` and both root launchers were byte-identical afterwards;
+- re-running the coordinator with the same request id exited 1 and removed nothing, including a
+  file created after the first run;
+- the launcher fast-path marker was gone, the ordinary `bootstrap._create_validated_venv()`
+  rebuilt the environment, `venv_is_valid()` went back to true, and the rebuilt interpreter ran
+  `import ssl, tkinter; tkinter.Tcl()` cleanly;
+- the next launch presented the report exactly once, at 349×221, and a second call returned
+  nothing.
+
+**The pinned pip install was deliberately not re-run** in the drill: it downloads roughly 2 GB
+of torch, and it is unchanged code covered by the existing setup tests. What was exercised is
+the decision and the venv creation the normal path performs.
+
+**The real repository was untouched.** Fingerprints taken before and after match for
+`files/runtime-data/models`, `files/runtime-data/logs`, `settings.json`, `config.toml` and
+`config-template.toml`; `files/bin` is still absent as before; the real `.venv` still exists
+with its interpreter and an unchanged directory mtime — and it was deliberately **not walked**,
+because inventorying it is outside the authorization. No maintenance-state folder exists in the
+real repository. The disposable copy was **retained** for review.
+
+#### Pending evidence — described as pending, never as passed
+
+- **Windows 125% scaling** — not re-run for the new report window; Phase 8 owns the scaling
+  matrix, and display scaling was deliberately not changed for this phase.
+- **Phase 8 screenshots** — not collected.
+- **Live macOS** — not run. The aqua path is import- and build-tested only.
+- **Live TTS synthesis** — deliberately not run; it is independent of Phase 7.
+
+#### The Phase 8 boundary
+
+Phase 8 owns packaging (`config.toml` in both archives, never `config-template.toml`), the
+clean-extraction smoke tests, the full Windows manual matrix, the live macOS matrix or an
+explicitly approved deferral, the screenshot evidence, and the Definition-of-Done table. None
+of it was started, and it requires new explicit maintainer approval.
 
 ### Phase 6 — Downloaded-data inventory and confirmation UI (2026-08-04, HOME-PC)
 

@@ -239,10 +239,12 @@ flashing during use.
   can re-arm it with `reset_launch_warning_guard()`), and the launcher shows one non-modal
   window carrying the whole aggregated summary — never one dialog per bad key, never a
   blocking `messagebox`, and never a reason to fail startup.
-- **Downloaded-data maintenance (`shared/maintenance.py`, v0.6.0 Drop 2 Phase 6).** Inventory
-  and confirmation only — **execution remains Phase 7, and no deletion code exists yet.** The
-  module is platform-neutral, Tk-free, imports neither `shutil` nor `subprocess`, and calls no
-  deletion or process primitive; tests assert that structurally. The catalog is a **closed set
+- **Downloaded-data maintenance (`shared/maintenance.py`, v0.6.0 Drop 2 Phases 6–7).** The
+  catalog, the rules, the schemas and the wording live here; **the GUI process still deletes
+  nothing.** The module is platform-neutral, Tk-free, imports neither `shutil` nor
+  `subprocess`, and calls no deletion or process primitive; tests assert that structurally.
+  Removal happens in a separate helper process after the app exits (see the entry below). The
+  catalog is a **closed set
   of exactly four IDs** held as frozen dataclasses behind a `MappingProxyType`, so it cannot
   grow at runtime: `virtual_environment` → `.venv` (removed whole, always post-exit),
   `portable_binaries` → `files/bin`, `downloaded_models` → `files/runtime-data/models`, and
@@ -266,9 +268,34 @@ flashing during use.
   selection, and measures sizes on a worker thread with every Tk update returned to the main
   thread. The confirmation is one custom window (never a Yes/No box) rebuilt from the live
   selection each time, with Cancel as the focused default and no suppression path. Accepting
-  builds one immutable request and hands it to an injected callback and nothing else; the
-  production callback **fails closed**, reporting that cleanup did not start, that no data was
-  changed, and that the app remains open.
+  builds one immutable request and hands it to an injected callback and nothing else.
+- **Post-exit cleanup (`shared/cleanup_state.py` + `shared/cleanup_worker.py`, v0.6.0 Drop 2
+  Phase 7).** The accepted request is saved atomically into one project-owned maintenance
+  folder — `files/runtime-data/maintenance/`, not configurable, unreachable from a request, and
+  validated on every use to be inside the repository and outside all four removable targets —
+  and a **separate helper process** is started with an argument vector (`shell=False`,
+  detached, no console) under a Python interpreter *verified* to be outside any virtual
+  environment, because the first thing it may remove is the one the app is running from. The
+  helper is standard-library only, derives its repository root from its own file location
+  rather than from anything the request carries, and is the **only** code in the project that
+  deletes a catalog asset. **The app closes only after the helper positively acknowledges the
+  request** — started, loaded, validated, ready to wait — and never merely because a process
+  was spawned; every other outcome withdraws the request, leaves both windows open and reports
+  *"Cleanup did not start. No data was changed…"*. The helper waits for the requesting process
+  to exit (bound to that exact process on Windows, so a recycled process id cannot end the wait
+  early), retires the request **before** the first deletion so a crash can never replay it,
+  makes exactly one attempt, and never retries or relaunches. Every target is **re-derived from
+  its ID and re-checked** — containment, protected paths, links, type — immediately before it
+  is touched, because the inventory the user saw is not permission: a folder swapped for a
+  junction in the meantime is refused, not followed, and a link found inside a target is
+  detached rather than descended into. `.venv` goes entirely; the other three keep their folder
+  and lose their contents; a missing target is a successful no-op; a locked file fails that one
+  item and the pass continues. One immutable result is written atomically and the **next launch
+  reports it once** — per item removed / already gone / failed / left alone for safety, the
+  space freed, and recovery advice whenever anything was not removed. It never claims complete
+  success if something failed, and a corrupt record is moved aside and never executed.
+  `bootstrap.py` and both root launchers are unchanged: a removed `.venv` already falls through
+  their fast path into the ordinary setup that rebuilds it.
 - **Windows design system (v0.6.0 Drop 1 — approved 2026-08-02).** A centralized set of
   *semantic* tokens in `shared/ui_theme.py`, consumed only through the theme bundle:
   `_WINDOWS_COLORS` (surfaces window/sidebar/surface/elevated/muted/border/divider, text

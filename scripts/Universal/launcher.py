@@ -158,6 +158,10 @@ class LauncherApp:
         # Configuration diagnostics are reported once, after the window exists,
         # so a bad value can never turn into a startup failure.
         self.root.after(0, self.present_configuration_warnings)
+        # Then, if a previous session cleared downloaded data, say what happened.
+        # Second in the queue so the two reports cannot argue over focus, and
+        # after the launcher is safely built either way.
+        self.root.after(0, self.present_downloaded_data_report)
 
     # ----- which tools actually exist (Metadata Editor lands in Phase 6) -----
     def _available_tools(self) -> list[ToolSpec]:
@@ -461,10 +465,29 @@ class LauncherApp:
     def open_preferences(self):
         """Open Preferences & Data, or focus the window that is already open."""
         self.preferences_dialog = preferences_ui.open_preferences(
-            self.root, self.theme, self.preferences_dialog, logger=self.logger
+            self.root, self.theme, self.preferences_dialog, logger=self.logger,
+            close_application=self.close_for_downloaded_data,
         )
         self._set_status("Preferences & Data.")
         return self.preferences_dialog
+
+    def close_for_downloaded_data(self):
+        """Shut the app down so the separate helper can clear the selected data.
+
+        Reached only after that helper has acknowledged the request. The
+        last-used tool is still remembered, exactly as on an ordinary close.
+        """
+        self._on_close()
+
+    def present_downloaded_data_report(self):
+        """Report what the last clearing run did — once, and never fatally."""
+        try:
+            return preferences_ui.present_cleanup_result(
+                self.root, self.theme, logger=self.logger
+            )
+        except Exception:
+            self.logger.exception("Could not present the downloaded-data report")
+            return None
 
     def present_configuration_warnings(self):
         """Report configuration diagnostics once per launch. Never fatal."""

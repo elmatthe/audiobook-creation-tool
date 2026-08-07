@@ -4,6 +4,78 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-06 — Cleanup runs in a verified non-venv helper, the app closes only on a positive acknowledgement, the request is retired before the first deletion, and the inventory is never treated as permission
+
+**Decision (v0.6.0 Drop 2, Phase 7).** The post-exit coordinator exists and deletes. Seven
+choices behind it.
+
+**1. The maintenance state lives at `files/runtime-data/maintenance/`, and the project owns
+it.** Not configurable, not nameable from a request, derived from a repository root the caller
+had to prove, and re-validated on every use to be inside the repository and outside all four
+removable targets. **Why there rather than a temp folder or the user profile:** the record of
+what cleanup was asked to do must survive cleanup, must belong to this project so uninstalling
+is still "delete the folder", and must be somewhere the operation itself can never delete. It
+sits beside `logs/` and `models/` without being inside either, is already ignored by
+`files/runtime-data/`, and is never packaged because archives carry only `scripts/` plus the
+root launcher and README.
+
+**2. The helper is a separate process under an interpreter *verified* to be outside any
+virtual environment.** Candidates come from `sys._base_executable`, `sys.base_prefix` and
+`PATH`; anything inside the repository is rejected before it is probed; the survivor must
+itself report `sys.prefix == sys.base_prefix`. **Why verified rather than assumed:** the first
+thing this helper may be asked to remove is the interpreter the application is running from. A
+guess that turns out to be the venv would delete the process's own feet. The helper is
+standard-library only for the same reason — it has to keep working while `.venv` disappears
+underneath it.
+
+**3. Cleanup is *not* routed through `bootstrap.py` or the root launchers, and neither file was
+changed.** **Why, when the plan named them as the boundary:** the plan's requirement is that
+cleanup runs outside the venv, and the reason it named `bootstrap.py` is that `bootstrap.py` is
+the existing stdlib pre-venv code. But importing it opens a dated setup log inside
+`files/runtime-data/logs/` — one of the four selectable targets — and on Windows that open
+handle blocks the deletion the run was asked to perform. A dedicated stdlib module honours the
+requirement without sabotaging it, and the coordinator logs into the maintenance folder
+instead. The rebuild the plan asks for already works untouched: the `.bat` fast path tests for
+`.venv\Scripts\pythonw.exe` and falls through to ordinary setup when it is gone. Changing a
+working launcher to add a route nothing needs would have been the larger risk.
+
+**4. The application closes only after a positive acknowledgement — never after a successful
+spawn.** The helper writes its acknowledgement only once it has started, loaded *that* request,
+validated it, checked the repository root and the state folder, and is ready to wait; the GUI
+waits for that, bounded, and gives up early if the process dies. **Why not treat `Popen`
+returning as success:** "the helper started" and "the helper understood and accepted the job"
+are different facts, and only the second one justifies telling a user their data will be
+cleared and then taking their window away. Every failure path withdraws the request and leaves
+the app open, so the worst outcome is a wasted click rather than a lie.
+
+**5. The request is retired before the first deletion, not after the last.** `os.replace` moves
+it to a consumed name the moment the wait ends and before anything is removed. **Why that
+order:** a crash halfway through a pass must not leave an executable request behind — a second
+run would start deleting again against a tree that is already half gone, with no record of what
+the first attempt did. Retiring first means a crash costs a partial cleanup and an honest
+absence of a result, never a repeat. If the request has vanished at that moment because the
+requester withdrew it, the run stops and deletes nothing.
+
+**6. The inventory the user saw is never authorization.** Every target is re-derived from its
+enumerated ID and re-checked — exact compiled target, containment, repository root, protected
+paths, links at every level, and type — immediately before it is touched. **Why re-check what
+was checked minutes ago:** between the confirmation and the deletion the app closed, which is
+plenty of time for a folder to be replaced by a junction pointing at someone's photo library. A
+target that changed shape is refused and recorded, not followed. For the same reason, a link
+found *inside* a target is detached rather than descended into: removing a junction never
+touches what it points at, and walking one might.
+
+**7. Process-id reuse is defended with a handle, not a hope.** On Windows the helper opens a
+handle to the requesting process *before* acknowledging, so the wait is bound to that exact
+process object; a recycled id cannot end it early. Elsewhere it polls liveness and relies on
+the six-hour staleness ceiling. **Why this matters at all:** the entire safety of "delete after
+the app exits" rests on knowing *which* exit was observed. A bounded wait that ends because
+some unrelated program inherited the number would delete while the app was still running.
+
+— Elijah Matthew, 2026-08-06
+
+---
+
 ## 2026-08-04 — The cleanup catalog is a closed set of four IDs, a request may never carry a path, nothing is selected by default, an unreadable size is said out loud, and Phase 6 fails closed rather than pretending
 
 **Decision (v0.6.0 Drop 2, Phase 6).** The downloaded-data inventory and its confirmation now
