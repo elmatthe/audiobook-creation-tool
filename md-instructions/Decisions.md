@@ -4,6 +4,61 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-08 — Archives ship `config.toml` by explicit scope, concat lists follow ffmpeg's own quoting rules, panels are told when the output base moves, and two validations are deferred rather than faked
+
+**Decision (v0.6.0 Drop 2, Phase 8 and its remediation; recorded at the Phase 9 closeout).**
+Four choices worth keeping.
+
+**1. The packager names its root files instead of excluding unwanted ones.** `release.py` writes
+an enumerated `ROOT_FILES` list plus exactly one walked tree, and it never mentions
+`config-template.toml`. **Why this rather than an exclusion rule:** an exclusion list is only as
+good as the last person who remembered to extend it, and the file most likely to leak here sits
+directly beside the file we must ship. A packager that never names a file cannot ship it by
+accident, so the safety property holds for files nobody has thought of yet. `config.toml` is
+copied byte-for-byte rather than generated, so what a user extracts is exactly what the
+repository documents and the verify gate checks.
+
+**2. Concat-list escaping follows ffmpeg's documented syntax, not shell intuition.** A path is
+wrapped in single quotes and every `'` becomes `'\''` — close the quote, emit an escaped quote
+outside it, reopen — and nothing else is touched. **Why the old code was wrong and why this is
+not a guess:** ffmpeg's *Quoting and escaping* section states that characters inside single
+quotes are literal, so the previous `\'` escaped nothing and ffmpeg read the quote as the
+closing delimiter, silently truncating the path. The same function also doubled backslashes,
+which survived only because Windows collapses repeated separators and would corrupt a genuine
+one. The replacement is the exact form ffmpeg's own documentation gives
+(`file '/mnt/share/file 3'\''.wav'`), and it is pinned by tests that drive the real binary over
+spaces, Unicode, apostrophes and all three combined — never inferred from one passing fixture.
+Shell quoting was deliberately not used: these are file-format rules, and `shlex.quote` stays
+confined to the human-readable error log.
+
+**3. A shared registry refreshes the panels; the panels do not learn to resolve paths.** Each
+panel registers the read-only variable it already owns, and a successful Save or Reset calls one
+helper that re-points them all. **Why not rebuild the panel, pass a callback down six
+constructors, or let each panel recompute:** rebuilding would discard a user's in-progress
+selections to update a label; new constructor parameters would churn six modules including the
+five that Plan 1 deliberately left unconverted; and recomputing in a panel would duplicate the
+resolution rules the whole plan exists to centralise. The registry is called from exactly two
+places — the successful commit and the successful reset — so a rejected, cancelled or unsaved
+value can never be displayed as effective, and a dead registration is dropped rather than raised
+over, because refreshing a label must never break the call that just saved a preference. Run
+reservation still re-reads the configuration at operation start, so the display is a hint and the
+reservation remains the truth.
+
+**4. Live macOS and the Windows 125% matrix are recorded as deferrals, not as passes.** Neither
+was run for Plan 2. **Why record rather than approximate:** the honest failure mode of a long
+validation phase is a green box that nobody actually observed. Automated aqua coverage is
+import- and build-level and is not a live pass; changing Windows scaling needs the maintainer's
+own action, and simulating it through the registry would produce evidence of the simulation
+rather than of the product. The maintainer's standing decision is that Windows stays at true
+100% for the remaining feature drops and the real 125% pass happens in the later dedicated
+UI-compression/no-scroll phase, against a stable layout. Both deferrals are written down as
+deferrals wherever Plan 2's result is recorded.
+
+*Signed: Elijah Matthew (maintainer), 2026-08-08 — approving v0.6.0 Drop 2 Phase 8 at
+`0e7ad0c264cb2a46f3c64f968e24f00963cb1987` and Plan 2 as a whole.*
+
+---
+
 ## 2026-08-06 — Cleanup runs in a verified non-venv helper, the app closes only on a positive acknowledgement, the request is retired before the first deletion, and the inventory is never treated as permission
 
 **Decision (v0.6.0 Drop 2, Phase 7).** The post-exit coordinator exists and deletes. Seven

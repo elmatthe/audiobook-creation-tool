@@ -92,8 +92,8 @@ The user's local root `config-template.toml` is an unrelated, pre-existing untra
 | Plan | Release checkpoint | Temporary drop | Status | Depends on |
 |---:|---|---|---|---|
 | 1 | v0.6.0 Drop 1 | `0.6.0-drop1-windows-ui-prototype.md` | **Complete, approved, and merged through PR #2** | v0.5.1 baseline |
-| 2 | v0.6.0 Drop 2 | `0.6.0-drop2-config-output-maintenance-foundation.md` | **Approved and in progress — Phases 0–7 complete and approved through Phase 6; Phase 7 complete 2026-08-06 and awaiting review; Phases 8–9 pending maintainer approval.** Branch `feature/0.6.0-drop2-config-output-maintenance-foundation`, start SHA `bada8a3dee87acf6a6619252bd31cdee429f1711` | Plan 1 |
-| 3 | v0.6.0 Drop 3 | `0.6.0-drop3-shared-job-controls-importing.md` | Planned; not drafted | Plans 1–2 |
+| 2 | v0.6.0 Drop 2 | *(retired at closeout)* | **Complete and maintainer-approved 2026-08-08. All ten phases done; Phase 8 approved at `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 transferred the lasting record and retired the temporary drop.** Branch `feature/0.6.0-drop2-config-output-maintenance-foundation` (not merged), start SHA `bada8a3dee87acf6a6619252bd31cdee429f1711`. Evidence: twelve 100% images under `files/UI-Prototype-Screenshots/v0.6.0-drop2/`; Windows matrix 46/46 PASS after a recorded 44/46 first pass and two fixes. **Deferred, not passed:** live macOS, and the Windows 125% matrix (held for the later UI-compression/no-scroll phase). No version bump, tag, release or merge. | Plan 1 |
+| 3 | v0.6.0 Drop 3 | `0.6.0-drop3-shared-job-controls-importing.md` | **Next unopened implementation drop.** Planned; not drafted, not started | Plans 1–2 |
 | 4 | v0.6.1 | `0.6.1-tts-cover-workflows.md` | Planned; not drafted | Plans 1–3 |
 | 5 | v0.6.2 | `0.6.2-m4b-converter-upgrade.md` | Planned; not drafted | Plans 1–3 |
 | 6 | v0.6.3 Drop 1 | `0.6.3-drop1-shared-multi-book-workspace.md` | Planned; not drafted | Plans 1–3 |
@@ -102,6 +102,8 @@ The user's local root `config-template.toml` is an unrelated, pre-existing untra
 | 9 | v0.6.5 | `0.6.5-ui-parity-hardening-release.md` | Planned; not drafted | Plans 1–8 |
 
 Do not draft or implement Plans 3–9 while Plan 2 is active. A later plan may be drafted only after the current plan is implemented, verified, manually approved, documented, merged through the established workflow, and closed.
+
+**Status note (2026-08-08).** Plan 2 is implemented, verified, approved, documented and closed; its feature branch is awaiting integration review and has **not** been merged. Plan 3 may therefore be drafted when the maintainer opens it, in a fresh session. It was not drafted or started during Plan 2's closeout, and the nine-plan sequence is unchanged.
 
 ## 6. Dependency and release sequence
 
@@ -328,11 +330,15 @@ Do not absorb these into an unrelated plan:
 
 ## 15. Immediate next action
 
-The next active document is:
+**Updated 2026-08-08.** Plan 2 is complete, maintainer-approved and closed, and its temporary drop has been retired. There is **no active implementation document**.
 
-`md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`
+The next action is **Plan 2 integration review only** — its branch
+`feature/0.6.0-drop2-config-output-maintenance-foundation` is integration-ready and has not been merged.
 
-Plan 2 begins from the latest verified `origin/master`, on its own feature branch, after the user approves the drop. It must not be developed on the old Plan 1 feature branch, must not reopen Decisions 1–55, and must not begin Plan 3.
+The next unopened implementation drop is **Plan 3 — v0.6.0 Drop 3**, proposed filename
+`0.6.0-drop3-shared-job-controls-importing.md`. It has not been drafted or started, and it needs new explicit maintainer direction in a fresh session. It must not reopen Decisions 1–55.
+
+*Superseded (kept for the record): before closeout this section named `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` as the next active document, with the note that Plan 2 begins from the latest verified `origin/master` on its own feature branch, must not be developed on the old Plan 1 feature branch, must not reopen Decisions 1–55, and must not begin Plan 3.*
 
 ### Plan 2 recorded start state (2026-08-03, Phase 0)
 
@@ -345,7 +351,7 @@ Plan 2 begins from the latest verified `origin/master`, on its own feature branc
 | Plan 1 feature head reachable | `f3d70e8c9017f2fec3ae459c1438dd71b42f9ef0` — confirmed; branch retained on `origin` |
 | Baseline test result | 97 collected; 94 passed, 3 skipped, 1 warning; theme suite 17/17 executed |
 | `scripts/verify.py` | `RESULT: PASS` — with the recorded pre-existing `CHANGELOG.md` casing defect at `verify.py:34`, masked only by case-insensitive Windows paths; Phase 1 fixes the reference, never the filename |
-| Phase reached | Phases 0–6 complete and approved; Phase 7 (safe post-exit cleanup and launcher/bootstrap coordination) complete 2026-08-06 and awaiting review; Phase 8 pending explicit maintainer approval |
+| Phase reached | **All phases complete. Plan 2 approved and closed 2026-08-08**; Phase 8 approved at `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`, Phase 9 transferred the lasting record and retired the temporary drop. Branch not merged. |
 
 Full evidence lives in `md-instructions/Handoff.md` (Current Focus + Session Sync Log).
 

@@ -2,9 +2,90 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 8 COMPLETE — remediated 2026-08-07 after the maintainer rejected the first pass, and
-awaiting manual approval of the returned screenshots and evidence package. Phase 9 is
-unstarted and requires new explicit maintainer approval.**
+COMPLETE, MAINTAINER-APPROVED AND CLOSED (2026-08-08). The feature branch is integration-ready
+and has not been merged. The next unopened implementation work is Drop 3, which requires new
+explicit maintainer direction and a fresh session.**
+
+### Phase 9 — Plan 2 approval closeout and temporary-drop retirement (2026-08-08, HOME-PC)
+
+**Plan 2 is approved.** The maintainer approved Phase 8 at
+`0e7ad0c264cb2a46f3c64f968e24f00963cb1987` — the original implementation
+(`88a64dce840d8fe7e3305818eac3ad659fb3555e`) and its remediation accepted together — and Plan 2
+as a whole. Phase 9 is a **documentation and retirement commit**: no application behaviour, no
+UI, no packaging, no configuration and no screenshot changed, and `version.py` is still `0.5.1`.
+
+**What moved where.** `Briefing.md` gained the lasting configuration/output/maintenance
+architecture (the two destination exceptions, the display-hint-versus-reservation rule and the
+new live refresh, the four-asset downloaded-data catalog and the post-exit coordinator, and the
+explicit-scope packaging contract), plus the Plan 2 approval paragraph, the validation summary
+and both deferrals. `Changelog.md` gained four `[Unreleased]` entries — packaging, the two
+fixes, and this closeout — with **no v0.6.0 release heading**. `Decisions.md` gained one signed,
+dated ADR covering the four non-obvious choices (explicit-scope packaging, ffmpeg's documented
+concat quoting, the shared display registry, and recording the two deferrals as deferrals); no
+historical entry was rewritten and Decisions 1–55 were not reopened. The master implementation
+index now shows Drop 2 complete and approved and Drop 3 as the next unopened drop, with the
+nine-plan sequence unchanged.
+
+**The temporary drop was retired** — `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`,
+54,346 bytes, SHA-256 `faa83b0ffe4c85f54f8e788ff5eed0ecbdc52c99929c670d5d8e4079fb1e8920` —
+deleted by exact path only, after the transfer above, exactly as its own Phase 9 directs
+(deletion, not archival). Nothing under `md-instructions/don't-delete/` was touched, and no
+tracked document now depends on the retired file as its only source of truth.
+
+#### The final Plan 2 record, in one place
+
+| | |
+|---|---|
+| Branch | `feature/0.6.0-drop2-config-output-maintenance-foundation` — **not merged** |
+| Start SHA | `bada8a3dee87acf6a6619252bd31cdee429f1711` |
+| Phase 8 approved at | `0e7ad0c264cb2a46f3c64f968e24f00963cb1987` |
+| Version | `0.5.1` — unchanged, no tag, no release, no published archive |
+| Tests | 1074 collected, 1069 passed, 5 documented skips, 1 pre-existing warning, all 17 theme tests executed |
+| Gates | `scripts/verify.py` `RESULT: PASS`; compile gate; `git diff --check`; canonical-name/alias gate; protected-folder gate |
+| Windows matrix | **46/46 PASS**, after a recorded **44/46** first pass and two fixes |
+| Screenshots | twelve 100% images under `files/UI-Prototype-Screenshots/v0.6.0-drop2/`; the ten Plan 1 images unchanged |
+| Live TTS | Edge TTS `en-US-SteffanNeural`, 254,925-byte MP3, 12.66 s measured |
+| `config-template.toml` | untracked, unstaged, byte-identical `94b05edc3211efe531be018fbc442c240df8db42`, never loaded, absent from both archives |
+
+#### Carried limitations and deferrals — none of these is a pass
+
+1. **Live macOS validation was not performed for Plan 2.** The aqua path is import- and
+   build-tested only. Automated aqua coverage is explicitly **not** a live pass. Deferred by
+   maintainer decision on 2026-08-07.
+2. **The Windows 125% scaling/screenshot matrix was not performed.** Windows stayed at true
+   100% throughout Phase 8 and its remediation; no registry edit or DPI simulation was used.
+   By maintainer decision this pass belongs to the **later dedicated UI-compression/no-scroll
+   phase**, after the remaining features land and the layout is stable — that pass will do the
+   final layout compression, verify the maximized no-scroll goal, and retest 100% **and** 125%
+   against the stable interface. Do not reopen it before then.
+3. **The application is DPI-unaware on Windows** (Plan 1 finding, unchanged). Nothing clips or
+   reflows at 125% because the whole window is bitmap-scaled uniformly; text is softer.
+4. **M4B Converter clipping at the `920×600` minimum** (~19 px primary action, ~108 px + 75 px
+   Log) remains, deferred to that panel's later conversion.
+5. **Windows xHE-AAC decode** remains a confirmed limitation since v0.3.2.
+6. **A fresh one-click clean-machine install** is verified in pieces, not on a virgin box.
+
+#### Standing requirement carried forward — NOT part of Plan 2, NOT transferred yet
+
+Recorded here only so it is not lost. It was **not** implemented, **not** documented as done,
+and **not** transferred into the protected planning records during Phase 9, because the Plan 2
+drop does not assign that transfer. It belongs to the later UI-compression/no-scroll planning
+pass and the Drop 3 fresh-chat handoff:
+
+- remove the visible "Trim Edge TTS padding" checkbox and the individual timing controls, while
+  **keeping the underlying trimming/padding behaviour**;
+- tested internal defaults must give natural batch joins across every currently exposed Edge TTS
+  voice;
+- Kokoro must be checked independently for equivalent joining, clipping, silence and pacing
+  problems;
+- broader timing customisation belongs to the later TTS-focused v0.7.x series.
+
+#### Next action
+
+**Plan 2 integration review only.** The branch is integration-ready; merging, tagging, bumping
+the version and publishing a release are all outside every phase of this plan and were not done.
+Drop 3 (shared importing and job controls) is the next unopened implementation drop: it has not
+been drafted or started, and it needs new explicit maintainer direction in a fresh session.
 
 ### Phase 8 — Packaging, cross-platform regression, and manual approval gate (2026-08-07, HOME-PC)
 

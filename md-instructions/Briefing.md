@@ -345,9 +345,45 @@ flashing during use.
   the widget.
 - **Outputs are copy-based everywhere:** since v0.6.0 Drop 2 Phase 4 every transforming tool
   writes into a run directory reserved at validated operation start under
-  `<output base>/<Tool>-Outputs/<Tool>-N/`; imported originals are only ever read. There is
-  currently **no** in-place exception — the Cover Image overwrite control is disabled and its
-  parameter forced `False` until Phase 5 rebuilds it as a confirmed source-side mode.
+  `<output base>/<Tool>-Outputs/<Tool>-N/`; imported originals are only ever read. Phase 5 then
+  added the **only two** destination exceptions, both opt-in and both described below: Cover
+  Image's source-side modes (numbered copies by default, replacement off by default and behind
+  a strong confirmation) and M4B Maker's custom destination. Everything else is copy-based, and
+  no normal operation silently overwrites an input or an existing output.
+- **A tool panel displays the destination; it never decides it.** The read-only "Output folder"
+  line is a hint from `output_paths.destination_hint()`, and the run resolves the base again at
+  operation start, so a preference changed mid-session can never move an operation already
+  under way. Since the Phase 8 remediation the reverse is also true: `output_paths` keeps a
+  small registry of those displays, and a successful Preferences **Save** or **Reset** re-points
+  every already-built panel immediately, so the application never shows a destination it would
+  not actually use. Panels are not rebuilt to achieve that, and none of them resolves a path
+  itself.
+
+- **Downloaded-data maintenance (v0.6.0 Drop 2 Phases 6–7).** *Preferences & Data → Clear
+  Downloaded Data* inventories exactly **four** enumerated assets — the virtual environment,
+  portable binaries, downloaded voice models and application logs — and nothing else can be
+  named. The catalog is a frozen mapping of closed IDs; a request carries IDs only, never a
+  path, so no serialized or GUI-supplied path can reach a deletion. Nothing is selected by
+  default, a missing or unsafe row cannot be selected, and reviewing is always non-destructive.
+- **Cleanup happens after the application has exited, in a separate non-venv process.** The
+  confirmed request is written atomically to `files/runtime-data/maintenance/` — a
+  project-owned location, re-validated on every use to be inside the repository and outside all
+  four removable targets. A standard-library-only coordinator is started with an argument
+  vector and `shell=False` under an interpreter *verified* to sit outside any virtual
+  environment; the GUI closes only once that coordinator has positively acknowledged the
+  request, waits for the requesting process to exit by handle (not by PID), retires the request
+  before the first deletion so a crash cannot replay it, and re-authorizes every target
+  immediately before removing it. Deletion is post-order and link-safe: links are detached,
+  never followed. The result is written atomically and reported **once** on the next launch,
+  then retired. `.venv` removal is expected to be followed by an ordinary launcher rebuild.
+- **Release packaging (v0.6.0 Drop 2 Phase 8).** Both platform archives carry the committed root
+  `config.toml` byte-for-byte beside `README.md`, the correct platform launcher (stored `0o755`
+  so a macOS extraction is immediately runnable) and the complete `scripts/` tree — and nothing
+  else. Packaging works by **explicit scope**: the root files are a named list and exactly one
+  tree is walked, so nothing is ever copied wholesale and then pruned. That is why the
+  maintainer's unrelated untracked root `config-template.toml` needs no exclusion rule and has
+  none; the packager never names it, the runtime never loads it, and automated tests prove both
+  even while it sits directly beside `config.toml`.
 
 ## Features
 
@@ -451,6 +487,10 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 v0.5.1 (v0.5.0 line plus the Jenny Edge voice; v0.4.0 is the latest
 published GitHub release — remote: [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool))
 
+**v0.6.0 Drop 2 is approved and closed, and it did not change the version.** `version.py` is
+still `0.5.1`, there is no v0.6.0 heading, tag, release or published archive, and the wider
+v0.6.x initiative is **not** complete — six of the nine plans remain undrafted.
+
 ## High-Level State
 
 All six tools are built, live-verified on Windows (v0.1.0 test matrix: 18/18 applicable rows
@@ -469,6 +509,45 @@ Windows display scaling). **Approval is of the design contract, not a release:**
 is still `0.5.1`, no v0.6.0 exists, and the remaining five panels are unconverted. The eight
 further v0.6.x plans are named in the sequencing note but undrafted; **Plan 2 is the next
 implementation-planning target.**
+
+**v0.6.0 Drop 2 (configuration, output, and application maintenance) — approved 2026-08-08,
+not released.** Plan 2 delivered the committed root `config.toml` with per-key fallback and
+once-per-launch warnings, Preferences & Data with the shared output base and Reset, the
+`output_paths` reservation/collision/mirroring service adopted by all six tools, the two
+confirmed destination exceptions, the four-asset downloaded-data inventory with post-exit
+cleanup and rebuild, and `config.toml` in both release archives. Approved at Phase 8
+`0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 is the documentation/retirement commit, not
+another feature phase. **The next unopened implementation work is Drop 3** (shared importing and
+job controls); it has not been drafted or started.
+
+**How Plan 2 was validated, and what was deliberately not validated.** The evidence is a clean
+extraction of the real Windows archive into a disposable root whose path carries a space, an
+apostrophe and non-ASCII characters: the real `.bat` launcher detected the absent environment,
+ran the full pinned install, launched the application, read `config.toml` from the extraction,
+created runtime state only in its own `files/runtime-data/`, and used the healthy fast path on
+the next launch with no console. A live **Edge TTS** synthesis produced a real 12.66 s MP3, and
+all six tools' output routes, run numbering, mirroring, both destination exceptions, and the
+post-exit cleanup plus `.venv` rebuild were exercised end to end. The Windows manual matrix
+finished **46/46 PASS**, after a first pass of **44/46** that exposed two genuine defects —
+both fixed before approval:
+
+- **MP3 Combine failed on any path containing an apostrophe.** The ffmpeg concat list escaped
+  `'` as `\'`, but inside single quotes ffmpeg treats every character literally, so the quote
+  closed the token early and truncated the path. It now uses ffmpeg's documented
+  close-escape-reopen form (`'` → `'\''`) and leaves backslashes alone. Spaces, Unicode,
+  apostrophes and all three together are covered by tests that run the real binary.
+- **An already-built panel kept showing the old output location** after a preference change.
+  The shared display registry described above fixes it; the run was always correct, but the
+  displayed destination now is too.
+
+**Two validations are explicitly deferred, and neither is a pass.** **Live macOS was not
+performed for Plan 2** — the aqua path is import- and build-tested only. **The Windows 125%
+scaling/screenshot matrix was not performed**; Windows stayed at true 100% throughout, no
+registry edit or DPI simulation was used, and by maintainer decision the true 125% pass belongs
+to the later dedicated UI-compression/no-scroll phase, once the remaining features are in and
+the layout is stable. Plan 2's screenshot evidence is the twelve-image 100% set under
+`files/UI-Prototype-Screenshots/v0.6.0-drop2/`, plus the `920×600` reachability result; the ten
+Plan 1 images are unchanged.
 
 **Non-Windows preservation is a standing contract.** macOS `aqua`/Finder and the Linux/other
 `classic` fallback must not change as Windows evolves. At the v0.6.0 Drop 1 approval this was

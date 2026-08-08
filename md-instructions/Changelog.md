@@ -15,6 +15,64 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — `config.toml` in both release archives (v0.6.0 Drop 2 Phase 8, 2026-08-07)
+
+> Both platform archives now ship the committed root configuration, and the maintainer's
+> unrelated untracked `config-template.toml` is proven absent from both. `version.py` remains
+> `0.5.1`; no release was built, published or tagged.
+
+- **`shared/release.py`** gained a named `ROOT_FILES = ("README.md", "config.toml")` list. The
+  packager still walks exactly one tree (`scripts/`) and names its root files explicitly, so a
+  file it does not name cannot leak because an exclusion list was forgotten. `config.toml` is
+  packaged byte-for-byte as committed — never generated, edited or substituted.
+- **34 new packaging tests** (`files/tests/test_release_packaging.py`): `config.toml` present
+  exactly once at the root of each archive and byte-identical to the committed file;
+  `config-template.toml` absent even while it sits beside it; only the correct platform launcher
+  included; the macOS `.command` stored with mode `0o755`; no member absolute, traversing,
+  duplicated or escaping the extraction root; no runtime, developer or maintenance state; a
+  deterministic manifest across two builds; the version sourced from `version.py`; and the
+  packager never imported by the application nor part of startup.
+
+### Fixed — MP3 Combine on paths containing an apostrophe (v0.6.0 Drop 2 Phase 8, 2026-08-07)
+
+- **`mp3_tools/mp3_tool.py`** wrote ffmpeg concat-list entries with `'` escaped as `\'`.
+  Inside single quotes ffmpeg treats every character literally, so that backslash escaped
+  nothing and the quote was read as the **closing** quote: the path truncated there and
+  *Combine MP3s → One MP3* produced no output on both the fast and safe paths. It now uses
+  ffmpeg's documented close-escape-reopen form (`'` → `'\''`) and leaves backslashes untouched
+  (they were previously doubled, which only survived because Windows collapses repeated
+  separators). The list is written UTF-8; a path containing a line break is refused rather than
+  producing a listfile the line-oriented demuxer would misread.
+- **25 new tests** (`files/tests/test_mp3_concat_paths.py`) pin the representation and run the
+  **real ffmpeg binary** across plain, space, one-quote, many-quote, Unicode and combined
+  directory names, quotes in the filename as well as the parent, input ordering, source
+  byte-identity, and the no-shell-invocation contract.
+
+### Fixed — stale output location after a preference change (v0.6.0 Drop 2 Phase 8, 2026-08-07)
+
+- A tool panel built **before** the output base changed kept displaying the old location until
+  it was rebuilt. `shared/output_paths.py` now keeps a small registry of those read-only
+  displays; a successful Preferences **Save** or **Reset** re-points every live registration
+  through the same `destination_hint` resolution. Rejected, cancelled and failed changes never
+  reach a panel, no panel is rebuilt or destroyed, none gained a constructor argument, and run
+  reservation still re-reads the effective configuration at operation start.
+- **41 new tests** (`files/tests/test_output_location_refresh.py`) cover all six panels'
+  registration, Save, Reset, invalid, cancelled and failed-write paths, and that the displayed
+  destination is where a run actually lands.
+
+### Changed — Plan 2 closed out (v0.6.0 Drop 2 Phase 9, 2026-08-08)
+
+- The lasting configuration/output/maintenance architecture moved into `Briefing.md`, the
+  non-obvious Phase 8 choices into `Decisions.md`, and the final verification, approvals and
+  deferrals into `Handoff.md`. The master implementation index now records Drop 2 as complete
+  and approved, with Drop 3 as the next unopened drop.
+- The temporary drop `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` was
+  retired, as its plan directs, only after that transfer.
+- **No application source, packaging, screenshot or configuration change** is part of the
+  closeout, and **no version bump, tag, release, publication, merge or branch deletion** was
+  performed. Two validations remain explicitly **deferred, not passed**: live macOS, and the
+  Windows 125% scaling matrix (held for the later UI-compression/no-scroll phase).
+
 ### Added — Safe post-exit cleanup and result reporting (v0.6.0 Drop 2 Phase 7, 2026-08-06)
 
 > Clear Downloaded Data now completes: the request the Phase 6 flow builds is saved, handed to
