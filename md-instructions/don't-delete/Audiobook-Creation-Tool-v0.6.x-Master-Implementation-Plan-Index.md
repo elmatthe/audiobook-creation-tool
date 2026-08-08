@@ -85,15 +85,35 @@ As verified on 2026-08-03:
 
 The observed `master` SHA is orientation evidence, not permission to overwrite a newer branch. Every new plan must fetch and record the actual current `origin/master`, confirm it descends from the Plan 1 merge, and branch from that verified head.
 
-The user's local root `config-template.toml` is an unrelated, pre-existing untracked workspace item. It is not the Plan 2 `config.toml`. Preserve it exactly: do not edit, stage, commit, rename, delete, copy over, or use it as a bulk-replacement target.
+### Plan 2 merge and the Plan 3 transition (verified 2026-08-08)
+
+- Pull request #3, merging `feature/0.6.0-drop2-config-output-maintenance-foundation`, is merged.
+- Current `origin/master`: `563df9884497032e19abd4437a0e66584cd9ec12` — the PR #3 merge commit, parents `bada8a3dee87acf6a6619252bd31cdee429f1711` and `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7`.
+- Drop 2 feature head: `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7`; approved Drop 2 Phase 8: `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`. Both are ancestors of `origin/master`, alongside the two Plan 1 SHAs above.
+- Both feature branches are retained on `origin` and were not deleted.
+- PR #3's merge message body reuses Drop 2 **Phase 0**'s title. That metadata is stale; the merge content and ancestry are correct. Record it accurately and do not rewrite the merge commit.
+- Version remains `0.5.1`; the v0.6.x line is still unreleased.
+
+### Root `config-template.toml` — current contract: ABSENT
+
+**Supersedes** the previous instruction in this section (and in Section 10) to preserve the maintainer's local untracked `config-template.toml`. On 2026-08-08 the maintainer removed that file from the HOME-PC repository and directed that the Plan 3 line keep it gone. The current rule for every agent is:
+
+- The physical repository-root `config-template.toml` must be **absent** and stay absent.
+- Never recreate, restore, stage, commit, package, load, copy from, or use it as a source for `config.toml`.
+- Before any removal, prove the target is exactly the repository-root path and is **not tracked**. If Git reports it as tracked, stop and report the contradiction rather than deleting it.
+- Never use `git clean`, a wildcard, or a recursive deletion, and never remove a similarly named file elsewhere. Do not add an ignore rule that could conceal a future tracked regression.
+- Source and tests may keep the string as a defensive protected/forbidden filename. The instruction removes the local file, not the guards that keep it out of runtime loading and release archives.
+- Verified at Plan 3 Phase 0 (2026-08-08): already absent from the worktree, the index and the `origin/master` tree; no removal was necessary and none was performed.
+
+*Superseded (kept for the record): this section previously read "The user's local root `config-template.toml` is an unrelated, pre-existing untracked workspace item. It is not the Plan 2 `config.toml`. Preserve it exactly: do not edit, stage, commit, rename, delete, copy over, or use it as a bulk-replacement target." That was accurate for the whole of Plan 2 and remains accurate as history.*
 
 ## 5. Program status
 
 | Plan | Release checkpoint | Temporary drop | Status | Depends on |
 |---:|---|---|---|---|
 | 1 | v0.6.0 Drop 1 | `0.6.0-drop1-windows-ui-prototype.md` | **Complete, approved, and merged through PR #2** | v0.5.1 baseline |
-| 2 | v0.6.0 Drop 2 | *(retired at closeout)* | **Complete and maintainer-approved 2026-08-08. All ten phases done; Phase 8 approved at `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 transferred the lasting record and retired the temporary drop.** Branch `feature/0.6.0-drop2-config-output-maintenance-foundation` (not merged), start SHA `bada8a3dee87acf6a6619252bd31cdee429f1711`. Evidence: twelve 100% images under `files/UI-Prototype-Screenshots/v0.6.0-drop2/`; Windows matrix 46/46 PASS after a recorded 44/46 first pass and two fixes. **Deferred, not passed:** live macOS, and the Windows 125% matrix (held for the later UI-compression/no-scroll phase). No version bump, tag, release or merge. | Plan 1 |
-| 3 | v0.6.0 Drop 3 | `0.6.0-drop3-shared-job-controls-importing.md` | **Next unopened implementation drop.** Planned; not drafted, not started | Plans 1–2 |
+| 2 | v0.6.0 Drop 2 | *(retired at closeout)* | **Complete, maintainer-approved 2026-08-08, and MERGED through pull request #3** as merge commit `563df9884497032e19abd4437a0e66584cd9ec12`. All ten phases done; Phase 8 approved at `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 transferred the lasting record and retired the temporary drop. Branch `feature/0.6.0-drop2-config-output-maintenance-foundation` retained at `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7`, start SHA `bada8a3dee87acf6a6619252bd31cdee429f1711`. Evidence: twelve 100% images under `files/UI-Prototype-Screenshots/v0.6.0-drop2/`; Windows matrix 46/46 PASS after a recorded 44/46 first pass and two fixes. **Deferred, not passed:** live macOS, and the Windows 125% matrix (held for the later UI-compression/no-scroll phase). No version bump, tag or release. | Plan 1 |
+| 3 | v0.6.0 Drop 3 | `0.6.0-drop3-shared-job-controls-importing.md` | **ACTIVE — drafted, opened and Phase 0 complete (2026-08-08).** Branch `feature/0.6.0-drop3-shared-job-controls-importing`, start SHA `563df9884497032e19abd4437a0e66584cd9ec12`. Phases 1–10 not started; each needs separate explicit maintainer approval. See the recorded start state in Section 15. | Plans 1–2 |
 | 4 | v0.6.1 | `0.6.1-tts-cover-workflows.md` | Planned; not drafted | Plans 1–3 |
 | 5 | v0.6.2 | `0.6.2-m4b-converter-upgrade.md` | Planned; not drafted | Plans 1–3 |
 | 6 | v0.6.3 Drop 1 | `0.6.3-drop1-shared-multi-book-workspace.md` | Planned; not drafted | Plans 1–3 |
@@ -101,9 +121,11 @@ The user's local root `config-template.toml` is an unrelated, pre-existing untra
 | 8 | v0.6.4 | `0.6.4-mp3-and-m4b-metadata-workflows.md` | Planned; not drafted | Plans 1–3 and 6; Plan 7 validates the shared model first |
 | 9 | v0.6.5 | `0.6.5-ui-parity-hardening-release.md` | Planned; not drafted | Plans 1–8 |
 
-Do not draft or implement Plans 3–9 while Plan 2 is active. A later plan may be drafted only after the current plan is implemented, verified, manually approved, documented, merged through the established workflow, and closed.
+Do not draft or implement Plans 4–9 while Plan 3 is active. A later plan may be drafted only after the current plan is implemented, verified, manually approved, documented, merged through the established workflow, and closed.
 
-**Status note (2026-08-08).** Plan 2 is implemented, verified, approved, documented and closed; its feature branch is awaiting integration review and has **not** been merged. Plan 3 may therefore be drafted when the maintainer opens it, in a fresh session. It was not drafted or started during Plan 2's closeout, and the nine-plan sequence is unchanged.
+**Status note (2026-08-08, updated at Plan 3 Phase 0).** Plan 2 is implemented, verified, approved, documented, closed **and merged** through pull request #3. Plan 3 is now the single active temporary implementation drop; its Phase 0 established the branch, the invariants and the merged-master baseline, and made no production change. The nine-plan sequence is unchanged and Decisions 1–55 were not reopened.
+
+*Superseded (kept for the record): before the merge this note read that Plan 2's feature branch was "awaiting integration review and has **not** been merged," and that Plan 3 "may therefore be drafted when the maintainer opens it, in a fresh session."*
 
 ## 6. Dependency and release sequence
 
@@ -238,7 +260,7 @@ Every plan that adds a dialog or panel must include automated geometry/state tes
 
 - Work on a feature branch created from a clean, current `origin/master`.
 - Preserve unrelated user changes. Never reset, stash, clean, delete, or overwrite them to make a phase convenient.
-- Preserve the local untracked `config-template.toml` exactly.
+- Keep the root `config-template.toml` **absent**, under the current contract in Section 4. *(This bullet previously read "Preserve the local untracked `config-template.toml` exactly." — superseded by the maintainer's 2026-08-08 instruction; the earlier wording remains accurate as history for Plans 1–2.)*
 - Never edit input media in place except the explicit Cover Image replace-original mode, which must be off by default and strongly confirmed.
 - Never include user outputs, settings, source code, docs, system Python, system package-manager installs, or system ffmpeg in Clear Downloaded Data.
 - Cleanup accepts enumerated asset identifiers, not arbitrary paths, and performs canonical path/containment/link checks.
@@ -330,15 +352,30 @@ Do not absorb these into an unrelated plan:
 
 ## 15. Immediate next action
 
-**Updated 2026-08-08.** Plan 2 is complete, maintainer-approved and closed, and its temporary drop has been retired. There is **no active implementation document**.
+**Updated 2026-08-08 at Plan 3 Phase 0.** Plan 2 is closed and merged through pull request #3. The active implementation document is **`md-instructions/0.6.0-drop3-shared-job-controls-importing.md`**.
 
-The next action is **Plan 2 integration review only** — its branch
-`feature/0.6.0-drop2-config-output-maintenance-foundation` is integration-ready and has not been merged.
+The next action is **Plan 3 Phase 1 — pure contracts and compatibility boundaries**. It is **not started** and requires explicit maintainer approval before any work begins. Plan 3 runs on its own branch from the verified `origin/master`, must not be developed on the Drop 1 or Drop 2 feature branch, must not reopen Decisions 1–55, must not adopt the new foundation into any production panel, and must not begin Plan 4.
 
-The next unopened implementation drop is **Plan 3 — v0.6.0 Drop 3**, proposed filename
-`0.6.0-drop3-shared-job-controls-importing.md`. It has not been drafted or started, and it needs new explicit maintainer direction in a fresh session. It must not reopen Decisions 1–55.
+*Superseded (kept for the record): after Plan 2's closeout and before the merge, this section said there was no active implementation document, named Plan 2 integration review as the only next action, and described Plan 3 as undrafted and unstarted. Before that closeout it named `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` as the active document.*
 
-*Superseded (kept for the record): before closeout this section named `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` as the next active document, with the note that Plan 2 begins from the latest verified `origin/master` on its own feature branch, must not be developed on the old Plan 1 feature branch, must not reopen Decisions 1–55, and must not begin Plan 3.*
+### Plan 3 recorded start state (2026-08-08, Phase 0)
+
+| Field | Value |
+|---|---|
+| Branch | `feature/0.6.0-drop3-shared-job-controls-importing` (new; existed neither locally nor on `origin`) |
+| Start SHA / `origin/master` at fetch | `563df9884497032e19abd4437a0e66584cd9ec12` — the pull request #3 merge commit |
+| Local `master` | fast-forwarded `bada8a3…` → `563df98…` with `--ff-only`; equal to `origin/master`. No prune, reset, rebase, stash, clean or force-push |
+| Drop 2 head in ancestry | `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7` — confirmed |
+| Approved Drop 2 Phase 8 in ancestry | `0e7ad0c264cb2a46f3c64f968e24f00963cb1987` — confirmed |
+| Plan 1 merge / feature head in ancestry | `86933e65…` and `f3d70e8c…` — confirmed; both feature branches retained on `origin` |
+| Root `config-template.toml` | **already absent**; proven untracked and absent from worktree, index and merged tree. No removal was necessary or performed |
+| Baseline test result | **1074 collected; 1067 passed, 2 failed, 5 skipped, 1 warning**; theme suite 17/17 executed |
+| `scripts/verify.py` | **RESULT: FAIL** — the `pytest` check only. `deps`, `docs`, `docnames` and `config` all PASS. The two failures are `test_release_packaging.py::test_the_untracked_template_beside_it_is_still_absent[Windows|MacOS]`, whose line-147 *precondition* requires the now-removed template to exist on disk. The packaging safety property is still proven green by `test_a_template_in_a_synthetic_root_is_excluded_by_scope` and `test_the_packager_never_names_the_template_at_all`. Phase 0 may not edit tests, so the repair belongs to the first phase authorized to touch `files/tests/` |
+| Other gates | `compileall -q scripts files/tests` exit 0; `git diff --check` and `git diff --cached --check` clean; 4 canonical names exact with no alias; all 4 protected references present; all 22 approved Plan 1/2 screenshots unchanged |
+| Version | `0.5.1` — unchanged; no tag, release or publication |
+| Phase reached | **Phase 0 complete.** Phases 1–10 not started |
+
+Full evidence lives in `md-instructions/Handoff.md` (Current Focus + Session Sync Log).
 
 ### Plan 2 recorded start state (2026-08-03, Phase 0)
 

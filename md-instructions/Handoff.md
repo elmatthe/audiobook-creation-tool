@@ -1,10 +1,297 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASE 0 COMPLETE,
+PHASES 1–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3. The Plan 3
+branch `feature/0.6.0-drop3-shared-job-controls-importing` was created from that verified merge
+and carries planning/baseline state only: no production source, test, configuration, packaging,
+launcher, dependency, screenshot, runtime-data or version change. Every later phase needs
+separate explicit maintainer approval.**
+
+### Phase 0 — Post-merge reorientation, repository invariants, and baseline evidence (2026-08-08, HOME-PC)
+
+#### Plan 3 branch and start state
+
+| Field | Value |
+|---|---|
+| Branch | `feature/0.6.0-drop3-shared-job-controls-importing` (new; existed **neither** locally **nor** on `origin` before creation) |
+| Start SHA / `origin/master` at fetch | `563df9884497032e19abd4437a0e66584cd9ec12` |
+| What that SHA is | the **merge commit for pull request #3**, parents `bada8a3dee87acf6a6619252bd31cdee429f1711` (previous `master`) and `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7` (Drop 2 head) |
+| Local `master` | fast-forwarded `bada8a3…` → `563df98…` with `git merge --ff-only origin/master`. No merge commit, reset, rebase, stash, clean, prune, force-push or history rewrite. Local `master` == `origin/master` |
+| Fetch | `git fetch origin --no-prune` — the only remote-mutating verb used was a later `git push` of this phase |
+| Version | `0.5.1` — unchanged. No bump, tag, release, publication or PR |
+
+The Drop 2 branch was **not** developed on. `master` was reconciled first, and the Plan 3 branch
+was cut from the verified local `master`.
+
+#### Drop 2 merge and required ancestry — verified, not assumed
+
+| Required commit | Ancestor of `origin/master` `563df98…` |
+|---|---|
+| Drop 2 head `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7` | **YES** (`git merge-base --is-ancestor` → 0) |
+| Approved Drop 2 Phase 8 `0e7ad0c264cb2a46f3c64f968e24f00963cb1987` | **YES** |
+| Plan 1 merge (PR #2) `86933e6510c6303cadf3437dc295d000ffa9ee82` | **YES** |
+| Plan 1 feature head `f3d70e8c9017f2fec3ae459c1438dd71b42f9ef0` | **YES** |
+
+Both earlier feature branches are retained and untouched, locally and on `origin`:
+`feature/0.6.0-drop1-windows-ui-prototype` at `f3d70e8` and
+`feature/0.6.0-drop2-config-output-maintenance-foundation` at `c6fcac7`.
+
+**Stale merge metadata, recorded rather than rewritten.** PR #3's merge message body reads
+*"v0.6.0 Drop 2 Phase 0: reorientation, repository invariants, and baseline evidence"* — the
+title of Drop 2's *first* phase, not of the whole completed drop. The merge **content and
+ancestry are correct**; only the human-readable title is stale. The merge commit was not
+rewritten and must not be.
+
+#### `config-template.toml` — the maintainer's superseding instruction, applied
+
+The current contract is **absence**, and it supersedes the older "preserve it exactly" language.
+
+- **No removal was necessary.** The exact repository-root path `config-template.toml` was
+  **already absent** when this phase inspected the worktree — the maintainer removed it on
+  HOME-PC on 2026-08-08, before this session acted.
+- Proven, in this order, before any other step: `git ls-files --error-unmatch config-template.toml`
+  → *"did not match any file(s) known to git"* (**untracked**); `git ls-files | grep -i
+  config-template` → no index entry; `git ls-tree --name-only origin/master` → the root of the
+  merged tree holds only `.gitattributes`, `.gitignore`, `README.md`, both `Setup_and_Run-*`
+  launchers, `config.toml`, `files/`, `md-instructions/`, `scripts/` — **no template**; and a
+  case-exact `os.listdir(REPO_ROOT)` (never `Path.exists()`, which NTFS answers
+  case-insensitively) confirming the physical file is gone.
+- Nothing was deleted, recreated, restored, staged, committed, packaged, loaded or read by this
+  session. No `git clean`, no wildcard, no recursive delete, and no similarly named file
+  elsewhere was touched. No ignore rule was added, so a future tracked regression cannot be
+  concealed.
+- The **defensive guards stay**, exactly as the instruction allows: `shared/maintenance.py:168`
+  keeps `"config-template.toml"` in `PROTECTED_RELATIVE`, and
+  `test_repository_contract.py:249–255`, `test_release_packaging.py`, `test_maintenance.py`,
+  `test_cleanup_state.py` and `test_cleanup_worker.py` keep the filename as a
+  forbidden/protected string. Removing the local file does not weaken the rules that keep it out
+  of runtime loading and release archives.
+
+#### Phase 0 baseline evidence (2026-08-08, HOME-PC, repo venv Python 3.12.10)
+
+Run from the repository root with `.venv\Scripts\python.exe`. These are the **actual** merged-master
+numbers, not Plan 2's recorded closeout figures.
+
+| Command | Result |
+|---|---|
+| `-m pytest files/tests -q -rsw` (full suite) | **1074 collected — 1067 passed, 2 FAILED, 5 skipped, 1 warning** (17.4 s) |
+| `-m pytest files/tests/test_ui_theme.py -q -rsw` (explicit theme suite) | **17 passed, 0 skipped — all 17 executed** |
+| `scripts/verify.py` | **RESULT: FAIL** (exit 1). `pytest` FAIL; `deps`, `docs`, `docnames`, `config` all PASS |
+| `-m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | clean — exit 0 |
+| `git diff --cached --check` | clean — exit 0 |
+| canonical documentation filename/alias check | PASS — 4 canonical names exact, no case-variant alias (`verify.py` `docnames`, backed by a case-exact `os.listdir`) |
+| protected `don't-delete` reference check | PASS — all 4 references present under their exact names |
+
+**The 1 warning**, named: `.venv\Lib\site-packages\pydub\utils.py:14` —
+`DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13`, raised at
+`import audioop`. Pre-existing, third-party, carried unchanged since Plan 1.
+
+**The 5 skips**, all named with their reasons:
+
+1. `test_cover_source_side.py:363` — *"this environment cannot create a file symlink:
+   [WinError 1314] A required privilege is not held by the client"*. This Windows account is not
+   elevated and lacks `SeCreateSymbolicLinkPrivilege`.
+2. `test_jack_ryan_final_product.py:40` — *"set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture
+   folder to run"*. Copyrighted local media fixture, deliberately not in the repository.
+3. `test_jack_ryan_final_product.py:44` — same reason.
+4. `test_jack_ryan_final_product.py:64` — same reason.
+5. `test_output_paths.py:757` — *"this environment cannot create a file symlink → symlink:
+   OSError: [WinError 1314] A required privilege is not held by the client"*. Same privilege
+   limitation as (1).
+
+None of the five is a masked failure, and the skip set is identical to Plan 2's five documented
+skips.
+
+#### Baseline FAILURE recorded, NOT fixed in Phase 0
+
+`verify.py` reports **RESULT: FAIL**, and the sole cause is two tests that the maintainer's own
+superseding `config-template.toml` instruction invalidated:
+
+```
+FAILED files/tests/test_release_packaging.py::test_the_untracked_template_beside_it_is_still_absent[Windows]
+FAILED files/tests/test_release_packaging.py::test_the_untracked_template_beside_it_is_still_absent[MacOS]
+```
+
+Both fail on the same line — `test_release_packaging.py:147`:
+
+```python
+entries = os.listdir(REPO_ROOT)
+assert "config.toml" in entries and "config-template.toml" in entries, (
+    "this test is only meaningful while both files sit at the root")
+```
+
+That is a **precondition guard**, not the safety assertion. It hard-codes the assumption that
+the maintainer's untracked template is sitting beside `config.toml` in the real repository. Now
+that the file is gone by instruction, the guard is false and the run stops before reaching the
+real check on line 149 (`"config-template.toml" not in names(archive)`).
+
+**The packaging safety property itself is unaffected and still proven green** by two tests that
+do not depend on the real worktree:
+
+- `test_a_template_in_a_synthetic_root_is_excluded_by_scope` — builds both archives from a
+  `tmp_path` fake repo that *does* contain a template, and asserts no member matches
+  `config-template`. **PASSED.**
+- `test_the_packager_never_names_the_template_at_all` — parses `shared/release.py` and asserts
+  the string is absent, along with `shutil`/`copytree`. **PASSED.**
+
+Arithmetic against Plan 2's closeout: 1074 collected then and now; the 1,069 that passed then
+are 1,067 passed + these 2 failed now. **No test was lost, added or silently skipped by the
+merge** — exactly two flipped, for exactly this reason.
+
+**Not fixed here, deliberately.** Phase 0's contract forbids changing production source, tests,
+configuration or packaging; the repair is a one-line change of a test precondition and belongs
+to the first phase authorized to touch `files/tests/`. Recorded as an open item below rather
+than quietly repaired or excluded.
+
+#### The documented Tk skip transient recurred once — reported, not smoothed over
+
+The **first** `verify.py` invocation of this phase reported `2 failed, 1056 passed, 16 skipped`
+— eleven passes that became skips. The two immediately following `verify.py` runs, and both
+direct `pytest` runs (including one reproducing `verify.py`'s exact absolute-path invocation),
+all reported the stable `2 failed, 1067 passed, 5 skipped`. Collected stayed 1074 throughout.
+
+This is the third occurrence of the transient recorded in this file (Plan 1 Phases 3 and 4, both
+17 extra skips; 11 this time), and the reason string was again **not captured** — `verify.py`
+runs `pytest` without `-rs`, which is precisely the *"`verify.py` skipped-suite detection blind
+spot"* carried in the master index §14 as unowned. The reported baseline above is the stable,
+thrice-reproduced figure; the transient is disclosed rather than averaged away.
+
+#### Skills audited for Plan 3
+
+| Skill / capability | Location | Verdict for Plan 3 |
+|---|---|---|
+| `audio-processing` | `.claude/skills/audio-processing/SKILL.md` | **Read and will use as a guardrail.** Plan 3 changes no audio behaviour, but its subprocess-list/`shlex.quote` rule, its copy-first/never-overwrite-the-original rule and its ffmpeg/ffprobe-presence discipline are exactly the boundaries the importer and job controller must not erode. |
+| `fullstack-bridge-sync` | `.claude/skills/fullstack-bridge-sync/` | **Not applicable** — Python↔TypeScript API contract syncing; this project has no frontend/backend split. |
+| `.codex/skills/` | repository | Present but empty of skills on this machine; nothing to audit. |
+| Superpowers — `test-driven-development` | user scope | **Will use** in Phases 1–8. Every Plan 3 module is pure logic or a queue boundary, which is the ideal shape for test-first. |
+| Superpowers — `systematic-debugging` | user scope | **Will use** if a Phase 4/5 concurrency test proves flaky; the plan forbids "fixing" a race by sleeping. |
+| Superpowers — `verification-before-completion` | user scope | **Will use** at every phase boundary; it is the same evidence-before-assertion rule this drop's §1 already imposes. |
+| Superpowers — `requesting-code-review` / `receiving-code-review` | user scope | Available for phase boundaries; optional. |
+| Superpowers — `brainstorming` / `writing-plans` / `executing-plans` | user scope | **Not needed** — the plan is already written, approved and phase-gated by the maintainer. |
+| Superpowers — `using-git-worktrees` | user scope | **Deliberately not used.** This drop names one branch in the main worktree; adding a worktree would contradict the recorded branch/SHA contract. |
+| Sequential Thinking (MCP) | user scope | **Will use** for the genuinely revisable reasoning in §6.5 (duplicate identity) and §6.9–6.10 (the pause/resume/cancel state machine and its races). |
+| Context7 (MCP) | user scope | Available for current stdlib/pytest API confirmation. Use is inherently limited — the drop forbids any new runtime dependency. |
+| UI-testing support | — | No dedicated UI-testing skill is installed. The repository's own Tk patterns are the harness: `test_ui_theme.py`'s module-scoped `tk_root` fixture, `test_prototype_regression.py`'s `_walk` widget crawler and `@windows_only` gate. |
+| Everything else offered (`dataviz`, `artifact-*`, `claude-in-chrome`, `claude-api`, `security-review`, `schedule`, `loop`, `init`, `run`, `fewer-permission-prompts`) | user scope | **Not applicable** to this drop. |
+
+**No skill, plugin, MCP server or dependency was installed, copied or modified**, and neither
+`.claude/` nor `.codex/` was expanded — the drop forbids it without separate approval.
+
+#### Implementation surface inspected (read-only, Phase 0)
+
+Every component named in the drop's §2 table was located and compared against the plan's cited
+line ranges. **The plan's map of the codebase is accurate; the drift found is minor and listed
+at the end.**
+
+| Component | Found at | Against the plan's citation |
+|---|---|---|
+| `shared/cancellation.py` | whole file is 38 lines: `CancelCheck` L21, `ConversionCancelled` L24, `raise_if_cancelled` L28–38 | cited "≈24–38" — **exact** |
+| `shared/config.py` | `ImportingConfig` L213, `EffectiveConfig` L219, `DEFAULT_LARGE_RESULT_WARNING_THRESHOLD = 1000` L112, validator L419–420, `SETTINGS_OVERLAY` L65 | cited "≈219–241" and "≈107–115" — **exact** |
+| `shared/output_paths.py` | `RunReservation` L615, `reserve_run_directory` L635, `plan_flat` L761, `plan_mirrored` L787, `plan_multi_root` L815, `DestinationPlanner` L526, `sanitize_component` L306, `assert_no_link_in` L405, `assert_contained` L445, `destination_hint` L118 | cited "≈615–632" and "≈720–855" — **exact** |
+| `shared/maintenance.py` | `is_link` L277, `authorized_target` L297, `estimate_size` L373, `inventory` L498 | cited "≈277" and "≈360–548" — **exact** |
+| `shared/preferences_ui.py` | `CleanupDialog` L489, `start_inventory` L663, `_poll` L678 | cited "≈663–710" — **exact** |
+| `shared/ui_theme.py` | `ProgressIndicator` L1002 (file 1076 lines), `WINDOWS_STYLE_PREFIX = "ACT"` L60, `style_tk_widget` L911, `enable_mousewheel` L968 | cited "≈1002–1052" — **exact** |
+| `shared/subprocess_utils.py` | `_hidden_kwargs` L19, `run` L32, `popen` L41, `check_output` L46, `install_no_window_guard` L54, `reveal_in_file_manager` L94; file is 110 lines | cited "19–110" — **exact** |
+| `shared/logging_setup.py` | `DEFAULT_MAX_SESSIONS = 30` L25, `configured_max_sessions` L35, `_prune_old_logs` L48, `get_logger` L60; file is 81 lines | cited "35–80" — **exact** |
+| `shared/settings.py` (201 lines), `launcher.py`, `scripts/verify.py` (299 lines), `.gitignore`, `.gitattributes`, `scripts/requirements.txt` (all `==`-pinned) | inspected | consistent |
+
+**Per-panel worker foundations** — every one of the six production panels already owns its own
+daemon thread(s), queue, `threading.Event`s and `after()` pump, exactly as the plan's §2 row
+"Tool workers" describes:
+
+| Panel | `threading.Thread` | queue | `threading.Event` | `.after(` | cancellation refs |
+|---|---:|---:|---:|---:|---:|
+| `tts/epub2tts_gui.py` | 1 | 2 | 2 | 1 | 3 |
+| `mp3_tools/m4b_converter.py` | 1 | 1 | 2 | 2 | 0 |
+| `mp3_tools/mp3_tool.py` | 3 | 1 | 2 | 2 | 11 |
+| `mp3_tools/m4b_maker.py` | 1 | 1 | 2 | 2 | 7 |
+| `mp3_tools/cover_resizer.py` | 1 | 1 | 2 | 2 | 0 |
+| `mp3_tools/m4b_metadata_editor.py` | 2 | 1 | 2 | 2 | 5 |
+
+**Current traversal**, which Plan 3 must not alter: `tts/batch_convert.py:241–246` (`rglob("*")`
+with a suffix check, commented as deliberate) and `tts/epub2tts_gui.py:564`
+(`in_root.rglob("*")`); the M4B Metadata Editor's folder picker is a **non-recursive
+`folder.iterdir()`** at `m4b_metadata_editor.py:728–736`. Elsewhere, `os.scandir` appears only
+in `shared/cleanup_worker.py:189` and `Path.rglob` only in `shared/release.py:125`.
+
+**Plan 3's own target modules do not exist yet**, as expected: `shared/importing.py`,
+`shared/job_control.py` and `shared/job_ui.py` are all absent. `files/tests/conftest.py` is a
+20-line `sys.path` shim with **no fixtures**, so Phase 2 onward will add the fake-clock and
+disposable-filesystem fixtures the plan anticipates.
+
+**Existing Plan 3 scope guards already in the suite**, which later phases must update rather
+than delete:
+
+- `test_config.py:277` `test_the_large_result_threshold_is_only_validated_not_consumed` — asserts
+  `config.py` contains none of `def scan`, `rglob`, `Cancel Import`, `recursive_scan`. The
+  threshold is validated and **consumed by nothing in `scripts/Universal/` today**, confirmed by
+  grep. This is the boundary the plan says Phase 4 replaces with captured-threshold tests.
+- `test_preferences_ui.py:873` `test_phase_two_added_no_later_phase_behaviour` — asserts
+  `preferences_ui.py` contains none of `reserve_run`, `Retry Failed`, `Pause`, `Resume`,
+  `large_result_warning_threshold`, `Add Book`. Plan 3 does not touch that module, so this guard
+  stays valid.
+- `test_prototype_regression.py:432–460` — `FORBIDDEN_TEXT` blocks `summary`, `details`, `eta`,
+  `retry`, `pause`, `resume`, `filter`, `add book`, `duplicate book`, `remove book` from
+  appearing as widget text in the shipped M4B Metadata Editor, and forbids a `ttk.Notebook` in
+  it. Because Plan 3 adopts nothing into a production panel, this must **continue to pass
+  unchanged** and is the sharpest available proof of the non-adoption boundary.
+
+**Genuine drift from the plan, all minor:**
+
+1. **The two failing packaging tests above** — the one substantive item. The plan's §1.1
+   anticipated that source/tests keep the *string*; it did not anticipate that one test asserts
+   the *file's physical presence*.
+2. The plan's §7 lists `files/tests/test_import_ui.py` **and** `files/tests/test_job_ui.py` among
+   likely new tests. Given §6.15 puts every adapter in one `shared/job_ui.py`, one Tk-boundary
+   module is likelier than two; recorded now so a later split or merge is a noted choice, not a
+   silent one.
+3. The plan says Phase 2 may reuse `maintenance.is_link`. It is public and importable at
+   `maintenance.py:277`, but `shared/maintenance.py` also carries the whole cleanup catalog, so
+   `shared/importing.py` importing it creates an importing→maintenance edge that does not exist
+   today. Flagged for Phase 2's risk gate; **no refactor is proposed or authorized here**.
+4. Read-only note, out of Phase 0's authorized edit set: `md-instructions/Briefing.md:384` still
+   describes the untracked template as sitting "directly beside `config.toml`". That sentence is
+   a *description* of the packaging contract, not an instruction to preserve the file, so it was
+   left alone — Phase 0 may edit only `Handoff.md`, the master index's current status/contract,
+   and this drop's status fields. A later authorized documentation phase can reword it.
+
+#### Superseded instructions updated in this phase
+
+`md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+said, in §4 and §10, to *preserve* the local `config-template.toml` exactly. Both statements are
+now replaced by the absence contract and marked as superseded. **Historical Plan 2 phase records
+were not rewritten** — they accurately state that the file existed, untracked and unchanged,
+while Plan 2 ran.
+
+#### Open items carried out of Phase 0
+
+1. **`verify.py` is FAILING at the baseline**, solely through
+   `test_release_packaging.py:147`. It must be repaired by the first phase authorized to edit
+   `files/tests/`, and the honest fix is to make the precondition tolerate the file's absence
+   (or drop the worktree-dependent test in favour of the synthetic-root one that already proves
+   the property) — **not** to recreate the template and **not** to weaken line 149.
+2. The `verify.py` skipped-suite blind spot (master index §14) claimed a third victim here.
+   Still unowned; do not misreport skips because of it.
+3. Everything already carried from Plan 2 — live macOS, the Windows 125% matrix, Windows DPI
+   unawareness, M4B Converter clipping at `920×600`, Windows xHE-AAC, and the clean-machine
+   install — remains open and untouched.
+
+#### Next action
+
+**Phase 1 — Pure contracts and compatibility boundaries.** **Not started.** It requires explicit
+maintainer approval before any work begins, and it must not be started in the same turn as this
+summary.
+
+---
+
+## Previous Focus (v0.6.0 Drop 2 — Plan 2, approved 2026-08-08, merged through PR #3)
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-COMPLETE, MAINTAINER-APPROVED AND CLOSED (2026-08-08). The feature branch is integration-ready
-and has not been merged. The next unopened implementation work is Drop 3, which requires new
-explicit maintainer direction and a fresh session.**
+COMPLETE, MAINTAINER-APPROVED AND CLOSED (2026-08-08), and since merged into `master` through
+pull request #3 as merge commit `563df9884497032e19abd4437a0e66584cd9ec12`.** The sections below
+are the record as written at closeout, when the branch was still unmerged; they are left
+historically accurate rather than rewritten.
 
 ### Phase 9 — Plan 2 approval closeout and temporary-drop retirement (2026-08-08, HOME-PC)
 
@@ -4175,6 +4462,65 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-08 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 0 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** **new** — `feature/0.6.0-drop3-shared-job-controls-importing`, created from verified
+local `master`. It existed neither locally nor on `origin` beforehand (`git rev-parse --verify`
+→ *"Needed a single revision"*; `git ls-remote --heads origin` → empty).
+**Phase 0 start SHA:** `563df9884497032e19abd4437a0e66584cd9ec12` — the PR #3 merge commit,
+confirmed byte-exact against `origin/master` after `git fetch origin --no-prune`.
+**Local `master`:** fast-forwarded `bada8a3dee87acf6a6619252bd31cdee429f1711` →
+`563df98…` with `git merge --ff-only origin/master`, after proving the old head was an ancestor.
+No prune, reset, rebase, stash, clean, force-push or history rewrite at any point. The Drop 2
+branch was not developed on and was not deleted.
+
+**Files added (0 by this session).**
+
+**Files modified (2):**
+- `md-instructions/Handoff.md` — the new Current Focus, the complete Phase 0 record (branch and
+  start state, ancestry table, the `config-template.toml` absence contract, baseline evidence,
+  the two recorded failures, the Tk skip transient, the skill audit, the read-only
+  implementation-surface reconnaissance and its drift list, open items, next action), the
+  demotion of Plan 2's sections to *Previous Focus*, and this entry.
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — current status/contract only: §4 post-merge baseline and the replaced template rule, the §5
+  Plan 2/Plan 3 status rows and status note, §10's template rule, §15's immediate next action,
+  and a new Plan 3 recorded start state. The nine-plan structure, ownership sections and
+  dependency graph are untouched.
+
+**Files newly tracked (1):**
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — the active temporary drop the
+  maintainer placed in the worktree; its status/authorization line was updated to record Phase 0
+  as complete. It is tracked **only** on this branch.
+
+**Files deleted or renamed:** none. No file was deleted by this session, including
+`config-template.toml`, which was already absent when the phase began.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact (`Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md`); no
+  case-variant alias; no rename or recase in `git diff --name-status`.
+- `md-instructions/don't-delete/` intact — all four permanent references present under exact names.
+- All **22** approved screenshots unchanged and unstaged: ten under
+  `files/UI-Prototype-Screenshots/v0.6.0-drop1/`, twelve under `…/v0.6.0-drop2/`.
+- Root `config-template.toml` **absent** from the worktree, the index and the committed tree;
+  proven untracked before anything else; no `git clean`, wildcard or recursive deletion used.
+- `version.py` `0.5.1`; `config.toml`, `scripts/requirements.txt`, both root launchers,
+  packaging and every production module unchanged; no new dependency.
+- No runtime data, user settings, outputs or source media touched. `files/runtime-data/` and
+  `files/test-logs/` remain gitignored and untouched.
+
+**Verification:** 1074 collected; **1067 passed, 2 failed, 5 skipped, 1 warning**; theme suite
+**17/17 executed**; `verify.py` **RESULT: FAIL** — `pytest` FAIL, `deps`/`docs`/`docnames`/`config`
+PASS; `compileall -q scripts files/tests` exit 0; `git diff --check` and
+`git diff --cached --check` clean. The two failures are
+`test_release_packaging.py::test_the_untracked_template_beside_it_is_still_absent[Windows|MacOS]`,
+whose line-147 precondition requires the now-removed template to exist; the packaging safety
+property is still proven by two other tests that pass. Not repaired here — Phase 0 may not edit
+tests. Every skip and the single warning are named in the Phase 0 record above.
+
+**Next:** Phase 1 (pure contracts and compatibility boundaries) — **not started**, pending
+explicit maintainer approval.
 
 ### 2026-08-04 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 5 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
 
