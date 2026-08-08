@@ -35,7 +35,11 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 from ebooklib import epub as epub_mod
 
 from shared import ffmpeg_utils
+from shared import output_paths
 from shared import paths
+
+#: Central tool identifier for the shared output services.
+TOOL_KEY = "tts"
 from shared.cancellation import ConversionCancelled
 from shared.ui_theme import ProgressIndicator, enable_mousewheel
 from tts.batch_convert import run_batch_convert
@@ -84,10 +88,14 @@ def build_ui(parent: tk.Misc) -> None:
 
     mode_var = tk.StringVar(value="single")
     input_var = tk.StringVar()
-    # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build time.
-    # Browse redirects it for this run only (never persisted); the folder is
-    # created when a conversion starts.
-    output_var = tk.StringVar(value=str(paths.next_output_dir(paths.TOOL_SLUGS["tts"])))
+    # Where the next run will go, shown read-only. The numbered run folder is
+    # reserved atomically when a validated conversion starts (v0.6.0 Drop 2
+    # Phase 4), so building this panel creates nothing and promises no run
+    # number. The base is changed in Preferences & Data.
+    output_var = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+    # Preferences & Data can change the base while this panel is alive; the
+    # shared registry re-points this display the moment that happens.
+    output_paths.register_destination_hint(TOOL_KEY, output_var)
     bitrate_var = tk.StringVar(value="192k")
     voice_var = tk.StringVar(value=DEFAULT_SPEAKER)
     epub_convert_var = tk.BooleanVar(value=True)
@@ -179,12 +187,15 @@ def build_ui(parent: tk.Misc) -> None:
     outf = ttk.Frame(frm)
     outf.grid(row=r, column=1, sticky="ew", pady=(8, 0))
     outf.columnconfigure(0, weight=1)
-    ttk.Entry(outf, textvariable=output_var).grid(row=0, column=0, sticky="ew")
-    ttk.Button(
-        outf,
-        text="Browse…",
-        command=lambda: _browse_dir(output_var),
-    ).grid(row=0, column=1, padx=(6, 0))
+    ttk.Entry(outf, textvariable=output_var, state="readonly").grid(
+        row=0, column=0, sticky="ew"
+    )
+    r += 1
+    ttk.Label(
+        frm,
+        text="Each conversion gets its own numbered run folder here. "
+             "Change the location in Preferences & Data.",
+    ).grid(row=r, column=1, sticky="w", pady=(2, 0))
     r += 1
 
     opts = ttk.LabelFrame(frm, text="Single-file MP3 options", padding=8)
@@ -440,17 +451,19 @@ def build_ui(parent: tk.Misc) -> None:
         if busy.is_set():
             return
         inp = input_var.get().strip()
-        outd = output_var.get().strip()
-        if not inp or not outd:
-            messagebox.showwarning("Missing paths", "Choose input and output folder.")
+        if not inp:
+            messagebox.showwarning("Missing input", "Choose an input file or folder.")
             return
-        # Lazy-create the output folder when a run starts (so merely opening the
-        # tool never litters Downloads with empty folders).
+        # Input validated; only now is a run directory reserved. Merely opening
+        # the tool, browsing or switching panels creates nothing.
         try:
-            Path(outd).mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            messagebox.showerror("Output folder", f"Could not create output folder:\n{outd}\n\n{e}")
+            reservation = output_paths.reserve_run_directory(TOOL_KEY)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
             return
+        outd = str(reservation.run_directory)
+        output_var.set(outd)
+        log_q.put(("log", f"Output folder: {outd}\n"))
 
         current_voice_entry = get_voice(selected_voice_label.get())
         is_kokoro = (
@@ -844,12 +857,6 @@ def _browse_input(mode_var: tk.StringVar, input_var: tk.StringVar) -> None:
         )
     if p:
         input_var.set(p)
-
-
-def _browse_dir(output_var: tk.StringVar) -> None:
-    p = filedialog.askdirectory(title="Output folder")
-    if p:
-        output_var.set(p)
 
 
 if __name__ == "__main__":

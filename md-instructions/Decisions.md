@@ -4,6 +4,577 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-08 — Archives ship `config.toml` by explicit scope, concat lists follow ffmpeg's own quoting rules, panels are told when the output base moves, and two validations are deferred rather than faked
+
+**Decision (v0.6.0 Drop 2, Phase 8 and its remediation; recorded at the Phase 9 closeout).**
+Four choices worth keeping.
+
+**1. The packager names its root files instead of excluding unwanted ones.** `release.py` writes
+an enumerated `ROOT_FILES` list plus exactly one walked tree, and it never mentions
+`config-template.toml`. **Why this rather than an exclusion rule:** an exclusion list is only as
+good as the last person who remembered to extend it, and the file most likely to leak here sits
+directly beside the file we must ship. A packager that never names a file cannot ship it by
+accident, so the safety property holds for files nobody has thought of yet. `config.toml` is
+copied byte-for-byte rather than generated, so what a user extracts is exactly what the
+repository documents and the verify gate checks.
+
+**2. Concat-list escaping follows ffmpeg's documented syntax, not shell intuition.** A path is
+wrapped in single quotes and every `'` becomes `'\''` — close the quote, emit an escaped quote
+outside it, reopen — and nothing else is touched. **Why the old code was wrong and why this is
+not a guess:** ffmpeg's *Quoting and escaping* section states that characters inside single
+quotes are literal, so the previous `\'` escaped nothing and ffmpeg read the quote as the
+closing delimiter, silently truncating the path. The same function also doubled backslashes,
+which survived only because Windows collapses repeated separators and would corrupt a genuine
+one. The replacement is the exact form ffmpeg's own documentation gives
+(`file '/mnt/share/file 3'\''.wav'`), and it is pinned by tests that drive the real binary over
+spaces, Unicode, apostrophes and all three combined — never inferred from one passing fixture.
+Shell quoting was deliberately not used: these are file-format rules, and `shlex.quote` stays
+confined to the human-readable error log.
+
+**3. A shared registry refreshes the panels; the panels do not learn to resolve paths.** Each
+panel registers the read-only variable it already owns, and a successful Save or Reset calls one
+helper that re-points them all. **Why not rebuild the panel, pass a callback down six
+constructors, or let each panel recompute:** rebuilding would discard a user's in-progress
+selections to update a label; new constructor parameters would churn six modules including the
+five that Plan 1 deliberately left unconverted; and recomputing in a panel would duplicate the
+resolution rules the whole plan exists to centralise. The registry is called from exactly two
+places — the successful commit and the successful reset — so a rejected, cancelled or unsaved
+value can never be displayed as effective, and a dead registration is dropped rather than raised
+over, because refreshing a label must never break the call that just saved a preference. Run
+reservation still re-reads the configuration at operation start, so the display is a hint and the
+reservation remains the truth.
+
+**4. Live macOS and the Windows 125% matrix are recorded as deferrals, not as passes.** Neither
+was run for Plan 2. **Why record rather than approximate:** the honest failure mode of a long
+validation phase is a green box that nobody actually observed. Automated aqua coverage is
+import- and build-level and is not a live pass; changing Windows scaling needs the maintainer's
+own action, and simulating it through the registry would produce evidence of the simulation
+rather than of the product. The maintainer's standing decision is that Windows stays at true
+100% for the remaining feature drops and the real 125% pass happens in the later dedicated
+UI-compression/no-scroll phase, against a stable layout. Both deferrals are written down as
+deferrals wherever Plan 2's result is recorded.
+
+*Signed: Elijah Matthew (maintainer), 2026-08-08 — approving v0.6.0 Drop 2 Phase 8 at
+`0e7ad0c264cb2a46f3c64f968e24f00963cb1987` and Plan 2 as a whole.*
+
+---
+
+## 2026-08-06 — Cleanup runs in a verified non-venv helper, the app closes only on a positive acknowledgement, the request is retired before the first deletion, and the inventory is never treated as permission
+
+**Decision (v0.6.0 Drop 2, Phase 7).** The post-exit coordinator exists and deletes. Seven
+choices behind it.
+
+**1. The maintenance state lives at `files/runtime-data/maintenance/`, and the project owns
+it.** Not configurable, not nameable from a request, derived from a repository root the caller
+had to prove, and re-validated on every use to be inside the repository and outside all four
+removable targets. **Why there rather than a temp folder or the user profile:** the record of
+what cleanup was asked to do must survive cleanup, must belong to this project so uninstalling
+is still "delete the folder", and must be somewhere the operation itself can never delete. It
+sits beside `logs/` and `models/` without being inside either, is already ignored by
+`files/runtime-data/`, and is never packaged because archives carry only `scripts/` plus the
+root launcher and README.
+
+**2. The helper is a separate process under an interpreter *verified* to be outside any
+virtual environment.** Candidates come from `sys._base_executable`, `sys.base_prefix` and
+`PATH`; anything inside the repository is rejected before it is probed; the survivor must
+itself report `sys.prefix == sys.base_prefix`. **Why verified rather than assumed:** the first
+thing this helper may be asked to remove is the interpreter the application is running from. A
+guess that turns out to be the venv would delete the process's own feet. The helper is
+standard-library only for the same reason — it has to keep working while `.venv` disappears
+underneath it.
+
+**3. Cleanup is *not* routed through `bootstrap.py` or the root launchers, and neither file was
+changed.** **Why, when the plan named them as the boundary:** the plan's requirement is that
+cleanup runs outside the venv, and the reason it named `bootstrap.py` is that `bootstrap.py` is
+the existing stdlib pre-venv code. But importing it opens a dated setup log inside
+`files/runtime-data/logs/` — one of the four selectable targets — and on Windows that open
+handle blocks the deletion the run was asked to perform. A dedicated stdlib module honours the
+requirement without sabotaging it, and the coordinator logs into the maintenance folder
+instead. The rebuild the plan asks for already works untouched: the `.bat` fast path tests for
+`.venv\Scripts\pythonw.exe` and falls through to ordinary setup when it is gone. Changing a
+working launcher to add a route nothing needs would have been the larger risk.
+
+**4. The application closes only after a positive acknowledgement — never after a successful
+spawn.** The helper writes its acknowledgement only once it has started, loaded *that* request,
+validated it, checked the repository root and the state folder, and is ready to wait; the GUI
+waits for that, bounded, and gives up early if the process dies. **Why not treat `Popen`
+returning as success:** "the helper started" and "the helper understood and accepted the job"
+are different facts, and only the second one justifies telling a user their data will be
+cleared and then taking their window away. Every failure path withdraws the request and leaves
+the app open, so the worst outcome is a wasted click rather than a lie.
+
+**5. The request is retired before the first deletion, not after the last.** `os.replace` moves
+it to a consumed name the moment the wait ends and before anything is removed. **Why that
+order:** a crash halfway through a pass must not leave an executable request behind — a second
+run would start deleting again against a tree that is already half gone, with no record of what
+the first attempt did. Retiring first means a crash costs a partial cleanup and an honest
+absence of a result, never a repeat. If the request has vanished at that moment because the
+requester withdrew it, the run stops and deletes nothing.
+
+**6. The inventory the user saw is never authorization.** Every target is re-derived from its
+enumerated ID and re-checked — exact compiled target, containment, repository root, protected
+paths, links at every level, and type — immediately before it is touched. **Why re-check what
+was checked minutes ago:** between the confirmation and the deletion the app closed, which is
+plenty of time for a folder to be replaced by a junction pointing at someone's photo library. A
+target that changed shape is refused and recorded, not followed. For the same reason, a link
+found *inside* a target is detached rather than descended into: removing a junction never
+touches what it points at, and walking one might.
+
+**7. Process-id reuse is defended with a handle, not a hope.** On Windows the helper opens a
+handle to the requesting process *before* acknowledging, so the wait is bound to that exact
+process object; a recycled id cannot end it early. Elsewhere it polls liveness and relies on
+the six-hour staleness ceiling. **Why this matters at all:** the entire safety of "delete after
+the app exits" rests on knowing *which* exit was observed. A bounded wait that ends because
+some unrelated program inherited the number would delete while the app was still running.
+
+— Elijah Matthew, 2026-08-06
+
+---
+
+## 2026-08-04 — The cleanup catalog is a closed set of four IDs, a request may never carry a path, nothing is selected by default, an unreadable size is said out loud, and Phase 6 fails closed rather than pretending
+
+**Decision (v0.6.0 Drop 2, Phase 6).** The downloaded-data inventory and its confirmation now
+exist. Six choices behind them.
+
+**1. Exactly four asset IDs, in a closed catalog that cannot grow at runtime.**
+`virtual_environment`, `portable_binaries`, `downloaded_models`, `application_logs` — held as
+frozen dataclasses inside a tuple behind a `MappingProxyType`. **Why closed rather than
+discovered:** a cleanup feature that enumerates "regenerable-looking" directories is one
+mislabelled folder away from deleting someone's work. Every ID here was approved individually
+and maps to a directory this project created and can recreate. The audit did notice other
+regenerable-looking directories; none were added, per the drop's instruction to stop and ask.
+Settings, `config.toml`, outputs, source media, repository source/docs/tests and anything
+system-installed are absent by construction, not by a filter that could be widened later.
+
+**2. A request carries enumerated IDs and no path — ever.** There is no `path`, `target`,
+`directory`, `root`, `command` or executable field in the request or the result schema, and a
+test asserts that of every field name plus the serialized bytes. **Why this specific shape:**
+the dangerous version of this feature is one where a widget, a JSON file or a TOML key can
+name a directory that reaches a recursive delete. Making the schema physically incapable of
+expressing a path removes that whole class of bug rather than defending against it. The single
+ID→path mapping takes an always-explicit repository root, has no default, and returns nothing
+until the result is proved to be the exact compiled target, contained, non-protected and
+link-free. Normalisation deliberately uses `abspath` rather than `resolve()`, because
+`resolve()` would *follow* a junction and quietly hand back somewhere else on the machine —
+the exact failure the check exists to catch.
+
+**3. Nothing is selected by default, and nothing is remembered.** Every checkbox is created
+unchecked on every open; missing and unsafe rows have no usable control; `selected_ids()`
+intersects "ticked" with "eligible" so a forced variable yields nothing. **Why no "recommended"
+preset:** a preselected destructive set converts a deliberate act into a default one, and the
+whole safety argument for this feature rests on the user having chosen each item. Selection is
+never persisted for the same reason — a remembered choice is a choice made in a context the
+user can no longer see.
+
+**4. An unreadable size is reported, not guessed.** An estimate that skipped a link or hit a
+permission error comes back `complete=False`, the row reads `1.2 MB (at least)`, and the
+confirmation says *"plus data whose size could not be read safely."* **Why not just show the
+partial number:** the figure is the user's main basis for consenting, and a total that silently
+under-reports is a lie told at exactly the wrong moment. Links are never followed during
+estimation, so a junction cannot inflate — or redirect — the walk.
+
+**5. One custom confirmation, Cancel as the focused default, no suppression.** Not a
+`messagebox`: this needs the item list, the sizes, the effect lines and the exclusions in one
+place. The destructive button is never the default, so a reflexive Return dismisses it safely;
+Escape and the window-close control both cancel; and the window is rebuilt from the live
+selection every time, so there is no cached text and no "don't ask again" to find. This mirrors
+the Phase 5 replacement confirmation deliberately — the two most dangerous actions in the app
+should behave identically under the user's hands.
+
+**6. Phase 6 fails closed rather than pretending.** Accepting builds one validated request and
+passes it to a callback; the production callback returns `False` and the dialog says *"Cleanup
+did not start. Safe post-exit cleanup is not available yet. No data was changed, and Audiobook
+Creation Tool will remain open."* **Why ship a dead end at all:** the alternative was to hold
+the UI back until Phase 7, which would have meant designing the request schema, the
+authorization rules and the confirmation *against* an executor rather than before one — and the
+safety properties above are precisely the ones that are cheap to establish first and expensive
+to retrofit. A callback that raises is treated identically to one that refuses, so a future
+coordinator crashing can never leave the app claiming cleanup was scheduled.
+
+**A note for Phase 7.** `AssetDefinition.removes_target_itself` already records the difference
+between removing `.venv` and emptying the other three, and `requires_post_exit` already records
+which assets are open while the app runs. Those are inputs to the coordinator, not decisions it
+should make again.
+
+— Claude Code, on the maintainer's instruction (v0.6.0 Drop 2 Phase 6)
+
+---
+
+## 2026-08-04 — Cover replacement is gated three ways and installed atomically; the temporary sibling lives beside its source; a custom destination is the user's folder, so cleanup may never remove it
+
+**Decision (v0.6.0 Drop 2, Phase 5).** The two destination exceptions of Decision 10A now
+exist. Five choices behind them.
+
+**1. Replacement needs three independent gates, and each is inert alone.** The
+`Save beside source images` toggle, the `Replace original files` radio, and the per-run
+confirmation. `effective_mode()` is the single place that combines them, and it returns a safe
+mode unless *both* switches are open — so a stale radio behind a switched-off toggle cannot do
+anything, and turning the toggle off actively resets the action. **Why three rather than a
+confirmation alone:** a confirmation is the last thing a user reads, and people click through
+last things. Two deliberate, visible selections mean the dialog is a confirmation of an
+intention the user already expressed, not the first time they learn what is about to happen.
+
+**2. The temporary sibling is written beside the source, not in the system temp directory.**
+An atomic install requires the temporary file and its target on the same filesystem;
+`%TEMP%` frequently is not (a different drive, a different volume). Writing beside the source
+guarantees it. `tempfile.mkstemp` supplies uniqueness atomically, so the name cannot collide
+with the source, another planned temporary, or an unrelated file. The distinctive
+`.act-tmp-` prefix is not decoration: `discard_temporary()` **refuses** any path without it, so
+a cleanup path can never be talked into deleting a user's file.
+
+**3. The order is write → validate → replace, and never delete-then-rename.** The finished
+image is reopened and its dimensions checked *before* it is installed, so a truncated or
+unreadable write cannot reach the original. `os.replace` is atomic on both Windows and POSIX,
+so there is no instant where the original is missing. Delete-then-rename was rejected outright:
+it opens a window where a crash loses the file entirely. Everything before the `os.replace`
+call is recoverable — which is why the failure tests inject at three different points (write,
+validation, replace) and all three assert the original is byte-for-byte intact.
+
+**4. A partial batch tells the truth.** Files already installed stay installed; the run reports
+"N of M original(s) replaced; any not reached are unchanged." The confirmation says the same
+thing in advance. **Why not roll back:** a rollback would need a second copy of every original,
+which is the very duplication the user opted out of by choosing replacement — and a failed
+rollback is worse than an honest report.
+
+**5. Numbered copies start at `-1`, and sequences are per source directory.** Beside a source,
+the unnumbered name *is* the source, so offering it would mean proposing to overwrite the file
+being read; `plan_beside()` therefore starts at index 1 and asserts the result differs from the
+source. Sequences are tracked per directory so two same-named images in different folders each
+get their own `-1` rather than sharing one counter — which is what a user who imported
+`shoot1/cover.jpg` and `shoot2/cover.jpg` expects to see.
+
+**The bug this phase found before it shipped.** Phase 4's cancellation path ran
+`shutil.rmtree(out_dir)` unconditionally. That is correct for a reserved run, which belongs
+entirely to one build — but in the new custom-destination mode `out_dir` **is the folder the
+user chose**, so cancelling a build would have deleted it and everything in it. Cancellation now
+branches on the mode and removes only this operation's own staging and its own partial output.
+Staging in custom mode also moved to an operation-owned `tempfile.mkdtemp()`, so a user's folder
+never sees a `build/` directory or an `ERROR.txt`. **Any future cleanup added to this tool must
+ask the same question first: does this path belong to us, or to the user?**
+
+**Testing note worth keeping.** The confirmation dialog is built by
+`build_replacement_dialog()`, separate from the modal `_ask_replacement()` wrapper, because
+driving a real modal loop headlessly hangs. The wording lives in `replacement_message()` and
+`replacement_button_label()` so the dialog and the suite read the *same* text — a test that
+restated the wording would let the two drift, and this is the one message a user relies on
+before an irreversible action. Real focus cannot be observed on a withdrawn root, so the
+dialog records `default_widget` explicitly and the suite asserts that plus a source-level check
+that `focus_set` targets Cancel and nothing targets Replace.
+
+**Alternatives considered:** a typed confirmation phrase (rejected by the maintainer — the two
+explicit selections, exact count, safe default and labelled destructive button are the approved
+strong confirmation); `messagebox.askyesno` (rejected — a bare Yes/No cannot carry
+"Replace 3 Original Files", and its default is not reliably the safe answer); rolling a partial
+batch back (rejected — see 4); keeping the temporary file in the system temp directory
+(rejected — see 2); allowing replacement of formats that fall back to `.jpg` (rejected — the
+written file would not be the source's name, so it is refused before the dialog with a pointer
+to numbered copies).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md` plus the
+exact confirmation wording supplied for Phase 5, implemented and recorded by Claude Code,
+2026-08-04 (HOME-PC, Windows 11, repo venv Python 3.12.10, ffmpeg and Pillow present)
+
+---
+
+## 2026-08-03 — The output base is managed only in Preferences; per-tool Browse controls are removed; the Cover overwrite option is disabled until Phase 5 rebuilds it safely
+
+**Decision (v0.6.0 Drop 2, Phase 4).** All six tools now write to
+`<output base>/<Tool>-Outputs/<Tool>-N/`, reserved at validated operation start. Four choices
+came with that.
+
+**1. Per-tool output-folder Browse controls are gone.** Five panels had an editable output
+field with a Browse button, defaulted at `build_ui()` time to a `Downloads/<Tool>-N` guess.
+Under Plan 2 the output base is a *configuration* value managed in Preferences & Data, and a
+per-panel override would bypass it — the plan explicitly forbids stale output-folder fields
+that route around the configured base. Each panel now shows its tool folder read-only and names
+the actual reserved run once an operation starts. **Why not keep Browse and validate it?**
+Because that is the M4B Maker *custom destination* feature, which Decision 10A and the drop
+assign to Phase 5 with its own validation and containment rules; shipping an unvalidated
+version of it in Phase 4 would pre-empt that design. Input and cover folder history is
+untouched — those are dialog conveniences, not destinations.
+
+**2. Reservation happens at operation start, and only there.** The old model picked a number
+when the panel was built and froze it for the session, which meant the displayed folder was a
+*prediction*: two tools open at once could show the same number, and the number could be taken
+by anything else before the first save. Now nothing is created until inputs validate, and the
+number comes from the atomic `mkdir` at that moment. A displayed path therefore never promises
+a run that does not exist. An AST test asserts `reserve_run_directory` is called only from
+action handlers, never from `build_ui` or `__init__` — attributing to the *innermost* enclosing
+function, because TTS's `run_job` is a closure defined inside its builder.
+
+**3. Each output-producing action gets its own run — not one run per panel session.** MP3
+Tool's combine, time-edit and ID3 are three separate operations, as are the editor's Write
+Tags, Clear All Tags and Remove Series Numbering. Sharing one run across them would mix
+unrelated results and make "which files came from which action?" unanswerable. It also keeps
+cancellation cleanup honest: staging belongs to exactly one operation, so it can never reach
+another run, the tool parent or the base.
+
+**4. Cover Image's legacy overwrite control is disabled, not removed and not left live.** This
+was the §G blocker: the drop specifies the Phase 4 default and the Phase 5 source-side mode but
+never rules on the already-shipped destructive checkbox in between. The maintainer chose the
+disabled-placeholder route, and the implementation goes past the widget state deliberately:
+`var_overwrite` is forced `False` and the captured worker parameter is the **literal** `False`
+rather than a widget read, so re-enabling the checkbox alone could not route an operation into
+the source-side branch. `next_version_path()` and that branch are retained as dormant legacy
+code — removing them would be churn Phase 5 immediately undoes — and a test asserts the
+parameter is a literal and that no Phase 5 interface (mode toggle, numbered-copy/replace
+choice, confirmation dialog) exists yet.
+
+**A real bug this migration exposed and fixed.** `avoid_input_overwrite()` only guarded against
+writing *onto an input*. Two imported files with the same name from different folders silently
+overwrote each other in the Converter, MP3 Tool and Metadata Editor. The shared batch planner
+tracks existing files *and* already-planned names, so the second becomes `Book-1.mp3`.
+
+**A real bug this migration introduced, and what it changed about testing.** Routing the
+Converter through the planner removed its local `stem` assignment while the metadata fallback
+title still used it — every conversion failed with `name 'stem' is not defined` and produced
+nothing. **Every planner-level test passed**, because they exercised destinations rather than
+the worker body. It was caught by driving the real worker on a generated tone fixture. The
+lesson is recorded in the suite: `test_tool_output_integration.py` now runs the actual
+Converter, time-edit and Cover workers, so a migration that breaks a worker cannot pass again.
+
+**Alternatives considered:** keeping the Browse field but validating it against the base
+(rejected — that is Phase 5's custom-destination feature); one reservation per panel session
+(rejected — see 3); removing the Cover overwrite code entirely (rejected — Phase 5 rebuilds it,
+so deleting it is churn); deleting `next_output_dir`/`avoid_input_overwrite` now (rejected —
+kept as documented dormant API in case of an out-of-tree caller, with a test proving nothing
+shipped calls them).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md` and the
+Option A ruling on the Cover control, implemented and recorded by Claude Code, 2026-08-03
+(HOME-PC, Windows 11, repo venv Python 3.12.10, ffmpeg present)
+
+---
+
+## 2026-08-03 — Output planning is pure and materialisation is explicit; `mkdir` is the reservation race boundary; collisions are case-insensitive everywhere; only the final suffix is an extension
+
+**Decision (v0.6.0 Drop 2, Phase 3).** Five choices behind `shared/output_paths.py`. None of
+them is visible to a user yet — no tool consumes the module until Phase 4 — but they are the
+shape every later phase builds on.
+
+**1. Planning is pure; materialisation is explicit and narrow.** Every `plan_*` function, the
+sanitizer and the collision service compute paths and touch nothing. Only `ensure_output_base()`
+and `reserve_run_directory()` create anything, and only directories. **Why:** it makes the
+entire surface testable in a temporary tree with no mocking, and it makes "merely opening a tool
+creates no folder" a structural property rather than a discipline. It is also what lets a plan
+be built on the main thread and handed to a worker, which is the pattern every tool already
+uses for its job snapshot.
+
+**2. `mkdir` without `exist_ok` *is* the reservation race boundary.** There is deliberately no
+"does this number exist?" check before the create — that check-then-create sequence is exactly
+the race the plan forbids. `mkdir` either creates the directory or raises `FileExistsError`;
+the loop simply moves to the next number. **Why it matters:** two tools running concurrently, or
+one tool started twice, would otherwise silently share a run directory. An 8-thread test with a
+barrier proves all eight get distinct directories numbered 1–8. The loop is bounded so a wedged
+directory cannot hang a worker. **Do not "optimise" this by pre-scanning the parent.**
+
+**3. Collision comparison is case-insensitive on every platform.** Windows and macOS are both
+case-insensitive by default, so `Book.m4b` and `book.m4b` are one file there. Making the
+comparison platform-dependent would make a plan differ between the two machines this project
+ships to; making it case-insensitive everywhere keeps plans identical and errs toward an extra
+`-1` rather than toward an overwrite. On a case-sensitive Linux box the cost is one redundant
+suffix; the alternative cost is data loss. **The safer direction is the default.**
+
+**4. Only the *final* suffix is treated as the extension.** `Path.suffixes` would call
+`.5 - Extras.m4b` the extension of `Book 1.5 - Extras.m4b` and mangle it; audiobook filenames
+contain dots constantly, and multi-part extensions like `.tar.gz` never appear in this
+project's outputs. So `archive.tar.gz` collides to `archive.tar-1.gz`, which loses nothing, and
+`Book 1.5 - Extras.m4b` collides to `Book 1.5 - Extras-1.m4b`, which is right. The drop's
+"preserve the complete suffix" is satisfied — the extension is never truncated or lost — and
+its own examples (`stem-1.ext`, `Book-1.m4b`) are all single-suffix.
+
+**5. Link safety is a separate check from containment, because containment cannot catch it
+all.** A junction pointing *outside* the run directory is caught by containment: `resolve()`
+follows it and the destination normalises outside the root. But a junction pointing *back
+inside* the root resolves to a contained path and passes containment entirely — and following
+it would still mean establishing a destination through a link an attacker or a stray tool
+placed there. `assert_no_link_in` walks every existing component and refuses any reparse point,
+which is what closes that gap. Both tests exist, and the second one exists precisely because
+the first does not cover it.
+
+**Trailing dots and spaces are stripped deliberately.** Windows silently drops them when
+writing, so `Book.m4b` and `Book.m4b ` would land on one file after the collision service had
+already decided they were two different names. Stripping them in the sanitizer makes the
+collision check see what the filesystem will see.
+
+**Windows link testing uses junctions.** `mklink /J` needs neither Developer Mode nor
+elevation, so the directory-link safety tests get real coverage on an ordinary account instead
+of being skipped. Only the file-symlink test still requires the privilege and skips with its
+exact `WinError 1314` reason recorded.
+
+**`paths.next_output_dir()` stays untouched until Phase 4.** It is marked as a compatibility
+wrapper scheduled for removal, and a test records the exact five panels that still call it — so
+a sixth caller fails the suite and Phase 4's removals show up in the diff. Phase 3 changes no
+current output behaviour at all.
+
+**Alternatives considered:** a lock file or a global counter for run numbers (rejected —
+`mkdir` is already atomic on every filesystem this runs on, and a lock file adds a stale-state
+failure mode); platform-dependent case comparison (rejected — see 3); `Path.suffixes` for
+multi-part extensions (rejected — see 4); rewriting a traversal attempt to something safe
+instead of raising (rejected — silently "fixing" `../..` hides a real defect in the caller);
+letting the planner create directories as it goes (rejected — it would make every planning test
+require a filesystem and would break the "opening a tool creates no folder" guarantee).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md`,
+implemented and recorded by Claude Code, 2026-08-03 (HOME-PC, Windows 11, repo venv
+Python 3.12.10)
+
+---
+
+## 2026-08-03 — The Preferences dialog is presentation-only and platform-neutral; the launch-warning guard lives in the config layer; the Clear Downloaded Data placeholder carries no command
+
+**Decision (v0.6.0 Drop 2, Phase 2).** Four choices worth not re-litigating.
+
+**1. `preferences_ui.py` decides nothing.** Every rule the dialog enforces — what a valid
+output base is, what precedence applies, what a reset clears — lives in `shared/config.py`
+and `shared/settings.py` and is tested without Tk. The dialog collects choices and shows
+results. **Why:** the Plan 2 contract requires configuration, path and reset logic to be
+platform-neutral and testable headlessly; the moment a validation rule lives in a widget
+callback, it can only be tested by building a window.
+
+**Styling degrades instead of branching.** `_style(theme, name)` returns `""` wherever
+`theme["styles"]` is absent, and a ttk widget naming no style resolves the platform's generic
+one. So the Windows build is fully `ACT.*` and the macOS build is fully native from a single
+code path, with **no `sys.platform` branch anywhere in the file**. This is the same mechanism
+that keeps the five unconverted panels native — not a coincidence, and worth preserving.
+
+**2. The once-per-launch guard belongs in the configuration layer, not the UI.**
+`config.take_launch_warning()` consumes the guard; `reset_launch_warning_guard()` re-arms it
+for tests. **Why:** diagnostics are produced on *every* load, so a UI-owned flag would let a
+reload storm become a dialog storm, and a headless test could not assert the "at most once"
+contract at all. Putting it beside the thing that generates diagnostics makes the rule
+testable without a display and makes "reopening Preferences must not repeat the warning" fall
+out for free rather than needing its own special case.
+
+**The warning is a non-modal `Toplevel`, not a `messagebox`.** The drop calls for a
+*nonblocking* summary presented after the root window is ready. A `messagebox` is modal by
+definition, so it was rejected; a plain `Toplevel` with a Close button shows the whole
+aggregated summary at once — one window for every diagnostic, never one per bad key — and
+cannot block the launcher. A failure to present it is caught and logged: **a warning about
+configuration must never itself become a startup failure.**
+
+**3. The Clear Downloaded Data placeholder carries no command.** It is created disabled *and*
+with no callback at all, so there is nothing to invoke even if some future code re-enabled it,
+and `preferences_ui.py` is AST-asserted to import no `shutil`/`subprocess`/`os` and to call no
+`rmtree`/`unlink`/`remove`/`Popen`. **Why:** "disabled" is a UI state that a one-line change
+can undo; "there is no function to call" is a structural guarantee. Phase 6 owns the catalog,
+the confirmation, the coordinator and the deletions.
+
+**4. A failed settings write is now rolled back in memory.** `settings.set()`/`update()`
+previously mutated the cache and then returned `False` if the atomic write failed, leaving the
+running application believing a preference that never reached disk. They now restore the
+previous value on failure. **Why:** the dialog tells the user "the previous setting is still in
+use" after a failed save, and that sentence has to be true. Found by building the failure path
+rather than by a bug report; regression-tested from both the settings layer and the dialog.
+
+**Layout, measured rather than assumed.** The first build was **689 px tall under the Windows
+theme** — taller than the application's own `920×600` minimum — while the unstyled build was
+556 px, so a test that only exercised the unstyled bundle passed and hid it. Entry/Browse/Save
+now share one row, Reset sits on its card's heading row, and the outer padding uses the tight
+end of the spacing scale: **618×596 px on Windows, 630×488 px unstyled**, no whole-dialog
+scrolling. The fit test now asserts the Windows path explicitly. `MIN_SIZE = (920, 600)` and
+`DEFAULT_GEOMETRY = "1024x720"` are unchanged.
+
+**Alternatives considered:** a modal `messagebox` for the warning (rejected — the drop requires
+nonblocking, and one modal per key was explicitly forbidden); a UI-owned "already warned" flag
+(rejected — untestable headlessly and vulnerable to reload storms); omitting the Clear
+Downloaded Data control until Phase 6 (rejected — the maintainer expressly wants the disabled
+placeholder, so it ships inert and clearly labelled); a menubar instead of a status-bar button
+(rejected — the launcher has no menubar on any platform, and adding one is a shell change Plan
+1 did not sanction); a scroll region to solve the height (rejected — the fit contract says
+adaptive layout first, and scrolling is for genuinely unbounded content).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md`,
+implemented and recorded by Claude Code, 2026-08-03 (HOME-PC, Windows 11, 1920×1080 at 100%
+scaling, repo venv Python 3.12.10)
+
+---
+
+## 2026-08-03 — Configuration is a three-layer precedence with a one-key mutable overlay; the four documentation names are a permanent, mechanically enforced contract; the maximized-fit rule is the Plan 9 acceptance target
+
+**Decision (v0.6.0 Drop 2, Phase 1).** Five things are settled and later plans should build on
+them rather than re-litigate them.
+
+**1. Precedence is code defaults → `config.toml` → an allowlisted mutable overlay.** A
+committed, commented root `config.toml` holds the project's documented defaults;
+`shared/config.py` resolves one typed, immutable `EffectiveConfig` snapshot from it. The
+overlay is deliberately **one key** — `output_base_directory` in `settings.json` overriding
+`output.base_directory` — declared in `config.SETTINGS_OVERLAY`, which is the whole allowlist.
+Anything else in `settings.json` is either known user state (`last_tool`, remembered dialog
+directories, voice, bitrate) that is skipped silently, or an unrecognised key that is ignored
+with one diagnostic.
+
+**Why a whitelist rather than "any settings key may override its TOML twin":** a name-matching
+rule would silently promote a future preference into a configuration override the moment
+someone happened to name it after a TOML key. An explicit table makes every override a
+deliberate, reviewable line of code. **Do not add a key to it without a plan that says so.**
+
+**Why the existing user-state keys got no TOML counterpart:** they are per-user memory, not
+project configuration; inventing `[state] last_tool = …` would put a machine-specific value in
+a committed, shipped file for no benefit.
+
+**2. Validation is per key, and the runtime and the repository gate deliberately disagree.**
+At runtime a bad value falls back and warns — a user's hand-edit must never stop the
+application from starting, and one bad key must never discard its valid neighbours.
+`scripts/verify.py` does the opposite and **fails on any diagnostic**, because a *committed*
+file that needs a fallback is a defect being shipped. Both use the same loader, so the rules
+cannot drift apart. Diagnostics carry a human-readable `message` and a separate technical
+`detail`, so a summary can never leak a traceback while the log keeps everything.
+
+**3. Relative output bases are rejected; environment variables are never expanded.** A
+relative path would mean something different depending on where the launcher was started
+from, so it is refused rather than resolved against the working directory. `~` **is** expanded
+because it is portable and machine-agnostic; `%USERPROFILE%` / `$HOME` are **not**, which
+makes them literal, therefore relative, therefore rejected. This is a safety boundary, not an
+oversight — arbitrary shell-style expansion in a path that later feeds output and (in Plan 2's
+later phases) cleanup is exactly the wrong place for surprises.
+
+**4. The four documentation names are permanent and mechanically enforced.**
+`md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md`, in exactly that
+casing. Never rename, recase, duplicate or alias them; never recreate `CHANGELOG.md`,
+`DECISIONS.md` or `handoff.md`. The gate compares **real directory entries** via `os.listdir`
+rather than calling `Path.exists()`. That distinction is the whole point: `verify.py` had been
+reading `md-instructions/CHANGELOG.md` ever since the documents were recased, and reported
+`PASS` for weeks purely because a Windows path lookup is case-insensitive — on a case-sensitive
+filesystem the gate would have failed outright. The stale *reference* was the bug; the files
+were correct. `files/tests/test_repository_contract.py` proves the gate rejects a missing
+canonical file, every case-variant alias, and a deleted `don't-delete/` reference, using
+temporary trees because a case-insensitive filesystem will not let a real alias be staged
+beside its canonical twin.
+
+**5. The maximized-fit rule is the Plan 9 acceptance target and binds new UI now.** At
+1920×1080 on Windows at 100% and 125%, plus the approved live macOS reference display, the
+maximized launcher must show each complete tool view without a whole-panel or whole-form
+scrollbar where practical, reached through adaptive layout rather than by wrapping a tool in a
+permanently scrolling canvas. Scrolling stays valid for genuinely unbounded content (file
+lists, book collections, chapter titles, logs, thumbnail browsers) and must stay local to that
+region with primary actions, Cancel/Pause/Resume, progress, status and output access still
+reachable. At `920×600` the requirement is graceful adaptation, not simultaneous visibility.
+`MIN_SIZE = (920, 600)` and `DEFAULT_GEOMETRY = "1024x720"` are **unchanged**. The M4B
+Metadata Editor's permanently scrolling form remains an accepted Plan 1 limitation that Plan 9
+must reflow — recording the target here does not reopen the Plan 1 approval.
+
+**Structural rule worth keeping:** `shared/config.py` must never import `logging_setup`.
+Retention reads configuration, so the dependency runs one way only; `logging_setup` imports
+config lazily *inside* `configured_max_sessions()` and falls back to 30 on any failure,
+because logging has to come up even when configuration cannot.
+
+**Alternatives considered:** a TOML parser dependency such as `tomlkit` (rejected — stdlib
+`tomllib` is sufficient for reading, and the plan forbids a new dependency without proving the
+standard library insufficient); letting the GUI write `config.toml` (rejected — the committed
+file must stay machine-agnostic and diffable, so user choices go to `settings.json`); making
+the runtime *fail* on an invalid config to match the gate (rejected — a non-technical user who
+mistypes a number must still get their application); mutable overlay by name-matching
+(rejected — see above); renaming `Changelog.md` back to `CHANGELOG.md` to make the stale
+reference correct (rejected outright — the maintainer's canonical names are the contract, and
+the reference was what was wrong).
+
+— Decided by maintainer via drop `0.6.0-drop2-config-output-maintenance-foundation.md`,
+implemented and recorded by Claude Code, 2026-08-03 (HOME-PC, Windows 11, repo venv
+Python 3.12.10)
+
+---
+
 ## 2026-08-02 — The Windows dark design system is APPROVED as the durable UI contract; tkinter/ttk stays; geometry, DPI awareness and live macOS are explicitly deferred
 
 **Decision:** After reviewing the ten-image screenshot matrix, the maintainer **approved** the

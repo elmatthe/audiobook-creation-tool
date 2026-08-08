@@ -15,6 +15,511 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — `config.toml` in both release archives (v0.6.0 Drop 2 Phase 8, 2026-08-07)
+
+> Both platform archives now ship the committed root configuration, and the maintainer's
+> unrelated untracked `config-template.toml` is proven absent from both. `version.py` remains
+> `0.5.1`; no release was built, published or tagged.
+
+- **`shared/release.py`** gained a named `ROOT_FILES = ("README.md", "config.toml")` list. The
+  packager still walks exactly one tree (`scripts/`) and names its root files explicitly, so a
+  file it does not name cannot leak because an exclusion list was forgotten. `config.toml` is
+  packaged byte-for-byte as committed — never generated, edited or substituted.
+- **34 new packaging tests** (`files/tests/test_release_packaging.py`): `config.toml` present
+  exactly once at the root of each archive and byte-identical to the committed file;
+  `config-template.toml` absent even while it sits beside it; only the correct platform launcher
+  included; the macOS `.command` stored with mode `0o755`; no member absolute, traversing,
+  duplicated or escaping the extraction root; no runtime, developer or maintenance state; a
+  deterministic manifest across two builds; the version sourced from `version.py`; and the
+  packager never imported by the application nor part of startup.
+
+### Fixed — MP3 Combine on paths containing an apostrophe (v0.6.0 Drop 2 Phase 8, 2026-08-07)
+
+- **`mp3_tools/mp3_tool.py`** wrote ffmpeg concat-list entries with `'` escaped as `\'`.
+  Inside single quotes ffmpeg treats every character literally, so that backslash escaped
+  nothing and the quote was read as the **closing** quote: the path truncated there and
+  *Combine MP3s → One MP3* produced no output on both the fast and safe paths. It now uses
+  ffmpeg's documented close-escape-reopen form (`'` → `'\''`) and leaves backslashes untouched
+  (they were previously doubled, which only survived because Windows collapses repeated
+  separators). The list is written UTF-8; a path containing a line break is refused rather than
+  producing a listfile the line-oriented demuxer would misread.
+- **25 new tests** (`files/tests/test_mp3_concat_paths.py`) pin the representation and run the
+  **real ffmpeg binary** across plain, space, one-quote, many-quote, Unicode and combined
+  directory names, quotes in the filename as well as the parent, input ordering, source
+  byte-identity, and the no-shell-invocation contract.
+
+### Fixed — stale output location after a preference change (v0.6.0 Drop 2 Phase 8, 2026-08-07)
+
+- A tool panel built **before** the output base changed kept displaying the old location until
+  it was rebuilt. `shared/output_paths.py` now keeps a small registry of those read-only
+  displays; a successful Preferences **Save** or **Reset** re-points every live registration
+  through the same `destination_hint` resolution. Rejected, cancelled and failed changes never
+  reach a panel, no panel is rebuilt or destroyed, none gained a constructor argument, and run
+  reservation still re-reads the effective configuration at operation start.
+- **41 new tests** (`files/tests/test_output_location_refresh.py`) cover all six panels'
+  registration, Save, Reset, invalid, cancelled and failed-write paths, and that the displayed
+  destination is where a run actually lands.
+
+### Changed — Plan 2 closed out (v0.6.0 Drop 2 Phase 9, 2026-08-08)
+
+- The lasting configuration/output/maintenance architecture moved into `Briefing.md`, the
+  non-obvious Phase 8 choices into `Decisions.md`, and the final verification, approvals and
+  deferrals into `Handoff.md`. The master implementation index now records Drop 2 as complete
+  and approved, with Drop 3 as the next unopened drop.
+- The temporary drop `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` was
+  retired, as its plan directs, only after that transfer.
+- **No application source, packaging, screenshot or configuration change** is part of the
+  closeout, and **no version bump, tag, release, publication, merge or branch deletion** was
+  performed. Two validations remain explicitly **deferred, not passed**: live macOS, and the
+  Windows 125% scaling matrix (held for the later UI-compression/no-scroll phase).
+
+### Added — Safe post-exit cleanup and result reporting (v0.6.0 Drop 2 Phase 7, 2026-08-06)
+
+> Clear Downloaded Data now completes: the request the Phase 6 flow builds is saved, handed to
+> a separate helper process running outside the virtual environment, and executed only after
+> the application has exited. The next launch reports exactly what happened. `version.py`
+> remains `0.5.1`; nothing is released, tagged or merged.
+
+- **New `shared/cleanup_state.py`** — the client half of the boundary. One project-owned
+  maintenance folder at `files/runtime-data/maintenance/`, chosen rather than configurable,
+  validated on every use to be inside the repository and outside all four removable targets.
+  Requests, acknowledgements and results are written atomically (temporary file, flush, fsync,
+  `os.replace`), so a crash can never leave a half-written request that reads as authorization.
+  It removes only its own named state files and its own `.act-maint-` temporary writes.
+- **New `shared/cleanup_worker.py`** — the coordinator, and the only code in the project that
+  deletes a catalog asset. Standard-library only through its whole path, started detached with
+  an argument vector and `shell=False` by a Python interpreter that is verified to be outside
+  any virtual environment, and given its repository root by its own file location rather than
+  by anything a request carries.
+- **Acknowledgement before shutdown.** The app closes only after the helper has started, loaded
+  *that* request, validated it, checked the root and state folder, and signalled it is ready to
+  wait. Users see *"Cleanup is ready. Audiobook Creation Tool will now close…"* only then.
+- **A truthful failure everywhere else.** A failed save, a missing verified interpreter, a spawn
+  error, a timeout or a handoff that raised all produce *"Cleanup did not start. No data was
+  changed, and Audiobook Creation Tool will remain open,"* the request is withdrawn, and every
+  asset is left exactly as it was. Repeated clicks cannot start a second helper.
+- **Exactly one attempt.** The helper waits for the requesting process to exit — bound to that
+  precise process on Windows, so a recycled process id cannot satisfy the wait — retires the
+  request *before* the first deletion, deletes once, writes one result, and exits. It never
+  retries, loops or relaunches. Requests older than six hours are refused.
+- **Deletion re-authorized at the last moment.** Every target is re-derived from its enumerated
+  ID and re-checked for containment, protected paths, type and links immediately before acting;
+  the earlier inventory is not treated as permission. `.venv` is removed entirely, the other
+  three keep their folder and lose their contents, a missing target is a successful no-op, and a
+  target swapped for a junction is refused rather than followed. Links found inside a target are
+  detached, never descended into.
+- **Failures are collected, not hidden.** A locked file fails that item, the pass continues
+  through the rest of the tree and on to the later assets, and the result says which ones and
+  why.
+- **A report on the next launch**, shown once, listing every selected item as removed, already
+  gone, failed or left alone for safety, with the space freed and recovery advice when anything
+  was not removed. It never claims complete success if something failed, and a corrupt record is
+  moved aside and never executed.
+
+### Changed — Preferences hands off instead of failing closed (v0.6.0 Drop 2 Phase 7, 2026-08-06)
+
+- `shared/preferences_ui.py` now routes an accepted confirmation to the real handoff and closes
+  the application once it is acknowledged. It still imports no `os`, `shutil` or `subprocess`,
+  still calls no deletion or process primitive, and never imports the coordinator.
+- `launcher.py` passes its ordinary close path to Preferences and queues the previous run's
+  report after the configuration warnings. A launch with no maintenance state does no extra
+  work.
+- `shared/maintenance.py` gained the approved handoff wording, the report wording and public
+  path helpers so the coordinator applies the same link and containment rules rather than a
+  second implementation of them. It still deletes nothing and imports neither `shutil` nor
+  `subprocess`.
+- **`bootstrap.py` and both root launchers are unchanged.** A removed `.venv` already falls
+  through their fast path to the ordinary setup that rebuilds it; routing cleanup through
+  `bootstrap.py` was rejected because importing it holds a log file open inside one of the
+  removable targets.
+
+### Added — Downloaded-data inventory and confirmation (v0.6.0 Drop 2 Phase 6, 2026-08-04)
+
+> The Clear Downloaded Data flow now exists end to end **except the deletion**. Phase 6
+> inventories, lets the user select, confirms in the strongest terms, and builds one immutable
+> request. **Nothing is deleted, scheduled, spawned or written.** The post-exit coordinator that
+> acts on a request is Phase 7 and is not implemented. `version.py` remains `0.5.1`.
+
+- **New `shared/maintenance.py`** — platform-neutral, Tk-free, and provably non-destructive: it
+  imports neither `shutil` nor `subprocess`, calls no deletion or process primitive, and defines
+  no executor, coordinator or persistence function. Tests assert all of that structurally.
+- **A closed catalog of exactly four assets** — `virtual_environment` (`.venv`),
+  `portable_binaries` (`files/bin`), `downloaded_models` (`files/runtime-data/models`) and
+  `application_logs` (`files/runtime-data/logs`) — held as frozen dataclasses behind a
+  `MappingProxyType`, so it cannot be extended at runtime. Settings, `config.toml`, outputs,
+  source media, repository source/docs/tests and anything system-installed are absent by
+  construction, and system ffmpeg is called out as never removed.
+- **IDs map to paths in exactly one place.** `authorized_target()` takes an always-explicit
+  repository root and returns a path only after proving it is the exact compiled target, inside
+  the root, not the root, not equal to / inside / containing any protected location, and not
+  reached through a symlink, junction or reparse point at any level. Normalisation uses
+  `abspath`, never `resolve()`, so a link is detected rather than followed.
+- **Read-only size estimation** using `scandir`/`lstat` only. It never follows a directory link,
+  tolerates files vanishing mid-walk, and reports an unreadable subtree as an *incomplete*
+  estimate — shown as `1.2 MB (at least)` — instead of raising or inventing an exact total.
+- **Safe selection defaults.** Every checkbox is created unchecked on every open, missing and
+  unsafe items have no usable control, `Review Selected Data…` stays disabled until something
+  eligible is deliberately ticked, and no selection is ever persisted or restored. Reset
+  Preferences remains a separate action.
+- **Immutable, versioned request and result schemas** (schema version 1) carrying enumerated
+  asset IDs only. Neither schema has a `path`, `target`, `directory`, `root`, `command` or
+  executable field, so no string from JSON, TOML or a widget can name something to delete.
+  Validation runs in `__post_init__` and deserialization uses a strict allowlist where a missing
+  *or* extra field is a refusal. The result schema is defined for Phase 7 to consume; Phase 6
+  never creates one.
+- **The Clear Downloaded Data dialog** replaces the Phase 2 disabled placeholder. Sizes are
+  measured on a worker thread with every Tk update returned to the main thread, so opening the
+  dialog never stalls and closing it mid-walk updates nothing.
+- **One custom confirmation**, never a generic Yes/No box, rebuilt from the live selection every
+  time and impossible to suppress. Cancel is the focused default and is what Escape and the
+  window-close control both do; the destructive button is `Clear N Selected Items and Close` and
+  is never the default.
+
+### Changed — the Preferences cleanup entry is live, but still fails closed (v0.6.0 Drop 2 Phase 6)
+
+- Accepting the confirmation builds one validated request and hands it to an injected callback —
+  and nothing else. In production that callback is `unavailable_cleanup_handler`, which refuses,
+  so the dialog reports *"Cleanup did not start. Safe post-exit cleanup is not available yet. No
+  data was changed, and Audiobook Creation Tool will remain open."* and both windows stay usable.
+  A callback that raises is treated the same way, so a future coordinator failing can never leave
+  the app claiming success.
+- The Phase 2 scope guards moved to the Phase 7 boundary rather than being relaxed: Preferences
+  may now open the review, but still may not delete, spawn, persist or close anything.
+
+### Added — Cover Image source-side modes and M4B Maker custom destination (v0.6.0 Drop 2 Phase 5, 2026-08-04)
+
+> The two destination exceptions Decision 10A allows, both opt-in and both off by default.
+> Standard modes are unchanged and remain the default. `version.py` remains `0.5.1`.
+
+- **Cover Image: `Save beside source images`** replaces the Phase 4 disabled placeholder. It is
+  off on every fresh build, exposes exactly `Create numbered copies` (preselected) and
+  `Replace original files` (never the default), and switching it off resets the action — so a
+  Replace selection cannot survive as a hidden mode. Nothing about it is persisted.
+- **Numbered copies** write beside each source starting at `stem-1.ext`, because beside a source
+  the unnumbered name *is* the source. Collision sequences are tracked **per source directory**,
+  so two same-named images in different folders each get their own `-1`. Sources are never
+  opened for writing, and no standard run is reserved.
+- **Replacement requires three independent gates** — the toggle, the radio, and a per-run
+  confirmation titled *"Confirm replacement of original images"*. Cancel is the focused default,
+  Escape and closing the window cancel, the destructive button is labelled
+  `Replace N Original Files`, the exact captured count is shown, and the dialog is rebuilt every
+  run so nothing can be remembered or suppressed. Declining creates no run, no output and no
+  temporary file.
+- **Replacement is atomic.** Each source is validated *before* the dialog (links, missing files,
+  directories and formats that cannot round-trip in place are refused there). Then a complete
+  `.act-tmp-…` sibling is written **in the source's own directory** — same filesystem, so the
+  install can be atomic — the finished image's size is validated, and only then does
+  `os.replace` install it. **Never delete-then-rename.** A failure or cancellation before that
+  boundary leaves the original byte-for-byte unchanged and removes only this operation's own
+  temporary file. A partial batch reports truthfully: files already installed stay installed.
+- **M4B Maker: `Choose custom destination`.** Off on every fresh build; the path and Browse
+  controls exist only while it is on, and the widget is read in exactly one place, so a stale
+  hidden path cannot steer a standard build. The chosen directory is validated before anything
+  starts — absolute, existing, a directory, not a link, and writable, proved with a temporary
+  probe that is removed again so no user file is created or touched. The finished `.m4b` goes
+  **straight in with no nested `M4B-Maker-N`**, using the same sanitisation and collision
+  numbering as everywhere else. Imported MP3s and the cover image are only ever read.
+- **New shared APIs** in `output_paths.py`: `SourceSidePlanner`, `temporary_sibling()`,
+  `discard_temporary()` (refuses anything without the `.act-tmp-` prefix), `atomic_replace()`
+  (refuses to install a non-temporary file, and refuses a linked target),
+  `validate_source_for_replacement()`, `validate_custom_destination()`, and a `start_index`
+  argument on `DestinationPlanner.plan()`.
+
+### Fixed — cancelling a custom-destination build would have deleted the user's folder (v0.6.0 Drop 2 Phase 5)
+
+- The Phase 4 cancellation path ran `shutil.rmtree(out_dir)` unconditionally, which is correct
+  for a reserved run that belongs entirely to one build — but in the new custom-destination mode
+  `out_dir` **is the folder the user chose**, so cancelling would have destroyed it and
+  everything in it. Cancellation now removes only this operation's own staging directory and its
+  own partial output; the reserved-run branch is unchanged. Found while wiring the custom mode,
+  before it could ship. Covered by a source-level guard test asserting the destructive `rmtree`
+  sits behind the custom-mode check.
+
+### Added — Phase 5 regression coverage (v0.6.0 Drop 2 Phase 5)
+
+- `files/tests/test_cover_source_side.py` (34) — numbered-copy planning and collisions,
+  per-directory independence, duplicate imports, no output-base writes, confirmed replacement,
+  temporary-sibling placement and uniqueness, injected write/validation/replace failures all
+  preserving the original, cancellation, partial-batch truthfulness, no source opened for
+  writing before the boundary, link/missing/directory/unsupported-format refusal, and the full
+  confirmation contract (count, plural, wording, focused Cancel, Escape, window close, fresh
+  dialog per run, no suppression path).
+- `files/tests/test_maker_custom_destination.py` (31) — toggle state and visibility, stale-path
+  inertness, no persistence, every destination-validation rejection, validation failure
+  reserving no run, direct output with no nested run, sanitised titles, existing and planned
+  collisions, the final-suffix rule, containment, staging and cleanup boundaries, source safety,
+  and no Plan 7 behaviour.
+- Phase 4's Cover placeholder tests were superseded by Phase 5 state tests, and two Phase 4
+  scope guards were retargeted from "no exceptions exist" to "exactly these two exist".
+
+### Changed — all six tools now write to the configured output base (v0.6.0 Drop 2 Phase 4, 2026-08-03)
+
+> **This changes where finished files appear.** Standard outputs move from
+> `Downloads/<Tool>-N` to `<output base>/<Tool>-Outputs/<Tool>-N/`, where the base defaults to
+> `Downloads/Audiobook-Creation-Tool-Outputs` and is changed in Preferences & Data. No release
+> has shipped; `version.py` remains `0.5.1`.
+
+- **Every output-producing action reserves its own run at validated start.** TTS Convert, M4B
+  Converter Convert, MP3 Tool Combine / Time Edit / Write ID3, M4B Maker Build, Cover Image
+  Resize, and the M4B Metadata Editor's Write Tags / Clear All Tags / Remove Series Numbering
+  each reserve one atomic run directory **after** their inputs validate. Opening the launcher,
+  building a panel, importing, browsing, switching tools or failing validation now creates
+  **no directory at all** — previously five panels picked a `Downloads/<Tool>-N` number at
+  `build_ui()` time and froze it for the whole session.
+- **Duplicate filenames can no longer overwrite each other.** All six tools plan destinations
+  through the shared batch planner, so two imports with the same name from different folders
+  produce `Book.mp3` and `Book-1.mp3`. The old `avoid_input_overwrite()` guarded only against
+  writing *onto an input*, so this was a real silent-overwrite hole in the Converter, MP3 Tool
+  and Metadata Editor.
+- **Filenames go through one central sanitiser.** M4B Maker's local regex is gone; titles like
+  `My<Book>:Title` become `My_Book__Title.m4b`, with Windows reserved names, control
+  characters, trailing dots/spaces and length limits handled the same way everywhere.
+- **Staging is contained.** MP3 Tool combine staging moved from `edited_mp3s-N` beside a
+  user-chosen save path into the operation's own reserved run; M4B Maker's `build/` and the
+  editor's copies were already per-run and now provably cannot reach another run, the tool
+  parent or the output base.
+- **Per-tool output Browse controls removed.** The output base is managed in Preferences & Data;
+  a per-panel override would bypass it. Each panel now shows its tool folder read-only and
+  names the actual reserved run once an operation starts. Input and cover folder history is
+  unchanged. The M4B Maker's opt-in custom destination remains Phase 5 work.
+- **Cover Image no longer writes beside your source images.** Standard resizes land in the
+  reserved run. The *"Overwrite original files"* control is now **visible but disabled** and
+  captioned *"available in a later update"*, its variable forced `False` and the captured
+  worker parameter a literal `False`. Phase 5 owns the safe redesign — deliberate source-side
+  mode, explicit numbered-copy/replace choice, strong per-run confirmation, atomic replacement.
+- `paths.next_output_dir()` and `paths.avoid_input_overwrite()` are retained as documented
+  dormant compatibility API; **nothing in the shipped tree calls either**, and a test enforces
+  that. `mp3_tool.next_available_folder()` and `BASE_OUTPUT_DIRNAME` were removed outright.
+
+### Fixed — `stem` reference orphaned during the Converter migration (v0.6.0 Drop 2 Phase 4)
+
+- Routing the M4B Converter through the shared planner removed the local `stem` assignment
+  while the metadata fallback title still referenced it, so every conversion failed with
+  `name 'stem' is not defined` and produced no output. Caught by driving the **real worker** on
+  a generated fixture — every planner-level test passed. `files/tests/test_tool_output_integration.py`
+  now runs the actual Converter, Time Edit and Cover workers so this class of regression cannot
+  pass again.
+
+### Added — Phase 4 integration coverage (v0.6.0 Drop 2 Phase 4)
+
+- `files/tests/test_tool_output_integration.py` (68 tests): nothing created by launcher
+  startup, panel construction, tool switching or opening Preferences; no panel promises an
+  unreserved run number; per-tool parents; sequential and 6-thread concurrent reservation;
+  captured snapshots surviving a mid-run preference change; per-tool destination, collision and
+  containment behaviour; the Cover placeholder's disabled state, forced-`False` variable and
+  literal captured parameter; AST guards that reservation happens only in action handlers and
+  that no Phase 5/6/7 or Plan 3 behaviour arrived; and real-worker runs for the Converter, MP3
+  time-edit and Cover Image on generated fixtures.
+- Existing tests updated for the new phase boundary: the Plan 1 editor surface lists drop
+  `btn_browse_out`/`choose_outdir`, the copy-only collision assertions expect the approved
+  `stem-1.ext` numbering, and the Phase 3 "no tool consumes the service" guards were inverted
+  to "every tool consumes it".
+
+### Added — shared output reservation, collision and mirroring services (v0.6.0 Drop 2 Phase 3, 2026-08-03)
+
+> Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`.
+> **No tool consumes these services yet** — Phase 4 migrates the six panels, so current
+> user-facing output behaviour is byte-for-byte unchanged.
+
+- **`scripts/Universal/shared/output_paths.py`** — the platform-neutral output foundation for
+  `<base>/<Tool>-Outputs/<Tool>-N/`. Tk-free, subprocess-free, network-free, and independent of
+  the working directory. **Planning is pure; materialisation is explicit:** every `plan_*`
+  function, the sanitizer and the collision service touch nothing, and only
+  `ensure_output_base()` and `reserve_run_directory()` create anything — directories only,
+  never a file and never anything source-side.
+- **Central tool-parent registry** — `TOOL_OUTPUT_PARENTS` derives the six folders
+  (`TTS-Audiobook-Outputs`, `M4B-Converter-Outputs`, `MP3-Tool-Outputs`, `M4B-Maker-Outputs`,
+  `Cover-Image-Outputs`, `M4B-Metadata-Outputs`) from the existing `paths.TOOL_SLUGS`, so a slug
+  is never written down twice. An unknown tool key raises `UnknownToolError` instead of becoming
+  an unchecked path fragment, and a test proves the mapping matches the launcher's six tools.
+- **Atomic run reservation** — `mkdir()` without `exist_ok` is the correctness boundary: it
+  either creates `<Tool>-N` or raises `FileExistsError`, so two concurrent runs can never claim
+  the same number. There is deliberately no existence check first, because that is exactly the
+  check-then-create race the plan forbids. The search is bounded, failures carry diagnostics,
+  and `release_if_empty()` removes a reserved directory **only** while it is still empty.
+- **Filename sanitisation** — reduces a path to its last component, strips control characters,
+  replaces the Windows-forbidden set, normalises Unicode to NFC, strips trailing dots and spaces
+  (Windows drops them on write, which would silently merge two distinct names), defuses reserved
+  device names with or without an extension (`CON.txt` → `_CON.txt`), and truncates the stem to
+  255 characters while preserving the extension. Only the **final** suffix is treated as the
+  extension, so `Book 1.5 - Extras.m4b` keeps its title.
+- **Collision numbering** — the requested name first, then `stem-1.ext`, `stem-2.ext`. A
+  `DestinationPlanner` is created per run, never shared globally, and combines existing files
+  and directories with names the batch has already planned, so two proposed outputs cannot
+  select one destination before either file exists. Comparison is case-insensitive on every
+  platform, deliberately: both shipping targets are case-insensitive, and an extra `-1` is a
+  better failure than an overwrite.
+- **Input protection and containment** — `assert_not_input`, `assert_outside_source_trees`,
+  `assert_contained` (which normalises without requiring the path to exist, so an unresolved
+  child is checked rather than assumed safe) and `assert_no_link_in`, which refuses a
+  destination established through a symlink or junction **even when the link points back inside
+  the root** — the case containment alone cannot catch. Nothing in this module deletes anything.
+- **Pure path planning** — `plan_flat` (individually selected files land directly in the run
+  directory without recreating parent trees, per Decision 31A), `plan_mirrored` (one declared
+  root, relative parents preserved) and `plan_multi_root` (each root gets a collision-safe
+  container, so `Books` and `Books-1` keep two trees apart). A source outside its declared root
+  is rejected rather than silently flattened. Plans are frozen dataclasses of tuples.
+
+### Changed — `paths.next_output_dir()` marked for removal (v0.6.0 Drop 2 Phase 3)
+
+- Documented as a **compatibility wrapper scheduled for removal in Phase 4**: the pre-Plan-2
+  behaviour (non-atomic check-then-create, computed at `build_ui()` time and frozen for the
+  session, no configurable base, no tool parent). **Behaviour is unchanged** — five tool panels
+  still call it — and `test_output_paths.py` records the exact five call sites, so a sixth
+  caller fails the suite and Phase 4's removals are visible in the diff.
+
+### Added — output-service regression coverage (v0.6.0 Drop 2 Phase 3)
+
+- `files/tests/test_output_paths.py` (144 tests) covering base resolution (default, absolute,
+  `~`, relative fallback, no env expansion, nothing created, cwd-independence, unwritable),
+  the complete tool mapping and unknown-key rejection, reservation (layout, no files, existing
+  directory skipped, repeat runs, **8-thread concurrency**, bounded failure, diagnostics,
+  immutability, captured snapshot, empty-only release), sanitisation (every forbidden
+  character, control characters, trailing dots/spaces, blank/`.`/`..`, reserved names with and
+  without extensions, whole-path reduction, length limit, Unicode including NFC normalisation,
+  spaces and apostrophes, determinism, final-suffix rule), collisions (existing file, existing
+  directory, planned-only, combined, already-numbered names, sanitisation-induced, case-only,
+  independent trackers, determinism, nothing created, bounded), safety (input equality,
+  source-tree protection, containment, traversal, absolute-child injection, root-as-destination,
+  non-existent children, link escape and link-back-inside-root, nothing deleted), and planning
+  (flat, one-root, multi-root, duplicate root labels, same-stem files, sanitised components,
+  determinism, immutability, no filesystem writes, no input modification, no escape).
+- Windows note: directory-link tests run via **junctions**, which need neither Developer Mode
+  nor elevation. The single file-symlink test skips on this machine with the exact reason
+  (`WinError 1314`); the pure containment logic it guards is covered by the non-link tests.
+
+### Added — Preferences & Data, once-per-launch warnings and Reset Preferences (v0.6.0 Drop 2 Phase 2, 2026-08-03)
+
+> Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`.
+> No tool-output behaviour changed and no downloaded-data cleanup exists yet.
+
+- **`Preferences & Data…` in the launcher status bar**, on all three shells: an
+  `ACT.Ghost.TButton` beside "Open log folder" on Windows, a native unstyled `ttk.Button` on
+  macOS and Linux. Both `Ctrl+,` and `Cmd+,` are bound, so the conventional shortcut works on
+  whichever platform emits it. The launcher holds the single live instance, so activating the
+  entry point again **focuses** the open window rather than stacking duplicates.
+- **`scripts/Universal/shared/preferences_ui.py`** — the non-modal dialog plus the launch
+  warning window. Presentation only: every rule it enforces lives in the Phase 1 modules and
+  is tested without Tk. Styles are looked up through `_style()`, which returns `""` where
+  `theme["styles"]` does not exist, so macOS and Linux keep native rendering with no
+  platform-specific logic in the file.
+- **Output-location preference** — shows the effective base *and its source* (built-in
+  default / `config.toml` / your saved preference), with default-or-custom radio choice, an
+  editable path and Browse. Validation is the Phase 1 rule set: absolute or `~`-based only,
+  relative paths rejected rather than resolved against the working directory, environment
+  variables never expanded. **Saving stores a preference and creates no folder.** A successful
+  save persists atomically and reloads the effective snapshot immediately.
+- **Reset Preferences** — explains its scope, requires confirmation, clears mutable
+  preferences only through the Phase 1 atomic reset, refreshes the visible fields and source
+  line, and reports failure rather than claiming success. Cancelling changes nothing. It never
+  edits `config.toml` and never touches `.venv`, models, binaries, logs, outputs or media.
+- **Clear Downloaded Data placeholder** — visibly disabled, captioned "Available after
+  downloaded-data management is implemented", and carrying **no command at all**, so there is
+  nothing to invoke even if something re-enabled it. Phase 6 owns the real behaviour.
+- **Once-per-launch configuration warning** — `config.take_launch_warning()` owns a
+  platform-neutral guard (with `reset_launch_warning_guard()` for tests), and the launcher
+  presents one non-modal window carrying the whole aggregated summary after the root window
+  exists. Never one dialog per bad key, never a blocking `messagebox`, never a reason to fail
+  startup; technical detail goes to the session log and stays out of the visible text.
+
+### Fixed — a failed settings write left the in-memory cache ahead of the file (v0.6.0 Drop 2 Phase 2)
+
+- `settings.set()` and `settings.update()` mutated the cache and then reported failure if the
+  atomic write did not land, so the running application believed a preference that was never
+  saved. Both now **roll the change back in memory** when the write fails, which is what makes
+  the dialog's "the previous setting is still in use" literally true. Found while building the
+  failed-save path; covered by regression tests in `test_settings.py` and `test_preferences_ui.py`.
+
+### Changed — layout of the Preferences dialog to fit the supported minimum (v0.6.0 Drop 2 Phase 2)
+
+- The first build measured **689×626 px under the Windows theme**, taller than the app's own
+  `920×600` minimum. Entry/Browse/Save now share one row, Reset sits on its card's heading row,
+  and the outer padding uses the tight end of the spacing scale. The bounded form is now
+  **618×596 px on Windows and 630×488 px unstyled**, with no whole-dialog scrolling — local
+  scrolling remains reserved for genuinely growing content, of which this dialog has none.
+
+### Added — Preferences & Data regression coverage (v0.6.0 Drop 2 Phase 2)
+
+- `files/tests/test_preferences_ui.py` (65 tests): entry-point wiring, keyboard reachability,
+  both accelerators, single-instance/focus-existing behaviour, effective value and source
+  display, every accepted and rejected output-base form, no-directory-creation, atomic save,
+  failed-write rollback, immediate reload, reset confirm/cancel/success/failure, UI refresh,
+  `config.toml` byte-identity, unrelated assets untouched, the disabled placeholder and its
+  absent command, warning aggregation and deduplication, the once-per-session guard under a
+  twenty-iteration reload storm, technical detail logged but not displayed, `ACT.*` isolation
+  across dialog construction, the exact window constants, and the measured fit at `920×600`
+  under **both** the Windows theme and the unstyled path.
+- `test_repository_contract.py`'s Phase 1 "no GUI surface" guard moved with the phase boundary:
+  the launcher may now name Preferences, but is AST-checked to define no cleanup function and
+  call no destructive filesystem operation.
+
+### Added — committed `config.toml`, the configuration core and the canonical-name gate (v0.6.0 Drop 2 Phase 1, 2026-08-03)
+
+> Foundation work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`
+> and there is no v0.6.0 heading. No GUI or tool-output behaviour changed in this phase.
+
+- **Committed root `config.toml`** — the project's documented, commented, machine-agnostic
+  defaults: `project.{name,version,python_min,entry_point,platforms}`, `output.base_directory`,
+  `logging.max_sessions` and `importing.large_result_warning_threshold`. Safe to hand-edit: an
+  unusable value falls back and is reported rather than stopping the application. Personal
+  choices still live in the gitignored `files/runtime-data/settings.json`, which is the only
+  file the application writes.
+- **`scripts/Universal/shared/config.py`** — one typed, immutable `EffectiveConfig` snapshot
+  (frozen dataclasses, tuples, `MappingProxyType`) built from **code defaults → valid
+  `config.toml` values → the allowlisted mutable-settings overlay**. Per-key validation, so one
+  bad value never discards a good neighbour; missing/malformed TOML falls back without raising;
+  unknown sections and keys are ignored and reported once; `Diagnostic` records source, key, a
+  human-readable fallback and separate technical `detail`; `warning_summary()` aggregates and
+  deduplicates with no traceback in it; `get_effective()` / `reload()` / `invalidate()` give
+  deterministic caching. Standard-library `tomllib` only — **no new dependency**. The module is
+  Tk-free, takes injected paths for testing, and never creates a directory.
+- **Output-base rules** — empty means `~/Downloads/Audiobook-Creation-Tool-Outputs`; a
+  non-empty value must be absolute or `~`-based. A **relative path is rejected** instead of
+  being resolved against the working directory, and environment variables are **never**
+  expanded, so `%USERPROFILE%\…` and `$HOME/…` stay literal (and are therefore rejected).
+  Resolving a base computes a path; nothing is created. Phase 3 owns run folders.
+- **Settings reset and reload** (`shared/settings.py`) — `reset()` clears every mutable
+  preference through the atomic temp-file-then-replace boundary; `save()`/`set()`/`update()`
+  now **report success as a bool** instead of failing silently; `last_load_error()` explains a
+  malformed file, which is **never rewritten during a load**; `use_path()` is the injection
+  seam so tests never touch the maintainer's real preferences. Reset deliberately touches
+  nothing but `settings.json` — no `.venv`, model, binary, log, output or source file.
+- **Configurable log retention** — `logging_setup` reads `logging.max_sessions` through the
+  effective configuration, importing it lazily inside the function so retention can read config
+  while config never reads logging. Any failure at all falls back to 30; logging must come up.
+- **Permanent documentation-name gate** — `verify.py` gained a `docnames` check that compares
+  the **real directory entries** (`os.listdir`) against the exact canonical names, and a
+  `config` check that fails on any diagnostic from the committed file.
+
+### Fixed — `verify.py` was validating a document that no longer exists (v0.6.0 Drop 2 Phase 1)
+
+- `scripts/verify.py` read `md-instructions/CHANGELOG.md`. That name has not existed since the
+  documents were recased to `Changelog.md` / `Decisions.md` / `Handoff.md`, and the gate kept
+  reporting `PASS` **only because a path lookup on Windows is case-insensitive** — on a
+  case-sensitive filesystem the `docs` check would have failed outright. The reference is now
+  canonical, and the new `docnames` check enumerates real directory entries so the same class
+  of defect cannot hide again. **The documents were not renamed**; the reference was wrong.
+- Remaining active references corrected to the canonical casing: `README.md`'s layout tree,
+  `Briefing.md`'s pointers and cross-references, and `release.py`'s printed release checklist.
+  Archived one-shot notes under `files/release-history/` keep their historical wording.
+
+### Added — regression protection for the configuration contract (v0.6.0 Drop 2 Phase 1)
+
+- `files/tests/test_config.py` (68), `files/tests/test_settings.py` (25) and
+  `files/tests/test_repository_contract.py` (40) — 133 new tests. They pin down: the committed
+  file is valid, documented and machine-agnostic; missing/malformed TOML, wrong types, out-of-
+  range numbers, blank name, version drift, bad `python_min`, bad entry point and unknown
+  platforms each fall back alone; unknown keys aggregate into one diagnostic; every output-base
+  form (empty, absolute, `~`, relative, env-var, wrong type); precedence and the one-key
+  overlay allowlist; malformed `settings.json` reported without being rewritten; atomic write,
+  write-failure reporting and reset; cache invalidation; retention from config and its
+  fallback; and that the gate **fails** a missing canonical file, any case-variant alias, a
+  deleted permanent reference, an invalid config, version drift and malformed TOML — proved
+  against temporary trees, because a case-insensitive filesystem will not let a real alias be
+  staged beside the canonical file.
+- Tests use temporary directories and injected paths throughout: none reads, writes or resets
+  the maintainer's real settings, Downloads folder, logs, outputs, `.venv` or model cache.
+
 ### Added — Windows design system, converted launcher shell and M4B Metadata Editor (v0.6.0 Drop 1, approved 2026-08-02)
 
 > Prototype work on the v0.6.0 line. **No release has shipped**; `version.py` remains `0.5.1`

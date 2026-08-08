@@ -2,8 +2,16 @@
 
 > **Audience:** future AI sessions and any new contributor.
 > **Purpose:** the single document that fully orients a new session without the user re-explaining
-> anything. Version history lives in `CHANGELOG.md`; architectural decisions in `DECISIONS.md`;
-> in-flight work and open bugs in `handoff.md`.
+> anything. Version history lives in `Changelog.md`; architectural decisions in `Decisions.md`;
+> in-flight work and open bugs in `Handoff.md`.
+>
+> **These four names are a permanent contract** — `Briefing.md`, `Changelog.md`, `Decisions.md`,
+> `Handoff.md`, in exactly that casing. Never rename, recase, duplicate or alias them, and never
+> recreate the old `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` spellings. `scripts/verify.py`
+> enforces this by reading the real directory entries (`os.listdir`) rather than calling
+> `Path.exists()`, because a path lookup on Windows and macOS is case-insensitive and would
+> happily report a non-existent `CHANGELOG.md` as present. `files/tests/test_repository_contract.py`
+> holds the same line, including the permanent references under `md-instructions/don't-delete/`.
 
 ## What This Project Does
 
@@ -59,7 +67,7 @@ flashing during use.
   `shared/ui_theme.apply_theme()`, which returns one backwards-compatible bundle and picks
   the shell from `theme["mode"]`: **aqua** — a Finder-style shell (native aqua controls,
   tinted source-list sidebar with hover/selection rows and glyphs, toolbar strip, content
-  card), unchanged since v0.5.0 (see DECISIONS.md 2026-07-08); **windows** — the v0.6.0
+  card), unchanged since v0.5.0 (see Decisions.md 2026-07-08); **windows** — the v0.6.0
   dark shell (navigation rail, header strip naming the active tool and its description,
   framed content card, status bar with a focusable "Open log folder" button); **classic**
   (Linux/other) — the pre-v0.5.0 layout, byte-for-byte. **The content host is never
@@ -70,9 +78,16 @@ flashing during use.
   path — everything derives from `REPO_ROOT`), `subprocess_utils.py` (hidden-console subprocess
   wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (resolves ffmpeg/ffprobe:
   `files/bin/` → PATH; pins pydub to the resolved binaries; xHE-AAC decoder selection),
-  `settings.py` (atomic JSON at `files/runtime-data/settings.json`), `cancellation.py` (shared
+  `config.py` (the typed effective-configuration core — see *Configuration* below),
+  `preferences_ui.py` (the Preferences & Data dialog and the once-per-launch configuration
+  warning — presentation only, see *Preferences & Data* below),
+  `output_paths.py` (output base, run reservation, sanitisation, collisions, containment and
+  mirroring — built in Phase 3, consumed by the tools from Phase 4; see *Output services*),
+  `settings.py` (atomic JSON at `files/runtime-data/settings.json`, plus reset/reload and
+  explicit write-failure reporting), `cancellation.py` (shared
   Cancel/threading.Event pattern), `metadata.py` (mutagen M4B tag read/write incl. series
-  atoms + chapter-title re-mux), `logging_setup.py` (session logs, pruned to 30),
+  atoms + chapter-title re-mux), `logging_setup.py` (session logs, retention read from
+  `logging.max_sessions`),
   `ui_theme.py` (platform theming — the aqua/Finder palette, the Windows design system and
   the classic fallback, plus `style_tk_widget` for classic Tk widgets ttk cannot style, the
   `enable_mousewheel` scroll-on-hover helper and the shared `ProgressIndicator` —
@@ -80,6 +95,207 @@ flashing during use.
   `version.py` (single source of truth),
   `release.py` (dev-only zip packager, never imported by the app), `close_terminal.py`
   (macOS Terminal auto-close helper).
+- **Configuration (v0.6.0 Drop 2 Phase 1).** A committed, commented **root `config.toml`**
+  holds the project's documented defaults; `shared/config.py` turns it into one *typed,
+  immutable* `EffectiveConfig` snapshot. **Precedence, last wins: code defaults → valid
+  values from `config.toml` → the allowlisted mutable settings overlay.** The overlay is
+  exactly one key today — `output_base_directory` in `settings.json` overriding
+  `output.base_directory` — and `config.SETTINGS_OVERLAY` is the whole of it, so no other
+  stored preference can reach the configuration however it is spelled. Existing user state
+  (`last_tool`, remembered dialog directories, voice, bitrate) stays a plain setting and
+  deliberately has **no** TOML counterpart.
+  **Every key is validated on its own**, so one bad value never discards a good neighbour, and
+  a missing or malformed file can never stop the application from starting: it falls back and
+  records a `Diagnostic` (source, key, human-readable fallback, plus technical `detail` kept
+  out of the summary). Unknown sections/keys are ignored and reported **once**, aggregated and
+  deduplicated by `warning_summary()`. A snapshot is frozen dataclasses + tuples +
+  `MappingProxyType`, so an operation that captures one at run start cannot have it shift
+  underneath; `get_effective()` caches, `reload()`/`invalidate()` rebuild deterministically.
+  Loading configuration **never creates a directory** — resolving the output base computes a
+  path and nothing more. The module is Tk-free, platform-neutral, takes injected paths for
+  testing, and **never imports `logging_setup`**: retention reads config, so the dependency
+  runs one way only. `logging_setup.configured_max_sessions()` imports config lazily inside
+  the function and falls back to 30 on *any* failure, because logging must always come up.
+  Schema: `project.{name,version,python_min,entry_point,platforms}`, `output.base_directory`,
+  `logging.max_sessions` (1–1000), `importing.large_result_warning_threshold` (validated now;
+  Plan 3 owns the behaviour that consumes it). An empty output base means
+  `~/Downloads/Audiobook-Creation-Tool-Outputs`; a non-empty one must be absolute or `~`-based
+  — a **relative path is rejected** rather than resolved against the working directory, and
+  environment variables are **never** expanded (`%USERPROFILE%`/`$HOME` stay literal, and are
+  therefore rejected as relative). The GUI writes `settings.json` only and **never** rewrites
+  the committed TOML. `settings.reset()` clears every mutable preference atomically and touches
+  nothing else — no `.venv`, model, binary, log, output or source file; clearing downloaded
+  data is a separate, differently confirmed action that does not exist yet.
+- **Output services (v0.6.0 Drop 2 Phases 3–4) — built in Phase 3, adopted by all six tools
+  in Phase 4.** `shared/output_paths.py` is the platform-neutral foundation. Every standard
+  output now lands in `<base>/<Tool>-Outputs/<Tool>-N/`, reserved **at validated operation
+  start** — not at `build_ui()` time. Opening the launcher, building a panel, importing,
+  browsing, switching tools or failing validation creates **no** directory at all. The legacy
+  `paths.next_output_dir()` and `paths.avoid_input_overwrite()` are now dormant compatibility
+  API called by nothing in the shipped tree, and a test asserts that.
+  **Per-tool destinations:** TTS `TTS-Audiobook-Outputs`, M4B Converter `M4B-Converter-Outputs`,
+  MP3 Tool `MP3-Tool-Outputs`, M4B Maker `M4B-Maker-Outputs`, Cover Image `Cover-Image-Outputs`,
+  M4B Metadata `M4B-Metadata-Outputs`. Each panel shows its tool folder read-only and names the
+  actual reserved run once an operation starts; the base is changed only in Preferences & Data,
+  so no per-tool browse control can bypass it. Every output-producing action reserves its own
+  run — MP3 Tool's combine, time-edit and ID3 each get one, as do the editor's Write Tags,
+  Clear All Tags and Remove Series Numbering — and staging (`build/`, WAV normalisation,
+  ffmetadata) stays inside that run, so cleanup can never reach another run, the tool parent or
+  the base.
+- **The two destination exceptions (v0.6.0 Drop 2 Phase 5).** Decision 10A allows exactly two
+  departures from "everything lands in the reserved run", both opt-in and both expressed in
+  `shared/output_paths.py` rather than inside a panel.
+  **Cover Image — `Save beside source images`.** Off on every fresh build, with
+  `Create numbered copies` preselected and `Replace original files` never the default; turning
+  the toggle off resets the action, so a Replace selection cannot survive as a hidden mode.
+  *Numbered copies* use `SourceSidePlanner`, which keeps one collision sequence **per source
+  directory** and starts at `stem-1.ext` — beside a source the unnumbered name *is* the source.
+  *Replacement* needs three independent gates: the toggle, the radio, and a per-run
+  confirmation ("Confirm replacement of original images") whose Cancel is the focused default,
+  where Escape and closing both cancel, and which is rebuilt every run so nothing can be
+  remembered or suppressed. Every source is validated **before** the dialog, so the count shown
+  is the count that can be processed; links, missing files, directories and formats the writer
+  cannot round-trip in place (anything outside `.jpg/.jpeg/.png/.heic/.heif`, which fall back
+  to `.jpg`) are refused there rather than mid-run. Each replacement writes a complete
+  `.act-tmp-…` sibling in the source's own directory — same filesystem, so the install can be
+  atomic — validates the finished image's size, then calls `os.replace`. **Never
+  delete-then-rename.** A failure or cancellation before that boundary leaves the original
+  byte-for-byte unchanged and removes only this operation's own temporary file;
+  `discard_temporary()` refuses any path lacking the temporary prefix. A partial batch reports
+  truthfully: files already installed stay installed.
+  **M4B Maker — `Choose custom destination`.** Off on every fresh build; the path and Browse
+  controls exist only while it is on, and `custom_destination()` is the single place the widget
+  is read, so a stale hidden path cannot steer a standard build. The chosen directory is
+  validated before anything starts (absolute, existing, a directory, not a link, writable —
+  proved with a temporary probe that is removed again, so no user file is created or touched)
+  and a validation failure reserves **no** run. The finished `.m4b` goes straight in, with the
+  usual sanitisation and collision numbering and **no nested `M4B-Maker-N`**. Staging moves to
+  an operation-owned `tempfile.mkdtemp()` so the user's folder is never littered, and — the
+  important one — cancellation no longer `rmtree`s `out_dir`, because in custom mode that is
+  the user's own folder; it removes only this operation's staging and its own partial output.
+  **Planning is pure; materialisation is explicit.** Every `plan_*` function, the sanitizer and
+  the collision service compute paths and touch nothing. Only `ensure_output_base()` and
+  `reserve_run_directory()` create anything, and only directories — never a file, never
+  anything source-side. Tk-free, subprocess-free, network-free, working-directory-independent.
+  **Layout** `<base>/<Tool>-Outputs/<Tool>-N/`. `TOOL_OUTPUT_PARENTS` derives the six parent
+  folders from the existing `paths.TOOL_SLUGS`, so a slug is never written down twice; an
+  unknown tool key raises `UnknownToolError` rather than becoming an unchecked path fragment.
+  **Reservation is atomic:** `mkdir()` without `exist_ok` either creates the run directory or
+  raises `FileExistsError`, so concurrent runs can never claim the same number — there is
+  deliberately no "does it exist?" check first, because that is the race. The search is bounded,
+  the result is a frozen `RunReservation` carrying the configuration snapshot the run was
+  planned against, and `release_if_empty()` removes a reserved directory **only** while it is
+  still empty.
+  **Sanitisation** (`sanitize_component`) reduces a path to its last element, strips control
+  characters, replaces the Windows-forbidden set, normalises Unicode to NFC, strips trailing
+  dots and spaces (Windows drops them on write, which would silently merge two names), defuses
+  reserved device names with or without an extension, and truncates the stem to 255 characters
+  while keeping the extension. Only the **final** suffix is treated as the extension —
+  `Book 1.5 - Extras.m4b` keeps its title, which matters far more often than `.tar.gz` does.
+  **Collisions** try the requested name first, then `stem-1.ext`, `stem-2.ext`. A
+  `DestinationPlanner` is created per run — never shared globally — and combines what exists on
+  disk with what the batch has already planned, so two proposed outputs cannot select one
+  destination before either file exists. Comparison is case-insensitive on every platform:
+  Windows and macOS are case-insensitive anyway, and erring toward an extra `-1` beats erring
+  toward an overwrite.
+  **Safety:** `assert_contained` normalises without requiring the path to exist, so an
+  unresolved child is checked rather than assumed safe; `assert_no_link_in` refuses a
+  destination established through a symlink or junction *even when the link points back inside
+  the root*, which containment alone cannot catch; `assert_not_input` and
+  `assert_outside_source_trees` keep outputs off the inputs and out of the source tree. Every
+  failure is a typed `OutputPathError` carrying a human-readable `message` and a separate
+  technical `detail`. **Nothing here deletes anything.**
+  **Planning:** `plan_flat` puts individually selected files straight into the run directory
+  without recreating parent trees (Decision 31A), numbering same-named files;
+  `plan_mirrored` reproduces each source's relative parent under one declared root;
+  `plan_multi_root` gives each root a collision-safe container (`Books`, `Books-1`) so one
+  root's tree can never merge into another's. A source outside its declared root is rejected
+  rather than silently flattened.
+- **Preferences & Data (v0.6.0 Drop 2 Phase 2).** `shared/preferences_ui.py` holds the
+  cross-platform dialog and the launch-warning window. It is **presentation only**: every
+  rule it enforces lives in `shared/config.py` and `shared/settings.py` and is tested
+  without Tk. The launcher reaches it from a status-bar `Preferences & Data…` button —
+  an `ACT.Ghost.TButton` on Windows, a native unstyled `ttk.Button` on macOS/Linux — plus
+  `Ctrl+,` / `Cmd+,` bound on every platform. The launcher holds the one live instance, so
+  repeated activation **focuses** rather than stacking duplicates; the window is non-modal
+  and Escape closes it. Styling goes through `_style(theme, name)`, which returns `""`
+  wherever `theme["styles"]` is absent — a widget naming no style resolves the platform's
+  generic one, which is the same mechanism that keeps the five unconverted panels native.
+  There is no platform-specific *logic* in the file.
+  The dialog shows the effective output base **and where it came from** (built-in default /
+  `config.toml` / your saved preference), offers default-or-custom with Browse, validates
+  through the Phase 1 rules (absolute or `~` only; relative rejected; environment variables
+  never expanded), and **never creates the folder** — saving stores a preference, nothing
+  more. A save persists atomically and reloads the snapshot immediately; a failed write is
+  rolled back in memory as well as on disk, so "the previous setting is still in use" is
+  literally true. No raw traceback ever reaches the GUI; the technical detail goes to the log.
+  **Reset Preferences** confirms first, clears mutable preferences only through
+  `settings.reset()`, refreshes the fields and source line, and reports failure instead of
+  claiming success. It never edits `config.toml` and never touches `.venv`, models, binaries,
+  logs, outputs or source media. **Clear Downloaded Data is a separate action** that opens the
+  inventory described below; it is never bundled into Reset and never shares its confirmation.
+  **Configuration warnings are presented once per launch**: `config.take_launch_warning()`
+  owns the guard (platform-neutral, so a reload storm cannot become a dialog storm and a test
+  can re-arm it with `reset_launch_warning_guard()`), and the launcher shows one non-modal
+  window carrying the whole aggregated summary — never one dialog per bad key, never a
+  blocking `messagebox`, and never a reason to fail startup.
+- **Downloaded-data maintenance (`shared/maintenance.py`, v0.6.0 Drop 2 Phases 6–7).** The
+  catalog, the rules, the schemas and the wording live here; **the GUI process still deletes
+  nothing.** The module is platform-neutral, Tk-free, imports neither `shutil` nor
+  `subprocess`, and calls no deletion or process primitive; tests assert that structurally.
+  Removal happens in a separate helper process after the app exits (see the entry below). The
+  catalog is a **closed set
+  of exactly four IDs** held as frozen dataclasses behind a `MappingProxyType`, so it cannot
+  grow at runtime: `virtual_environment` → `.venv` (removed whole, always post-exit),
+  `portable_binaries` → `files/bin`, `downloaded_models` → `files/runtime-data/models`, and
+  `application_logs` → `files/runtime-data/logs` (contents only; post-exit, since the session
+  log is open). System ffmpeg is never included, and settings, `config.toml`, outputs, source
+  media and repository source/docs/tests are absent by construction rather than by a filter.
+  **An ID becomes a path in exactly one place.** `authorized_target(asset_id, repo_root)` takes
+  an always-explicit root — there is no default, so a test cannot be handed the real project by
+  accident — and returns a path only after proving it is the exact compiled target, inside the
+  root, not the root, not equal to / inside / containing any protected location, and not reached
+  through a symlink, junction or reparse point at any level. Normalisation uses `abspath`, never
+  `resolve()`, so a link is *detected* instead of followed. **No arbitrary path can ever reach a
+  delete:** the request and result schemas (version 1, immutable, validated in `__post_init__`,
+  strict allowlist on deserialize) carry enumerated asset IDs only and have no `path`, `target`,
+  `directory`, `root`, `command` or executable field at all. Size estimation is read-only
+  (`scandir`/`lstat`), never follows a directory link, tolerates files vanishing mid-walk, and
+  reports an unreadable subtree as an *incomplete* estimate — `1.2 MB (at least)`, and *"plus
+  data whose size could not be read safely"* in the confirmation — rather than a false exact
+  total. The dialog opens with **every box unchecked**, disables missing and unsafe rows, keeps
+  `Review Selected Data…` disabled until something eligible is deliberately ticked, persists no
+  selection, and measures sizes on a worker thread with every Tk update returned to the main
+  thread. The confirmation is one custom window (never a Yes/No box) rebuilt from the live
+  selection each time, with Cancel as the focused default and no suppression path. Accepting
+  builds one immutable request and hands it to an injected callback and nothing else.
+- **Post-exit cleanup (`shared/cleanup_state.py` + `shared/cleanup_worker.py`, v0.6.0 Drop 2
+  Phase 7).** The accepted request is saved atomically into one project-owned maintenance
+  folder — `files/runtime-data/maintenance/`, not configurable, unreachable from a request, and
+  validated on every use to be inside the repository and outside all four removable targets —
+  and a **separate helper process** is started with an argument vector (`shell=False`,
+  detached, no console) under a Python interpreter *verified* to be outside any virtual
+  environment, because the first thing it may remove is the one the app is running from. The
+  helper is standard-library only, derives its repository root from its own file location
+  rather than from anything the request carries, and is the **only** code in the project that
+  deletes a catalog asset. **The app closes only after the helper positively acknowledges the
+  request** — started, loaded, validated, ready to wait — and never merely because a process
+  was spawned; every other outcome withdraws the request, leaves both windows open and reports
+  *"Cleanup did not start. No data was changed…"*. The helper waits for the requesting process
+  to exit (bound to that exact process on Windows, so a recycled process id cannot end the wait
+  early), retires the request **before** the first deletion so a crash can never replay it,
+  makes exactly one attempt, and never retries or relaunches. Every target is **re-derived from
+  its ID and re-checked** — containment, protected paths, links, type — immediately before it
+  is touched, because the inventory the user saw is not permission: a folder swapped for a
+  junction in the meantime is refused, not followed, and a link found inside a target is
+  detached rather than descended into. `.venv` goes entirely; the other three keep their folder
+  and lose their contents; a missing target is a successful no-op; a locked file fails that one
+  item and the pass continues. One immutable result is written atomically and the **next launch
+  reports it once** — per item removed / already gone / failed / left alone for safety, the
+  space freed, and recovery advice whenever anything was not removed. It never claims complete
+  success if something failed, and a corrupt record is moved aside and never executed.
+  `bootstrap.py` and both root launchers are unchanged: a removed `.venv` already falls through
+  their fast path into the ordinary setup that rebuilds it.
 - **Windows design system (v0.6.0 Drop 1 — approved 2026-08-02).** A centralized set of
   *semantic* tokens in `shared/ui_theme.py`, consumed only through the theme bundle:
   `_WINDOWS_COLORS` (surfaces window/sidebar/surface/elevated/muted/border/divider, text
@@ -124,13 +340,50 @@ flashing during use.
   retry). Long operations run on worker threads with a Cancel button and a per-tool progress
   indicator (determinate with a percentage where the total is known; indeterminate otherwise —
   e.g. the M4B Maker's single concat/encode); **workers never read Tk variables** (hoisted to
-  the main thread — see DECISIONS/memory), and progress flows the same way: the worker enqueues
+  the main thread — see Decisions.md / memory), and progress flows the same way: the worker enqueues
   `("progress", (done, total))` on its existing queue and only the main-thread drain touches
   the widget.
-- **Outputs are copy-based everywhere:** transforming tools write to a fresh auto-named
-  `Downloads/<Tool>-N` folder (decided once per launch, created lazily); imported originals are
-  never modified. The only in-place exception is the Cover Image tool's explicit overwrite
-  toggle.
+- **Outputs are copy-based everywhere:** since v0.6.0 Drop 2 Phase 4 every transforming tool
+  writes into a run directory reserved at validated operation start under
+  `<output base>/<Tool>-Outputs/<Tool>-N/`; imported originals are only ever read. Phase 5 then
+  added the **only two** destination exceptions, both opt-in and both described below: Cover
+  Image's source-side modes (numbered copies by default, replacement off by default and behind
+  a strong confirmation) and M4B Maker's custom destination. Everything else is copy-based, and
+  no normal operation silently overwrites an input or an existing output.
+- **A tool panel displays the destination; it never decides it.** The read-only "Output folder"
+  line is a hint from `output_paths.destination_hint()`, and the run resolves the base again at
+  operation start, so a preference changed mid-session can never move an operation already
+  under way. Since the Phase 8 remediation the reverse is also true: `output_paths` keeps a
+  small registry of those displays, and a successful Preferences **Save** or **Reset** re-points
+  every already-built panel immediately, so the application never shows a destination it would
+  not actually use. Panels are not rebuilt to achieve that, and none of them resolves a path
+  itself.
+
+- **Downloaded-data maintenance (v0.6.0 Drop 2 Phases 6–7).** *Preferences & Data → Clear
+  Downloaded Data* inventories exactly **four** enumerated assets — the virtual environment,
+  portable binaries, downloaded voice models and application logs — and nothing else can be
+  named. The catalog is a frozen mapping of closed IDs; a request carries IDs only, never a
+  path, so no serialized or GUI-supplied path can reach a deletion. Nothing is selected by
+  default, a missing or unsafe row cannot be selected, and reviewing is always non-destructive.
+- **Cleanup happens after the application has exited, in a separate non-venv process.** The
+  confirmed request is written atomically to `files/runtime-data/maintenance/` — a
+  project-owned location, re-validated on every use to be inside the repository and outside all
+  four removable targets. A standard-library-only coordinator is started with an argument
+  vector and `shell=False` under an interpreter *verified* to sit outside any virtual
+  environment; the GUI closes only once that coordinator has positively acknowledged the
+  request, waits for the requesting process to exit by handle (not by PID), retires the request
+  before the first deletion so a crash cannot replay it, and re-authorizes every target
+  immediately before removing it. Deletion is post-order and link-safe: links are detached,
+  never followed. The result is written atomically and reported **once** on the next launch,
+  then retired. `.venv` removal is expected to be followed by an ordinary launcher rebuild.
+- **Release packaging (v0.6.0 Drop 2 Phase 8).** Both platform archives carry the committed root
+  `config.toml` byte-for-byte beside `README.md`, the correct platform launcher (stored `0o755`
+  so a macOS extraction is immediately runnable) and the complete `scripts/` tree — and nothing
+  else. Packaging works by **explicit scope**: the root files are a named list and exactly one
+  tree is walked, so nothing is ever copied wholesale and then pruned. That is why the
+  maintainer's unrelated untracked root `config-template.toml` needs no exclusion rule and has
+  none; the packager never names it, the runtime never loads it, and automated tests prove both
+  even while it sits directly beside `config.toml`.
 
 ## Features
 
@@ -140,9 +393,9 @@ flashing during use.
   Cancel. Edge voices honor all five pause fields in **single-file** conversion; Edge
   **batch folder** mode honors speaker + rate only — inter-sentence pacing there is
   Edge's natural prosody by deliberate decision (a timing-aware batch rewrite was
-  built, measured, and rejected by ear — see DECISIONS.md 2026-07-19). Kokoro voices
+  built, measured, and rejected by ear — see Decisions.md 2026-07-19). Kokoro voices
   honor the paragraph pause (mapped to the inter-chunk gap) and the end-of-recording
-  pause — sentence/title/chapter parity is deliberately deferred (see DECISIONS.md). Dev/QA helper
+  pause — sentence/title/chapter parity is deliberately deferred (see Decisions.md). Dev/QA helper
   `tts/generate_voice_samples.py` writes one short sample per voice to
   `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
 - **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → clean MP3 (libmp3lame VBR),
@@ -202,10 +455,13 @@ Audiobook-Creation-Tool/
 ├── Setup_and_Run-audiobook-creation-tool.bat / .command   ← the ONLY user-facing entry files
 ├── .venv/                      ← auto-built by the bootstrap (gitignored)
 ├── .claude/  .codex/           ← agent wiring
-├── md-instructions/            ← Briefing, CHANGELOG, DECISIONS, handoff (+ temporary drops)
+├── config.toml                 ← committed project defaults (validated by verify.py)
+├── md-instructions/            ← Briefing, Changelog, Decisions, Handoff (+ temporary drops)
 ├── scripts/
 │   ├── requirements.txt        ← single pinned cross-platform list
 │   ├── verify.py               ← mechanical gate: pytest + pinned deps + de-templated docs
+│   │                             + exact canonical doc names (os.listdir, no alias)
+│   │                             + a valid committed config.toml (fails on any diagnostic)
 │   ├── Universal/              ← ALL program code (launcher.py, tts/, mp3_tools/, shared/)
 │   ├── Windows/  MacOS/        ← empty by design (.gitkeep) — only truly OS-specific code
 └── files/                      ← dev-only + runtime (nothing here ships in release zips)
@@ -231,6 +487,10 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 v0.5.1 (v0.5.0 line plus the Jenny Edge voice; v0.4.0 is the latest
 published GitHub release — remote: [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool))
 
+**v0.6.0 Drop 2 is approved and closed, and it did not change the version.** `version.py` is
+still `0.5.1`, there is no v0.6.0 heading, tag, release or published archive, and the wider
+v0.6.x initiative is **not** complete — six of the nine plans remain undrafted.
+
 ## High-Level State
 
 All six tools are built, live-verified on Windows (v0.1.0 test matrix: 18/18 applicable rows
@@ -250,6 +510,45 @@ is still `0.5.1`, no v0.6.0 exists, and the remaining five panels are unconverte
 further v0.6.x plans are named in the sequencing note but undrafted; **Plan 2 is the next
 implementation-planning target.**
 
+**v0.6.0 Drop 2 (configuration, output, and application maintenance) — approved 2026-08-08,
+not released.** Plan 2 delivered the committed root `config.toml` with per-key fallback and
+once-per-launch warnings, Preferences & Data with the shared output base and Reset, the
+`output_paths` reservation/collision/mirroring service adopted by all six tools, the two
+confirmed destination exceptions, the four-asset downloaded-data inventory with post-exit
+cleanup and rebuild, and `config.toml` in both release archives. Approved at Phase 8
+`0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 is the documentation/retirement commit, not
+another feature phase. **The next unopened implementation work is Drop 3** (shared importing and
+job controls); it has not been drafted or started.
+
+**How Plan 2 was validated, and what was deliberately not validated.** The evidence is a clean
+extraction of the real Windows archive into a disposable root whose path carries a space, an
+apostrophe and non-ASCII characters: the real `.bat` launcher detected the absent environment,
+ran the full pinned install, launched the application, read `config.toml` from the extraction,
+created runtime state only in its own `files/runtime-data/`, and used the healthy fast path on
+the next launch with no console. A live **Edge TTS** synthesis produced a real 12.66 s MP3, and
+all six tools' output routes, run numbering, mirroring, both destination exceptions, and the
+post-exit cleanup plus `.venv` rebuild were exercised end to end. The Windows manual matrix
+finished **46/46 PASS**, after a first pass of **44/46** that exposed two genuine defects —
+both fixed before approval:
+
+- **MP3 Combine failed on any path containing an apostrophe.** The ffmpeg concat list escaped
+  `'` as `\'`, but inside single quotes ffmpeg treats every character literally, so the quote
+  closed the token early and truncated the path. It now uses ffmpeg's documented
+  close-escape-reopen form (`'` → `'\''`) and leaves backslashes alone. Spaces, Unicode,
+  apostrophes and all three together are covered by tests that run the real binary.
+- **An already-built panel kept showing the old output location** after a preference change.
+  The shared display registry described above fixes it; the run was always correct, but the
+  displayed destination now is too.
+
+**Two validations are explicitly deferred, and neither is a pass.** **Live macOS was not
+performed for Plan 2** — the aqua path is import- and build-tested only. **The Windows 125%
+scaling/screenshot matrix was not performed**; Windows stayed at true 100% throughout, no
+registry edit or DPI simulation was used, and by maintainer decision the true 125% pass belongs
+to the later dedicated UI-compression/no-scroll phase, once the remaining features are in and
+the layout is stable. Plan 2's screenshot evidence is the twelve-image 100% set under
+`files/UI-Prototype-Screenshots/v0.6.0-drop2/`, plus the `920×600` reachability result; the ten
+Plan 1 images are unchanged.
+
 **Non-Windows preservation is a standing contract.** macOS `aqua`/Finder and the Linux/other
 `classic` fallback must not change as Windows evolves. At the v0.6.0 Drop 1 approval this was
 proven by AST-level comparison against `master`: `_apply_darwin`, `_apply_classic`,
@@ -260,7 +559,7 @@ arm. Four automated tests keep it that way (`test_apply_theme_on_current_platfor
 `test_classic_branch_other_platform`, `test_non_windows_theme_builds_the_unconverted_layout`,
 `test_an_aqua_bundle_builds_the_historical_layout`). **A live macOS re-verification of the
 v0.6.0 line has not been performed** — it is an explicitly approved deferral, not a pass, and
-the exact five-step smoke test is written out in `handoff.md`.
+the exact five-step smoke test is written out in `Handoff.md`.
 
 **Known limitations (documented, not bugs):**
 - **The application is DPI-unaware on Windows — unresolved future work, not finished
@@ -277,6 +576,24 @@ the exact five-step smoke test is written out in `handoff.md`.
   reserved for Plan 9 or an appropriately scoped future plan. Fixing it means a manifest or
   a `SetProcessDpiAwareness` call at startup plus a re-measure of every fixed pixel metric —
   a real behaviour change, deliberately not attempted during the prototype.
+- **The final GUI fit contract (target for Plan 9, binding on all new UI now).** At the
+  reference environments — Windows 11 at 1920×1080 with both 100% and 125% display scaling,
+  plus the approved live macOS reference display — the **maximized** launcher must show each
+  complete tool view **without a whole-panel or whole-form scrollbar where practical**: the
+  bounded configuration sections, primary actions, run controls, progress/status and output
+  location all visible at once. Reach that with adaptive layout (responsive columns, compact
+  spacing, wrapping, collapsible secondary material, local list sizing) rather than by putting
+  a whole tool inside a permanently scrolling canvas. **Scrolling stays valid for genuinely
+  unbounded content** — imported-file lists, book/job collections, chapter-title collections,
+  long metadata/result details, Summary/Details logs, thumbnail browsers — and must be kept
+  *local to that region*, with primary actions, Cancel/Pause/Resume, progress, status and
+  output access still reachable. "Full screen" here means the ordinary window maximized by the
+  OS; it does **not** mean an F11 borderless mode and does **not** change the startup geometry
+  or force auto-maximizing. At the `920×600` minimum no plan promises every variable-length
+  section is simultaneously visible — the requirement is graceful adaptation: no unreachable
+  primary action, no unresolvable overlap, no clipped confirmation button. `MIN_SIZE` and
+  `DEFAULT_GEOMETRY` are unchanged (below). The M4B Metadata Editor's permanently scrolling
+  form is an accepted Plan 1 limitation, not the final target; Plan 9 owns the reflow.
 - **Windows geometry, deliberately unchanged.** `MIN_SIZE = (920, 600)` and
   `DEFAULT_GEOMETRY = "1024x720"` stay as they are. At the 920×600 minimum the **M4B
   Converter's** primary action and Log are still clipped (~19 px and ~108 px bottom + 75 px

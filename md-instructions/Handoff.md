@@ -1,6 +1,1807 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
+**v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
+COMPLETE, MAINTAINER-APPROVED AND CLOSED (2026-08-08). The feature branch is integration-ready
+and has not been merged. The next unopened implementation work is Drop 3, which requires new
+explicit maintainer direction and a fresh session.**
+
+### Phase 9 — Plan 2 approval closeout and temporary-drop retirement (2026-08-08, HOME-PC)
+
+**Plan 2 is approved.** The maintainer approved Phase 8 at
+`0e7ad0c264cb2a46f3c64f968e24f00963cb1987` — the original implementation
+(`88a64dce840d8fe7e3305818eac3ad659fb3555e`) and its remediation accepted together — and Plan 2
+as a whole. Phase 9 is a **documentation and retirement commit**: no application behaviour, no
+UI, no packaging, no configuration and no screenshot changed, and `version.py` is still `0.5.1`.
+
+**What moved where.** `Briefing.md` gained the lasting configuration/output/maintenance
+architecture (the two destination exceptions, the display-hint-versus-reservation rule and the
+new live refresh, the four-asset downloaded-data catalog and the post-exit coordinator, and the
+explicit-scope packaging contract), plus the Plan 2 approval paragraph, the validation summary
+and both deferrals. `Changelog.md` gained four `[Unreleased]` entries — packaging, the two
+fixes, and this closeout — with **no v0.6.0 release heading**. `Decisions.md` gained one signed,
+dated ADR covering the four non-obvious choices (explicit-scope packaging, ffmpeg's documented
+concat quoting, the shared display registry, and recording the two deferrals as deferrals); no
+historical entry was rewritten and Decisions 1–55 were not reopened. The master implementation
+index now shows Drop 2 complete and approved and Drop 3 as the next unopened drop, with the
+nine-plan sequence unchanged.
+
+**The temporary drop was retired** — `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`,
+54,346 bytes, SHA-256 `faa83b0ffe4c85f54f8e788ff5eed0ecbdc52c99929c670d5d8e4079fb1e8920` —
+deleted by exact path only, after the transfer above, exactly as its own Phase 9 directs
+(deletion, not archival). Nothing under `md-instructions/don't-delete/` was touched, and no
+tracked document now depends on the retired file as its only source of truth.
+
+#### The final Plan 2 record, in one place
+
+| | |
+|---|---|
+| Branch | `feature/0.6.0-drop2-config-output-maintenance-foundation` — **not merged** |
+| Start SHA | `bada8a3dee87acf6a6619252bd31cdee429f1711` |
+| Phase 8 approved at | `0e7ad0c264cb2a46f3c64f968e24f00963cb1987` |
+| Version | `0.5.1` — unchanged, no tag, no release, no published archive |
+| Tests | 1074 collected, 1069 passed, 5 documented skips, 1 pre-existing warning, all 17 theme tests executed |
+| Gates | `scripts/verify.py` `RESULT: PASS`; compile gate; `git diff --check`; canonical-name/alias gate; protected-folder gate |
+| Windows matrix | **46/46 PASS**, after a recorded **44/46** first pass and two fixes |
+| Screenshots | twelve 100% images under `files/UI-Prototype-Screenshots/v0.6.0-drop2/`; the ten Plan 1 images unchanged |
+| Live TTS | Edge TTS `en-US-SteffanNeural`, 254,925-byte MP3, 12.66 s measured |
+| `config-template.toml` | untracked, unstaged, byte-identical `94b05edc3211efe531be018fbc442c240df8db42`, never loaded, absent from both archives |
+
+#### Carried limitations and deferrals — none of these is a pass
+
+1. **Live macOS validation was not performed for Plan 2.** The aqua path is import- and
+   build-tested only. Automated aqua coverage is explicitly **not** a live pass. Deferred by
+   maintainer decision on 2026-08-07.
+2. **The Windows 125% scaling/screenshot matrix was not performed.** Windows stayed at true
+   100% throughout Phase 8 and its remediation; no registry edit or DPI simulation was used.
+   By maintainer decision this pass belongs to the **later dedicated UI-compression/no-scroll
+   phase**, after the remaining features land and the layout is stable — that pass will do the
+   final layout compression, verify the maximized no-scroll goal, and retest 100% **and** 125%
+   against the stable interface. Do not reopen it before then.
+3. **The application is DPI-unaware on Windows** (Plan 1 finding, unchanged). Nothing clips or
+   reflows at 125% because the whole window is bitmap-scaled uniformly; text is softer.
+4. **M4B Converter clipping at the `920×600` minimum** (~19 px primary action, ~108 px + 75 px
+   Log) remains, deferred to that panel's later conversion.
+5. **Windows xHE-AAC decode** remains a confirmed limitation since v0.3.2.
+6. **A fresh one-click clean-machine install** is verified in pieces, not on a virgin box.
+
+#### Standing requirement carried forward — NOT part of Plan 2, NOT transferred yet
+
+Recorded here only so it is not lost. It was **not** implemented, **not** documented as done,
+and **not** transferred into the protected planning records during Phase 9, because the Plan 2
+drop does not assign that transfer. It belongs to the later UI-compression/no-scroll planning
+pass and the Drop 3 fresh-chat handoff:
+
+- remove the visible "Trim Edge TTS padding" checkbox and the individual timing controls, while
+  **keeping the underlying trimming/padding behaviour**;
+- tested internal defaults must give natural batch joins across every currently exposed Edge TTS
+  voice;
+- Kokoro must be checked independently for equivalent joining, clipping, silence and pacing
+  problems;
+- broader timing customisation belongs to the later TTS-focused v0.7.x series.
+
+#### Next action
+
+**Plan 2 integration review only.** The branch is integration-ready; merging, tagging, bumping
+the version and publishing a release are all outside every phase of this plan and were not done.
+Drop 3 (shared importing and job controls) is the next unopened implementation drop: it has not
+been drafted or started, and it needs new explicit maintainer direction in a fresh session.
+
+### Phase 8 — Packaging, cross-platform regression, and manual approval gate (2026-08-07, HOME-PC)
+
+**Result: both release archives now carry the committed root `config.toml`, and the complete
+Plan 2 behaviour has been exercised in a genuine clean extraction of the Windows archive.**
+Packaging: one production file modified (`shared/release.py`), one test file added, twelve
+screenshots added. The remediation below then corrected two defects this phase's own manual
+matrix exposed. `version.py` is still `0.5.1`. **Phase 9 was not started.**
+
+**Phase 8 start SHA:** `1eddc5163b4ad81f858d30b7df75fd2a28188da9` (approved Phase 7). The
+ending SHA is the commit carrying this section.
+
+**Phase 8 is complete but NOT approved.** It awaits the maintainer's manual review of the
+returned screenshots and evidence package. The first pass was rejected on 2026-08-07; see
+the remediation immediately below, which supersedes the amended rows in the matrix and the
+amended findings.
+
+#### Phase 8 remediation (2026-08-07) — two defects the manual matrix exposed, now fixed
+
+The first Phase 8 pass (`88a64dce840d8fe7e3305818eac3ad659fb3555e`) found two real defects and
+then mis-scoped them. Both are corrected here, and the claims below that contradicted the
+observed behaviour have been amended rather than left standing.
+
+**Why they were not out of scope.** The apostrophe failure was diagnosed as pre-existing
+(`mp3_tool.py`'s escaping dates to `5459d3d`, 2026-05-28, untouched by Phase 4) and reported as
+outside Plan 2. That reasoning was wrong: Plan 2's own contract lets the user choose the output
+base and requires spaces, Unicode and apostrophes to work, so a user-selected folder that breaks
+a tool is a Plan 2 defect regardless of which commit introduced the faulty line. The stale label
+is likewise part of the preference contract — the application must not display a destination it
+would not use.
+
+**Correction 1 — ffmpeg concat-list serialization.**
+Root cause: `ffmpeg_escape_listfile_path` wrapped the path in single quotes and then wrote a
+quote as `\'`. Inside single quotes ffmpeg treats every character literally, so the backslash
+escaped nothing and the `'` was read as the **closing** quote; the path silently truncated
+there and the rest became stray tokens. The same function also doubled every backslash, which
+survived only because Windows collapses repeated path separators and would corrupt a genuine
+backslash. Both failed identically on the fast and safe paths, so `combined.mp3` was never
+produced.
+
+The fix uses ffmpeg's documented form (ffmpeg-all, *Concat demuxer* and *Quoting and escaping*,
+which gives the example `file '/mnt/share/file 3'\''.wav'`): close the quote, emit an escaped
+quote outside it, reopen. Everything else inside the quotes is left exactly as-is, so
+backslashes, spaces and non-ASCII need no treatment at all. The list is written UTF-8 with
+explicit `newline="\n"`. A path containing a line break now raises rather than producing a
+listfile the demuxer would misread — the demuxer is line-oriented and cannot represent one.
+
+Nothing else moved: argument-vector execution is unchanged, no path is interpolated into a
+shell command, `shlex.quote` remains confined to the human-readable error log, input order is
+preserved, the fast-path/fallback structure is untouched, and concat lists still live inside the
+operation's own `build/` directory under the reserved run folder.
+
+**Correction 2 — live output-location refresh.**
+Each panel read `destination_hint(TOOL_KEY)` once at build time into a read-only variable, and
+the launcher builds panels lazily then reuses them, so a panel that already existed kept showing
+the old base. `output_paths` now carries a small registry: `register_destination_hint()` records
+the variable a panel already owns, and `refresh_destination_hints()` re-points every live
+registration through the same `destination_hint` resolution. `PreferencesDialog` calls it from
+exactly two places — the successful `_commit` and the successful `reset_preferences` — so a
+rejected, cancelled or unsaved value can never reach a panel. Dead registrations are dropped on
+first touch rather than raised over, because refreshing a label must never break the call that
+just saved a preference. No panel is rebuilt or destroyed, no panel gained a constructor
+argument, no panel resolves a path itself, and reservation still re-reads the effective
+configuration at operation start.
+
+**Files changed in the remediation**
+
+| Path | Change |
+|---|---|
+| `scripts/Universal/mp3_tools/mp3_tool.py` | escaper rewritten + registration, ~+30 / −4 |
+| `scripts/Universal/shared/output_paths.py` | the hint registry, ~+58 |
+| `scripts/Universal/shared/preferences_ui.py` | import + two refresh calls, ~+9 / −1 |
+| `scripts/Universal/tts/epub2tts_gui.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/m4b_converter.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/m4b_maker.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/cover_resizer.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/m4b_metadata_editor.py` | registration, +3 |
+| `files/tests/test_mp3_concat_paths.py` | **added**, 25 tests |
+| `files/tests/test_output_location_refresh.py` | **added**, 41 tests |
+| `files/tests/test_tool_output_integration.py` | one guard restated, ~+30 / −3 |
+
+The Phase 3 guard `test_preferences_still_reserves_no_output` asserted the *string*
+`output_paths` never appeared in `preferences_ui.py`. Preferences now legitimately imports it to
+refresh a display, so that check no longer expressed the rule. It was **strengthened, not
+relaxed**: it now parses the module and requires that the only `output_paths` member Preferences
+touches is `refresh_destination_hints`, and that it calls nothing which reserves, creates or
+plans a destination (`reserve_run_directory`, `ensure_output_base`, `ensure_tool_parent`,
+`mkdir`, `makedirs`, `touch`, `plan_destination`, `destination_hint`).
+
+**Manual retest (2026-08-07, Windows 11 Pro 10.0.26200, 1920×1080, true 100% scaling)**
+
+Disposable test root: `…\scratchpad\Phase 8 clean extract Ré'sumé` — the retained Phase 8
+extraction, proven separate from the real repository again before use (distinct, neither
+contains the other, not an ancestor of it, not a drive root, not the home directory, not the
+workspace root). Its `scripts/` tree was replaced from the **rebuilt Windows archive**
+(SHA-256 `0d8d7b217f20e685b5c4ed0335add023734f81927901184b8b5bbd14914a5278`), so the code under
+test still has archive provenance; its `.venv` and pinned install were kept because
+`requirements.txt` did not change. Fixtures and outputs both live in fresh disposable folders
+whose names carry a space, an apostrophe and non-ASCII characters:
+`…\scratchpad\P8r fixtures Ré'sumé Ñ\o'clock inputs\` and `…\scratchpad\P8r outputs Ré'sumé Ñ`.
+
+MP3 combine, with an apostrophe in the output base, the parent input directory **and** both
+filenames (`1 o'clock Ré tone.mp3`, `2 o'clock Ré tone.mp3`, 2 s and 4 s):
+
+- the generated list is
+  `file 'C:\…\P8r fixtures Ré'\''sumé Ñ\o'\''clock inputs\1 o'\''clock Ré tone.mp3'` — the
+  documented close-escape-reopen form, backslashes untouched;
+- `combined.mp3` produced at
+  `…\P8r outputs Ré'sumé Ñ\MP3-Tool-Outputs\MP3-Tool-2\combined.mp3`, 27,272 bytes;
+- `ffprobe` validates it: `mp3`, 44,100 Hz, 1 channel, **duration 6.000000 s** — exactly
+  2 s + 4 s;
+- order preserved: `combined_time-stamps.txt` reads `01. 1 o'clock … @ 00:00.000 (+00:02.000)` /
+  `02. 2 o'clock … @ 00:02.000 (+00:04.000)`;
+- the **fast path** succeeded — only `inputs_fast.txt` exists in `build/`, there is no
+  `inputs_safe.txt`, no `wavs/` directory and no `ffmpeg_log.txt` at all;
+- run numbering held: an earlier single-file combine took `MP3-Tool-1` and this one took
+  `MP3-Tool-2`, with `MP3-Tool-1` untouched;
+- both sources are byte-identical afterwards (`2d68f304ac61ce0e…`, `14da7e0c794b0020…`) and no
+  file was written beside them;
+- the concat list stayed inside its own run's `build/` folder — nothing was left anywhere else.
+
+**The "empty-bodied error dialog" claim is withdrawn.** It was an artifact of capturing native
+message boxes with `PrintWindow`, not a product defect: reading the dialog's text directly gives
+`Combine complete.` / `Output: …\MP3-Tool-2\combined.mp3`, and the failure branch already
+supplies `FFmpeg failed.` plus the log path. No error-reporting code was changed.
+
+Output-location refresh, with all six panels built first and the MP3 Tool panel left visible:
+
+| Action | Observed |
+|---|---|
+| Save a custom base (`…\P8r outputs Ré'sumé Ñ`) | The visible MP3 Tool panel changed from `…\Downloads\Audiobook-Creation-Tool-Outputs\MP3-Tool-Outputs` to `…\P8r outputs Ré'sumé Ñ\MP3-Tool-Outputs` **immediately** — no run, no tool switch, no rebuild, no restart |
+| The other already-built panels | TTS, M4B Converter, M4B Maker and Cover Image all show `…\P8r outputs Ré'sumé Ñ\<Tool>-Outputs`. M4B Metadata's row sits below its panel's visible scroll area, so its refresh is covered by the automated registration and refresh tests rather than by eye |
+| Displayed vs actual | The combine reserved `…\P8r outputs Ré'sumé Ñ\MP3-Tool-Outputs\MP3-Tool-2`, under exactly the folder the panel displayed |
+| Invalid path (`still/relative`) | Refused with the same precise message; **no** panel label moved to the rejected value |
+| Cancelled reset | Nothing changed anywhere |
+| Confirmed reset | Every panel returned to `…\Downloads\Audiobook-Creation-Tool-Outputs\<Tool>-Outputs` immediately, again with no restart or rebuild |
+| Failed settings write | Not forced live; covered by two automated tests (a `set_output_base` that returns `False`, and one that raises `OSError`) — both leave every label at the prior effective value |
+
+`920×600` regression at 100%: requesting 600×400 clamped to a 922×632 frame, i.e. a client area
+of exactly **920×600**. All six sidebar entries, Import/Remove Selected/Clear List, the Output
+folder row, **Combine MP3s → One MP3**, the status line, "Preferences & Data…" and "Open log
+folder" are all fully visible and unclipped; the panel's own content region scrolls locally and
+the window itself does not scroll. No whole-window scrolling was introduced. No UI compression
+was attempted.
+
+**Screenshots: all twelve preserved byte-for-byte.** Neither correction changes the visible
+content of any committed image — the concat fix has no UI at all, and the refresh fix only alters
+a label *after* a preference change, which no committed screenshot depicts. All twelve Phase 8
+hashes and all ten Plan 1 hashes were re-verified after the remediation and are unchanged, so
+nothing was recaptured.
+
+**Display scaling.** Windows stayed at **true 100% on both displays** throughout this
+remediation (`GetDpiForMonitor(MDT_EFFECTIVE_DPI)` = 96 before and after); the maintainer was
+not asked to change it, no registry edit or other DPI simulation was used, and the 125% matrix
+was not run. Per the maintainer's standing policy, 100% is the working scaling for the remaining
+feature drops and the true 125% pass belongs to the later dedicated UI-compression/no-scroll
+phase, which will perform the final layout compression, verify the maximized no-scroll goal, and
+retest 100% and 125% against the stable interface.
+
+**Live macOS remains explicitly deferred and untested.** Nothing in this remediation changed
+that, and no macOS check was run.
+
+**Testing after the remediation:** 1074 collected, 1069 passed, 5 skipped, 1 warning. The
+increase reconciles exactly to the new tests: 1008 + 25 (`test_mp3_concat_paths.py`) + 41
+(`test_output_location_refresh.py`) = 1074; 1003 + 25 + 41 = 1069. Skips (5) and the one
+`audioop` `DeprecationWarning` are unchanged. All 17 theme tests executed and passed.
+`scripts/verify.py` → `RESULT: PASS`; compile gate exit 0; `git diff --check` clean over
+`scripts` and `files/tests`.
+
+**Phase 9 remains unstarted.** No permanent-document transfer, no drop deletion, no merge, bump,
+tag, release or publication.
+
+#### Packaging — the narrowest change that satisfies the contract
+
+`shared/release.py` gained a `ROOT_FILES = ("README.md", "config.toml")` constant; the
+per-OS builder validates and writes that named list instead of `README.md` alone. Nothing
+else changed: the same single `scripts/` walk, the same exclusion sets, the same forced
+`0o755` launcher mode, the same `version.py` source of truth.
+
+The safety argument is **explicit scope, not exclusion**. The packager names three root
+files and walks exactly one tree. A file it never names cannot leak because somebody forgot
+to extend a list — which is precisely why the maintainer's untracked root
+`config-template.toml`, sitting directly beside `config.toml`, has never needed an exclusion
+rule and still does not have one. `release.py` contains no reference to it at all; the
+existing `test_repository_contract` guard would fail if it ever did.
+
+#### The archives (built with the real entry point, `python scripts/Universal/shared/release.py`)
+
+| | Windows | macOS |
+|---|---|---|
+| Name | `AudiobookTool-Windows-v0.5.1.zip` | `AudiobookTool-MacOS-v0.5.1.zip` |
+| Size | 228,283 bytes | 230,517 bytes |
+| SHA-256 | `77d1e7002bf1ba10716ee8adc9a77b5f23166e332dbb46d3c04d856c171fc1b2` | `387ba241e9ea4a0e8951457473eb6d1829e5d74cb2c136d02d8ce4e759004a1f` |
+| Members | 43 (43 unique) | 43 (43 unique) |
+| Root entries | `README.md`, `config.toml`, `Setup_and_Run-audiobook-creation-tool.bat`, `scripts/` | `README.md`, `config.toml`, `Setup_and_Run-audiobook-creation-tool.command`, `scripts/` |
+| `config.toml` | present exactly once, byte-identical | present exactly once, byte-identical |
+| Launcher mode | `0o755` | `0o755` |
+| Opposite launcher | absent | absent |
+
+Committed `config.toml` SHA-256 `6ca21b6e6f3789c150b0f85c24afac511237cad82b6ab5ed5e4457af957520c1`
+(3,539 bytes) — identical in both archives and in the extraction.
+
+Absent from both: `config-template.toml`, the opposite launcher, `.venv/`, `.git/`,
+`.claude/`, `.codex/`, `files/`, `md-instructions/`, `dist/`, `test-logs/`, `__pycache__`,
+`.pyc`/`.pyo`/`.pyd`, `settings.json`, session logs, models, maintenance state, any
+`cleanup-*` file, screenshots, `.DS_Store`, `Thumbs.db`. Every member is relative, free of
+`..`, free of drive letters and backslashes, and resolves inside the extraction root; there
+are no duplicate members. Two consecutive builds produce identical `(name, size, CRC)`
+manifests.
+
+The archives were built to `dist/` (gitignored) and **not published, uploaded, attached to a
+release, or tagged**. No prior archive was overwritten — no `v0.5.1` zips existed before.
+
+#### The clean extraction (Windows)
+
+Real root: `…\MyProjects\Home-PC\Audiobook-Creation-Tool`. Disposable extraction root:
+`…\Repository_Workspaces\scratchpad\Phase 8 clean extract Ré'sumé` — a **new** location
+carrying a space, an apostrophe and a non-ASCII letter. Proven before anything ran: the two
+paths differ, neither contains the other, the extraction is not an ancestor of the real
+repository, not a drive root, not the home directory and not the workspace root.
+
+- 43 members extracted; the on-disk file list equals the archive manifest exactly.
+- Extracted `config.toml` byte-identical to the committed file; `config-template.toml` absent;
+  no `.venv`, `.git`, `files/`, `md-instructions/` or `dist/`.
+- The **real `.bat` launcher** was invoked (never an internal bootstrap function), with
+  `VIRTUAL_ENV` cleared and the real repository's `.venv\Scripts` stripped from `PATH` — the
+  contamination lesson from the Phase 7 addendum, applied from the start this time.
+- First-run setup detected the absent environment through the production path: the intro
+  dialog appeared, preflight reported `[OK]` for Python ≥ 3.11, venv, tkinter, Tcl/Tk, ssl,
+  ffmpeg and ffprobe, then `Creating virtual environment at …Phase 8 clean extract Ré'sumé\.venv…`,
+  `Virtual environment created.`, the **full pinned install** (114 packages including torch,
+  kokoro, spacy, transformers), `All required packages import cleanly.`, and
+  `ffmpeg already on PATH: C:\ffmpeg\bin\ffmpeg.EXE`.
+- The optional Kokoro pre-download was **accepted** on this first run and the 327 MB
+  `kokoro-v1_0.pth` landed in the in-tree cache.
+- The application opened from the extraction's own `.venv\Scripts\pythonw.exe` (pid 19392 →
+  base-python redirector child pid 20468 owning the window).
+- Configuration is read from the extraction: `paths.REPO_ROOT` is the extraction root, the
+  loaded `config.toml` hashes to the committed value, and no path under the real repository
+  appears on `sys.path`.
+- Runtime state was created only at its intended runtime locations — `files/runtime-data/`
+  with `logs/`, `models/` and `settings.json` inside the extraction. Nothing was written to
+  the real repository and nothing to the real `Downloads` folder.
+- Closed normally with the window's own close path; both processes exited and `settings.json`
+  was rewritten.
+- The second launch used the healthy fast path: `Kokoro health-check: ok` → launch, in
+  **1.7 s**, with no pip, no venv creation, no repair dialog and **no `cmd.exe`/`conhost.exe`
+  process** associated with the extraction.
+
+**macOS clean extraction was not performed** — see the approved deferral below. The macOS
+archive's contents, exclusions and `0o755` launcher mode are verified by automated test and
+by direct archive inspection; its launcher was never executed.
+
+#### Windows manual matrix — every row observed in the clean extraction
+
+**Amended 2026-08-07.** Rows 14 and 46 originally read PASS; the manual matrix had in fact
+exposed an apostrophe-path failure in MP3 Tool, and the summary claim of "46/46 PASS" was
+incompatible with it. Both rows now record what was first observed **and** the retested
+result after the remediation. The final tally is **46/46 PASS after remediation; 44/46 on
+the first pass**.
+
+Windows 11 Pro 10.0.26200, 1920×1080, **100% scaling (effective DPI 96 on both displays)**,
+Python 3.12.10 in the extraction's own `.venv`, commit `1eddc516…` plus the Phase 8 working
+tree. All fixtures are synthetic (ffmpeg sine tones, plain text, a solid-colour PNG) in
+disposable folders; the `ffmpeg`/`ffprobe`-on-PATH precondition from the repository's
+audio-processing skill was asserted before generating them.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Valid committed configuration | **PASS** — no warnings, defaults in force |
+| 2 | Malformed TOML | **PASS** — every value falls back; one clear warning |
+| 3 | Partly invalid (`base_directory` relative, `max_sessions` 99999) | **PASS** — both fall back per key; the unrelated valid `large_result_warning_threshold = 500` is **kept** |
+| 4 | Unknown table `[nonsense]` | **PASS** — ignored, reported once as "contains entries this version does not use" |
+| 5 | Missing `config.toml` | **PASS** — full fallback, one warning |
+| 6 | Once-per-launch warning | **PASS** — dialog shown once; a second `take_launch_warning()` returns `None` in all four cases; the status bar keeps the short form |
+| 7 | Output base: default | **PASS** — `Downloads/Audiobook-Creation-Tool-Outputs` |
+| 8 | Output base: custom selection + Save | **PASS** — written to `settings.json` only, Unicode and apostrophe preserved exactly |
+| 9 | Output base: invalid (relative) path | **PASS** — refused with a precise message, effective location unchanged, nothing written |
+| 10 | Output base: reload | **PASS** — dialog and newly built panels show the saved custom base |
+| 11 | Reset Preferences | **PASS** — `settings.json` → `{}`; dialog refreshes live; all six produced output files remain |
+| 12 | TTS Audiobook standard route | **PASS** — `TTS-Audiobook-Outputs/TTS-Audiobook-1` |
+| 13 | M4B Converter standard route | **PASS** — `M4B-Converter-Outputs/M4B-Converter-1/tiny book.mp3` |
+| 14 | MP3 Tool standard route | **FAILED on the first pass**, **PASS after remediation** — the run directory was always reserved correctly, but with an apostrophe in the path no `combined.mp3` was produced. Retested 2026-08-07: 27,272 bytes, 6.000000 s, correct order. See finding 1 |
+| 15 | M4B Maker standard route | **PASS** — `M4B-Maker-Outputs/M4B-Maker-1/audiobook.m4b` |
+| 16 | Cover Image standard route | **PASS** — `Cover-Image-Outputs/Cover-Image-1/cover art.png` |
+| 17 | M4B Metadata standard route | **PASS** — `M4B-Metadata-Outputs/M4B-Metadata-1/tiny book.m4b`, copy-only |
+| 18 | Repeat-run numbering | **PASS** — an identical second TTS run reserved `TTS-Audiobook-2`; run 1 untouched |
+| 19 | Folder mirroring (one root) | **PASS** — `batch root/` mirrored directly into `TTS-Audiobook-3/` |
+| 20 | Validation before reservation | **PASS** — a bad Maker destination was refused and **no** run directory was created |
+| 21 | Source preservation | **PASS** — every fixture byte-identical after all runs; no file written beside a source |
+| 22 | Cover: default (numbered copy to the run folder) | **PASS** |
+| 23 | Cover: save beside source, numbered copies | **PASS** — `beside me-1.png` created, original byte-identical |
+| 24 | Cover: replacement off by default | **PASS** — "Save beside source images" unchecked; sub-options disabled; "Create numbered copies" preselected |
+| 25 | Cover: confirmed replacement | **PASS** — strong confirmation naming the count, permanence, the temp-then-install mechanism and partial-failure honesty; **Cancel holds initial focus**; after confirming, the original was replaced in place |
+| 26 | M4B Maker custom destination | **PASS** — writes directly into the chosen folder, no run folder; the standard base gained no `M4B-Maker-2`; sources untouched |
+| 27 | Itemized downloaded-data inventory | **PASS** — four rows with status and size |
+| 28 | No default cleanup selection | **PASS** — opens "Nothing selected."; "Review Selected Data…" disabled |
+| 29 | Missing/unsafe row disabled | **PASS** — "Portable binaries — Missing —" is greyed; clicking it does not select it |
+| 30 | Accurate sizes | **PASS** — 1.2 GB / 312.1 MB / 52.4 KB against independently measured 1,303,927,924 / 327,276,837 / 53,687 bytes |
+| 31 | Confirmation content | **PASS** — items, freed estimate, close notice, per-item effects, exclusion notice, final question; **Cancel holds initial focus** |
+| 32 | Cancellation | **PASS** — returns to the inventory, nothing deleted, no request written |
+| 33 | Disposable post-exit cleanup | **PASS** — GUI closed first, coordinator pid 304 removed exactly the three selected assets |
+| 34 | Truthful result | **PASS** — recorded bytes `1303927924 / 327276837 / 53829` match the measurements |
+| 35 | `.venv` rebuild through the normal launcher | **PASS** — full pinned reinstall, imports clean, application relaunched |
+| 36 | One-time result presentation | **PASS** — report shown once, retired to `cleanup-result.presented.json`, absent on the next launch |
+| 37 | No cleanup replay | **PASS** — coordinator log records exactly one helper run; no new request |
+| 38 | Keyboard navigation | **PASS** — Tab moves focus into the cleanup rows, Space toggles, the status and enablement update |
+| 39 | Escape | **PASS** — closes the cleanup dialog and the Preferences dialog without acting |
+| 40 | Window close | **PASS** — `WM_CLOSE` exits cleanly every time and rewrites `settings.json` |
+| 41 | Single-instance Preferences | **PASS** — two clicks produce one dialog |
+| 42 | Single-instance cleanup | **PASS** — two clicks produce one dialog |
+| 43 | `ACT.*` styling on converted surfaces only | **PASS** — launcher shell and M4B Metadata carry the dark design system; the other five panels keep their historical native ttk look, unchanged |
+| 44 | Ordinary launcher / fast path | **PASS** — first run installs, later runs launch in ~1.7 s |
+| 45 | No persistent console | **PASS** — expected setup console on first run only; no `cmd.exe`/`conhost.exe` and no visible console on the fast path |
+| 46 | Spaces, Unicode, apostrophes end to end | **PARTIAL on the first pass, PASS after remediation** — extraction root, venv creation, pip, launch, config, outputs, coordinator argv and maintenance paths were all correct, but MP3 Tool's concat list broke on an apostrophe. Retested 2026-08-07 with an apostrophe in the output base, the input directory and both filenames |
+
+**Live TTS synthesis — PASSED (this closes the long-carried pending item).**
+Engine **Edge TTS**, voice **en-US-SteffanNeural**. Input
+`P8 fixtures Ñ'x\tiny narration.txt` (108 bytes, SHA-256 `cb198042f0db2799…`). Output
+`P8 outputs Ñ'x\TTS-Audiobook-Outputs\TTS-Audiobook-1\tiny narration (en-US-SteffanNeural).mp3`,
+254,925 bytes, **12.66 s** measured with `ffprobe`. Log read `Conversion finished.` at 2/2
+100%. The source was byte-identical afterwards. A folder-batch run produced
+`chapter one.mp3` (5.52 s) and `chapter two.mp3` (5.47 s) mirrored into `TTS-Audiobook-3`.
+Kokoro was not exercised for synthesis; only Edge TTS was required, and no optional asset was
+downloaded beyond the production-supported first-run pre-download.
+
+#### The load-bearing proof that panels do not cache a stale destination
+
+The TTS panel was already built when the output base changed, and its read-only "Output
+folder" label kept showing the old base. The **run did not**: it reserved
+`…\P8 outputs Ñ'x\TTS-Audiobook-Outputs\TTS-Audiobook-1` and wrote there. That is by design —
+`reserve_run_directory()` re-reads the effective configuration at run start, so the label is
+a hint and the reservation is the truth. Recorded as finding 2 below rather than as a defect.
+
+#### Findings
+
+1. **MP3 Tool "Combine MP3s → One MP3" fails when a path contains an apostrophe — pre-existing,
+   outside Plan 2, not fixed.** With the output base `…\P8 outputs Ñ'x`, both the fast and
+   safe concat paths failed with `Impossible to open …` and no `combined.mp3` was produced;
+   the tool showed an empty-bodied message box rather than a clear error. Isolated by
+   reproducing the tool's own escaping in four folders: plain **OK**, a space **OK**, a
+   non-ASCII letter **OK**, an **apostrophe FAIL**. The cause is
+   `mp3_tool.py:110`, which escapes `'` as `\'` inside a single-quoted ffmpeg concat entry;
+   ffmpeg's concat demuxer does not honour that escape. `git log -L 110,110` dates the line
+   to `5459d3d` (2026-05-28) and Phase 4 did not touch it, so the faulty line predates Plan 2.
+   Re-running the identical combine with an apostrophe-free base (still containing a space and
+   `Ñ`) produced `combined.mp3` (18,431 bytes) on the fast path. **Severity: Critical.**
+   **FIXED on 2026-08-07 — see the remediation above.** The first pass wrongly called this
+   out of scope on the grounds that it predated Plan 2; the maintainer correctly rejected
+   that, because Plan 2's contract permits user-selected paths and requires apostrophes to
+   work.
+2. **A tool panel built before an output-base change shows a stale "Output folder" label.**
+   Cosmetic only; the run reserves against the current configuration (proved above), and the
+   label corrected itself only on the next run or the next panel build. **Severity: Minor.**
+   **FIXED on 2026-08-07 — see the remediation above.** A user must not be shown a
+   destination the application would not use, so this belongs to the Plan 2 preference
+   contract rather than being acceptable as cosmetic.
+3. **The optional Kokoro pre-download reports a problem on a clean machine.** During first-run
+   setup the weights downloaded correctly (327 MB `kokoro-v1_0.pth`), but the warm-up
+   synthesis failed with
+   `Error processing file 'D:/a/espeakng-loader/…/espeak-ng-data\phontab': No such file or directory`
+   and setup printed `Kokoro pre-download had a problem; voices will download on first use
+   instead.` Setup then continued and launched normally. The path is baked into the
+   `espeakng-loader` wheel, so this is a dependency issue, not Plan 2 code. **Severity: Minor
+   (degrades gracefully). Not changed.** Kokoro synthesis itself was not exercised.
+
+#### Explicitly approved deferrals — recorded as deferrals, never as passes
+
+1. **Windows 125% display-scaling screenshot pass — DEFERRED by explicit maintainer decision
+   on 2026-08-07.** Both displays were measured at effective DPI 96 (100%) via
+   `GetDpiForMonitor(MDT_EFFECTIVE_DPI)`; changing Windows display scaling requires the
+   maintainer's own action, and simulating it through a registry edit was neither permitted
+   nor attempted. When asked whether to set 125% on the primary display, on the secondary
+   display, or to defer, the maintainer chose **defer**. Phase 8 therefore ships a twelve-image
+   **100%** set plus the 920×600 reachability evidence. **The 125% pass was not run and is not
+   claimed.** The Plan 1 finding still stands and is unaffected: the application is
+   DPI-unaware, so at 125% Windows bitmap-scales the whole window uniformly and nothing
+   reflows or clips. **Standing policy, confirmed 2026-08-07:** Windows stays at 100% for the
+   remaining feature drops, and the true 125% matrix is completed only in the later dedicated
+   UI-compression/no-scroll phase, together with the final layout compression, the maximized
+   no-scroll verification and a 100%/125% retest against the stable interface.
+2. **Live macOS matrix — DEFERRED by explicit maintainer decision on 2026-08-07.** This
+   session runs on HOME-PC (win32) with no Mac access, and `AI-WORKSPACE.md` records the
+   HOME-MacOS workspace root as *"to be filled in — ask me for the workspace root before
+   assuming any path"*, so no root was assumed. When asked to either supply the Mac root, hold
+   Phase 8 open, or approve a recorded deferral, the maintainer chose **defer**. **No live
+   macOS check was run. The automated aqua coverage is import- and build-level only and is
+   explicitly NOT a live pass.** What *is* verified for macOS: the archive's exact contents and
+   exclusions, that it carries only the `.command` launcher, and that the launcher is stored
+   with mode `0o755` so a Finder extraction is immediately runnable. The `.command` launcher
+   itself was never executed.
+
+#### Screenshot evidence — `files/UI-Prototype-Screenshots/v0.6.0-drop2/`
+
+Captured with `PrintWindow(PW_RENDERFULLCONTENT)` and cropped to the DWM extended frame
+bounds, so each image is exactly what a user sees, with no invisible resize border and no
+surrounding desktop. Every image was inspected at full resolution. No personal path, account
+name, unrelated filename, notification, tooltip, cursor or transient window appears in any of
+them; every visible path is a disposable Phase 8 folder or the standard Downloads default.
+
+| File | Size | SHA-256 |
+|---|---|---|
+| `windows-100-launcher-maximized.png` | 1920×1032 | `468c52d62d37078f7f05472135bfcff415f7cac83100897d8d2bd9c57dd00eed` |
+| `windows-100-launcher-minimum-size.png` | 922×632 | `16177adc71a7c447f4427e38a4cef7ee6f6ffeadd60e4ed4f0c49fd2c267bf50` |
+| `windows-100-preferences-default.png` | 620×628 | `b1678d97bd51cd87d4e78088c8e1c09b3e4d113add5916de0b49b2184f3fce33` |
+| `windows-100-preferences-invalid-path.png` | 655×629 | `33d68eafed39ddcc353919819c9cc0af97727f2039ab77ca1590fc283b2d7bf7` |
+| `windows-100-preferences-custom-saved.png` | 626×646 | `e6c333c02b6897c17651a626044d3e2ce828d543a6f399a303839857bd8df6bc` |
+| `windows-100-preferences-after-reset.png` | 629×628 | `590bfea42af9d65cf7b75e1a90fe084029d4a870a69ff9d96d70cd00cfdf179f` |
+| `windows-100-config-warning.png` | 492×325 | `bd3bb051e5cc9b085662258174fa5ba585cb5a876a45191baab97f4b1c5e1cf2` |
+| `windows-100-cleanup-inventory.png` | 633×445 | `2a7af66cd696c4f1bf69b9529cd4e2cc428daf9ed42f2c93c2e62eb6b0e8fba2` |
+| `windows-100-cleanup-selected.png` | 633×445 | `6f097ea58522ba3955701e2ad27a4173844fdbc5f7ca94779373a0df869aff03` |
+| `windows-100-cleanup-confirmation.png` | 759×523 | `266b1bea53fe2cc5b79d6c1dc46af0f0e8d40d2249944afd0ab0d0f724bb0117` |
+| `windows-100-cleanup-result.png` | 490×275 | `9c3c6c2f71d74509d72cc31dca53406168fba8d669fed041ca0205e1429906b0` |
+| `windows-100-cover-replace-confirmation.png` | 493×244 | `6809067f6c3102b9a228dd6531f97362271a65d70477457f44bb18622c17a2fa` |
+
+Visual findings: labels, consequences and states are legible and complete at every size; no
+control is clipped, overlapped or truncated; the destructive dialogs give Cancel the visible
+focus ring while the destructive button carries no accent; the accent colour is reserved for
+the safe primary action (Save, Continue, Review Selected Data… once a selection exists); the
+Preferences dialog grows from 620×628 to at most 655×646 to accommodate a message line and
+never needs whole-dialog scrolling; the `ACT.*` dark treatment appears on the launcher shell
+and the converted M4B Metadata panel only, and the five unconverted panels keep their
+historical native ttk appearance exactly as Plan 1 left them.
+
+**920×600 reachability — PASS.** Requesting a 600×400 window produced a clamped
+922×632 frame, i.e. a client area of exactly **920×600** — `MIN_SIZE` enforced. At that size
+all six sidebar entries, all four primary actions (Save Tags, Clear All Tags, Remove Series
+Numbering, Cancel), the progress bar, the status line, "Preferences & Data…" and "Open log
+folder" are fully visible and unclipped. The growing regions (file list, metadata form, Log)
+carry their **own** local scrollbars; the window itself never scrolls. Preferences & Data
+opens from the minimum-size window at its own bounded 620×628 and is fully visible.
+
+**The ten approved Plan 1 images were not touched.** All ten SHA-256 values were recorded at
+the Phase 8 gate and re-verified after the new evidence was captured; all ten are unchanged.
+
+#### Testing
+
+Repository virtual environment, Python 3.12.10.
+
+| Focused suite | Result |
+|---|---|
+| `test_release_packaging.py` | 34 passed |
+| `test_config.py` + `test_repository_contract.py` | 108 passed |
+| `test_maintenance` + `cleanup_state` + `cleanup_worker` + `cleanup_handoff_ui` + `preferences_maintenance_ui` | 399 passed |
+| `test_preferences_ui.py` + `test_settings.py` | 90 passed, 1 warning |
+| `test_output_paths.py` + `test_tool_output_integration.py` | 214 passed, 1 skipped, 1 warning |
+| `test_cover_source_side.py` + `test_maker_custom_destination.py` | 64 passed, 1 skipped |
+| `test_launcher_smoke` + `bootstrap_python_version` + `bootstrap_setup_logging` | 20 passed, 1 warning |
+| `test_ui_theme.py -v` | **17 passed — all 17 executed, none skipped** |
+
+Complete suite: **1008 collected, 1003 passed, 5 skipped, 1 warning**, before and after the
+commit. Reconciliation against the Phase 7 baseline is exact: 974 collected + **34** new
+packaging tests = 1008; 969 passed + 34 = 1003; skips unchanged at 5; warnings unchanged at 1.
+No collection loss, no execution loss, no transient Tk/display skip burst — the GUI suites
+executed cleanly on the first run.
+
+The five skips are the same five carried since Phase 3, each still named for its own reason
+(missing local media fixtures). The single warning is the pre-existing
+`DeprecationWarning: 'audioop' is deprecated` raised by `pydub` under Python 3.12.
+
+#### Verification gates
+
+- `python scripts/verify.py` → **`RESULT: PASS`** (pytest, deps `==`-pinned, docs, 4 canonical
+  names with no alias and 4 permanent references, `config.toml` valid at version 0.5.1).
+- Compile gate `compileall -q scripts files/tests` → exit 0.
+- `git diff --check` → clean, exit 0. The accepted CRLF-in-blob condition on the four canonical
+  documents is retained: `Handoff.md` was edited **in CRLF** to match its existing blob, so no
+  whole-file renormalisation appears in the diff and no permanent document was normalised
+  merely to silence an inherited notice. No changed code file carries a whitespace defect.
+- Canonical documents: exactly `Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md`;
+  no case alias. `md-instructions/don't-delete/` retains all four references.
+- Source-level guards, all asserted by the new suite: `config-template.toml` is neither
+  packaged nor loaded (the string appears nowhere in `release.py`, and only once in
+  `maintenance.PROTECTED_RELATIVE`); maintenance state cannot be packaged (`files/` is out of
+  scope and no member starts with it); the packager is never imported by any application
+  module and imports nothing from the application; building is not part of startup; ordinary
+  launch runs no cleanup without a validated request; no GUI-side deletion exists; the catalog
+  is still exactly four IDs; no arbitrary path can reach cleanup.
+
+#### The real repository was untouched
+
+The whole matrix ran in the disposable extraction and in disposable fixture/output folders.
+Verified afterwards: the real `.venv` is present and was never inventoried, modified, deleted
+or rebuilt; no `files/runtime-data/maintenance` folder exists; no `cleanup-*` file exists
+anywhere under `files/`; no `Audiobook-Creation-Tool-Outputs` folder was created in the real
+Downloads folder; `config-template.toml` remains untracked, unstaged and byte-identical at
+`94b05edc3211efe531be018fbc442c240df8db42`. `dist/` (gitignored) gained two v0.5.1 archives
+and no existing archive was overwritten.
+
+#### Plan 2 — Definition of Done
+
+| Item | Status |
+|---|---|
+| Phase 0 started from `origin/master` with the Plan 1 merge, on the Plan 2 branch | **MET** |
+| `config-template.toml` untouched and absent from commits/releases | **MET** — hash unchanged; absent from both archives |
+| Four canonical docs keep exact names, with an automated alias gate | **MET** |
+| `don't-delete` references and master index intact | **MET** |
+| A documented valid root `config.toml` is committed | **MET** |
+| Safe fallback and warning for missing/malformed/invalid config, unrelated valid values kept | **MET** — matrix rows 1–6 |
+| Precedence: code defaults → TOML → allowlisted user settings | **MET** |
+| GUI writes settings only, never TOML | **MET** — `config.toml` byte-identical after the whole matrix |
+| Preferences and Data works on both platform branches | **PARTIALLY MET** — Windows observed live; macOS aqua path is build/import-tested only (deferral 2) |
+| Reset Preferences removes only mutable settings and refreshes state | **MET** — row 11 |
+| Default base `Downloads/Audiobook-Creation-Tool-Outputs`, safely overridable | **MET** — rows 7–10, and since 2026-08-07 every already-built panel shows the change immediately |
+| Every run uses an atomically reserved `<Tool>-Outputs/<Tool>-N` | **MET** — rows 12–18 |
+| Individual-file outputs flat and collision-safe | **MET** |
+| One folder root mirrors directly; multiple roots use named containers | **MET** for one root (row 19); multiple roots covered by automated tests only |
+| No normal operation silently overwrites an input or output | **MET** — row 21, re-verified after the remediation |
+| All six tools use the shared output service | **MET** — rows 12–17; MP3 Tool's route needed the 2026-08-07 concat fix before its row could honestly read PASS |
+| Cover source-side modes follow Decision 10A, replacement off by default and strongly confirmed | **MET** — rows 22–25 |
+| M4B Maker custom destination writes directly and stays source-safe | **MET** — row 26 |
+| Clear Downloaded Data itemized, initially non-destructive, separate from Reset, catalog-restricted | **MET** — rows 27–32 |
+| `.venv` and locked assets processed only after GUI exit by a non-venv coordinator | **MET** — row 33 |
+| Requests cannot specify arbitrary paths; deletions allowlisted, contained, link-safe | **MET** |
+| Results truthful, persisted, presented on next launch | **MET** — rows 34, 36 |
+| Automated deletion tests use only temporary fake roots | **MET** |
+| Normal setup, repair and no-console fast launch still work | **MET** — rows 35, 44, 45 |
+| Both archive builders include `config.toml` and exclude `config-template.toml` | **MET** |
+| New dialogs meet maximized/no-whole-dialog-scroll and minimum-size reachability | **MET** at 100%, re-verified after the remediation; the 125% pass is deferred to the later UI-compression phase (deferral 1) |
+| Plan 1 isolation, panels, evidence, geometry and carried limitations intact | **MET** — ten hashes unchanged; row 43 |
+| All focused tests pass | **MET** |
+| Complete suite passes with no unexplained loss; every skip/warning named | **MET** — 1074/1069/5/1 after the remediation |
+| `scripts/verify.py` reports `RESULT: PASS` | **MET** |
+| Compile gate and `git diff --check` pass | **MET** |
+| Windows manual matrix approved | **PENDING** — 46/46 PASS after the 2026-08-07 remediation, awaiting the maintainer |
+| Live macOS approved, or an explicit approved deferral accurately recorded | **DEFERRED** — explicitly approved 2026-08-07, recorded as a deferral |
+| Permanent documents carry the correct lasting record | **PENDING** — Phase 9 owns the transfer; Phase 8 updated `Handoff.md` only |
+| Version remains `0.5.1`; no v0.6.0 release/tag claimed | **MET** |
+| No Plan 3–9 scope or unrelated issue implemented | **MET** — the two corrections are squarely inside Plan 2's output/preference contract; nothing else was touched |
+| The maintainer explicitly approved Plan 2 | **PENDING** |
+| The temporary drop deleted only in the approved closeout | **PENDING** — the drop is intact |
+| Closeout commit pushed and the agent stopped before merge/Plan 3 | **PENDING** — Phase 9 |
+
+#### The Phase 9 boundary
+
+Phase 9 owns the permanent-document transfer (`Briefing.md`, `Changelog.md`, `Decisions.md`,
+the master index), deletion of
+`md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`, and the final
+verification re-run. **None of it was started.** Phase 8 deliberately did not write a
+Changelog entry or an ADR, because the drop assigns those to Phase 9. The drop file is intact.
+No merge, version bump, tag, release, publication, force-push or branch deletion occurred.
+
+### Phase 7 evidence addendum (2026-08-07) — supersedes the drill's narrow evidence limitation
+
+The Phase 7 record below is historically accurate and is **not** rewritten: the original
+2026-08-06 drill really did call `bootstrap._create_validated_venv()` directly, really did
+skip the pinned pip install, and really did check only `import ssl, tkinter; tkinter.Tcl()`.
+That narrow evidence was correctly rejected.
+
+It was superseded on **2026-08-06/07** by a full launcher-driven verification in the same
+disposable copy (`…\scratchpad\Ro'lål cleanup phase 7`), which the maintainer approved on
+2026-08-07 together with the Phase 7 implementation at
+`1eddc5163b4ad81f858d30b7df75fd2a28188da9`:
+
+- the actual disposable-root **`.bat` launcher** — not an internal bootstrap function —
+  detected the missing `.venv` and rebuilt it through the ordinary production setup path;
+- the **full pinned dependency installation completed successfully** (114 packages);
+- all applicable pins matched exactly (15 applicable, `audioop-lts` correctly skipped by its
+  `python_version >= "3.13"` marker), all 8 `REQUIRED_IMPORTS` imported cleanly,
+  `probe_capabilities()` returned true for tkinter/ssl/venv/Tcl-Tk, and `kokoro_is_healthy()`
+  returned `True (ok)`;
+- only the supported optional **model-weight** pre-download was declined; the Kokoro wheels,
+  torch and the rest of the pinned set were installed;
+- the real application opened under the disposable `.venv`, the cleanup report appeared
+  exactly once, a second launch used the healthy fast path, no repair loop occurred, and no
+  cleanup replay or second deletion happened;
+- a path containing a space, an apostrophe and a non-ASCII letter passed through the complete
+  flow; the expected first-run setup console appeared and no persistent console was present on
+  the fast path;
+- the real repository was proven separate before destructive work and remained untouched.
+
+One attempt is explicitly **not** part of the accepted evidence: a first launcher run that
+inherited the real repository's `VIRTUAL_ENV` and was stopped before it installed anything.
+All accepted evidence comes from the subsequent clean run with `VIRTUAL_ENV` cleared and the
+real `.venv\Scripts` removed from `PATH`. Phase 8 applied that lesson from the outset.
+
+### Phase 7 — Safe post-exit cleanup and launcher/bootstrap coordination (2026-08-06, HOME-PC)
+
+**Result: the Clear Downloaded Data flow now actually clears data — in a separate process,
+after the application has exited, and only ever the four enumerated items.** Two files added,
+six modified. `bootstrap.py` and both root launchers are untouched. `version.py` is still
+`0.5.1`.
+
+**Phase 7 start SHA:** `6dfd37e6d4658a1ec7a08070e777962c5e3fde73` (approved Phase 6). The
+ending SHA is the commit carrying this section; it is quoted in the phase summary.
+
+**Phase 8 was not started.** No packaging or archive change, no screenshot matrix, no live
+macOS run, no live TTS synthesis check, no version bump, tag, merge or branch deletion.
+
+#### The maintenance-state location
+
+`files/runtime-data/maintenance/`, derived from a verified repository root and never
+configurable. It satisfies every condition the drop requires: inside the repository, outside
+`.venv`, outside `files/bin`, outside `files/runtime-data/models`, outside
+`files/runtime-data/logs`, not any protected path, and unreachable from a request — a request
+has no field that could name it. `state_dir()` re-validates all of that on **every** call,
+including that no level of the path is a symlink, junction or reparse point. It is already
+covered by the `files/runtime-data/` ignore rule, and release archives contain only `scripts/`
+plus the root launcher and README, so it can never ship.
+
+| File | Written by | Purpose |
+|---|---|---|
+| `cleanup-request.json` | the GUI | the one active request |
+| `cleanup-accepted.json` | the coordinator | proof it loaded and validated *that* request |
+| `cleanup-request.consumed.json` | the coordinator | the request, retired before the first deletion |
+| `cleanup-request.unusable.json` | the GUI | a stale or corrupt predecessor, moved aside not deleted |
+| `cleanup-result.json` | the coordinator | the one immutable result |
+| `cleanup-result.presented.json` | the GUI | the result, retired after it was shown |
+| `cleanup-result.unreadable.json` | the GUI | a corrupt result, moved aside and never executed |
+| `cleanup-coordinator.log` | the coordinator | technical detail, deliberately not in `logs/` |
+
+`STATE_FILENAMES` is the complete allowlist. `state_file()` refuses any other name, and the
+only files this layer removes are those names plus its own `.act-maint-` temporary writes —
+`_discard_own_file()` raises rather than removing anything else.
+
+#### Atomic writes
+
+`write_json()` writes to a `tempfile.mkstemp` file in the same folder, flushes, `fsync`s,
+closes, then `os.replace`s. A crash leaves either the previous file or the new one, never a
+half-written request that a coordinator could read as authorization. A failed replace discards
+only its own temporary file. `sweep_temporary_files()` removes abandoned temporary writes older
+than an hour, strictly name-matched.
+
+#### The coordinator and its interpreter boundary
+
+`scripts/Universal/shared/cleanup_worker.py`, started as `python cleanup_worker.py --run
+--request-id <uuid>` — an argument vector, `shell=False`, detached, `CREATE_NO_WINDOW`, stdio
+to `DEVNULL`. The only three things in that vector are a verified interpreter, this module's
+own sibling file, and a UUID; nothing from a request participates, so a folder with spaces, an
+apostrophe or non-ASCII characters is simply one argv element and quoting cannot be got wrong.
+
+The interpreter is **verified, not assumed**: candidates are `sys._base_executable`, then
+`sys.base_prefix`, then `PATH`; anything inside the repository is rejected before it is even
+probed; and the survivor must itself report that `sys.prefix == sys.base_prefix`. The
+coordinator imports only `argparse`, `os`, `stat`, `sys`, `datetime`, `pathlib` plus
+`shared.maintenance` and `shared.cleanup_state`, which are themselves standard-library only —
+so it keeps working while `.venv` is being deleted. It derives the repository root from its own
+`__file__` and proves it by finding itself again at
+`<root>/scripts/Universal/shared/cleanup_worker.py`; the current working directory is never
+consulted.
+
+#### The acknowledgement handshake and the close sequence
+
+1. The dialog builds one immutable request and disables its own controls.
+2. `cleanup_state.start_cleanup()` re-validates by round-tripping the request through the
+   strict schema, then persists it atomically. An **active** request — valid, recent, and its
+   requesting process still alive — is never displaced; the handoff refuses and says so.
+3. The coordinator is started. It loads the request, checks it is the one named on its command
+   line, checks it is not stale and does not name the coordinator itself, validates the root
+   and the state folder, opens a handle to the requesting process, and only **then** writes the
+   acknowledgement.
+4. The GUI waits for that acknowledgement, bounded at 20 s, giving up early if the helper
+   process dies first. Only a payload matching that exact request id, schema version and a
+   plausible coordinator process id counts.
+5. On acknowledgement the dialog shows *"Cleanup is ready. Audiobook Creation Tool will now
+   close…"* and closes the whole application 700 ms later, through an injected callback that
+   the launcher wires to its ordinary close path (so the last-used tool is still remembered).
+6. On **any** failure — persistence, no verified interpreter, spawn error, timeout, or a
+   handoff that raised — the request is withdrawn, the headline is *"Cleanup did not start. No
+   data was changed…"* with a short specific detail appended, and both windows stay open and
+   usable. The success sentence is never shown on the strength of having started a process.
+
+A withdrawal that races a late acknowledgement is resolved by withdrawing **first** and then
+looking once more: either the acknowledgement is seen and success is reported, or the
+coordinator finds no request and refuses. `_handoff_pending` plus disabled buttons make a
+second click a no-op, so repeated clicks cannot start a second helper.
+
+#### Waiting for the requesting process
+
+On Windows the handle is opened *before* acknowledgement and the wait blocks in
+`WaitForSingleObject`, so it is bound to that exact process object and a recycled process id
+cannot satisfy it. Elsewhere it sleeps between `os.kill(pid, 0)` probes. Either way it is
+bounded (15 minutes) and never a busy loop. Beyond process-id reuse, a request older than six
+hours, or dated more than five minutes in the future, is refused outright.
+
+If the application never closes, the coordinator consumes the request, records **every**
+selected item as `refused` with *"Audiobook Creation Tool was still running, so nothing was
+removed,"* and exits. It never retries and never relaunches.
+
+#### Deletion semantics — exactly four, re-authorized at the last moment
+
+| ID | What is removed |
+|---|---|
+| `virtual_environment` | the `.venv` directory itself |
+| `portable_binaries` | the contents of `files/bin`; the folder stays |
+| `downloaded_models` | the contents of `files/runtime-data/models`; the folder stays |
+| `application_logs` | the contents of `files/runtime-data/logs`; the folder stays |
+
+The inventory the user saw is **not** authorization. Immediately before acting,
+`process_asset()` re-derives the target from its enumerated ID and re-runs every Phase 6
+check — exact compiled target, containment, repository root, protected paths, links at every
+level — then re-inspects the type with `lstat`. A target swapped for a junction between review
+and execution is `refused`, not followed. A target that is no longer a folder is `refused`. A
+missing target is `missing`, a successful no-op.
+
+The walk is post-order and iterative over `scandir`/`lstat` with `follow_symlinks=False`
+throughout. A link found *inside* a target is detached (`unlink`, falling back to `rmdir` for a
+Windows junction) and never descended into, so whatever it points at is neither counted nor
+touched. A read-only file gets its attribute cleared once and is retried. Every failure is
+collected and the pass continues — through the rest of the tree and on to the later selected
+assets — so one locked file cannot hide the rest of the work.
+
+The request is consumed (`os.replace` to `cleanup-request.consumed.json`) **before** the first
+deletion, so a crash mid-pass can never replay. If the file is gone at that moment — the
+requester withdrew it — the run stops and deletes nothing.
+
+#### The result and the next launch
+
+One `CleanupResult` per run, written atomically, containing per-asset `removed` / `missing` /
+`failed` / `refused`, bytes freed, and a short message. It has no path field of any kind, and
+messages quote names relative to the target, never absolute paths.
+
+On the next ordinary launch the launcher queues `present_downloaded_data_report()` after the
+configuration warnings. It deserializes through the strict schema; a corrupt or unsupported
+record is moved to `cleanup-result.unreadable.json`, logged, and **never executed**. The report
+lists every selected asset with its outcome, states the space freed (or *"at least …, plus data
+whose size was not measured"* when a figure is unknown), and never claims complete success if
+anything failed or was refused — a partial run gets the recovery line telling the user what is
+still there and that they can try again from Preferences & Data. The record is retired to
+`cleanup-result.presented.json` only **after** the window was built, so a display failure does
+not lose the report. There is no retry button: a future cleanup starts as a fresh confirmed
+request.
+
+#### Launcher and bootstrap changes
+
+**None to `bootstrap.py`, none to either root launcher.** They were read against the
+requirement and already satisfy it: the `.bat` fast path is `if exist
+".venv\Scripts\pythonw.exe"`, so a removed environment falls through to the ordinary first-run
+setup that rebuilds it, and `bootstrap.venv_is_valid()` does the same for the `--launch-only`
+route. Routing cleanup *through* `bootstrap.py` was considered and rejected: importing it opens
+a log file inside `files/runtime-data/logs/`, which is one of the four selectable targets, and
+on Windows that open handle would block the very deletion the run was asked to perform. The
+coordinator therefore logs into the maintenance folder instead. Normal setup, repair, the daily
+fast path, no-visible-console behaviour, interpreter selection, venv creation and dependency
+installation are all unchanged.
+
+`launcher.py` gained exactly two things: it passes its ordinary close path to Preferences as
+`close_application`, and it queues the report. Neither adds work to a launch with no
+maintenance state — `load_result()` returns immediately when the file is absent, and the state
+folder is not even created.
+
+#### Automated evidence
+
+| Suite | Result |
+|---|---|
+| `test_cleanup_state.py` (new) | 72 passed |
+| `test_cleanup_worker.py` (new) | 64 passed |
+| `test_cleanup_handoff_ui.py` (new) | 30 passed |
+| `test_maintenance.py` + `test_preferences_maintenance_ui.py` | 233 passed |
+| `test_preferences_ui.py`, `test_config.py`, `test_settings.py`, `test_repository_contract.py` | 198 passed |
+| `test_output_paths.py` + `test_tool_output_integration.py` | 214 passed, 1 skipped |
+| `test_cover_source_side.py`, `test_maker_custom_destination.py`, `test_launcher_smoke.py` | 75 passed, 1 skipped |
+| `test_ui_theme.py` | 17 passed, 0 skipped |
+| complete suite | **969 passed, 5 skipped, 1 warning** |
+| `pytest --collect-only` | **974 collected** |
+
+974 = the Phase 6 baseline of 807 + 167 added (72 + 64 + 30 + 1 new report-window guard).
+Collected equals executed. The five skips are the documented five (three Jack Ryan fixture
+folder, two file-symlink `WinError 1314`); the one warning is the pre-existing pydub `audioop`
+deprecation.
+
+**One transient:** the very first full run after the new files were written reported 11 extra
+environment-dependent skips (the junction and base-interpreter guards). It did not recur — every
+run since returned exactly 969/5. No skip guard was weakened to get there.
+
+Four Phase 6 guards moved to the Phase 8 boundary rather than being dropped: the Preferences
+"deletes, spawns and persists nothing" guard (still true — persistence and spawning live in
+`cleanup_state`), the cleanup-flow guard in `test_output_paths.py`, the handoff guard in
+`test_tool_output_integration.py` (now behavioural: a helper that cannot start must leave the
+tree byte-identical), and the initial-focus guard, which is now scoped to the two windows that
+can lead to a deletion so the read-only report window may focus its own dismiss button.
+
+#### The disposable end-to-end drill (Windows 11, HOME-PC, 2026-08-06)
+
+Real root: `…\MyProjects\Home-PC\Audiobook-Creation-Tool`. Disposable root:
+`…\scratchpad\Réal's Drill Copy\Audiobook Tool` — deliberately containing a space, an
+apostrophe and a non-ASCII character. Proven before anything destructive ran: the two paths
+differ, neither is inside the other, the disposable root is not a drive root, not the home
+folder and not an ancestor of the real repository. 138 code files were copied; runtime data,
+`.git` and `.venv` were not.
+
+The drill ran the **real production interfaces**, and the requesting process ran from the
+disposable copy's own `.venv` — the environment it was about to have removed:
+
+- the dialog opened with `()` selected and `Review Selected Data…` disabled;
+- all four rows read Present with sizes `11.5 MB / 6.0 KB / 72.0 KB / 768 bytes`;
+- the confirmation carried the exact approved title, the four consequences, the freed-space
+  line, the close notice, the four effect lines, the exclusion notice and the final question;
+- accepting wrote one request, the coordinator (a separate process id, base interpreter)
+  acknowledged it, and the status read the exact scheduled sentence;
+- nothing was deleted at that point — `.venv/Scripts/python.exe`, `files/bin/ffmpeg.exe` and a
+  log file were all still present when the GUI closed itself;
+- after the requesting process exited, the four items were removed with byte totals matching
+  the fixtures **exactly** (12,088,166 / 6,144 / 73,728 / 768), `.venv` gone entirely and the
+  three container folders present and empty;
+- `settings.json`, `config.toml`, `config-template.toml`, a decoy `my-audiobook-output.m4b`,
+  `scripts/`, `md-instructions/` and both root launchers were byte-identical afterwards;
+- re-running the coordinator with the same request id exited 1 and removed nothing, including a
+  file created after the first run;
+- the launcher fast-path marker was gone, the ordinary `bootstrap._create_validated_venv()`
+  rebuilt the environment, `venv_is_valid()` went back to true, and the rebuilt interpreter ran
+  `import ssl, tkinter; tkinter.Tcl()` cleanly;
+- the next launch presented the report exactly once, at 349×221, and a second call returned
+  nothing.
+
+**The pinned pip install was deliberately not re-run** in the drill: it downloads roughly 2 GB
+of torch, and it is unchanged code covered by the existing setup tests. What was exercised is
+the decision and the venv creation the normal path performs.
+
+**The real repository was untouched.** Fingerprints taken before and after match for
+`files/runtime-data/models`, `files/runtime-data/logs`, `settings.json`, `config.toml` and
+`config-template.toml`; `files/bin` is still absent as before; the real `.venv` still exists
+with its interpreter and an unchanged directory mtime — and it was deliberately **not walked**,
+because inventorying it is outside the authorization. No maintenance-state folder exists in the
+real repository. The disposable copy was **retained** for review.
+
+#### Pending evidence — described as pending, never as passed
+
+- **Windows 125% scaling** — not re-run for the new report window; Phase 8 owns the scaling
+  matrix, and display scaling was deliberately not changed for this phase.
+- **Phase 8 screenshots** — not collected.
+- **Live macOS** — not run. The aqua path is import- and build-tested only.
+- **Live TTS synthesis** — deliberately not run; it is independent of Phase 7.
+
+#### The Phase 8 boundary
+
+Phase 8 owns packaging (`config.toml` in both archives, never `config-template.toml`), the
+clean-extraction smoke tests, the full Windows manual matrix, the live macOS matrix or an
+explicitly approved deferral, the screenshot evidence, and the Definition-of-Done table. None
+of it was started, and it requires new explicit maintainer approval.
+
+### Phase 6 — Downloaded-data inventory and confirmation UI (2026-08-04, HOME-PC)
+
+**Result: the itemized cleanup model and its whole user flow exist, and nothing can delete
+anything.** Phase 6 inventories, selects, confirms and builds one immutable request — then
+fails closed, because the coordinator that would act on that request is Phase 7. Three files
+added, five modified. `version.py` is still `0.5.1`.
+
+**Phase 6 start SHA:** `89cca58914a9d94eb6d480c802e6021d2a09e872` (approved Phase 5).
+
+#### Scope implemented
+
+The exact four-item catalog; canonical ID→target mapping with full authorization; present/
+missing inventory; safe size estimation; a selection model with no destructive default;
+immutable versioned request and result schemas with strict validation; the Clear Downloaded
+Data dialog; the strong confirmation; and the fail-closed production callback.
+
+**Phase 7 was not started.** No deletion executor, no coordinator, no request persistence, no
+maintenance-state directory, no process spawning, no post-exit wait, no launcher or
+`bootstrap.py` change, no `.venv` rebuild, no next-launch result presentation.
+
+#### The catalog — exactly four IDs, and no way to add a fifth at runtime
+
+| Asset ID | Display name | Target (relative to the supplied root) | Post-exit | Removes |
+|---|---|---|---|---|
+| `virtual_environment` | Private Python environment | `.venv` | yes | the directory itself |
+| `portable_binaries` | Portable binaries | `files/bin` | no | contents |
+| `downloaded_models` | Downloaded voice models | `files/runtime-data/models` | no | contents |
+| `application_logs` | Application logs | `files/runtime-data/logs` | yes | contents |
+
+`CATALOG` is a tuple of frozen dataclasses and `CATALOG_BY_ID` a `MappingProxyType`, so neither
+can be extended or edited. `ASSET_IDS` is the one deterministic order used by rows, requests,
+totals and confirmation lines.
+
+#### Target authorization — how an ID becomes a path
+
+`authorized_target(asset_id, repo_root)` is the only mapping, and the root is **always
+explicit** (no default, so the suite cannot accidentally be handed the real project). Before a
+path is returned it must be the exact compiled target, inside the root, not the root itself,
+not equal to / inside / containing any `PROTECTED_RELATIVE` entry (`.git`, `scripts`,
+`md-instructions`, `files/tests`, both screenshot folders, `settings.json`, `config.toml`,
+`config-template.toml`, `README.md`, `AI-WORKSPACE.md`, both root launchers), and reached
+without crossing a symlink, junction or reparse point at any level including the root. Paths
+are normalised with `abspath`, never `resolve()`, precisely so a junction is *detected* rather
+than silently followed. `assert_authorized()` re-derives and compares, so a path that did not
+come from the mapping cannot pass.
+
+`config-template.toml` appears in this codebase exactly once, in that protected list. That is
+the opposite of using it, and `test_repository_contract.py` now pins it to that single place.
+
+#### Inventory and size estimation
+
+`estimate_size()` walks with `os.scandir`/`lstat` only — read-only by construction, no open,
+no timestamp touch. It never follows a directory link (the link is recorded as a problem and
+the estimate becomes incomplete), tolerates files vanishing mid-walk as normal, and turns an
+unreadable subtree into a recorded problem rather than a traceback. An incomplete estimate is
+shown as `1.2 MB (at least)` and never as an exact figure.
+
+`inventory(root, measure=False)` does no walking at all, which is what lets the dialog paint
+instantly; the measured pass runs on a worker thread and every Tk update returns to the main
+thread through `after`. A missing target is a normal state. A wrong-type or unsafe target is
+*present but unavailable*, carrying the sentence the row shows.
+
+#### Selection — safe by construction
+
+Every checkbox is created unchecked on every open. Missing and unsafe rows have no usable
+control. `selected_ids()` intersects "ticked" with "eligible", so even a forced variable
+yields nothing. `Review Selected Data…` is disabled until something eligible is deliberately
+ticked. Nothing is persisted or restored — closing and reopening starts over. Reset
+Preferences remains a separate button with a separate command and is never bundled.
+`summarise_selection()` refuses an ID that is unknown, duplicated, missing or unsafe, and
+reports `complete=False` rather than inventing a total when a size is unknown.
+
+#### Request and result schemas
+
+Schema version `1`. A request carries **only** `schema_version`, `asset_ids` (an immutable
+tuple in catalog order), `process_id`, a tz-aware UTC `created_at`, and a UUID `request_id`.
+There is no `path`, `target`, `directory`, `root`, `command` or executable field anywhere in
+either schema — a test asserts that of every field name, and another asserts a serialized
+request contains no `/` or `\` at all. Validation lives in `__post_init__`, so no construction
+path (direct or deserialized) yields an invalid object; `bool` is excluded explicitly from the
+integer checks. Deserialization uses a strict allowlist: a missing *or* extra field is a
+refusal. Clock, PID and request-ID are injectable for deterministic tests.
+
+The result schema (`removed` / `missing` / `failed` / `refused`, non-negative bytes, immutable
+outcomes in catalog order) is defined so Phase 7 inherits a fixed boundary. **Phase 6 creates
+no result during normal use.**
+
+#### The dialog and the confirmation
+
+Title `Clear Downloaded Data`, with the approved introduction. Each row shows display name,
+`Present`/`Missing`, size (or `Calculating…`, or a truthful minimum), and its consequence or
+its safety explanation. Footer: a running total, `Cancel`, and `Review Selected Data…`.
+
+The confirmation is one custom window titled `Confirm clearing downloaded data`, built fresh
+from the live selection every time. Cancel is the focused default and is what Escape and the
+window-close control both do; the destructive button is `Clear 1 Selected Item and Close` /
+`Clear {N} Selected Items and Close` and is never the default. There is no suppression path.
+
+**Declining creates nothing, calls nothing and changes nothing.** Accepting builds exactly one
+validated immutable request and passes it to the injected callback — nothing else. In
+production that callback is `maintenance.unavailable_cleanup_handler`, which returns `False`,
+and the dialog then shows verbatim:
+
+> Cleanup did not start. Safe post-exit cleanup is not available yet. No data was changed, and
+> Audiobook Creation Tool will remain open.
+
+Both dialogs stay open and usable. A callback that *raises* is treated identically — the
+handoff is wrapped, so a future coordinator's crash can never leave the app claiming success.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q files/tests/test_maintenance.py` | **171 passed** |
+| `-m pytest -q files/tests/test_preferences_maintenance_ui.py` | **61 passed** |
+| `-m pytest -q files/tests/test_preferences_ui.py` | 65 passed |
+| `-m pytest -q files/tests/test_config.py` | 68 passed |
+| `-m pytest -q files/tests/test_settings.py` | 25 passed |
+| `-m pytest -q files/tests/test_repository_contract.py` | 40 passed |
+| `-m pytest -q -rs files/tests/test_output_paths.py` | 143 passed, 1 skipped |
+| `-m pytest -q files/tests/test_tool_output_integration.py` | 71 passed |
+| `-m pytest -q -rs files/tests/test_cover_source_side.py` | 33 passed, 1 skipped |
+| `-m pytest -q files/tests/test_maker_custom_destination.py` | 31 passed |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** |
+| `-m pytest --collect-only -q files/tests` | **807 collected** |
+| `-m pytest -q -rs files/tests` (×3) | **802 passed, 5 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** (5/5 checks) |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean, exit 0 |
+
+**Against the Phase 5 baseline (574 collected / 569 passed / 5 skipped / 1 warning):** 807
+collected, **+233** — `test_maintenance.py` +171, `test_preferences_maintenance_ui.py` +61,
+`test_tool_output_integration.py` +1 (two boundary guards became three). `test_preferences_ui.py`
+stays at 65: four Phase 2 placeholder tests were replaced by four Phase 6 entry-point tests, the
+guard among them narrowed to the Phase 7 boundary rather than dropped. Collected == executed;
+the five skips are the same documented five (three Jack Ryan fixture-folder skips, two
+file-symlink skips needing a Windows privilege this account lacks). The one warning is the
+pre-existing pydub `audioop` DeprecationWarning. **No Tk/display skip burst occurred in any
+Phase 6 run.**
+
+One new-test-only issue was found and fixed rather than tolerated: a dialog's background
+inventory thread could finalise a discarded Tk variable, raising `Variable.__del__: main thread
+is not in main loop`. The test helper now leaves `measure` off by default, the three
+background tests join their worker, and the fixture collects on the main thread. Six
+consecutive clean runs followed.
+
+#### Temporary-root fixture verification — PASSED (2026-08-04, HOME-PC)
+
+Disposable fake root `…\Temp\act-phase6-*\fake-repo`, driving the production catalog,
+inventory, selection, confirmation and fail-closed callback with **only the root injected**.
+Windows theme, 1920×1080, Tk scaling 1.3333, 96 px/in.
+
+| Fake file | Bytes | | Asset | Expected | Observed |
+|---|---|---|---|---|---|
+| `.venv/pyvenv.cfg` | 120 | | `virtual_environment` | 3 520 = 3.4 KB | Present, **3.4 KB** |
+| `.venv/Lib/site-packages/pkg/__init__.py` | 3 400 | | `portable_binaries` | 51 200 = 50.0 KB | Present, **50.0 KB** |
+| `files/bin/ffmpeg.exe` | 51 200 | | `downloaded_models` | 262 144 = 256.0 KB | Present, **256.0 KB** |
+| `files/runtime-data/models/kokoro/model.onnx` | 262 144 | | `application_logs` | 2 000 = 2.0 KB | Present, **2.0 KB** |
+| `files/runtime-data/logs/session-1.log` | 900 | | | | |
+| `files/runtime-data/logs/session-2.log` | 1 100 | | | | |
+
+Decoy neighbours `config.toml`, `settings.json`, `scripts/Universal/launcher.py` and
+`md-instructions/Briefing.md` were present throughout and never appeared in the inventory.
+
+- Preferences cleanup button **enabled**; opening twice returned the **same** window.
+- Initial state: `selected_ids() == ()`, every box unchecked, Review **disabled**, status
+  `Nothing selected.`
+- Degraded second root: missing `.venv` → **Missing/DISABLED**; a junctioned `models` pointing
+  at a 999 999-byte folder → **Present/DISABLED**, *"this item is a shortcut or link, which is
+  never followed or removed"*. Force-ticking both still yielded `()`, and the linked folder was
+  **never walked**.
+- Totals: `1 item selected — about 2.0 KB` → `2 items selected — about 52.0 KB` →
+  `4 items selected — about 311.4 KB`.
+- Confirmation: exact title, exact body (all four items with state, size and consequence;
+  `Estimated space to be freed: 311.4 KB.`; the close notice; the four applicable effect lines;
+  the exclusion notice; the final question), Cancel default, `WM_DELETE_WINDOW → cancel`,
+  Escape bound, **766×559** — inside 920×600. Singular label verified as
+  `Clear 1 Selected Item and Close`.
+- Declining: `result=False`, window destroyed, **no request built**, fake root byte-identical.
+- Accepting: exactly one `CleanupRequest`, fields
+  `['asset_ids','created_at','process_id','request_id','schema_version']`, IDs in catalog
+  order, tz-aware UTC, payload containing no path of any kind. `submit()` returned **False**,
+  the status matched the approved fail-closed wording **exactly**, and the cleanup dialog,
+  Preferences and the Tk root all remained alive.
+- Geometry: cleanup dialog **718×414** requested (minsize 631×413), whole dialog inside
+  920×600; only the item-list row carries grid weight and the actions sit below it, so growth
+  can never displace them. Preferences unchanged at 618×596.
+- **Nothing written:** fake-root hashes and listing identical (10/10 files), and no
+  request/result/maintenance-state/`.act-` file created anywhere under the temporary tree.
+- **Real project untouched:** all 6 size walks were under the temporary root, none under the
+  repository; the real `.venv`, `files/bin` (absent on this machine), `files/runtime-data/models`
+  and `…/logs` fingerprints (mtime + entry count + names) were identical before and after.
+
+#### Pending evidence — accurately pending, not passed
+
+| Item | State |
+|---|---|
+| Windows 125% scaling | **Pending** — deferred to Phase 8; system scaling was not changed |
+| Live macOS | **Pending** — approved deferral; the aqua path is import/build-tested only |
+| Screenshot evidence for the new surfaces | **Pending** — assigned to Phase 8 |
+| Live TTS synthesis | **Pending** — independent of Phase 6 and deliberately not run |
+
+#### Repository state
+
+`git status --short` shows only `?? config-template.toml`; `git diff --name-status` is empty.
+`config-template.toml` is untracked, unstaged and still hashes
+`94b05edc3211efe531be018fbc442c240df8db42`. The four canonical documents keep their exact
+names with no alias, `md-instructions/don't-delete/` keeps its four references, and the ten
+approved Plan 1 screenshots are unmodified. `master` and `origin/master` remain `bada8a3`;
+the Plan 1 feature head remains `f3d70e8`.
+
+#### Next action
+
+**Phase 7 — Safe post-exit cleanup and launcher/bootstrap coordination.** It requires new
+explicit maintainer approval, and it is the first phase in this drop that is able to delete
+anything.
+
+---
+
+### Phase 5 — Cover Image and M4B Maker exceptions (2026-08-04, HOME-PC)
+
+**Result: both Decision 10A exceptions exist, opt-in and off by default, with the standard
+modes unchanged.** Two files added, six modified. `version.py` is still `0.5.1`.
+
+**Phase 5 start SHA:** `abdd1cfa10f4ceb9f666bf4455169bdaddac300e` (approved Phase 4).
+
+#### Cover Image
+
+| Aspect | Behaviour |
+|---|---|
+| Toggle | `Save beside source images`, **off on every fresh build**, nothing persisted |
+| Choices | `Create numbered copies` (preselected) / `Replace original files` (never default) |
+| Turning off | Resets the action, so a Replace selection cannot survive as a hidden mode |
+| Numbered | `stem-1.ext` beside each source, per-directory collision sequences |
+| Replace gates | toggle **and** radio **and** per-run confirmation — each inert alone |
+| Confirmation | Title *"Confirm replacement of original images"*, exact count, focused Cancel, Escape/close cancel, `Replace N Original Files`, rebuilt every run |
+| Pre-validation | Links, missing files, directories and non-round-trippable formats refused **before** the dialog |
+| Install | complete `.act-tmp-…` sibling → validate size → `os.replace`. **Never delete-then-rename** |
+| Failure | original byte-for-byte unchanged; only this operation's temporary file removed |
+| Partial batch | truthful: "N of M original(s) replaced; any not reached are unchanged" |
+
+#### M4B Maker
+
+Toggle `Choose custom destination`, off on every fresh build; path and Browse revealed only
+while on; `custom_destination()` is the single read point, so a stale hidden path cannot steer
+a standard build. Validation (absolute, existing, directory, not a link, writable via a probe
+that is removed again) runs before anything starts, and a failure reserves **no** run. Output
+goes straight in with **no nested `M4B-Maker-N`**, using the shared sanitiser and collision
+numbering. Staging moved to an operation-owned `tempfile.mkdtemp()`.
+
+#### The bug this phase found before it shipped
+
+Phase 4's cancellation ran `shutil.rmtree(out_dir)` unconditionally. Correct for a reserved run
+— but in custom mode `out_dir` **is the user's own folder**, so cancelling a build would have
+deleted it and everything in it. Cancellation now branches on the mode and removes only this
+operation's staging and its own partial output. A source-level guard test asserts the
+destructive `rmtree` sits behind the custom-mode check.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_cover_source_side.py` | **33 passed, 1 skipped** |
+| `-m pytest -q -rs files/tests/test_maker_custom_destination.py` | **31 passed** |
+| `-m pytest -q files/tests/test_tool_output_integration.py` | **70 passed** |
+| `-m pytest -q -rs files/tests/test_output_paths.py` | 143 passed, 1 skipped |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** |
+| `-m pytest -q -rs files/tests/` | **569 passed, 5 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean |
+
+**Against the Phase 4 baseline (503 collected / 499 passed / 4 skipped):** 574 collected now,
++71. That is +34 Cover source-side, +31 Maker custom destination, +7 net in
+`test_tool_output_integration.py` (five Phase 4 placeholder tests replaced by five Phase 5
+state tests, two Phase 4 guards replaced by two Phase 5 guards, plus five new), and −1 in
+`test_output_paths.py` (two exception guards merged into one). The fifth skip is new: the
+Cover link-refusal test needs a **file** symlink, which this account cannot create.
+
+#### Live Windows fixture verification — PASSED (2026-08-04, HOME-PC, real ffmpeg + Pillow)
+
+Temporary output base, generated images and tones, settings redirected to a temp file.
+
+| Check | Observed |
+|---|---|
+| Cover standard | `Cover-Image-Outputs/Cover-Image-1` → `cover.jpg`; source folder unchanged |
+| Cover numbered ×2 | `art-1.jpg` then `art-2.jpg` beside the source; original unchanged |
+| Cover replacement | confirmation asked for 1 file (`Replace 1 Original File`); image went 400×200 → 64×64; neighbour `keep-me.png` untouched |
+| Cover failed replacement | injected failure before the boundary → original **and** sibling byte-identical, **no** `.act-tmp-` file left |
+| Maker standard | `M4B-Maker-Outputs/M4B-Maker-1` → `Standard Book.m4b` |
+| Maker custom ×2 | `My_Book__Title.m4b` then `My_Book__Title-1.m4b` **directly** in the chosen folder; `pre-existing.txt` kept; **no nested run** |
+| Exception modes | final base tree contains **only** `Cover-Image-1` and `M4B-Maker-1` — no unused standard runs |
+| All sources | mp3, cover and image fixtures byte-identical except the one deliberately replaced disposable copy |
+
+#### Still pending — not claimed as passed
+
+1. **Windows 125% display scaling** — deferred to the later manual-validation phase.
+2. **Live macOS** — explicit deferral.
+3. **Phase 2 screenshot evidence** — assigned to Phase 8.
+4. **TTS live synthesis** — still pending, unchanged and untouched by this phase.
+
+### Next action
+
+**Phase 6 — downloaded-data inventory and confirmation UI.** Not started. It requires explicit
+maintainer approval before any work begins.
+
+---
+
+## Phase 4 record (v0.6.0 Drop 2, approved 2026-08-04)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 4 COMPLETE.**
+
+### Phase 4 — standard output integration across all six tools (2026-08-03, HOME-PC)
+
+**Result: every tool now writes to `<output base>/<Tool>-Outputs/<Tool>-N/`, reserved at
+validated operation start.** One file added, ten modified. `version.py` is still `0.5.1`.
+
+**Phase 4 start SHA:** `10819f1b7cc0d7ddb1b8c51ae870a44c694a3fdc` (approved Phase 3).
+
+#### The §G blocker and its ruling
+
+Phase 4 stopped before any edit because the drop specifies Cover Image's Phase 4 default and
+its Phase 5 source-side mode but never rules on the **already-shipped destructive
+`Overwrite original files` checkbox** in between. The maintainer approved **Option A**: keep it
+visible but disabled, captioned *"available in a later update"*. Implemented past the widget
+state on purpose — `var_overwrite` forced `False` **and** the captured worker parameter is the
+literal `False`, so re-enabling the checkbox alone cannot reach the source-side branch.
+
+#### Per-tool disposition
+
+| Tool | Destination | Notes |
+|---|---|---|
+| TTS Audiobook | `TTS-Audiobook-Outputs/TTS-Audiobook-N` | Reserved in `run_job` after input validation. Mirroring, voices, timing, retry untouched. |
+| M4B Converter | `M4B-Converter-Outputs/M4B-Converter-N` | Batch planner; duplicate stems now number instead of overwriting. Decoder/xHE-AAC untouched. |
+| MP3 Tool | `MP3-Tool-Outputs/MP3-Tool-N` | **Three** reservations — combine, time edit, ID3 — each its own run. Combine staging moved from `edited_mp3s-N` into the run. Time-only-through-Write-ID3 preserved. |
+| M4B Maker | `M4B-Maker-Outputs/M4B-Maker-N` | Local sanitise regex replaced by the central sanitiser; `build/` staging inside the run. |
+| Cover Image | `Cover-Image-Outputs/Cover-Image-N` | No longer writes beside sources. Overwrite control disabled per Option A. |
+| M4B Metadata | `M4B-Metadata-Outputs/M4B-Metadata-N` | Plan-before-copy; copy-only contract intact; `avoid_input_overwrite` gone. |
+
+#### Legacy helpers
+
+- `paths.next_output_dir()` and `paths.avoid_input_overwrite()` — retained as **documented
+  dormant compatibility API**; a test asserts nothing under `scripts/Universal` calls either.
+- `mp3_tool.next_available_folder()` and `BASE_OUTPUT_DIRNAME` — **removed outright**.
+- `cover_resizer.next_version_path()` and its `overwrite` branch — **dormant legacy reserved
+  for Phase 5**, unreachable from the Phase 4 UI and operation-start path.
+- Per-tool output Browse controls and `choose_outdir` — **removed** (they would bypass the
+  configured base). `_browse_dir` retired from TTS.
+
+#### Two real bugs
+
+1. **Found and fixed by the migration:** `avoid_input_overwrite()` only guarded against writing
+   *onto an input*, so two imports with the same name from different folders silently
+   overwrote each other in the Converter, MP3 Tool and Metadata Editor. The batch planner
+   closes it — verified live (`Track A.mp3` + `Track A-1.mp3`).
+2. **Introduced and caught by the live check:** routing the Converter through the planner
+   removed its local `stem` assignment while the metadata fallback title still used it — every
+   conversion failed with `name 'stem' is not defined` and produced nothing. **Every
+   planner-level test passed.** Only driving the real worker on a generated fixture exposed it.
+   The suite now runs the actual Converter, time-edit and Cover workers.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_tool_output_integration.py` | **68 passed** |
+| `-m pytest -q -rs files/tests/test_output_paths.py` | 143 passed, 1 skipped |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all executed |
+| `-m pytest --collect-only -q files/tests/` | **503 collected** (was 439) |
+| `-m pytest -q -rs files/tests/` | **499 passed, 4 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** across five checks |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean |
+
+#### Live Windows fixture verification — PASSED (2026-08-03, HOME-PC, real ffmpeg + PIL)
+
+Temporary output base, generated tone/image fixtures, settings redirected to a temp file. The
+maintainer's real preferences, Downloads folder, outputs and media were never touched.
+
+| Check | Observed |
+|---|---|
+| MP3 Tool time edit | `MP3-Tool-Outputs/MP3-Tool-1` → `Track A.mp3`, `Track A-1.mp3`, `Track B.mp3` |
+| MP3 Tool Write ID3 | `MP3-Tool-2` (distinct), `TIT2 = Phase 4 Title` |
+| MP3 Tool combine FAST | `MP3-Tool-1` → `Combined Book.mp3` + timestamps + `build/` inside the run |
+| MP3 Tool combine SAFE (gap 0.2) | `MP3-Tool-2`, distinct run |
+| M4B Converter | `M4B-Converter-Outputs/M4B-Converter-1` → `Book.mp3` |
+| M4B Converter duplicate stems | `Book.mp3` + `Book-1.mp3` |
+| M4B Maker | `M4B-Maker-1` → `My_Book__Title.m4b` (central sanitiser); second build → `M4B-Maker-2` |
+| Cover Image | `Cover-Image-1` → `cover.jpg`, `cover-1.jpg`; **nothing beside the sources** |
+| Cover placeholder | widget state `disabled`, variable `False` |
+| M4B Metadata | `M4B-Metadata-1` → `Book.m4b`; original byte-identical |
+| Forced collision | existing `Track A.mp3` → `Track A-1.mp3` → `Track A-2.mp3` |
+| Validation failure | run count unchanged — no directory created |
+| All fixtures | mp3, m4b and image sources **byte-identical** after every run |
+
+#### Still pending — not claimed as passed
+
+1. **Windows 125% display scaling** — deferred to the later manual-validation phase by
+   maintainer decision; scaling was not changed during Phase 4.
+2. **Live macOS** — explicit deferral.
+3. **Phase 2 screenshot evidence** — assigned to Phase 8.
+4. **TTS live synthesis** — not run: Edge TTS needs the network and Kokoro needs the ~300 MB
+   model. TTS's destination, mirroring and validation-before-reservation are covered by
+   automated tests and an AST guard; **the synthesis path itself was not live-exercised.**
+
+### Next action
+
+**Phase 5 — Cover Image and M4B Maker exceptions.** Not started. It requires explicit
+maintainer approval before any work begins.
+
+---
+
+## Phase 3 record (v0.6.0 Drop 2, approved 2026-08-03)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 3 COMPLETE.**
+
+### Phase 3 — output reservation, collision, and mirroring services (2026-08-03, HOME-PC)
+
+**Result: the platform-neutral output foundation exists and is exhaustively tested, and
+absolutely nothing consumes it yet.** Two files added, one comment-only modification. Current
+user-facing output behaviour is unchanged; `version.py` is still `0.5.1`.
+
+**Phase 3 start SHA:** `e16fd42dcb54a6f34a4d79a498fa681f18ef6e6b` (approved Phase 2).
+
+#### What was built — `scripts/Universal/shared/output_paths.py`
+
+| Area | Contract |
+|---|---|
+| Layout | `<base>/<Tool>-Outputs/<Tool>-N/` |
+| Tool parents | `TOOL_OUTPUT_PARENTS`, derived from the existing `paths.TOOL_SLUGS` so a slug is never written twice. Unknown key → `UnknownToolError`, never a path fragment. |
+| Base | `resolve_output_base(snapshot)` reads the captured Phase 1 snapshot; `ensure_output_base()` is the only creation step and proves writability before a run starts. |
+| Reservation | `mkdir()` **without** `exist_ok` is the race boundary — no existence check first. Bounded, diagnosable, returns a frozen `RunReservation` carrying the run's config snapshot. |
+| Release | `release_if_empty()` removes a reserved directory **only** while empty. |
+| Sanitisation | Path→last component, control chars, forbidden set, NFC, trailing dots/spaces, reserved device names (with or without extension), 255-char limit preserving the extension. |
+| Collisions | requested name → `stem-1.ext` → `stem-2.ext`. Per-run `DestinationPlanner`, never global; disk state + planned names combined; case-insensitive everywhere. |
+| Safety | `assert_contained` (handles non-existent children), `assert_no_link_in`, `assert_not_input`, `assert_outside_source_trees`. Typed `OutputPathError` with message/detail split. **Deletes nothing.** |
+| Planning | `plan_flat`, `plan_mirrored`, `plan_multi_root` — all pure, all returning frozen plans. |
+
+**Planning is pure; materialisation is explicit.** Only `ensure_output_base()` and
+`reserve_run_directory()` create anything, and only directories. Tk-free, subprocess-free,
+network-free, working-directory-independent — all asserted.
+
+#### Three findings worth recording
+
+1. **The junction escape is caught by containment, not by the link check.** `resolve()` follows
+   a junction, so a link pointing *outside* the run directory normalises outside the root and
+   containment rejects it. A link pointing *back inside* the root resolves to a contained path
+   and passes containment entirely — that is the case `assert_no_link_in` exists for, and it now
+   has its own test. Both defences are needed; neither is redundant.
+2. **Windows reports `<tmp>/NUL` as existing.** The OS resolves the device name, so a test that
+   asserted the un-created root did not exist failed. That is Windows device semantics, not a
+   defect — and it is exactly the hazard the sanitiser defuses (`NUL` → `_NUL`).
+3. **Directory-link tests run via junctions.** `mklink /J` needs neither Developer Mode nor
+   elevation, so the link-safety tests get real coverage on an ordinary account rather than
+   being skipped wholesale. Only the file-symlink test still needs the privilege.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_output_paths.py` | **143 passed, 1 skipped** |
+| `-m pytest -q files/tests/{test_config,test_settings,test_repository_contract,test_preferences_ui,test_launcher_smoke,test_prototype_regression,test_batch_convert_folders}.py` | **226 passed** |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all executed |
+| `-m pytest --collect-only -q files/tests/` | **439 collected** (was 295) |
+| `-m pytest -q -rs files/tests/` | **435 passed, 4 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** across five checks |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | **clean, exit 0 — zero notices** |
+
++144 collected = exactly the new file. The 1 warning is the pre-existing pydub `audioop`
+`DeprecationWarning`.
+
+#### Skips — named, with exact reasons
+
+| Skip | Reason |
+|---|---|
+| `test_a_linked_destination_name_is_refused` | This account cannot create a **file** symlink: `OSError WinError 1314 — A required privilege is not held by the client`. Windows needs Developer Mode or elevation for file symlinks; a junction cannot stand in for a file. The pure containment logic it guards is covered by the non-link containment tests, and the two directory-link tests **did** run via junctions. **Not claimed as passed.** |
+| 3 × `test_jack_ryan_final_product.py` | Pre-existing, gated on `JACK_RYAN_M4B_FOLDER`. |
+
+#### Scope held
+
+No tool panel imports or calls the new service (asserted per module). The launcher does not
+either. `paths.next_output_dir()` is unchanged in behaviour and now documented as a
+compatibility wrapper scheduled for removal in Phase 4, with a test recording the exact five
+call sites so a sixth fails and Phase 4's removals show in the diff. No cleanup, no post-exit
+behaviour, no Cover source-side mode, no M4B Maker custom destination, no Plan 3 importing.
+Preferences and the launch warning still pass unchanged.
+
+#### Still pending — not claimed as passed
+
+1. **Windows 125% display scaling** — deferred to the later manual-validation phase by
+   maintainer decision; system scaling was not changed during Phase 3.
+2. **Live macOS** — explicit deferral.
+3. **Phase 2 screenshot evidence** — assigned to Phase 8.
+
+### Next action
+
+**Phase 4 — standard output integration across all six tools.** Not started. It requires
+explicit maintainer approval before any work begins.
+
+---
+
+## Phase 2 record (v0.6.0 Drop 2, approved 2026-08-03)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 2 COMPLETE.**
+
+### Phase 2 — Preferences, warning presentation, Reset Preferences (2026-08-03, HOME-PC)
+
+**Result: the Preferences & Data surface exists on both platforms, warnings are reported once
+per launch, and Reset Preferences works — with no tool-output change and no cleanup behaviour
+of any kind.** Two files added, four modified. `version.py` is still `0.5.1`.
+
+**Phase 2 start SHA:** `56076fe4baf32626fa82ad7ecad78dad8c0235e2` (approved Phase 1).
+
+#### Identifier integrity check — no defect found
+
+The pasted Phase 1 summary showed a garbled `output_barectory`. That string **does not exist
+anywhere in the repository** (`git grep barectory` → no match). The committed code, tests and
+schema consistently use the persisted settings key `output_base_directory` and the TOML key
+`output.base_directory` — 11 occurrences across `config.py`, `test_config.py` and
+`test_settings.py`, all canonical. The garbling was a display artefact in the pasted text.
+**No correction was needed and none was made.**
+
+#### What was built
+
+| Area | Outcome |
+|---|---|
+| Entry point | `Preferences & Data…` in the launcher status bar on **all three shells** — `ACT.Ghost.TButton` on Windows, native unstyled `ttk.Button` on aqua and classic — plus `Ctrl+,` and `Cmd+,` bound unconditionally. `takefocus=True`, so it is in the Tab order everywhere. |
+| Dialog | New `shared/preferences_ui.py`. Non-modal, Escape-closable, single-instance: the launcher holds the one live reference and repeated activation **focuses** it. |
+| Output base | Shows the effective value **and its source**; default-or-custom radio, editable path, Browse. Validated through the Phase 1 rules; saving creates no folder; success reloads the snapshot immediately. |
+| Reset | Confirms, clears mutable preferences only, refreshes fields and source, reports failure honestly. Cancel changes nothing. |
+| Cleanup | Disabled `Clear Downloaded Data` placeholder with **no command at all**. |
+| Warning | `config.take_launch_warning()` guard + one non-modal aggregated window per launch. |
+
+#### Two defects found and fixed while building
+
+1. **A failed settings write left the cache ahead of the file.** `settings.set()`/`update()`
+   mutated the in-memory dict and then returned `False` if the atomic write failed, so the
+   running app believed a preference that never reached disk. Both now roll the change back on
+   failure — which is what makes the dialog's *"the previous setting is still in use"* true.
+2. **The dialog did not fit the supported minimum.** The first build measured **689 px tall
+   under the Windows theme**, against the app's own `920×600` minimum; the unstyled build was
+   556 px, so a fit test that only exercised the unstyled bundle passed and hid it. Fixed by
+   layout, not by relaxing the test: Entry/Browse/Save share one row, Reset sits on its card's
+   heading row, outer padding moved to the tight end of the spacing scale. Now **618×596 px on
+   Windows, 630×488 px unstyled**, no whole-dialog scrolling. The fit test now asserts the
+   Windows path explicitly, and a companion test proves Save/Reset/Close/Browse all sit inside
+   the dialog's own height and are keyboard-reachable.
+
+#### Automated verification (repo venv, Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_preferences_ui.py` | **65 passed** |
+| `-m pytest -q -rs files/tests/test_config.py` | **68 passed** |
+| `-m pytest -q -rs files/tests/test_settings.py` | **25 passed** |
+| `-m pytest -q -rs files/tests/test_repository_contract.py` | **40 passed** |
+| `-m pytest -q -rs files/tests/test_launcher_smoke.py` | **11 passed** |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all executed |
+| `-m pytest -q -rs files/tests/test_prototype_regression.py` | **12 passed** |
+| `-m pytest --collect-only -q files/tests/` | **295 collected** (was 230) |
+| `-m pytest -q -rs files/tests/` | **292 passed, 3 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** across five checks |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | **clean, exit 0 — zero notices** |
+
+The 1 warning is the pre-existing pydub `audioop` `DeprecationWarning`; the 3 skips are the
+`JACK_RYAN_M4B_FOLDER`-gated tests. +65 collected = exactly the new file.
+
+#### Live Windows manual verification — PASSED (2026-08-03, HOME-PC)
+
+Windows 11, 1920×1080 **primary display at 100% scaling**, Tk reporting 96 px/inch, repo venv
+Python 3.12.10, driven against the **real** `LauncherApp` with the settings layer redirected to
+a temporary file (the maintainer's real `settings.json` was never read or written).
+
+| Check | Observed |
+|---|---|
+| Launcher opens | 1024×720 at default geometry, `minsize=(920, 600)` |
+| Preferences opens | 618×596, title `Preferences & Data` |
+| Repeated activation | same object returned, **1** toplevel open |
+| Keyboard traversal | Radiobutton → Save → Reset Preferences… → Close, cycling |
+| Effective value + source | `C:\Users\…\Downloads\Audiobook-Creation-Tool-Outputs` — "Using the default Downloads location (config.toml leaves it unset)." |
+| Rejected relative path | `Outputs` → refused, error status, nothing saved |
+| Rejected environment variable | `%USERPROFILE%/Outputs` → refused (stays literal, therefore relative) |
+| Accepted absolute path | saved; **folder not created**; source became "your saved preference" |
+| Reset cancelled | returned False, "Reset cancelled. Nothing was changed.", value kept |
+| Reset confirmed | success, mode back to default, effective back to Downloads |
+| Failure presentation | injected write failure → "Your preferences could not be saved. The previous setting is still in use." and the prior value still in force |
+| Cleanup placeholder | label `Clear Downloaded Data`, state `('disabled',)`, **command `''`**, caption as specified |
+| Escape | dialog closed |
+| Once-per-launch warning | temporary malformed config in a fake repo root → **1** window, second call returned `None`, summary listed both bad keys as bullets with no traceback |
+| Fit at 1024×720 | dialog 618×596, fits 920×600 |
+| Fit at 920×600 minimum | dialog 618×596, Save and Close both inside the form |
+| Maximized | launcher 1920×1009, dialog fits the screen |
+
+#### Manual checks still PENDING — not claimed as passed
+
+1. **Windows 125% display scaling.** Requires the maintainer to change Settings → System →
+   Display; it cannot be set from here without altering the machine's configuration. The app
+   is DPI-unaware (Plan 1 finding), so Windows bitmap-scales the whole window uniformly and
+   nothing can clip differentially — but that is *reasoning*, not evidence, and it is recorded
+   as pending, not as a pass.
+2. **Live macOS.** An explicit deferral, as this phase's instructions direct.
+3. **Screenshot evidence** for the new surfaces. Deferred to Phase 8's manual matrix, which
+   owns the evidence collection; Phase 2 recorded measurements instead of adding image files.
+
+### Next action
+
+**Phase 3 — shared output reservation, collision, and mirroring services.** Not started. It
+requires explicit maintainer approval before any work begins.
+
+---
+
+## Phase 1 record (v0.6.0 Drop 2, approved 2026-08-03)
+
+**v0.6.0 Drop 2 (Plan 2) — PHASE 1 COMPLETE.**
+
+Active drop: `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md`
+(temporary; deleted only in its approved Phase 9 closeout).
+
+**Branch:** `feature/0.6.0-drop2-config-output-maintenance-foundation`
+**Phase 0 start SHA (= verified `origin/master` at fetch time):**
+`bada8a3dee87acf6a6619252bd31cdee429f1711`
+**Phase 0 commit:** `ca10c5beb8d2ac6a89ce345a7ba96f733de5df42` (approved 2026-08-03)
+**Phase 1 commit:** the branch HEAD created by the Session Sync Log entry below — a commit
+cannot name its own SHA, so read it with
+`git log -1 feature/0.6.0-drop2-config-output-maintenance-foundation`.
+
+### Phase 1 — canonical-file gate and configuration core (2026-08-03, HOME-PC)
+
+**Result: the documentation contract is now mechanically enforced and the configuration core
+exists, with no GUI, no tool-output change and no new dependency.** Ten files changed, four
+added. `version.py` is still `0.5.1`.
+
+#### What was built
+
+| Area | Outcome |
+|---|---|
+| Root `config.toml` | **New, committed, commented, machine-agnostic.** `project.{name,version,python_min,entry_point,platforms}`, `output.base_directory`, `logging.max_sessions`, `importing.large_result_warning_threshold`. Written from the Plan 2 specification; the maintainer's unrelated `config-template.toml` was **not** opened, copied or referenced. |
+| `shared/config.py` | **New, 660 lines.** One typed, immutable `EffectiveConfig` (frozen dataclasses + tuples + `MappingProxyType`) built as **code defaults → valid TOML → allowlisted settings overlay**. Per-key validation, `Diagnostic` records, `warning_summary()` aggregation/deduplication, `get_effective()` / `reload()` / `invalidate()`. Standard-library `tomllib` only. |
+| `shared/settings.py` | Extended narrowly: `reset()`, bool returns from `save()`/`set()`/`update()`, `last_load_error()`, `invalidate()`, and `use_path()` as the test-injection seam. A malformed file is **never rewritten during a load**. |
+| `shared/logging_setup.py` | `configured_max_sessions()` reads `logging.max_sessions` through the effective configuration, importing config **lazily inside the function**, and falls back to 30 on any failure. |
+| `scripts/verify.py` | Canonical `Changelog.md` reference, plus two new checks: `docnames` and `config`. |
+| Tests | Three new files, **133 tests**, all using temporary directories and injected paths. |
+
+#### Precedence and the mutable overlay
+
+`config.SETTINGS_OVERLAY` is the entire allowlist and today contains exactly one entry:
+`output_base_directory` → `output.base_directory`. Known user-state keys (`last_tool`,
+remembered input/cover/output directories, voice, bitrate) stay legitimate settings, are
+skipped silently, and deliberately have **no** invented TOML counterpart. Anything else in
+`settings.json` is ignored with one aggregated diagnostic. A whitelist was chosen over
+name-matching so a future preference cannot silently become a configuration override — see the
+2026-08-03 ADR in `Decisions.md`.
+
+#### The runtime and the gate deliberately disagree
+
+At runtime an invalid value **falls back and warns**, per key, so a user's hand-edit can never
+stop the application starting and one bad key never discards a good neighbour. `verify.py`
+**fails on any diagnostic** from the committed file, because a shipped file that needs a
+fallback is a defect. Both use the same loader, so the two rule sets cannot drift.
+
+#### The casing defect recorded in Phase 0 is fixed — correctly
+
+`scripts/verify.py:34` read `md-instructions/CHANGELOG.md`, a name that has not existed since
+the documents were recased. **The reference was wrong; the files were right**, so the reference
+moved and no document was renamed. The new `docnames` check compares **real directory entries**
+(`os.listdir`) against the exact canonical names rather than calling `Path.exists()`, which is
+what let the defect hide on NTFS. Other active references corrected: `README.md`'s layout tree,
+`Briefing.md`'s pointers and cross-references, and `release.py`'s printed release checklist.
+Left deliberately historical: the archived `files/release-history/*.md` notes, this file's own
+Phase 1–6 Plan 1 entries, the protected `don't-delete/` references, the active drop's own
+instruction text, and the dated `# … see CHANGELOG 2026-07-19` comment in `voice_registry.py`
+(a pointer to a historical entry inside an unrelated tool module).
+
+#### Proof the gate is real, not NTFS luck
+
+`verify.py`'s two new checks take optional paths so the suite can drive them against temporary
+trees — necessary because a case-insensitive filesystem will not let a real alias be staged
+beside its canonical twin. `test_repository_contract.py` proves the gate **fails** on: a
+missing canonical document; `CHANGELOG.md` in place of `Changelog.md`; each lowercase alias; a
+deleted `don't-delete/` reference; a missing `don't-delete/` directory; an invalid committed
+config; project-version drift; malformed TOML; and a missing config file. It also asserts
+`verify.py` holds no stale alias as a real string value (AST-parsed, so the docstring may keep
+explaining the defect without tripping the test that enforces the fix).
+
+#### Verification (repo venv, Python 3.12.10, HOME-PC, Windows 11)
+
+| Command | Result |
+|---|---|
+| `-m pytest -q -rs files/tests/test_repository_contract.py` | **40 passed** |
+| `-m pytest -q -rs files/tests/test_config.py` | **68 passed** |
+| `-m pytest -q -rs files/tests/test_settings.py` | **25 passed** |
+| `-m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all theme tests executed |
+| `-m pytest --collect-only -q files/tests/` | **230 collected** (was 97) |
+| `-m pytest -q -rs files/tests/` | **227 passed, 3 skipped, 1 warning** (was 94/3/1) |
+| `scripts/verify.py` | **RESULT: PASS** — pytest, deps, docs, **docnames**, **config** |
+| `-m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | 225 notices, **all** on the three CRLF markdown files; **zero** on any `.py` or `.toml` |
+
+The 1 warning is the pre-existing pydub `audioop` `DeprecationWarning`. The 3 skips are the
+`JACK_RYAN_M4B_FOLDER`-gated tests. **No test was lost:** 97 → 230 collected is +133, exactly
+the new files.
+
+#### `git diff --check`, stated honestly
+
+Every notice is the **inherited CRLF condition** recorded in Phase 0: the blobs GitHub stored
+for `Briefing.md`, `Changelog.md` and `Decisions.md` use CRLF, so each added line reads as
+trailing whitespace. Per the maintainer's Phase 0 decision, no renormalisation was run and no
+formatting pass was performed; the edits inherited each file's existing endings, so the diffs
+stayed line-based (+83 / +67 / +85) instead of becoming whole-file rewrites. **Phase 1
+introduced no new whitespace error** — the check names no `.py`, `.toml` or `README.md` line.
+
+#### What Phase 1 deliberately did not do
+
+No Preferences dialog, no visible configuration-warning presentation, no GUI Reset control, no
+Clear Downloaded Data, no post-exit cleanup, no run reservation, no collision or mirroring
+service, no tool migration, no Cover source-side mode, no M4B Maker custom destination, no
+Plan 3 import behaviour. `shared/paths.py` and all six tool panels are **untouched**;
+`launcher.py` is untouched. `test_repository_contract.py` asserts the launcher gained no
+Preferences/Reset/Cleanup surface and that `config.py` defines no run-reservation or mirroring
+function and performs no filesystem write.
+
+### Next action
+
+**Phase 2 — Preferences, warning presentation, and Reset Preferences.** Not started. It
+requires explicit maintainer approval before any work begins.
+
+---
+
+## Phase 0 record (v0.6.0 Drop 2, approved 2026-08-03)
+
+**Phase 0 start SHA (= verified `origin/master` at fetch time):**
+`bada8a3dee87acf6a6619252bd31cdee429f1711`
+**Local `master`:** fast-forwarded `1da1e547…` → `bada8a3…` (`--ff-only`, no merge commit, no
+reset, no stash, no rewrite). Local `master` and `origin/master` are equal.
+
+### Plan 1 ancestry — verified, not assumed
+
+| Required commit | Present in `origin/master` ancestry |
+|---|---|
+| Plan 1 merge (PR #2) `86933e6510c6303cadf3437dc295d000ffa9ee82` | **YES** (`git merge-base --is-ancestor` → 0) |
+| Plan 1 feature head `f3d70e8c9017f2fec3ae459c1438dd71b42f9ef0` | **YES** |
+| Previous local `master` `1da1e547ce85d6e5c8a5b34fb549ffa8b93f6318` | **YES** — so the update was a true fast-forward |
+
+The branch `feature/0.6.0-drop1-windows-ui-prototype` still exists locally and on `origin`
+at `f3d70e8` and was **not** deleted. All ten approved screenshots under
+`files/UI-Prototype-Screenshots/v0.6.0-drop1/` are present and unmodified.
+
+**What the two commits above the Plan 1 merge are.** `origin/master` gained
+`d2d6f0e` ("Delete md-instructions directory") and `bada8a3` ("Add files via upload") after
+PR #2. Inspected commit-by-commit, that pair is the maintainer's GitHub-web rename of the
+documentation to its canonical casing plus the addition of the permanent planning references:
+
+- `CHANGELOG.md` → `Changelog.md`, `DECISIONS.md` → `Decisions.md`, `handoff.md` → `Handoff.md`
+  (`Briefing.md` unchanged in name);
+- new `md-instructions/don't-delete/` holding the Approved Plan Series Map, Decision
+  Register 1–55, and the 2026-07-31 Planning Handoff.
+
+No source, test, or screenshot was touched by either commit. This is the reason the four
+canonical names are now correct in the repository while `scripts/verify.py` still points at
+the old casing — see the baseline defect below.
+
+### Planning artifacts (authorized, now tracked)
+
+Two authorized Plan 2 planning artifacts were placed in the worktree by the maintainer and are
+committed in this Phase 0 commit:
+
+- `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` — the active temporary drop;
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — permanent program index.
+
+The only other untracked worktree item is the pre-existing root `config-template.toml`. It is
+**unrelated user work**: not edited, staged, committed, renamed, copied or used as a source for
+Plan 2's future `config.toml`. It remains untracked and byte-for-byte unchanged.
+
+### Phase 0 baseline evidence (2026-08-03, HOME-PC, repo venv Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| `.venv\Scripts\python.exe -m pytest -q files/tests/test_ui_theme.py` | **17 passed, 0 skipped** — all theme tests executed |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_launcher_smoke.py` | 11 passed, 1 warning |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_m4b_metadata_editor_shared.py` | 7 passed |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_m4b_metadata_editor_ui.py` | 12 passed |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/test_prototype_regression.py` | 12 passed, 1 warning |
+| `.venv\Scripts\python.exe -m pytest --collect-only -q files/tests/` | **97 tests collected** |
+| `.venv\Scripts\python.exe -m pytest -q -rs files/tests/` (full suite) | **94 passed, 3 skipped, 1 warning** |
+| `.venv\Scripts\python.exe scripts/verify.py` | **RESULT: PASS** (exit 0) — but see the casing defect below |
+| `.venv\Scripts\python.exe -m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+The 1 warning is the pre-existing pydub `audioop` `DeprecationWarning`. The 3 skips are the
+`JACK_RYAN_M4B_FOLDER`-gated tests in `test_jack_ryan_final_product.py`, named by `-rs`. The
+merged-master baseline is therefore **identical** to the Plan 1 closeout baseline
+(94 passed / 3 skipped) — no test was lost by the merge or the documentation rename.
+
+### Baseline defect recorded, NOT fixed in Phase 0
+
+`scripts/verify.py:34` still reads `REPO_ROOT / "md-instructions" / "CHANGELOG.md"`. That file
+name no longer exists — the canonical name is `Changelog.md`. The gate still reports
+`RESULT: PASS` **only because NTFS is case-insensitive**, so `Path("md-instructions/CHANGELOG.md").exists()`
+returns `True` while `"CHANGELOG.md"` is absent from the directory listing. Proven directly:
+
+```
+actual filenames on disk: ['0.6.0-drop2-…md', 'Briefing.md', 'Changelog.md', 'Decisions.md', 'Handoff.md']
+CHANGELOG.md    exists()=True   exact-name-present=False
+DECISIONS.md    exists()=True   exact-name-present=False
+handoff.md      exists()=True   exact-name-present=False
+```
+
+On a case-sensitive filesystem the `docs` check would FAIL. This is a genuine cross-platform
+verification defect and is **Phase 1's** work (drop §5, §8 Phase 1 task 2): fix the reference,
+never rename the document. Phase 0 changed no production code.
+
+### Second baseline finding recorded, NOT fixed in Phase 0 — CRLF in the web-uploaded docs
+
+`git diff --check` (worktree vs index — the gate this drop names) is **clean, exit 0**. But
+`git diff --cached --check` reports 224 whitespace notices on the Phase 0 commit. They are
+**entirely pre-existing**, not introduced here:
+
+- **209 of them are `md-instructions/Handoff.md`** — one per added line. The blob GitHub stored
+  for this file in `bada8a3` uses **CRLF**, because a web upload bypasses the `.gitattributes`
+  `* text=auto` clean filter. `git diff --check` reads each `\r` as trailing whitespace. Every
+  line I added inherited the file's existing CRLF, so the diff stays minimal (209 insertions,
+  **0 deletions**) rather than becoming a whole-file rewrite.
+- **8 + 7 are the two new planning artifacts** — the maintainer's markdown hard-break trailing
+  double-spaces on their header lines, plus one "new blank line at EOF" each. That is authored
+  file content, not damage.
+
+Scale check: `git show bada8a3 --check` emits **9202** notices, against **52** for the
+agent-authored Plan 1 closeout `f3d70e8`. The condition arrived with the web upload.
+
+Deliberately not fixed: normalizing `Handoff.md` to LF would rewrite ~2,800 lines and bury the
+Phase 0 diff, and reformatting the maintainer's planning artifacts exceeds the one factual
+status correction Phase 0 permits. Cosmetic only — CRLF in `.md` breaks nothing on either
+platform. Flagged for the maintainer to decide; a `git add --renormalize md-instructions/`
+in a scoped later phase would clear it in one commit.
+
+### Skills audited for Plan 2
+
+| Skill | Location | Verdict |
+|---|---|---|
+| `audio-processing` | `.claude/skills/audio-processing/SKILL.md` | **Will use** — its copy-first/never-overwrite-in-place rule, `shutil.copy2` + temp-then-replace pattern, and subprocess-list/`shlex.quote` rule map directly onto Plan 2's collision service, the Cover replace-original atomic write, and the launcher/bootstrap cleanup coordination. |
+| `fullstack-bridge-sync` | `.claude/skills/fullstack-bridge-sync/` | **Not applicable** — Python↔TypeScript API contract syncing; this project has no frontend/backend split. |
+| `.codex/skills/` | — | Directory does not exist on this machine; nothing to audit. |
+
+User-scope plugin capabilities (Superpowers, Sequential Thinking, Context7) remain available
+and will be used proportionally where they fit; none was needed for Phase 0. No new skill,
+plugin, or dependency was installed — the drop forbids expanding `.claude/`/`.codex/` scope.
+
+### Implementation surface inspected (read-only, Phase 0)
+
+- `shared/paths.py` — `TOOL_SLUGS` (six stable slugs), `downloads_dir()`, `next_output_dir()`
+  (non-atomic check-then-name, `Downloads/<Tool>-N`, no configurable base), `avoid_input_overwrite()`.
+- `shared/settings.py` — 83 lines; lazy `_cache`, forgiving load, atomic `save()` via
+  `mkstemp`+`os.replace`; **no allowlist, no reset API, no cache invalidation, no diagnostics**.
+- `shared/logging_setup.py` — hard-coded `MAX_SESSIONS = 30`.
+- `shared/bootstrap.py` — 1408 lines, stdlib+Tk only, pre-venv; `--launch-only` fast path and
+  `--self-test`; the correct coordination boundary for post-exit cleanup.
+- `shared/release.py` — packages README + the OS launcher + the whole `scripts/` tree; **no
+  root `config.toml`** is packaged today.
+- `shared/ui_theme.py` — 1076 lines; `DEFAULT_GEOMETRY = "1024x720"`, `MIN_SIZE = (920, 600)`,
+  `WINDOWS_STYLE_PREFIX = "ACT"`, `style_tk_widget`, `enable_mousewheel`, `ProgressIndicator`.
+- `launcher.py` — 573 lines; six-tool registry, three shell branches, no Preferences entry point.
+- Tool panels: TTS (`epub2tts_gui.py:90`), M4B Converter (`:95`), MP3 Tool (`:372`),
+  M4B Maker (`:397`) and M4B Metadata (`:194`) all call `paths.next_output_dir(SLUG)` **at
+  panel-build time**, which is exactly what drop §6.4 requires moving to validated run start.
+  `cover_resizer.py` has **no** run folder at all — it writes beside the source with an
+  `overwrite` checkbox (`:191`), so Plan 2 gives it the standard default plus the approved
+  opt-in source-side mode.
+- Root launchers: `.bat` (78 lines, `pythonw.exe` no-console fast path), `.command` (214 lines).
+- `scripts/verify.py` (168 lines), `.gitignore`, `.gitattributes`, `scripts/requirements.txt`
+  (all `==`-pinned), `files/tests/` (18 test modules + `conftest.py` + the developer-only
+  `manual_windows_ui_prototype.py`).
+
+`version.py` remains `VERSION = "0.5.1"`. No version bump, tag, release, merge, or PR occurred.
+
+### Next action
+
+**Phase 1 — canonical-file gate and configuration core.** Not started. It requires explicit
+maintainer approval before any work begins.
+
+---
+
+## Previous Focus (v0.6.0 Drop 1 — Plan 1, approved 2026-08-02, merged through PR #2)
 **v0.6.0 Drop 1 (Windows UI prototype) — APPROVED 2026-08-02 and CLOSED OUT. PLAN 1 IS
 COMPLETE.** The maintainer replied `APPROVED` to the Phase 5 ten-image matrix and the
 functional evidence. Phase 6 recorded the accepted contract in the permanent docs and
@@ -1484,6 +3285,208 @@ dead legacy files below).
 ---
 
 ## Work Log (newest first)
+- 2026-08-04 — v0.6.0 Drop 2 (Plan 2) **Phase 5 — Cover Image and M4B Maker exceptions**
+  (HOME-PC). Implemented both Decision 10A destination exceptions, opt-in and off by default,
+  leaving the Phase 4 standard modes untouched. Cover Image's disabled placeholder became a real
+  `Save beside source images` toggle with exactly two choices; replacement needs **three
+  independent gates** — toggle, radio and a per-run confirmation — and `effective_mode()` is the
+  single place that combines them, so either switch alone yields a safe mode. Numbered copies
+  use the new `SourceSidePlanner`, which starts at `stem-1.ext` (beside a source the unnumbered
+  name *is* the source) and keeps a separate collision sequence per source directory. Every
+  source is validated before the dialog, so the count shown is the count that can be processed
+  and links, missing files, directories and formats that cannot round-trip in place are refused
+  there rather than mid-run. Replacement writes a complete `.act-tmp-…` sibling **in the
+  source's own directory** so the install can be atomic, validates the finished image's size,
+  then calls `os.replace` — never delete-then-rename — and a failure at any of those three
+  points leaves the original byte-for-byte unchanged with only this operation's temporary file
+  removed. `discard_temporary()` refuses any path lacking the prefix, so cleanup cannot be
+  talked into deleting a user's file. A partial batch reports truthfully. M4B Maker gained
+  `Choose custom destination`: controls revealed only while on, one read point so a stale hidden
+  path cannot steer a standard build, full pre-validation (absolute, existing, directory, not a
+  link, writable via a probe that is removed again), direct output with **no nested
+  `M4B-Maker-N`**, and staging moved to an operation-owned `tempfile.mkdtemp()`. **Found and
+  fixed a serious bug before it shipped:** Phase 4's cancellation ran `shutil.rmtree(out_dir)`
+  unconditionally, which in custom mode would have deleted the *user's own folder* and
+  everything in it; cancellation now branches on the mode and removes only operation-owned
+  artifacts. Added `test_cover_source_side.py` (34) and `test_maker_custom_destination.py` (31);
+  Phase 4's Cover placeholder tests were superseded and two scope guards retargeted from "no
+  exceptions exist" to "exactly these two exist". Suite 503 → **574 collected, 569 passed, 5
+  skipped, 1 warning** (the new skip is the Cover file-symlink refusal, which needs a privilege
+  this account lacks); theme 17/17; `verify.py` **RESULT: PASS**; `compileall` exit 0;
+  `git diff --check` clean. Live Windows fixture pass on disposable generated fixtures across
+  all six checks, including an injected pre-boundary failure that left the original and its
+  sibling byte-identical with no temporary file left behind, and a final base tree proving the
+  exception modes reserved **no** standard runs. **Pending, not claimed:** 125% scaling, live
+  macOS, Phase 8 screenshots, and TTS live synthesis (untouched by this phase). Phase 6 is not
+  started.
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 4 — standard output integration across all six
+  tools** (HOME-PC). Stopped first at the §G blocker (the drop never rules on Cover Image's
+  already-shipped destructive `Overwrite original files` checkbox during migration) and resumed
+  on the maintainer's **Option A** ruling: keep it visible but disabled, captioned "available
+  in a later update", with `var_overwrite` forced `False` **and** the captured worker parameter
+  a literal `False`, so re-enabling the widget alone cannot reach the source-side branch.
+  Migrated all six tools to `<output base>/<Tool>-Outputs/<Tool>-N/`, reserved atomically at
+  **validated operation start** — five panels previously picked a `Downloads/<Tool>-N` number
+  at `build_ui()` time and froze it for the session. Every output-producing action reserves its
+  own run: MP3 Tool's combine, time-edit and ID3 are three, as are the editor's Write Tags,
+  Clear All Tags and Remove Series Numbering. All destinations now go through the shared batch
+  planner, central sanitiser, containment and input-protection checks. Removed the per-tool
+  output Browse controls (they would bypass the configured base; the base is managed in
+  Preferences & Data and the Maker's opt-in custom destination is Phase 5), moved MP3 combine
+  staging from `edited_mp3s-N` beside a user-chosen path into the run, and replaced M4B Maker's
+  local sanitise regex with the central one. **Two real bugs:** the migration *closed* a silent
+  overwrite — `avoid_input_overwrite()` guarded only against writing onto an input, so two
+  same-named imports from different folders overwrote each other in three tools — and it
+  *introduced* one, an orphaned `stem` reference that made every conversion fail with
+  `name 'stem' is not defined`; **every planner-level test passed**, and only driving the real
+  worker on a generated fixture caught it, so the suite now runs the actual Converter,
+  time-edit and Cover workers. Retired `next_available_folder`/`BASE_OUTPUT_DIRNAME` outright;
+  `next_output_dir` and `avoid_input_overwrite` stay as documented dormant API with a test
+  proving nothing shipped calls them. Added `test_tool_output_integration.py` (68 tests) and
+  updated the Plan 1 editor surface lists, the copy-only collision assertions (now the approved
+  `stem-1.ext`) and the inverted Phase 3 scope guards. Suite 439 → **503 collected, 499 passed,
+  4 skipped, 1 warning**; theme 17/17; `verify.py` **RESULT: PASS**; `compileall` exit 0;
+  `git diff --check` clean. Live Windows fixture pass with real ffmpeg and PIL across all six
+  tools on a temporary base — every source byte-identical, nothing written beside a Cover
+  source, validation failure creating no run. **Pending, not claimed:** 125% scaling, live
+  macOS, Phase 8 screenshots, and TTS live synthesis (needs network/model). Added the README
+  output-location note. `version.py` still `0.5.1`; `config-template.toml` untouched. Phase 5
+  is not started.
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 3 — shared output reservation, collision and
+  mirroring services** (HOME-PC). Added `shared/output_paths.py`: the platform-neutral
+  foundation for `<base>/<Tool>-Outputs/<Tool>-N/`, built and exhaustively tested but
+  **consumed by nothing**. Planning is pure and materialisation explicit — only
+  `ensure_output_base()` and `reserve_run_directory()` create anything, and only directories.
+  `TOOL_OUTPUT_PARENTS` derives the six parent folders from the existing `paths.TOOL_SLUGS` so
+  a slug is never written down twice, and an unknown tool key raises rather than becoming a
+  path fragment. Reservation uses `mkdir()` **without** `exist_ok` as the race boundary with no
+  prior existence check — proven by an 8-thread barrier test giving eight distinct directories
+  numbered 1–8 — bounded, diagnosable, returning a frozen `RunReservation` that carries the
+  run's configuration snapshot; `release_if_empty()` removes a reserved directory only while it
+  is still empty. Sanitisation reduces a path to its last component, strips control characters
+  and trailing dots/spaces (Windows drops those on write, which would silently merge two names),
+  replaces the forbidden set, normalises to NFC, defuses reserved device names with or without
+  an extension, and truncates to 255 characters keeping the extension; only the **final** suffix
+  counts as the extension, so `Book 1.5 - Extras.m4b` keeps its title. Collisions try the
+  requested name then `stem-1.ext`/`stem-2.ext` through a per-run `DestinationPlanner` that
+  combines disk state with already-planned names and compares case-insensitively on every
+  platform (both shipping targets are case-insensitive; an extra `-1` beats an overwrite).
+  Safety adds containment that handles non-existent children, link refusal, input-equality and
+  source-tree protection, all raising typed errors with a message/detail split, and **nothing in
+  the module deletes anything**. Planning provides flat (Decision 31A — no parent trees
+  recreated), one-root mirrored, and multi-root with collision-safe containers (`Books`,
+  `Books-1`). **Three findings recorded:** a junction escaping the root is caught by containment
+  rather than the link check (`resolve()` follows it), while a junction pointing *back inside*
+  the root passes containment and is caught only by `assert_no_link_in` — both defences are
+  needed and both now have tests; Windows reports `<tmp>/NUL` as existing because the OS
+  resolves the device name, which is the very hazard the sanitiser defuses; and directory-link
+  tests run via `mklink /J` junctions, which need neither Developer Mode nor elevation, so link
+  safety got real coverage instead of a blanket skip. Marked `paths.next_output_dir()` as a
+  compatibility wrapper scheduled for Phase 4 removal — **behaviour unchanged** — with a test
+  recording the exact five call sites so a sixth fails and Phase 4's removals are visible.
+  Suite 295 → **439 collected, 435 passed, 4 skipped, 1 warning**; theme suite 17/17 executed;
+  `verify.py` **RESULT: PASS**; `compileall` exit 0; `git diff --check` **completely clean**.
+  The one new skip is the file-symlink test (`WinError 1314`, no privilege on this account),
+  named and **not** claimed as passed. No tool panel or the launcher imports the new service, no
+  current output behaviour changed, no cleanup exists, `version.py` is still `0.5.1`, and
+  `config-template.toml` was never touched. Phase 4 is not started.
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 2 — Preferences, warning presentation, and Reset
+  Preferences** (HOME-PC). Ran the identifier integrity check first: the garbled
+  `output_barectory` from the pasted summary **does not exist anywhere in the repository**;
+  `output_base_directory` (settings key) and `output.base_directory` (TOML key) are used
+  consistently in all 11 places, so no correction was needed. Added
+  `shared/preferences_ui.py` — a non-modal, single-instance Preferences & Data dialog plus the
+  once-per-launch warning window — and wired a `Preferences & Data…` status-bar entry point
+  into all three launcher shells (ACT ghost button on Windows, native `ttk.Button` on aqua and
+  classic) with `Ctrl+,` / `Cmd+,` bound on every platform. The dialog is presentation only:
+  styles come from `_style()`, which returns `""` where `theme["styles"]` is absent, so the
+  Windows build is fully `ACT.*` and the macOS build fully native **from one code path with no
+  `sys.platform` branch**. It shows the effective output base and its source, validates through
+  the Phase 1 rules (absolute or `~` only; relative and environment-variable forms rejected),
+  creates no folder, saves atomically, reloads the snapshot immediately, and keeps every raw
+  traceback out of the GUI while logging the detail. Reset Preferences confirms, clears mutable
+  settings only, refreshes the fields, and reports failure honestly. Clear Downloaded Data is a
+  visibly disabled placeholder with **no command at all**, AST-asserted alongside "no
+  shutil/subprocess/os import and no rmtree/unlink/remove/Popen call". Moved the once-per-launch
+  guard into `config.take_launch_warning()` (with `reset_launch_warning_guard()` for tests) so a
+  reload storm cannot become a dialog storm and the contract is assertable headlessly.
+  **Two real defects found and fixed while building:** `settings.set()`/`update()` left the
+  in-memory cache ahead of the file after a failed atomic write (now rolled back, which is what
+  makes "the previous setting is still in use" true); and the dialog measured **689 px tall
+  under the Windows theme** against the app's own `920×600` minimum while the unstyled build was
+  556 px, so a fit test exercising only the unstyled bundle had passed and hidden it — fixed by
+  layout (Entry/Browse/Save on one row, Reset on its heading row, tighter outer padding) to
+  **618×596 Windows / 630×488 unstyled**, and the fit test now asserts the Windows path
+  explicitly. Retargeted `test_repository_contract.py`'s Phase 1 "no GUI surface" guard to the
+  new phase boundary rather than deleting it: the launcher may name Preferences, but is
+  AST-checked to define no cleanup function and call nothing destructive. Suite 230 → **295
+  collected, 292 passed, 3 skipped, 1 warning**; theme suite 17/17 executed; `verify.py`
+  **RESULT: PASS**; `compileall` exit 0; `git diff --check` **completely clean**. Live Windows
+  manual pass at 1920×1080 / 100% scaling against the real launcher with settings redirected to
+  a temp file — every check green. **Pending, not claimed:** 125% scaling (needs the maintainer
+  to change the display setting), live macOS (explicit deferral), and screenshot evidence
+  (Phase 8 owns the matrix). No tool-output behaviour changed, no cleanup exists, `version.py`
+  is still `0.5.1`, and `config-template.toml` was never touched. Phase 3 is not started.
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 1 — canonical-file gate and configuration core**
+  (HOME-PC). Four files added, eight modified, none deleted or renamed. Added the committed
+  root `config.toml` (written from the plan, never from the maintainer's unrelated
+  `config-template.toml`) and `shared/config.py`: one typed, immutable `EffectiveConfig`
+  resolved as **code defaults → valid `config.toml` → allowlisted mutable overlay**, with
+  per-key validation so one bad value never discards a good neighbour, safe fallback for a
+  missing or malformed file, unknown keys aggregated into one diagnostic, `Diagnostic` records
+  separating the human-readable message from the technical detail, and deterministic
+  `get_effective()` / `reload()` / `invalidate()`. Standard-library `tomllib` only — **no new
+  dependency**. The overlay allowlist is exactly one key (`output_base_directory`); existing
+  user state got no invented TOML counterpart. Output bases: empty means
+  `~/Downloads/Audiobook-Creation-Tool-Outputs`; non-empty must be absolute or `~`-based; a
+  relative path is **rejected** rather than resolved against the cwd; environment variables are
+  **never** expanded. Extended `shared/settings.py` with `reset()`, bool write results,
+  `last_load_error()` and a `use_path()` injection seam — a malformed file is never rewritten
+  during a load. Routed log retention through `logging.max_sessions` with the config import
+  **inside** `configured_max_sessions()` so retention can read config while config never reads
+  logging, falling back to 30 on any failure. **Fixed the Phase 0 casing defect the right way:**
+  `verify.py` now reads `Changelog.md`, and its new `docnames` check compares real directory
+  entries (`os.listdir`) instead of `Path.exists()`, so the NTFS case-insensitivity that hid the
+  bug cannot hide it again; a new `config` check fails on any diagnostic from the committed
+  file. Other active references corrected in `README.md`, `Briefing.md` and `release.py`;
+  archived release-history notes, the protected `don't-delete/` references and this file's own
+  Plan 1 history were left historical on purpose. Added 133 tests across
+  `test_repository_contract.py` (40), `test_config.py` (68) and `test_settings.py` (25), all on
+  temporary directories and injected paths — the suite never touches the maintainer's real
+  settings, Downloads, logs, outputs, `.venv` or model cache, and it proves the gate *fails* on
+  a missing canonical file, every alias, a deleted permanent reference, an invalid config,
+  version drift and malformed TOML. Suite 97 → **230 collected, 227 passed, 3 skipped, 1
+  warning**; theme suite 17/17 executed; `verify.py` **RESULT: PASS** across five checks;
+  `compileall` exit 0. `git diff --check` reports only the inherited CRLF markdown condition —
+  zero new whitespace errors in any `.py` or `.toml`. **No GUI or tool-output behaviour
+  changed**, `shared/paths.py`, `launcher.py` and all six tool panels are untouched, and
+  `version.py` is still `0.5.1`. Phase 2 is not started.
+- 2026-08-03 — v0.6.0 Drop 2 (Plan 2) **Phase 0 — reorientation, repository invariants and
+  baseline evidence** (HOME-PC). Read `AI-WORKSPACE.md`, the four permanent `don't-delete/`
+  planning references, the four canonical docs, and the active drop in full, then inspected the
+  whole implementation surface read-only. Fetched `origin` with `--no-prune`, which moved
+  `origin/master` `1da1e54…` → `bada8a3…`; commit-by-commit inspection showed the two new
+  commits are the maintainer's GitHub-web documentation recasing (`CHANGELOG.md`/`DECISIONS.md`/
+  `handoff.md` → `Changelog.md`/`Decisions.md`/`Handoff.md`) plus the three permanent
+  `md-instructions/don't-delete/` references — no source, test or screenshot touched.
+  Verified by `git merge-base --is-ancestor` that `origin/master` contains the Plan 1 merge
+  `86933e6…`, the Plan 1 feature head `f3d70e8…` and the old local head `1da1e547…`, then
+  fast-forwarded local `master` with `--ff-only`. The FF was initially blocked because three
+  `don't-delete/` files sat untracked in the worktree; each was proved **byte-identical** to
+  the incoming blob with `git hash-object` (`7bd35c2`, `b4979cf`, `8076626`), backed up to the
+  session scratchpad, removed, and re-verified identical after the FF wrote them — no user
+  content was altered or lost. Created
+  `feature/0.6.0-drop2-config-output-maintenance-foundation` from the verified `master`
+  (the branch existed neither locally nor on `origin` beforehand; nothing was overwritten).
+  Baseline: 97 collected, **94 passed / 3 skipped / 1 warning**, 17 theme tests all executed,
+  `verify.py` `RESULT: PASS`, `compileall` exit 0, `git diff --check` clean — identical to the
+  Plan 1 closeout baseline, so the merge and rename cost no tests. Recorded (and deliberately
+  did **not** fix) the `scripts/verify.py:34` `CHANGELOG.md` casing defect, proving it is
+  masked only by NTFS case-insensitivity. Audited installed skills: `audio-processing` will be
+  used, `fullstack-bridge-sync` is not applicable, `.codex/skills/` does not exist.
+  **No production code changed**; the commit carries the two authorized planning artifacts plus
+  this file and the master index. The unrelated untracked root `config-template.toml` was left
+  untouched. Phase 1 is not started and awaits explicit maintainer approval.
 - 2026-08-02 — v0.6.0 Drop 1 **APPROVED and CLOSED OUT — Plan 1 is complete** (HOME-PC
   session; final per-phase commit on the implementation branch). The maintainer replied
   `APPROVED` to the ten-image matrix and the functional evidence, with ten explicit
@@ -2172,6 +4175,292 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-04 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 5 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 5 start SHA:** `abdd1cfa10f4ceb9f666bf4455169bdaddac300e`
+(the approved Phase 4 head, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (2):**
+- `files/tests/test_cover_source_side.py` — 34 tests.
+- `files/tests/test_maker_custom_destination.py` — 31 tests.
+
+**Files modified (6):**
+- `scripts/Universal/shared/output_paths.py` — `SourceSidePlanner`, `temporary_sibling()`,
+  `discard_temporary()`, `atomic_replace()`, `validate_source_for_replacement()`,
+  `validate_custom_destination()`, and `start_index` on `DestinationPlanner.plan()`.
+- `scripts/Universal/mp3_tools/cover_resizer.py` — the source-side toggle and two choices, the
+  confirmation dialog and its wording helpers, `written_suffix()`, the reworked worker.
+- `scripts/Universal/mp3_tools/m4b_maker.py` — the custom-destination toggle, validation,
+  direct output, operation-owned staging, and the corrected cancellation branch.
+- `files/tests/test_tool_output_integration.py`, `files/tests/test_output_paths.py` —
+  phase-boundary updates.
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 5
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact; no alias. `md-instructions/don't-delete/` intact (4 files).
+- All ten Plan 1 screenshots unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged
+  (`94b05edc3211efe531be018fbc442c240df8db42`, verified at start and at commit).
+- Root `config.toml` unchanged, valid and machine-agnostic.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- Preferences, launch warnings and the disabled Clear Downloaded Data placeholder unchanged.
+- No cleanup coordinator, no post-exit behaviour, no Phase 6 catalog.
+
+**Verification:** 574 collected; 569 passed, 5 skipped, 1 warning; theme 17/17;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` clean. Live Windows fixture
+pass on disposable fixtures. 125% scaling, live macOS, Phase 8 screenshots and TTS live
+synthesis remain **pending**, not passed.
+
+**Next:** Phase 6 (downloaded-data inventory and confirmation UI) — **not started**, pending
+explicit maintainer approval.
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 4 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 4 start SHA:** `10819f1b7cc0d7ddb1b8c51ae870a44c694a3fdc`
+(the approved Phase 3 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (1):**
+- `files/tests/test_tool_output_integration.py` — 68 Phase 4 tests, including real-worker runs.
+
+**Files modified (10):**
+- `scripts/Universal/tts/epub2tts_gui.py` — reserve in `run_job` after validation; read-only
+  destination display; `_browse_dir` retired.
+- `scripts/Universal/mp3_tools/m4b_converter.py` — reserve in `start_convert`; batch planner;
+  `stem` restored from the planned destination.
+- `scripts/Universal/mp3_tools/mp3_tool.py` — one `_reserve_run()` seam used by combine, time
+  edit and ID3; combine staging inside the run; `next_available_folder` and
+  `BASE_OUTPUT_DIRNAME` removed; the combine filename is now a name prompt, not a save dialog.
+- `scripts/Universal/mp3_tools/m4b_maker.py` — reserve in `build`; central sanitiser replaces
+  the local regex.
+- `scripts/Universal/mp3_tools/cover_resizer.py` — standard output into the reserved run;
+  Option A disabled placeholder; dormant legacy branch documented.
+- `scripts/Universal/mp3_tools/m4b_metadata_editor.py` — `_reserve_run()` for both action
+  paths; workers take the batch planner; plan-before-copy; `avoid_input_overwrite` gone.
+- `scripts/Universal/shared/output_paths.py` — added `destination_hint()` and
+  `ensure_tool_parent()` for read-only displays and explicit reveals.
+- `scripts/Universal/shared/paths.py` — **docstrings only**; both legacy helpers marked dormant.
+- `files/tests/test_output_paths.py`, `test_prototype_regression.py`,
+  `test_m4b_metadata_editor_ui.py`, `test_mp3_tool_smoke.py` — phase-boundary updates.
+- `README.md` — the output-location note (no first-run popup, no other rewrite).
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 4
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact; no alias. `md-instructions/don't-delete/` intact (4 files).
+- All ten Plan 1 screenshots unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged
+  (`94b05edc3211efe531be018fbc442c240df8db42`, verified at start and at commit).
+- Root `config.toml` unchanged, valid and machine-agnostic.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- Preferences, launch warnings and the disabled Clear Downloaded Data placeholder unchanged;
+  `preferences_ui.py` does not import `output_paths`.
+
+**Verification:** 503 collected; 499 passed, 4 skipped, 1 warning; theme 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` clean. Live Windows fixture
+pass across all six tools. 125% scaling, live macOS, Phase 8 screenshots and TTS live synthesis
+remain **pending**, not passed.
+
+**Next:** Phase 5 (Cover Image and M4B Maker exceptions) — **not started**, pending explicit
+maintainer approval. No merge, PR, tag, release, version bump, branch deletion or force-push
+was performed or is authorised.
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 3 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 3 start SHA:** `e16fd42dcb54a6f34a4d79a498fa681f18ef6e6b`
+(the approved Phase 2 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (2):**
+- `scripts/Universal/shared/output_paths.py` — output base, tool-parent registry, atomic run
+  reservation, sanitisation, collision service, containment/link/input safety, and the flat /
+  one-root / multi-root planners.
+- `files/tests/test_output_paths.py` — 144 tests.
+
+**Files modified (5):**
+- `scripts/Universal/shared/paths.py` — **docstring only**. `next_output_dir()` is marked a
+  compatibility wrapper scheduled for removal in Phase 4; no code and no behaviour changed.
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 3
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact and unrenamed; no alias exists.
+- `md-instructions/don't-delete/` holds all four permanent references, unmoved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged (blob
+  `94b05edc3211efe531be018fbc442c240df8db42`, verified at start and at commit).
+- Root `config.toml` unchanged, valid and machine-agnostic — `verify.py`'s `config` check passes.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- No tool panel and not the launcher imports `output_paths`; `preferences_ui.py` and
+  `launcher.py` are untouched by this phase.
+
+**Verification:** 439 collected; 435 passed, 4 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` **clean, zero notices**.
+The one new skip is the file-symlink test (`WinError 1314`); directory-link safety ran for real
+via junctions. Windows 125% scaling, live macOS and Phase 2 screenshots remain **pending**, not
+passed.
+
+**Next:** Phase 4 (standard output integration across all six tools) — **not started**, pending
+explicit maintainer approval. No merge, PR, tag, release, version bump, branch deletion or
+force-push was performed or is authorised.
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 2 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 2 start SHA:** `56076fe4baf32626fa82ad7ecad78dad8c0235e2`
+(the approved Phase 1 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (2):**
+- `scripts/Universal/shared/preferences_ui.py` — the Preferences & Data dialog, the
+  single-instance entry point, and the once-per-launch configuration-warning window.
+- `files/tests/test_preferences_ui.py` — 65 tests.
+
+**Files modified (5):**
+- `scripts/Universal/launcher.py` — `Preferences & Data…` in all three status bars,
+  `open_preferences()` single-instance handling, `_bind_preferences_accelerators()`,
+  `present_configuration_warnings()` scheduled with `after(0, …)`.
+- `scripts/Universal/shared/config.py` — public `validate_output_base()`, plus the
+  platform-neutral launch-warning guard (`take_launch_warning`, `launch_warning_pending`,
+  `reset_launch_warning_guard`).
+- `scripts/Universal/shared/settings.py` — `set()`/`update()` now roll the in-memory change
+  back when the atomic write fails.
+- `files/tests/test_repository_contract.py` — the Phase 1 "no GUI surface" guard retargeted to
+  the Phase 2/6 boundary (AST-checked: no cleanup function, no destructive call).
+- `md-instructions/Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` — the Phase 2
+  record. One new append-only ADR; no historical entry rewritten; no v0.6.0 release heading.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact and unrenamed; no alias exists (asserted by `verify.py` and the
+  contract suite).
+- `md-instructions/don't-delete/` holds all four permanent references, unmoved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` untracked and byte-for-byte unchanged (blob
+  `94b05edc3211efe531be018fbc442c240df8db42`).
+- Root `config.toml` unchanged and still valid/machine-agnostic — `verify.py`'s `config` check
+  passes and a test asserts its bytes survive a save-then-reset cycle.
+- `version.py` `0.5.1`; `scripts/requirements.txt` unchanged; no new dependency.
+- `shared/paths.py` and all six tool panels untouched; a test asserts no panel references
+  `preferences_ui` or the cleanup label.
+
+**Verification:** 295 collected; 292 passed, 3 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` **clean, zero notices**.
+Live Windows manual pass at 1920×1080 / 100%; 125% scaling, live macOS and screenshot evidence
+recorded as pending, not as passes.
+
+**Next:** Phase 3 (shared output reservation, collision, mirroring) — **not started**, pending
+explicit maintainer approval. No merge, PR, tag, release, version bump, branch deletion or
+force-push was performed or is authorised.
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 1 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** unchanged. **Phase 1 start SHA:** `ca10c5beb8d2ac6a89ce345a7ba96f733de5df42`
+(the approved Phase 0 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched.
+
+**Files added (4):**
+- `config.toml` (root) — the committed, commented, machine-agnostic project defaults.
+- `scripts/Universal/shared/config.py` — the typed effective-configuration core.
+- `files/tests/test_config.py` — 68 tests.
+- `files/tests/test_settings.py` — 25 tests.
+- `files/tests/test_repository_contract.py` — 40 tests.
+
+**Files modified (8):**
+- `scripts/verify.py` — canonical `Changelog.md` reference; new `docnames` and `config` checks;
+  both take optional paths so the suite can prove they fail on a broken tree.
+- `scripts/Universal/shared/settings.py` — `reset()`, bool write results, `last_load_error()`,
+  `invalidate()`, `use_path()`; no load-time rewrite of a malformed file.
+- `scripts/Universal/shared/logging_setup.py` — retention from `logging.max_sessions` with a
+  lazy, always-falling-back config read.
+- `scripts/Universal/shared/release.py` — one printed checklist line, `CHANGELOG` →
+  `Changelog.md`. No packaging behaviour changed (that is Phase 8).
+- `README.md` — two lines: the layout tree's doc names, plus the new root `config.toml`.
+- `md-instructions/Briefing.md` — the permanent-filename contract, a new *Configuration*
+  architecture bullet, the final maximized-fit/local-scroll rule, the `shared/` and `verify.py`
+  descriptions, and its own stale cross-references.
+- `md-instructions/Changelog.md` — three `[Unreleased]` entries (Added / Fixed / Added —
+  regression protection). **No v0.6.0 release heading was created.**
+- `md-instructions/Decisions.md` — one newest-first, dated, signed ADR. **No historical entry
+  was rewritten.**
+- `md-instructions/Handoff.md` — this section, the Phase 1 record above, and a Work Log entry.
+
+**Files deleted or renamed:** none.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact and unrenamed; no `CHANGELOG.md` / `DECISIONS.md` / `handoff.md`
+  alias exists — now asserted by both `verify.py` and `test_repository_contract.py`.
+- `md-instructions/don't-delete/` holds all four permanent references, unmoved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` remains **untracked and byte-for-byte unchanged** (blob
+  `94b05edc3211efe531be018fbc442c240df8db42`); it was never opened as a source for
+  `config.toml`, and a test asserts no file under `scripts/` references it.
+- `version.py` unchanged at `0.5.1`; `scripts/requirements.txt` unchanged (no new dependency).
+- `shared/paths.py`, `launcher.py` and all six tool panels untouched.
+
+**Verification:** 230 collected; 227 passed, 3 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS` across five checks; `compileall` exit 0; `git diff --check` clean of
+new errors (inherited CRLF markdown only).
+
+**Next:** Phase 2 (Preferences, warning presentation, Reset Preferences) — **not started**,
+pending explicit maintainer approval. No merge, PR, tag, release, version bump, branch deletion
+or force-push was performed or is authorised.
+
+### 2026-08-03 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 0 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
+
+**Branch:** `feature/0.6.0-drop2-config-output-maintenance-foundation`, created from
+`master` @ `bada8a3dee87acf6a6619252bd31cdee429f1711` (= `origin/master`). The branch did not
+exist locally or on `origin` before this session; nothing was overwritten or force-pushed.
+
+**Remote reconciliation:** `git fetch origin --no-prune` → `origin/master` `1da1e54..bada8a3`.
+Local `master` fast-forwarded with `git merge --ff-only` (no merge commit, no reset, no stash,
+no rewrite, no branch deleted). Local `master` == `origin/master` == `bada8a3`.
+
+**Files added (tracked for the first time):**
+- `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` — the authorized active
+  Plan 2 drop (833 lines), placed by the maintainer.
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — permanent program index (336 lines), placed by the maintainer.
+
+**Files changed:**
+- `md-instructions/Handoff.md` — new Plan 2 Current Focus with ancestry proof, planning-artifact
+  status, full baseline evidence, the recorded `verify.py` casing defect, the skill audit, the
+  read-only surface inspection, and the next action; the Plan 1 block demoted to
+  *Previous Focus*; a Work Log entry and this Session Sync Log entry.
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — §5 Plan 2 status row and §15 next-action updated with the real branch and start SHA.
+- `md-instructions/0.6.0-drop2-config-output-maintenance-foundation.md` — Status line only,
+  corrected from "not yet authorized for implementation" to the authorized/in-progress state.
+
+**Files deleted:** none.
+
+**Production code changed:** **none.** `git diff --name-status bada8a3..HEAD` touches only
+`md-instructions/`. `scripts/`, `files/`, both root launchers, `.gitignore`, `.gitattributes`,
+`README.md` and `version.py` (still `0.5.1`) are untouched.
+
+**Protected-contract checks at commit time:**
+- The four canonical names are exact and unrenamed: `Briefing.md`, `Changelog.md`,
+  `Decisions.md`, `Handoff.md`. No `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` alias exists.
+- `md-instructions/don't-delete/` holds all four permanent references; nothing removed or moved.
+- All ten `files/UI-Prototype-Screenshots/v0.6.0-drop1/` PNGs unchanged.
+- Root `config-template.toml` remains **untracked and byte-for-byte unchanged**; it is not in
+  the index, the commit, or any diff.
+
+**Verification:** 97 collected; 94 passed, 3 skipped, 1 warning; theme suite 17/17 executed;
+`verify.py` `RESULT: PASS`; `compileall` exit 0; `git diff --check` clean.
+
+**Next:** Phase 1 (canonical-file gate and configuration core) — **not started**, pending
+explicit maintainer approval. No merge, PR, tag, release, version bump or branch deletion was
+performed or is authorized.
 
 ### 2026-08-02 — HOME-PC — v0.6.0 Drop 1 Phase 6 (approved closeout) — committed and pushed to `feature/0.6.0-drop1-windows-ui-prototype`
 - Base:    `b2e809fe4e25f5aaaef1684b5998bc652374de87` (Phase 5 — the approved evidence SHA).
