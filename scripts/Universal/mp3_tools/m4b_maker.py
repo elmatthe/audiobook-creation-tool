@@ -400,6 +400,9 @@ class M4BMakerUI(ttk.Frame):
         # time. Browse redirects it for this run only (never persisted); the
         # folder is created lazily on the first build.
         self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        # Preferences & Data can change the base while this panel is alive; the
+        # shared registry re-points this display the moment that happens.
+        output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
         self._last_run_dir = None
 
         self.status = tk.StringVar(value="Added 0 files. Total: 0")

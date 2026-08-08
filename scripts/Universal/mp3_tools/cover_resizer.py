@@ -292,6 +292,9 @@ class CoverResizerUI(ttk.Frame):
         # is reserved when a validated resize starts, so building this panel
         # creates nothing. The base is changed in Preferences & Data.
         self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        # Preferences & Data can change the base while this panel is alive; the
+        # shared registry re-points this display the moment that happens.
+        output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
         self._last_run_dir = None
 
         # Top buttons

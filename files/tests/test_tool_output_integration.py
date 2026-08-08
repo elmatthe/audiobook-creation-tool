@@ -687,11 +687,41 @@ def _enclosing(tree_, target):
 
 
 def test_preferences_still_reserves_no_output():
+    """Preferences may now *read* the output service, but never materialise.
+
+    Phase 8's remediation gave Preferences one job in ``output_paths``: telling
+    already-built panels that the base changed. That is a display refresh, so the
+    old "the name ``output_paths`` must not appear" check no longer expresses the
+    rule. This states the actual rule instead, which is strictly stronger: the
+    only member Preferences may touch is the refresh helper, and it may not call
+    anything that reserves, creates or plans a destination.
+    """
+    import ast
+
     from shared import preferences_ui
 
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
     assert preferences_ui.CLEANUP_PLACEHOLDER_TEXT
-    assert "output_paths" not in source, "Preferences does not reserve output"
+
+    tree = ast.parse(source)
+    used = {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "output_paths"
+    }
+    assert used == {"refresh_destination_hints"}, used
+
+    called = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    for materialising in ("reserve_run_directory", "ensure_output_base",
+                          "ensure_tool_parent", "mkdir", "makedirs", "touch",
+                          "plan_destination", "destination_hint"):
+        assert materialising not in called, materialising
 
 
 def test_no_cleanup_coordinator_or_post_exit_behaviour_exists():

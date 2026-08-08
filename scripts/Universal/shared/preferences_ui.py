@@ -34,7 +34,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import cleanup_state, config, maintenance, paths
+from . import cleanup_state, config, maintenance, output_paths, paths
 
 DIALOG_TITLE = "Preferences & Data"
 MENU_LABEL = "Preferences & Data…"
@@ -396,6 +396,10 @@ class PreferencesDialog(tk.Toplevel):
             self.refresh_from_config()
             return False
         self.refresh_from_config()
+        # Only now, with the new base genuinely in force, may the already-built
+        # tool panels be told. Every failure path above returns first, so a
+        # rejected or unsaved value can never reach a panel's display.
+        output_paths.refresh_destination_hints()
         self._set_status(success_message, "success")
         return True
 
@@ -421,6 +425,8 @@ class PreferencesDialog(tk.Toplevel):
             return False
 
         self.refresh_from_config()
+        # The default base is back in force, so the built panels must say so.
+        output_paths.refresh_destination_hints()
         self._set_status("Preferences reset. Defaults are back in force.", "success")
         return True
 

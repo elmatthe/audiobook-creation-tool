@@ -93,6 +93,9 @@ def build_ui(parent: tk.Misc) -> None:
     # Phase 4), so building this panel creates nothing and promises no run
     # number. The base is changed in Preferences & Data.
     output_var = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+    # Preferences & Data can change the base while this panel is alive; the
+    # shared registry re-points this display the moment that happens.
+    output_paths.register_destination_hint(TOOL_KEY, output_var)
     bitrate_var = tk.StringVar(value="192k")
     voice_var = tk.StringVar(value=DEFAULT_SPEAKER)
     epub_convert_var = tk.BooleanVar(value=True)

@@ -125,6 +125,64 @@ def destination_hint(tool_key: str, effective=None) -> str:
     return str(tool_parent_dir(resolve_output_base(effective), tool_key))
 
 
+# --------------------------------------------------------------------------- #
+# Keeping the read-only "Output folder" displays honest
+# --------------------------------------------------------------------------- #
+#
+# A panel reads :func:`destination_hint` once, when it is built, and the launcher
+# builds each panel lazily and then reuses it. So a panel that already existed
+# when the output base changed went on showing the old location until it was
+# rebuilt — the run was always correct, but the application was telling the user
+# something untrue. Rather than teach six panels how to recompute a path, each
+# registers the variable it already owns and one helper re-points them all.
+#
+# Registrations are held strongly: the six panels live as long as the process,
+# and a Tk variable whose widget has gone raises ``TclError`` on assignment, so a
+# dead entry is dropped the first time it is touched.
+
+_HINT_DISPLAYS: list[tuple[str, object]] = []
+
+
+def register_destination_hint(tool_key: str, variable) -> None:
+    """Track a panel's read-only output display so a preference change reaches it.
+
+    *variable* is anything with Tk's ``set``/``get`` pair. The tool key is
+    validated immediately, so a typo fails at build time rather than silently
+    never refreshing.
+    """
+    tool_run_prefix(tool_key)  # raises UnknownToolError for an unknown tool
+    for known_key, known in _HINT_DISPLAYS:
+        if known is variable and known_key == tool_key:
+            return
+    _HINT_DISPLAYS.append((tool_key, variable))
+
+
+def refresh_destination_hints(effective=None) -> int:
+    """Re-point every live registered display at the current effective base.
+
+    Returns how many were updated. Displays whose widget has been destroyed are
+    forgotten rather than raised over — refreshing a label must never be able to
+    break the caller that just saved a preference.
+    """
+    snapshot = config.get_effective() if effective is None else effective
+    live: list[tuple[str, object]] = []
+    updated = 0
+    for tool_key, variable in _HINT_DISPLAYS:
+        try:
+            variable.set(destination_hint(tool_key, snapshot))
+        except Exception:
+            continue  # the panel is gone; drop the registration
+        live.append((tool_key, variable))
+        updated += 1
+    _HINT_DISPLAYS[:] = live
+    return updated
+
+
+def forget_destination_hints() -> None:
+    """Drop every registration. For tests that build and tear down panels."""
+    _HINT_DISPLAYS.clear()
+
+
 def ensure_tool_parent(tool_key: str, effective=None) -> Path:
     """Create and return ``<base>/<Tool>-Outputs`` for an explicit reveal.
 

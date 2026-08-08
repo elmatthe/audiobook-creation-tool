@@ -194,6 +194,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         # the next launch starts at the next free -N. The folder is created
         # lazily on the first successful save.
         self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        # Preferences & Data can change the base while this panel is alive; the
+        # shared registry re-points this display the moment that happens.
+        output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
         self._last_run_dir = None
 
         self._build_ui()

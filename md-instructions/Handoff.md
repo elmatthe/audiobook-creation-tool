@@ -2,21 +2,180 @@
 
 ## Current Focus
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-PHASE 8 COMPLETE, awaiting the maintainer's manual approval of the returned screenshots and
-evidence package. Phase 9 is unstarted and requires new explicit maintainer approval.**
+PHASE 8 COMPLETE — remediated 2026-08-07 after the maintainer rejected the first pass, and
+awaiting manual approval of the returned screenshots and evidence package. Phase 9 is
+unstarted and requires new explicit maintainer approval.**
 
 ### Phase 8 — Packaging, cross-platform regression, and manual approval gate (2026-08-07, HOME-PC)
 
 **Result: both release archives now carry the committed root `config.toml`, and the complete
 Plan 2 behaviour has been exercised in a genuine clean extraction of the Windows archive.**
-One production file modified (`shared/release.py`), one test file added, twelve screenshots
-added. `version.py` is still `0.5.1`. **Phase 9 was not started.**
+Packaging: one production file modified (`shared/release.py`), one test file added, twelve
+screenshots added. The remediation below then corrected two defects this phase's own manual
+matrix exposed. `version.py` is still `0.5.1`. **Phase 9 was not started.**
 
 **Phase 8 start SHA:** `1eddc5163b4ad81f858d30b7df75fd2a28188da9` (approved Phase 7). The
 ending SHA is the commit carrying this section.
 
 **Phase 8 is complete but NOT approved.** It awaits the maintainer's manual review of the
-returned screenshots and evidence package.
+returned screenshots and evidence package. The first pass was rejected on 2026-08-07; see
+the remediation immediately below, which supersedes the amended rows in the matrix and the
+amended findings.
+
+#### Phase 8 remediation (2026-08-07) — two defects the manual matrix exposed, now fixed
+
+The first Phase 8 pass (`88a64dce840d8fe7e3305818eac3ad659fb3555e`) found two real defects and
+then mis-scoped them. Both are corrected here, and the claims below that contradicted the
+observed behaviour have been amended rather than left standing.
+
+**Why they were not out of scope.** The apostrophe failure was diagnosed as pre-existing
+(`mp3_tool.py`'s escaping dates to `5459d3d`, 2026-05-28, untouched by Phase 4) and reported as
+outside Plan 2. That reasoning was wrong: Plan 2's own contract lets the user choose the output
+base and requires spaces, Unicode and apostrophes to work, so a user-selected folder that breaks
+a tool is a Plan 2 defect regardless of which commit introduced the faulty line. The stale label
+is likewise part of the preference contract — the application must not display a destination it
+would not use.
+
+**Correction 1 — ffmpeg concat-list serialization.**
+Root cause: `ffmpeg_escape_listfile_path` wrapped the path in single quotes and then wrote a
+quote as `\'`. Inside single quotes ffmpeg treats every character literally, so the backslash
+escaped nothing and the `'` was read as the **closing** quote; the path silently truncated
+there and the rest became stray tokens. The same function also doubled every backslash, which
+survived only because Windows collapses repeated path separators and would corrupt a genuine
+backslash. Both failed identically on the fast and safe paths, so `combined.mp3` was never
+produced.
+
+The fix uses ffmpeg's documented form (ffmpeg-all, *Concat demuxer* and *Quoting and escaping*,
+which gives the example `file '/mnt/share/file 3'\''.wav'`): close the quote, emit an escaped
+quote outside it, reopen. Everything else inside the quotes is left exactly as-is, so
+backslashes, spaces and non-ASCII need no treatment at all. The list is written UTF-8 with
+explicit `newline="\n"`. A path containing a line break now raises rather than producing a
+listfile the demuxer would misread — the demuxer is line-oriented and cannot represent one.
+
+Nothing else moved: argument-vector execution is unchanged, no path is interpolated into a
+shell command, `shlex.quote` remains confined to the human-readable error log, input order is
+preserved, the fast-path/fallback structure is untouched, and concat lists still live inside the
+operation's own `build/` directory under the reserved run folder.
+
+**Correction 2 — live output-location refresh.**
+Each panel read `destination_hint(TOOL_KEY)` once at build time into a read-only variable, and
+the launcher builds panels lazily then reuses them, so a panel that already existed kept showing
+the old base. `output_paths` now carries a small registry: `register_destination_hint()` records
+the variable a panel already owns, and `refresh_destination_hints()` re-points every live
+registration through the same `destination_hint` resolution. `PreferencesDialog` calls it from
+exactly two places — the successful `_commit` and the successful `reset_preferences` — so a
+rejected, cancelled or unsaved value can never reach a panel. Dead registrations are dropped on
+first touch rather than raised over, because refreshing a label must never break the call that
+just saved a preference. No panel is rebuilt or destroyed, no panel gained a constructor
+argument, no panel resolves a path itself, and reservation still re-reads the effective
+configuration at operation start.
+
+**Files changed in the remediation**
+
+| Path | Change |
+|---|---|
+| `scripts/Universal/mp3_tools/mp3_tool.py` | escaper rewritten + registration, ~+30 / −4 |
+| `scripts/Universal/shared/output_paths.py` | the hint registry, ~+58 |
+| `scripts/Universal/shared/preferences_ui.py` | import + two refresh calls, ~+9 / −1 |
+| `scripts/Universal/tts/epub2tts_gui.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/m4b_converter.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/m4b_maker.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/cover_resizer.py` | registration, +3 |
+| `scripts/Universal/mp3_tools/m4b_metadata_editor.py` | registration, +3 |
+| `files/tests/test_mp3_concat_paths.py` | **added**, 25 tests |
+| `files/tests/test_output_location_refresh.py` | **added**, 41 tests |
+| `files/tests/test_tool_output_integration.py` | one guard restated, ~+30 / −3 |
+
+The Phase 3 guard `test_preferences_still_reserves_no_output` asserted the *string*
+`output_paths` never appeared in `preferences_ui.py`. Preferences now legitimately imports it to
+refresh a display, so that check no longer expressed the rule. It was **strengthened, not
+relaxed**: it now parses the module and requires that the only `output_paths` member Preferences
+touches is `refresh_destination_hints`, and that it calls nothing which reserves, creates or
+plans a destination (`reserve_run_directory`, `ensure_output_base`, `ensure_tool_parent`,
+`mkdir`, `makedirs`, `touch`, `plan_destination`, `destination_hint`).
+
+**Manual retest (2026-08-07, Windows 11 Pro 10.0.26200, 1920×1080, true 100% scaling)**
+
+Disposable test root: `…\scratchpad\Phase 8 clean extract Ré'sumé` — the retained Phase 8
+extraction, proven separate from the real repository again before use (distinct, neither
+contains the other, not an ancestor of it, not a drive root, not the home directory, not the
+workspace root). Its `scripts/` tree was replaced from the **rebuilt Windows archive**
+(SHA-256 `0d8d7b217f20e685b5c4ed0335add023734f81927901184b8b5bbd14914a5278`), so the code under
+test still has archive provenance; its `.venv` and pinned install were kept because
+`requirements.txt` did not change. Fixtures and outputs both live in fresh disposable folders
+whose names carry a space, an apostrophe and non-ASCII characters:
+`…\scratchpad\P8r fixtures Ré'sumé Ñ\o'clock inputs\` and `…\scratchpad\P8r outputs Ré'sumé Ñ`.
+
+MP3 combine, with an apostrophe in the output base, the parent input directory **and** both
+filenames (`1 o'clock Ré tone.mp3`, `2 o'clock Ré tone.mp3`, 2 s and 4 s):
+
+- the generated list is
+  `file 'C:\…\P8r fixtures Ré'\''sumé Ñ\o'\''clock inputs\1 o'\''clock Ré tone.mp3'` — the
+  documented close-escape-reopen form, backslashes untouched;
+- `combined.mp3` produced at
+  `…\P8r outputs Ré'sumé Ñ\MP3-Tool-Outputs\MP3-Tool-2\combined.mp3`, 27,272 bytes;
+- `ffprobe` validates it: `mp3`, 44,100 Hz, 1 channel, **duration 6.000000 s** — exactly
+  2 s + 4 s;
+- order preserved: `combined_time-stamps.txt` reads `01. 1 o'clock … @ 00:00.000 (+00:02.000)` /
+  `02. 2 o'clock … @ 00:02.000 (+00:04.000)`;
+- the **fast path** succeeded — only `inputs_fast.txt` exists in `build/`, there is no
+  `inputs_safe.txt`, no `wavs/` directory and no `ffmpeg_log.txt` at all;
+- run numbering held: an earlier single-file combine took `MP3-Tool-1` and this one took
+  `MP3-Tool-2`, with `MP3-Tool-1` untouched;
+- both sources are byte-identical afterwards (`2d68f304ac61ce0e…`, `14da7e0c794b0020…`) and no
+  file was written beside them;
+- the concat list stayed inside its own run's `build/` folder — nothing was left anywhere else.
+
+**The "empty-bodied error dialog" claim is withdrawn.** It was an artifact of capturing native
+message boxes with `PrintWindow`, not a product defect: reading the dialog's text directly gives
+`Combine complete.` / `Output: …\MP3-Tool-2\combined.mp3`, and the failure branch already
+supplies `FFmpeg failed.` plus the log path. No error-reporting code was changed.
+
+Output-location refresh, with all six panels built first and the MP3 Tool panel left visible:
+
+| Action | Observed |
+|---|---|
+| Save a custom base (`…\P8r outputs Ré'sumé Ñ`) | The visible MP3 Tool panel changed from `…\Downloads\Audiobook-Creation-Tool-Outputs\MP3-Tool-Outputs` to `…\P8r outputs Ré'sumé Ñ\MP3-Tool-Outputs` **immediately** — no run, no tool switch, no rebuild, no restart |
+| The other already-built panels | TTS, M4B Converter, M4B Maker and Cover Image all show `…\P8r outputs Ré'sumé Ñ\<Tool>-Outputs`. M4B Metadata's row sits below its panel's visible scroll area, so its refresh is covered by the automated registration and refresh tests rather than by eye |
+| Displayed vs actual | The combine reserved `…\P8r outputs Ré'sumé Ñ\MP3-Tool-Outputs\MP3-Tool-2`, under exactly the folder the panel displayed |
+| Invalid path (`still/relative`) | Refused with the same precise message; **no** panel label moved to the rejected value |
+| Cancelled reset | Nothing changed anywhere |
+| Confirmed reset | Every panel returned to `…\Downloads\Audiobook-Creation-Tool-Outputs\<Tool>-Outputs` immediately, again with no restart or rebuild |
+| Failed settings write | Not forced live; covered by two automated tests (a `set_output_base` that returns `False`, and one that raises `OSError`) — both leave every label at the prior effective value |
+
+`920×600` regression at 100%: requesting 600×400 clamped to a 922×632 frame, i.e. a client area
+of exactly **920×600**. All six sidebar entries, Import/Remove Selected/Clear List, the Output
+folder row, **Combine MP3s → One MP3**, the status line, "Preferences & Data…" and "Open log
+folder" are all fully visible and unclipped; the panel's own content region scrolls locally and
+the window itself does not scroll. No whole-window scrolling was introduced. No UI compression
+was attempted.
+
+**Screenshots: all twelve preserved byte-for-byte.** Neither correction changes the visible
+content of any committed image — the concat fix has no UI at all, and the refresh fix only alters
+a label *after* a preference change, which no committed screenshot depicts. All twelve Phase 8
+hashes and all ten Plan 1 hashes were re-verified after the remediation and are unchanged, so
+nothing was recaptured.
+
+**Display scaling.** Windows stayed at **true 100% on both displays** throughout this
+remediation (`GetDpiForMonitor(MDT_EFFECTIVE_DPI)` = 96 before and after); the maintainer was
+not asked to change it, no registry edit or other DPI simulation was used, and the 125% matrix
+was not run. Per the maintainer's standing policy, 100% is the working scaling for the remaining
+feature drops and the true 125% pass belongs to the later dedicated UI-compression/no-scroll
+phase, which will perform the final layout compression, verify the maximized no-scroll goal, and
+retest 100% and 125% against the stable interface.
+
+**Live macOS remains explicitly deferred and untested.** Nothing in this remediation changed
+that, and no macOS check was run.
+
+**Testing after the remediation:** 1074 collected, 1069 passed, 5 skipped, 1 warning. The
+increase reconciles exactly to the new tests: 1008 + 25 (`test_mp3_concat_paths.py`) + 41
+(`test_output_location_refresh.py`) = 1074; 1003 + 25 + 41 = 1069. Skips (5) and the one
+`audioop` `DeprecationWarning` are unchanged. All 17 theme tests executed and passed.
+`scripts/verify.py` → `RESULT: PASS`; compile gate exit 0; `git diff --check` clean over
+`scripts` and `files/tests`.
+
+**Phase 9 remains unstarted.** No permanent-document transfer, no drop deletion, no merge, bump,
+tag, release or publication.
 
 #### Packaging — the narrowest change that satisfies the contract
 
@@ -101,6 +260,12 @@ by direct archive inspection; its launcher was never executed.
 
 #### Windows manual matrix — every row observed in the clean extraction
 
+**Amended 2026-08-07.** Rows 14 and 46 originally read PASS; the manual matrix had in fact
+exposed an apostrophe-path failure in MP3 Tool, and the summary claim of "46/46 PASS" was
+incompatible with it. Both rows now record what was first observed **and** the retested
+result after the remediation. The final tally is **46/46 PASS after remediation; 44/46 on
+the first pass**.
+
 Windows 11 Pro 10.0.26200, 1920×1080, **100% scaling (effective DPI 96 on both displays)**,
 Python 3.12.10 in the extraction's own `.venv`, commit `1eddc516…` plus the Phase 8 working
 tree. All fixtures are synthetic (ffmpeg sine tones, plain text, a solid-colour PNG) in
@@ -122,7 +287,7 @@ audio-processing skill was asserted before generating them.
 | 11 | Reset Preferences | **PASS** — `settings.json` → `{}`; dialog refreshes live; all six produced output files remain |
 | 12 | TTS Audiobook standard route | **PASS** — `TTS-Audiobook-Outputs/TTS-Audiobook-1` |
 | 13 | M4B Converter standard route | **PASS** — `M4B-Converter-Outputs/M4B-Converter-1/tiny book.mp3` |
-| 14 | MP3 Tool standard route | **PASS** — `MP3-Tool-Outputs/MP3-Tool-1/combined.mp3` (see finding 1) |
+| 14 | MP3 Tool standard route | **FAILED on the first pass**, **PASS after remediation** — the run directory was always reserved correctly, but with an apostrophe in the path no `combined.mp3` was produced. Retested 2026-08-07: 27,272 bytes, 6.000000 s, correct order. See finding 1 |
 | 15 | M4B Maker standard route | **PASS** — `M4B-Maker-Outputs/M4B-Maker-1/audiobook.m4b` |
 | 16 | Cover Image standard route | **PASS** — `Cover-Image-Outputs/Cover-Image-1/cover art.png` |
 | 17 | M4B Metadata standard route | **PASS** — `M4B-Metadata-Outputs/M4B-Metadata-1/tiny book.m4b`, copy-only |
@@ -154,7 +319,7 @@ audio-processing skill was asserted before generating them.
 | 43 | `ACT.*` styling on converted surfaces only | **PASS** — launcher shell and M4B Metadata carry the dark design system; the other five panels keep their historical native ttk look, unchanged |
 | 44 | Ordinary launcher / fast path | **PASS** — first run installs, later runs launch in ~1.7 s |
 | 45 | No persistent console | **PASS** — expected setup console on first run only; no `cmd.exe`/`conhost.exe` and no visible console on the fast path |
-| 46 | Spaces, Unicode, apostrophes end to end | **PASS** — extraction root, venv creation, pip, launch, config, outputs, coordinator argv and maintenance paths all handled correctly |
+| 46 | Spaces, Unicode, apostrophes end to end | **PARTIAL on the first pass, PASS after remediation** — extraction root, venv creation, pip, launch, config, outputs, coordinator argv and maintenance paths were all correct, but MP3 Tool's concat list broke on an apostrophe. Retested 2026-08-07 with an apostrophe in the output base, the input directory and both filenames |
 
 **Live TTS synthesis — PASSED (this closes the long-carried pending item).**
 Engine **Edge TTS**, voice **en-US-SteffanNeural**. Input
@@ -184,15 +349,19 @@ a hint and the reservation is the truth. Recorded as finding 2 below rather than
    non-ASCII letter **OK**, an **apostrophe FAIL**. The cause is
    `mp3_tool.py:110`, which escapes `'` as `\'` inside a single-quoted ffmpeg concat entry;
    ffmpeg's concat demuxer does not honour that escape. `git log -L 110,110` dates the line
-   to `5459d3d` (2026-05-28) and Phase 4 did not touch it, so this predates Plan 2 entirely.
+   to `5459d3d` (2026-05-28) and Phase 4 did not touch it, so the faulty line predates Plan 2.
    Re-running the identical combine with an apostrophe-free base (still containing a space and
-   `Ñ`) produced `combined.mp3` (18,431 bytes) on the fast path. **Severity: Critical for any
-   user whose chosen folder contains an apostrophe. Left unfixed — it is unrelated tool code
-   and outside the Phase 8 authorization. Flagged for the maintainer's decision.**
+   `Ñ`) produced `combined.mp3` (18,431 bytes) on the fast path. **Severity: Critical.**
+   **FIXED on 2026-08-07 — see the remediation above.** The first pass wrongly called this
+   out of scope on the grounds that it predated Plan 2; the maintainer correctly rejected
+   that, because Plan 2's contract permits user-selected paths and requires apostrophes to
+   work.
 2. **A tool panel built before an output-base change shows a stale "Output folder" label.**
    Cosmetic only; the run reserves against the current configuration (proved above), and the
-   label corrects itself on the next run or the next time the panel is built. **Severity:
-   Minor. Not changed.**
+   label corrected itself only on the next run or the next panel build. **Severity: Minor.**
+   **FIXED on 2026-08-07 — see the remediation above.** A user must not be shown a
+   destination the application would not use, so this belongs to the Plan 2 preference
+   contract rather than being acceptable as cosmetic.
 3. **The optional Kokoro pre-download reports a problem on a clean machine.** During first-run
    setup the weights downloaded correctly (327 MB `kokoro-v1_0.pth`), but the warm-up
    synthesis failed with
@@ -213,7 +382,10 @@ a hint and the reservation is the truth. Recorded as finding 2 below rather than
    **100%** set plus the 920×600 reachability evidence. **The 125% pass was not run and is not
    claimed.** The Plan 1 finding still stands and is unaffected: the application is
    DPI-unaware, so at 125% Windows bitmap-scales the whole window uniformly and nothing
-   reflows or clips.
+   reflows or clips. **Standing policy, confirmed 2026-08-07:** Windows stays at 100% for the
+   remaining feature drops, and the true 125% matrix is completed only in the later dedicated
+   UI-compression/no-scroll phase, together with the final layout compression, the maximized
+   no-scroll verification and a 100%/125% retest against the stable interface.
 2. **Live macOS matrix — DEFERRED by explicit maintainer decision on 2026-08-07.** This
    session runs on HOME-PC (win32) with no Mac access, and `AI-WORKSPACE.md` records the
    HOME-MacOS workspace root as *"to be filled in — ask me for the workspace root before
@@ -336,12 +508,12 @@ and no existing archive was overwritten.
 | GUI writes settings only, never TOML | **MET** — `config.toml` byte-identical after the whole matrix |
 | Preferences and Data works on both platform branches | **PARTIALLY MET** — Windows observed live; macOS aqua path is build/import-tested only (deferral 2) |
 | Reset Preferences removes only mutable settings and refreshes state | **MET** — row 11 |
-| Default base `Downloads/Audiobook-Creation-Tool-Outputs`, safely overridable | **MET** — rows 7–10 |
+| Default base `Downloads/Audiobook-Creation-Tool-Outputs`, safely overridable | **MET** — rows 7–10, and since 2026-08-07 every already-built panel shows the change immediately |
 | Every run uses an atomically reserved `<Tool>-Outputs/<Tool>-N` | **MET** — rows 12–18 |
 | Individual-file outputs flat and collision-safe | **MET** |
 | One folder root mirrors directly; multiple roots use named containers | **MET** for one root (row 19); multiple roots covered by automated tests only |
-| No normal operation silently overwrites an input or output | **MET** — row 21 |
-| All six tools use the shared output service | **MET** — rows 12–17 |
+| No normal operation silently overwrites an input or output | **MET** — row 21, re-verified after the remediation |
+| All six tools use the shared output service | **MET** — rows 12–17; MP3 Tool's route needed the 2026-08-07 concat fix before its row could honestly read PASS |
 | Cover source-side modes follow Decision 10A, replacement off by default and strongly confirmed | **MET** — rows 22–25 |
 | M4B Maker custom destination writes directly and stays source-safe | **MET** — row 26 |
 | Clear Downloaded Data itemized, initially non-destructive, separate from Reset, catalog-restricted | **MET** — rows 27–32 |
@@ -351,17 +523,17 @@ and no existing archive was overwritten.
 | Automated deletion tests use only temporary fake roots | **MET** |
 | Normal setup, repair and no-console fast launch still work | **MET** — rows 35, 44, 45 |
 | Both archive builders include `config.toml` and exclude `config-template.toml` | **MET** |
-| New dialogs meet maximized/no-whole-dialog-scroll and minimum-size reachability | **MET** at 100%; the 125% pass is deferred (deferral 1) |
+| New dialogs meet maximized/no-whole-dialog-scroll and minimum-size reachability | **MET** at 100%, re-verified after the remediation; the 125% pass is deferred to the later UI-compression phase (deferral 1) |
 | Plan 1 isolation, panels, evidence, geometry and carried limitations intact | **MET** — ten hashes unchanged; row 43 |
 | All focused tests pass | **MET** |
-| Complete suite passes with no unexplained loss; every skip/warning named | **MET** — 1008/1003/5/1 |
+| Complete suite passes with no unexplained loss; every skip/warning named | **MET** — 1074/1069/5/1 after the remediation |
 | `scripts/verify.py` reports `RESULT: PASS` | **MET** |
 | Compile gate and `git diff --check` pass | **MET** |
-| Windows manual matrix approved | **PENDING** — evidence complete, awaiting the maintainer |
+| Windows manual matrix approved | **PENDING** — 46/46 PASS after the 2026-08-07 remediation, awaiting the maintainer |
 | Live macOS approved, or an explicit approved deferral accurately recorded | **DEFERRED** — explicitly approved 2026-08-07, recorded as a deferral |
 | Permanent documents carry the correct lasting record | **PENDING** — Phase 9 owns the transfer; Phase 8 updated `Handoff.md` only |
 | Version remains `0.5.1`; no v0.6.0 release/tag claimed | **MET** |
-| No Plan 3–9 scope or unrelated issue implemented | **MET** — the MP3 Tool apostrophe defect was diagnosed and reported, deliberately not fixed |
+| No Plan 3–9 scope or unrelated issue implemented | **MET** — the two corrections are squarely inside Plan 2's output/preference contract; nothing else was touched |
 | The maintainer explicitly approved Plan 2 | **PENDING** |
 | The temporary drop deleted only in the approved closeout | **PENDING** — the drop is intact |
 | Closeout commit pushed and the agent stopped before merge/Plan 3 | **PENDING** — Phase 9 |

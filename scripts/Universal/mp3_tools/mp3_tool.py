@@ -107,12 +107,35 @@ def save_error_log(folder: Path, title: str, args: List[str], stderr: str):
 
 
 def ffmpeg_escape_listfile_path(p: Path) -> str:
-    s = str(p).replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\\n")
-    return f"file '{s}'"
+    """Serialise one path as a concat-demuxer ``file`` directive.
+
+    These are **not** shell rules. Per ffmpeg's documented syntax ("Quoting and
+    escaping"), every character between single quotes is literal — a backslash
+    inside them escapes nothing. So a quote cannot be written ``\\'``: ffmpeg
+    would read it as the closing quote and silently truncate the path at that
+    point. The documented form closes the quote, emits an escaped quote outside
+    it, and reopens::
+
+        file '/mnt/share/file 3'\\''.wav'
+
+    Because everything else inside the quotes is literal, Windows backslashes,
+    spaces and non-ASCII characters need no treatment at all. The previous
+    version doubled backslashes as well; that survived only because Windows
+    collapses repeated path separators, and it corrupted any real backslash.
+
+    A newline cannot be represented — the demuxer parses one directive per line.
+    Windows forbids newlines in names outright, so this only rejects a pathological
+    POSIX name rather than writing a listfile ffmpeg would misread.
+    """
+    text = str(p)
+    if "\n" in text or "\r" in text:
+        raise ValueError(f"a line break cannot appear in a concat list entry: {text!r}")
+    return "file '" + text.replace("'", "'\\''") + "'"
 
 
 def write_concat_listfile(paths: List[Path], listfile: Path):
-    with listfile.open("w", encoding="utf-8") as f:
+    """Write the concat list as UTF-8 — ffmpeg reads these names as UTF-8."""
+    with listfile.open("w", encoding="utf-8", newline="\n") as f:
         for p in paths:
             f.write(ffmpeg_escape_listfile_path(p) + "\n")
 
@@ -361,6 +384,9 @@ class MP3ToolUI(ttk.Frame):
         # time. Browse redirects it for this run only (never persisted); the
         # folder is created lazily on the first operation.
         self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        # Preferences & Data can change the base while this panel is alive; the
+        # shared registry re-points this display the moment that happens.
+        output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
         self._last_run_dir: Optional[Path] = None
 
         frame = ttk.Frame(self)
