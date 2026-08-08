@@ -1,0 +1,83 @@
+# =============================================================================
+#  Audiobook Creation Tool — project configuration
+# =============================================================================
+#
+#  This file is COMMITTED and ships inside the release archives, so keep it
+#  machine-agnostic: no absolute path from your own PC, no user name, no secret.
+#
+#  It holds the project's documented defaults. Your own choices — the last tool
+#  you had open, remembered folders, and any output location you pick in the
+#  application — are saved separately in files/runtime-data/settings.json, which
+#  is never committed. The application only ever WRITES to that settings file;
+#  it never rewrites this one.
+#
+#  Editing this file is optional and safe to get wrong. Every value is checked
+#  on its own: an unusable value falls back to the built-in default and the
+#  application reports what it ignored, rather than refusing to start. Keys it
+#  does not recognise are ignored and mentioned once, so a typo cannot quietly
+#  look like a supported setting.
+#
+#  Values are resolved in this order, last one wins:
+#      1. built-in code defaults
+#      2. valid values from this file
+#      3. the output location you chose in the application (settings.json)
+#
+# =============================================================================
+
+
+[project]
+# Metadata about the application itself. These describe the project rather than
+# changing how it behaves, and the repository's verify gate checks them.
+
+# Display name. Must not be blank.
+name = "Audiobook Creation Tool"
+
+# Must match scripts/Universal/shared/version.py exactly. The running
+# application always trusts the code; `python scripts/verify.py` fails if the
+# two ever drift apart, which is how a stale value here gets caught.
+version = "0.5.1"
+
+# Lowest Python version the code supports, written as "X.Y" or "X.Y.Z".
+# (The setup launcher installs 3.12 specifically, because the Kokoro voice
+# wheels require Python older than 3.13.)
+python_min = "3.11"
+
+# The GUI entry point, relative to this file. Must stay inside the repository.
+entry_point = "scripts/Universal/launcher.py"
+
+# Platforms this build supports. Recognised values: "Windows", "MacOS".
+platforms = ["Windows", "MacOS"]
+
+
+[output]
+# Where finished files are written.
+#
+# Leave this empty to use the standard location, which is the
+# Audiobook-Creation-Tool-Outputs folder inside your Downloads folder. That is
+# the right setting for the committed file, because a path from one machine is
+# meaningless on another.
+#
+# To point the application somewhere else, prefer choosing the folder inside the
+# application — that choice is stored in your own settings.json and takes
+# precedence over this file.
+#
+# If you do set it here, give an absolute path or a path starting with "~":
+#     base_directory = "D:/Audiobooks/Outputs"
+#     base_directory = "~/Media/Audiobook-Outputs"
+#
+# A relative path is rejected on purpose (it would mean something different
+# depending on where the application was started from), and environment
+# variables such as %USERPROFILE% or $HOME are NOT expanded — use "~" instead.
+base_directory = ""
+
+
+[logging]
+# How many past session logs to keep in files/runtime-data/logs/. Older ones are
+# deleted at startup. Accepted range: 1 to 1000.
+max_sessions = 30
+
+
+[importing]
+# When a folder scan finds more files than this, the application will ask for
+# confirmation before adding them all. Accepted range: 1 to 1000000.
+large_result_warning_threshold = 1000

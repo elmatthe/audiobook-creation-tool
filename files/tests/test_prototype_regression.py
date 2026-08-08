@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 
 from mp3_tools import m4b_metadata_editor as editor
-from shared import paths
+from shared import output_paths, paths
 from shared.cancellation import ConversionCancelled
 
 windows_only = pytest.mark.skipif(
@@ -46,6 +46,17 @@ windows_only = pytest.mark.skipif(
 # a display. The metadata calls are recorded rather than executed: this drop
 # changes no tag semantics, and the point here is *which file* is opened for
 # writing, not what is written into it.
+
+def _planner(outdir):
+    """The batch planner a reservation would hand the worker.
+
+    Phase 4 moved directory creation to ``reserve_run_directory``, so a test
+    driving a worker directly supplies both the folder and its planner.
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    return output_paths.DestinationPlanner(outdir)
+
 
 class _WorkerStub:
     def __init__(self):
@@ -102,7 +113,7 @@ def test_save_worker_writes_only_copies_and_never_the_originals(
 
     editor.M4BMetadataEditorUI._save_worker(
         stub, files, {"artist": "X"}, outdir,
-        False, {}, False, 1,
+        False, {}, False, 1, _planner(outdir),
     )
 
     # Every original is byte-identical, and every write landed on a copy.
@@ -127,19 +138,26 @@ def test_save_worker_writes_only_copies_and_never_the_originals(
 def test_save_worker_never_overwrites_an_input_when_output_is_the_input_folder(
     tmp_path, recorded_metadata
 ):
-    """The collision guard is what makes 'output folder = input folder' safe."""
+    """The collision guard is what makes 'output folder = input folder' safe.
+
+    Since v0.6.0 Drop 2 Phase 4 the shared planner supplies the numbering, so
+    the approved suffix is ``stem-1.ext`` rather than the old ``stem (1).ext``.
+    A run directory is never actually the input folder now — reservation
+    guarantees a fresh one — but the guard still has to hold.
+    """
     files = _sources(tmp_path, 2)
     before = _digest(files)
     outdir = files[0].parent  # the inputs' own folder
     stub = _WorkerStub()
 
     editor.M4BMetadataEditorUI._save_worker(
-        stub, files, {"album": "Y"}, outdir, False, {}, False, 1)
+        stub, files, {"album": "Y"}, outdir, False, {}, False, 1,
+        _planner(outdir))
 
     assert _digest(files) == before, "an original was overwritten"
     written = {p for _n, p in recorded_metadata}
     assert not (written & set(files))
-    assert all(p.name.endswith(" (1).m4b") for p in written), written
+    assert all(p.name.endswith("-1.m4b") for p in written), written
 
 
 def test_remove_numbering_worker_is_copy_only_too(tmp_path, recorded_metadata):
@@ -148,7 +166,8 @@ def test_remove_numbering_worker_is_copy_only_too(tmp_path, recorded_metadata):
     outdir = tmp_path / "out-numbering"
     stub = _WorkerStub()
 
-    editor.M4BMetadataEditorUI._remove_numbering_worker(stub, files, outdir)
+    editor.M4BMetadataEditorUI._remove_numbering_worker(
+        stub, files, outdir, _planner(outdir))
 
     assert _digest(files) == before
     kinds = [name for name, _p in recorded_metadata]
@@ -169,7 +188,8 @@ def test_cancel_before_the_first_file_writes_nothing(tmp_path, recorded_metadata
     stub._cancel_event.set()
 
     editor.M4BMetadataEditorUI._save_worker(
-        stub, files, {"artist": "X"}, outdir, False, {}, False, 1)
+        stub, files, {"artist": "X"}, outdir, False, {}, False, 1,
+        _planner(outdir))
 
     assert recorded_metadata == []
     assert _digest(files) == before
@@ -195,7 +215,8 @@ def test_cancel_mid_run_finishes_the_current_file_and_stops_the_rest(
     monkeypatch.setattr(editor.metadata, "write_m4b_tags", write)
 
     editor.M4BMetadataEditorUI._save_worker(
-        stub, files, {"artist": "X"}, outdir, False, {}, False, 1)
+        stub, files, {"artist": "X"}, outdir, False, {}, False, 1,
+        _planner(outdir))
 
     assert len(done) == 2, "the in-flight file must still finish"
     assert _digest(files) == before
@@ -222,7 +243,8 @@ def test_cancellation_uses_the_shared_primitive(tmp_path, monkeypatch):
 
     monkeypatch.setattr(editor, "raise_if_cancelled", raiser)
     editor.M4BMetadataEditorUI._save_worker(
-        stub, files, {}, tmp_path / "o", False, {}, False, 1)
+        stub, files, {}, tmp_path / "o", False, {}, False, 1,
+        _planner(tmp_path / "o"))
     assert seen == [True]
 
 
@@ -274,7 +296,7 @@ def _style_of(widget) -> str:
 GUARDED = (
     "btn_add", "btn_add_folder", "btn_remove", "btn_clear", "btn_save",
     "btn_clear_tags", "btn_remove_numbering", "btn_cover", "btn_cover_clear",
-    "entry_cover", "entry_outdir", "btn_browse_out", "chap_text",
+    "entry_cover", "entry_outdir", "chap_text",
     "btn_chap_prev", "btn_chap_next", "chk_autonumber",
 )
 

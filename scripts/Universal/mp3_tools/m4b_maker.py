@@ -22,6 +22,7 @@ by shared.metadata so the field set matches the other M4B tool.
 
 import re
 import shutil
+import tempfile
 import sys
 import wave
 import json
@@ -43,6 +44,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import ffmpeg_utils
 from shared import metadata
+from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
@@ -66,7 +68,10 @@ APP_TITLE = "M4B Maker v5.0 (Fast-first + Auto-fallback)"
 
 # Auto-named output folder slug (v0.1.1): the built .m4b is delivered into
 # Downloads/<SLUG>-N. The input MP3s are only ever read.
-SLUG = paths.TOOL_SLUGS["m4b_maker"]
+CUSTOM_DEST_LABEL = "Choose custom destination"
+
+TOOL_KEY = "m4b_maker"
+SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
 # settings.json keys (input/cover dirs only remember the dialog location; the
 # output folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
@@ -394,7 +399,11 @@ class M4BMakerUI(ttk.Frame):
         # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
         # time. Browse redirects it for this run only (never persisted); the
         # folder is created lazily on the first build.
-        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
+        self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        # Preferences & Data can change the base while this panel is alive; the
+        # shared registry re-points this display the moment that happens.
+        output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
+        self._last_run_dir = None
 
         self.status = tk.StringVar(value="Added 0 files. Total: 0")
 
@@ -451,10 +460,43 @@ class M4BMakerUI(ttk.Frame):
         outrow = ttk.Frame(self)
         outrow.pack(fill="x", padx=12, pady=(0, 4))
         ttk.Label(outrow, text="Output folder:").pack(side="left")
-        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
+                                      state="readonly")
         self.entry_outdir.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        self.btn_browse_out = ttk.Button(outrow, text="Browse…", command=self.choose_outdir)
-        self.btn_browse_out.pack(side="left")
+        # No per-tool browse: the output base is managed in Preferences & Data,
+        # and a per-panel override would bypass it. The M4B Maker's opt-in
+        # custom destination is Phase 5 of this plan, not Phase 4.
+
+        hintrow = ttk.Frame(self)
+        hintrow.pack(fill="x", padx=12, pady=(0, 4))
+        ttk.Label(
+            hintrow,
+            text="Each build gets its own numbered run folder here. "
+                 "Change the location in Preferences & Data.",
+        ).pack(side="left")
+
+        # --- optional custom destination (Decision 10A) ----------------------
+        # Off on every fresh build. While off, the path below is not merely
+        # ignored — it is not consulted at all, so a stale value cannot steer a
+        # standard build.
+        self.var_custom_dest = tk.BooleanVar(value=False)
+        self.chk_custom_dest = ttk.Checkbutton(
+            self,
+            text=CUSTOM_DEST_LABEL,
+            variable=self.var_custom_dest,
+            command=self._on_custom_dest_change,
+        )
+        self.chk_custom_dest.pack(fill="x", padx=12, pady=(0, 2), anchor="w")
+
+        self.customrow = ttk.Frame(self)
+        self.var_custom_path = tk.StringVar(value="")
+        self.entry_custom = ttk.Entry(self.customrow, textvariable=self.var_custom_path)
+        self.entry_custom.pack(side="left", fill="x", expand=True, padx=(24, 6))
+        self.btn_browse_custom = ttk.Button(
+            self.customrow, text="Browse…", command=self.choose_custom_dest
+        )
+        self.btn_browse_custom.pack(side="left")
+        self._on_custom_dest_change()
 
         # Controls row
         ctrls = ttk.Frame(self)
@@ -588,16 +630,34 @@ class M4BMakerUI(ttk.Frame):
         self.log_text.config(state=tk.DISABLED)
 
     # ----- output folder -----
-    def choose_outdir(self):
-        cur = self.var_outdir.get().strip()
-        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
-        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
-        if d:
-            self.var_outdir.set(d)
+    def _on_custom_dest_change(self):
+        """Show the path controls only while the custom mode is on."""
+        if self.var_custom_dest.get():
+            self.customrow.pack(fill="x", padx=12, pady=(0, 6),
+                                after=self.chk_custom_dest)
+        else:
+            self.customrow.pack_forget()
+
+    def choose_custom_dest(self):
+        chosen = filedialog.askdirectory(title="Choose destination folder")
+        if chosen:
+            self.var_custom_path.set(chosen)
+
+    def custom_destination(self):
+        """The chosen directory, or None while the mode is off.
+
+        Reading the widget is confined to this one place, and only while the
+        toggle is on, so a hidden stale path can never reach a standard build.
+        """
+        if not self.var_custom_dest.get():
+            return None
+        return self.var_custom_path.get().strip()
 
     def output_dir(self) -> Path:
-        val = self.var_outdir.get().strip()
-        return Path(val) if val else paths.next_output_dir(SLUG)
+        """The last reserved run, or this tool's parent folder before any build."""
+        if self._last_run_dir is not None:
+            return self._last_run_dir
+        return Path(self.var_outdir.get().strip())
 
     # ----- cover -----
     def choose_cover(self):
@@ -653,11 +713,11 @@ class M4BMakerUI(ttk.Frame):
             self.btn_build,
             self.entry_silence,
             self.chk_fast,
-            self.entry_outdir,
-            self.btn_browse_out,
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
+        # The destination display is never typeable; it only greys out.
+        self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
 
     def _pump_queue(self):
         try:
@@ -728,8 +788,33 @@ class M4BMakerUI(ttk.Frame):
             "cover_path": self.cover_path if (self.cover_path and self.cover_path.exists()) else None,
         }
 
-        out_dir = self.output_dir()
-        out_dir.mkdir(parents=True, exist_ok=True)  # lazy create on first build
+        # Everything above validated. The custom destination is validated here
+        # too, so an unusable folder never reserves a standard run.
+        custom = self.custom_destination()
+        if custom is not None:
+            try:
+                destination = output_paths.validate_custom_destination(custom)
+            except output_paths.OutputPathError as exc:
+                messagebox.showerror("Destination folder", exc.message)
+                return
+            # Custom mode writes straight into the chosen folder: no standard
+            # run is reserved, and no M4B-Maker-N is nested inside it.
+            out_dir = destination
+            params["planner"] = output_paths.DestinationPlanner(destination)
+            params["custom_destination"] = True
+            self.var_outdir.set(str(destination))
+            self._last_run_dir = destination
+        else:
+            try:
+                reservation = output_paths.reserve_run_directory(TOOL_KEY)
+            except output_paths.OutputPathError as exc:
+                messagebox.showerror("Output folder", exc.message)
+                return
+            out_dir = reservation.run_directory
+            self._last_run_dir = out_dir
+            self.var_outdir.set(str(out_dir))
+            params["planner"] = reservation.planner()
+            params["custom_destination"] = False
 
         self._busy.set()
         self._cancel_event.clear()
@@ -745,14 +830,32 @@ class M4BMakerUI(ttk.Frame):
     def _build_worker(self, params: dict, out_dir: Path):
         cancel_check = self._cancel_event.is_set
         files = params["files"]
-        tmp = out_dir / "build"
-        tmp.mkdir(exist_ok=True)
+        # In custom mode the destination belongs to the user, so staging goes to
+        # an operation-owned temporary directory instead of littering it. In
+        # standard mode staging stays inside the reserved run, as in Phase 4.
+        if params.get("custom_destination"):
+            tmp = Path(tempfile.mkdtemp(prefix="act-m4b-build-"))
+            owns_tmp = True
+        else:
+            tmp = out_dir / "build"
+            tmp.mkdir(exist_ok=True)
+            owns_tmp = False
+        out_path = None          # named up front so cancellation cleanup is safe
 
         def write_error(msg: str):
+            # Never drop an error file into a folder the user chose.
+            if params.get("custom_destination"):
+                self._log_q.put(("log", msg + chr(10)))
+                return
             try:
                 (out_dir / "ERROR.txt").write_text(msg, encoding="utf-8")
             except Exception:
                 pass
+
+        def drop_staging():
+            """Remove only this operation's own staging directory."""
+            if owns_tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
 
         try:
             # Titles
@@ -788,9 +891,11 @@ class M4BMakerUI(ttk.Frame):
             raise_if_cancelled(cancel_check)
 
             # Output name
+            # One central sanitiser and one collision service, not a local regex.
             base_name = params["title"] or params["album"] or "audiobook"
-            base_name = re.sub(r'[\\/:*?"<>|]+', "_", base_name) or "audiobook"
-            out_path = paths.avoid_input_overwrite(out_dir / f"{base_name}.m4b", files)
+            out_path = params["planner"].plan(f"{base_name}.m4b")
+            output_paths.assert_not_input(out_path, files)
+            base_name = out_path.stem
 
             # Metadata
             meta = {
@@ -849,14 +954,29 @@ class M4BMakerUI(ttk.Frame):
                 metadata.write_m4b_tags(out_path, series_tags)
 
             shutil.rmtree(tmp, ignore_errors=True)
+            drop_staging()
             self._log_q.put(("progress", (1, 1)))
             self._log_q.put(("done", (out_path, out_dir)))
 
         except ConversionCancelled:
-            # Remove the whole output folder created for this (now-abandoned) build.
-            shutil.rmtree(out_dir, ignore_errors=True)
+            if params.get("custom_destination"):
+                # `out_dir` is the USER'S folder here, not a reserved run.
+                # Removing it would destroy unrelated content, so cancellation
+                # cleans only what this operation created: its own staging
+                # directory and its own partly written .m4b.
+                drop_staging()
+                try:
+                    if out_path is not None:
+                        out_path.unlink(missing_ok=True)
+                except (OSError, NameError):
+                    pass
+            else:
+                # A reserved run belongs entirely to this build, so the whole
+                # abandoned folder goes.
+                shutil.rmtree(out_dir, ignore_errors=True)
             self._log_q.put(("cancelled", None))
         except CalledProcessError as e:
+            drop_staging()
             try:
                 stderr = getattr(e, "stderr", None)
                 msg = stderr.decode("utf-8") if stderr else str(e)
@@ -865,9 +985,11 @@ class M4BMakerUI(ttk.Frame):
             write_error(f"ffmpeg error:\n\n{msg}")
             self._log_q.put(("err", ("ffmpeg error", msg)))
         except FileNotFoundError as e:
+            drop_staging()
             write_error(f"Missing file(s): {e}")
             self._log_q.put(("err", ("Missing file(s)", str(e))))
         except Exception as e:
+            drop_staging()
             write_error(f"Unhandled error:\n\n{traceback.format_exc()}")
             self._log_q.put(("err", ("Error", str(e))))
 

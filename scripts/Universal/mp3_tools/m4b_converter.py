@@ -27,6 +27,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import ffmpeg_utils
 from shared import metadata
+from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
@@ -35,12 +36,14 @@ from shared import ui_theme
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
 
-# Auto-named output folder slug (v0.1.1): MP3s are delivered into
-# Downloads/<SLUG>-N. The originals (.m4b) are only ever read.
-SLUG = paths.TOOL_SLUGS["m4b_converter"]
+# MP3s are delivered into a run folder reserved at conversion start:
+# <output base>/M4B-Converter-Outputs/M4B-Converter-N/. The originals (.m4b)
+# are only ever read.
+TOOL_KEY = "m4b_converter"
+SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
-# settings.json keys (input dir only remembers the dialog location; the output
-# folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
+# settings.json keys. Only the input-dialog location is remembered; the output
+# location is not per-tool state — it comes from the effective configuration.
 KEY_INPUT_DIR = "m4b_converter.input_dir"
 
 
@@ -89,10 +92,15 @@ class M4BConverterUI(ttk.Frame):
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
 
-        # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
-        # time. Browse redirects it for this run only (never persisted); the
-        # folder is created lazily on the first conversion.
-        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
+        # Where the next run will go, shown read-only. The numbered run folder
+        # itself is reserved atomically when a validated conversion starts
+        # (v0.6.0 Drop 2 Phase 4), so building this panel creates nothing and
+        # promises no run number. The base is changed in Preferences & Data.
+        self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        # Preferences & Data can change the base while this panel is alive; the
+        # shared registry re-points this display the moment that happens.
+        output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
+        self._last_run_dir: Path | None = None
 
         # Top buttons
         top = ttk.Frame(self)
@@ -182,15 +190,21 @@ class M4BConverterUI(ttk.Frame):
         self.entry_start_num = ttk.Entry(options, textvariable=self.var_start_num, width=6)
         self.entry_start_num.grid(row=row, column=1, sticky="w", padx=(70, 8), pady=2)
 
-        # Output folder picker (remembered base)
+        # Output destination (read-only; the base lives in Preferences & Data)
         row += 1
         ttk.Label(options, text="Output folder:").grid(
             row=row, column=0, sticky="e", padx=8, pady=4
         )
-        self.entry_outdir = ttk.Entry(options, textvariable=self.var_outdir)
-        self.entry_outdir.grid(row=row, column=1, columnspan=2, sticky="we", padx=8, pady=4)
-        self.btn_browse_out = ttk.Button(options, text="Browse…", command=self.choose_outdir)
-        self.btn_browse_out.grid(row=row, column=3, sticky="w", padx=8, pady=4)
+        self.entry_outdir = ttk.Entry(options, textvariable=self.var_outdir,
+                                      state="readonly")
+        self.entry_outdir.grid(row=row, column=1, columnspan=3, sticky="we", padx=8, pady=4)
+
+        row += 1
+        ttk.Label(
+            options,
+            text="Each conversion gets its own numbered run folder here. "
+                 "Change the location in Preferences & Data.",
+        ).grid(row=row, column=1, columnspan=3, sticky="w", padx=8, pady=(0, 4))
 
         # Action buttons
         action = ttk.Frame(self)
@@ -267,21 +281,21 @@ class M4BConverterUI(ttk.Frame):
     def update_count(self):
         self.count_var.set(f"{len(self.files)} file(s)")
 
-    def choose_outdir(self):
-        cur = self.var_outdir.get().strip()
-        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
-        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
-        if d:
-            self.var_outdir.set(d)
-
     def output_dir(self) -> Path:
-        val = self.var_outdir.get().strip()
-        return Path(val) if val else paths.next_output_dir(SLUG)
+        """The last reserved run, or this tool's parent folder before any run."""
+        if self._last_run_dir is not None:
+            return self._last_run_dir
+        return Path(self.var_outdir.get().strip())
 
     def open_outdir(self):
-        out_dir = self.output_dir()
-        out_dir.mkdir(parents=True, exist_ok=True)
-        sp.reveal_in_file_manager(out_dir)
+        """Reveal the actual reserved run, or the tool folder before any run."""
+        try:
+            target = (self._last_run_dir if self._last_run_dir is not None
+                      else output_paths.ensure_tool_parent(TOOL_KEY))
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
+            return
+        sp.reveal_in_file_manager(target)
 
     def start_convert(self):
         if self._busy.is_set():
@@ -311,8 +325,18 @@ class M4BConverterUI(ttk.Frame):
             "files": list(self.files),
         }
 
-        outdir = self.output_dir()
-        outdir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
+        # Every input is validated above; only now is a run directory reserved.
+        try:
+            reservation = output_paths.reserve_run_directory(TOOL_KEY)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
+            self.log_write(f"Output folder unavailable: {exc.message}\n")
+            return
+        outdir = reservation.run_directory
+        self._last_run_dir = outdir
+        self.var_outdir.set(str(outdir))
+        params["planner"] = reservation.planner()
+        self.log_write(f"Output folder: {outdir}\n")
 
         self._busy.set()
         self._cancel_event.clear()
@@ -346,11 +370,11 @@ class M4BConverterUI(ttk.Frame):
             self.album_entry,
             self.chk_auto_num,
             self.entry_start_num,
-            self.entry_outdir,
-            self.btn_browse_out,
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
+        # The destination display is never typeable; it only greys out.
+        self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
 
     def log_write(self, text: str):
         self.log.insert(tk.END, text)
@@ -385,6 +409,7 @@ class M4BConverterUI(ttk.Frame):
 
     def convert_worker(self, outdir: Path, params: dict):
         files = params["files"]
+        planner = params["planner"]
         total = len(files)
         cancelled = False
 
@@ -393,8 +418,12 @@ class M4BConverterUI(ttk.Frame):
                 cancelled = True
                 break
             try:
-                stem = sanitize_filename(in_file.stem)
-                out_mp3 = paths.avoid_input_overwrite(outdir / f"{stem}.mp3", files)
+                # One batch-scoped planner per reservation: duplicate stems
+                # from different folders get -1/-2 instead of overwriting.
+                out_mp3 = planner.plan(f"{in_file.stem}.mp3")
+                output_paths.assert_not_input(out_mp3, files)
+                # The written stem, which is what the fallback title uses.
+                stem = out_mp3.stem
 
                 # Probe the source so the decode side can be chosen correctly.
                 # xHE-AAC (USAC) m4b sources are mis-decoded by ffmpeg's native

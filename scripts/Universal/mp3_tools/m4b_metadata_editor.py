@@ -71,6 +71,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import metadata
+from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
@@ -81,7 +82,8 @@ APP_TITLE = "M4B Metadata Editor"
 
 # Auto-named output folder slug (v0.1.1): tags are written to COPIES delivered
 # into Downloads/<SLUG>-N, never to the imported originals.
-SLUG = paths.TOOL_SLUGS["m4b_metadata"]
+TOOL_KEY = "m4b_metadata"
+SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
 # settings.json keys (input/cover dirs only remember the dialog's last location;
 # the output folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
@@ -191,7 +193,11 @@ class M4BMetadataEditorUI(ttk.Frame):
         # time. Browse redirects it for this run only; it is never persisted, so
         # the next launch starts at the next free -N. The folder is created
         # lazily on the first successful save.
-        self.var_outdir = tk.StringVar(value=str(paths.next_output_dir(SLUG)))
+        self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
+        # Preferences & Data can change the base while this panel is alive; the
+        # shared registry re-points this display the moment that happens.
+        output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
+        self._last_run_dir = None
 
         self._build_ui()
 
@@ -350,10 +356,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         outrow = ttk.Frame(body)
         outrow.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
         ttk.Label(outrow, text="Output folder:").pack(side=tk.LEFT)
-        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir)
+        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
+                                      state="readonly")
         self.entry_outdir.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 6))
-        self.btn_browse_out = ttk.Button(outrow, text="Browse…", command=self.choose_outdir)
-        self.btn_browse_out.pack(side=tk.LEFT)
         self.btn_open_out = ttk.Button(outrow, text="Open", command=self.open_outdir)
         self.btn_open_out.pack(side=tk.LEFT, padx=(6, 0))
 
@@ -637,12 +642,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         outrow.pack(fill=tk.X)
         ttk.Label(outrow, text="Folder", style=s["label"]).pack(side=tk.LEFT)
         self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
-                                      style=s["entry"])
+                                      style=s["entry"], state="readonly")
         self.entry_outdir.pack(side=tk.LEFT, fill=tk.X, expand=True,
                                padx=(m["gap_sm"], m["gap_sm"]))
-        self.btn_browse_out = ttk.Button(outrow, text="Browse…", style=s["button"],
-                                         command=self.choose_outdir)
-        self.btn_browse_out.pack(side=tk.LEFT)
         self.btn_open_out = ttk.Button(outrow, text="Open", style=s["button"],
                                        command=self.open_outdir)
         self.btn_open_out.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
@@ -1008,18 +1010,31 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.var_cover_path.set(p)
 
     # ----- output folder -----
-    def choose_outdir(self):
-        cur = self.var_outdir.get().strip()
-        initial = cur if cur and Path(cur).parent.exists() else str(paths.downloads_dir())
-        d = filedialog.askdirectory(title="Choose output folder", initialdir=initial)
-        if d:
-            self.var_outdir.set(d)
-
     def output_dir(self) -> Path:
-        val = self.var_outdir.get().strip()
-        return Path(val) if val else paths.next_output_dir(SLUG)
+        """The last reserved run, or this tool's parent folder before any run."""
+        if self._last_run_dir is not None:
+            return self._last_run_dir
+        return Path(self.var_outdir.get().strip())
+
+    def _reserve_run(self):
+        """Reserve one run for a validated action. None means do not start."""
+        try:
+            reservation = output_paths.reserve_run_directory(TOOL_KEY)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
+            return None
+        self._last_run_dir = reservation.run_directory
+        self.var_outdir.set(str(reservation.run_directory))
+        return reservation
 
     def open_outdir(self):
+        """Reveal the actual reserved run, or the tool folder before any run."""
+        if self._last_run_dir is None:
+            try:
+                sp.reveal_in_file_manager(output_paths.ensure_tool_parent(TOOL_KEY))
+            except output_paths.OutputPathError as exc:
+                messagebox.showerror("Output folder", exc.message)
+            return
         out = self.output_dir()
         out.mkdir(parents=True, exist_ok=True)
         sp.reveal_in_file_manager(out)
@@ -1145,7 +1160,11 @@ class M4BMetadataEditorUI(ttk.Frame):
             return
 
         files = list(self.files)
-        outdir = self.output_dir()  # read Tk var on the main thread
+        reservation = self._reserve_run()
+        if reservation is None:
+            return
+        outdir = reservation.run_directory
+        planner = reservation.planner()
         self.series_readback_var.set("")
         self._busy.set()
         self._cancel_event.clear()
@@ -1156,7 +1175,8 @@ class M4BMetadataEditorUI(ttk.Frame):
             f"\nRemoving series numbering on {len(files)} copy(ies) in {outdir}…\n"
         )
         t = threading.Thread(
-            target=self._remove_numbering_worker, args=(files, outdir), daemon=True
+            target=self._remove_numbering_worker, args=(files, outdir, planner),
+            daemon=True
         )
         t.start()
 
@@ -1206,7 +1226,11 @@ class M4BMetadataEditorUI(ttk.Frame):
             return
 
         files = list(self.files)
-        outdir = self.output_dir()  # read Tk var on the main thread
+        reservation = self._reserve_run()
+        if reservation is None:
+            return
+        outdir = reservation.run_directory
+        planner = reservation.planner()
         self._busy.set()
         self._cancel_event.clear()
         self.progress.update(0, len(files))
@@ -1219,7 +1243,8 @@ class M4BMetadataEditorUI(ttk.Frame):
 
         t = threading.Thread(
             target=self._save_worker,
-            args=(files, tags, outdir, clear_first, chapter_map, autonumber, start_part),
+            args=(files, tags, outdir, clear_first, chapter_map, autonumber,
+                  start_part, planner),
             daemon=True,
         )
         t.start()
@@ -1244,7 +1269,6 @@ class M4BMetadataEditorUI(ttk.Frame):
             self.btn_cover_clear,
             self.entry_cover,
             self.entry_outdir,
-            self.btn_browse_out,
             self.chap_text,
             self.btn_chap_prev,
             self.btn_chap_next,
@@ -1253,6 +1277,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
+        # The destination display is never typeable; it only greys out.
+        self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
         if not state:
             # Restore the pager arrows to their correct page-bounded state.
             self._update_chap_buttons()
@@ -1300,6 +1326,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         chapter_map: dict,
         autonumber: bool,
         start_part: int,
+        planner,
     ):
         cancel_check = self._cancel_event.is_set
         total = len(files)
@@ -1307,7 +1334,6 @@ class M4BMetadataEditorUI(ttk.Frame):
         fail = 0
         cancelled = False
         try:
-            outdir.mkdir(parents=True, exist_ok=True)  # lazy create on first save
             for idx, f in enumerate(files, start=1):
                 raise_if_cancelled(cancel_check)
                 try:
@@ -1316,7 +1342,8 @@ class M4BMetadataEditorUI(ttk.Frame):
                     # re-apply any typed tag fields, then apply imported chapter
                     # titles positionally. Only the COPY is ever written; the
                     # imported original is read-only.
-                    dest = paths.avoid_input_overwrite(outdir / f.name, files)
+                    dest = planner.plan(f.name)
+                    output_paths.assert_not_input(dest, files)
                     shutil.copy2(f, dest)
                     self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
                     if clear_first:
@@ -1353,21 +1380,21 @@ class M4BMetadataEditorUI(ttk.Frame):
         self._log_q.put(("done", (ok, fail, cancelled)))
 
     # ----- remove-series-numbering worker (worker thread) -----
-    def _remove_numbering_worker(self, files: list, outdir: Path):
+    def _remove_numbering_worker(self, files: list, outdir: Path, planner):
         cancel_check = self._cancel_event.is_set
         total = len(files)
         ok = 0
         fail = 0
         cancelled = False
         try:
-            outdir.mkdir(parents=True, exist_ok=True)  # lazy create on first run
             for idx, f in enumerate(files, start=1):
                 raise_if_cancelled(cancel_check)
                 try:
                     # Copy original → output folder, then strip numbering on the
                     # COPY only (chapters/other tags preserved). The imported
                     # original is read-only.
-                    dest = paths.avoid_input_overwrite(outdir / f.name, files)
+                    dest = planner.plan(f.name)
+                    output_paths.assert_not_input(dest, files)
                     shutil.copy2(f, dest)
                     self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
                     metadata.clear_series_numbering(dest)

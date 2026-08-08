@@ -12,9 +12,16 @@ It builds two archives under ``<repo-root>/dist/``:
 Since v0.5.0 there is a single cross-platform code tree (``scripts/Universal``),
 so both archives contain the same ``scripts/`` folder; they differ only in which
 double-click launcher sits at the archive root (``.bat`` vs ``.command``), plus
-``README.md``. All machine-specific / regenerable artifacts (venv, caches,
-``files/`` dev assets and runtime data — recreated on first run) are excluded.
-The version string comes from the single source of truth in ``version.py``.
+``README.md`` and the committed ``config.toml``. All machine-specific /
+regenerable artifacts (venv, caches, ``files/`` dev assets and runtime data —
+recreated on first run) are excluded. The version string comes from the single
+source of truth in ``version.py``.
+
+Packaging works by **explicit scope**: the root files are a named list and
+exactly one tree (``scripts/``) is walked. Nothing is ever copied wholesale and
+then pruned, so a file this module does not name — the maintainer's unrelated
+untracked root template beside ``config.toml``, for one — cannot leak because
+somebody forgot to extend an exclusion list.
 
 This module must never be imported by the launcher or any tool — it is a
 build-time developer utility only and depends on nothing inside the app.
@@ -44,6 +51,12 @@ ENTRY_FILES = {
     "Windows": "Setup_and_Run-audiobook-creation-tool.bat",
     "MacOS": "Setup_and_Run-audiobook-creation-tool.command",
 }
+
+# Root files shipped verbatim in both archives, in the order they are written.
+# ``config.toml`` is packaged byte-for-byte as committed — the packager never
+# generates, edits or substitutes it, and a clean extraction reads its documented
+# defaults from the archive root.
+ROOT_FILES = ("README.md", "config.toml")
 
 # Directory names that are excluded wherever they appear in the tree.
 EXCLUDED_DIR_NAMES = {".venv", "__pycache__", ".pytest_cache"}
@@ -86,8 +99,8 @@ def _package_os(os_name: str) -> Path:
 
     entry_name = ENTRY_FILES[os_name]
     entry_file = REPO_ROOT / entry_name
-    readme = REPO_ROOT / "README.md"
-    for required in (entry_file, readme):
+    root_files = [REPO_ROOT / name for name in ROOT_FILES]
+    for required in [entry_file, *root_files]:
         if not required.is_file():
             raise FileNotFoundError(f"Required root file missing: {required}")
 
@@ -98,9 +111,11 @@ def _package_os(os_name: str) -> Path:
 
     file_count = 0
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        # The launcher and README sit at the archive root so they're the first
-        # thing a user sees on extract.
-        zf.write(readme, arcname="README.md")
+        # The launcher, README and config sit at the archive root so they're the
+        # first thing a user sees on extract, and so bootstrap/config resolution
+        # finds config.toml exactly where a dev checkout keeps it.
+        for source, name in zip(root_files, ROOT_FILES):
+            zf.write(source, arcname=name)
         # Force the launcher executable so a user never has to `chmod +x`.
         _write_executable(zf, entry_file, entry_name)
 
@@ -129,7 +144,7 @@ def _print_checklist() -> None:
     print("=" * 64)
     steps = [
         "All test matrix cells PASS (see Briefing).",
-        f"CHANGELOG [Unreleased] -> [{VERSION}] - <date>.",
+        f"Changelog.md [Unreleased] -> [{VERSION}] - <date>.",
         f"Version bumped in scripts/Universal/shared/version.py = {VERSION}.",
         "Build both zips (this script) -> dist/.",
         "Attach both zips to the GitHub Release; update README download links.",

@@ -50,7 +50,7 @@ GENERIC_STYLES = (
 REQUIRED_WIDGETS = (
     "btn_add", "btn_add_folder", "btn_remove", "btn_clear", "btn_save",
     "btn_clear_tags", "btn_remove_numbering", "btn_cancel", "btn_cover",
-    "btn_cover_clear", "btn_browse_out", "btn_open_out", "btn_chap_prev",
+    "btn_cover_clear", "btn_open_out", "btn_chap_prev",
     "btn_chap_next", "chk_autonumber", "entry_cover", "entry_outdir",
     "listbox", "chap_text", "log", "progress", "lbl_mode",
     "lbl_series_readback", "lbl_autonumber_hint",
@@ -58,7 +58,7 @@ REQUIRED_WIDGETS = (
 
 REQUIRED_CALLBACKS = (
     "add_files", "add_folder", "remove_selected", "clear_list", "choose_cover",
-    "choose_outdir", "open_outdir", "output_dir", "save", "on_clear_all_tags",
+    "open_outdir", "output_dir", "save", "on_clear_all_tags",
     "on_remove_series_numbering", "cancel", "disable_inputs", "log_write",
     "_shared_tags", "_refresh_mode", "_chap_prev", "_chap_next",
     "_collect_tags", "_start_job", "_save_worker", "_remove_numbering_worker",
@@ -141,7 +141,11 @@ def test_editor_builds_and_keeps_its_public_contract(host):
     assert str(ui.btn_cancel.cget("state")) == "disabled"
     assert ui.mode_var.get() == "No files loaded."
     assert ui.chap_pager_var.get() == "No files loaded."
-    assert ui.var_outdir.get()  # a fresh Downloads/<slug>-N was decided
+    # The destination display names the tool's parent folder; no run number is
+    # promised until one is atomically reserved at operation start (Phase 4).
+    assert ui.var_outdir.get().endswith("M4B-Metadata-Outputs")
+    assert ui._last_run_dir is None
+    assert str(ui.entry_outdir.cget("state")) == "readonly"
     assert "not written" in ui.autonumber_hint_var.get()
 
     # The pager arrows start disabled, as they did before the recomposition.
@@ -155,7 +159,7 @@ def test_busy_state_disables_every_input_and_returns_to_idle(host):
     guarded = [ui.btn_add, ui.btn_add_folder, ui.btn_remove, ui.btn_clear,
                ui.btn_save, ui.btn_clear_tags, ui.btn_remove_numbering,
                ui.btn_cover, ui.btn_cover_clear, ui.entry_cover,
-               ui.entry_outdir, ui.btn_browse_out, ui.chap_text,
+               ui.chap_text,
                ui.chk_autonumber, *ui._field_widgets]
 
     ui.disable_inputs(True)
