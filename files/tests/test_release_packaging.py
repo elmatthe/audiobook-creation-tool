@@ -4,9 +4,14 @@
 scope* — it names the handful of root files it wants and walks exactly one tree —
 rather than copying the repository and deleting the parts that must not ship. That
 distinction is the whole safety argument: a file the packager never names cannot
-leak because someone forgot to add it to an exclusion list. The maintainer's
-unrelated untracked root ``config-template.toml`` sits directly beside the real
-``config.toml`` and is the standing proof that the distinction holds.
+leak because someone forgot to add it to an exclusion list.
+
+``config-template.toml`` is the file that argument was built around. It used to
+sit untracked directly beside the real ``config.toml``; the maintainer removed it
+on 2026-08-08 and the v0.6.0 Drop 3 contract keeps the repository root free of it.
+The proof therefore moved rather than weakened: the *synthetic* fixture below
+deliberately creates one, so the packager is still exercised against a template it
+must refuse, and the real-repository test asserts the root stays clean.
 
 Every archive here is built into a pytest temporary directory. Nothing in this
 suite writes to ``dist/``, and nothing extracts outside ``tmp_path``.
@@ -16,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import os
 import zipfile
 from pathlib import Path
 
@@ -140,12 +146,25 @@ def test_the_packaged_config_is_byte_identical_to_the_committed_file(archives, o
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
 def test_the_untracked_template_beside_it_is_still_absent(archives, os_name):
-    """The real repository genuinely has both files side by side right now."""
-    import os
+    """The real root carries ``config.toml`` and no template, and neither ships.
 
+    The precondition changed with the repository, not with the requirement. Until
+    2026-08-08 the maintainer's untracked ``config-template.toml`` sat beside
+    ``config.toml`` and this test asserted that coexistence; the file has since
+    been removed by instruction and must stay absent, so the precondition now
+    asserts the current contract. The substantive assertion underneath is
+    untouched: whatever the root holds, no archive may contain a template.
+
+    ``os.listdir`` is used rather than ``Path.exists`` on purpose — a path lookup
+    on NTFS and APFS is case-insensitive and would happily confirm a name that is
+    not actually there.
+    """
     entries = os.listdir(REPO_ROOT)
-    assert "config.toml" in entries and "config-template.toml" in entries, (
-        "this test is only meaningful while both files sit at the root")
+    assert "config.toml" in entries, (
+        "the committed root config.toml must exist for this suite to mean anything")
+    assert "config-template.toml" not in entries, (
+        "the root config-template.toml must remain absent (v0.6.0 Drop 3 contract); "
+        "it must never be recreated, staged, packaged or loaded")
     assert "config-template.toml" not in names(archives[os_name])
 
 
