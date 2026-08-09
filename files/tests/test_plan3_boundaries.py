@@ -25,8 +25,13 @@ SHARED = UNIVERSAL / "shared"
 TESTS = REPO_ROOT / "files" / "tests"
 
 #: The modules this drop owns. ``job_ui.py`` is Phase 8 and does not exist yet.
-PLAN3_MODULES = ("importing.py", "job_control.py")
-PLAN3_MODULE_NAMES = ("importing", "job_control", "job_ui")
+PLAN3_MODULES = ("importing.py", "job_control.py", "import_coordination.py")
+PLAN3_MODULE_NAMES = ("importing", "job_control", "import_coordination", "job_ui")
+
+#: The two modules that are pure *vocabulary and synchronous behaviour*. Phase 4 put
+#: its thread and its queue in ``import_coordination.py`` precisely so these two keep
+#: their approved proof that neither constructs one — see the guards below.
+PURE_VOCABULARY_MODULES = ("importing.py", "job_control.py")
 
 #: Every production module that must remain unaware of Plan 3.
 PRODUCTION_SOURCES = tuple(
@@ -114,9 +119,15 @@ _CONCURRENCY_CONSTRUCTORS = (
 )
 
 
-@pytest.mark.parametrize("name", PLAN3_MODULES)
+@pytest.mark.parametrize("name", PURE_VOCABULARY_MODULES)
 def test_a_plan3_module_starts_no_worker_and_owns_no_queue(plan3_trees, name):
-    """Threads, queues and polling arrive in Phases 4–8, not in the vocabulary."""
+    """Threads, queues and polling live in the coordinator, never in the vocabulary.
+
+    Phase 4 could have folded its worker into ``importing.py``. Keeping it out is what
+    lets this guard survive unchanged: the value objects, the traversal core and the
+    imported-file manager are still provably free of concurrency, so anything that
+    later grows a thread has to do it somewhere this test is watching.
+    """
     tree = plan3_trees[name]
     for module in imported_names(tree):
         assert module.split(".")[0] not in {"queue", "asyncio", "concurrent", "multiprocessing"}, (
@@ -149,6 +160,138 @@ _FORBIDDEN_FILESYSTEM_CALLS = (
     # bulk traversal helpers this drop deliberately does not use
     "walk", "iterdir", "glob", "rglob", "listdir",
 )
+
+
+def test_the_coordinator_owns_exactly_one_worker_and_one_queue():
+    """Phase 4's whole concurrency budget, pinned so it cannot quietly grow.
+
+    One thread factory, one queue, and the locks behind the cancellation flag and the
+    progress gate. No executor, no pool, no second queue, no timer, and no ``asyncio``
+    loop hiding behind an import.
+    """
+    tree = parse(SHARED / "import_coordination.py")
+    modules = imported_names(tree)
+    for forbidden in ("asyncio", "concurrent", "multiprocessing", "subprocess", "sched"):
+        assert forbidden not in {entry.split(".")[0] for entry in modules}, forbidden
+
+    constructed = called_attributes(tree) | called_bare_names(tree)
+    for primitive in ("Timer", "ThreadPoolExecutor", "ProcessPoolExecutor", "Pool",
+                      "Process", "Queue", "LifoQueue", "PriorityQueue", "Semaphore",
+                      "BoundedSemaphore", "Barrier", "Condition"):
+        assert primitive not in constructed, primitive
+
+    text = (SHARED / "import_coordination.py").read_text(encoding="utf-8")
+    assert text.count("threading.Thread(") == 1, "exactly one place creates a worker"
+    assert text.count("queue.SimpleQueue()") == 1, "exactly one queue"
+    assert ".daemon = " not in text, "the daemon flag is set at construction or not at all"
+
+
+def test_the_coordinator_touches_no_filesystem_at_all():
+    """It coordinates the scanner; it never becomes one.
+
+    Every filesystem verb in this drop belongs to ``importing.py``, where the fail-
+    closed rules live. ``Path.home()`` is the single exception and reads an
+    environment variable rather than a disk — it classifies a broad root without
+    scanning to decide, exactly as §6.7 requires.
+    """
+    tree = parse(SHARED / "import_coordination.py")
+    attributes = called_attributes(tree)
+    for forbidden in _FORBIDDEN_FILESYSTEM_CALLS + ("scandir", "lstat"):
+        assert forbidden not in attributes, forbidden
+    assert "open" not in called_bare_names(tree)
+    assert attributes & {"home"} == {"home"}, "the one lexical exception is still there"
+
+
+def test_import_cancellation_cannot_reach_the_processing_controller():
+    """The mandatory Phase 4 isolation gate, proved structurally.
+
+    ``Cancel Import`` may not invoke, share, mutate, wrap or replace the processing
+    job's controller. The coordinator does not import that module at all, so there is
+    nothing for it to reach — and the module it would have had to touch is byte-for-
+    byte the one Plan 2 approved.
+    """
+    tree = parse(SHARED / "import_coordination.py")
+    modules = imported_names(tree)
+    assert not any("cancellation" in entry for entry in modules), modules
+
+    assert not any(entry.startswith("shared.job_control") for entry in modules), modules
+
+    text = (SHARED / "import_coordination.py").read_text(encoding="utf-8")
+    for processing_concept in (
+        "ConversionCancelled", "raise_if_cancelled", "JobState(", "JobController",
+    ):
+        assert processing_concept not in text, processing_concept
+
+    # And the import-scoped primitive is genuinely its own: a plain Event, created per
+    # operation, with no reset that could let a stale cancellation stop a fresh import.
+    from shared.import_coordination import ImportCancellation
+
+    first, second = ImportCancellation(), ImportCancellation()
+    first.request()
+    assert first.requested and not second.requested
+    assert not hasattr(first, "reset")
+
+
+def test_the_worker_never_had_a_manager_to_mutate():
+    """Ownership as a property of the code, not a rule someone has to remember.
+
+    ``_run_scan`` is a module-level function: everything it can see is a parameter,
+    none of those parameters is the manager, and nothing in its body calls a mutation.
+    """
+    tree = parse(SHARED / "import_coordination.py")
+    worker = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_scan")
+
+    parameters = {
+        argument.arg
+        for group in (worker.args.args, worker.args.kwonlyargs, worker.args.posonlyargs)
+        for argument in group
+    }
+    assert "manager" not in parameters
+    assert not any("manager" in name for name in parameters), parameters
+
+    called = {
+        node.func.attr for node in ast.walk(worker)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    for mutation in ("commit", "plan", "recompute", "remove_selected", "clear",
+                     "move_selected_up", "move_selected_down", "select",
+                     "clear_selection", "advance", "pump", "confirm_pending",
+                     "decline_pending", "close"):
+        assert mutation not in called, mutation
+
+    for name in ast.walk(worker):
+        if isinstance(name, ast.Name):
+            assert "manager" not in name.id.lower(), name.id
+
+
+def test_only_the_commit_helper_appends_to_the_manager():
+    """One door into the list, so every unhappy path is one that never reaches it."""
+    text = (SHARED / "import_coordination.py").read_text(encoding="utf-8")
+    assert text.count("self._manager.commit(") == 2, (
+        "the first attempt and the single recomputed retry, and nothing else")
+    assert text.count("self._manager.plan(") == 1
+    assert text.count("self._manager.recompute(") == 1
+    tree = parse(SHARED / "import_coordination.py")
+    committing = {
+        node.name for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "commit"
+            for call in ast.walk(node))
+    }
+    assert committing == {"_commit"}, committing
+
+
+def test_the_coordinator_depends_on_importing_and_not_the_other_way_round():
+    coordination = imported_names(parse(SHARED / "import_coordination.py"))
+    importing = imported_names(parse(SHARED / "importing.py"))
+    job_control = imported_names(parse(SHARED / "job_control.py"))
+    assert any(entry.startswith("shared.importing") for entry in coordination)
+    for consumer in (importing, job_control):
+        assert not any("import_coordination" in entry for entry in consumer)
 
 
 def test_job_control_touches_no_filesystem_at_all():
@@ -368,39 +511,53 @@ _PHASE_THREE_NAMES = (
     "clear_all", "commit", "deduplicate", "allow_duplicates",
 )
 
-#: Still owned by a later phase, in either module.
+#: Phase 4 landed coordination in ``import_coordination.py``. These names stay
+#: forbidden in the two vocabulary modules, which own no thread and no lifecycle.
+#: ``request_cancel`` sits here rather than under Phase 5 because the *import*
+#: cancellation now owns that name; Phase 5's controller will define its own on
+#: ``job_control.py``, and this list moves again then — exactly as it did now.
+_PHASE_FOUR_NAMES = (
+    "ImportCoordinator", "ImportPoller", "ImportCancellation", "ImportEvent",
+    "ImportOutcome", "StartReport", "CloseReport", "request_cancel", "pump",
+    "confirm_pending", "decline_pending", "import_files",
+)
+
+#: Still owned by a later phase, in every module this drop has so far.
 _LATER_PHASE_NAMES = (
-    # Phase 4 coordination
-    "ImportCoordinator", "cancel_import", "start_scan", "confirm_large_result",
-    "warn_broad_root",
     # Phase 5 controller
-    "JobController", "request_pause", "request_cancel", "resume", "checkpoint",
+    "JobController", "request_pause", "resume", "checkpoint",
     # Phase 7 ETA / projection
     "EtaEstimator", "estimate_remaining", "summary_lines", "detail_lines",
     # Phase 8 adapters
     "ImportedFileList", "JobControlBar", "build_ui",
 )
 
+#: What each module is forbidden from defining, now that Phase 4 has landed.
+_FORBIDDEN_BY_MODULE = {
+    "importing.py": _LATER_PHASE_NAMES + _PHASE_FOUR_NAMES,
+    "job_control.py": _LATER_PHASE_NAMES + _PHASE_FOUR_NAMES + _PHASE_THREE_NAMES,
+    # The coordinator drives the manager; it must never grow a second one.
+    "import_coordination.py": _LATER_PHASE_NAMES + _PHASE_THREE_NAMES,
+}
+
 
 @pytest.mark.parametrize("name", PLAN3_MODULES)
-def test_no_phase_four_to_eight_behaviour_exists_yet(plan3_trees, name):
+def test_no_phase_five_to_eight_behaviour_exists_yet(plan3_trees, name):
     """Each phase's own names move off this list as they are implemented.
 
-    Phase 2's traversal core and Phase 3's manager now exist in ``importing.py``;
-    everything below still belongs to a later phase, and the manager vocabulary
-    still has no business appearing in the job module.
+    Phase 2's traversal core and Phase 3's manager live in ``importing.py``; Phase 4's
+    lifecycle lives in ``import_coordination.py``; everything below still belongs to a
+    later phase. The manager vocabulary still has no business appearing in the job
+    module *or* in the coordinator, which owns a manager rather than being one.
     """
     defined = defined_names(plan3_trees[name])
-    forbidden = _LATER_PHASE_NAMES
-    if name != "importing.py":
-        forbidden = forbidden + _PHASE_THREE_NAMES
-    for later_phase in forbidden:
+    for later_phase in _FORBIDDEN_BY_MODULE[name]:
         assert later_phase not in defined, (name, later_phase)
 
 
-def test_phase_three_delivered_its_own_names_and_no_more():
-    """The manager and its transactions exist; the coordinator around them does not."""
-    from shared import importing
+def test_phase_four_delivered_its_own_names_and_no_more():
+    """The coordinator exists, in its own module, and nothing beyond it does."""
+    from shared import import_coordination, importing
 
     for delivered in (
         # Phase 2
@@ -413,9 +570,18 @@ def test_phase_three_delivered_its_own_names_and_no_more():
     ):
         assert hasattr(importing, delivered), delivered
 
-    for later in ("ImportCoordinator", "EtaEstimator", "JobController",
-                  "ImportedFileList", "JobControlBar"):
+    for delivered in (
+        "ImportCoordinator", "ImportPoller", "ImportCancellation", "ImportEvent",
+        "ImportEventKind", "ImportOutcome", "OutcomeStatus", "ImportPhase",
+        "StartOutcome", "StartReport", "CloseReport", "ImportCoordinationError",
+    ):
+        assert hasattr(import_coordination, delivered), delivered
+
+    for later in ("EtaEstimator", "JobController", "ImportedFileList", "JobControlBar"):
         assert not hasattr(importing, later), later
+        assert not hasattr(import_coordination, later), later
+    # The vocabulary module gained nothing from Phase 4.
+    assert not hasattr(importing, "ImportCoordinator")
 
 
 def test_the_manager_neither_plans_nor_creates_an_output_path():
@@ -573,6 +739,7 @@ def test_the_new_modules_ship_and_the_new_tests_do_not():
     for name in PLAN3_MODULES:
         assert (SHARED / name).is_file()
     for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py",
-                 "test_import_traversal.py", "test_import_manager.py"):
+                 "test_import_traversal.py", "test_import_manager.py",
+                 "test_import_coordination.py"):
         assert (TESTS / name).is_file()
         assert not (UNIVERSAL / name).exists()

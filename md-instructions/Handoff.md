@@ -1,13 +1,128 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–3 COMPLETE,
-PHASES 4–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–4 COMPLETE,
+PHASES 5–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
-and job-control vocabulary, a read-only link-refusing traversal core, and the imported-file
-manager with its deduplication and atomic transactions. No production panel or launcher adopts
-any of it, no behaviour changed, and `version.py` is still `0.5.1`. Every later phase needs
-separate explicit maintainer approval.**
+and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
+with its deduplication and atomic transactions, and the background import coordinator with its
+own cancellation, its bounded queue of frozen events and its Tk-free poller seam. No production
+panel or launcher adopts any of it, no behaviour changed, and `version.py` is still `0.5.1`.
+Every later phase needs separate explicit maintainer approval.**
+
+### Phase 4 — Background import coordination and Cancel Import (2026-08-09, HOME-PC)
+
+**Result: a new pure companion module, `shared/import_coordination.py`, makes folder importing
+responsive without making it unsafe — one operation at a time, the broad-root warning before any
+worker exists, a bounded queue of frozen events, owner-thread fencing on every entry point that
+can reach the imported list, the captured >threshold confirmation, and atomic commit with
+bounded stale-revision recomputation — plus 129 focused tests. The cancellation isolation gate
+was **not encountered**: `shared/cancellation.py` is byte-identical and the coordinator does not
+import it at all. No Tk, no output run, no processing work, no source file touched.**
+
+#### The isolation gate: not encountered
+
+The active drop makes Phase 4 stop if import cancellation cannot be kept away from the
+processing job's controller without changing `shared/cancellation.py` or production processing
+code. It cannot arise here, because the two never meet:
+
+- `ImportCancellation` is a per-operation `threading.Event` behind a four-method class. It is
+  created fresh for each operation, is never reset, and raises nothing — cancelling a scan
+  returns a cancelled *result*, it does not unwind a stack.
+- `shared/import_coordination.py` does not import `shared/cancellation.py`, defines no
+  `ConversionCancelled`, and calls no `raise_if_cancelled`. An `ast` guard asserts both.
+- Behaviourally, a stand-in processing controller wired exactly as the existing tools wire one
+  stays unset across an import cancel, an import close and everything in between.
+- `shared/output_paths.py`, `shared/maintenance.py` and `shared/cancellation.py` are all
+  byte-identical to the approved Phase 3 commit, as are `config.py`, `config.toml`,
+  `requirements.txt`, both root launchers and every production panel.
+
+#### One deviation, recorded: the coordinator is its own module
+
+§7's "likely new production modules" names `importing.py`, `job_control.py` and `job_ui.py`.
+Phase 4's coordinator is a fourth, `shared/import_coordination.py`. §7 expressly allows a
+different split when it is explained and recorded, and the reason is a guard rather than a
+preference: `importing.py` carries an approved Phase 1 test proving it constructs no thread,
+owns no queue, and names `threading` exactly once — the lock inside `IdFactory`. Folding a
+worker and a queue into that file would have deleted that proof for the rest of the drop, and
+that proof is what keeps the value objects, the traversal core and the manager auditable as
+pure. The dependency runs one way, `import_coordination` → `importing`, exactly as
+`job_control` already does, and a guard asserts that too.
+
+#### What Phase 4 added
+
+- **`ImportCoordinator`** — the whole lifecycle of one import. `start()` validates, applies the
+  broad-root warning and creates at most one worker; `pump()` drains the queue on the owner
+  thread and resolves what it found; `confirm_pending()` / `decline_pending()` answer the
+  large-result question; `request_cancel()` is Cancel Import; `close()` cancels, joins and
+  refuses everything afterwards. `import_files()` routes Add Files through the identical
+  confirmation-and-commit path, synchronously, so there is exactly one door into the manager
+  rather than two that could drift apart.
+- **Owner-thread fencing.** The coordinator records the thread that constructed it, and every
+  entry point that can read or change the manager raises `ImportCoordinationError` if called
+  from anywhere else. "The worker never mutates the list" is therefore enforced, not documented;
+  a test drives each of the six entry points from a second thread and watches it refuse.
+- **`ImportEvent` / `ImportOutcome`** — the frozen queue vocabulary. Five event kinds (started,
+  discovered, completed, cancelled, failed), of which exactly one terminal kind is published per
+  accepted start. A `ScanResult` is already a frozen dataclass of tuples, so publishing one is
+  safe; an exception object never crosses, because a failure is converted to a display-safe
+  sentence plus a one-line technical detail before it is put on the queue.
+- **`ImportPoller`** — the seam Phase 8's Tk adapter will plug into. It takes a scheduler with
+  `root.after`'s shape and an optional cancel with `root.after_cancel`'s shape, and imports no
+  Tk itself. At most one callback is ever pending; `stop()` and `close()` are idempotent; and a
+  callback that fires after either one returns immediately without touching the coordinator,
+  which is how a destroyed widget is survived rather than crashed into.
+
+#### Decisions worth knowing
+
+- **Progress is coalesced, so the queue is bounded by design.** The worker asks a gate before
+  publishing a count and is refused while an earlier progress event is still unread. Ten
+  thousand discoveries produce one queued event, not ten thousand. Counts stay monotonic and
+  truthful — intermediate values are skipped, never invented or reordered.
+- **A count discovered after Cancel was pressed is not live progress.** The worker stops
+  offering counts once its flag is set, and the coordinator ignores any that were already in
+  flight, so the number on screen never climbs after the user asked the import to stop.
+- **A broad root with no confirmer wired up is refused, not scanned.** An application that
+  forgets to connect the warning must not silently walk a whole drive. Declining creates no
+  thread, and the check is lexical: a root that does not even exist is still classified without
+  a single filesystem call.
+- **Equal to the threshold does not warn.** Only a strictly greater proposal asks, per §6.7, and
+  the threshold is read from the `EffectiveConfig` frozen onto the request — a test monkeypatches
+  `config.get_effective` to explode and the import still completes.
+- **A stale revision is recomputed exactly once, never merged and never looped.** If the
+  recomputation proposes a materially different set — a different number of additions or
+  duplicate skips — and the user had already agreed to the old one, they are asked again rather
+  than given something they did not approve. A second conflict is reported as `CONFLICT` with
+  nothing appended, rather than retried forever.
+- **Close is orderly and truthful.** It sets the cancellation flag first, then joins within a
+  bounded timeout, then empties the queue. If the join expires it reports `worker_stopped=False`
+  rather than claiming a running call stopped (§5.4). The daemon flag on the worker is a
+  backstop for a hung network `scandir`, never the mechanism — a test proves no thread survives
+  a deterministic teardown.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **321 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**;
+  maintenance and cleanup **337 passed**; the output-path group **255 passed, 1 skipped, 1
+  warning**; the existing processing-cancellation suites **32 passed**, unchanged.
+- Collection **1,767** (1,629 + 129 new coordination tests + 9 net new boundary tests). Full
+  suite **1,754 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented
+  Tk transient did not recur in this phase. `scripts/verify.py` **RESULT: PASS**. Compile gate
+  exit 0.
+- **Whitespace.** `git diff --check` against the Phase 3 starting commit is **completely clean
+  for the code change** — with only the three source files staged it reports nothing at all, and
+  `git diff --cached --check -- '*.py'` exits 0. Every finding in the broad check comes from the
+  documentation edits and is inherited, not introduced: `Handoff.md`'s stored blob is CRLF, so
+  every added line ends in a carriage return, and the drop header uses markdown two-space hard
+  line breaks. The same two files produce the same class of finding in the approved Phase 3
+  commit. No file was reformatted to make the check quieter.
+- The 13 skips are unchanged from the Phase 3 baseline: two Windows file-symlink privilege skips
+  (`[WinError 1314]`), three `JACK_RYAN_M4B_FOLDER` fixture skips, five Phase 2 symlink skips,
+  one Phase 2 and one Phase 3 case-insensitive-filesystem skip. Phase 4 added no skip: every one
+  of its 129 tests runs on this machine, because it needs no privileged filesystem facility.
+- No test sleeps. Races are arranged with `threading.Event` and injected scanners; every wait
+  carries a five-second explanatory timeout so a hang fails loudly.
 
 ### Phase 3 — Imported-file manager, deduplication, atomic transactions (2026-08-09, HOME-PC)
 
@@ -4958,6 +5073,51 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 4 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 4 start SHA:** `2c7844e04b1a6b4a73d358867ec5b4e883e73efa`
+(the approved Phase 3 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (2):**
+- `scripts/Universal/shared/import_coordination.py` — 1,474 lines. The background coordinator,
+  its import-scoped cancellation, the frozen event and outcome vocabulary, and the Tk-free
+  poller seam. Recorded as a deviation from §7's expected module list, with its reason.
+- `files/tests/test_import_coordination.py` — 2,120 lines, **129 tests**, none skipped.
+  Vocabulary, lifecycle, thread ownership, cancellation, the isolation gate, queue behaviour,
+  broad-root confirmation, the captured threshold, commit coordination and revision drift, Add
+  Files, shutdown, the poller, and end-to-end safety.
+
+**Files modified (4):**
+- `files/tests/test_plan3_boundaries.py` — +190 / −23, now 745 lines. The module lists widened,
+  the no-thread/no-queue guard narrowed to the two vocabulary modules so its approved proof
+  survives intact, the later-phase name lists re-cut per module, the Phase 3 positive guard
+  grown into a Phase 4 one, and six new guards: one worker and one queue, no filesystem call at
+  all, cancellation isolation, the worker never had a manager to mutate, only `_commit` appends,
+  and the one-way dependency.
+- `md-instructions/Handoff.md` — the Phase 4 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row, the
+  recorded start-state "Phase reached" row, two new gate rows, and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status -M -C`.
+- All **22** approved screenshots byte-identical to `origin/master` (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree; nothing named
+  `config-template` is tracked anywhere.
+- `version.py` `0.5.1`; **`shared/output_paths.py`, `shared/maintenance.py`,
+  `shared/cancellation.py`, `shared/config.py`, `shared/subprocess_utils.py`,
+  `shared/logging_setup.py`, `shared/ui_theme.py`, `launcher.py`, `config.toml`,
+  `requirements.txt` and both root launchers are byte-identical to the Phase 3 commit** (blob
+  hashes compared).
+- 36 production modules parsed with `ast`: none imports `shared.importing`,
+  `shared.job_control`, `shared.import_coordination` or `shared.job_ui`.
+- No dependency added; no packaging, release, tag or version change; no PR opened or merged.
 
 ### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 3 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
 
