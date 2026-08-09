@@ -1,12 +1,129 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0, 1 AND 2
-COMPLETE, PHASES 3–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and
-the Plan 3 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable
-importing and job-control vocabulary plus a read-only, link-refusing traversal core. No
-production panel or launcher adopts any of it, no behaviour changed, and `version.py` is still
-`0.5.1`. Every later phase needs separate explicit maintainer approval.**
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–3 COMPLETE,
+PHASES 4–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
+and job-control vocabulary, a read-only link-refusing traversal core, and the imported-file
+manager with its deduplication and atomic transactions. No production panel or launcher adopts
+any of it, no behaviour changed, and `version.py` is still `0.5.1`. Every later phase needs
+separate explicit maintainer approval.**
+
+### Phase 3 — Imported-file manager, deduplication, atomic transactions (2026-08-09, HOME-PC)
+
+**Result: `shared/importing.py` gained the ownership half of the foundation — Add Files
+validation, deduplication by non-following source identity, the deliberate-duplicate override,
+atomic transactions against an expected revision, and the ordered manager with its selection and
+four mutations — plus 146 focused tests. The `output_paths.py` compatibility gate was **not
+encountered**: the manager feeds Plan 2's existing planners through a pure regrouping and
+`output_paths.py` is byte-identical. No worker, no queue, no Tk, no confirmation dialog, no
+output run.**
+
+#### The compatibility gate: not encountered
+
+The active drop makes Phase 3 stop if a manager snapshot cannot reach `plan_flat`,
+`plan_mirrored` or `plan_multi_root` without changing `output_paths.py`. It cannot arise here,
+because the planners already accept exactly what `ImportedFile` has carried since Phase 1:
+
+| Planner | What it asks for | What the importer already has |
+|---|---|---|
+| `plan_flat(root, sources)` | an iterable of source paths | every occurrence whose root is the `DIRECT_FILES` group (Decision 31A) |
+| `plan_mirrored(root, sources, source_root)` | sources plus their declared root | `ImportedFile.path` and `ImportedFile.mirroring_root` |
+| `plan_multi_root(root, grouped)` | `[(source_root, sources), …]` | occurrences grouped by `source_root`, in `ImportRoot.order` |
+
+`planning_groups()` is therefore a **regrouping and nothing more** — it sorts occurrences into
+those three shapes and decides no destination. No collision numbering, no sanitising, no run
+reservation and no directory creation exist in `importing.py`, and a structural guard now asserts
+that by name, so two services can never start disagreeing about where a file lands. Blob hashes
+for `output_paths.py`, `maintenance.py` and `shared/cancellation.py` are unchanged from the
+approved Phase 2 commit.
+
+#### What Phase 3 added to `shared/importing.py`
+
+- **`validate_direct_files`** — Add Files. It preserves the user's order *exactly* (natural
+  ordering belongs to Add Folder, where the user chose a tree rather than a sequence) and
+  re-inspects every path the dialog returned, in the same fail-closed order the scanner uses:
+  existence and readability first, then the link question, then the file's shape, then its type.
+  A directory, shortcut, junction, device node, vanished file, unreadable file, unsupported
+  extension and unusable path each become a reported problem rather than a silent omission. A
+  hidden file chosen **explicitly** is accepted — hidden policy exists so a scan does not sweep
+  up dot-files the user never saw, not to overrule a deliberate choice (§6.2). It never recurses,
+  never follows, never opens a file and never sorts.
+- **`plan_transaction` / `ImportTransaction`** — the deduplication pass. Each candidate's identity
+  is compared against every occurrence already in the snapshot *and* every candidate already
+  accepted in the same transaction, so a file cannot slip in twice by being reached two ways.
+  Identity is Phase 2's `capture_identity`: the platform's own non-following file id where there
+  is one — which is why a **hard link** is correctly recognised as the same physical source — and
+  a Unicode-normalised lexical key where there is not, casefolded only where the filesystem is
+  case-blind. Skips are recorded as `ProblemCategory.DUPLICATE`, kept distinct from unsupported,
+  link, unreadable and invalid problems, and each names the real path and the occurrence it
+  matched: a duplicate is never disguised as a different file.
+- **The duplicate override (Decision 35A)** — off by default, read from the frozen
+  `ImportOptions` and then **stamped onto the transaction**, so a preference toggled afterwards
+  cannot retroactively rewrite what that transaction meant. When on, every occurrence is kept:
+  same path, same root, same relative path, same identity, new occurrence id. A second copy is a
+  second *row*, not a second *file*.
+- **`ImportedFileManager`** — the ordered list, a monotonic `Revision`, and a selection kept by
+  occurrence id rather than row number, so it survives a reorder and can be restored after the UI
+  rebuilds its list. `plan` prepares, `commit` appends the whole accepted set once or appends
+  nothing, `recompute` re-plans a stale transaction against current state, and
+  `remove_selected` / `clear` / `move_selected_up` / `move_selected_down` mutate the list.
+- **`planning_groups` / `PlanningGroups`** — the Plan 2 adapter described above.
+
+#### Decisions worth knowing
+
+- **The revision moves only when something actually changed.** A no-op move, a removal with
+  nothing selected, a clear on an empty list and a commit whose accepted set is empty all leave it
+  alone — otherwise a no-op would invalidate a transaction another part of the UI is holding.
+  A valid-but-empty commit reports `NOTHING_TO_ADD` rather than a misleading success.
+- **Occurrence ids are minted by the manager's own `IdFactory` at planning time.** The scan's ids
+  are provisional; reissuing them is what guarantees both uniqueness against the existing list and
+  a distinct id for every deliberate duplicate. `commit` additionally refuses, loudly, any
+  transaction whose additions collide with ids already in the list — defence in depth behind the
+  revision check, for a transaction planned through a foreign factory.
+- **A cancelled, failed or declined result cannot become a transaction at all.** `plan_transaction`
+  raises on a non-committable `ScanResult`, and `ScanResult` already refuses to carry files unless
+  it completed — so "cannot partly modify the manager" is structural in two places, not a rule
+  someone has to remember in Phase 4.
+- **Move semantics, stated literally (§6.6).** Selected rows travel as one logical block across
+  the nearest adjacent unselected row, closing up around it; both selected and unselected rows keep
+  their relative order; nothing wraps. A block whose topmost row is already at the top will not
+  move up even if a lower selected row could — the block is one thing, and the call is a safe
+  no-op, exactly as it is with no selection and with everything selected. Repeated moves are
+  deterministic and reversible.
+- **A directory supplied to Add Files produces one refusal, not one per child.** It is not walked.
+
+#### Evidence
+
+- Focused: Phase 1 contracts + boundary guards **312 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager/validation/dedupe/transactions/selection/compatibility **144 passed,
+  2 skipped**; maintenance + both cleanup suites **307 passed**; output-path group **255 passed,
+  1 skipped, 1 warning**; cancellation-bearing tool suites **30 passed**.
+- Collection **1,629**. Full suite **1,616 passed, 13 skipped, 1 warning**. Theme suite **17/17
+  executed**. `verify.py` **RESULT: PASS** on three consecutive runs, identical counts each time.
+  `compileall` exit 0.
+- **`git diff --check`, stated precisely.** Restricted to code (`-- '*.py'`) it exits **0**: no
+  Python file carries a whitespace defect. Unrestricted it reports trailing whitespace in exactly
+  two markdown files, for two structural reasons that predate this phase — `Handoff.md`'s stored
+  blob is CRLF (5,876 CRLF lines, 0 bare LF), so *every* added line ends in `\r` and Git counts
+  that as trailing whitespace, and the drop's header uses markdown two-space hard line breaks on
+  the lines this phase updated. Re-running the same check against the **approved Phase 2 commit**
+  (`git diff --check 8a8b0b1^ 8a8b0b1`) produces 239 flags in those same two files, so this is the
+  established state of the documentation and not something Phase 3 introduced. Phases 1 and 2
+  recorded the check as simply "clean", which was accurate for code and imprecise for those two
+  files; recorded here rather than silently repeated, and **no file was reformatted to make the
+  check quieter** — rewriting `Handoff.md`'s line endings would produce a 5,876-line diff for no
+  benefit.
+- The 13 skips are the 11 established ones plus Phase 3's two, each naming its exact limitation:
+  one `[WinError 1314]` file-symlink privilege skip and one case-insensitive-filesystem skip.
+  Symlink coverage is not lost to the privilege limit — refusal is additionally proved by
+  injecting the classifier, and real junctions run for real.
+- **The documented Tk skip transient recurred.** One `verify.py` run reported *1,607 passed, 22
+  skipped*, and a later direct run reproduced it in full with reasons: all 17 `test_ui_theme.py`
+  tests skipped with `Tk cannot open a display here: Can't find a usable init.tcl in the following
+  directories:`. It is environmental, confined to that one module, and unrelated to Plan 3.
+  `verify.py` and the Tk tests were **not** modified. The stable figures above were confirmed by
+  six consecutive runs (three `verify.py`, three direct) plus the explicit 17/17 theme run.
 
 ### Phase 2 — Safe natural traversal core (2026-08-08, HOME-PC)
 
@@ -4841,6 +4958,49 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 3 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 3 start SHA:** `8a8b0b169c59112d6d08e4510afc76a3f353e8a4`
+(the approved Phase 2 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_import_manager.py` — 1,498 lines, **146 tests** (144 run, 2 skipped with
+  exact platform reasons). Manager and snapshots, Add Files, deduplication, the duplicate
+  override, atomicity and conflicts, selection and reordering, Plan 2 compatibility, and safety.
+
+**Files modified (4):**
+- `scripts/Universal/shared/importing.py` — +891 / −11, now 2,216 lines. `validate_direct_files`,
+  `CommitStatus`/`ManagerOperation`, `ImportTransaction`/`CommitResult`/`MutationResult`,
+  `plan_transaction`, `PlanningGroups`/`planning_groups`, and `ImportedFileManager`. No new
+  import edge: the module still imports only `shared.config` and `maintenance.is_link`.
+- `files/tests/test_plan3_boundaries.py` — +79 / −26, now 578 lines. The later-phase guard split so the manager
+  vocabulary is permitted in `importing.py` and still forbidden in `job_control.py`, the Phase 2
+  positive guard grown into a Phase 3 one, and two new guards proving the importer neither plans
+  an output path nor caused `output_paths.py` to be rearranged.
+- `md-instructions/Handoff.md` — the Phase 3 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row,
+  recorded start-state "Phase reached", and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status`.
+- All **22** approved screenshots unchanged and unstaged (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; **`shared/output_paths.py`, `shared/maintenance.py` and
+  `shared/cancellation.py` byte-identical to the Phase 2 commit** (blob hashes compared);
+  `config.toml`, `requirements.txt`, both launchers, `shared/release.py`, `shared/config.py`,
+  `launcher.py` and all six production panels unchanged; no new dependency.
+- 36 production modules parsed with `ast`: none imports `shared.importing`, `shared.job_control`
+  or `shared.job_ui`.
+- No runtime data, settings, outputs or source media touched. Every fixture tree was built under
+  `tmp_path` and thrown away; a before/after mode-size-mtime snapshot proves the manager and Add
+  Files leave every source file exactly as they found it, and no run directory was reserved.
 
 ### 2026-08-08 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 2 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
 

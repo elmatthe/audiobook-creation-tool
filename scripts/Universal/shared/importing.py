@@ -18,16 +18,24 @@ manager will hand out. ``IdFactory`` — stable, injectable identifiers.
 Phase 2 added the read-only traversal core: ``natural_key``,
 ``classify_root_breadth``, hidden detection, ``capture_identity`` and the synchronous
 ``scan_roots``. Every value type above is still constructed without touching a disk;
-only ``scan_roots`` and the helpers it calls read the filesystem, and they only ever
-*read* it.
+only ``scan_roots``, ``validate_direct_files`` and the helpers they call read the
+filesystem, and they only ever *read* it.
+
+Phase 3 added ownership and atomicity: ``validate_direct_files`` (Add Files, which
+re-inspects every path a dialog handed back), ``plan_transaction`` (deduplication and
+the deliberate-duplicate override), and ``ImportedFileManager`` — the ordered list,
+its revision, its selection, and the four mutations the UI will drive. Planning a
+transaction changes nothing; only ``commit`` moves the list, and it moves it once or
+not at all.
 
 What deliberately does **not** live here
 ---------------------------------------
-No imported-file manager, no deduplication against an existing list, no duplicate
-override, no transaction commit, no threads, no queues, no polling, no broad-root
-dialog, no result-count confirmation, no pause/resume controller, no ETA, and no Tk.
-Those belong to Phases 3–8 of the active drop. ``resolve()`` is never called: a link
-must be *detected*, never followed.
+No threads, no queues, no polling, no broad-root dialog, no result-count confirmation,
+no pause/resume controller, no ETA, and no Tk. Those belong to Phases 4–8 of the
+active drop. ``resolve()`` is never called: a link must be *detected*, never followed.
+
+Nothing here deletes, renames, rewrites or touches a source file. Removing an
+occurrence removes a *row*; the file it names is not the importer's to alter.
 
 Boundaries this module keeps
 ----------------------------
@@ -88,6 +96,9 @@ __all__ = [
     "classify_root_breadth",
     "is_broad_root",
     "scan_roots",
+    "validate_direct_files",
+    "plan_transaction",
+    "planning_groups",
     "ProblemCategory",
     "RootBreadth",
     "RootKind",
@@ -103,6 +114,13 @@ __all__ = [
     "ImportedFileSnapshot",
     "ScanRequest",
     "ScanResult",
+    "CommitStatus",
+    "ManagerOperation",
+    "ImportTransaction",
+    "CommitResult",
+    "MutationResult",
+    "PlanningGroups",
+    "ImportedFileManager",
 ]
 
 
@@ -1067,15 +1085,24 @@ def _problem(
     )
 
 
-def _selected_extensions(request: "ScanRequest") -> Mapping[str, str]:
-    """extension -> type id, for the types the user actually ticked."""
-    chosen = request.options.selected_type_ids
+def _extension_map(
+    catalog: "SupportedTypeCatalog", options: "ImportOptions") -> Mapping[str, str]:
+    """extension -> type id, for the types the user actually ticked.
+
+    Shared by folder traversal and Add Files so one selection of file types cannot
+    mean two different things depending on how the file was chosen.
+    """
+    chosen = options.selected_type_ids
     mapping: dict[str, str] = {}
-    for entry in request.catalog.types:
+    for entry in catalog.types:
         if entry.type_id in chosen:
             for extension in entry.extensions:
                 mapping[extension] = entry.type_id
     return MappingProxyType(mapping)
+
+
+def _selected_extensions(request: "ScanRequest") -> Mapping[str, str]:
+    return _extension_map(request.catalog, request.options)
 
 
 def _extension_of(name: str) -> str:
@@ -1334,3 +1361,856 @@ def scan_roots(
     if cancelled():
         return cancel()
     return publish(ScanOutcome.COMPLETED)
+
+
+# --------------------------------------------------------------------------- #
+# Direct Add Files
+#
+# A file dialog's filter is a convenience for the user, never a trust boundary for
+# us. Every path it returns is inspected again here — freshly, without following
+# anything — because the filter can be switched to "All files", because the chosen
+# path may have changed between the dialog opening and the user pressing Open, and
+# because a shortcut is perfectly happy to end in ``.mp3``.
+# --------------------------------------------------------------------------- #
+
+
+def _selection_label(text: str) -> str:
+    """A short, display-safe name for something that is not a usable path yet."""
+    name = PurePath(text).name if text else ""
+    return name or (text if text.strip() else "An empty selection")
+
+
+def validate_direct_files(
+    paths: Iterable[object],
+    *,
+    request_id: str,
+    root: ImportRoot,
+    catalog: SupportedTypeCatalog,
+    options: ImportOptions,
+    id_factory: IdFactory | None = None,
+    completed_at: float = 0.0,
+) -> ScanResult:
+    """Validate individually chosen files and return them as a completed result.
+
+    The user's order is the order — it is never natural-sorted, never lexically
+    sorted and never re-grouped, because the sequence the dialog returned *is* the
+    order the user built. Natural ordering belongs to folder traversal, where the
+    user chose a tree rather than a sequence.
+
+    Every path is re-``lstat``-ed and then classified in the same fail-closed order
+    the traversal core uses: existence and readability first, then the link question
+    (``maintenance.is_link`` answers ``False`` for something it could not read), then
+    the file's shape, then its type. A directory, a shortcut, a junction, a device
+    node, a vanished file, an unreadable file and an unsupported extension each
+    become a reported problem rather than a silent omission.
+
+    A hidden file chosen *explicitly* is accepted: hidden-file policy exists so a
+    folder scan does not sweep up dot-files the user never saw, not to overrule a
+    deliberate choice (§6.2).
+
+    Nothing is followed, nothing is recursed into, nothing is opened, nothing is
+    written, no worker is started and no output path is reserved. The result is a
+    ``ScanResult`` exactly like a folder scan's, so one transaction path serves both.
+    """
+    _require_identifier("request_id", request_id)
+    if not isinstance(root, ImportRoot):
+        raise ImportContractError(
+            f"root must be an ImportRoot, got {type(root).__name__}")
+    if root.kind is not RootKind.DIRECT_FILES:
+        raise ImportContractError(
+            "Add Files belongs to the direct-files group (Decision 31A): individually "
+            "chosen files have no common tree to mirror. Pass a DIRECT_FILES root.")
+    if not isinstance(catalog, SupportedTypeCatalog):
+        raise ImportContractError(
+            f"catalog must be a SupportedTypeCatalog, got {type(catalog).__name__}")
+    if not isinstance(options, ImportOptions):
+        raise ImportContractError(
+            f"options must be an ImportOptions, got {type(options).__name__}")
+    if isinstance(paths, (str, bytes, os.PathLike)) or not isinstance(paths, Iterable):
+        raise ImportContractError(
+            "pass a sequence of selected paths, not a single path")
+
+    # Materialised at once: a list the caller keeps editing afterwards cannot change
+    # what was validated, and cannot change what a prepared transaction contains.
+    selected = tuple(paths)
+    factory = IdFactory() if id_factory is None else id_factory
+    extensions = _extension_map(catalog, options)
+
+    files: list[ImportedFile] = []
+    problems: list[ImportProblem] = []
+
+    for candidate in selected:
+        if isinstance(candidate, bytes) or not isinstance(candidate, (str, os.PathLike)):
+            problems.append(_problem(
+                ProblemCategory.INVALID_ROOT,
+                "A selection that is not a file path was skipped.",
+                f"{type(candidate).__name__} is not a usable path", root=root))
+            continue
+        text = os.fspath(candidate)
+
+        # Lexical only — the filesystem is not consulted to answer this, and a
+        # relative path is refused rather than joined onto the current directory,
+        # which is not a place the importer has any business reaching into.
+        pure = PurePath(text)
+        if not text.strip() or not pure.is_absolute() or ".." in pure.parts:
+            problems.append(_problem(
+                ProblemCategory.INVALID_ROOT,
+                f"{_selection_label(text)} is not a usable file selection and was skipped.",
+                "a selected path must be lexically absolute and free of '..'", root=root))
+            continue
+        entry_path = Path(text)
+
+        try:
+            entry_stat = os.lstat(entry_path)
+        except FileNotFoundError:
+            problems.append(_problem(
+                ProblemCategory.VANISHED,
+                f"{entry_path.name} could no longer be found and was skipped.",
+                f"FileNotFoundError: {entry_path}", path=entry_path, root=root))
+            continue
+        except OSError as exc:
+            problems.append(_problem(
+                ProblemCategory.UNREADABLE,
+                f"{entry_path.name} could not be read and was skipped.",
+                f"{type(exc).__name__}: {exc}", path=entry_path, root=root))
+            continue
+
+        if _is_link(entry_path):
+            problems.append(_problem(
+                ProblemCategory.LINK,
+                f"{entry_path.name} is a shortcut or link and was not followed.",
+                "refused by maintenance.is_link: symlink, junction or other "
+                "reparse point", path=entry_path, root=root))
+            continue
+
+        mode = entry_stat.st_mode
+        if _stat.S_ISDIR(mode):
+            problems.append(_problem(
+                ProblemCategory.WRONG_TYPE,
+                f"{entry_path.name} is a folder; use Add Folder to import what is inside it.",
+                f"st_mode={mode:#o} is a directory, and Add Files never recurses",
+                path=entry_path, root=root))
+            continue
+        if not _stat.S_ISREG(mode):
+            problems.append(_problem(
+                ProblemCategory.WRONG_TYPE,
+                f"{entry_path.name} is not an ordinary file and was skipped.",
+                f"st_mode={mode:#o} is neither a regular file nor a directory",
+                path=entry_path, root=root))
+            continue
+
+        type_id = extensions.get(_extension_of(entry_path.name))
+        if type_id is None:
+            problems.append(_problem(
+                ProblemCategory.UNSUPPORTED_TYPE,
+                f"{entry_path.name} is not a selected file type and was skipped.",
+                "no selected supported type claims this extension",
+                path=entry_path, root=root))
+            continue
+
+        files.append(ImportedFile(
+            occurrence_id=factory.next_id("occ"),
+            path=entry_path,
+            source_root=root,
+            relative_path=None,
+            supported_type_id=type_id,
+            identity=capture_identity(entry_path, entry_stat),
+        ))
+
+    return ScanResult(
+        request_id=request_id,
+        outcome=ScanOutcome.COMPLETED,
+        discovered_count=len(files),
+        files=tuple(files),
+        problems=tuple(problems),
+        completed_at=completed_at,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Transactions
+#
+# Preparing a transaction reads the list and changes nothing. Committing one either
+# appends the whole accepted set or appends nothing. There is no state in between,
+# which is why a cancelled, failed or declined import cannot leave half a list.
+# --------------------------------------------------------------------------- #
+
+
+class CommitStatus(Enum):
+    """What one commit attempt actually did."""
+
+    #: The whole accepted set was appended, once, and the revision moved.
+    COMMITTED = "committed"
+    #: The transaction was valid and current but proposed nothing — every candidate
+    #: was a duplicate, or the scan found nothing. The list and revision stand still.
+    NOTHING_TO_ADD = "nothing_to_add"
+    #: The list moved after this transaction was prepared. Nothing was appended and
+    #: nothing was merged against stale state; recompute and ask again.
+    STALE_REVISION = "stale_revision"
+
+
+class ManagerOperation(Enum):
+    """Which manager mutation a :class:`MutationResult` describes."""
+
+    APPEND = "append"
+    REMOVE = "remove"
+    CLEAR = "clear"
+    MOVE_UP = "move_up"
+    MOVE_DOWN = "move_down"
+
+
+@dataclass(frozen=True, slots=True)
+class ImportTransaction:
+    """An immutable proposal: what *would* be added, and what was skipped.
+
+    It carries the ``ScanResult`` it was planned from so a stale-revision conflict
+    can be recomputed without the caller having to hold the result separately, and
+    it carries the duplicate policy it was planned under, so a preference toggled
+    afterwards cannot retroactively change what this transaction meant.
+    """
+
+    transaction_id: str
+    result: ScanResult
+    expected_revision: Revision
+    additions: tuple[ImportedFile, ...] = ()
+    duplicates: tuple[ImportProblem, ...] = ()
+    allow_duplicates: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "transaction_id", _require_identifier("transaction_id", self.transaction_id))
+        if not isinstance(self.result, ScanResult):
+            raise ImportContractError(
+                f"result must be a ScanResult, got {type(self.result).__name__}")
+        if not self.result.is_committable:
+            raise ImportContractError(
+                f"a {self.result.outcome.value} scan cannot become a transaction; only a "
+                "completed scan may ever reach the imported-file manager")
+        if not isinstance(self.expected_revision, Revision):
+            raise ImportContractError(
+                f"expected_revision must be a Revision, got "
+                f"{type(self.expected_revision).__name__}")
+
+        additions = tuple(self.additions)
+        seen: set[str] = set()
+        for entry in additions:
+            if not isinstance(entry, ImportedFile):
+                raise ImportContractError(
+                    f"additions must be ImportedFile, got {type(entry).__name__}")
+            if entry.occurrence_id in seen:
+                raise ImportContractError(f"duplicate occurrence_id {entry.occurrence_id!r}")
+            seen.add(entry.occurrence_id)
+        object.__setattr__(self, "additions", additions)
+
+        duplicates = tuple(self.duplicates)
+        for problem in duplicates:
+            if not isinstance(problem, ImportProblem):
+                raise ImportContractError(
+                    f"duplicates must be ImportProblem, got {type(problem).__name__}")
+            if problem.category is not ProblemCategory.DUPLICATE:
+                raise ImportContractError(
+                    "a duplicate skip must be reported as ProblemCategory.DUPLICATE so it "
+                    f"is never confused with a validation failure, got {problem.category}")
+        object.__setattr__(self, "duplicates", duplicates)
+        object.__setattr__(
+            self, "allow_duplicates", _require_bool("allow_duplicates", self.allow_duplicates))
+
+    @property
+    def request_id(self) -> str:
+        return self.result.request_id
+
+    @property
+    def proposed_count(self) -> int:
+        """What the confirmation in Phase 4 will quote: additions, not discoveries."""
+        return len(self.additions)
+
+    @property
+    def duplicate_count(self) -> int:
+        return len(self.duplicates)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.additions
+
+    @property
+    def problems(self) -> tuple[ImportProblem, ...]:
+        """Everything the user should be told: the scan's problems and the skips."""
+        return self.result.problems + self.duplicates
+
+
+@dataclass(frozen=True, slots=True)
+class CommitResult:
+    """The frozen outcome of one commit attempt, including the ones that did nothing."""
+
+    transaction_id: str
+    status: CommitStatus
+    snapshot: ImportedFileSnapshot
+    expected_revision: Revision
+    added: tuple[ImportedFile, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "transaction_id", _require_identifier("transaction_id", self.transaction_id))
+        if not isinstance(self.status, CommitStatus):
+            raise ImportContractError(
+                f"status must be a CommitStatus, got {type(self.status).__name__}")
+        if not isinstance(self.snapshot, ImportedFileSnapshot):
+            raise ImportContractError("snapshot must be an ImportedFileSnapshot")
+        if not isinstance(self.expected_revision, Revision):
+            raise ImportContractError("expected_revision must be a Revision")
+        added = tuple(self.added)
+        for entry in added:
+            if not isinstance(entry, ImportedFile):
+                raise ImportContractError(
+                    f"added must be ImportedFile, got {type(entry).__name__}")
+        if added and self.status is not CommitStatus.COMMITTED:
+            raise ImportContractError(
+                f"a {self.status.value} attempt appended nothing; it must report nothing")
+        object.__setattr__(self, "added", added)
+
+    @property
+    def committed(self) -> bool:
+        return self.status is CommitStatus.COMMITTED
+
+    @property
+    def revision(self) -> Revision:
+        """Derived from the snapshot — two counters cannot disagree if there is one."""
+        return self.snapshot.revision
+
+
+@dataclass(frozen=True, slots=True)
+class MutationResult:
+    """The frozen outcome of one manager mutation, including the no-ops."""
+
+    operation: ManagerOperation
+    changed: bool
+    snapshot: ImportedFileSnapshot
+    selection: tuple[str, ...] = ()
+    removed: tuple[ImportedFile, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.operation, ManagerOperation):
+            raise ImportContractError(
+                f"operation must be a ManagerOperation, got {type(self.operation).__name__}")
+        object.__setattr__(self, "changed", _require_bool("changed", self.changed))
+        if not isinstance(self.snapshot, ImportedFileSnapshot):
+            raise ImportContractError("snapshot must be an ImportedFileSnapshot")
+        object.__setattr__(
+            self,
+            "selection",
+            tuple(_require_identifier("occurrence_id", item) for item in self.selection),
+        )
+        removed = tuple(self.removed)
+        for entry in removed:
+            if not isinstance(entry, ImportedFile):
+                raise ImportContractError(
+                    f"removed must be ImportedFile, got {type(entry).__name__}")
+        object.__setattr__(self, "removed", removed)
+
+    @property
+    def revision(self) -> Revision:
+        return self.snapshot.revision
+
+
+def _plan(
+    result: ScanResult,
+    snapshot: ImportedFileSnapshot,
+    allow_duplicates: bool,
+    transaction_id: str,
+    factory: IdFactory,
+) -> ImportTransaction:
+    """The deduplication pass. Reads two immutable values and mutates neither."""
+    existing: dict[str, str] = {}
+    for entry in snapshot.files:
+        existing.setdefault(entry.identity, entry.occurrence_id)
+
+    accepted: list[ImportedFile] = []
+    duplicates: list[ImportProblem] = []
+    seen_here: dict[str, str] = {}
+
+    for candidate in result.files:
+        if not allow_duplicates:
+            prior = existing.get(candidate.identity)
+            if prior is not None:
+                duplicates.append(_problem(
+                    ProblemCategory.DUPLICATE,
+                    f"{candidate.name} is already in the imported list and was skipped.",
+                    f"source identity {candidate.identity} already imported as {prior}",
+                    path=candidate.path, root=candidate.source_root))
+                continue
+            prior = seen_here.get(candidate.identity)
+            if prior is not None:
+                duplicates.append(_problem(
+                    ProblemCategory.DUPLICATE,
+                    f"{candidate.name} was selected more than once and was added once.",
+                    f"source identity {candidate.identity} already proposed as {prior} "
+                    "in this same import",
+                    path=candidate.path, root=candidate.source_root))
+                continue
+
+        # A new occurrence id, from the manager's own factory, so a deliberate
+        # duplicate is a second *row* rather than a second *file*: same identity,
+        # same path, same root, same relative path — nothing is disguised.
+        occurrence = ImportedFile(
+            occurrence_id=factory.next_id("occ"),
+            path=candidate.path,
+            source_root=candidate.source_root,
+            relative_path=candidate.relative_path,
+            supported_type_id=candidate.supported_type_id,
+            identity=candidate.identity,
+        )
+        accepted.append(occurrence)
+        seen_here.setdefault(candidate.identity, occurrence.occurrence_id)
+
+    return ImportTransaction(
+        transaction_id=transaction_id,
+        result=result,
+        expected_revision=snapshot.revision,
+        additions=tuple(accepted),
+        duplicates=tuple(duplicates),
+        allow_duplicates=allow_duplicates,
+    )
+
+
+def plan_transaction(
+    result: ScanResult,
+    snapshot: ImportedFileSnapshot,
+    *,
+    options: ImportOptions,
+    transaction_id: str,
+    id_factory: IdFactory | None = None,
+) -> ImportTransaction:
+    """Decide what a completed scan *would* add, without adding it.
+
+    Each candidate's source identity is compared against every occurrence already in
+    *snapshot* and against every candidate already accepted in this same transaction,
+    so a file cannot slip in twice by being reached two ways. Identity comes from
+    Phase 2's :func:`capture_identity`: the platform's own non-following file id where
+    there is one, so two spellings and a hard link collapse correctly, and a
+    Unicode-normalised lexical key where there is not — casefolded only where the
+    filesystem is case-blind, so a case-sensitive volume keeps two real files apart.
+
+    The default skips duplicates and records each one as a ``DUPLICATE`` problem, kept
+    distinct from unsupported, link, unreadable and invalid problems so the Summary can
+    tell the user which happened. ``options.allow_duplicate_files`` (Decision 35A, off
+    by default) keeps every occurrence instead; the value is frozen onto the returned
+    transaction so a preference changed afterwards cannot rewrite what it meant.
+
+    Pass the manager's own ``id_factory`` — :meth:`ImportedFileManager.plan` does — so
+    minted occurrence ids cannot collide with ids already in the list.
+    """
+    if not isinstance(result, ScanResult):
+        raise ImportContractError(
+            f"result must be a ScanResult, got {type(result).__name__}")
+    if not result.is_committable:
+        raise ImportContractError(
+            f"a {result.outcome.value} scan cannot be planned; a cancelled, failed or "
+            "declined import must not partly modify the imported list")
+    if not isinstance(snapshot, ImportedFileSnapshot):
+        raise ImportContractError(
+            f"snapshot must be an ImportedFileSnapshot, got {type(snapshot).__name__}")
+    if not isinstance(options, ImportOptions):
+        raise ImportContractError(
+            f"options must be an ImportOptions, got {type(options).__name__}")
+    if id_factory is not None and not isinstance(id_factory, IdFactory):
+        raise ImportContractError("id_factory must be an IdFactory")
+    return _plan(
+        result,
+        snapshot,
+        options.allow_duplicate_files,
+        _require_identifier("transaction_id", transaction_id),
+        IdFactory() if id_factory is None else id_factory,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Plan 2 compatibility
+#
+# A regrouping, not a second path planner. ``output_paths`` already knows how to
+# turn sources into destinations; all it ever needed from the importer was which
+# root each file came from, and ``ImportedFile`` has carried that since Phase 1.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class PlanningGroups:
+    """Imported files, arranged the way Plan 2's planners already accept them.
+
+    ``direct`` feeds ``plan_flat``; a single entry in ``grouped`` feeds
+    ``plan_mirrored``; several feed ``plan_multi_root``. Building this creates no
+    directory, reserves no run and decides no destination — it only sorts sources
+    into the shape the existing service asks for.
+    """
+
+    direct: tuple[Path, ...] = ()
+    grouped: tuple[tuple[Path, tuple[Path, ...]], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "direct", tuple(_require_absolute_path("source", item) for item in self.direct))
+        groups: list[tuple[Path, tuple[Path, ...]]] = []
+        for entry in self.grouped:
+            source_root, sources = entry
+            groups.append((
+                _require_absolute_path("source root", source_root),
+                tuple(_require_absolute_path("source", item) for item in sources),
+            ))
+        object.__setattr__(self, "grouped", tuple(groups))
+
+    @property
+    def root_count(self) -> int:
+        return len(self.grouped)
+
+    @property
+    def total(self) -> int:
+        return len(self.direct) + sum(len(sources) for _root, sources in self.grouped)
+
+    @property
+    def needs_multi_root(self) -> bool:
+        """More than one folder root, so ``plan_multi_root`` keeps the trees apart."""
+        return len(self.grouped) > 1
+
+
+def planning_groups(snapshot: object) -> PlanningGroups:
+    """Group a manager snapshot by source root, in the user's own root order.
+
+    Individually added files have no tree to reproduce (Decision 31A) and come back
+    in ``direct``; everything found under a selected folder comes back under that
+    folder, in imported-list order. Roots keep the order the user added them in, so
+    one root's tree can never migrate into another's.
+    """
+    if isinstance(snapshot, ImportedFileSnapshot):
+        files: tuple[ImportedFile, ...] = snapshot.files
+    elif isinstance(snapshot, (str, bytes)) or not isinstance(snapshot, Iterable):
+        raise ImportContractError(
+            "pass an ImportedFileSnapshot or an iterable of ImportedFile")
+    else:
+        files = tuple(snapshot)
+
+    direct: list[Path] = []
+    buckets: dict[str, list[Path]] = {}
+    roots: dict[str, Path] = {}
+    order: list[tuple[int, str]] = []
+
+    for entry in files:
+        if not isinstance(entry, ImportedFile):
+            raise ImportContractError(
+                f"entries must be ImportedFile, got {type(entry).__name__}")
+        mirroring = entry.mirroring_root
+        if mirroring is None:
+            direct.append(entry.path)
+            continue
+        key = entry.source_root.root_id
+        if key not in buckets:
+            buckets[key] = []
+            roots[key] = mirroring
+            order.append((entry.source_root.order, key))
+        buckets[key].append(entry.path)
+
+    order.sort()
+    return PlanningGroups(
+        direct=tuple(direct),
+        grouped=tuple((roots[key], tuple(buckets[key])) for _order, key in order),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The imported-file manager
+# --------------------------------------------------------------------------- #
+
+
+class ImportedFileManager:
+    """The ordered imported list, its revision, and its selection.
+
+    Pure in-process ownership. It holds a tuple of occurrences, a monotonic
+    :class:`Revision`, and the occurrence ids the user has selected — and it touches
+    no filesystem at all. **Removing or clearing a row never deletes, renames,
+    rewrites or touches the source file**; the importer owns a list of references,
+    not the files they point at.
+
+    Selection is kept by occurrence id rather than by row number, so a selection
+    survives a reorder and can be restored after the UI rebuilds its list. It is
+    stored in list order rather than click order, because the block move below is
+    defined in terms of where rows sit, not the sequence they were clicked in.
+
+    Every mutation returns an immutable result carrying the snapshot afterwards, and
+    the revision only moves when something actually changed — so a no-op cannot
+    invalidate a transaction that another part of the UI is holding.
+
+    Main-thread ownership (§6.6) is a contract, not a lock: Phase 4's worker returns
+    candidates through a queue and never touches this object. No lock is taken here
+    precisely so that rule stays visible rather than being quietly papered over.
+    """
+
+    __slots__ = ("_files", "_revision", "_factory", "_selected")
+
+    def __init__(self, *, id_factory: IdFactory | None = None) -> None:
+        if id_factory is not None and not isinstance(id_factory, IdFactory):
+            raise ImportContractError(
+                f"id_factory must be an IdFactory, got {type(id_factory).__name__}")
+        self._files: tuple[ImportedFile, ...] = ()
+        self._revision: Revision = INITIAL_REVISION
+        self._factory: IdFactory = IdFactory() if id_factory is None else id_factory
+        self._selected: tuple[str, ...] = ()
+
+    # -- reading ----------------------------------------------------------- #
+
+    @property
+    def revision(self) -> Revision:
+        return self._revision
+
+    @property
+    def count(self) -> int:
+        return len(self._files)
+
+    @property
+    def selected_count(self) -> int:
+        return len(self._selected)
+
+    @property
+    def selection(self) -> tuple[str, ...]:
+        """The selected occurrence ids, in list order. Immutable."""
+        return self._selected
+
+    @property
+    def is_empty(self) -> bool:
+        return not self._files
+
+    def snapshot(self) -> ImportedFileSnapshot:
+        """The list frozen at the current revision. Reading it changes nothing."""
+        return ImportedFileSnapshot(revision=self._revision, files=self._files)
+
+    def selected_files(self) -> tuple[ImportedFile, ...]:
+        chosen = set(self._selected)
+        return tuple(entry for entry in self._files if entry.occurrence_id in chosen)
+
+    # -- selection --------------------------------------------------------- #
+
+    def select(self, occurrence_ids: Iterable[object]) -> tuple[str, ...]:
+        """Restore a selection by occurrence id, dropping any id that is not present.
+
+        Dropping rather than raising is what "stable restoration" means here: after a
+        removal or a fresh import the UI reasonably offers back the ids it remembers,
+        and the ones that no longer exist are simply no longer selected.
+        """
+        if isinstance(occurrence_ids, (str, bytes)) or not isinstance(
+                occurrence_ids, Iterable):
+            raise ImportContractError("pass an iterable of occurrence ids")
+        wanted = {
+            _require_identifier("occurrence_id", value) for value in occurrence_ids}
+        self._selected = tuple(
+            entry.occurrence_id for entry in self._files if entry.occurrence_id in wanted)
+        return self._selected
+
+    def clear_selection(self) -> tuple[str, ...]:
+        self._selected = ()
+        return self._selected
+
+    # -- planning and committing ------------------------------------------- #
+
+    def plan(
+        self,
+        result: ScanResult,
+        *,
+        options: ImportOptions,
+        transaction_id: str | None = None,
+    ) -> ImportTransaction:
+        """Prepare a transaction against this manager's current revision.
+
+        Preparing changes nothing at all: no row is added, no revision moves, and the
+        proposal can be shown, counted, confirmed or thrown away freely.
+        """
+        return plan_transaction(
+            result,
+            self.snapshot(),
+            options=options,
+            transaction_id=(
+                self._factory.next_id("txn") if transaction_id is None else transaction_id),
+            id_factory=self._factory,
+        )
+
+    def recompute(self, transaction: ImportTransaction) -> ImportTransaction:
+        """Re-plan a stale transaction against the list as it is *now*.
+
+        The safe answer to a revision conflict: rather than merging a proposal into a
+        list that moved underneath it, the same scan is deduplicated again against
+        current state under the same frozen duplicate policy. The caller compares the
+        new proposed count with the old one and re-confirms if it materially changed
+        — that judgement is Phase 4's; this is the primitive it needs.
+        """
+        if not isinstance(transaction, ImportTransaction):
+            raise ImportContractError(
+                f"recompute needs an ImportTransaction, got {type(transaction).__name__}")
+        return _plan(
+            transaction.result,
+            self.snapshot(),
+            transaction.allow_duplicates,
+            self._factory.next_id("txn"),
+            self._factory,
+        )
+
+    def commit(self, transaction: ImportTransaction) -> CommitResult:
+        """Append the whole accepted set once, or append nothing.
+
+        There is no partial outcome. A transaction prepared against an older revision
+        is refused untouched, so a scan that finished while the user was reordering
+        the list cannot merge itself into state it never saw. Committing the same
+        transaction twice fails the second time for exactly that reason.
+        """
+        if not isinstance(transaction, ImportTransaction):
+            raise ImportContractError(
+                f"commit needs an ImportTransaction, got {type(transaction).__name__}")
+
+        if transaction.expected_revision != self._revision:
+            return CommitResult(
+                transaction_id=transaction.transaction_id,
+                status=CommitStatus.STALE_REVISION,
+                snapshot=self.snapshot(),
+                expected_revision=transaction.expected_revision,
+            )
+
+        if not transaction.additions:
+            return CommitResult(
+                transaction_id=transaction.transaction_id,
+                status=CommitStatus.NOTHING_TO_ADD,
+                snapshot=self.snapshot(),
+                expected_revision=transaction.expected_revision,
+            )
+
+        known = {entry.occurrence_id for entry in self._files}
+        clashing = sorted(
+            entry.occurrence_id for entry in transaction.additions
+            if entry.occurrence_id in known)
+        if clashing:
+            raise ImportContractError(
+                f"these occurrence ids are already in the list: {clashing}. Plan the "
+                "transaction through this manager so its own IdFactory mints them.")
+
+        self._files = self._files + transaction.additions
+        self._revision = self._revision.advance()
+        return CommitResult(
+            transaction_id=transaction.transaction_id,
+            status=CommitStatus.COMMITTED,
+            snapshot=self.snapshot(),
+            expected_revision=transaction.expected_revision,
+            added=transaction.additions,
+        )
+
+    # -- mutating ---------------------------------------------------------- #
+
+    def remove_selected(self) -> MutationResult:
+        """Remove exactly the selected rows. **No source file is touched.**"""
+        if not self._selected:
+            return MutationResult(
+                operation=ManagerOperation.REMOVE,
+                changed=False,
+                snapshot=self.snapshot(),
+                selection=self._selected,
+            )
+        chosen = set(self._selected)
+        removed = tuple(
+            entry for entry in self._files if entry.occurrence_id in chosen)
+        self._files = tuple(
+            entry for entry in self._files if entry.occurrence_id not in chosen)
+        self._selected = ()
+        self._revision = self._revision.advance()
+        return MutationResult(
+            operation=ManagerOperation.REMOVE,
+            changed=True,
+            snapshot=self.snapshot(),
+            selection=(),
+            removed=removed,
+        )
+
+    def clear(self) -> MutationResult:
+        """Empty the imported list. **No source file is deleted.**"""
+        if not self._files:
+            self._selected = ()
+            return MutationResult(
+                operation=ManagerOperation.CLEAR,
+                changed=False,
+                snapshot=self.snapshot(),
+                selection=(),
+            )
+        removed = self._files
+        self._files = ()
+        self._selected = ()
+        self._revision = self._revision.advance()
+        return MutationResult(
+            operation=ManagerOperation.CLEAR,
+            changed=True,
+            snapshot=self.snapshot(),
+            selection=(),
+            removed=removed,
+        )
+
+    def move_selected_up(self) -> MutationResult:
+        return self._move(ManagerOperation.MOVE_UP)
+
+    def move_selected_down(self) -> MutationResult:
+        return self._move(ManagerOperation.MOVE_DOWN)
+
+    def _move(self, operation: ManagerOperation) -> MutationResult:
+        """Move the selection as one logical block across one unselected row.
+
+        Selected rows keep their relative order and travel together even when they
+        are not adjacent — the block closes up around the row it crosses. Unselected
+        rows keep their relative order too. Nothing wraps: a block whose topmost row
+        is already at the top, or whose bottommost row is already at the bottom, has
+        nowhere to go in that direction and the call is a safe no-op, as it is when
+        nothing is selected and when everything is.
+        """
+        up = operation is ManagerOperation.MOVE_UP
+        chosen = set(self._selected)
+        indices = [
+            position for position, entry in enumerate(self._files)
+            if entry.occurrence_id in chosen
+        ]
+
+        blocked = (
+            not indices
+            or len(indices) == len(self._files)
+            or (up and indices[0] == 0)
+            or (not up and indices[-1] == len(self._files) - 1)
+        )
+        if blocked:
+            return MutationResult(
+                operation=operation,
+                changed=False,
+                snapshot=self.snapshot(),
+                selection=self._selected,
+            )
+
+        taken = set(indices)
+        block = tuple(self._files[position] for position in indices)
+        rest = [
+            entry for position, entry in enumerate(self._files) if position not in taken]
+        # How many unselected rows sit above the block today; one fewer means the
+        # block crossed the row above it, one more means it crossed the row below.
+        above = sum(1 for position in range(indices[0]) if position not in taken)
+        insert_at = above - 1 if up else above + 1
+
+        reordered = tuple(rest[:insert_at]) + block + tuple(rest[insert_at:])
+        if reordered == self._files:  # pragma: no cover - the guards above prevent it
+            return MutationResult(
+                operation=operation,
+                changed=False,
+                snapshot=self.snapshot(),
+                selection=self._selected,
+            )
+
+        self._files = reordered
+        # Selection stays on the rows that moved, re-read in the new list order.
+        self._selected = tuple(
+            entry.occurrence_id for entry in self._files if entry.occurrence_id in chosen)
+        self._revision = self._revision.advance()
+        return MutationResult(
+            operation=operation,
+            changed=True,
+            snapshot=self.snapshot(),
+            selection=self._selected,
+        )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return (f"ImportedFileManager(count={len(self._files)}, "
+                f"revision={self._revision.value}, selected={len(self._selected)})")

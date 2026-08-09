@@ -359,43 +359,96 @@ def test_plan3_neither_shadows_nor_re_exports_cancellation():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("name", PLAN3_MODULES)
-def test_no_phase_three_to_eight_behaviour_exists_yet(plan3_trees, name):
-    """Phase 2's own names moved off this list as they were implemented.
+#: Phase 3 landed the imported-file manager in ``importing.py``. These names stay
+#: forbidden in ``job_control.py``, which owns no list, no selection and no
+#: transaction — a job runs what the manager already decided.
+_PHASE_THREE_NAMES = (
+    "ImportedFileManager", "ImportTransaction", "CommitResult", "MutationResult",
+    "add_files", "add_folder", "move_up", "move_down", "remove_selected",
+    "clear_all", "commit", "deduplicate", "allow_duplicates",
+)
 
-    ``scan_roots``, ``natural_key``, ``classify_root_breadth``, the hidden probes and
-    ``capture_identity`` are Phase 2 deliverables and now exist; everything below
-    still belongs to a later phase.
+#: Still owned by a later phase, in either module.
+_LATER_PHASE_NAMES = (
+    # Phase 4 coordination
+    "ImportCoordinator", "cancel_import", "start_scan", "confirm_large_result",
+    "warn_broad_root",
+    # Phase 5 controller
+    "JobController", "request_pause", "request_cancel", "resume", "checkpoint",
+    # Phase 7 ETA / projection
+    "EtaEstimator", "estimate_remaining", "summary_lines", "detail_lines",
+    # Phase 8 adapters
+    "ImportedFileList", "JobControlBar", "build_ui",
+)
+
+
+@pytest.mark.parametrize("name", PLAN3_MODULES)
+def test_no_phase_four_to_eight_behaviour_exists_yet(plan3_trees, name):
+    """Each phase's own names move off this list as they are implemented.
+
+    Phase 2's traversal core and Phase 3's manager now exist in ``importing.py``;
+    everything below still belongs to a later phase, and the manager vocabulary
+    still has no business appearing in the job module.
     """
     defined = defined_names(plan3_trees[name])
-    for later_phase in (
-        # Phase 3 manager
-        "ImportedFileManager", "add_files", "add_folder", "move_up", "move_down",
-        "remove_selected", "clear_all", "commit", "deduplicate", "allow_duplicates",
-        # Phase 4 coordination
-        "ImportCoordinator", "cancel_import", "start_scan", "confirm_large_result",
-        "warn_broad_root",
-        # Phase 5 controller
-        "JobController", "request_pause", "request_cancel", "resume", "checkpoint",
-        # Phase 7 ETA / projection
-        "EtaEstimator", "estimate_remaining", "summary_lines", "detail_lines",
-        # Phase 8 adapters
-        "ImportedFileList", "JobControlBar", "build_ui",
-    ):
+    forbidden = _LATER_PHASE_NAMES
+    if name != "importing.py":
+        forbidden = forbidden + _PHASE_THREE_NAMES
+    for later_phase in forbidden:
         assert later_phase not in defined, (name, later_phase)
 
 
-def test_phase_two_delivered_its_own_names_and_no_more():
-    """The traversal core exists; the manager and coordinator around it do not."""
+def test_phase_three_delivered_its_own_names_and_no_more():
+    """The manager and its transactions exist; the coordinator around them does not."""
     from shared import importing
 
-    for delivered in ("scan_roots", "natural_key", "classify_root_breadth",
-                      "is_broad_root", "is_hidden_name", "has_hidden_attribute",
-                      "capture_identity", "RootBreadth"):
+    for delivered in (
+        # Phase 2
+        "scan_roots", "natural_key", "classify_root_breadth", "is_broad_root",
+        "is_hidden_name", "has_hidden_attribute", "capture_identity", "RootBreadth",
+        # Phase 3
+        "ImportedFileManager", "ImportTransaction", "CommitResult", "MutationResult",
+        "CommitStatus", "ManagerOperation", "PlanningGroups",
+        "validate_direct_files", "plan_transaction", "planning_groups",
+    ):
         assert hasattr(importing, delivered), delivered
 
-    for later in ("ImportedFileManager", "ImportCoordinator", "EtaEstimator"):
+    for later in ("ImportCoordinator", "EtaEstimator", "JobController",
+                  "ImportedFileList", "JobControlBar"):
         assert not hasattr(importing, later), later
+
+
+def test_the_manager_neither_plans_nor_creates_an_output_path():
+    """§6.8: the importer *retains* root and relative data; Plan 2 turns it into paths.
+
+    ``planning_groups`` is a regrouping and nothing more. If collision numbering,
+    sanitising or run reservation ever appeared here, two services would be deciding
+    where a file lands and they would eventually disagree.
+    """
+    text = (SHARED / "importing.py").read_text(encoding="utf-8")
+    for owned_by_output_paths in (
+        "numbered_variant", "sanitize_component", "sanitize_relative",
+        "reserve_run_directory", "release_if_empty", "assert_contained",
+        "atomic_replace", "temporary_sibling", "MAX_COLLISION_ATTEMPTS",
+        "TOOL_OUTPUT_PARENTS", "OutputPlan", "PlannedOutput",
+    ):
+        assert owned_by_output_paths not in text, owned_by_output_paths
+
+    tree = parse(SHARED / "importing.py")
+    modules = imported_names(tree)
+    assert not any(entry.startswith("shared.output_paths") for entry in modules)
+
+
+def test_output_paths_was_not_changed_for_the_importer():
+    """Reuse, not rearrangement — the Phase 3 compatibility gate, checked in code."""
+    tree = parse(SHARED / "output_paths.py")
+    defined = defined_names(tree)
+    for planner in ("plan_flat", "plan_mirrored", "plan_multi_root",
+                    "DestinationPlanner", "RunReservation", "reserve_run_directory"):
+        assert planner in defined, planner
+    modules = imported_names(tree)
+    for plan3 in PLAN3_MODULE_NAMES:
+        assert not any(entry.endswith(plan3) for entry in modules), plan3
 
 
 def test_no_eta_arithmetic_exists_anywhere_in_the_foundation():
@@ -520,6 +573,6 @@ def test_the_new_modules_ship_and_the_new_tests_do_not():
     for name in PLAN3_MODULES:
         assert (SHARED / name).is_file()
     for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py",
-                 "test_import_traversal.py"):
+                 "test_import_traversal.py", "test_import_manager.py"):
         assert (TESTS / name).is_file()
         assert not (UNIVERSAL / name).exists()
