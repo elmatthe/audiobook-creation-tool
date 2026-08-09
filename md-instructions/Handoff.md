@@ -1,12 +1,196 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0 AND 1
-COMPLETE, PHASES 2–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0, 1 AND 2
+COMPLETE, PHASES 3–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and
 the Plan 3 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable
-importing and job-control vocabulary plus its structural boundary guards. No production panel or
-launcher adopts any of it, no behaviour changed, and `version.py` is still `0.5.1`. Every later
-phase needs separate explicit maintainer approval.**
+importing and job-control vocabulary plus a read-only, link-refusing traversal core. No
+production panel or launcher adopts any of it, no behaviour changed, and `version.py` is still
+`0.5.1`. Every later phase needs separate explicit maintainer approval.**
+
+### Phase 2 — Safe natural traversal core (2026-08-08, HOME-PC)
+
+**Result: `shared/importing.py` gained the scanning half of the foundation — natural ordering,
+broad-root classification, hidden detection, non-following identity capture and a synchronous
+`scan_roots()` — plus 91 focused traversal tests. The link-classification risk gate was
+**reached and cleared with evidence**; nothing was refactored. No manager, no worker, no queue,
+no Tk, no output run.**
+
+#### The risk gate: reached, evidenced, and cleared
+
+The active drop makes Phase 2 stop before refactoring if `maintenance.is_link` cannot safely
+classify an importing case. It was checked first, against real filesystem objects on this
+machine, and it classifies **all five** required cases correctly:
+
+| Required case | `maintenance.is_link` | Evidence |
+|---|---|---|
+| Ordinary file | `False` | real file under `tmp_path` |
+| Ordinary directory | `False` | real directory under `tmp_path` |
+| **Real NTFS junction** | **`True`** | created without elevation via `_winapi.CreateJunction`; `lstat` attributes `0x410` = `DIRECTORY \| REPARSE_POINT` |
+| File symlink | `True` | real symlink where creatable; otherwise skipped with the exact `WinError 1314` |
+| Directory symlink | `True` | same |
+| **Selected root that is a link** | **`True`** | a junction supplied as the chosen root |
+
+**The junction case is the one that justifies the reuse.** A junction reports
+`is_symlink() == False`; only the reparse-point attribute catches it. A hand-rolled
+`is_symlink()` check in the importer would have failed **open** on exactly the case this drop
+cares most about, and would have walked out of the selected tree. `maintenance.is_link` already
+tests both, so it is imported and used rather than re-implemented.
+
+**One nuance found, recorded, and handled without touching `maintenance.py`.** `is_link` answers
+`False` for a path it cannot `lstat` **at all**. That is the right answer for a cleanup target
+that is re-authorised immediately afterwards, but "I could not read it" must never be read as
+"safe to walk into". The scanner therefore settles **existence and readability first** and only
+then asks the link question, so an unreadable entry is refused as a problem and never reaches the
+link check. This is a sequencing decision inside `importing.py` — **not** an extraction, an
+extension, or a change to `maintenance.py`, whose only new caller is the one `is_link` import.
+
+**A second observation, not acted on.** `maintenance._is_link` assumes `st_file_attributes` is an
+integer. Every real `os.lstat` satisfies that; only a synthetic `os.stat_result` built from a
+bare ten-tuple leaves it `None`, which would raise `TypeError`. That is a fixture artefact, not a
+reachable production condition, so the **test fixture** was corrected to build realistic stat
+results and `maintenance.py` was left alone. Recorded here so a later phase can judge it rather
+than rediscover it.
+
+#### What Phase 2 added to `shared/importing.py`
+
+- **`natural_key`** — Unicode-aware, case-insensitive ordering that counts: digit runs compare as
+  integers, text runs as casefolded text, and the two are never compared to each other, so no
+  `int`/`str` comparison can raise. Ties break on the NFC-normalised original name, so `A` and
+  `a` have a deterministic order instead of depending on what the filesystem returned first. A
+  digit run past CPython's 4,300-digit `int()` limit degrades to text rather than crashing a scan.
+- **`RootBreadth` / `classify_root_breadth` / `is_broad_root`** — purely lexical classification of
+  volume roots, UNC share roots and the **injected** user home. Nothing is scanned in order to
+  discover that it is broad, and the home is a parameter, so a test never depends on who is
+  logged in. The warning itself is Phase 4.
+- **`is_hidden_name` / `has_hidden_attribute` / an injectable `hidden_probe`** — the portable
+  dot rule plus the Windows `FILE_ATTRIBUTE_HIDDEN` read through `lstat`, with the platform probe
+  injectable so Windows behaviour is provable on POSIX and vice versa.
+- **`capture_identity`** — prefers the platform's own `(st_dev, st_ino)`, so one physical file
+  reached through two spellings or a hard link is recognised as one source; falls back to an
+  NFC-normalised lexical absolute-path key, casefolded only where the filesystem is case-blind.
+  **`resolve()` is never called.** Phase 3 owns what to *do* with two matching identities.
+- **`scan_roots()`** — the synchronous core. Per root, in the order supplied and never globally
+  re-sorted: validate without following, enumerate one directory, classify every entry from a
+  **fresh `lstat`**, emit that directory's compatible files first in natural order, then descend
+  into its eligible children in the same order.
+
+#### The decisions inside the traversal worth knowing
+
+1. **It fails closed.** Every entry is re-`lstat`-ed rather than trusted from the `scandir`
+   buffer, so an entry that changed shape since enumeration is classified as it is *now*. A
+   `FileNotFoundError` becomes `VANISHED`, any other `OSError` becomes `UNREADABLE`, and neither
+   is descended into. Anything that is neither a regular file nor a directory becomes
+   `WRONG_TYPE`.
+2. **An explicit stack, not recursion.** A deep tree must not depend on Python's recursion limit,
+   and the ordering is easier to prove: children are pushed in reverse natural order so the first
+   child pops first, which yields files-then-depth-first without a second sort.
+3. **Root failures are `INVALID_ROOT`; entry failures keep their own category.** A missing,
+   unreadable, non-directory or linked *root* is one clearly attributable problem with the precise
+   cause in `technical_detail`; `LINK`, `UNREADABLE`, `VANISHED`, `WRONG_TYPE`, `HIDDEN` and
+   `UNSUPPORTED_TYPE` describe entries *inside* a scan. Both category families stay in use and
+   nothing is silently discarded.
+4. **Hidden folders are optional; hidden files never are.** `include_hidden_folders` gates
+   directories only. A hidden *file* found by walking is always skipped and reported — but the
+   vocabulary still accepts a hidden path the user chose deliberately, so Phase 3's `Add Files`
+   has something to build on. "Include hidden" is also not "include anything": a hidden folder
+   that is a junction is still refused.
+5. **`DIRECT_FILES` roots are not walked.** They name no tree; validating individually chosen
+   files is Phase 3's `Add Files`. A request mixing both kinds scans the folder roots and simply
+   ignores the direct group.
+6. **Cancelling an import raises nothing.** `scan_roots` returns a `ScanOutcome.CANCELLED` result
+   carrying **no files** — the Phase 1 invariant makes a partial commit unrepresentable — and
+   stops calling `on_count`. `shared.cancellation` is untouched and unmentioned: Cancel Import is
+   not the processing job's cancel.
+7. **A checkpoint was added inside the emission loop.** The plan names checkpoints before each
+   root, during entry classification, before each descent and before publication. Testing
+   "no callback after acknowledged cancellation" showed a directory holding thousands of matches
+   would keep reporting counts between checkpoints, so emission now checks too. The bound is
+   tighter than the plan requires and contradicts nothing in it.
+
+#### Structural guards updated, not deleted
+
+Three Phase 1 guards had to move as Phase 2 delivered what they forbade. Each was **narrowed**
+rather than removed:
+
+- The blanket "no filesystem call" guard split in two. `job_control.py` keeps the strict version
+  (**zero** filesystem verbs). `importing.py` gets a budget of **exactly `scandir` and `lstat`**,
+  with every write, every content read and every *following* call — `resolve`, `realpath`, `stat`,
+  `exists`, `is_dir`, `is_file`, `is_symlink`, `samefile`, `readlink` — still forbidden, plus a
+  text check for `follow_symlinks=True` and `.resolve()`.
+- The "imports no Plan 2 service" guard now permits `importing.py` exactly one edge to
+  maintenance, and a new test pins it: the **only** name borrowed is `is_link`, the whole module
+  is never imported, and no cleanup concept (`authorized_target`, `inventory`, `estimate_size`,
+  `PROTECTED_RELATIVE`, `ASSET_IDS`, …) appears in the importer. A companion test proves
+  `maintenance.py` itself was not rearranged and still imports neither `shutil` nor `subprocess`.
+- The later-phase name guard dropped Phase 2's own names (`scan_roots`, `natural_key`,
+  `classify_root_breadth`, hidden probes, `capture_identity`) and kept Phases 3–8, with a new
+  positive test asserting Phase 2 delivered exactly its own names and no manager, coordinator or
+  estimator.
+
+#### Deliberately not done
+
+No `ImportedFileManager`, deduplication against an existing list, duplicate override, transaction
+commit, worker thread, queue, polling, broad-root dialog, 1,000-result confirmation, pause/resume
+controller, ETA, Retry Failed, Tk adapter or developer specimen. No production panel or launcher
+touched. `shared/cancellation.py`, `shared/output_paths.py`, `shared/config.py`,
+`shared/maintenance.py`, packaging, requirements, launchers and `version.py` are **unchanged**.
+`Briefing.md`'s deferred packaging sentence is still untouched. The Phase 1 packaging remediation
+and every Phase 1 contract are preserved, and **no Phase 1 state-transition judgement call was
+altered** — the traversal work exposed no contradiction with them.
+
+#### Phase 2 verification (2026-08-08, HOME-PC, repo venv Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| Focused: Phase 1 contracts + boundary guards | **310 passed** |
+| Focused: Phase 2 traversal and safety | **91 passed, 6 skipped** |
+| Focused: `test_maintenance.py` + both cleanup suites (link/read-only) | **307 passed** |
+| Focused: `test_output_paths.py` + tool-output + refresh (no planning regression) | **255 passed, 1 skipped, 1 warning** |
+| Focused: cancellation-bearing tool suites | **16 passed** |
+| `-m pytest files/tests --collect-only -q` | **1481 collected** (1381 + 100) |
+| `-m pytest files/tests -q -rsw` (full suite) | **1470 passed, 11 skipped, 1 warning** |
+| `-m pytest files/tests/test_ui_theme.py -q -rsw` | **17 passed, 0 skipped — all 17 executed** |
+| `scripts/verify.py` (three consecutive runs) | **RESULT: PASS** each time, `1470 passed, 11 skipped, 1 warning` each time |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+**The 1 warning**, unchanged: `.venv\Lib\site-packages\pydub\utils.py:14` —
+`DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13`.
+
+**The 11 skips**, every one named. Five are the documented stable set carried since Phase 0:
+
+1. `test_cover_source_side.py:363` — file symlink, `[WinError 1314] A required privilege is not
+   held by the client`.
+2. `test_output_paths.py:757` — file symlink, same `WinError 1314`.
+3. `test_jack_ryan_final_product.py:40` — `set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture
+   folder to run`.
+4. `test_jack_ryan_final_product.py:44` — same reason.
+5. `test_jack_ryan_final_product.py:64` — same reason.
+
+Six are **new and expected**, each naming the exact platform limitation:
+
+6. `test_is_link_says_yes_to_a_file_symlink` — `WinError 1314`.
+7. `test_is_link_says_yes_to_a_directory_symlink` — `WinError 1314`.
+8. `test_a_file_symlink_inside_a_scanned_folder_is_refused` — `WinError 1314`.
+9. `test_a_directory_symlink_inside_a_scanned_folder_is_refused` — `WinError 1314`.
+10. `test_a_root_that_is_a_symlink_is_refused` — `WinError 1314`.
+11. `test_names_differing_only_in_case_are_both_collected` — *"this filesystem is
+    case-insensitive, so the two names are one file"* (NTFS).
+
+**Symlink coverage is not simply lost to the privilege limitation.**
+`test_link_refusal_is_proved_even_where_symlinks_cannot_be_created` injects the classifier and
+proves the refusal path on every machine, and **real NTFS junctions run for real without
+elevation** — root junctions, junctions inside a scanned folder, and a junction inside a folder
+the user asked to include as hidden are all refused, verified.
+
+**No Tk skip transient occurred in this phase.** All three `verify.py` runs and the direct suite
+run reported the identical `1470 passed, 11 skipped`, with collection steady at 1481.
+
+#### Next action
+
+**Phase 3 — Imported-file manager, deduplication, and atomic transactions.** **Not started.** It
+requires explicit maintainer approval before any work begins.
 
 ### Phase 1 — Pure contracts and compatibility boundaries (2026-08-08, HOME-PC)
 
@@ -4657,6 +4841,53 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-08 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 2 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 2 start SHA:** `bdfa4c0720ba506926340537c98cc21b27c07819`
+(the approved Phase 1 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_import_traversal.py` — 1,089 lines, **97 tests** (91 run, 6 skipped with
+  exact platform reasons). Includes the six `maintenance.is_link` risk-gate evidence tests.
+
+**Files modified (4):**
+- `scripts/Universal/shared/importing.py` — ~+521 / −9, now 1,336 lines. `natural_key`,
+  `RootBreadth`/`classify_root_breadth`/`is_broad_root`, `is_hidden_name`/`has_hidden_attribute`,
+  `capture_identity`, and `scan_roots` with its helpers. One new import edge:
+  `from shared.maintenance import is_link`.
+- `files/tests/test_plan3_boundaries.py` — ~+120 / −24. Three guards narrowed as Phase 2
+  delivered what they forbade, plus three new guards pinning the maintenance edge to `is_link`
+  and proving `maintenance.py` was not rearranged.
+- `md-instructions/Handoff.md` — the Phase 2 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row,
+  recorded start-state "Phase reached", and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status`.
+- All **22** approved screenshots unchanged and unstaged (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; `config.toml`, `requirements.txt`, both launchers, `shared/release.py`,
+  `shared/cancellation.py`, `shared/output_paths.py`, `shared/config.py`, `shared/maintenance.py`,
+  `launcher.py` and all six production panels **unchanged**; no new dependency.
+- No runtime data, settings, outputs or source media touched. Every fixture tree was built under
+  `tmp_path` and thrown away; the scan is read-only and a before/after mode-size-mtime snapshot
+  proves it.
+
+**Verification:** **1481 collected** (1381 + 100); **1470 passed, 11 skipped, 1 warning**; theme
+suite **17/17 executed**; `verify.py` **RESULT: PASS** on three consecutive runs with identical
+counts; `compileall` exit 0; `git diff --check` clean. Six of the eleven skips are new and each
+names its exact platform limitation (five `WinError 1314` symlink-privilege, one case-insensitive
+filesystem); real NTFS junctions ran for real without elevation. No Tk skip transient occurred.
+
+**Next:** Phase 3 (imported-file manager, deduplication, atomic transactions) — **not started**,
+pending explicit maintainer approval.
 
 ### 2026-08-08 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 1 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
 

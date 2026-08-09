@@ -15,27 +15,47 @@ detail kept apart. ``ScanRequest`` / ``ScanResult`` — the frozen edges of a fo
 scan. ``Revision`` / ``ImportedFileSnapshot`` — the immutable value the imported-file
 manager will hand out. ``IdFactory`` — stable, injectable identifiers.
 
+Phase 2 added the read-only traversal core: ``natural_key``,
+``classify_root_breadth``, hidden detection, ``capture_identity`` and the synchronous
+``scan_roots``. Every value type above is still constructed without touching a disk;
+only ``scan_roots`` and the helpers it calls read the filesystem, and they only ever
+*read* it.
+
 What deliberately does **not** live here
 ---------------------------------------
-No traversal, no ``scandir``, no ``lstat``, no link or hidden detection, no duplicate
-identity derivation, no natural-sort key, no manager operations, no threads, no
-queues, no polling, no pause/resume controller, no ETA, and no Tk. Those belong to
-Phases 2–8 of the active drop. **Constructing anything in this module touches the
-filesystem zero times** — every path rule below is lexical, which is also why
-``resolve()`` is never called: a link must be *detected* later, never followed now.
+No imported-file manager, no deduplication against an existing list, no duplicate
+override, no transaction commit, no threads, no queues, no polling, no broad-root
+dialog, no result-count confirmation, no pause/resume controller, no ETA, and no Tk.
+Those belong to Phases 3–8 of the active drop. ``resolve()`` is never called: a link
+must be *detected*, never followed.
 
 Boundaries this module keeps
 ----------------------------
 * It **consumes** ``shared.config``; it never re-implements configuration loading.
   A ``ScanRequest`` carries one captured ``EffectiveConfig`` so the large-result
   threshold cannot be re-read, and therefore cannot change, mid-scan.
+* It **consumes** ``shared.maintenance.is_link`` as the single authority on what a
+  link is, rather than growing a second implementation that could drift from the
+  one the cleanup coordinator already trusts. Nothing else from that module is used.
 * It creates **no** output path and reserves **no** run. ``ImportedFile`` merely
   *retains* the source root and root-relative path that Plan 2's ``plan_flat`` /
   ``plan_mirrored`` / ``plan_multi_root`` will later need.
-* ``shared.cancellation`` is untouched and unwrapped.
+* ``shared.cancellation`` is untouched and unwrapped. Cancelling an *import* is not
+  cancelling a *processing job*: ``scan_roots`` returns a cancelled ``ScanResult``
+  and raises nothing.
 
 Everything is a frozen dataclass validated in ``__post_init__``, so an invalid value
 cannot be constructed at all — there is no "validate later" path to forget.
+
+Scanning fails **closed**
+-------------------------
+An entry whose metadata cannot be read is not assumed harmless. Every entry is
+re-``lstat``-ed rather than trusted from the ``scandir`` buffer, and any failure
+becomes a reported problem and a skip. This matters because
+``maintenance.is_link`` answers ``False`` when it cannot read an entry at all — the
+right answer for a cleanup target that is about to be re-authorised anyway, but not
+a safe basis for descending into something. The readability gate below runs *first*,
+so the link question is only ever asked about an entry we could actually read.
 """
 
 from __future__ import annotations
@@ -43,22 +63,33 @@ from __future__ import annotations
 import itertools
 import math
 import os
+import re
+import stat as _stat
 import threading
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PureWindowsPath
 from types import MappingProxyType
 
 from shared import config as _config
+from shared.maintenance import is_link as _is_link
 
 __all__ = [
     "ImportContractError",
     "IdFactory",
     "normalize_extension",
     "ensure_display_safe",
+    "natural_key",
+    "is_hidden_name",
+    "has_hidden_attribute",
+    "capture_identity",
+    "classify_root_breadth",
+    "is_broad_root",
+    "scan_roots",
     "ProblemCategory",
+    "RootBreadth",
     "RootKind",
     "ScanOutcome",
     "SupportedType",
@@ -831,3 +862,475 @@ class ScanResult:
         for problem in self.problems:
             counts[problem.category] = counts.get(problem.category, 0) + 1
         return MappingProxyType(counts)
+
+
+# --------------------------------------------------------------------------- #
+# Natural ordering
+#
+# Pure and lexical. Sorting never reads a filesystem.
+# --------------------------------------------------------------------------- #
+
+#: Splits a name into alternating text and decimal-digit runs. ``\d`` is the Unicode
+#: decimal-digit category, so Eastern Arabic numerals order numerically too.
+_DIGIT_RUN = re.compile(r"(\d+)")
+
+#: CPython refuses ``int()`` on absurdly long digit strings. A filename can legally
+#: carry one, so such a run is compared as text rather than crashing a scan.
+_MAX_NUMERIC_RUN = 4300
+
+#: Sort classes. Numbers precede text, and the two are never compared to each other.
+_KEY_NUMBER = 0
+_KEY_TEXT = 1
+
+
+def natural_key(name: object) -> tuple:
+    """A stable, Unicode-aware, case-insensitive sort key that counts.
+
+    ``1, 2, 10`` rather than ``1, 10, 2``: digit runs compare as integers and text
+    runs compare as casefolded text, and the two never meet, so no ``int``/``str``
+    comparison can raise.
+
+    Ordering is case-insensitive, but ties break on the NFC-normalised original name,
+    so ``A`` and ``a`` still have a deterministic order instead of depending on which
+    one the filesystem happened to hand back first.
+    """
+    text = unicodedata.normalize("NFC", _require_text("name", name))
+    folded = text.casefold()
+    parts: list[tuple[int, int, str]] = []
+    for chunk in _DIGIT_RUN.split(folded):
+        if not chunk:
+            continue
+        if chunk.isdecimal() and len(chunk) <= _MAX_NUMERIC_RUN:
+            parts.append((_KEY_NUMBER, int(chunk), ""))
+        else:
+            parts.append((_KEY_TEXT, 0, chunk))
+    return (tuple(parts), text)
+
+
+# --------------------------------------------------------------------------- #
+# Broad-root classification
+#
+# Purely lexical: a drive root is never *scanned* to discover that it is one.
+# --------------------------------------------------------------------------- #
+
+
+class RootBreadth(Enum):
+    """How much of a machine a chosen root covers.
+
+    Phase 4 turns anything other than ``NARROW`` into a warning shown **before** any
+    scanning starts. This phase only classifies.
+    """
+
+    NARROW = "narrow"
+    VOLUME_ROOT = "volume_root"
+    UNC_SHARE_ROOT = "unc_share_root"
+    USER_HOME = "user_home"
+
+
+def _pure(path: object) -> PurePath:
+    return path if isinstance(path, PurePath) else PurePath(os.fspath(path))
+
+
+def _lexical_key(path: PurePath) -> tuple[str, ...]:
+    """Comparison parts, casefolded only where the path flavour is case-blind."""
+    parts = tuple(unicodedata.normalize("NFC", part) for part in path.parts)
+    if isinstance(path, PureWindowsPath):
+        return tuple(part.casefold() for part in parts)
+    return parts
+
+
+def classify_root_breadth(path: object, *, home: object | None = None) -> RootBreadth:
+    """Classify a candidate root without touching the filesystem.
+
+    *home* is injected rather than discovered, so a test never depends on the machine
+    it runs on and a scan never has to ask the operating system who is logged in.
+
+    Pass a ``PureWindowsPath`` or ``PurePosixPath`` to classify for that flavour; a
+    plain string is read with this platform's rules.
+    """
+    candidate = _pure(path)
+    if home is not None and _lexical_key(candidate) == _lexical_key(_pure(home)):
+        return RootBreadth.USER_HOME
+
+    # A root with a single part *is* that part: ``C:\``, ``/`` or ``\\server\share\``.
+    if len(candidate.parts) == 1 and candidate.anchor:
+        drive = candidate.drive
+        if drive.startswith("\\\\") or drive.startswith("//"):
+            return RootBreadth.UNC_SHARE_ROOT
+        return RootBreadth.VOLUME_ROOT
+    return RootBreadth.NARROW
+
+
+def is_broad_root(path: object, *, home: object | None = None) -> bool:
+    """Whether choosing this root deserves a warning before anything is scanned."""
+    return classify_root_breadth(path, home=home) is not RootBreadth.NARROW
+
+
+# --------------------------------------------------------------------------- #
+# Hidden detection
+# --------------------------------------------------------------------------- #
+
+#: Answers "is this hidden according to the platform?" for one path. A parameter so a
+#: test can exercise Windows behaviour on POSIX and vice versa.
+HiddenProbe = Callable[[Path, object], bool]
+
+
+def is_hidden_name(name: object) -> bool:
+    """The portable rule: a dot-prefixed name, which is how macOS and Linux hide."""
+    text = str(name)
+    if text in (".", ".."):
+        return False
+    return text.startswith(".")
+
+
+def has_hidden_attribute(path: Path, stat_result: object = None) -> bool:
+    """The Windows rule: ``FILE_ATTRIBUTE_HIDDEN``, read without following links.
+
+    Returns ``False`` wherever that attribute does not exist, so a caller may always
+    combine it with :func:`is_hidden_name` and get the right answer per platform.
+    """
+    flag = getattr(_stat, "FILE_ATTRIBUTE_HIDDEN", None)
+    if flag is None:
+        return False
+    try:
+        result = os.lstat(path) if stat_result is None else stat_result
+        attributes = result.st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attributes & flag)
+
+
+def _is_hidden(path: Path, stat_result: object, probe: HiddenProbe | None) -> bool:
+    if is_hidden_name(path.name):
+        return True
+    check = has_hidden_attribute if probe is None else probe
+    return bool(check(path, stat_result))
+
+
+# --------------------------------------------------------------------------- #
+# Source identity
+# --------------------------------------------------------------------------- #
+
+
+def capture_identity(path: Path, stat_result: object = None) -> str:
+    """A key for "is this the same source file?", captured without following links.
+
+    Prefers the platform's own file identity — ``(st_dev, st_ino)``, which NTFS, APFS
+    and ext4 all populate — so one physical file reached through two spellings, or
+    through a hard link, is recognised as one source.
+
+    Falls back to a lexical absolute-path key when the platform reports no usable
+    identity: NFC-normalised, and casefolded only where the filesystem is case-blind,
+    so a case-sensitive macOS volume keeps two genuinely different files apart.
+
+    ``resolve()`` is never used — following a link to decide identity is exactly what
+    this drop refuses to do. Phase 3 owns what to *do* with two matching identities.
+    """
+    absolute = Path(os.path.abspath(str(path)))
+    device = inode = 0
+    try:
+        result = os.lstat(absolute) if stat_result is None else stat_result
+        device, inode = result.st_dev, result.st_ino
+    except OSError:
+        pass
+    if device and inode:
+        return f"file:{device}:{inode}"
+    return "path:" + "\x00".join(_lexical_key(PurePath(absolute)))
+
+
+# --------------------------------------------------------------------------- #
+# The traversal core
+# --------------------------------------------------------------------------- #
+
+#: Reports whether the *import* was cancelled. Never the processing job's controller:
+#: Cancel Import stops a scan and nothing else.
+CancelCheck = Callable[[], bool]
+
+#: Receives the running count of compatible, non-link candidates. Called synchronously
+#: on the caller's own thread — this phase owns no worker.
+CountCallback = Callable[[int], None]
+
+
+def _problem(
+    category: ProblemCategory,
+    message: str,
+    detail: str = "",
+    path: Path | None = None,
+    root: object = None,
+) -> ImportProblem:
+    return ImportProblem(
+        category=category,
+        display_message=message,
+        technical_detail=detail,
+        path=path,
+        root=root,
+    )
+
+
+def _selected_extensions(request: "ScanRequest") -> Mapping[str, str]:
+    """extension -> type id, for the types the user actually ticked."""
+    chosen = request.options.selected_type_ids
+    mapping: dict[str, str] = {}
+    for entry in request.catalog.types:
+        if entry.type_id in chosen:
+            for extension in entry.extensions:
+                mapping[extension] = entry.type_id
+    return MappingProxyType(mapping)
+
+
+def _extension_of(name: str) -> str:
+    suffix = PurePath(name).suffix
+    if not suffix:
+        return ""
+    try:
+        return normalize_extension(suffix)
+    except ImportContractError:
+        return ""
+
+
+def _label(path: Path) -> str:
+    return path.name or str(path)
+
+
+def _classify_root(root: ImportRoot, problems: list) -> object:
+    """Validate one folder root. Returns its ``lstat`` when it is safe to enumerate.
+
+    Order matters. Existence and readability are settled **before** the link question,
+    because ``maintenance.is_link`` answers ``False`` for something it could not read,
+    and that answer must never be mistaken for "safe to walk into".
+    """
+    path = root.path
+    try:
+        result = os.lstat(path)
+    except FileNotFoundError:
+        problems.append(_problem(
+            ProblemCategory.INVALID_ROOT,
+            f"The folder {_label(path)} could not be found and was skipped.",
+            f"FileNotFoundError: {path}", path=path, root=root))
+        return None
+    except OSError as exc:
+        problems.append(_problem(
+            ProblemCategory.INVALID_ROOT,
+            f"The folder {_label(path)} could not be read and was skipped.",
+            f"{type(exc).__name__}: {exc}", path=path, root=root))
+        return None
+
+    if _is_link(path):
+        problems.append(_problem(
+            ProblemCategory.INVALID_ROOT,
+            f"The folder {_label(path)} is a shortcut or link and was not followed.",
+            "refused by maintenance.is_link: symlink, junction or other reparse point",
+            path=path, root=root))
+        return None
+
+    if not _stat.S_ISDIR(result.st_mode):
+        problems.append(_problem(
+            ProblemCategory.INVALID_ROOT,
+            f"{_label(path)} is not a folder and was skipped.",
+            f"st_mode={result.st_mode:#o} is not a directory", path=path, root=root))
+        return None
+    return result
+
+
+def _list_directory(directory: Path, root: ImportRoot, problems: list) -> object:
+    """One ``scandir`` pass. ``None`` means the directory could not be enumerated."""
+    try:
+        with os.scandir(directory) as scanner:
+            return list(scanner)
+    except OSError as exc:
+        problems.append(_problem(
+            ProblemCategory.UNREADABLE,
+            f"The folder {_label(directory)} could not be read and was skipped.",
+            f"{type(exc).__name__}: {exc}", path=directory, root=root))
+        return None
+
+
+def scan_roots(
+    request: ScanRequest,
+    *,
+    id_factory: IdFactory | None = None,
+    cancel_check: CancelCheck | None = None,
+    on_count: CountCallback | None = None,
+    hidden_probe: HiddenProbe | None = None,
+    completed_at: float = 0.0,
+) -> ScanResult:
+    """Walk the request's folder roots and return one frozen, read-only result.
+
+    Synchronous and side-effect-free: it reads directory metadata and nothing else.
+    No thread, no queue, no Tk object, no manager, no transaction, no output run.
+    ``cancel_check`` and ``on_count`` run on the caller's own thread.
+
+    Per root, in the order the user supplied — never globally re-sorted, because root
+    two's tree must not migrate into root one's just because it sorts earlier:
+
+    1. validate the root without following it;
+    2. enumerate one directory;
+    3. classify each entry from a fresh ``lstat``, refusing links and anything that
+       cannot be read;
+    4. emit that directory's compatible files first, in natural order;
+    5. then descend into its eligible child directories, in the same order.
+
+    ``DIRECT_FILES`` roots are ignored here: they name no tree to walk, and validating
+    individually chosen files is Phase 3's ``Add Files``.
+
+    Cancellation is checked before each root, while classifying every entry, before
+    each descent, and before the result is published. A cancelled scan returns
+    ``ScanOutcome.CANCELLED`` carrying **no** files, so nothing partial can be
+    committed, and stops calling ``on_count``. It raises nothing: cancelling an import
+    is not cancelling a processing job.
+    """
+    if not isinstance(request, ScanRequest):
+        raise ImportContractError("scan_roots needs a ScanRequest")
+    factory = IdFactory() if id_factory is None else id_factory
+    cancelled = cancel_check if cancel_check is not None else (lambda: False)
+
+    extensions = _selected_extensions(request)
+    files: list[ImportedFile] = []
+    problems: list[ImportProblem] = []
+    discovered = 0
+
+    def publish(outcome: ScanOutcome) -> ScanResult:
+        return ScanResult(
+            request_id=request.request_id,
+            outcome=outcome,
+            discovered_count=discovered,
+            files=tuple(files) if outcome is ScanOutcome.COMPLETED else (),
+            problems=tuple(problems),
+            completed_at=completed_at,
+        )
+
+    def cancel() -> ScanResult:
+        problems.append(_problem(
+            ProblemCategory.CANCELLED,
+            "The import was cancelled and nothing was added.",
+            "cancellation acknowledged at a scan checkpoint"))
+        return publish(ScanOutcome.CANCELLED)
+
+    for root in request.folder_roots:
+        # Checkpoint: before root enumeration.
+        if cancelled():
+            return cancel()
+
+        if _classify_root(root, problems) is None:
+            continue
+
+        # An explicit stack rather than recursion: a deep tree must not depend on
+        # Python's recursion limit, and this order is easier to prove.
+        stack: list[tuple[Path, tuple[str, ...]]] = [(root.path, ())]
+        while stack:
+            directory, relative_parts = stack.pop()
+            entries = _list_directory(directory, root, problems)
+            if entries is None:
+                continue
+
+            candidates: list = []
+            children: list = []
+
+            for entry in entries:
+                # Checkpoint: during entry classification.
+                if cancelled():
+                    return cancel()
+
+                entry_path = Path(entry.path)
+
+                # Read the entry freshly rather than trusting the scandir buffer, so
+                # something that changed shape since enumeration is caught here.
+                try:
+                    entry_stat = os.lstat(entry_path)
+                except FileNotFoundError:
+                    problems.append(_problem(
+                        ProblemCategory.VANISHED,
+                        f"{entry.name} disappeared while the folder was being read.",
+                        f"FileNotFoundError: {entry_path}", path=entry_path, root=root))
+                    continue
+                except OSError as exc:
+                    problems.append(_problem(
+                        ProblemCategory.UNREADABLE,
+                        f"{entry.name} could not be read and was skipped.",
+                        f"{type(exc).__name__}: {exc}", path=entry_path, root=root))
+                    continue
+
+                if _is_link(entry_path):
+                    problems.append(_problem(
+                        ProblemCategory.LINK,
+                        f"{entry.name} is a shortcut or link and was not followed.",
+                        "refused by maintenance.is_link: symlink, junction or other "
+                        "reparse point", path=entry_path, root=root))
+                    continue
+
+                mode = entry_stat.st_mode
+                if _stat.S_ISDIR(mode):
+                    if (_is_hidden(entry_path, entry_stat, hidden_probe)
+                            and not request.options.include_hidden_folders):
+                        problems.append(_problem(
+                            ProblemCategory.HIDDEN,
+                            f"The hidden folder {entry.name} was skipped.",
+                            "include_hidden_folders is off for this import",
+                            path=entry_path, root=root))
+                        continue
+                    children.append((natural_key(entry.name), entry.name, entry_path))
+                    continue
+
+                if not _stat.S_ISREG(mode):
+                    problems.append(_problem(
+                        ProblemCategory.WRONG_TYPE,
+                        f"{entry.name} is not an ordinary file and was skipped.",
+                        f"st_mode={mode:#o} is neither a regular file nor a directory",
+                        path=entry_path, root=root))
+                    continue
+
+                # A hidden file found by *walking* is skipped; one the user picked
+                # deliberately is Add Files' business, not this traversal's.
+                if _is_hidden(entry_path, entry_stat, hidden_probe):
+                    problems.append(_problem(
+                        ProblemCategory.HIDDEN,
+                        f"The hidden file {entry.name} was skipped.",
+                        "hidden files are not collected by a folder scan",
+                        path=entry_path, root=root))
+                    continue
+
+                type_id = extensions.get(_extension_of(entry.name))
+                if type_id is None:
+                    problems.append(_problem(
+                        ProblemCategory.UNSUPPORTED_TYPE,
+                        f"{entry.name} is not a selected file type and was skipped.",
+                        "no selected supported type claims this extension",
+                        path=entry_path, root=root))
+                    continue
+
+                candidates.append(
+                    (natural_key(entry.name), entry.name, entry_path, entry_stat, type_id))
+
+            # Compatible direct files first, in natural order.
+            candidates.sort(key=lambda item: item[0])
+            for _key, name, entry_path, entry_stat, type_id in candidates:
+                # Checkpoint: while emitting. A directory holding thousands of
+                # matches must not keep reporting a count after the user has asked
+                # the import to stop.
+                if cancelled():
+                    return cancel()
+                files.append(ImportedFile(
+                    occurrence_id=factory.next_id("occ"),
+                    path=entry_path,
+                    source_root=root,
+                    relative_path=PurePath(*relative_parts, name),
+                    supported_type_id=type_id,
+                    identity=capture_identity(entry_path, entry_stat),
+                ))
+                discovered += 1
+                if on_count is not None:
+                    on_count(discovered)
+
+            # Then the child directories, same order, depth first. Reversed onto the
+            # stack so the first child is popped first.
+            children.sort(key=lambda item: item[0])
+            for _key, name, child_path in reversed(children):
+                # Checkpoint: before each recursive descent.
+                if cancelled():
+                    return cancel()
+                stack.append((child_path, relative_parts + (name,)))
+
+    # Checkpoint: before result publication.
+    if cancelled():
+        return cancel()
+    return publish(ScanOutcome.COMPLETED)

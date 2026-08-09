@@ -134,19 +134,53 @@ def test_the_only_threading_use_is_a_lock_for_identifier_allocation():
     assert "threading" not in (SHARED / "job_control.py").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("name", PLAN3_MODULES)
-def test_a_plan3_module_touches_no_filesystem(plan3_trees, name):
-    """Phase 1 is provably lexical. Phase 2 owns the first call that reads a disk."""
-    tree = plan3_trees[name]
+#: Calls that would either change something or follow a link. Neither Plan 3 module
+#: may make any of these, in any phase.
+_FORBIDDEN_FILESYSTEM_CALLS = (
+    # writing, in any form
+    "mkdir", "makedirs", "touch", "unlink", "rmdir", "rmtree", "remove",
+    "write_text", "write_bytes", "copy", "copy2", "copytree", "move", "rename",
+    "chmod", "chown", "utime", "truncate", "symlink", "link", "mkfifo",
+    # reading contents rather than metadata
+    "read_text", "read_bytes",
+    # following, or asking a question that follows
+    "resolve", "realpath", "samefile", "readlink",
+    "stat", "exists", "is_file", "is_dir", "is_symlink", "is_mount",
+    # bulk traversal helpers this drop deliberately does not use
+    "walk", "iterdir", "glob", "rglob", "listdir",
+)
+
+
+def test_job_control_touches_no_filesystem_at_all():
+    """The job vocabulary never had a reason to look at a disk, and still has none."""
+    tree = parse(SHARED / "job_control.py")
     attributes = called_attributes(tree)
-    for forbidden in (
-        "scandir", "walk", "iterdir", "glob", "rglob", "listdir",
-        "stat", "lstat", "exists", "is_file", "is_dir", "is_symlink", "resolve",
-        "mkdir", "makedirs", "touch", "unlink", "rmdir", "rmtree", "replace",
-        "read_text", "read_bytes", "write_text", "write_bytes", "copy", "copy2",
-    ):
-        assert forbidden not in attributes, (name, forbidden)
-    assert "open" not in called_bare_names(tree), name
+    for forbidden in _FORBIDDEN_FILESYSTEM_CALLS + ("scandir", "lstat"):
+        assert forbidden not in attributes, forbidden
+    assert "open" not in called_bare_names(tree)
+
+
+def test_the_scanner_reads_metadata_and_can_never_write_or_follow():
+    """Phase 2 gave ``importing`` exactly two filesystem verbs, and no more.
+
+    ``scandir`` and ``lstat`` are the whole budget: both are read-only and neither
+    follows a link. Every write, every content read and every following call stays
+    forbidden — ``resolve`` and ``stat`` especially, because those are the two that
+    would quietly walk through a junction.
+    """
+    tree = parse(SHARED / "importing.py")
+    attributes = called_attributes(tree)
+    for forbidden in _FORBIDDEN_FILESYSTEM_CALLS:
+        assert forbidden not in attributes, forbidden
+    assert "open" not in called_bare_names(tree)
+
+    filesystem_verbs = {"scandir", "lstat"} & attributes
+    assert filesystem_verbs == {"scandir", "lstat"}, \
+        "the traversal core is expected to use exactly these two"
+
+    text = (SHARED / "importing.py").read_text(encoding="utf-8")
+    assert "follow_symlinks=True" not in text
+    assert ".resolve()" not in text
 
 
 @pytest.mark.parametrize("name", PLAN3_MODULES)
@@ -154,13 +188,18 @@ def test_a_plan3_module_reimplements_no_plan2_service(plan3_trees, name):
     """§5.2: extend the existing services, never grow a parallel one."""
     tree = plan3_trees[name]
     modules = imported_names(tree)
-    for forbidden in (
+    forbidden_modules = [
         "tomllib", "subprocess", "logging", "shutil", "socket", "urllib", "http",
         "shared.output_paths", "shared.settings", "shared.preferences_ui",
-        "shared.maintenance", "shared.cleanup_state", "shared.cleanup_worker",
+        "shared.cleanup_state", "shared.cleanup_worker",
         "shared.release", "shared.logging_setup", "shared.subprocess_utils",
         "shared.ui_theme", "shared.ffmpeg_utils", "shared.metadata", "shared.bootstrap",
-    ):
+    ]
+    if name != "importing.py":
+        # Phase 2 gave the scanner one narrow, sanctioned edge to maintenance; the
+        # test below pins it to exactly ``is_link``.
+        forbidden_modules.append("shared.maintenance")
+    for forbidden in forbidden_modules:
         assert not any(entry == forbidden or entry.startswith(forbidden + ".")
                        for entry in modules), (name, forbidden)
 
@@ -174,6 +213,50 @@ def test_a_plan3_module_reimplements_no_plan2_service(plan3_trees, name):
         "raise_if_cancelled", "ProgressIndicator",
     ):
         assert owned_elsewhere not in defined, (name, owned_elsewhere)
+
+
+def test_the_scanner_borrows_exactly_one_name_from_maintenance():
+    """The sanctioned edge, and nothing wider.
+
+    The active drop directs Phase 2 to reuse ``maintenance.is_link`` rather than grow
+    a second link classifier — a junction reports ``is_symlink() == False``, so a
+    naive check would fail open on the exact case that matters most. What must not
+    follow is the rest of the cleanup module leaking into the importer, so this pins
+    the edge to one function and proves nothing was refactored to make it fit.
+    """
+    tree = parse(SHARED / "importing.py")
+    borrowed = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("maintenance"):
+            borrowed |= {alias.name for alias in node.names}
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.endswith("maintenance"), \
+                    "import the one function, not the whole cleanup module"
+    assert borrowed == {"is_link"}, borrowed
+
+    text = (SHARED / "importing.py").read_text(encoding="utf-8")
+    for cleanup_concept in (
+        "authorized_target", "compiled_target", "inventory", "estimate_size",
+        "PROTECTED_RELATIVE", "ASSET_IDS", "CleanupRequest", "asset(",
+    ):
+        assert cleanup_concept not in text, cleanup_concept
+
+
+def test_maintenance_itself_was_not_refactored_for_the_importer():
+    """Reuse, not rearrangement. ``is_link`` keeps its shape and its one caller set."""
+    tree = parse(SHARED / "maintenance.py")
+    defined = defined_names(tree)
+    for name in ("is_link", "_is_link", "authorized_target", "inventory", "estimate_size"):
+        assert name in defined, name
+    modules = imported_names(tree)
+    for plan3 in PLAN3_MODULE_NAMES:
+        assert not any(entry.endswith(plan3) for entry in modules), plan3
+    # Its own standing guarantee, checked from this side too: the module that the
+    # importer now borrows from still imports nothing that could delete anything.
+    # (``test_maintenance.py`` owns the full version of this contract.)
+    for destructive in ("shutil", "subprocess"):
+        assert destructive not in modules, destructive
 
 
 def test_configuration_is_consumed_not_rebuilt():
@@ -277,16 +360,21 @@ def test_plan3_neither_shadows_nor_re_exports_cancellation():
 
 
 @pytest.mark.parametrize("name", PLAN3_MODULES)
-def test_no_phase_two_to_eight_behaviour_exists_yet(plan3_trees, name):
+def test_no_phase_three_to_eight_behaviour_exists_yet(plan3_trees, name):
+    """Phase 2's own names moved off this list as they were implemented.
+
+    ``scan_roots``, ``natural_key``, ``classify_root_breadth``, the hidden probes and
+    ``capture_identity`` are Phase 2 deliverables and now exist; everything below
+    still belongs to a later phase.
+    """
     defined = defined_names(plan3_trees[name])
     for later_phase in (
-        # Phase 2 traversal
-        "scan_roots", "natural_key", "is_hidden", "classify_root", "capture_identity",
         # Phase 3 manager
         "ImportedFileManager", "add_files", "add_folder", "move_up", "move_down",
-        "remove_selected", "clear_all", "commit",
+        "remove_selected", "clear_all", "commit", "deduplicate", "allow_duplicates",
         # Phase 4 coordination
-        "ImportCoordinator", "cancel_import", "start_scan",
+        "ImportCoordinator", "cancel_import", "start_scan", "confirm_large_result",
+        "warn_broad_root",
         # Phase 5 controller
         "JobController", "request_pause", "request_cancel", "resume", "checkpoint",
         # Phase 7 ETA / projection
@@ -295,6 +383,19 @@ def test_no_phase_two_to_eight_behaviour_exists_yet(plan3_trees, name):
         "ImportedFileList", "JobControlBar", "build_ui",
     ):
         assert later_phase not in defined, (name, later_phase)
+
+
+def test_phase_two_delivered_its_own_names_and_no_more():
+    """The traversal core exists; the manager and coordinator around it do not."""
+    from shared import importing
+
+    for delivered in ("scan_roots", "natural_key", "classify_root_breadth",
+                      "is_broad_root", "is_hidden_name", "has_hidden_attribute",
+                      "capture_identity", "RootBreadth"):
+        assert hasattr(importing, delivered), delivered
+
+    for later in ("ImportedFileManager", "ImportCoordinator", "EtaEstimator"):
+        assert not hasattr(importing, later), later
 
 
 def test_no_eta_arithmetic_exists_anywhere_in_the_foundation():
@@ -418,6 +519,7 @@ def test_the_new_modules_ship_and_the_new_tests_do_not():
     """``scripts/`` ships; ``files/`` never does. The split must stay strict."""
     for name in PLAN3_MODULES:
         assert (SHARED / name).is_file()
-    for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py"):
+    for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py",
+                 "test_import_traversal.py"):
         assert (TESTS / name).is_file()
         assert not (UNIVERSAL / name).exists()
