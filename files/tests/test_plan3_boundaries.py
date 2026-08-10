@@ -152,6 +152,12 @@ def test_the_job_controller_owns_one_condition_and_starts_nothing():
     own state and there is nothing else — no thread, no queue, no executor, no
     timer, and no second lock that could give two acquisition orders a chance to
     disagree.
+
+    Phase 7 added exactly one more lock to the module, and it belongs to
+    ``JobReporter``'s sequence counter rather than to the controller. The counts
+    below are therefore checked *per class*, which is a stronger statement than the
+    module-wide count it replaces: the controller's budget is still one condition and
+    the one lock inside it, and the reporter's is one plain lock over an integer.
     """
     tree = parse(SHARED / "job_control.py")
     modules = imported_names(tree)
@@ -166,11 +172,46 @@ def test_the_job_controller_owns_one_condition_and_starts_nothing():
         assert primitive not in constructed, primitive
 
     text = (SHARED / "job_control.py").read_text(encoding="utf-8")
-    assert text.count("threading.Condition(") == 1, "exactly one condition"
-    assert text.count("threading.Lock()") == 1, "and exactly one lock, inside it"
+    sources = {
+        node.name: ast.get_source_segment(text, node)
+        for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+    }
+
+    controller = sources["JobController"]
+    assert controller.count("threading.Condition(") == 1, "exactly one condition"
+    assert controller.count("threading.Lock()") == 1, "and exactly one lock, inside it"
     # A plain ``Lock``, not the default ``RLock``: re-entering from a listener must
     # deadlock a test rather than quietly succeed.
-    assert "threading.Condition(threading.Lock())" in text
+    assert "threading.Condition(threading.Lock())" in controller
+
+    reporter = sources["JobReporter"]
+    assert reporter.count("threading.Lock()") == 1, "one lock, over the counter"
+    assert "Condition" not in reporter, "numbering needs no one to wait on it"
+
+    holders = {
+        name for name, source in sources.items() if "threading.Lock()" in source}
+    assert holders == {"JobController", "JobReporter"}, holders
+
+
+def test_the_reporter_calls_no_user_code_while_holding_its_lock():
+    """§5.4, checked where Phase 7 could most easily have broken it.
+
+    The clock and the publisher both belong to the caller. Neither may be invoked
+    inside the ``with self._lock`` block, because a lock held across somebody else's
+    code is how a reporting call ends up deadlocking a conversion.
+    """
+    tree = parse(SHARED / "job_control.py")
+    emit = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_emit")
+    guarded = [node for node in ast.walk(emit) if isinstance(node, ast.With)]
+    assert len(guarded) == 1, "one guarded region"
+    inside = {
+        call.func.attr for call in ast.walk(guarded[0])
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+    }
+    for user_code in ("_clock", "_publish"):
+        assert user_code not in inside, user_code
 
 
 def test_the_pause_wait_is_a_condition_wait_and_never_a_sleep():
@@ -383,9 +424,16 @@ def test_a_plan3_module_reimplements_no_plan2_service(plan3_trees, name):
         "tomllib", "subprocess", "logging", "shutil", "socket", "urllib", "http",
         "shared.output_paths", "shared.settings", "shared.preferences_ui",
         "shared.cleanup_state", "shared.cleanup_worker",
-        "shared.release", "shared.logging_setup", "shared.subprocess_utils",
+        "shared.release", "shared.subprocess_utils",
         "shared.ui_theme", "shared.ffmpeg_utils", "shared.metadata", "shared.bootstrap",
     ]
+    if name != "job_control.py":
+        # §8's Phase 7 task 2 directs the job module to bridge technical events into
+        # ``logging_setup.get_logger()``. *Using* the one session logger is the
+        # opposite of reimplementing it — which is why the stdlib ``logging`` import
+        # stays forbidden above for every module including this one, and why the
+        # guard below pins what the bridge is allowed to do with it.
+        forbidden_modules.append("shared.logging_setup")
     if name != "importing.py":
         # Phase 2 gave the scanner one narrow, sanctioned edge to maintenance; the
         # test below pins it to exactly ``is_link``.
@@ -632,25 +680,37 @@ _PHASE_FIVE_NAMES = (
     "succeed", "complete_with_failures", "finish_cancelled",
 )
 
-#: Still owned by a later phase, in every module this drop has so far.
-_LATER_PHASE_NAMES = (
-    # Phase 7 ETA / projection
-    "EtaEstimator", "estimate_remaining", "summary_lines", "detail_lines",
-    # Phase 8 adapters
-    "ImportedFileList", "JobControlBar", "build_ui",
+#: Phase 7 landed reporting in ``job_control.py``. These names stay forbidden in the
+#: importing modules, which report no job. ``pump`` is deliberately absent for the
+#: same reason ``request_cancel`` is: the import coordinator and the job event stream
+#: each legitimately drain their own subsystem's queue, and one name owned by two
+#: subsystems is exactly the separation Phase 4's isolation gate exists to keep.
+_PHASE_SEVEN_NAMES = (
+    "JobReporter", "JobEventStream", "EventVerdict", "LoggerBridge", "EtaEstimator",
+    "ProgressTracker", "ProgressView", "ProgressMode", "SummaryView",
+    "summary_lines", "detail_lines", "project_summary", "state_message",
+    "format_duration",
 )
 
-#: What each module is forbidden from defining, now that Phase 5 has landed.
+#: Still owned by a later phase, in every module this drop has so far.
+_LATER_PHASE_NAMES = (
+    # Phase 8 adapters
+    "ImportedFileList", "JobControlBar", "build_ui", "JobPanel", "ImportPanel",
+)
+
+#: What each module is forbidden from defining, now that Phase 7 has landed.
 _FORBIDDEN_BY_MODULE = {
     "importing.py": (
         _LATER_PHASE_NAMES + _PHASE_FOUR_NAMES + _PHASE_FIVE_NAMES
-        + ("request_cancel",)),
+        + _PHASE_SEVEN_NAMES + ("request_cancel",)),
     "job_control.py": _LATER_PHASE_NAMES + _PHASE_THREE_NAMES + tuple(
-        name for name in _PHASE_FOUR_NAMES if name != "request_cancel"),
+        name for name in _PHASE_FOUR_NAMES
+        if name not in ("request_cancel", "pump")),
     # The coordinator drives the manager; it must never grow a second one, and it
     # runs no processing job either.
     "import_coordination.py": (
-        _LATER_PHASE_NAMES + _PHASE_THREE_NAMES + _PHASE_FIVE_NAMES),
+        _LATER_PHASE_NAMES + _PHASE_THREE_NAMES + _PHASE_FIVE_NAMES
+        + _PHASE_SEVEN_NAMES),
 }
 
 
@@ -670,7 +730,7 @@ def test_no_phase_six_to_eight_behaviour_exists_yet(plan3_trees, name):
 
 
 def test_phase_six_delivered_its_own_names_and_no_more():
-    """Capture, locking, outcomes and retry exist; Phase 7's reporting does not."""
+    """Capture, locking, outcomes and retry exist, and still do."""
     from shared import job_control
 
     for delivered in (
@@ -679,9 +739,75 @@ def test_phase_six_delivered_its_own_names_and_no_more():
     ):
         assert hasattr(job_control, delivered), delivered
 
-    for later in ("EtaEstimator", "estimate_remaining", "summary_lines",
-                  "detail_lines", "ProgressReport", "JobEventStream"):
+
+def test_phase_seven_delivered_its_own_names_and_no_more():
+    """Reporting exists, in the job module, and Phase 8's adapters still do not."""
+    from shared import import_coordination, importing, job_control
+
+    for delivered in _PHASE_SEVEN_NAMES + (
+        "SUMMARY_KINDS", "CALCULATING", "DEFAULT_MINIMUM_SAMPLES",
+        "DEFAULT_SAMPLE_WINDOW", "IDLE_PROGRESS",
+    ):
+        assert hasattr(job_control, delivered), delivered
+
+    for later in _LATER_PHASE_NAMES:
         assert not hasattr(job_control, later), later
+    # Reporting a job is not importing files: neither importing module gained any
+    # of it, and the job module still owns no imported list and no import lifecycle.
+    for module in (importing, import_coordination):
+        for foreign in _PHASE_SEVEN_NAMES:
+            assert not hasattr(module, foreign), (module.__name__, foreign)
+    for foreign in ("ImportedFileManager", "ImportCoordinator", "ImportPoller"):
+        assert not hasattr(job_control, foreign), foreign
+
+
+def test_the_phase_seven_surface_is_pure_and_owns_no_lifecycle():
+    """It reports a run. It does not run one, render one, or store one."""
+    from shared import job_control
+
+    assert job_control.SUMMARY_KINDS.isdisjoint({
+        job_control.JobEventKind.PROGRESS,
+        job_control.JobEventKind.CURRENT_ITEM,
+        job_control.JobEventKind.TECHNICAL_DETAIL,
+    }), "per-item churn and diagnostics never become Summary lines"
+
+    # The event vocabulary Phase 1 froze was extended by nothing.
+    assert len(job_control.JobEventKind) == 11
+    assert job_control.JobEvent.__slots__ == (
+        "kind", "run_id", "sequence", "timestamp", "message", "detail", "state",
+        "stage", "item_id", "completed", "total", "count", "location")
+
+    # And no severity, lineage or output field arrived on the new types either.
+    for owner in (job_control.ProgressView, job_control.SummaryView):
+        fields = set(getattr(owner, "__slots__", ()))
+        for forbidden in ("severity", "level", "lineage", "parent_run", "output",
+                          "output_path", "destination", "run_directory",
+                          "reservation"):
+            assert forbidden not in fields, (owner.__name__, forbidden)
+
+
+def test_no_second_progress_or_logging_implementation_exists():
+    """§5.2: reuse ``ProgressIndicator`` and the session logger; build neither again."""
+    text = (SHARED / "job_control.py").read_text(encoding="utf-8")
+    for owned_by_ui_theme in ("Progressbar", "ProgressIndicator(", "ttk.", "apply_theme"):
+        assert owned_by_ui_theme not in text, owned_by_ui_theme
+    for owned_by_logging_setup in (
+        "FileHandler", "StreamHandler", "basicConfig", "addHandler", "setFormatter",
+        "Formatter", "setLevel", "getLogger", "max_sessions", "_prune_old_logs",
+        "LOGS_DIR", "logs_dir",
+    ):
+        assert owned_by_logging_setup not in text, owned_by_logging_setup
+    assert "logging_setup.get_logger()" in text, "it uses the one that already exists"
+
+    # The two reused services are themselves untouched by this drop.
+    for reused in ("logging_setup.py", "ui_theme.py"):
+        modules = imported_names(parse(SHARED / reused))
+        for plan3 in PLAN3_MODULE_NAMES:
+            assert not any(entry.endswith(plan3) for entry in modules), (reused, plan3)
+    theme = defined_names(parse(SHARED / "ui_theme.py"))
+    assert "ProgressIndicator" in theme
+    assert defined_names(parse(SHARED / "logging_setup.py")) == {
+        "configured_max_sessions", "_prune_old_logs", "get_logger"}
 
 
 def test_phase_six_added_no_output_descriptor():
@@ -755,8 +881,7 @@ def test_phase_five_delivered_its_own_names_and_no_more():
     ):
         assert hasattr(job_control, delivered), delivered
 
-    for later in ("EtaEstimator", "estimate_remaining", "JobControlBar",
-                  "ImportedFileList", "build_ui"):
+    for later in _LATER_PHASE_NAMES:
         assert not hasattr(job_control, later), later
     # The controller runs a job; it does not own an imported list or an import.
     for foreign in ("ImportedFileManager", "ImportCoordinator", "ImportPoller"):
@@ -828,16 +953,57 @@ def test_output_paths_was_not_changed_for_the_importer():
         assert not any(entry.endswith(plan3) for entry in modules), plan3
 
 
-def test_no_eta_arithmetic_exists_anywhere_in_the_foundation():
-    """Timestamps are *carried* from an injected clock; none is read or subtracted."""
+def test_no_module_in_the_foundation_reads_a_clock_of_its_own():
+    """Every timestamp and every duration arrives through an injected clock.
+
+    Phase 7 gave ``job_control.py`` the estimator, so it now subtracts timestamps —
+    but it still may not *read* one. That is what keeps the whole of §6.13 testable
+    with a fake clock and without a single sleep, and it is the part of this guard
+    that matters most, so it is checked for all three modules exactly as before.
+    """
     for name in PLAN3_MODULES:
         tree = plan3_trees_for(name)
-        assert "time" not in {entry.split(".")[0] for entry in imported_names(tree)}, name
+        top_level = {entry.split(".")[0] for entry in imported_names(tree)}
+        for clock_module in ("time", "datetime", "calendar"):
+            assert clock_module not in top_level, (name, clock_module)
         called = called_attributes(tree) | called_bare_names(tree)
         for clock in ("monotonic", "perf_counter", "time", "now", "utcnow"):
             assert clock not in called, (name, clock)
-        text = (SHARED / name).read_text(encoding="utf-8")
-        assert "Calculating" not in text, name
+
+
+def test_the_importing_modules_still_do_no_eta_arithmetic():
+    """The estimate belongs to the job, not to the import that filled its list.
+
+    Checked as *defined names*, not as substrings: the coordinator's prose is
+    entitled to say that its live count is "never an estimate" while defining
+    nothing that produces one.
+    """
+    for name in ("importing.py", "import_coordination.py"):
+        assert "Calculating" not in (SHARED / name).read_text(encoding="utf-8"), name
+        defined = defined_names(plan3_trees_for(name))
+        for symbol in defined:
+            lowered = symbol.lower()
+            for estimator_concept in ("eta", "estimate", "remaining", "duration"):
+                assert estimator_concept not in lowered, (name, symbol)
+
+
+def test_the_estimate_lives_in_exactly_one_place():
+    """One estimator, one reliability policy, one place that formats a duration."""
+    text = (SHARED / "job_control.py").read_text(encoding="utf-8")
+    assert text.count("class EtaEstimator") == 1
+    assert text.count("def format_duration") == 1
+    assert text.count('CALCULATING = "Calculating…"') == 1
+
+    tree = parse(SHARED / "job_control.py")
+    formatting = {
+        node.name for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            and call.func.id == "format_duration"
+            for call in ast.walk(node))
+    }
+    assert formatting == {"display"}, formatting
 
 
 def plan3_trees_for(name: str) -> ast.Module:
@@ -864,6 +1030,23 @@ def test_the_single_intended_ui_test_module_is_recorded_but_not_created():
 # --------------------------------------------------------------------------- #
 # Repository invariants
 # --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("name", PLAN3_MODULES)
+def test_the_foundation_added_no_runtime_dependency(name):
+    """Standard library and this project's own shared modules. Nothing else.
+
+    A structural version of the pinned-requirements check: a third-party import here
+    would ship in ``scripts/`` and would have to be installed on a fresh machine, and
+    the drop is not authorized to add one.
+    """
+    import sys
+
+    for module in imported_names(parse(SHARED / name)):
+        head = module.split(".")[0]
+        if not head or head == "shared" or head == "__future__":
+            continue
+        assert head in sys.stdlib_module_names, (name, module)
 
 
 def test_the_version_is_untouched():
@@ -952,6 +1135,6 @@ def test_the_new_modules_ship_and_the_new_tests_do_not():
     for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py",
                  "test_import_traversal.py", "test_import_manager.py",
                  "test_import_coordination.py", "test_job_controller.py",
-                 "test_job_run_results.py"):
+                 "test_job_run_results.py", "test_job_events_eta.py"):
         assert (TESTS / name).is_file()
         assert not (UNIVERSAL / name).exists()

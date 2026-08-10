@@ -1,16 +1,255 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–6 COMPLETE,
-PHASES 7–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–7 COMPLETE,
+PHASES 8–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
 and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
 with its deduplication and atomic transactions, the background import coordinator with its own
 cancellation, the cooperative run controller with pause/resume/cancel and one-acknowledgement
-settlement, and the run framing: one frozen configuration per run, a UI-neutral lock derivation,
-ordered item outcomes, and Retry Failed against the exact original snapshot. No production panel
-or launcher adopts any of it, no behaviour changed, and `version.py` is still `0.5.1`. Every
-later phase needs separate explicit maintainer approval.**
+settlement, the run framing (one frozen configuration per run, a UI-neutral lock derivation,
+ordered item outcomes, and Retry Failed against the exact original snapshot), and now the
+reporting layer: typed event production that cannot claim a state the controller never reached,
+a stream that refuses stale and post-terminal events, Summary/Details projections that keep
+commands and tracebacks out of the Summary, a bridge to the one existing session logger, a
+truthful progress contract for the existing `ProgressIndicator`, and a current-run rolling ETA
+that says `Calculating…` rather than guess. No production panel or launcher adopts any of it, no
+behaviour changed, and `version.py` is still `0.5.1`. Every later phase needs separate explicit
+maintainer approval.**
+
+### Phase 7 — Typed events, Summary/Details, progress, and rolling ETA (2026-08-10, HOME-PC)
+
+**Result: `shared/job_control.py` gained the reporting layer — `JobReporter` produces the typed
+events, `JobEventStream` decides which of them belong to the run at all, `summary_lines` and
+`detail_lines` project the two views a person reads, `LoggerBridge` feeds the technical ones to
+the session logger this application already opens, `ProgressTracker` says what a progress bar may
+honestly show, and `EtaEstimator` answers "how much longer" — or, far more often, `Calculating…`.
+258 focused tests, all pure: an injected clock, a list for a queue, a recorder for a logger, and
+no display, no disk, no process and no real workload anywhere. The production change is
+`job_control.py` alone, +1,037/−7, and all seven deleted lines are module-docstring lines
+rewritten in place. No mandatory gate was encountered and no approved Phase 1–6 contract was
+rewritten.**
+
+#### The contract-extraction gate, before any edit
+
+| # | Contract | What the active plan and the approved source actually specify |
+|---|---|---|
+| A | Event vocabulary | `JobEventKind` has been frozen at **eleven** members since Phase 1, and `JobEvent` at **thirteen** fields. Per-kind required payloads are already enforced in `_require_payload`; the timestamp is injected, finite and non-negative; `message` is display-safe and single-line, `detail` unrestricted; `TERMINAL_EVENT_KINDS` = {`COMPLETED`, `CANCELLED`}. **Phase 7 added no kind, no field, no severity system and no parallel event type** — it only produces and consumes what Phase 1 froze |
+| B | Lifecycle and ordering | Production is owned by `JobReporter`; `sequence` is the ordering authority; run binding is `run_id`; occurrence binding is `item_id` ∈ the run's `item_ids`; staleness means "not this run", never a wall-clock interval; a run ends exactly once |
+| C | Summary vs Details | §6.12's two lists, turned into `SUMMARY_KINDS` and its complement — see the inclusion matrix below |
+| D | Progress | `ui_theme.ProgressIndicator` already has exactly three presentations (`update`, `set_indeterminate`, `reset`), so `ProgressMode` has exactly three members and Phase 8 maps one onto the other. No second progress implementation |
+| E | Existing logger | `logging_setup.get_logger()` takes no argument, returns the `audiobook_tool` logger at DEBUG with one `FileHandler`, opens the session file **on first call**, and prunes to `logging.max_sessions`. The bridge must therefore resolve it *lazily* and create nothing |
+| F | ETA | §6.13 in full: injected monotonic clock, comparable completed units only, current run only, current work category only, three-sample minimum, twenty-sample rolling window, paused time excluded, invalid units excluded, media probes never samples, no persistence, central formatting, `Calculating…` for everything unreliable |
+| G | Scope | Frozen: §6.12 and §6.13. Unchangeable: every Phase 1–6 public contract. Narrow internal choices: the four recorded below. Deferred to Phase 8: applying any of it to a real widget |
+
+**No unresolved omission was found, and no mandatory gate was encountered.** The plan resolved
+every contract Phase 7 needed. Nothing was invented to fill a gap: in particular the plan defines
+no retry lineage, so none was added, and it prescribes no public logger-level mapping, so the one
+used is internal and is *not* encoded in the event vocabulary.
+
+#### Four narrow internal choices, recorded
+
+1. **Level mapping.** `TECHNICAL_DETAIL` → `debug`, `WARNING` → `warning`, `FAILURE` → `error`.
+   The repository already writes `warning`, `exception`, `debug` and `info`; `error` is the
+   standard level for a failure recorded outside an `except` block. Deliberately a private
+   `LoggerBridge.LEVELS` mapping rather than a severity field on `JobEvent`, so the public
+   vocabulary did not grow to express an implementation detail. Milestones are **not** forwarded:
+   they are already on screen, and duplicating them would bury the diagnostics the log exists for.
+2. **`state_message`.** One concise display-safe sentence per state, in one place, because two
+   surfaces that each write their own "Paused" eventually disagree. §6.10's `Pause requested` is
+   reproduced word for word.
+3. **Details timestamps are elapsed, not wall-clock.** The clock is injected and monotonic, so it
+   has no calendar meaning; `[+1.500s]` is measured from the first event of the projection.
+   Printing a fabricated time of day beside a real diagnostic would be the one lie in the view
+   whose whole job is fidelity.
+4. **Two drain seams instead of a `queue` import.** `drain(iterable)` and `pump(pull)`, where
+   `pull` returns `None` when empty. Phase 8's adapter wraps `get_nowait` and its empty signal;
+   this module stays free of `queue`, never blocks, and never asks how many events are waiting.
+
+#### What the reporting layer does, and why
+
+**A state is never asserted, only copied.** Every state-bearing event is minted from a
+`JobSnapshot` the Phase 5 controller handed out — `state_changed(snapshot)`,
+`completed(snapshot)`, `cancelled(snapshot)`. That is what makes the two dangerous claims
+*unconstructible* rather than merely checked: `PAUSED` cannot be reported while an indivisible
+stage is still running, because the controller only reaches `PAUSED` on worker acknowledgement
+and there is no other way to obtain the snapshot; and `CANCELLED` cannot be reported before
+acknowledgement, because `JobSnapshot.__post_init__` refuses to construct a cancelled snapshot
+without it. `completed` additionally refuses any state that is not one of the three endings, and
+`cancelled` refuses anything but `CANCELLED`. A snapshot from another run is refused outright.
+
+**Ordering and the one lock.** `sequence` is allocated atomically under a plain `threading.Lock`
+that covers the counter and nothing else — neither the caller's clock nor the caller's publisher
+is invoked while it is held, because §5.4 forbids holding a lock across user code, and a boundary
+guard now proves it by walking the `with` block in `_emit`. One consequence is stated in the code
+rather than hidden: a reporter shared by several threads may hand its queue two events in the
+opposite order to their numbers, and the stream then refuses the later arrival as `OUT_OF_ORDER`
+rather than filing it in the wrong place. One run reports from one producer.
+
+**The stream is the single gate.** Four questions can only be answered against a run rather than
+against an event — is it ours, does it name an occurrence we have, has the run already ended, and
+where does it go in the order — so `JobEventStream` answers all four once and every consumer
+downstream sees the same story. Its verdicts are `ACCEPTED`, `STALE_RUN`, `UNKNOWN_ITEM`,
+`AFTER_TERMINAL`, `DUPLICATE_TERMINAL` and `OUT_OF_ORDER`. **A rejected event is completely
+inert**: not stored in the history, not projected into Summary or Details, and not forwarded to
+the logger — tested directly for both the stale-run and post-terminal cases. It is kept only in
+`rejected`, in memory, so a developer can see what was turned away and why. Deliberate duplicates
+of one path stay independently reportable throughout, because every binding is on occurrence id
+and never on a path — proved end to end with two occurrences of the same file.
+
+**Summary versus Details.** The inclusion matrix, built from §6.12:
+
+| In Summary | Out of Summary | In Details |
+|---|---|---|
+| state and stage changes; import count; concise warnings; concise failures; an explicitly supplied output location; the terminal result | every per-file diagnostic; raw commands; traceback text; detailed subprocess output; exception diagnostics | every accepted event, timestamped, with its diagnostics kept whole and multi-line detail indented rather than flattened |
+
+The anti-flooding rule is structural rather than a heuristic: `_summary_line` **never reads the
+`detail` field at all**, so a command or a traceback cannot reach the Summary by accident. Current
+stage and current occurrence are still "supported" by the Summary, but as *state* on `SummaryView`
+rather than as history — appending them two hundred times is exactly the flooding §6.12 forbids.
+A test drives two hundred files' worth of churn (603 events) through the projection and gets three
+Summary lines and 603 Details lines.
+
+**The logger bridge creates nothing.** It asks `logging_setup.get_logger()` for the one logger the
+launcher already opens, and only when it first has something to forward — constructing a bridge
+must never be what opens a log file, and a test proves it by making the resolver explode. There is
+no second logger, handler, file, formatter, retention policy or telemetry path; a guard asserts by
+name that none of `logging_setup`'s vocabulary appears in `job_control.py`, and `logging_setup.py`
+itself is byte-identical to the Phase 6 commit. The stdlib `logging` module stays forbidden.
+
+**Progress is truthful or it is indeterminate.** Two rules do all the work. Progress does not go
+backwards *within one scope* (one stage, one total), so a late or duplicated report cannot make a
+run look like it lost ground; when the total itself changes the scope changed, and the new pair is
+adopted rather than compared across. And **an ending changes no counter**: a run that succeeded
+after reporting three of five files shows three of five, because "it finished" and "it did all of
+it" are different claims and only the events can make the second one. An unknown total stays
+`INDETERMINATE` and is never turned into one-of-one. A new stage starts the count again.
+`ProgressView` is a frozen value with no widget in it; `ProgressMode`'s three members are exactly
+the three presentations `ProgressIndicator` already has, and Phase 7 instantiates none of them.
+
+**The ETA.** `EtaEstimator` measures with the injected clock between `begin(category)` and
+`complete()`, keeps a `deque(maxlen=20)` of comparable samples, needs three before it will say
+anything, and discards every unit that did not honestly complete. `PAUSED` starts an excluded
+interval and `RUNNING` closes it, so repeated pause/resume cycles are all subtracted to the
+second — while `PAUSE_REQUESTED` deliberately does **not** stop the clock, because §6.10 says the
+stage keeps running and counting that as a pause would understate every later estimate. A changed
+work category clears the history rather than averaging incomparable units. A new run or a retry
+gets a new estimator and there is nothing to inherit, because nothing is stored anywhere. A
+backwards or non-finite clock costs that one sample and leaves the earlier ones intact. It returns
+`Calculating…` for an unknown total, too few samples, a changed category, a paused run, a
+terminal run, and a question asked about a different run. `format_duration` is the single place a
+length of time becomes text, and a guard proves it is called from exactly one function.
+
+#### Deviations
+
+**None.** No approved Phase 1–6 contract was rewritten. `JobEventKind` still has eleven members
+and `JobEvent` still has its thirteen Phase 1 fields, checked by name in two suites.
+`cancellation.py`, `importing.py`, `import_coordination.py`, `output_paths.py`, `maintenance.py`,
+`logging_setup.py`, `ui_theme.py` and **every approved Phase 1–6 test file except the boundary
+guards** are byte-identical to the Phase 6 commit. `git diff --numstat` reports **zero deleted
+lines** in `job_control.py`'s existing sections; the only seven deletions are module-docstring
+lines rewritten in place, because the docstring said this module contains "no ETA arithmetic" and
+that had to stop being true before it stopped being written.
+
+*Six boundary guards were narrowed rather than weakened, each recorded here:* the controller's
+lock count is now checked **per class** (a stronger statement than the module-wide count it
+replaced, plus a new guard that no third class holds a lock, plus a new guard that `_emit` calls
+neither the clock nor the publisher under its lock); `shared.logging_setup` is permitted in
+`job_control.py` only, while the stdlib `logging` import stays forbidden everywhere; `pump` is
+exempted for `job_control.py` for exactly the reason `request_cancel` already was — two subsystems
+legitimately drain their own queues; the Phase 7 names moved off the "later phase" list and onto a
+positive `_PHASE_SEVEN_NAMES` list still forbidden in both importing modules; and the ETA guard
+split into one half that still forbids **all three** modules from reading a clock of their own and
+one half that keeps `Calculating…` and every estimator concept out of the importing modules,
+checked as defined names rather than as substrings.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **337 passed** (328 + 9 net new guards); Phase 2
+  traversal **91 passed, 6 skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4
+  coordination **129 passed**; Phase 5 controller **173 passed**; Phase 6 run framing **174
+  passed**; **Phase 7 reporting 258 passed, 0 skipped**, stable over **eight consecutive runs**
+  at 0.30 s; maintenance and cleanup **337 passed**; output paths **255 passed, 1 skipped, 1
+  warning**; the eight cancellation-bearing production suites **61 passed**, unchanged.
+- The eight cancellation-bearing suites, named once so the figure can be reproduced:
+  `test_maker_custom_destination.py` (31), `test_prototype_regression.py` (12),
+  `test_batch_convert_folders.py` (5), `test_m4b_maker_smoke.py` (4), `test_mp3_tool_smoke.py`
+  (3), `test_kokoro_timing_wiring.py` (3), `test_tts_smoke.py` (2),
+  `test_m4b_converter_smoke.py` (1) = **61**.
+- Collection **2,388** (2,121 + 258 new Phase 7 tests + 9 net new boundary guards). Full suite
+  **2,375 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented Tk
+  transient did not recur in any run. `scripts/verify.py` **RESULT: PASS** (re-run after the
+  documentation edits). Compile gate exit 0.
+- **The 13 skips, reconciled node by node — and a documentation correction.** The prose in the
+  Phase 6 entry said "five Phase 2 at `test_import_traversal.py:131`"; the actual number is
+  **six**, which is the whole of the arithmetic gap the Phase 7 kickoff flagged (the categories
+  summed to 12 against a real 13). No test was lost and no new skip appeared: the label was wrong
+  by one and is corrected here. The exact accounting, unchanged before and after Phase 7:
+
+| Node | Count | Reason |
+|---|---|---|
+| `test_import_traversal.py:131` | **6** | three file symlinks and three directory symlinks, all `[WinError 1314]` — privilege not held |
+| `test_cover_source_side.py:363` | 1 | file symlink, `[WinError 1314]` |
+| `test_output_paths.py:757` | 1 | file symlink, `OSError` |
+| `test_import_traversal.py:552` | 1 | this filesystem is case-insensitive |
+| `test_import_manager.py:678` | 1 | this filesystem is case-insensitive |
+| `test_jack_ryan_final_product.py:40`, `:44`, `:64` | 3 | `JACK_RYAN_M4B_FOLDER` fixture not set |
+| **Total** | **13** | |
+
+- **The 1 warning**, unchanged and third-party: `.venv\Lib\site-packages\pydub\utils.py:14` —
+  `DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13`.
+- **Whitespace, stated precisely.** Scoped to code, `git diff --check -- '*.py'` exits **0**. One
+  genuine defect was introduced and fixed rather than tolerated: moving the Phase 7 block below
+  the module's local validators (necessary, because `IDLE_PROGRESS` is evaluated at import and
+  needs them) left a blank line at end of file, which the check caught and which is gone. The
+  broad check's remaining findings are the established inherited ones — `Handoff.md` is stored as
+  a CRLF blob so every added line reads as trailing whitespace, and the drop header uses markdown
+  two-space hard line breaks. **Phase 7 introduced no new non-structural whitespace**, and no file
+  was reformatted to quieten the check. Note also that `job_control.py`'s worktree copy is CRLF
+  while its blob is LF; the block move was written with `newline=""` throughout, so no
+  line-ending change was recorded.
+- No test sleeps and none waits on a wall clock. The clock is injected everywhere; the one
+  genuinely concurrent test (four threads numbering a hundred events) uses a `threading.Barrier`
+  and bounded five-second joins that assert the thread finished.
+
+#### Repository state
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`, start SHA
+`f3afa9c168741355499bb9e4ee920973a87333ce` (approved Phase 6), confirmed equal to its upstream
+and to `origin/feature/...` before any edit; `origin/master` still
+`563df9884497032e19abd4437a0e66584cd9ec12`; worktree and index clean with no untracked files at
+the start. All seven approved phase commits confirmed ancestors of HEAD. Version `0.5.1`. Root
+`config-template.toml` absent from the worktree, the index and the committed tree, and tracked
+nowhere. The four canonical documents keep their exact casing with no alias, the four protected
+`don't-delete` references are intact, and all **22** approved screenshots are byte-identical to
+`origin/master`. No production panel or launcher imports or names any Plan 3 module. No
+dependency was added — a new guard proves every import in all three Plan 3 modules is either the
+standard library or `shared`. `shared/job_ui.py` and `files/tests/test_job_ui.py` still do not
+exist; Phase 8 owns them.
+
+#### Changed paths
+
+| Path | Change |
+|---|---|
+| `scripts/Universal/shared/job_control.py` | **+1,037 / −7** → 2,723 lines (the seven are docstring lines rewritten in place) |
+| `files/tests/test_job_events_eta.py` | **added, 2,084 lines — 258 tests**, none skipped |
+| `files/tests/test_plan3_boundaries.py` | **+205 / −22** → 1,140 lines |
+| `md-instructions/Handoff.md` | this entry |
+| `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` | status/baseline header only |
+| `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` | Plan 3 status, evidence and next action only |
+
+No generated artifact was committed.
+
+#### Next
+
+**Phase 8 — Reusable Tk adapters and developer-only integration harness. Not started; it
+requires separate explicit maintainer approval.** It creates `shared/job_ui.py` and
+`files/tests/test_job_ui.py` (the single intended UI-test filename; `test_import_ui.py` will not
+be created), and brings its own boundaries: every widget mutation on the Tk/main thread with
+thread ids recorded, queue-only worker communication, close-during-scan and close-during-job
+without a traceback or a lingering `after` callback, `ACT.*` style isolation with the native
+macOS branch preserved, reuse of the existing `ProgressIndicator` rather than a new widget, and a
+developer harness with no launcher entry, no real output and no seventh production tool.
 
 ### Phase 6 — Frozen snapshots, locking contract, failures, and Retry Failed (2026-08-09, HOME-PC)
 

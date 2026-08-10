@@ -1,4 +1,4 @@
-"""Shared job control — v0.6.0 Drop 3 (Plan 3), Phases 1, 5 and 6.
+"""Shared job control — v0.6.0 Drop 3 (Plan 3), Phases 1, 5, 6 and 7.
 
 Phase 1 made this module **contracts only**: the states a run can be in, the
 transitions between them that are legal, the frozen snapshot a run is judged by,
@@ -26,6 +26,13 @@ an item-less :class:`FailureRecord`. Keeping those apart is what makes Retry Fai
 meaningful, and :class:`RunResult` derives the distinction rather than letting a
 caller assert it.
 
+Phase 7 made a run *legible*. :class:`JobReporter` produces the typed events,
+:class:`JobEventStream` decides which of them belong to the run at all,
+:func:`summary_lines` and :func:`detail_lines` project the two views a person reads,
+:class:`ProgressTracker` says what a progress bar may honestly show, and
+:class:`EtaEstimator` answers "how much longer" — or, far more often,
+``Calculating…``. All of it is still pure: an injected clock, no display, no disk.
+
 What lives here
 ---------------
 ``JobState`` and ``LEGAL_TRANSITIONS`` — the complete state vocabulary and the
@@ -34,15 +41,22 @@ being an emergent property of whoever wrote the controller. ``freeze_options`` �
 the deep copy-and-freeze that makes a tool's options safe to hand to a worker.
 ``RunSnapshot`` — one run's single source of truth. ``FailureRecord`` /
 ``FailureLog`` / ``RetryRequest`` — what went wrong and what may be retried.
-``JobEvent`` — the typed, Tk-free report a worker puts on a queue.
+``JobEvent`` — the typed, Tk-free report a worker puts on a queue — together with
+the Phase 7 layer that produces, filters, projects, measures and estimates from it.
 
 What deliberately does **not** live here
 ---------------------------------------
-No thread, no queue, no polling, no ETA arithmetic, no progress widget, no Tk, and
-no output placement of any kind. Phases 6–8 own those. In particular this module
-reserves no run directory and defines no output-policy type: a destination choice
-reaches a run only inside a later adopter's frozen tool options, and Plan 2 remains
-the only owner of paths.
+No thread, no queue, no polling, no widget, no Tk, no second logger, and no output
+placement of any kind. Phase 8 owns the adapters that render any of this. In
+particular this module reserves no run directory and defines no output-policy type:
+a destination choice reaches a run only inside a later adopter's frozen tool
+options, and Plan 2 remains the only owner of paths. The one edge outwards is the
+technical-event bridge, which asks ``logging_setup`` for the session logger the
+application already opens and creates nothing of its own.
+
+Nothing here reads a clock. Every timestamp and every measured duration arrives
+through a clock the caller injected, which is what lets the whole of §6.13 be tested
+deterministically without a single sleep.
 
 The relationship with ``shared.cancellation``
 ---------------------------------------------
@@ -69,6 +83,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import threading
+from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -77,6 +92,7 @@ from types import MappingProxyType
 from typing import Any
 
 from shared import config as _config
+from shared import logging_setup as _logging_setup
 from shared.cancellation import ConversionCancelled
 from shared.importing import (
     ImportContractError,
@@ -118,6 +134,26 @@ __all__ = [
     "ItemStatus",
     "ItemOutcome",
     "RunResult",
+    "state_message",
+    "JobReporter",
+    "EventVerdict",
+    "JobEventStream",
+    "DEFAULT_PUMP_LIMIT",
+    "LoggerBridge",
+    "SUMMARY_KINDS",
+    "SummaryView",
+    "summary_lines",
+    "detail_lines",
+    "project_summary",
+    "ProgressMode",
+    "ProgressView",
+    "ProgressTracker",
+    "IDLE_PROGRESS",
+    "EtaEstimator",
+    "CALCULATING",
+    "DEFAULT_MINIMUM_SAMPLES",
+    "DEFAULT_SAMPLE_WINDOW",
+    "format_duration",
 ]
 
 
@@ -1691,3 +1727,997 @@ def _require_timestamp(field_name: str, value: object) -> float:
     if number < 0:
         raise JobContractError(f"{field_name} must not be negative, got {value!r}")
     return number
+
+
+# --------------------------------------------------------------------------- #
+# Reporting — Phase 7
+#
+# Everything from here down turns a run into something a person can read, and does
+# it without a display. Production, filtering, projection, progress arithmetic and
+# the estimator are all Tk-free values and pure functions; Phase 8 renders them.
+#
+# The one rule that shapes all of it: a report may not claim more than the run
+# actually established. That is why a state-bearing event is minted from the
+# controller's own snapshot rather than from a state somebody typed, why progress is
+# never rounded up to meet a happy ending, and why the estimate says
+# "Calculating…" far more readily than it says a number.
+# --------------------------------------------------------------------------- #
+
+#: Shown instead of a number whenever an estimate would not be trustworthy. The same
+#: text the cleanup inventory already shows, so the application speaks with one voice
+#: (``maintenance.CALCULATING_TEXT``); it is repeated rather than imported because
+#: this module has no business depending on the cleanup service.
+CALCULATING = "Calculating…"
+
+#: §6.13's reliability policy: at least three comparable completed samples, and never
+#: more than the latest twenty.
+DEFAULT_MINIMUM_SAMPLES = 3
+DEFAULT_SAMPLE_WINDOW = 20
+
+#: How many events one pump takes at most, so a poll cannot be starved by a producer
+#: that is faster than the puller. A bound, never a timing assumption.
+DEFAULT_PUMP_LIMIT = 256
+
+#: One concise line per state, in one place. Two surfaces that each write their own
+#: "Paused" eventually disagree about what pausing means; §6.10's "Pause requested"
+#: in particular has to stay word for word, because it is the whole difference
+#: between an honest UI and one that claims an indivisible stage stopped.
+_STATE_MESSAGES: Mapping[JobState, str] = MappingProxyType({
+    JobState.IDLE: "Ready.",
+    JobState.RUNNING: "Running.",
+    JobState.PAUSE_REQUESTED: "Pause requested.",
+    JobState.PAUSED: "Paused.",
+    JobState.CANCEL_REQUESTED: "Cancelling…",
+    JobState.CANCELLED: "Cancelled.",
+    JobState.SUCCEEDED: "Finished.",
+    JobState.COMPLETED_WITH_FAILURES: "Finished with failures.",
+    JobState.FAILED: "The run failed.",
+})
+
+
+def state_message(state: JobState) -> str:
+    """The one concise, display-safe sentence for *state*."""
+    if not isinstance(state, JobState):
+        raise JobContractError(
+            f"state must be a JobState, got {type(state).__name__}")
+    return _STATE_MESSAGES[state]
+
+
+class JobReporter:
+    """Produces the typed events of one run. Tk-free, and unable to overclaim.
+
+    **A state is never asserted, only copied.** Every state-bearing event is minted
+    from a :class:`JobSnapshot` the controller handed out, so the reporter cannot say
+    ``PAUSED`` while an indivisible stage is still running, and cannot say
+    ``CANCELLED`` before a worker acknowledged the cancellation at a checkpoint —
+    there is simply no snapshot in existence that would let it. That is a stronger
+    guarantee than checking a claim after the fact, because the invalid event is
+    never constructed.
+
+    **Ordering.** ``sequence`` is allocated atomically and is the ordering authority;
+    the timestamp is only for display, since an injected clock may have coarse
+    resolution. The lock covers the counter and nothing else: neither the clock nor
+    the publisher is called while it is held, because §5.4 forbids holding a lock
+    across user code. One consequence is worth stating plainly — a reporter shared by
+    several threads may hand its queue two events in the opposite order to their
+    numbers, and :class:`JobEventStream` will refuse the later arrival rather than
+    file it in the wrong place. One run reports from one producer.
+    """
+
+    __slots__ = ("_run_id", "_clock", "_publish", "_item_ids", "_lock", "_sequence")
+
+    def __init__(
+        self,
+        run_id: str,
+        *,
+        clock: Callable[[], float],
+        publish: "Callable[[JobEvent], Any] | None" = None,
+        item_ids: "Iterable[str] | None" = None,
+    ) -> None:
+        if not callable(clock):
+            raise JobContractError("clock must be callable")
+        if publish is not None and not callable(publish):
+            raise JobContractError("publish must be callable")
+        self._run_id = _require_identifier("run_id", run_id)
+        self._clock = clock
+        self._publish = publish
+        self._item_ids = None if item_ids is None else frozenset(item_ids)
+        self._lock = threading.Lock()
+        self._sequence = 0
+
+    @classmethod
+    def for_run(
+        cls,
+        snapshot: RunSnapshot,
+        *,
+        clock: Callable[[], float],
+        publish: "Callable[[JobEvent], Any] | None" = None,
+    ) -> "JobReporter":
+        """Bind a reporter to a frozen run: its id, and the occurrences it may name."""
+        if not isinstance(snapshot, RunSnapshot):
+            raise JobContractError(
+                f"snapshot must be a RunSnapshot, got {type(snapshot).__name__}")
+        return cls(
+            snapshot.snapshot_id, clock=clock, publish=publish,
+            item_ids=snapshot.item_ids)
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
+    @property
+    def sequence(self) -> int:
+        """The number the next event will carry."""
+        with self._lock:
+            return self._sequence
+
+    # -- production ------------------------------------------------------- #
+
+    def state_changed(self, snapshot: JobSnapshot, message: str = "") -> "JobEvent":
+        state = self._require_own_snapshot(snapshot)
+        return self._emit(
+            JobEventKind.STATE_CHANGED, state=state,
+            message=message or state_message(state))
+
+    def stage_changed(self, stage: str, message: str = "", detail: str = "") -> "JobEvent":
+        return self._emit(
+            JobEventKind.STAGE_CHANGED, stage=stage, message=message, detail=detail)
+
+    def progress(
+        self,
+        completed: int,
+        total: "int | None" = None,
+        *,
+        item_id: "str | None" = None,
+        stage: "str | None" = None,
+        message: str = "",
+    ) -> "JobEvent":
+        return self._emit(
+            JobEventKind.PROGRESS, completed=completed, total=total,
+            item_id=self._require_item(item_id), stage=stage, message=message)
+
+    def current_item(self, item_id: str, message: str = "") -> "JobEvent":
+        return self._emit(
+            JobEventKind.CURRENT_ITEM, item_id=self._require_item(item_id),
+            message=message)
+
+    def import_count(self, count: int, message: str = "") -> "JobEvent":
+        return self._emit(JobEventKind.IMPORT_COUNT, count=count, message=message)
+
+    def warning(self, message: str, detail: str = "") -> "JobEvent":
+        return self._emit(JobEventKind.WARNING, message=message, detail=detail)
+
+    def failure(
+        self,
+        message: str,
+        detail: str = "",
+        *,
+        item_id: "str | None" = None,
+        stage: "str | None" = None,
+    ) -> "JobEvent":
+        """One thing that went wrong. It records; it does not end the run.
+
+        Ending a run is :class:`JobController`'s, and an item failure is not a job
+        failure (§6.14) — reporting one changes no state at all.
+        """
+        return self._emit(
+            JobEventKind.FAILURE, message=message, detail=detail,
+            item_id=self._require_item(item_id), stage=stage)
+
+    def output_location(self, location: "Path | str", message: str = "") -> "JobEvent":
+        """Report a location the caller supplied.
+
+        It is named and nothing more: this creates no directory, reserves no run,
+        and does not ask the filesystem whether the location exists. Where output
+        goes stays Plan 2's, through the adopting plan.
+        """
+        return self._emit(
+            JobEventKind.OUTPUT_LOCATION, location=location, message=message)
+
+    def technical(self, detail: str) -> "JobEvent":
+        """A diagnostic for Details and the session log. Never a Summary line."""
+        return self._emit(JobEventKind.TECHNICAL_DETAIL, detail=detail)
+
+    def completed(self, snapshot: JobSnapshot, message: str = "") -> "JobEvent":
+        """The one ending event for a run that finished, however it finished."""
+        state = self._require_own_snapshot(snapshot)
+        if state not in _ENDINGS:
+            raise JobContractError(
+                f"a run in {state.value} has not completed; the controller settles "
+                "the run before it is reported")
+        return self._emit(
+            JobEventKind.COMPLETED, state=state,
+            message=message or snapshot.failure_message or state_message(state))
+
+    def cancelled(self, snapshot: JobSnapshot, message: str = "") -> "JobEvent":
+        """The one ending event for a run the user stopped.
+
+        Only an acknowledged cancellation can produce this, because only an
+        acknowledged cancellation can produce the snapshot it needs.
+        """
+        state = self._require_own_snapshot(snapshot)
+        if state is not JobState.CANCELLED:
+            raise JobContractError(
+                f"a run in {state.value} is not cancelled; a cancellation is reported "
+                "once a worker has acknowledged it and finished its own cleanup")
+        return self._emit(
+            JobEventKind.CANCELLED, state=state,
+            message=message or state_message(state))
+
+    # -- internals -------------------------------------------------------- #
+
+    def _require_own_snapshot(self, snapshot: object) -> JobState:
+        if not isinstance(snapshot, JobSnapshot):
+            raise JobContractError(
+                "a state is reported from the controller's own JobSnapshot, not from "
+                f"a bare value: got {type(snapshot).__name__}")
+        if snapshot.run_id != self._run_id:
+            raise JobContractError(
+                f"snapshot belongs to run {snapshot.run_id!r}, not {self._run_id!r}")
+        return snapshot.state
+
+    def _require_item(self, item_id: "str | None") -> "str | None":
+        if item_id is None or self._item_ids is None:
+            return item_id
+        identifier = _require_identifier("item_id", item_id)
+        if identifier not in self._item_ids:
+            raise JobContractError(
+                f"occurrence {identifier!r} does not belong to run {self._run_id!r}")
+        return identifier
+
+    def _emit(self, kind: JobEventKind, **payload: Any) -> "JobEvent":
+        # The clock is the caller's code and the publisher is the caller's queue.
+        # Neither is touched while the counter lock is held.
+        at = self._clock()
+        with self._lock:
+            number = self._sequence
+            self._sequence = number + 1
+        entry = JobEvent(
+            kind=kind, run_id=self._run_id, sequence=number, timestamp=at, **payload)
+        if self._publish is not None:
+            self._publish(entry)
+        return entry
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"JobReporter(run_id={self._run_id!r}, sequence={self.sequence})"
+
+
+class EventVerdict(Enum):
+    """What a stream did with an event, and why."""
+
+    ACCEPTED = "accepted"
+    #: It belongs to a different run. Nothing is rendered and nothing is logged.
+    STALE_RUN = "stale_run"
+    #: It names an occurrence this run was never given.
+    UNKNOWN_ITEM = "unknown_item"
+    #: The run already ended. A late report cannot change what happened.
+    AFTER_TERMINAL = "after_terminal"
+    #: A run ends once. The second ending is refused, not overwritten.
+    DUPLICATE_TERMINAL = "duplicate_terminal"
+    #: Its number is not after the last one accepted, so it cannot be placed.
+    OUT_OF_ORDER = "out_of_order"
+
+
+class JobEventStream:
+    """The accepted history of one run — and the gate that decides what gets in.
+
+    Four things can only be judged against a run rather than against an event:
+    whether it belongs to *this* run, whether it names an occurrence this run
+    actually has, whether the run has already ended, and where it goes in the order.
+    This is where those four are decided, once, so that every consumer downstream —
+    Summary, Details, progress, the session log — sees exactly the same story.
+
+    A rejected event is inert: it is not stored in the history, not projected, and
+    not forwarded to the logger. It is kept in :attr:`rejected` only so a test or a
+    developer can see what was turned away and why.
+
+    Nothing here is a timing assumption. Draining ends when the source runs out or
+    the caller's bound is reached — never at a queue size, a sleep or a deadline.
+    """
+
+    __slots__ = ("_run_id", "_item_ids", "_bridge", "_events", "_rejected",
+                 "_terminal", "_last_sequence")
+
+    def __init__(
+        self,
+        run_id: str,
+        *,
+        item_ids: "Iterable[str] | None" = None,
+        bridge: "LoggerBridge | None" = None,
+    ) -> None:
+        if bridge is not None and not isinstance(bridge, LoggerBridge):
+            raise JobContractError(
+                f"bridge must be a LoggerBridge, got {type(bridge).__name__}")
+        self._run_id = _require_identifier("run_id", run_id)
+        self._item_ids = None if item_ids is None else frozenset(item_ids)
+        self._bridge = bridge
+        self._events: list[JobEvent] = []
+        self._rejected: list[tuple[JobEvent, EventVerdict]] = []
+        self._terminal: "JobEvent | None" = None
+        self._last_sequence = -1
+
+    @classmethod
+    def for_run(
+        cls, snapshot: RunSnapshot, *, bridge: "LoggerBridge | None" = None,
+    ) -> "JobEventStream":
+        if not isinstance(snapshot, RunSnapshot):
+            raise JobContractError(
+                f"snapshot must be a RunSnapshot, got {type(snapshot).__name__}")
+        return cls(snapshot.snapshot_id, item_ids=snapshot.item_ids, bridge=bridge)
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
+    @property
+    def events(self) -> tuple["JobEvent", ...]:
+        """Everything accepted, in the order it was accepted."""
+        return tuple(self._events)
+
+    @property
+    def rejected(self) -> tuple[tuple["JobEvent", EventVerdict], ...]:
+        return tuple(self._rejected)
+
+    @property
+    def terminal(self) -> "JobEvent | None":
+        return self._terminal
+
+    @property
+    def is_closed(self) -> bool:
+        """Whether the one terminal event has been accepted."""
+        return self._terminal is not None
+
+    def accept(self, entry: "JobEvent") -> EventVerdict:
+        """Judge one event. Accepting is the only branch with a side effect."""
+        if not isinstance(entry, JobEvent):
+            raise JobContractError(
+                f"a stream carries JobEvent, got {type(entry).__name__}")
+        verdict = self._judge(entry)
+        if verdict is not EventVerdict.ACCEPTED:
+            self._rejected.append((entry, verdict))
+            return verdict
+
+        self._events.append(entry)
+        self._last_sequence = entry.sequence
+        if entry.is_terminal:
+            self._terminal = entry
+        if self._bridge is not None:
+            self._bridge.forward(entry)
+        return verdict
+
+    def drain(
+        self, source: "Iterable[JobEvent]", *, limit: "int | None" = None,
+    ) -> tuple[EventVerdict, ...]:
+        """Judge an iterable of events in the order it yields them."""
+        if limit is not None:
+            _require_index("limit", limit, minimum=1)
+        if isinstance(source, (str, bytes)) or not isinstance(source, Iterable):
+            raise JobContractError("source must be an iterable of JobEvent")
+        verdicts: list[EventVerdict] = []
+        for entry in source:
+            if limit is not None and len(verdicts) >= limit:
+                break
+            verdicts.append(self.accept(entry))
+        return tuple(verdicts)
+
+    def pump(
+        self,
+        pull: "Callable[[], JobEvent | None]",
+        *,
+        limit: int = DEFAULT_PUMP_LIMIT,
+    ) -> tuple[EventVerdict, ...]:
+        """Take from a queue-shaped source until it is empty or *limit* is reached.
+
+        *pull* returns the next event or ``None`` when there is nothing waiting. That
+        seam is what keeps this module free of ``queue``: an adapter wraps
+        ``get_nowait`` and its empty signal, and this stays a pure loop that never
+        blocks and never asks how many are waiting.
+        """
+        if not callable(pull):
+            raise JobContractError("pull must be callable")
+        _require_index("limit", limit, minimum=1)
+        verdicts: list[EventVerdict] = []
+        while len(verdicts) < limit:
+            entry = pull()
+            if entry is None:
+                break
+            verdicts.append(self.accept(entry))
+        return tuple(verdicts)
+
+    def _judge(self, entry: "JobEvent") -> EventVerdict:
+        if entry.run_id != self._run_id:
+            return EventVerdict.STALE_RUN
+        if self._terminal is not None:
+            return (EventVerdict.DUPLICATE_TERMINAL if entry.is_terminal
+                    else EventVerdict.AFTER_TERMINAL)
+        if (self._item_ids is not None and entry.item_id is not None
+                and entry.item_id not in self._item_ids):
+            return EventVerdict.UNKNOWN_ITEM
+        if entry.sequence <= self._last_sequence:
+            return EventVerdict.OUT_OF_ORDER
+        return EventVerdict.ACCEPTED
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return (f"JobEventStream(run_id={self._run_id!r}, "
+                f"accepted={len(self._events)}, closed={self.is_closed})")
+
+
+class LoggerBridge:
+    """Sends the technical events to the session log this application already has.
+
+    It creates nothing: no logger, no handler, no file, no format, no retention
+    policy, no second destination. It asks ``logging_setup.get_logger()`` for the one
+    logger the launcher already opens, and only when it first has something to say —
+    constructing a bridge must never be what opens a log file.
+
+    Milestones are not forwarded. They are the Summary's job, they are already on
+    screen, and duplicating them into the log would bury the diagnostics that the log
+    exists for.
+    """
+
+    __slots__ = ("_logger",)
+
+    #: The narrowest mapping consistent with what this repository already writes.
+    #: An internal implementation detail, deliberately not encoded in the event
+    #: vocabulary: no severity field was added to :class:`JobEvent` to express it.
+    LEVELS: Mapping[JobEventKind, str] = MappingProxyType({
+        JobEventKind.TECHNICAL_DETAIL: "debug",
+        JobEventKind.WARNING: "warning",
+        JobEventKind.FAILURE: "error",
+    })
+
+    def __init__(self, logger: Any = None) -> None:
+        self._logger = logger
+
+    @property
+    def logger(self) -> Any:
+        """The session logger, resolved once, on first use."""
+        if self._logger is None:
+            self._logger = _logging_setup.get_logger()
+        return self._logger
+
+    def forward(self, entry: "JobEvent") -> bool:
+        """Write *entry* to the session log if it is one of the technical kinds."""
+        if not isinstance(entry, JobEvent):
+            raise JobContractError(
+                f"a bridge forwards JobEvent, got {type(entry).__name__}")
+        level = self.LEVELS.get(entry.kind)
+        if level is None:
+            return False
+        body = entry.message
+        if entry.detail:
+            body = f"{body} — {entry.detail}" if body else entry.detail
+        # Lazy %s formatting, as everything else in this repository writes it.
+        getattr(self.logger, level)("%s", f"[{entry.run_id}] {body}")
+        return True
+
+
+# --------------------------------------------------------------------------- #
+# Summary and Details
+#
+# One stream, two readers. The Summary is what a person watches while a run happens;
+# Details is what they send when it goes wrong. The split is not a filter applied
+# twice — it is a decision about what a *milestone* is.
+# --------------------------------------------------------------------------- #
+
+#: The kinds that become Summary lines. Progress and the current occurrence are
+#: deliberately absent: they are *state*, shown live by the progress indicator and
+#: the status label, not history to be appended two hundred times. Technical detail
+#: is absent because that is precisely what §6.12 says must not flood the Summary.
+SUMMARY_KINDS = frozenset({
+    JobEventKind.STATE_CHANGED,
+    JobEventKind.STAGE_CHANGED,
+    JobEventKind.IMPORT_COUNT,
+    JobEventKind.WARNING,
+    JobEventKind.FAILURE,
+    JobEventKind.OUTPUT_LOCATION,
+    JobEventKind.COMPLETED,
+    JobEventKind.CANCELLED,
+})
+
+
+def _require_events(source: object) -> tuple["JobEvent", ...]:
+    if isinstance(source, (str, bytes)) or not isinstance(source, Iterable):
+        raise JobContractError("expected an iterable of JobEvent")
+    entries = tuple(source)
+    for entry in entries:
+        if not isinstance(entry, JobEvent):
+            raise JobContractError(
+                f"expected JobEvent, got {type(entry).__name__}")
+    return entries
+
+
+def _summary_line(entry: "JobEvent") -> str:
+    """One concise line, built only from display-safe fields.
+
+    ``detail`` is never consulted here. That is the whole guarantee: a command, a
+    traceback or a diagnostic cannot reach the Summary by accident, because the
+    Summary never reads the field they live in.
+    """
+    if entry.message:
+        return entry.message
+    kind = entry.kind
+    if kind is JobEventKind.STAGE_CHANGED:
+        return f"Stage: {entry.stage}"
+    if kind is JobEventKind.IMPORT_COUNT:
+        return f"{entry.count} files imported."
+    if kind is JobEventKind.OUTPUT_LOCATION:
+        return f"Output: {entry.location}"
+    if entry.state is not None:
+        return state_message(entry.state)
+    return ""
+
+
+def summary_lines(source: "Iterable[JobEvent]") -> tuple[str, ...]:
+    """The milestones of a run, in order, with nothing technical in them."""
+    lines = []
+    for entry in _require_events(source):
+        if entry.kind not in SUMMARY_KINDS:
+            continue
+        line = _summary_line(entry)
+        if line:
+            lines.append(line)
+    return tuple(lines)
+
+
+def detail_lines(source: "Iterable[JobEvent]") -> tuple[str, ...]:
+    """Every event, timestamped, with its diagnostics kept whole.
+
+    Times are elapsed seconds since the first event rather than a wall clock: the
+    clock is injected and monotonic, so it has no calendar meaning, and pretending
+    otherwise would put a fictional time of day next to a real diagnostic.
+
+    A multi-line diagnostic is indented rather than flattened. Losing the shape of a
+    traceback is losing most of what a traceback is for.
+    """
+    entries = _require_events(source)
+    if not entries:
+        return ()
+    base = entries[0].timestamp
+    lines: list[str] = []
+    for entry in entries:
+        elapsed = entry.timestamp - base
+        head = f"[+{elapsed:.3f}s] {entry.kind.value}"
+        if entry.item_id is not None:
+            head = f"{head} ({entry.item_id})"
+        if entry.message:
+            head = f"{head}: {entry.message}"
+        extras = entry.detail.splitlines()
+        if len(extras) == 1 and not entry.message:
+            # A one-line diagnostic with nothing else to say reads better on the
+            # line it belongs to than under it.
+            lines.append(f"{head}: {extras[0]}")
+            continue
+        lines.append(head)
+        for extra in extras:
+            lines.append(f"    {extra}")
+    return tuple(lines)
+
+
+class ProgressMode(Enum):
+    """How a run's progress may honestly be shown.
+
+    These are the three states :class:`~shared.ui_theme.ProgressIndicator` already
+    has — an empty bar, a counted bar and an animated one. Phase 7 decides *which*;
+    Phase 8 calls the widget. No second progress implementation exists.
+    """
+
+    IDLE = "idle"
+    DETERMINATE = "determinate"
+    INDETERMINATE = "indeterminate"
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressView:
+    """What the progress indicator should show, as a value with no widget in it."""
+
+    mode: ProgressMode
+    completed: int = 0
+    total: "int | None" = None
+    label: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mode, ProgressMode):
+            raise JobContractError(
+                f"mode must be a ProgressMode, got {type(self.mode).__name__}")
+        object.__setattr__(
+            self, "completed", _require_index("completed", self.completed))
+        if self.total is not None:
+            object.__setattr__(self, "total", _require_index("total", self.total))
+        object.__setattr__(
+            self, "label", _require_display_safe("label", self.label, allow_blank=True))
+
+        if self.mode is ProgressMode.DETERMINATE:
+            if self.total is None:
+                raise JobContractError(
+                    "a determinate view needs a total; an unknown total is "
+                    "indeterminate, never a guess")
+            if self.completed > self.total:
+                raise JobContractError(
+                    f"progress {self.completed} exceeds total {self.total}")
+        elif self.total is not None:
+            raise JobContractError(
+                f"a {self.mode.value} view carries no total")
+        if self.mode is ProgressMode.IDLE and self.completed:
+            raise JobContractError("an idle view has counted nothing yet")
+
+    @property
+    def fraction(self) -> "float | None":
+        """The completed fraction, or ``None`` when there is honestly no such number."""
+        if self.mode is not ProgressMode.DETERMINATE or not self.total:
+            return None
+        return self.completed / self.total
+
+
+#: The starting view, and the one a new stage returns to.
+IDLE_PROGRESS = ProgressView(mode=ProgressMode.IDLE)
+
+
+class ProgressTracker:
+    """Turns reported progress into a view, refusing to improve on what was reported.
+
+    Two rules do all the work. **Progress does not go backwards** inside one scope —
+    a scope being one stage with one total — so a late or duplicated report cannot
+    make a run look like it lost ground. And **an ending changes no counter**: a run
+    that succeeded after reporting three of five files shows three of five, because
+    "it finished" and "it did all of it" are different claims and only the events can
+    make the second one.
+
+    A new stage starts the count again. Carrying a finished stage's five-of-five into
+    the next one would be the first lie a progress bar tells.
+    """
+
+    __slots__ = ("_mode", "_completed", "_total", "_label", "_stage", "_item_id")
+
+    def __init__(self, *, stage: "str | None" = None) -> None:
+        self._stage = None if stage is None else _require_identifier("stage", stage)
+        self._item_id: "str | None" = None
+        self._reset()
+
+    def _reset(self) -> None:
+        self._mode = ProgressMode.IDLE
+        self._completed = 0
+        self._total: "int | None" = None
+        self._label = ""
+
+    @property
+    def view(self) -> ProgressView:
+        return ProgressView(
+            mode=self._mode, completed=self._completed, total=self._total,
+            label=self._label)
+
+    @property
+    def stage(self) -> "str | None":
+        return self._stage
+
+    @property
+    def current_item_id(self) -> "str | None":
+        return self._item_id
+
+    def apply(self, entry: "JobEvent") -> ProgressView:
+        """Fold one accepted event in, and return the view it produces."""
+        if not isinstance(entry, JobEvent):
+            raise JobContractError(
+                f"a tracker folds in JobEvent, got {type(entry).__name__}")
+        kind = entry.kind
+        if kind is JobEventKind.STAGE_CHANGED:
+            self._stage = entry.stage
+            self._item_id = None
+            self._reset()
+        elif kind is JobEventKind.CURRENT_ITEM:
+            self._item_id = entry.item_id
+        elif kind is JobEventKind.PROGRESS:
+            self._apply_progress(entry)
+        return self.view
+
+    def _apply_progress(self, entry: "JobEvent") -> None:
+        if entry.total != self._total:
+            # A different total is a different scope — the work was recounted, or a
+            # count that had been unknown became known. Monotonicity is a rule
+            # *within* a scope, so adopt the new one rather than compare across.
+            self._total = entry.total
+            self._completed = entry.completed
+        elif entry.completed < self._completed:
+            return  # regressive inside one scope: keep what was already true
+        else:
+            self._completed = entry.completed
+        self._mode = (ProgressMode.DETERMINATE if self._total is not None
+                      else ProgressMode.INDETERMINATE)
+        if entry.message:
+            self._label = entry.message
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryView:
+    """Everything the Summary needs, derived from one run's accepted events.
+
+    The live parts — state, stage, current occurrence, progress, ETA — are *state*
+    rather than history, which is exactly why they do not also appear as repeated
+    lines. ``lines`` is the milestone history beside them.
+    """
+
+    state: "JobState | None" = None
+    stage: "str | None" = None
+    current_item_id: "str | None" = None
+    progress: ProgressView = IDLE_PROGRESS
+    eta: str = CALCULATING
+    warnings: tuple[str, ...] = ()
+    failures: tuple[str, ...] = ()
+    output_location: "Path | None" = None
+    final: str = ""
+    lines: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.state is not None and not isinstance(self.state, JobState):
+            raise JobContractError("state must be a JobState")
+        if not isinstance(self.progress, ProgressView):
+            raise JobContractError("progress must be a ProgressView")
+        if not isinstance(self.eta, str):
+            raise JobContractError("eta must be a string")
+
+
+def project_summary(
+    source: "Iterable[JobEvent]", *, eta: str = CALCULATING,
+) -> SummaryView:
+    """Derive the whole Summary from the events, and from nothing else.
+
+    *eta* is passed in rather than computed here: only the worker knows what remains,
+    and an estimate invented by a projection would be exactly the fabricated number
+    §6.13 exists to prevent.
+    """
+    entries = _require_events(source)
+    tracker = ProgressTracker()
+    state: "JobState | None" = None
+    warnings: list[str] = []
+    failures: list[str] = []
+    location: "Path | None" = None
+    final = ""
+
+    for entry in entries:
+        tracker.apply(entry)
+        if entry.state is not None:
+            state = entry.state
+        if entry.kind is JobEventKind.WARNING:
+            warnings.append(entry.message)
+        elif entry.kind is JobEventKind.FAILURE:
+            failures.append(entry.message)
+        elif entry.kind is JobEventKind.OUTPUT_LOCATION:
+            location = entry.location
+        if entry.is_terminal:
+            final = _summary_line(entry)
+
+    return SummaryView(
+        state=state,
+        stage=tracker.stage,
+        current_item_id=tracker.current_item_id,
+        progress=tracker.view,
+        eta=eta,
+        warnings=tuple(warnings),
+        failures=tuple(failures),
+        output_location=location,
+        final=final,
+        lines=summary_lines(entries),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The current-run rolling ETA
+# --------------------------------------------------------------------------- #
+
+
+def format_duration(seconds: float) -> str:
+    """The one place a length of time becomes text.
+
+    Central by design: an estimate that reads "90s" in one panel and "1m 30s" in
+    another is two features pretending to be one.
+    """
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        raise JobContractError(
+            f"a duration must be a number, got {type(seconds).__name__}")
+    value = float(seconds)
+    if not math.isfinite(value):
+        raise JobContractError(f"a duration must be finite, got {seconds!r}")
+    if value < 0:
+        raise JobContractError(
+            f"a negative duration is never shown, got {seconds!r}")
+    total = int(round(value))
+    if total >= 3600:
+        hours, rest = divmod(total, 3600)
+        return f"{hours}h {rest // 60}m"
+    if total >= 60:
+        minutes, rest = divmod(total, 60)
+        return f"{minutes}m {rest}s"
+    return f"{total}s"
+
+
+class EtaEstimator:
+    """A rolling estimate for the current run, or an honest ``Calculating…``.
+
+    §6.13, in one object. It measures with an injected clock, keeps at most the
+    latest twenty comparable samples, needs three before it will say anything, throws
+    away every unit that did not honestly complete, and subtracts paused time to the
+    second.
+
+    **What it will not do** is more important than what it will. It never carries a
+    sample across a change of work category, because converting a chapter and
+    uploading one are not the same unit of work. It never carries anything across
+    runs or into a retry — a new run gets a new estimator, and there is no history to
+    inherit because nothing is stored anywhere. It never treats a media length as a
+    timing sample: the only durations it knows are ones it measured itself, between a
+    ``begin`` and a ``complete``. And when any of that leaves it unsure, it says
+    ``Calculating…`` rather than a number, which is the only truthful thing to say.
+    """
+
+    __slots__ = ("_run_id", "_clock", "_minimum", "_window", "_samples", "_category",
+                 "_started_at", "_paused_since", "_paused_total", "_paused", "_ended")
+
+    def __init__(
+        self,
+        run_id: str,
+        *,
+        clock: Callable[[], float],
+        minimum_samples: int = DEFAULT_MINIMUM_SAMPLES,
+        window: int = DEFAULT_SAMPLE_WINDOW,
+    ) -> None:
+        if not callable(clock):
+            raise JobContractError("clock must be callable")
+        _require_index("minimum_samples", minimum_samples, minimum=1)
+        _require_index("window", window, minimum=1)
+        if window < minimum_samples:
+            raise JobContractError(
+                f"a window of {window} can never hold the {minimum_samples} samples "
+                "required, so an estimate would never appear")
+        self._run_id = _require_identifier("run_id", run_id)
+        self._clock = clock
+        self._minimum = minimum_samples
+        self._window = window
+        self._samples: deque[float] = deque(maxlen=window)
+        self._category: "str | None" = None
+        self._started_at: "float | None" = None
+        self._paused_since: "float | None" = None
+        self._paused_total = 0.0
+        self._paused = False
+        self._ended = False
+
+    # -- properties ------------------------------------------------------- #
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
+    @property
+    def category(self) -> "str | None":
+        return self._category
+
+    @property
+    def sample_count(self) -> int:
+        return len(self._samples)
+
+    @property
+    def samples(self) -> tuple[float, ...]:
+        return tuple(self._samples)
+
+    # -- measuring -------------------------------------------------------- #
+
+    def begin(self, category: str) -> None:
+        """Start timing one work unit in *category*."""
+        name = _require_identifier("category", category)
+        if self._started_at is not None:
+            raise JobContractError(
+                "a unit is already being timed; complete or discard it first")
+        started = _require_timestamp("clock", self._clock())
+        if name != self._category:
+            # A different kind of work is not comparable with what came before, so
+            # the history that would have been averaged is dropped rather than mixed.
+            self._samples.clear()
+            self._category = name
+        self._started_at = started
+        self._paused_total = 0.0
+        self._paused_since = self._clock() if self._paused else None
+
+    def complete(self) -> "float | None":
+        """Close the open unit, recording it only if the timing is trustworthy."""
+        if self._started_at is None:
+            raise JobContractError("no unit is being timed")
+        started = self._started_at
+        paused_total = self._paused_total
+        if self._paused_since is not None:
+            paused_total += self._read_clock() - self._paused_since
+        ended = self._read_clock()
+        self._clear_unit()
+
+        if not math.isfinite(ended) or not math.isfinite(paused_total):
+            return None
+        duration = ended - started - paused_total
+        if duration < 0:
+            # A clock that went backwards, or more paused time than elapsed time.
+            # One unmeasurable unit costs one sample and nothing else.
+            return None
+        self._samples.append(duration)
+        return duration
+
+    def discard(self) -> None:
+        """Abandon the open unit. A cancelled or failed unit is not history."""
+        self._clear_unit()
+
+    def note_state(self, state: JobState) -> None:
+        """Follow the authoritative run state, for pause exclusion and for endings.
+
+        ``PAUSE_REQUESTED`` deliberately does nothing: §6.10 says the stage keeps
+        running until the next safe checkpoint, so the time it spends there is work
+        and counting it as a pause would understate every estimate that follows.
+        """
+        if not isinstance(state, JobState):
+            raise JobContractError(
+                f"state must be a JobState, got {type(state).__name__}")
+        if state in TERMINAL_STATES:
+            self._ended = True
+            return
+        if state is JobState.PAUSED:
+            if not self._paused:
+                self._paused = True
+                if self._started_at is not None:
+                    self._paused_since = self._read_clock()
+        elif state is JobState.RUNNING and self._paused:
+            if self._paused_since is not None:
+                self._paused_total += self._read_clock() - self._paused_since
+                self._paused_since = None
+            self._paused = False
+
+    def observe(self, entry: "JobEvent") -> bool:
+        """Follow this run's own events. Returns whether the event was ours.
+
+        An event from another run changes nothing at all — not the samples, not the
+        pause accounting, not the ending. A stray report from elsewhere must never be
+        able to end somebody else's estimate.
+        """
+        if not isinstance(entry, JobEvent):
+            raise JobContractError(
+                f"an estimator observes JobEvent, got {type(entry).__name__}")
+        if entry.run_id != self._run_id:
+            return False
+        if entry.state is not None:
+            self.note_state(entry.state)
+        return True
+
+    # -- estimating ------------------------------------------------------- #
+
+    def estimate(self, remaining: int) -> "float | None":
+        """Seconds of work left, or ``None`` when no estimate is trustworthy."""
+        _require_index("remaining", remaining)
+        if self._ended or self._paused:
+            return None
+        if len(self._samples) < self._minimum:
+            return None
+        return (sum(self._samples) / len(self._samples)) * remaining
+
+    def display(
+        self, remaining: "int | None", *, run_id: "str | None" = None,
+    ) -> str:
+        """The estimate as text, or ``Calculating…`` for every unreliable case."""
+        if run_id is not None and run_id != self._run_id:
+            return CALCULATING
+        if remaining is None:
+            return CALCULATING
+        value = self.estimate(remaining)
+        if value is None:
+            return CALCULATING
+        return format_duration(value)
+
+    # -- internals -------------------------------------------------------- #
+
+    def _read_clock(self) -> float:
+        value = self._clock()
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise JobContractError(
+                f"the clock must return a number, got {type(value).__name__}")
+        return float(value)
+
+    def _clear_unit(self) -> None:
+        self._started_at = None
+        self._paused_since = None
+        self._paused_total = 0.0
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return (f"EtaEstimator(run_id={self._run_id!r}, "
+                f"category={self._category!r}, samples={len(self._samples)})")
