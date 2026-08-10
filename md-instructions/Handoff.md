@@ -1,21 +1,257 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–7 COMPLETE,
-PHASES 8–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–8 COMPLETE,
+PHASES 9–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
 and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
 with its deduplication and atomic transactions, the background import coordinator with its own
 cancellation, the cooperative run controller with pause/resume/cancel and one-acknowledgement
 settlement, the run framing (one frozen configuration per run, a UI-neutral lock derivation,
-ordered item outcomes, and Retry Failed against the exact original snapshot), and now the
-reporting layer: typed event production that cannot claim a state the controller never reached,
-a stream that refuses stale and post-terminal events, Summary/Details projections that keep
-commands and tracebacks out of the Summary, a bridge to the one existing session logger, a
-truthful progress contract for the existing `ProgressIndicator`, and a current-run rolling ETA
-that says `Calculating…` rather than guess. No production panel or launcher adopts any of it, no
-behaviour changed, and `version.py` is still `0.5.1`. Every later phase needs separate explicit
-maintainer approval.**
+ordered item outcomes, and Retry Failed against the exact original snapshot), the reporting layer
+(typed event production that cannot claim a state the controller never reached, a stream that
+refuses stale and post-terminal events, Summary/Details projections that keep commands and
+tracebacks out of the Summary, a bridge to the one existing session logger, a truthful progress
+contract for the existing `ProgressIndicator`, and a current-run rolling ETA that says
+`Calculating…` rather than guess), and now the Tk boundary itself: `shared/job_ui.py`, whose two
+compositional adapters draw all of the above through one main-thread pump, refuse every widget
+touch from a worker before a widget is reached, and close without leaving a callback behind. No
+production panel or launcher adopts any of it, no behaviour changed, and `version.py` is still
+`0.5.1`. Phase 9's Windows manual matrix has NOT been run and every later phase needs separate
+explicit maintainer approval.**
+
+### Phase 8 — Reusable Tk adapters and developer-only integration harness (2026-08-10, HOME-PC)
+
+**Result: one new production module, `shared/job_ui.py` (2,197 lines), is now the only module in
+Plan 3 that imports Tk — and the reason the other three provably still do not. It adds two
+compositional adapters and the small components they are built from, and it decides nothing: the
+manager owns the list, the coordinator owns the import, the controller owns the state, the event
+stream owns which events count, the approved projections own Summary and Details, `LOCK_MATRIX`
+owns what locks, `is_available` owns which buttons appear, `EtaEstimator` owns the estimate, and
+`ui_theme.ProgressIndicator` owns the bar. 128 focused Tk-boundary tests plus a disposable
+developer harness for the Phase 9 matrix. No approved Phase 1–7 contract was rewritten, no
+production panel adopted anything, `ui_theme.py` and `logging_setup.py` are byte-identical, and
+no mandatory gate was encountered.**
+
+#### The contract-extraction gate, before any edit
+
+| # | Contract | What the active plan and the approved source actually specify |
+|---|---|---|
+| A | Services to compose | `ImportedFileManager` (snapshot/count/selection/`plan`/`commit`/`remove_selected`/`clear`/`move_selected_up`/`move_selected_down`, selection restored by occurrence ID, revision moves only on a real change); `SupportedTypeCatalog` + `ImportOptions.for_catalog`; `ImportCoordinator` (`start`/`import_files`/`request_cancel`/`pump`/`confirm_pending`/`decline_pending`/`close`, owner-thread fenced, broad-root warning **before** any worker, captured-threshold confirmation after a completed scan); `ImportPoller` (a `schedule(delay_ms, cb)` / `cancel(handle)` seam shaped exactly like `after`/`after_cancel`); `JobController` + `JobSnapshot`; `ControlKind`/`LOCK_MATRIX`/`is_locked` and `JobAction`/`is_available`; `JobReporter`/`JobEventStream`/`project_summary`/`detail_lines`/`LoggerBridge`/`ProgressView`/`EtaEstimator`; `ui_theme.ProgressIndicator`; and the `ACT.*` vocabulary published **only** by the Windows branch of `apply_theme` |
+| B | Adapter architecture | §6.15: composition, callbacks and small protocols. Every class *owns* a `frame` rather than *being* one; no base panel, no inheritance hierarchy, no abstract class; values captured from widgets on the main thread and handed to workers only as frozen requests |
+| C | Imported-file adapter | Extended selection; imported and selected counts; Add Files / Add Folder / Move Up / Move Down / Remove / Clear; supported-type selection; include-hidden; allow-duplicates; live import status and discovered count; a **separate** Cancel Import; selection restored by occurrence ID after every rebuild; every dialog and confirmation on the main thread; completed / declined / cancelled / failed / closed / conflict all leaving the prior list untouched |
+| D | Job adapter | Authoritative state and status; Pause / Resume / Cancel / Retry Failed availability; input and processing-option locking through the existing matrix; the existing `ProgressIndicator`; current stage and occurrence; ETA text; Summary and Details; warnings, failures, an explicit output location, and the final result — and none of it derived, fabricated, rounded up or logged twice |
+| E | Pump and teardown | One main-thread chain; never `after`, `after_cancel`, a widget, a variable, a dialog or a style from a worker; producer order preserved; no `qsize`, no sleep, no timing guess; deterministic drain hooks; at most one scheduled callback; stale and post-terminal events inert; empty and bounded drains legal; inert after close; owned callback cancelled; destroyed root tolerated; teardown idempotent |
+| F | Styling | `theme["styles"]` exists on the Windows branch only, and every entry is already `ACT.*`-namespaced. On aqua and on the classic branch there is no bundle at all, and an empty style name is precisely "draw this natively" — so the native macOS branch is preserved by construction. `ProgressIndicator` is deliberately unstyled today and must stay so |
+| G | Harness | Phase 9 needs a real file dialog, a real junction refusal, a >1,000-result scan, a broad-root decline, a watchable pause, and a close during live work. None of that is reachable from a unit test, and building it during Phase 9 would mean writing code in a verification phase |
+| H | Scope | Frozen: §6.15 and §6.16. Unchangeable: every Phase 1–7 public contract. Narrow internal choices: the five recorded below. Deferred to Phase 9: the manual matrix. Deferred to Plans 4–8: adoption. Deferred to Plan 9: 125%, live macOS, packaging, release |
+
+**No unresolved omission was found and no mandatory gate was encountered.** In particular the
+§6.15 styling gate was *considered and not triggered*: the existing `ACT.*` catalog already
+publishes a frame, card, label, secondary label, status label, warning label, button, primary
+button, danger button, checkbutton, notebook, progressbar, scrollbar, treeview, labelframe and
+separator style, and the two classic Tk widgets this module needs — a `Listbox` and a `Text` —
+are coloured through the sanctioned `ui_theme.style_tk_widget` roles `list` and `log`. **No
+reusable style was missing, so `ui_theme.py` was not touched.**
+
+#### Five narrow internal choices, recorded
+
+1. **`MainThreadPump` owns the only `after` chain, and `ImportPoller` rides it.** The poller is
+   composed, not replaced — it is handed `pump.schedule` and `pump.cancel`, which is exactly the
+   seam Phase 4 designed for a caller that owns its own scheduling. The alternative, letting the
+   poller call `root.after` directly, would have meant two outstanding Tk callbacks, and
+   "at most one scheduled callback" would have become an aspiration rather than an assertion.
+2. **The event stream is the job adapter's only state source.** Every state-bearing event was
+   minted by Phase 7's reporter *from a controller snapshot*, so rendering the stream is
+   rendering the controller — and a second source (a snapshot pushed in from a worker thread)
+   would have been both racy and redundant. The consequence is recorded plainly: before any
+   state event arrives the adapter draws `IDLE`, which is what an unstarted run is.
+3. **`sync_selection` is public.** A click or an arrow key changes the widget and Tk fires
+   `<<ListboxSelect>>`; the handler behind that binding has to be nameable so the behaviour can
+   be driven in a test without simulating a mouse. Generating the virtual event is Tk's job and
+   does not fire on a withdrawn root, so testing through it would have tested Tk.
+4. **A confirmation nobody wired up fails closed.** If `confirm_large_result` is absent, the
+   adapter declines the pending transaction and says why — mirroring the coordinator's own rule
+   that an unwired broad-root warning refuses the scan. The refusal reason survives the terminal
+   outcome that follows it, so the status says "needs confirmation, which is not available here"
+   rather than the blander "nothing was added".
+5. **Three methods are exempt from the guard-first rule, by name.** `MainThreadPump.cancel`
+   flips a flag on its own token and must tolerate a stale one; `LockGroup.registered` reads a
+   dictionary; `JobControlBar.availability` is arithmetic over `is_available`. None reaches a Tk
+   object. Every other public method on every class opens with `self._guard.require(...)`, and a
+   structural guard walks the AST to prove it.
+
+#### What the adapters actually do
+
+**`MainThreadPump`** — one `after` chain, two kinds of rider. *Drains* are registered once and
+run on every tick in registration order; *scheduled callbacks* are one-shot and are how the
+poller re-registers itself. `tick()` is public because a deterministic test needs to advance the
+adapter without an event loop. `stop()` and `close()` are idempotent, cancel the outstanding
+callback and leave `pending is None`; a callback already in flight when `close()` lands returns
+without touching anything; a destroyed widget stops the chain rather than raising through it.
+
+**`ImportedFileList`** — an extended-selection `Listbox` over the manager. Selection is always
+occurrence IDs, never indices and never paths, so two deliberate duplicates of one path are two
+independently selectable rows and a moved row is still the selected row. Move Up and Move Down
+offer themselves only where the block can actually move. Remove and Clear mutate the manager and
+nothing else — a test snapshots the whole fixture tree around them and requires it byte-identical.
+
+**`ImportOptionsBar`** — the supplied catalog's types, all selected by default, any combination
+representable including none; include-hidden and allow-duplicates default off. `options()` freezes
+the widgets into an `ImportOptions` on the main thread, which is the only value a worker ever sees.
+
+**`ImportStatusBar`** — the live discovered count and a Cancel Import button wired to
+`coordinator.request_cancel()` and to nothing else. A test starts a real job controller alongside
+a real scan, cancels the import, and requires the controller still `RUNNING` and unacknowledged.
+
+**`ImportAdapter`** — composes those three with one coordinator and one poller. Add Files
+preserves dialog order; Add Folder preserves root order; the broad-root confirmer is handed
+straight to the coordinator so it fires *before* a thread exists; the threshold confirmer runs
+after a completed scan and before any commit. Exactly-at the captured threshold does not ask.
+Close cancels the scan, joins within the coordinator's bounded timeout, empties its queue, and
+claims nothing about an indivisible `scandir` that was still running.
+
+**`JobControlBar`, `JobStatusView`, `SummaryDetailsView`, `LockGroup`, `JobAdapter`** — every
+button's availability comes from `is_available`, every lock from `is_locked`, every Summary line
+from `project_summary`, every Details line from `detail_lines`, every progress value from
+`ProgressView` and every ETA string from `EtaEstimator.display`. A cancelled run that reached two
+of five keeps `2/5  40%` on screen; an unknown total stays indeterminate; `finish()` stops an
+animation and never invents a completion. Accepted technical events are forwarded by the stream's
+`LoggerBridge` and by nobody else — a test with a recording logger renders three times and finds
+exactly three log calls.
+
+#### The harness, and why it exists
+
+`files/tests/manual_plan3_harness.py` (553 lines) generates one disposable fixture root under the
+system temporary directory — natural-ordered names, nested discs, an unsupported file, a hidden
+folder, a second root with a repeated child name, a same-named root elsewhere, a real NTFS
+junction pointing inside the fixtures, and an optional `--large N` bulk folder — and refuses to
+run against the repository, the home directory, Downloads, Documents, Desktop, a volume root or
+anything `is_broad_root` classifies as broad. It then builds the *production* adapters and drives
+them with a fake job: a timed no-op that obeys the real controller, stays in `PAUSE_REQUESTED`
+through a deliberately indivisible first stage, acknowledges `PAUSED` at a real checkpoint,
+raises the real cancellation exception, fails every third item so Retry Failed becomes reachable,
+and produces no output whatsoever. Record/Compare buttons fingerprint the fixture tree so the
+before/after source check Phase 9 requires is one click each. It has no launcher entry, is not
+collected by pytest, is never imported by anything under `scripts/`, and is excluded from both
+release archives by the packager's explicit `scripts/` scope. **It was exercised end to end
+during Phase 8**: import 7 files, run to `COMPLETED_WITH_FAILURES` through a pause request, an
+acknowledged pause and a resume, then a second run cancelled mid-flight to `Cancelled after 2 of
+7 items.`, then closed — with the fixture digest identical before and after.
+
+#### Six boundary guards narrowed, and eleven added
+
+`PLAN3_MODULES` still names the three Tk-free modules and now sits beside `ADAPTER_MODULE` and
+`ALL_PLAN3_MODULES`; `PRODUCTION_SOURCES` excludes the adapter, because composing the foundation
+is the one thing it is for, and that it is adopted by nothing is proved separately from the
+launcher and panel side. `test_the_phase_eight_adapter_module_does_not_exist_yet` became
+`test_the_adapter_is_the_only_new_reusable_tk_module`; the recorded-but-not-created UI-test guard
+became `test_the_single_intended_ui_test_module_is_the_one_that_exists`, still asserting
+`test_import_ui.py` was never created; the dependency and clock guards now cover the adapter too;
+and the shipped/not-shipped guard names `job_ui.py`, `test_job_ui.py` and the harness. Eleven new
+guards prove the Tk-free core is still Tk-free, that the adapter composes rather than duplicates,
+that it defines no enum and no second estimator, that it reuses the one `ProgressIndicator`, that
+it constructs no thread and no queue and uses `threading` only to ask who is calling, that every
+public Tk-reaching method opens with the guard, that it creates and inspects no output, that it
+never logs what the bridge logged, that no module in the drop grows a universal base panel, that
+every style name comes from the theme bundle rather than a literal, and that the harness is
+registered nowhere.
+
+**Two substring guards were caught and rewritten as AST checks before they could pass wrongly** —
+the same lesson Phases 6 and 7 recorded. `"qsize" not in source` failed on the docstring that
+explains why the module avoids it, and `"subprocess" not in harness` failed on the sentence
+promising there is none. Both are now checked as attribute access and as imports.
+
+#### One genuine defect, caught by a test rather than by review
+
+`JobStatusView.apply` called through to `ProgressIndicator` without a destroyed-widget guard. The
+shared indicator knows nothing about teardown, so a worker's last event arriving after the window
+closed raised `TclError` out of an `after` callback — precisely the "no Tk traceback on close"
+requirement. `test_a_destroyed_widget_tree_does_not_take_the_adapter_down` found it; the fix
+checks `_alive(self.indicator.bar)` and wraps the three calls, and the same guard was added to
+`finish()`.
+
+#### Evidence
+
+- Focused: **`test_job_ui.py` 128 passed, 0 skipped**, ~0.9 s, identical over **eight consecutive
+  runs**; the race-sensitive subset (worker, thread-ownership, close-during-activity,
+  destroyed-widget, Cancel Import) **19 passed over five further consecutive runs**.
+- Focused Phase 1–7, all matching their approved baselines: Phase 1 contracts and boundaries
+  **355 passed** (337 + 18 net new guards); Phase 2 traversal **91 passed, 6 skipped**; Phase 3
+  manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**; Phase 5 controller
+  **173 passed**; Phase 6 run framing **174 passed**; Phase 7 reporting **258 passed**;
+  maintenance and cleanup **337 passed**; output paths **255 passed, 1 skipped, 1 warning**; the
+  eight cancellation-bearing production suites **61 passed**, unchanged.
+- Collection **2,534** (2,388 + 128 Phase 8 tests + 18 net new boundary guards). Full suite
+  **2,521 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed** and the documented Tk
+  root-creation transient did **not** recur. `verify.py` **RESULT: PASS**. `compileall` exit 0.
+- **The thirteen skips are unchanged and Phase 8 added none.** Node by node:
+  `test_import_traversal.py:131` six (three file and three directory symlinks, `[WinError 1314]`),
+  `test_cover_source_side.py:363` one, `test_output_paths.py:757` one,
+  `test_import_traversal.py:552` one, `test_import_manager.py:678` one, and
+  `test_jack_ryan_final_product.py:40/:44/:64` three. `test_job_ui.py` skips nothing: the Tk root
+  opened on this host, and the module-scoped fixture would have skipped the whole file rather
+  than silently thinning it.
+- The one warning is unchanged and third-party:
+  `.venv\Lib\site-packages\pydub\utils.py:14` — `DeprecationWarning: 'audioop' is deprecated`.
+- **`git diff --check`, stated precisely.** Restricted to code (`--cached --check -- '*.py'`) it
+  exits **0**, and with only the four code files staged the broad check reported **nothing at
+  all**. The staged markdown adds the inherited structural findings this repository has always
+  produced: `Handoff.md` is stored as a CRLF blob so every added line reads as trailing
+  whitespace, and the drop header uses markdown two-space hard line breaks. **Phase 8 introduced
+  no non-structural whitespace defect**, and no document was reformatted to quieten the check.
+- **Automated Tk ran on this host. The Phase 9 Windows manual matrix did not.** Windows 125%
+  scaling and live macOS remain not run and deferred, and an automated Aqua-branch assertion is
+  not a macOS pass.
+
+#### Changed paths
+
+| Path | Change |
+|---|---|
+| `scripts/Universal/shared/job_ui.py` | **added, 2,197 lines** — the only production change |
+| `files/tests/test_job_ui.py` | **added, 2,035 lines — 128 tests** |
+| `files/tests/manual_plan3_harness.py` | **added, 553 lines** — developer-only, not collected |
+| `files/tests/test_plan3_boundaries.py` | modified, **+320 / −18** → 1,442 lines, 100 → 118 tests |
+| `md-instructions/Handoff.md` | this entry |
+| `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` | status and baseline header only |
+| `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` | Plan 3 status, evidence and next action only |
+
+No generated artifact. No screenshot. No renamed or deleted path.
+
+#### Repository state
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`; start SHA
+`b922102c73992ca6edce90899f8b60fedd76990f`, confirmed equal to its upstream and to the origin
+feature branch before any edit, with a clean worktree and no untracked files, and all eight
+approved phase commits ancestors of HEAD. `origin/master` unchanged at
+`563df9884497032e19abd4437a0e66584cd9ec12`. Version `0.5.1`. Root `config-template.toml` absent
+from the worktree, the index and the tree, and tracked nowhere. Four canonical documents with
+exact casing and no alias; four protected `don't-delete` references present; **all 22 approved
+Plan 1/2 screenshots byte-identical to `origin/master`**. Byte-identical to the Phase 7 commit:
+`cancellation.py`, `importing.py`, `import_coordination.py`, `job_control.py`, `output_paths.py`,
+`maintenance.py`, `logging_setup.py`, `ui_theme.py`, `preferences_ui.py`, `subprocess_utils.py`,
+`config.py`, `version.py`, `release.py`, `settings.py`, `bootstrap.py`, `launcher.py`,
+`config.toml`, `requirements.txt`, `verify.py`, both root launchers, `Briefing.md`,
+`Changelog.md`, `Decisions.md`, every production tool panel and TTS module, and every approved
+Phase 1–7 test file except the boundary guards this phase was authorized to extend.
+`launcher.TOOLS` still holds exactly six entries and no production module names a Plan 3 module.
+
+#### Phase 9 — not started
+
+**Phase 9 — full regression, Windows manual matrix, and approval gate** has not begun and needs
+explicit maintainer approval. The exact Windows steps it requires are listed in the Phase 8
+completion report and are summarised here: run the harness from the repository root on HOME-PC at
+true Windows 11 100% scaling, recording OS, scaling, Python/venv, commit SHA and fixture root;
+record the source tree; then walk Add Files ordering and type combinations, Add Folder
+direct-files-before-children natural order, several roots including same-named ones, extended
+selection with move/remove/clear, duplicate suppression and the explicit override, hidden folders
+off and on, the NTFS junction being refused, a broad-root warning declined *before* any scan, a
+generated >1,000-result scan declined and then accepted, the live count with Cancel Import
+leaving the prior list unchanged, frozen inputs and lock state during a run, a pause requested
+during the indivisible stage followed by an acknowledged pause, resume and cancel-while-paused,
+Summary and Details, progress and the ETA fallback, failure collection and the failed-only retry
+request, and closing the window while a worker is still running; then compare the source tree and
+confirm it is unchanged. Windows 125% and live macOS stay recorded as not run.
 
 ### Phase 7 — Typed events, Summary/Details, progress, and rolling ETA (2026-08-10, HOME-PC)
 

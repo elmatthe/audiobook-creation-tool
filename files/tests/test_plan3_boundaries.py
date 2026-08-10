@@ -24,8 +24,17 @@ UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
 SHARED = UNIVERSAL / "shared"
 TESTS = REPO_ROOT / "files" / "tests"
 
-#: The modules this drop owns. ``job_ui.py`` is Phase 8 and does not exist yet.
+#: The Tk-free core this drop owns. ``job_ui.py`` is deliberately **not** here: Phase 8
+#: made it the one module allowed to import Tk, and every guard below that says "no Tk"
+#: is precisely the guarantee the adapter exists to keep true of everything else.
 PLAN3_MODULES = ("importing.py", "job_control.py", "import_coordination.py")
+
+#: Phase 8's adapter module. One module, per §6.15.
+ADAPTER_MODULE = "job_ui.py"
+
+#: Every module this drop owns, adapter included.
+ALL_PLAN3_MODULES = PLAN3_MODULES + (ADAPTER_MODULE,)
+
 PLAN3_MODULE_NAMES = ("importing", "job_control", "import_coordination", "job_ui")
 
 #: The module that is pure *vocabulary and synchronous behaviour*. Phase 4 put its
@@ -34,10 +43,12 @@ PLAN3_MODULE_NAMES = ("importing", "job_control", "import_coordination", "job_ui
 #: constructs no concurrency primitive at all — see the guards below.
 PURE_VOCABULARY_MODULES = ("importing.py",)
 
-#: Every production module that must remain unaware of Plan 3.
+#: Every production module that must remain unaware of Plan 3. The adapter is excluded
+#: because composing the foundation is the one thing it is *for*; that it is still
+#: adopted by nothing is proved separately, from the launcher and panel side.
 PRODUCTION_SOURCES = tuple(
     path for path in sorted(UNIVERSAL.rglob("*.py"))
-    if path.name not in PLAN3_MODULES and "__pycache__" not in path.parts
+    if path.name not in ALL_PLAN3_MODULES and "__pycache__" not in path.parts
 )
 
 PANELS = (
@@ -692,10 +703,24 @@ _PHASE_SEVEN_NAMES = (
     "format_duration",
 )
 
-#: Still owned by a later phase, in every module this drop has so far.
+#: Phase 8 landed the adapters in ``job_ui.py``. These names stay forbidden in all three
+#: Tk-free modules, which draw nothing. ``build_ui``, ``JobPanel`` and ``ImportPanel``
+#: are forbidden **everywhere including the adapter**: §6.15 asks for composition and
+#: callbacks rather than a universal base panel a later tool would have to fight, and
+#: those three were the shapes that would have been one.
 _LATER_PHASE_NAMES = (
-    # Phase 8 adapters
     "ImportedFileList", "JobControlBar", "build_ui", "JobPanel", "ImportPanel",
+)
+
+#: What no module in this drop may define, in any phase — the base-panel shapes above.
+_FORBIDDEN_EVERYWHERE = ("build_ui", "JobPanel", "ImportPanel", "BasePanel", "ToolPanel")
+
+#: What Phase 8 delivered, in the one module §6.15 puts it in.
+_PHASE_EIGHT_NAMES = (
+    "MainThreadGuard", "MainThreadError", "MainThreadPump", "LockGroup",
+    "ImportedFileList", "ImportOptionsBar", "ImportStatusBar", "ImportAdapter",
+    "JobControlBar", "JobStatusView", "SummaryDetailsView", "JobAdapter",
+    "style_name", "queue_pull", "ask_files", "ask_folder", "ask_confirm",
 )
 
 #: What each module is forbidden from defining, now that Phase 7 has landed.
@@ -958,10 +983,11 @@ def test_no_module_in_the_foundation_reads_a_clock_of_its_own():
 
     Phase 7 gave ``job_control.py`` the estimator, so it now subtracts timestamps —
     but it still may not *read* one. That is what keeps the whole of §6.13 testable
-    with a fake clock and without a single sleep, and it is the part of this guard
-    that matters most, so it is checked for all three modules exactly as before.
+    with a fake clock and without a single sleep. Phase 8's adapter is held to the same
+    rule for the same reason: an adapter that read a clock could produce a timestamp
+    nobody injected, and the boundary test would have nothing to pin.
     """
-    for name in PLAN3_MODULES:
+    for name in ALL_PLAN3_MODULES:
         tree = plan3_trees_for(name)
         top_level = {entry.split(".")[0] for entry in imported_names(tree)}
         for clock_module in ("time", "datetime", "calendar"):
@@ -1010,21 +1036,296 @@ def plan3_trees_for(name: str) -> ast.Module:
     return parse(SHARED / name)
 
 
-def test_the_phase_eight_adapter_module_does_not_exist_yet():
-    assert not (SHARED / "job_ui.py").exists()
+# --------------------------------------------------------------------------- #
+# Phase 8 — the Tk boundary
+# --------------------------------------------------------------------------- #
 
 
-def test_the_single_intended_ui_test_module_is_recorded_but_not_created():
+def test_the_adapter_is_the_only_new_reusable_tk_module():
+    """§6.15 puts every adapter in one module, and Phase 8 added exactly that one."""
+    assert (SHARED / ADAPTER_MODULE).is_file()
+    added = {
+        path.name for path in SHARED.glob("*.py")
+        if "job_ui" in path.name or "import_ui" in path.name
+    }
+    assert added == {ADAPTER_MODULE}, added
+
+
+def test_the_single_intended_ui_test_module_is_the_one_that_exists():
     """§6.15 puts every adapter in one ``shared/job_ui.py``.
 
     The plan's "likely new tests" list names both ``test_import_ui.py`` and
     ``test_job_ui.py``. One adapter module needs one Tk-boundary test module, so
-    **``files/tests/test_job_ui.py`` is the intended name** and ``test_import_ui.py``
-    will not be created. Recorded here rather than satisfied by an empty file,
-    because Phase 1 must add no Tk test at all.
+    ``files/tests/test_job_ui.py`` is the intended name — recorded as a decision in
+    Phase 1, honoured in Phase 8, and ``test_import_ui.py`` was never created.
     """
+    assert (TESTS / "test_job_ui.py").is_file()
     assert not (TESTS / "test_import_ui.py").exists()
-    assert not (TESTS / "test_job_ui.py").exists()
+
+
+def test_the_tk_free_core_is_still_tk_free_now_that_tk_exists_next_door():
+    """The adapter's whole reason for being: three modules that still know no Tk."""
+    for name in PLAN3_MODULES:
+        tree = parse(SHARED / name)
+        for module in imported_names(tree):
+            assert "tkinter" not in module.lower(), (name, module)
+    adapter = imported_names(parse(SHARED / ADAPTER_MODULE))
+    assert "tkinter" in adapter, "the adapter is where Tk is allowed to be"
+
+
+def test_the_adapter_composes_the_foundation_and_duplicates_none_of_it():
+    """It draws the answers. It never becomes a second place that decides them."""
+    tree = parse(SHARED / ADAPTER_MODULE)
+    modules = imported_names(tree)
+    for required in ("shared.importing", "shared.import_coordination",
+                     "shared.job_control", "shared.ui_theme"):
+        assert any(entry == required or entry.startswith(required + ".")
+                   for entry in modules), required
+
+    defined = defined_names(tree)
+    for owned_elsewhere in (
+        # Phase 3-4: the list and its lifecycle
+        "ImportedFileManager", "ImportTransaction", "ImportCoordinator", "ImportPoller",
+        "ImportCancellation", "plan_transaction", "validate_direct_files", "scan_roots",
+        # Phase 5-7: the run and its reporting
+        "JobController", "JobSnapshot", "JobEventStream", "JobReporter", "LoggerBridge",
+        "EtaEstimator", "ProgressTracker", "ProgressView", "SummaryView", "RunResult",
+        "RetryRequest", "FailureLog", "project_summary", "summary_lines", "detail_lines",
+        "format_duration", "is_locked", "is_available", "state_message",
+        # Elsewhere entirely
+        "ProgressIndicator", "apply_theme", "get_logger", "get_effective",
+        "plan_flat", "plan_mirrored", "plan_multi_root", "reserve_run_directory",
+        "ConversionCancelled", "raise_if_cancelled",
+    ):
+        assert owned_elsewhere not in defined, owned_elsewhere
+
+
+def test_the_adapter_owns_no_state_machine_and_no_second_estimator():
+    """No enum of job states, no lock matrix, no duration arithmetic of its own."""
+    tree = parse(SHARED / ADAPTER_MODULE)
+    text = (SHARED / ADAPTER_MODULE).read_text(encoding="utf-8")
+
+    enums = {
+        node.name for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        and any(isinstance(base, ast.Name) and base.id == "Enum" for base in node.bases)
+    }
+    assert not enums, f"the vocabulary is Phase 1's, not the adapter's: {enums}"
+
+    assert "LOCK_MATRIX = " not in text and "LEGAL_TRANSITIONS = " not in text
+    assert 'CALCULATING = "' not in text, "the fallback string has one owner"
+    called = called_attributes(tree) | called_bare_names(tree)
+    for estimator_verb in ("format_duration", "estimate"):
+        assert estimator_verb not in called, estimator_verb
+    assert "display" in called, "the ETA text comes from the approved estimator"
+
+
+def test_the_adapter_reuses_the_shared_progress_indicator():
+    """§5.2: reuse it. A second progressbar here would be a second implementation."""
+    text = (SHARED / ADAPTER_MODULE).read_text(encoding="utf-8")
+    assert "ui_theme.ProgressIndicator(" in text
+    tree = parse(SHARED / ADAPTER_MODULE)
+    constructed = called_attributes(tree) | called_bare_names(tree)
+    assert "Progressbar" not in constructed, "no second bar"
+    assert text.count("ui_theme.ProgressIndicator(") == 1, "and only one of the first"
+
+
+def test_the_adapter_creates_no_thread_and_no_queue_of_its_own():
+    """It drains what a worker publishes; it never becomes the worker."""
+    tree = parse(SHARED / ADAPTER_MODULE)
+    constructed = called_attributes(tree) | called_bare_names(tree)
+    for primitive in ("Thread", "Timer", "Queue", "SimpleQueue", "LifoQueue",
+                      "PriorityQueue", "Condition", "Event", "Semaphore", "Barrier",
+                      "Lock", "RLock", "ThreadPoolExecutor", "ProcessPoolExecutor",
+                      "Pool", "Process"):
+        assert primitive not in constructed, primitive
+    threading_uses = {
+        node.attr for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+        and node.value.id == "threading"
+    }
+    assert threading_uses == {"get_ident"}, threading_uses
+    assert "qsize" not in {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+
+
+def test_every_tk_reaching_method_asks_the_guard_first():
+    """The main-thread rule, checked as a property of the code.
+
+    A public method that mutates or reads a widget must open with
+    ``self._guard.require(...)``. Anything that only *reads* adapter state is a
+    property and is deliberately not on this list — a property that raised would make
+    a repr unprintable from a debugger thread.
+
+    Three methods are named exemptions, each because it provably reaches no Tk object:
+    ``MainThreadPump.cancel`` flips a flag on its own token and must survive being
+    handed a stale one, ``LockGroup.registered`` reads a dictionary, and
+    ``JobControlBar.availability`` is arithmetic over :func:`is_available`. The four
+    list/reorder actions delegate to ``_mutate``, whose own first statement is the
+    guard, so they are checked through that delegation rather than exempted.
+    """
+    tree = parse(SHARED / ADAPTER_MODULE)
+    exempt = {"MainThreadPump.cancel", "LockGroup.registered",
+              "JobControlBar.availability"}
+    unguarded = []
+    checked = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef) or node.name == "MainThreadGuard":
+            continue
+        for member in node.body:
+            if not isinstance(member, ast.FunctionDef):
+                continue
+            if member.name.startswith("_"):
+                continue
+            if any(isinstance(decorator, ast.Name) and decorator.id in
+                   ("property", "classmethod", "staticmethod")
+                   for decorator in member.decorator_list):
+                continue
+            body = [
+                statement for statement in member.body
+                if not (isinstance(statement, ast.Expr)
+                        and isinstance(statement.value, ast.Constant)
+                        and isinstance(statement.value.value, str))
+            ]
+            qualified = f"{node.name}.{member.name}"
+            if qualified in exempt:
+                continue
+            checked += 1
+            first = body[0] if body else None
+            guarded = (
+                isinstance(first, ast.Expr) and isinstance(first.value, ast.Call)
+                and isinstance(first.value.func, ast.Attribute)
+                and first.value.func.attr == "require")
+            delegated = (
+                len(body) == 1 and isinstance(first, ast.Return)
+                and isinstance(first.value, ast.Call)
+                and isinstance(first.value.func, ast.Attribute)
+                and first.value.func.attr == "_mutate")
+            if not (guarded or delegated):
+                unguarded.append(qualified)
+    assert unguarded == [], unguarded
+    assert checked >= 40, f"only {checked} methods were examined"
+
+    # And the helper those four delegate to guards before it touches anything.
+    mutate = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_mutate")
+    opening = mutate.body[0]
+    assert (isinstance(opening, ast.Expr) and isinstance(opening.value, ast.Call)
+            and opening.value.func.attr == "require")
+
+
+def test_the_adapter_neither_creates_nor_inspects_an_output():
+    """An output-location event may be displayed. It may not be acted on."""
+    tree = parse(SHARED / ADAPTER_MODULE)
+    attributes = called_attributes(tree)
+    # ``remove`` is the one name on the shared list that a list also answers to — the
+    # pump removes a *drain*. The import check below is what actually closes it: with
+    # no ``os`` and no ``shutil`` in the module, ``os.remove`` is unreachable.
+    for forbidden in tuple(
+            verb for verb in _FORBIDDEN_FILESYSTEM_CALLS if verb != "remove"
+    ) + ("scandir", "lstat"):
+        assert forbidden not in attributes, forbidden
+    assert "open" not in called_bare_names(tree)
+    modules = imported_names(tree)
+    assert "os" not in {entry.split(".")[0] for entry in modules}
+    for service in ("shared.output_paths", "shared.settings", "shared.maintenance",
+                    "shared.subprocess_utils", "shared.cleanup_worker",
+                    "shared.cleanup_state", "shared.release", "shared.config",
+                    "shared.logging_setup", "subprocess", "logging", "shutil"):
+        assert not any(entry == service or entry.startswith(service + ".")
+                       for entry in modules), service
+
+
+def test_the_adapter_does_not_log_what_the_bridge_already_logged():
+    """Phase 7's LoggerBridge owns forwarding; a second call would double every line."""
+    tree = parse(SHARED / ADAPTER_MODULE)
+    called = called_attributes(tree)
+    for level in ("debug", "info", "warning", "error", "exception", "critical",
+                  "getLogger", "get_logger", "forward"):
+        assert level not in called, level
+    text = (SHARED / ADAPTER_MODULE).read_text(encoding="utf-8")
+    assert "LoggerBridge" in text, "it accepts one, and hands it to the stream"
+
+
+@pytest.mark.parametrize("name", ALL_PLAN3_MODULES)
+def test_no_module_in_this_drop_grows_a_universal_base_panel(name):
+    defined = defined_names(parse(SHARED / name))
+    for shape in _FORBIDDEN_EVERYWHERE:
+        assert shape not in defined, (name, shape)
+
+
+def test_phase_eight_delivered_its_own_names_and_no_more():
+    from shared import import_coordination, importing, job_control, job_ui
+
+    for delivered in _PHASE_EIGHT_NAMES:
+        assert hasattr(job_ui, delivered), delivered
+    assert set(job_ui.__all__) >= set(_PHASE_EIGHT_NAMES)
+
+    # Drawing a job is not running one: the Tk-free modules gained none of it.
+    for module in (importing, import_coordination, job_control):
+        for foreign in ("MainThreadPump", "ImportAdapter", "JobAdapter", "LockGroup",
+                        "ImportedFileList", "JobControlBar"):
+            assert not hasattr(module, foreign), (module.__name__, foreign)
+
+
+def test_the_adapter_uses_only_namespaced_or_native_styles():
+    """Every style name it can ask for comes from the theme bundle, never a literal."""
+    tree = parse(SHARED / ADAPTER_MODULE)
+    text = (SHARED / ADAPTER_MODULE).read_text(encoding="utf-8")
+    for generic in ('style="TButton"', 'style="TFrame"', 'style="TLabel"',
+                    'ttk.Style(', 'style.configure(', 'style.map(', 'style.layout(',
+                    'theme_use('):
+        assert generic not in text, generic
+
+    styled = {
+        keyword.value for node in ast.walk(tree) if isinstance(node, ast.Call)
+        for keyword in node.keywords if keyword.arg == "style"
+    }
+    for value in styled:
+        assert not isinstance(value, ast.Constant), (
+            f"a literal style name {value.value!r} bypasses the theme bundle")
+
+    # And the one helper that resolves them is the only reader of the bundle.
+    resolvers = {
+        node.name for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(isinstance(sub, ast.Constant) and sub.value == "styles"
+                for sub in ast.walk(node))
+    }
+    assert resolvers == {"style_name"}, resolvers
+
+
+def test_the_theme_and_the_progress_indicator_were_not_changed_for_the_adapter():
+    """Reuse, not rearrangement — checked from the other side too."""
+    tree = parse(SHARED / "ui_theme.py")
+    defined = defined_names(tree)
+    for name in ("ProgressIndicator", "apply_theme", "style_tk_widget",
+                 "enable_mousewheel"):
+        assert name in defined, name
+    for plan3 in PLAN3_MODULE_NAMES:
+        assert not any(entry.endswith(plan3) for entry in imported_names(tree)), plan3
+
+
+# --------------------------------------------------------------------------- #
+# The developer harness
+# --------------------------------------------------------------------------- #
+
+
+def test_the_manual_harness_lives_in_the_developer_tree_only():
+    harness = TESTS / "manual_plan3_harness.py"
+    assert harness.is_file()
+    assert not any(path.name == harness.name for path in UNIVERSAL.rglob("*.py"))
+    assert not harness.name.startswith("test_"), "pytest must not collect it"
+
+
+def test_the_manual_harness_is_registered_nowhere():
+    """No launcher entry, no seventh tool, and no production import."""
+    harness_name = "manual_plan3_harness"
+    for path in UNIVERSAL.rglob("*.py"):
+        assert harness_name not in path.read_text(encoding="utf-8"), path
+    launcher = (UNIVERSAL / "launcher.py").read_text(encoding="utf-8")
+    assert "job_ui" not in launcher and harness_name not in launcher
 
 
 # --------------------------------------------------------------------------- #
@@ -1032,7 +1333,7 @@ def test_the_single_intended_ui_test_module_is_recorded_but_not_created():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("name", PLAN3_MODULES)
+@pytest.mark.parametrize("name", ALL_PLAN3_MODULES)
 def test_the_foundation_added_no_runtime_dependency(name):
     """Standard library and this project's own shared modules. Nothing else.
 
@@ -1130,11 +1431,12 @@ def test_the_canonical_documents_and_protected_references_keep_their_exact_names
 
 def test_the_new_modules_ship_and_the_new_tests_do_not():
     """``scripts/`` ships; ``files/`` never does. The split must stay strict."""
-    for name in PLAN3_MODULES:
+    for name in ALL_PLAN3_MODULES:
         assert (SHARED / name).is_file()
     for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py",
                  "test_import_traversal.py", "test_import_manager.py",
                  "test_import_coordination.py", "test_job_controller.py",
-                 "test_job_run_results.py", "test_job_events_eta.py"):
+                 "test_job_run_results.py", "test_job_events_eta.py",
+                 "test_job_ui.py", "manual_plan3_harness.py"):
         assert (TESTS / name).is_file()
         assert not (UNIVERSAL / name).exists()
