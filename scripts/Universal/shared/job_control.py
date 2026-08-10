@@ -1,9 +1,15 @@
-"""Immutable vocabulary for shared job control — v0.6.0 Drop 3 (Plan 3), Phase 1.
+"""Shared job control — v0.6.0 Drop 3 (Plan 3), Phases 1 and 5.
 
-Like :mod:`shared.importing`, this module is **contracts only**: the states a run
-can be in, the transitions between them that are legal, the frozen snapshot a run
-is judged by, the record of what failed, the request to retry only those, and the
-typed events a worker may report.
+Phase 1 made this module **contracts only**: the states a run can be in, the
+transitions between them that are legal, the frozen snapshot a run is judged by,
+the record of what failed, the request to retry only those, and the typed events a
+worker may report.
+
+Phase 5 added the one object that *owns* a run — :class:`JobController` — together
+with the immutable :class:`JobSnapshot` it hands out. It is still the case that
+nothing here starts a thread, runs work, touches a widget or reads a disk: the
+controller coordinates a worker that somebody else started, and its whole
+concurrency budget is one :class:`threading.Condition` guarding its own state.
 
 What lives here
 ---------------
@@ -17,12 +23,24 @@ the deep copy-and-freeze that makes a tool's options safe to hand to a worker.
 
 What deliberately does **not** live here
 ---------------------------------------
-No controller, no locks around state, no pause/resume waiting, no cancel wake-up,
-no threads, no queues, no polling, no ETA arithmetic, no progress widget, no Tk,
-and no output placement of any kind. Phases 5–8 own those. In particular this
-module reserves no run directory and defines no output-policy type: a destination
-choice reaches a run only inside a later adopter's frozen tool options, and Plan 2
-remains the only owner of paths.
+No thread, no queue, no polling, no ETA arithmetic, no progress widget, no Tk, and
+no output placement of any kind. Phases 6–8 own those. In particular this module
+reserves no run directory and defines no output-policy type: a destination choice
+reaches a run only inside a later adopter's frozen tool options, and Plan 2 remains
+the only owner of paths.
+
+The relationship with ``shared.cancellation``
+---------------------------------------------
+The controller **extends** the existing cooperative pattern rather than replacing
+it. Its checkpoint raises that module's :class:`ConversionCancelled`, and
+:meth:`JobController.cancel_check` has exactly the ``CancelCheck`` shape
+``raise_if_cancelled`` already accepts, so an existing worker keeps working whether
+it is handed a bare ``threading.Event().is_set`` or a controller. Nothing in that
+module changed meaning; Phase 5 only added a non-raising predicate beside it.
+
+Importing a folder is a different job with a different Cancel button:
+``shared.import_coordination`` owns that one, does not import ``shared.cancellation``
+at all, and is unaffected by anything here.
 
 Truthfulness
 ------------
@@ -35,7 +53,8 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from collections.abc import Iterable, Mapping
+import threading
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path, PurePath
@@ -43,6 +62,7 @@ from types import MappingProxyType
 from typing import Any
 
 from shared import config as _config
+from shared.cancellation import ConversionCancelled
 from shared.importing import (
     ImportContractError,
     ImportedFileSnapshot,
@@ -71,6 +91,9 @@ __all__ = [
     "JobEventKind",
     "TERMINAL_EVENT_KINDS",
     "JobEvent",
+    "MAX_FAILURE_DETAIL",
+    "JobSnapshot",
+    "JobController",
 ]
 
 
@@ -682,6 +705,479 @@ class JobEvent:
     @property
     def is_terminal(self) -> bool:
         return self.kind in TERMINAL_EVENT_KINDS
+
+
+# --------------------------------------------------------------------------- #
+# The cooperative run controller — Phase 5
+#
+# Everything above is vocabulary: values that describe a run without owning one.
+# This is the one object that *owns* a run's state, and it owns exactly that. It
+# starts no thread, runs no work, touches no widget and reads no disk; a worker
+# someone else started calls into it, and a UI someone else built reads it.
+# --------------------------------------------------------------------------- #
+
+#: A technical detail is allowed to be long, but not unbounded — it travels into a
+#: snapshot that a UI may render. Anything past this is truncated rather than
+#: refused, because losing the first two thousand characters of a diagnostic to a
+#: validation error helps nobody.
+MAX_FAILURE_DETAIL = 2000
+
+
+@dataclass(frozen=True, slots=True)
+class JobSnapshot:
+    """One internally consistent moment of a run, safe to read from any thread.
+
+    Every field is a plain immutable value. No lock, condition, event, callback,
+    exception object or live collection is reachable from here, so holding one
+    while the controller moves on cannot show a half-changed run — the snapshot
+    you have is the run as it was, permanently.
+
+    The invariants below are enforced rather than assumed, which is what makes
+    "cancelled" trustworthy: a snapshot cannot claim :attr:`JobState.CANCELLED`
+    unless a worker actually acknowledged the cancellation at a checkpoint.
+    """
+
+    run_id: str
+    state: JobState
+    revision: int = 0
+    pause_requested: bool = False
+    cancel_requested: bool = False
+    cancel_acknowledged: bool = False
+    failure_message: str = ""
+    failure_detail: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "run_id", _require_identifier("run_id", self.run_id))
+        if not isinstance(self.state, JobState):
+            raise JobContractError(
+                f"state must be a JobState, got {type(self.state).__name__}")
+        object.__setattr__(self, "revision", _require_index("revision", self.revision))
+        for name in ("pause_requested", "cancel_requested", "cancel_acknowledged"):
+            value = getattr(self, name)
+            if not isinstance(value, bool):
+                raise JobContractError(f"{name} must be a bool, got {type(value).__name__}")
+        object.__setattr__(
+            self,
+            "failure_message",
+            _require_display_safe("failure_message", self.failure_message, allow_blank=True),
+        )
+        if not isinstance(self.failure_detail, str):
+            raise JobContractError("failure_detail must be a string")
+
+        expected_pause = self.state in (JobState.PAUSE_REQUESTED, JobState.PAUSED)
+        if self.pause_requested is not expected_pause:
+            raise JobContractError(
+                f"pause_requested must be {expected_pause} in {self.state.value}")
+        if self.cancel_acknowledged and not self.cancel_requested:
+            raise JobContractError(
+                "a cancellation cannot be acknowledged without having been requested")
+        if self.state is JobState.CANCEL_REQUESTED and not self.cancel_requested:
+            raise JobContractError("cancel_requested must be set in cancel_requested")
+        if self.state is JobState.CANCELLED and not self.cancel_acknowledged:
+            raise JobContractError(
+                "a run is cancelled only once a worker acknowledged it at a checkpoint; "
+                "requesting cancellation is not acknowledgement")
+        if self.state is JobState.FAILED and not self.failure_message:
+            raise JobContractError("a failed run must say why: record a message")
+        if self.state is not JobState.FAILED and (self.failure_message or self.failure_detail):
+            raise JobContractError(
+                f"a {self.state.value} run carries no failure information")
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.state in TERMINAL_STATES
+
+    @property
+    def is_running(self) -> bool:
+        return self.state is JobState.RUNNING
+
+    @property
+    def is_paused(self) -> bool:
+        """The worker has actually stopped at a checkpoint — not merely been asked to."""
+        return self.state is JobState.PAUSED
+
+    @property
+    def pause_pending(self) -> bool:
+        """``Pause requested``: asked for, and truthfully not yet acknowledged."""
+        return self.state is JobState.PAUSE_REQUESTED
+
+    @property
+    def inputs_locked(self) -> bool:
+        return self.state in INPUT_LOCKED_STATES
+
+    @property
+    def succeeded(self) -> bool:
+        return self.state in (JobState.SUCCEEDED, JobState.COMPLETED_WITH_FAILURES)
+
+    @property
+    def cancelled(self) -> bool:
+        return self.state is JobState.CANCELLED
+
+    @property
+    def failed(self) -> bool:
+        return self.state is JobState.FAILED
+
+
+def _bounded_detail(value: object) -> str:
+    """Accept technical text; refuse a live exception object.
+
+    Passing the exception itself is the easy mistake, and it is the one that puts a
+    mutable object with live traceback frames into a value that crosses threads.
+    Refusing it here means the caller writes ``f"{type(exc).__name__}: {exc}"`` once,
+    which is also what every existing tool already does.
+    """
+    if isinstance(value, BaseException):
+        raise JobContractError(
+            "pass technical text, not the exception object: an exception is mutable "
+            "and carries live frames, so it must not enter a snapshot")
+    if not isinstance(value, str):
+        raise JobContractError(
+            f"failure detail must be a string, got {type(value).__name__}")
+    if len(value) > MAX_FAILURE_DETAIL:
+        return value[:MAX_FAILURE_DETAIL - 1].rstrip() + "…"
+    return value
+
+
+class JobController:
+    """One run's cooperative state: pause, resume, cancel, and how it ended.
+
+    **Cooperative, never forced.** Pause and cancel are *requests*. This object
+    suspends no thread and terminates no process; it changes what the next
+    checkpoint does. That is why ``PAUSE_REQUESTED`` and ``CANCEL_REQUESTED`` are
+    first-class states — so a UI can honestly say "Pause requested" while an
+    indivisible stage keeps running, instead of claiming an ``ffmpeg`` call stopped
+    the instant a button was pressed.
+
+    **One run, one controller.** Reaching a terminal state ends it. There is no
+    ``reset``: reviving a finished run by clearing a flag is exactly how a stale
+    cancellation ends up stopping fresh work.
+
+    Typical worker shape, unchanged from what the existing tools already write::
+
+        try:
+            for chapter in chapters:
+                controller.checkpoint()       # pauses here, or raises here
+                convert(chapter)
+            controller.succeed()
+        except ConversionCancelled:
+            cleanup()                          # the worker's own, first
+            controller.finish_cancelled()      # then the run is truly cancelled
+        except Exception as exc:
+            controller.fail("Conversion failed.", f"{type(exc).__name__}: {exc}")
+
+    A worker written against :func:`~shared.cancellation.raise_if_cancelled` needs
+    no rewrite either: :meth:`cancel_check` has exactly the shape that function
+    expects, so ``raise_if_cancelled(controller.cancel_check)`` works.
+
+    **Thread safety.** Every command may be called from any thread. State lives
+    behind one :class:`threading.Condition` built on a deliberately *non-reentrant*
+    lock, so an accidental re-entry deadlocks a test rather than silently
+    succeeding. No listener is ever called while that lock is held.
+    """
+
+    __slots__ = (
+        "_run_id", "_condition", "_state", "_revision", "_cancel_requested",
+        "_cancel_acknowledged", "_failure_message", "_failure_detail", "_listener",
+    )
+
+    def __init__(
+        self,
+        run_id: str,
+        *,
+        listener: "Callable[[JobSnapshot], Any] | None" = None,
+    ) -> None:
+        if listener is not None and not callable(listener):
+            raise JobContractError("listener must be callable")
+        self._run_id = _require_identifier("run_id", run_id)
+        # A plain Lock, not the default RLock: re-entering from a listener is a bug,
+        # and a bug that deadlocks a test is worth far more than one that does not.
+        self._condition = threading.Condition(threading.Lock())
+        self._state = JobState.IDLE
+        self._revision = 0
+        self._cancel_requested = False
+        self._cancel_acknowledged = False
+        self._failure_message = ""
+        self._failure_detail = ""
+        self._listener = listener
+
+    # -- reading ----------------------------------------------------------- #
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
+    @property
+    def state(self) -> JobState:
+        with self._condition:
+            return self._state
+
+    @property
+    def revision(self) -> int:
+        with self._condition:
+            return self._revision
+
+    @property
+    def is_terminal(self) -> bool:
+        with self._condition:
+            return self._state in TERMINAL_STATES
+
+    @property
+    def is_running(self) -> bool:
+        with self._condition:
+            return self._state is JobState.RUNNING
+
+    @property
+    def pause_requested(self) -> bool:
+        with self._condition:
+            return self._state in (JobState.PAUSE_REQUESTED, JobState.PAUSED)
+
+    @property
+    def cancel_acknowledged(self) -> bool:
+        with self._condition:
+            return self._cancel_acknowledged
+
+    def snapshot(self) -> JobSnapshot:
+        """The run as it is right now. Reading changes nothing and blocks nobody."""
+        with self._condition:
+            return self._snapshot_locked()
+
+    def cancel_check(self) -> bool:
+        """Whether cancellation has been requested — the existing ``CancelCheck`` shape.
+
+        Hand this straight to ``raise_if_cancelled`` or to any worker already written
+        against a ``threading.Event().is_set``. It reports the *request*, not the
+        acknowledgement, which is exactly what the old predicate always meant.
+        """
+        with self._condition:
+            return self._cancel_requested
+
+    # -- commands ---------------------------------------------------------- #
+
+    def start(self) -> JobSnapshot:
+        """Begin the run. Legal once, from ``IDLE``.
+
+        Starting a second time raises: a controller belongs to one run, and a
+        terminal run may never be revived by starting it again.
+        """
+        return self._command(JobState.RUNNING, allowed_from=(JobState.IDLE,), strict=True)
+
+    def request_pause(self) -> JobSnapshot:
+        """Ask the worker to pause at its next safe checkpoint.
+
+        Truthful by construction: this reaches ``PAUSE_REQUESTED`` and stops there.
+        Only the worker, arriving at :meth:`checkpoint`, can make it ``PAUSED``.
+
+        A no-op — not an error — when there is nothing to pause: before the run
+        starts, while already pausing or paused, once cancellation has been
+        requested (cancel outranks pause), and after the run has ended. A disabled
+        button should not raise.
+        """
+        return self._command(JobState.PAUSE_REQUESTED, allowed_from=(JobState.RUNNING,))
+
+    def resume(self) -> JobSnapshot:
+        """Return a paused or pausing run to ``RUNNING`` and wake any waiter.
+
+        A no-op when the run is not pausing or paused, so it can never resurrect
+        work that was cancelled, failed or completed.
+        """
+        return self._command(
+            JobState.RUNNING, allowed_from=(JobState.PAUSE_REQUESTED, JobState.PAUSED))
+
+    def request_cancel(self) -> JobSnapshot:
+        """Ask the run to stop at its next checkpoint. Idempotent, from any thread.
+
+        Cancel outranks pause: it wakes a worker waiting in :meth:`checkpoint`, and
+        that worker re-checks cancellation before it re-checks pause.
+
+        Requested **before** the run starts, the flag is recorded while the state
+        stays ``IDLE`` — there is nothing running to cancel yet, and the first
+        checkpoint after :meth:`start` will honour it. Requested **after** the run
+        has ended it does nothing at all, because a finished run must not start
+        describing itself as cancelled.
+        """
+        with self._condition:
+            if self._state in TERMINAL_STATES:
+                return self._snapshot_locked()
+            changed = not self._cancel_requested
+            self._cancel_requested = True
+            if self._state in (
+                    JobState.RUNNING, JobState.PAUSE_REQUESTED, JobState.PAUSED):
+                # One observable change, so one revision and one notification: the
+                # state move carries the flag with it.
+                self._set_locked(JobState.CANCEL_REQUESTED)
+                changed = True
+            elif changed:
+                # Requested before the run started: the flag moved, the state did not.
+                self._revision += 1
+                self._condition.notify_all()
+            snapshot = self._snapshot_locked()
+        if changed:
+            self._dispatch(snapshot)
+        return snapshot
+
+    # -- the worker-facing checkpoint --------------------------------------- #
+
+    def checkpoint(self) -> None:
+        """The cooperative boundary. Returns, blocks, or raises.
+
+        * Running — returns immediately. This is the common path and costs one
+          uncontended lock acquisition, so it is safe between chapters or chunks.
+        * Pause requested — acknowledges it by moving to ``PAUSED``, then waits on
+          the condition. Waiting **releases the lock**, so the UI can still read a
+          snapshot, resume, or cancel while the worker sleeps. There is no polling,
+          no sleep and no timeout: the worker is woken, not checked on.
+        * Cancelled — records the acknowledgement exactly once and raises
+          :class:`~shared.cancellation.ConversionCancelled`, so the worker's own
+          ``try/finally`` cleanup runs before the run settles.
+        * Terminal — returns. The run is over; a late checkpoint is not an error.
+
+        Every wake re-checks everything from the top, so a spurious wake-up simply
+        waits again and a cancel that arrives during a pause is honoured on the
+        next pass rather than being lost.
+        """
+        while True:
+            paused: JobSnapshot | None = None
+            cancelled: JobSnapshot | None = None
+            with self._condition:
+                if self._state in TERMINAL_STATES:
+                    return
+                if self._cancel_requested:
+                    # Cancel outranks pause, and is checked first for that reason.
+                    if self._state is not JobState.CANCEL_REQUESTED:
+                        self._set_locked(JobState.CANCEL_REQUESTED)
+                    self._acknowledge_locked()
+                    cancelled = self._snapshot_locked()
+                elif self._state is JobState.PAUSE_REQUESTED:
+                    self._set_locked(JobState.PAUSED)
+                    paused = self._snapshot_locked()
+                elif self._state is JobState.PAUSED:
+                    self._condition.wait()
+                    continue
+                else:
+                    return
+            # The lock is released here, which is why a listener may safely call
+            # back into this controller.
+            if cancelled is not None:
+                self._dispatch(cancelled)
+                raise ConversionCancelled("Cancelled.")
+            self._dispatch(paused)
+
+    # -- terminal settlement ------------------------------------------------ #
+
+    def succeed(self) -> JobSnapshot:
+        """Settle the run as ``SUCCEEDED``. Exactly one terminal result may win."""
+        return self._settle(JobState.SUCCEEDED)
+
+    def complete_with_failures(self) -> JobSnapshot:
+        """Settle as ``COMPLETED_WITH_FAILURES``: it finished, some items did not."""
+        return self._settle(JobState.COMPLETED_WITH_FAILURES)
+
+    def fail(self, message: str, detail: str = "") -> JobSnapshot:
+        """Settle the run as ``FAILED``, with a display-safe reason.
+
+        The message is validated *before* the state moves, so a badly formed reason
+        cannot leave a run half-settled, and the detail refuses a live exception.
+        """
+        safe_message = _require_display_safe("failure message", message)
+        safe_detail = _bounded_detail(detail)
+        return self._settle(
+            JobState.FAILED, failure=(safe_message, safe_detail))
+
+    def finish_cancelled(self) -> JobSnapshot:
+        """Settle the run as ``CANCELLED`` — only after the worker acknowledged it.
+
+        Called by the worker once its own cleanup is done, which is what makes
+        ``CANCELLED`` mean "it has actually stopped" rather than "someone clicked
+        Cancel". Refuses outright if no checkpoint ever observed the cancellation,
+        because a fabricated acknowledgement is worse than a loud error.
+        """
+        with self._condition:
+            if not self._cancel_acknowledged:
+                raise JobContractError(
+                    "the worker has not acknowledged cancellation at a checkpoint; a "
+                    "run may not be reported cancelled until it has actually stopped")
+        return self._settle(JobState.CANCELLED)
+
+    # -- internals ---------------------------------------------------------- #
+
+    def _command(
+        self,
+        proposed: JobState,
+        *,
+        allowed_from: tuple[JobState, ...],
+        strict: bool = False,
+    ) -> JobSnapshot:
+        """Apply one UI command, or do nothing when it does not apply.
+
+        ``strict`` is for :meth:`start`, where "you already started" is a programming
+        error worth raising. The pause/resume commands are buttons, and a button
+        pressed in a state where it means nothing should be inert, not explosive.
+        """
+        with self._condition:
+            if self._state not in allowed_from:
+                if strict:
+                    require_legal_transition(self._state, proposed)
+                return self._snapshot_locked()
+            self._set_locked(proposed)
+            snapshot = self._snapshot_locked()
+        self._dispatch(snapshot)
+        return snapshot
+
+    def _settle(
+        self, proposed: JobState, failure: tuple[str, str] | None = None) -> JobSnapshot:
+        with self._condition:
+            # ``require_legal_transition`` inside ``_set_locked`` is what makes a
+            # second terminal result impossible: every terminal state maps to an
+            # empty set of successors, so the second attempt raises rather than
+            # replacing the first.
+            self._set_locked(proposed)
+            if failure is not None:
+                self._failure_message, self._failure_detail = failure
+            snapshot = self._snapshot_locked()
+        self._dispatch(snapshot)
+        return snapshot
+
+    def _set_locked(self, proposed: JobState) -> None:
+        """The single authority for changing state. Nothing else assigns ``_state``.
+
+        Every move is checked against the frozen Phase 1 table first, so an illegal
+        transition cannot reach the attribute by any path — including a future one
+        somebody adds without reading this docstring.
+        """
+        require_legal_transition(self._state, proposed)
+        self._state = proposed
+        self._revision += 1
+        # Waking on every state change means no waiter can miss the one it needed.
+        self._condition.notify_all()
+
+    def _acknowledge_locked(self) -> bool:
+        """Record that a worker observed the cancellation. At most once per run."""
+        if self._cancel_acknowledged:
+            return False
+        self._cancel_acknowledged = True
+        self._revision += 1
+        return True
+
+    def _snapshot_locked(self) -> JobSnapshot:
+        return JobSnapshot(
+            run_id=self._run_id,
+            state=self._state,
+            revision=self._revision,
+            pause_requested=self._state in (JobState.PAUSE_REQUESTED, JobState.PAUSED),
+            cancel_requested=self._cancel_requested,
+            cancel_acknowledged=self._cancel_acknowledged,
+            failure_message=self._failure_message,
+            failure_detail=self._failure_detail,
+        )
+
+    def _dispatch(self, snapshot: "JobSnapshot | None") -> None:
+        """Call the listener with the lock released, or not at all."""
+        if snapshot is None or self._listener is None:
+            return
+        self._listener(snapshot)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"JobController(run_id={self._run_id!r}, state={self.state.value})"
 
 
 # --------------------------------------------------------------------------- #

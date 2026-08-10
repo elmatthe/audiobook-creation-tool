@@ -1,14 +1,148 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–4 COMPLETE,
-PHASES 5–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–5 COMPLETE,
+PHASES 6–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
 and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
-with its deduplication and atomic transactions, and the background import coordinator with its
-own cancellation, its bounded queue of frozen events and its Tk-free poller seam. No production
-panel or launcher adopts any of it, no behaviour changed, and `version.py` is still `0.5.1`.
-Every later phase needs separate explicit maintainer approval.**
+with its deduplication and atomic transactions, the background import coordinator with its own
+cancellation, and the cooperative run controller with pause, resume, processing cancellation and
+one-acknowledgement terminal settlement. No production panel or launcher adopts any of it, no
+behaviour changed, and `version.py` is still `0.5.1`. Every later phase needs separate explicit
+maintainer approval.**
+
+### Phase 5 — Cooperative job state, pause, resume, and cancel (2026-08-09, HOME-PC)
+
+**Result: `shared/job_control.py` gained the object that owns a run — `JobController` and its
+immutable `JobSnapshot` — and `shared/cancellation.py` gained exactly one additive predicate.
+Pause and cancel are cooperative requests honoured at a condition-based checkpoint; a run is
+reported cancelled only after a worker actually acknowledged it; exactly one terminal result can
+win. The compatibility gate was **not encountered**: both pre-existing public names keep their
+signatures and behaviour, no line was deleted from that file, and all eight existing callers pass
+unchanged. 173 focused tests, no sleeps, stable over eight consecutive runs.**
+
+#### The compatibility gate: not encountered
+
+Before touching `shared/cancellation.py` I inventoried its entire public surface and every
+caller:
+
+| Public name | Kind | Preserved |
+|---|---|---|
+| `CancelCheck` | `Optional[Callable[[], bool]]` alias | unchanged |
+| `ConversionCancelled` | `Exception` subclass | unchanged, still directly under `Exception` |
+| `raise_if_cancelled(cancel_check, message="Cancelled.")` | function | unchanged, byte for byte |
+
+Callers: six production modules (`m4b_maker.py`, `m4b_metadata_editor.py`, `mp3_tool.py`,
+`epub2tts_gui.py`, `epub2tts_edge.py`, `kokoro_synth.py`) and two test modules
+(`test_prototype_regression.py`, `test_plan3_boundaries.py`). Their suites were run **before**
+any edit as the recorded baseline — 61 passed, 1 warning — and again afterwards: **identical**.
+
+The change is additive only. `git diff` on that file shows **zero deleted lines**; the single
+addition is `is_cancelled(cancel_check)`, the non-raising counterpart of `raise_if_cancelled`
+with the same `None`-tolerant rule. It closes a real gap rather than inventing one: the
+controller must *ask* whether cancellation was requested while deciding whether to keep a paused
+worker waiting, and `batch_convert.py` (twice) and `kokoro_synth.py` already open-code the exact
+same test. Those three callers were deliberately **not** rewired — Phase 5 keeps production
+workers unchanged — so they are simply available to adopt it later.
+
+**One kickoff difference, recorded.** The Phase 5 kickoff listed `CancellationController` among
+the existing public names to preserve. No such name has ever existed in this repository — the
+module has only ever defined the three above — and §8 of the active drop names only
+`ConversionCancelled` and `raise_if_cancelled`. The active drop is authoritative, so those are
+what was preserved, and nothing was invented to satisfy a name that was never there.
+
+#### State-transition semantics
+
+The Phase 1 table is unchanged and is now *enforced* rather than merely published. Exactly one
+method assigns the state, it calls `require_legal_transition` first, and a structural test
+asserts by `ast` that `_state` is assigned in only `__init__` and `_set_locked` — so an illegal
+move cannot reach the attribute by any path, including one a later phase adds. A parametrised
+test drives the controller into each of the nine states and attempts all nine successors, all
+eighty-one pairs, through that same authority.
+
+Commands and transitions are deliberately different things. `start()` is strict: starting twice,
+or starting a finished run, raises `IllegalJobTransition`. Pause, resume and cancel are
+**buttons**, and a button pressed where it means nothing is inert rather than explosive — pausing
+an idle run, resuming a running one, or pausing after cancel has been requested each return the
+current snapshot and move nothing, including the revision. The revision advances only on a real
+observable change, so a no-op cannot invalidate a snapshot another part of the UI is holding.
+
+#### Pause, resume, and the checkpoint
+
+`request_pause()` reaches `PAUSE_REQUESTED` and stops there. Only the worker, arriving at
+`checkpoint()`, can make it `PAUSED` — which is what makes the UI's "Pause requested" text
+truthful during an indivisible stage. A test parks a worker inside a simulated indivisible stage,
+requests the pause, asserts the state stays `PAUSE_REQUESTED`, then releases the stage and
+watches the acknowledgement arrive.
+
+`checkpoint()` returns immediately while running, waits on a `threading.Condition` while paused,
+and raises while cancelled. The wait releases the lock, so a snapshot can still be read and a
+resume or cancel still delivered while the worker sleeps. **No busy-spin, proved rather than
+asserted:** one test wraps the controller's own `Condition.wait` and asserts it was entered
+exactly once with no timeout argument — woken, not polled — and a structural guard rejects any
+`wait(...)` call in the module that carries one. Every wake re-checks from the top, so a spurious
+notification simply waits again and a cancel arriving mid-pause is honoured on the next pass.
+
+#### Cancellation and acknowledgement
+
+Cancel outranks pause and is checked first at every checkpoint. Requested before the run starts,
+the flag is recorded while the state stays `IDLE` — there is nothing running to cancel yet — and
+the first checkpoint after `start()` honours it. Requested after the run ended it does nothing at
+all, because a finished run must not begin describing itself as cancelled.
+
+**Requesting a cancellation is never an acknowledgement.** The acknowledgement is recorded only
+where a worker actually observes it, at most once per run, and repeated checkpoints re-raise
+without re-acknowledging or moving the revision. `finish_cancelled()` refuses outright if no
+checkpoint ever observed the cancellation, and `JobSnapshot` refuses to be constructed in the
+`CANCELLED` state without one — so "cancelled" means "it has actually stopped", enforced in two
+independent places rather than trusted.
+
+A run that genuinely finished before its next checkpoint reports `SUCCEEDED` with
+`cancel_requested` still true and `cancel_acknowledged` false. That is the honest outcome and the
+Phase 1 table always allowed it.
+
+#### Terminal integrity and concurrency ownership
+
+Every terminal state maps to an empty successor set, so the second settle attempt raises rather
+than replacing the first — completed-then-failed, failed-then-completed and
+cancelled-then-completed are all impossible by table lookup, not by a special case. A race test
+starts two threads on a barrier, one settling success and one settling cancellation, and asserts
+exactly one winner and exactly one `IllegalJobTransition`.
+
+State lives behind one `threading.Condition` built on a deliberately **non-reentrant** `Lock`, so
+an accidental re-entry deadlocks a test instead of silently succeeding. That choice is what makes
+"no callback under the lock" provable: a listener that reads the snapshot, the state and the
+cancel flag from inside the notification would hang if the guarantee were false, and it does not.
+Failure messages are validated *before* the state moves, and a failure detail refuses a live
+exception object outright and truncates at 2,000 characters.
+
+#### Deviations
+
+**None.** No Phase 1–4 contract was changed and no contradiction surfaced. The frozen nine-state
+vocabulary, the transition table, traversal, the imported-file manager, transaction semantics and
+the import coordinator are all byte-identical or behaviourally untouched.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **324 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**;
+  Phase 5 controller **173 passed**; maintenance and cleanup **337 passed**; output paths **255
+  passed, 1 skipped, 1 warning**; the eight cancellation-bearing production suites **61 passed**,
+  identical to the pre-edit baseline.
+- Collection **1,943** (1,767 + 173 new controller tests + 3 net new boundary tests). Full suite
+  **1,930 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented Tk
+  transient did not recur. `scripts/verify.py` **RESULT: PASS**. Compile gate exit 0.
+- **Whitespace.** With only the four source files staged, `git diff --cached --check` reported
+  **nothing at all**, and `-- '*.py'` exits 0. Every finding in the broad check comes from the
+  documentation edits and is inherited: `Handoff.md`'s stored blob is CRLF, so every added line
+  ends in a carriage return, and the drop header uses markdown two-space hard line breaks. No
+  file was reformatted to make the check quieter.
+- The 13 skips are unchanged from the Phase 4 baseline. Phase 5 added none: all 173 of its tests
+  run here, because the controller needs no privileged filesystem facility and no display.
+- No test sleeps and none waits on a wall clock. Pauses are arranged with per-checkpoint gates,
+  races with `threading.Barrier`, and "has it paused yet?" is answered by the controller's own
+  listener rather than by polling. Eight consecutive runs of the focused suite gave identical
+  results in 0.14 s each.
 
 ### Phase 4 — Background import coordination and Cancel Import (2026-08-09, HOME-PC)
 
@@ -5073,6 +5207,53 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 5 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 5 start SHA:** `418deb93c53dd759643e50d6e0b292b9138491e5`
+(the approved Phase 4 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_job_controller.py` — 1,365 lines, **173 tests**, none skipped. The snapshot
+  invariants, the exhaustive eighty-one-pair transition proof, pause and resume, cancellation,
+  acknowledgement, failure and completion, the concurrency races, and compatibility with the
+  existing cancellation primitive in both directions.
+
+**Files modified (5):**
+- `scripts/Universal/shared/job_control.py` — +508 / −12, now 1,230 lines. `JobSnapshot`,
+  `JobController`, `MAX_FAILURE_DETAIL` and `_bounded_detail`. The twelve deleted lines are
+  eleven rewritten docstring lines and one widened import.
+- `scripts/Universal/shared/cancellation.py` — **+37 / −0**, purely additive: the `is_cancelled`
+  predicate and a docstring recording how Phase 5 extends the pattern. Nothing was removed and
+  nothing changed meaning.
+- `files/tests/test_plan3_boundaries.py` — +160 / −22, now 745+ lines. The pure-vocabulary list
+  narrowed to `importing.py` alone so its approved no-concurrency proof survives intact; the
+  job module given its own precise budget guard (one condition, one non-reentrant lock, no
+  thread or queue); the cancellation guard widened to admit the additive name while pinning both
+  originals; a new guard that only `job_control.py` may raise the conversion exception; a new
+  guard that the pause wait carries no timeout; a new per-caller resolution check; and the
+  later-phase name lists re-cut per module.
+- `md-instructions/Handoff.md` — the Phase 5 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row, the
+  recorded start-state "Phase reached" row, two new gate rows, and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status -M -C`.
+- All **22** approved screenshots byte-identical to `origin/master` (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; **`output_paths.py`, `maintenance.py`, `importing.py`,
+  `import_coordination.py`, `config.py`, `subprocess_utils.py`, `logging_setup.py`,
+  `ui_theme.py`, `launcher.py`, `config.toml`, `requirements.txt`, both root launchers and all
+  six production tool modules are byte-identical to the Phase 4 commit** (blob hashes compared).
+- 36 production modules parsed with `ast`: none imports `shared.importing`,
+  `shared.job_control`, `shared.import_coordination` or `shared.job_ui`.
+- No dependency added; no packaging, release, tag or version change; no PR opened or merged.
 
 ### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 4 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
 

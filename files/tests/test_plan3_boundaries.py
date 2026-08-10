@@ -28,10 +28,11 @@ TESTS = REPO_ROOT / "files" / "tests"
 PLAN3_MODULES = ("importing.py", "job_control.py", "import_coordination.py")
 PLAN3_MODULE_NAMES = ("importing", "job_control", "import_coordination", "job_ui")
 
-#: The two modules that are pure *vocabulary and synchronous behaviour*. Phase 4 put
-#: its thread and its queue in ``import_coordination.py`` precisely so these two keep
-#: their approved proof that neither constructs one — see the guards below.
-PURE_VOCABULARY_MODULES = ("importing.py", "job_control.py")
+#: The module that is pure *vocabulary and synchronous behaviour*. Phase 4 put its
+#: thread and its queue in ``import_coordination.py``, and Phase 5 put its condition
+#: in ``job_control.py``, precisely so this one keeps its approved proof that it
+#: constructs no concurrency primitive at all — see the guards below.
+PURE_VOCABULARY_MODULES = ("importing.py",)
 
 #: Every production module that must remain unaware of Plan 3.
 PRODUCTION_SOURCES = tuple(
@@ -137,12 +138,59 @@ def test_a_plan3_module_starts_no_worker_and_owns_no_queue(plan3_trees, name):
         assert primitive not in constructed, (name, primitive)
 
 
-def test_the_only_threading_use_is_a_lock_for_identifier_allocation():
+def test_the_only_threading_use_in_the_vocabulary_is_a_lock_for_identifiers():
     """``IdFactory`` needs a lock. A lock is not concurrency; a thread is."""
     text = (SHARED / "importing.py").read_text(encoding="utf-8")
     assert "threading.Lock()" in text
     assert text.count("threading.") == 1, "threading is used for exactly one lock"
-    assert "threading" not in (SHARED / "job_control.py").read_text(encoding="utf-8")
+
+
+def test_the_job_controller_owns_one_condition_and_starts_nothing():
+    """Phase 5's whole concurrency budget, pinned so it cannot quietly grow.
+
+    A controller coordinates a worker; it never *is* one. One condition guards its
+    own state and there is nothing else — no thread, no queue, no executor, no
+    timer, and no second lock that could give two acquisition orders a chance to
+    disagree.
+    """
+    tree = parse(SHARED / "job_control.py")
+    modules = imported_names(tree)
+    for forbidden in ("asyncio", "concurrent", "multiprocessing", "queue", "sched"):
+        assert forbidden not in {entry.split(".")[0] for entry in modules}, forbidden
+
+    constructed = called_attributes(tree) | called_bare_names(tree)
+    for primitive in ("Thread", "Timer", "Queue", "SimpleQueue", "LifoQueue",
+                      "PriorityQueue", "Semaphore", "BoundedSemaphore", "Barrier",
+                      "ThreadPoolExecutor", "ProcessPoolExecutor", "Pool", "Process",
+                      "Event"):
+        assert primitive not in constructed, primitive
+
+    text = (SHARED / "job_control.py").read_text(encoding="utf-8")
+    assert text.count("threading.Condition(") == 1, "exactly one condition"
+    assert text.count("threading.Lock()") == 1, "and exactly one lock, inside it"
+    # A plain ``Lock``, not the default ``RLock``: re-entering from a listener must
+    # deadlock a test rather than quietly succeed.
+    assert "threading.Condition(threading.Lock())" in text
+
+
+def test_the_pause_wait_is_a_condition_wait_and_never_a_sleep():
+    """§6.10: "waits on a condition without busy-spinning" — checked in the source."""
+    text = (SHARED / "job_control.py").read_text(encoding="utf-8")
+    assert "self._condition.wait()" in text
+    assert "notify_all()" in text
+
+    tree = parse(SHARED / "job_control.py")
+    # Checked as *calls*, not as substrings: the prose is entitled to say the word
+    # "sleep" while explaining that nothing here does it.
+    called = called_attributes(tree) | called_bare_names(tree)
+    for busy in ("sleep", "monotonic", "perf_counter", "time"):
+        assert busy not in called, busy
+    assert "time" not in {entry.split(".")[0] for entry in imported_names(tree)}
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "wait"):
+            assert not node.args and not node.keywords, (
+                "a timeout on the pause wait would be a poll wearing a condition's hat")
 
 
 #: Calls that would either change something or follow a link. Neither Plan 3 module
@@ -473,28 +521,80 @@ def test_the_launcher_tool_registry_gained_no_seventh_entry():
 
 
 def test_the_existing_cancellation_api_is_unchanged_and_unwrapped():
+    """The Phase 5 compatibility gate, checked in code rather than promised.
+
+    Phase 5 was authorized to extend this module. What it was not authorized to do
+    is change what was already there, so both original names keep their exact
+    signature and their exact observable behaviour — including the default message
+    — and the only growth is one additive predicate beside them.
+    """
+    import inspect
+
     from shared import cancellation
 
     assert issubclass(cancellation.ConversionCancelled, Exception)
+    assert cancellation.ConversionCancelled.__mro__[1] is Exception
+    assert str(inspect.signature(cancellation.raise_if_cancelled)) == (
+        "(cancel_check: 'CancelCheck', message: 'str' = 'Cancelled.') -> 'None'")
     assert cancellation.raise_if_cancelled(None) is None
     assert cancellation.raise_if_cancelled(lambda: False) is None
-    with pytest.raises(cancellation.ConversionCancelled):
+    with pytest.raises(cancellation.ConversionCancelled) as excinfo:
         cancellation.raise_if_cancelled(lambda: True)
+    assert str(excinfo.value) == "Cancelled."
     with pytest.raises(cancellation.ConversionCancelled) as excinfo:
         cancellation.raise_if_cancelled(lambda: True, "Stopped.")
     assert "Stopped." in str(excinfo.value)
 
+    # Additive only: the non-raising counterpart follows the same ``None`` rule.
+    assert cancellation.is_cancelled(None) is False
+    assert cancellation.is_cancelled(lambda: True) is True
+
     tree = parse(SHARED / "cancellation.py")
-    assert defined_names(tree) == {"ConversionCancelled", "raise_if_cancelled"}
+    assert defined_names(tree) == {
+        "ConversionCancelled", "raise_if_cancelled", "is_cancelled"}
     assert imported_names(tree) == {"__future__", "__future__.annotations",
                                     "typing", "typing.Callable", "typing.Optional"}
 
 
-def test_plan3_neither_shadows_nor_re_exports_cancellation():
-    for name in PLAN3_MODULES:
+def test_every_pre_existing_caller_of_the_cancellation_api_still_resolves():
+    """The six production modules and two tests that already import these names."""
+    callers = {
+        "mp3_tools/m4b_maker.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "mp3_tools/m4b_metadata_editor.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "mp3_tools/mp3_tool.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "tts/epub2tts_gui.py": ("ConversionCancelled",),
+        "tts/epub2tts_edge/epub2tts_edge.py": ("ConversionCancelled",),
+        "tts/kokoro_synth.py": ("ConversionCancelled",),
+    }
+    from shared import cancellation
+
+    for relative, names in callers.items():
+        text = (UNIVERSAL / relative).read_text(encoding="utf-8")
+        for name in names:
+            assert f"from shared.cancellation import" in text, relative
+            assert name in text, (relative, name)
+            assert hasattr(cancellation, name), name
+
+
+def test_only_the_job_controller_may_raise_the_conversion_exception():
+    """Phase 5 extends the cooperative pattern; the importer stays out of it.
+
+    ``job_control.py`` is now authorized to raise ``ConversionCancelled`` at its
+    checkpoint — that *is* the compatible extension. The importing modules are not,
+    and must keep their own unrelated cancellation, which is what stops a Cancel
+    Import button from ever reaching a conversion.
+    """
+    authorized = (SHARED / "job_control.py").read_text(encoding="utf-8")
+    assert "ConversionCancelled" in authorized
+    assert "from shared.cancellation import ConversionCancelled" in authorized
+
+    for name in ("importing.py", "import_coordination.py"):
         text = (SHARED / name).read_text(encoding="utf-8")
         assert "ConversionCancelled" not in text, name
         assert "raise_if_cancelled" not in text, name
+        assert "is_cancelled" not in text, name
+        modules = imported_names(parse(SHARED / name))
+        assert not any("cancellation" in entry for entry in modules), (name, modules)
 
 
 # --------------------------------------------------------------------------- #
@@ -522,37 +622,75 @@ _PHASE_FOUR_NAMES = (
     "confirm_pending", "decline_pending", "import_files",
 )
 
+#: Phase 5 landed the cooperative controller in ``job_control.py``. These names stay
+#: forbidden in the importing modules, which run no job and own no run state.
+#: ``request_cancel`` is deliberately absent: both the import coordinator and the job
+#: controller legitimately own that name now, each for its own subsystem, which is
+#: exactly the separation Phase 4's isolation gate exists to keep.
+_PHASE_FIVE_NAMES = (
+    "JobController", "JobSnapshot", "request_pause", "resume", "checkpoint",
+    "succeed", "complete_with_failures", "finish_cancelled",
+)
+
 #: Still owned by a later phase, in every module this drop has so far.
 _LATER_PHASE_NAMES = (
-    # Phase 5 controller
-    "JobController", "request_pause", "resume", "checkpoint",
     # Phase 7 ETA / projection
     "EtaEstimator", "estimate_remaining", "summary_lines", "detail_lines",
     # Phase 8 adapters
     "ImportedFileList", "JobControlBar", "build_ui",
 )
 
-#: What each module is forbidden from defining, now that Phase 4 has landed.
+#: What each module is forbidden from defining, now that Phase 5 has landed.
 _FORBIDDEN_BY_MODULE = {
-    "importing.py": _LATER_PHASE_NAMES + _PHASE_FOUR_NAMES,
-    "job_control.py": _LATER_PHASE_NAMES + _PHASE_FOUR_NAMES + _PHASE_THREE_NAMES,
-    # The coordinator drives the manager; it must never grow a second one.
-    "import_coordination.py": _LATER_PHASE_NAMES + _PHASE_THREE_NAMES,
+    "importing.py": (
+        _LATER_PHASE_NAMES + _PHASE_FOUR_NAMES + _PHASE_FIVE_NAMES
+        + ("request_cancel",)),
+    "job_control.py": _LATER_PHASE_NAMES + _PHASE_THREE_NAMES + tuple(
+        name for name in _PHASE_FOUR_NAMES if name != "request_cancel"),
+    # The coordinator drives the manager; it must never grow a second one, and it
+    # runs no processing job either.
+    "import_coordination.py": (
+        _LATER_PHASE_NAMES + _PHASE_THREE_NAMES + _PHASE_FIVE_NAMES),
 }
 
 
 @pytest.mark.parametrize("name", PLAN3_MODULES)
-def test_no_phase_five_to_eight_behaviour_exists_yet(plan3_trees, name):
+def test_no_phase_six_to_eight_behaviour_exists_yet(plan3_trees, name):
     """Each phase's own names move off this list as they are implemented.
 
     Phase 2's traversal core and Phase 3's manager live in ``importing.py``; Phase 4's
-    lifecycle lives in ``import_coordination.py``; everything below still belongs to a
-    later phase. The manager vocabulary still has no business appearing in the job
-    module *or* in the coordinator, which owns a manager rather than being one.
+    import lifecycle lives in ``import_coordination.py``; Phase 5's run controller
+    lives in ``job_control.py``. Everything below still belongs to a later phase, and
+    each module stays out of the other two's business: the job module owns no
+    imported-file list, and the importing modules run no job.
     """
     defined = defined_names(plan3_trees[name])
     for later_phase in _FORBIDDEN_BY_MODULE[name]:
         assert later_phase not in defined, (name, later_phase)
+
+
+def test_phase_five_delivered_its_own_names_and_no_more():
+    """The run controller exists, in the job module, and nothing beyond it does."""
+    from shared import import_coordination, importing, job_control
+
+    for delivered in (
+        # Phase 1 vocabulary
+        "JobState", "LEGAL_TRANSITIONS", "TERMINAL_STATES", "freeze_options",
+        "RunSnapshot", "FailureRecord", "FailureLog", "RetryRequest", "JobEvent",
+        # Phase 5
+        "JobController", "JobSnapshot", "MAX_FAILURE_DETAIL",
+    ):
+        assert hasattr(job_control, delivered), delivered
+
+    for later in ("EtaEstimator", "estimate_remaining", "JobControlBar",
+                  "ImportedFileList", "build_ui"):
+        assert not hasattr(job_control, later), later
+    # The controller runs a job; it does not own an imported list or an import.
+    for foreign in ("ImportedFileManager", "ImportCoordinator", "ImportPoller"):
+        assert not hasattr(job_control, foreign), foreign
+    for foreign in ("JobController", "JobSnapshot"):
+        assert not hasattr(importing, foreign), foreign
+        assert not hasattr(import_coordination, foreign), foreign
 
 
 def test_phase_four_delivered_its_own_names_and_no_more():
@@ -740,6 +878,6 @@ def test_the_new_modules_ship_and_the_new_tests_do_not():
         assert (SHARED / name).is_file()
     for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py",
                  "test_import_traversal.py", "test_import_manager.py",
-                 "test_import_coordination.py"):
+                 "test_import_coordination.py", "test_job_controller.py"):
         assert (TESTS / name).is_file()
         assert not (UNIVERSAL / name).exists()
