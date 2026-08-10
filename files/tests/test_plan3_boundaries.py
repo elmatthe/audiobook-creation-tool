@@ -669,6 +669,79 @@ def test_no_phase_six_to_eight_behaviour_exists_yet(plan3_trees, name):
         assert later_phase not in defined, (name, later_phase)
 
 
+def test_phase_six_delivered_its_own_names_and_no_more():
+    """Capture, locking, outcomes and retry exist; Phase 7's reporting does not."""
+    from shared import job_control
+
+    for delivered in (
+        "capture_run", "ControlKind", "LOCK_MATRIX", "is_locked",
+        "JobAction", "is_available", "ItemStatus", "ItemOutcome", "RunResult",
+    ):
+        assert hasattr(job_control, delivered), delivered
+
+    for later in ("EtaEstimator", "estimate_remaining", "summary_lines",
+                  "detail_lines", "ProgressReport", "JobEventStream"):
+        assert not hasattr(job_control, later), later
+
+
+def test_phase_six_added_no_output_descriptor():
+    """§8's Phase 6 risk gate, honoured by omission and checked here.
+
+    A generic "where did this item go" field would duplicate Plan 2 and contradict
+    it the first time the two disagreed. Nothing in the outcome, the result or the
+    retry names a destination, and the module still imports no output service.
+    """
+    from shared.job_control import ItemOutcome, RetryRequest, RunResult
+
+    for owner in (ItemOutcome, RunResult, RetryRequest):
+        fields = set(getattr(owner, "__slots__", ()))
+        for forbidden in ("output", "output_path", "destination", "output_base",
+                          "run_directory", "reservation", "planned", "plan"):
+            assert forbidden not in fields, (owner.__name__, forbidden)
+
+    text = (SHARED / "job_control.py").read_text(encoding="utf-8")
+    for owned_by_output_paths in (
+        "numbered_variant", "sanitize_component", "sanitize_relative",
+        "reserve_run_directory", "release_if_empty", "assert_contained",
+        "atomic_replace", "temporary_sibling", "MAX_COLLISION_ATTEMPTS",
+        "TOOL_OUTPUT_PARENTS", "OutputPlan", "PlannedOutput", "DestinationPlanner",
+    ):
+        assert owned_by_output_paths not in text, owned_by_output_paths
+
+
+def test_the_lock_matrix_is_derived_and_exhaustive():
+    """Every kind classified in every state, from the Phase 1 frozen set alone."""
+    from shared.job_control import (
+        INPUT_LOCKED_STATES, LOCK_MATRIX, ControlKind, JobState, is_locked)
+
+    assert set(LOCK_MATRIX) == set(ControlKind), "no kind may be silently absent"
+    for kind in ControlKind:
+        for state in JobState:
+            assert isinstance(is_locked(kind, state), bool), (kind, state)
+    locked_states = {
+        state for kind in ControlKind for state in JobState if is_locked(kind, state)}
+    assert locked_states == set(INPUT_LOCKED_STATES), (
+        "the matrix locks exactly the states Phase 1 froze, and derives them")
+
+
+def test_an_item_failure_cannot_force_a_job_level_failure():
+    """§6.14: a run that lost items still completed; only a fatal record fails it."""
+    tree = parse(SHARED / "job_control.py")
+    result_class = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "RunResult")
+    called = {
+        node.func.attr for node in ast.walk(result_class)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    for controller_call in ("fail", "succeed", "complete_with_failures",
+                            "finish_cancelled", "request_cancel", "checkpoint"):
+        assert controller_call not in called, controller_call
+    # And no instance of the controller is constructed anywhere near the result.
+    assert "JobController(" not in ast.get_source_segment(
+        (SHARED / "job_control.py").read_text(encoding="utf-8"), result_class)
+
+
 def test_phase_five_delivered_its_own_names_and_no_more():
     """The run controller exists, in the job module, and nothing beyond it does."""
     from shared import import_coordination, importing, job_control
@@ -878,6 +951,7 @@ def test_the_new_modules_ship_and_the_new_tests_do_not():
         assert (SHARED / name).is_file()
     for name in ("test_importing.py", "test_job_control.py", "test_plan3_boundaries.py",
                  "test_import_traversal.py", "test_import_manager.py",
-                 "test_import_coordination.py", "test_job_controller.py"):
+                 "test_import_coordination.py", "test_job_controller.py",
+                 "test_job_run_results.py"):
         assert (TESTS / name).is_file()
         assert not (UNIVERSAL / name).exists()

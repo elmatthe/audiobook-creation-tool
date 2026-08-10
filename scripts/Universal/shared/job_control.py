@@ -1,4 +1,4 @@
-"""Shared job control — v0.6.0 Drop 3 (Plan 3), Phases 1 and 5.
+"""Shared job control — v0.6.0 Drop 3 (Plan 3), Phases 1, 5 and 6.
 
 Phase 1 made this module **contracts only**: the states a run can be in, the
 transitions between them that are legal, the frozen snapshot a run is judged by,
@@ -10,6 +10,21 @@ with the immutable :class:`JobSnapshot` it hands out. It is still the case that
 nothing here starts a thread, runs work, touches a widget or reads a disk: the
 controller coordinates a worker that somebody else started, and its whole
 concurrency budget is one :class:`threading.Condition` guarding its own state.
+
+Phase 6 closed the loop around a run: :func:`capture_run` freezes one configuration
+at the moment a run is accepted, :func:`is_locked` and :func:`is_available` derive
+what the UI may still touch while it runs, and :class:`RunResult` settles what
+became of every occurrence — from which :class:`RetryRequest` re-runs only the
+retryable failures, against that same frozen snapshot. All of it is pure: no
+thread, no widget, no filesystem, and no output placement.
+
+Item failure is not job failure
+-------------------------------
+A run that lost some items but orchestrated fine is ``COMPLETED_WITH_FAILURES``, not
+``FAILED``; ``FAILED`` is reserved for a run that broke as a whole and is recorded as
+an item-less :class:`FailureRecord`. Keeping those apart is what makes Retry Failed
+meaningful, and :class:`RunResult` derives the distinction rather than letting a
+caller assert it.
 
 What lives here
 ---------------
@@ -94,6 +109,15 @@ __all__ = [
     "MAX_FAILURE_DETAIL",
     "JobSnapshot",
     "JobController",
+    "capture_run",
+    "ControlKind",
+    "LOCK_MATRIX",
+    "is_locked",
+    "JobAction",
+    "is_available",
+    "ItemStatus",
+    "ItemOutcome",
+    "RunResult",
 ]
 
 
@@ -705,6 +729,442 @@ class JobEvent:
     @property
     def is_terminal(self) -> bool:
         return self.kind in TERMINAL_EVENT_KINDS
+
+
+# --------------------------------------------------------------------------- #
+# Capture — Phase 6
+#
+# The moment a run is accepted. Everything a run will ever read is copied here, on
+# the caller's own thread, and nothing is ever consulted again.
+# --------------------------------------------------------------------------- #
+
+
+def capture_run(
+    *,
+    snapshot_id: str,
+    files: Any,
+    catalog: SupportedTypeCatalog,
+    import_options: ImportOptions,
+    effective_config: "_config.EffectiveConfig",
+    tool_options: Any = None,
+    created_at: float = 0.0,
+) -> RunSnapshot:
+    """Freeze one run's complete configuration. Decision 9A, as a single call.
+
+    *files* may be an :class:`~shared.importing.ImportedFileSnapshot` or anything
+    that hands one back from a ``snapshot()`` method — the imported-file manager
+    does. It is duck-typed on purpose: this module coordinates a run, and giving it
+    an import to reach into would be the beginning of a second manager.
+
+    Everything is copied, not referenced. ``tool_options`` is deep-frozen by
+    :func:`freeze_options`, which refuses a widget, a variable, a callable, a
+    thread, an open file, a mutable dataclass or a reference cycle rather than
+    storing a live handle. The imported list arrives as an already-immutable
+    snapshot. The result is the **only** configuration the run and any later retry
+    may read: a preference saved, a checkbox toggled, a file added or the list
+    cleared afterwards cannot reach it, because nothing consults them again.
+
+    Call this on the thread that owns the widgets, before any worker starts.
+    """
+    if files is None:
+        raise JobContractError("a run needs its imported files")
+    if not isinstance(files, ImportedFileSnapshot):
+        taker = getattr(files, "snapshot", None)
+        if not callable(taker):
+            raise JobContractError(
+                "files must be an ImportedFileSnapshot or an object offering "
+                f"snapshot(), got {type(files).__name__}")
+        files = taker()
+    return RunSnapshot(
+        snapshot_id=snapshot_id,
+        files=files,
+        catalog=catalog,
+        import_options=import_options,
+        effective_config=effective_config,
+        tool_options={} if tool_options is None else tool_options,
+        created_at=created_at,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The lock-state derivation — Phase 6
+#
+# §8 task 2 asks for a *UI-neutral derivation*, not a per-panel table. That is the
+# right shape for this drop: §5.3 forbids any production panel from adopting this
+# foundation, so a table of panel and widget names would be a table of names
+# nothing may use, and it would drift the moment a panel was redesigned. What §6.11
+# actually fixes is a rule about **kinds** of control, and a kind survives a
+# redesign. Every member below is traceable to one phrase of that sentence.
+# --------------------------------------------------------------------------- #
+
+
+class ControlKind(Enum):
+    """The kinds of control §6.11 distinguishes, and no others."""
+
+    #: The imported-file list and everything that edits it: Add Files, Add Folder,
+    #: Remove, Clear, Move Up/Down, and the selection itself.
+    IMPORTED_INPUT = "imported_input"
+    #: "processing-option controls" — a tool's own settings for the run.
+    PROCESSING_OPTION = "processing_option"
+    #: Pause, Resume, Cancel. Never an ordinary input, and never locked *as* one.
+    JOB_CONTROL = "job_control"
+    #: "log tabs" — Summary/Details and any other read-only view switch.
+    LOG_VIEW = "log_view"
+    #: "progress/status" — read-only reporting.
+    PROGRESS_STATUS = "progress_status"
+    #: "Open Output" — harmless navigation, not a processing input.
+    OPEN_OUTPUT = "open_output"
+
+
+#: Which kinds a run takes ownership of while it is active. Derived from the Phase 1
+#: frozen set rather than restated, so the two can never disagree: if a state joins
+#: ``INPUT_LOCKED_STATES``, everything below follows automatically.
+_LOCKED_KINDS = frozenset({
+    ControlKind.IMPORTED_INPUT,
+    ControlKind.PROCESSING_OPTION,
+})
+
+#: The complete matrix, materialised so a test can walk every cell. Every kind
+#: appears; a kind that is never locked maps to an empty set rather than being
+#: absent, because "absent" and "never locked" must not look the same.
+LOCK_MATRIX: Mapping[ControlKind, frozenset[JobState]] = MappingProxyType({
+    kind: (INPUT_LOCKED_STATES if kind in _LOCKED_KINDS else frozenset())
+    for kind in ControlKind
+})
+
+
+def is_locked(kind: ControlKind, state: JobState) -> bool:
+    """Whether *kind* is read-only while a run sits in *state*.
+
+    §6.11: inputs and processing options are locked while the job owns them —
+    running, pause-requested, paused and cancel-requested. Job controls, log views,
+    progress and Open Output are never locked; whether they are *meaningful* is a
+    different question, answered by :func:`is_available`.
+    """
+    if not isinstance(kind, ControlKind):
+        raise JobContractError(
+            f"kind must be a ControlKind, got {type(kind).__name__}")
+    if not isinstance(state, JobState):
+        raise JobContractError(
+            f"state must be a JobState, got {type(state).__name__}")
+    return state in LOCK_MATRIX[kind]
+
+
+class JobAction(Enum):
+    """The run controls whose availability depends on where the run is."""
+
+    START = "start"
+    PAUSE = "pause"
+    RESUME = "resume"
+    CANCEL = "cancel"
+    RETRY_FAILED = "retry_failed"
+
+
+#: When each action is meaningful. Read straight off the Phase 1 transition table
+#: wherever the action *is* a transition, so an action can never be offered for a
+#: move the controller would refuse.
+_ACTION_STATES: Mapping[JobAction, frozenset[JobState]] = MappingProxyType({
+    JobAction.START: frozenset({JobState.IDLE}),
+    JobAction.PAUSE: frozenset({JobState.RUNNING}),
+    JobAction.RESUME: frozenset({JobState.PAUSE_REQUESTED, JobState.PAUSED}),
+    JobAction.CANCEL: frozenset({
+        JobState.RUNNING, JobState.PAUSE_REQUESTED, JobState.PAUSED}),
+    # §6.14: offered only after a run that finished with something worth retrying.
+    JobAction.RETRY_FAILED: frozenset({JobState.COMPLETED_WITH_FAILURES}),
+})
+
+
+def is_available(
+    action: JobAction, state: JobState, *, has_retryable: bool = False) -> bool:
+    """Whether *action* is meaningful in *state*.
+
+    ``Retry Failed`` additionally requires at least one retryable failure (§6.14) —
+    offering it after a run whose only failure was fatal would promise something
+    the model cannot deliver.
+    """
+    if not isinstance(action, JobAction):
+        raise JobContractError(
+            f"action must be a JobAction, got {type(action).__name__}")
+    if not isinstance(state, JobState):
+        raise JobContractError(
+            f"state must be a JobState, got {type(state).__name__}")
+    if not isinstance(has_retryable, bool):
+        raise JobContractError("has_retryable must be a bool")
+    if state not in _ACTION_STATES[action]:
+        return False
+    if action is JobAction.RETRY_FAILED:
+        return has_retryable
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# Item outcomes and the run's disposition — Phase 6
+# --------------------------------------------------------------------------- #
+
+
+class ItemStatus(Enum):
+    """What became of one imported occurrence in one run.
+
+    Three answers, all of them derivable and none of them policy. A tool that wants
+    to *skip* an item decides that for itself and reports it however its own plan
+    says; this drop only distinguishes what it can honestly tell from a snapshot
+    and a failure log.
+    """
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    #: The run ended — usually cancelled — before this occurrence was reached. It is
+    #: emphatically not a failure, and §6.14's Retry Failed never offers it.
+    NOT_ATTEMPTED = "not_attempted"
+
+
+@dataclass(frozen=True, slots=True)
+class ItemOutcome:
+    """One occurrence's result. Produced by :class:`RunResult`, never assembled loose.
+
+    Contradictions are unconstructible rather than merely discouraged: a succeeded
+    or unattempted item cannot carry a failure, and a failed one must carry the
+    record that says why, for the same occurrence.
+
+    There is deliberately **no output field.** §8's Phase 6 risk gate says to stop
+    rather than add a generic output descriptor that would duplicate or contradict
+    Plan 2, and an "output" on an item outcome is exactly that descriptor. Where a
+    retried or original file lands stays Plan 2's to decide, through the adopting
+    plan.
+    """
+
+    item_id: str
+    status: ItemStatus
+    failure: FailureRecord | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "item_id", _require_identifier("item_id", self.item_id))
+        if not isinstance(self.status, ItemStatus):
+            raise JobContractError(
+                f"status must be an ItemStatus, got {type(self.status).__name__}")
+        if self.failure is not None and not isinstance(self.failure, FailureRecord):
+            raise JobContractError(
+                f"failure must be a FailureRecord, got {type(self.failure).__name__}")
+        if self.status is ItemStatus.FAILED:
+            if self.failure is None:
+                raise JobContractError("a failed item must carry the record that says why")
+            if self.failure.item_id != self.item_id:
+                raise JobContractError(
+                    f"failure for {self.failure.item_id!r} cannot describe {self.item_id!r}")
+        elif self.failure is not None:
+            raise JobContractError(
+                f"a {self.status.value} item carries no failure record")
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status is ItemStatus.SUCCEEDED
+
+    @property
+    def failed(self) -> bool:
+        return self.status is ItemStatus.FAILED
+
+    @property
+    def retryable(self) -> bool:
+        return self.failure is not None and self.failure.retryable
+
+
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    """One run's complete, ordered disposition — and the only thing a retry reads.
+
+    Built by :meth:`settle` from three immutable facts: the snapshot the run was
+    accepted with, the ordered failures it collected, and which occurrences it
+    finished. Everything else is derived, so two counters can never disagree and a
+    summary can never contradict the records it summarises.
+
+    **An item failure never forces a job-level failure.** ``FAILED`` here means the
+    run itself broke — a fatal, item-less :class:`FailureRecord`. A run that
+    orchestrated fine and lost some items reports ``COMPLETED_WITH_FAILURES``, which
+    is what makes Retry Failed possible at all (§6.14). Nothing in this class calls
+    a controller; the disposition is a value the worker then settles *with*.
+    """
+
+    snapshot: RunSnapshot
+    failures: FailureLog
+    completed_ids: tuple[str, ...] = ()
+    state: JobState = JobState.SUCCEEDED
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.snapshot, RunSnapshot):
+            raise JobContractError(
+                f"snapshot must be a RunSnapshot, got {type(self.snapshot).__name__}")
+        if not isinstance(self.failures, FailureLog):
+            raise JobContractError(
+                f"failures must be a FailureLog, got {type(self.failures).__name__}")
+        if self.failures.snapshot_id != self.snapshot.snapshot_id:
+            raise JobContractError(
+                f"failure log {self.failures.snapshot_id!r} does not belong to run "
+                f"{self.snapshot.snapshot_id!r}")
+        if not isinstance(self.state, JobState):
+            raise JobContractError(
+                f"state must be a JobState, got {type(self.state).__name__}")
+        if self.state not in TERMINAL_STATES:
+            raise JobContractError(
+                f"a run result describes a finished run; {self.state.value} is not "
+                "a terminal state")
+
+        known = set(self.snapshot.item_ids)
+        failed = {
+            entry.item_id for entry in self.failures.records if entry.item_id is not None}
+        entries: list[str] = []
+        seen: set[str] = set()
+        for value in self.completed_ids:
+            identifier = _require_identifier("item_id", value)
+            if identifier in seen:
+                raise JobContractError(f"item {identifier!r} is listed twice as completed")
+            seen.add(identifier)
+            if identifier not in known:
+                raise JobContractError(
+                    f"item {identifier!r} does not belong to snapshot "
+                    f"{self.snapshot.snapshot_id!r}")
+            if identifier in failed:
+                raise JobContractError(
+                    f"item {identifier!r} cannot have both succeeded and failed")
+            entries.append(identifier)
+        object.__setattr__(self, "completed_ids", tuple(entries))
+
+        for entry in self.failures.records:
+            if entry.item_id is not None and entry.item_id not in known:
+                raise JobContractError(
+                    f"failed item {entry.item_id!r} does not belong to snapshot "
+                    f"{self.snapshot.snapshot_id!r}")
+
+        if self.state is JobState.FAILED and not self.failures.fatal:
+            raise JobContractError(
+                "a job-level failure must record why it failed as a whole; an item "
+                "failure is not a job failure")
+        if self.state is JobState.COMPLETED_WITH_FAILURES and not failed:
+            raise JobContractError(
+                "completed_with_failures needs at least one failed item")
+        if self.state is JobState.SUCCEEDED and self.failures.records:
+            raise JobContractError(
+                "a run that recorded a failure did not simply succeed")
+
+    @classmethod
+    def settle(
+        cls,
+        snapshot: RunSnapshot,
+        failures: FailureLog | None = None,
+        *,
+        completed_ids: Iterable[str] = (),
+        cancelled: bool = False,
+    ) -> "RunResult":
+        """Derive the one terminal disposition this run deserves.
+
+        In order, because the order is the meaning:
+
+        1. **Cancelled** wins outright. A run the user stopped is not a run that
+           completed with failures, however many items it had lost by then — and it
+           can never be overwritten by completion, because a cancelled result cannot
+           be settled again into anything else.
+        2. **A fatal failure** — a record with no item — means the run itself broke:
+           ``FAILED``.
+        3. **Any failed item** means the orchestration finished but the run lost
+           something: ``COMPLETED_WITH_FAILURES``, and Retry Failed becomes possible.
+        4. Otherwise ``SUCCEEDED``.
+
+        Items that were never reached are neither failed nor completed. They are
+        reported as ``NOT_ATTEMPTED`` rather than being invented into failures.
+        """
+        if not isinstance(snapshot, RunSnapshot):
+            raise JobContractError("snapshot must be a RunSnapshot")
+        log = FailureLog(snapshot_id=snapshot.snapshot_id) if failures is None else failures
+        if not isinstance(cancelled, bool):
+            raise JobContractError("cancelled must be a bool")
+        if not isinstance(log, FailureLog):
+            raise JobContractError("failures must be a FailureLog")
+
+        if cancelled:
+            state = JobState.CANCELLED
+        elif log.fatal:
+            state = JobState.FAILED
+        elif any(entry.item_id is not None for entry in log.records):
+            state = JobState.COMPLETED_WITH_FAILURES
+        else:
+            state = JobState.SUCCEEDED
+        return cls(
+            snapshot=snapshot,
+            failures=log,
+            completed_ids=tuple(completed_ids),
+            state=state,
+        )
+
+    @property
+    def outcomes(self) -> tuple[ItemOutcome, ...]:
+        """Every occurrence, in the order the run was given them.
+
+        Derived on demand from the snapshot and the failure log, so an outcome can
+        never drift out of step with the records it was built from. Deliberate
+        duplicates stay distinct because everything here is keyed on occurrence id,
+        never on a path.
+        """
+        completed = set(self.completed_ids)
+        results: list[ItemOutcome] = []
+        for item_id in self.snapshot.item_ids:
+            record = self.failures.for_item(item_id)
+            if record is not None:
+                results.append(ItemOutcome(
+                    item_id=item_id, status=ItemStatus.FAILED, failure=record))
+            elif item_id in completed:
+                results.append(ItemOutcome(item_id=item_id, status=ItemStatus.SUCCEEDED))
+            else:
+                results.append(
+                    ItemOutcome(item_id=item_id, status=ItemStatus.NOT_ATTEMPTED))
+        return tuple(results)
+
+    def outcome_for(self, item_id: str) -> ItemOutcome | None:
+        identifier = _require_identifier("item_id", item_id)
+        for entry in self.outcomes:
+            if entry.item_id == identifier:
+                return entry
+        return None
+
+    @property
+    def counts(self) -> Mapping[ItemStatus, int]:
+        """Derived, never stored — two counters cannot disagree if there is one."""
+        tally: dict[ItemStatus, int] = {status: 0 for status in ItemStatus}
+        for entry in self.outcomes:
+            tally[entry.status] += 1
+        return MappingProxyType(tally)
+
+    @property
+    def succeeded_count(self) -> int:
+        return self.counts[ItemStatus.SUCCEEDED]
+
+    @property
+    def failed_count(self) -> int:
+        return self.counts[ItemStatus.FAILED]
+
+    @property
+    def not_attempted_count(self) -> int:
+        return self.counts[ItemStatus.NOT_ATTEMPTED]
+
+    @property
+    def has_retryable(self) -> bool:
+        """Whether Retry Failed may be offered at all (§6.14)."""
+        return self.failures.has_retryable
+
+    @property
+    def retryable_ids(self) -> tuple[str, ...]:
+        return self.failures.retryable_ids()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.state is JobState.CANCELLED
+
+    def retry(self, item_ids: Iterable[str] | None = None) -> "RetryRequest":
+        """Build Retry Failed from this result, against the **exact** original snapshot.
+
+        Reads nothing live: not a widget, not the current configuration, not the
+        imported-file manager as it stands now. Everything comes from the snapshot
+        this run was accepted with and the failures it actually recorded.
+        """
+        return RetryRequest.from_failures(self.snapshot, self.failures, item_ids)
 
 
 # --------------------------------------------------------------------------- #

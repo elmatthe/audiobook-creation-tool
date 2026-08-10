@@ -1,15 +1,137 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–5 COMPLETE,
-PHASES 6–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–6 COMPLETE,
+PHASES 7–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
 and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
 with its deduplication and atomic transactions, the background import coordinator with its own
-cancellation, and the cooperative run controller with pause, resume, processing cancellation and
-one-acknowledgement terminal settlement. No production panel or launcher adopts any of it, no
-behaviour changed, and `version.py` is still `0.5.1`. Every later phase needs separate explicit
-maintainer approval.**
+cancellation, the cooperative run controller with pause/resume/cancel and one-acknowledgement
+settlement, and the run framing: one frozen configuration per run, a UI-neutral lock derivation,
+ordered item outcomes, and Retry Failed against the exact original snapshot. No production panel
+or launcher adopts any of it, no behaviour changed, and `version.py` is still `0.5.1`. Every
+later phase needs separate explicit maintainer approval.**
+
+### Phase 6 — Frozen snapshots, locking contract, failures, and Retry Failed (2026-08-09, HOME-PC)
+
+**Result: `shared/job_control.py` gained the frame around a run — `capture_run` freezes one
+configuration at the moment a run is accepted, `is_locked`/`is_available` derive what the UI may
+still touch, and `RunResult` settles what became of every occurrence, from which Retry Failed
+re-runs only the retryable failures against that same snapshot. 174 focused tests, all pure. No
+mandatory gate was encountered, and the risk gate was honoured by omission: no Phase 6 type
+carries an output descriptor, so Plan 2 keeps sole ownership of placement.**
+
+#### The contract-extraction gate, before any edit
+
+| # | Contract | What the active plan actually specifies |
+|---|---|---|
+| 1 | `RunSnapshot` fields | Already frozen in Phase 1 (§6.11): `snapshot_id`, `files`, `catalog`, `import_options`, `effective_config`, `tool_options`, `created_at`. Phase 6 adds the *capture* half |
+| 2 | Lock matrix | **No per-panel matrix exists.** §8 task 2 asks for a *UI-neutral lock-state derivation*; §6.11 names six kinds of control |
+| 3 | Item outcome vocabulary | The plan defines `FailureRecord`/`FailureLog` and the run's disposition; no per-item enum existed |
+| 4 | `RetryRequest` | Already complete in Phase 1: `snapshot` + `item_ids`, with `from_failures`. **No lineage fields are defined**, so none were invented |
+| 5 | Adapter or specimen | **None authorized.** Phase 8 owns adapters; §6.11 says panels do not adopt until their later plans |
+| 6 | Reuse unchanged | Phase 1 `JobState`, `LEGAL_TRANSITIONS`, `TERMINAL_STATES`, `INPUT_LOCKED_STATES`, `RunSnapshot`, `FailureRecord`, `FailureLog`, `RetryRequest`; every Phase 5 controller semantic |
+
+**One kickoff difference, recorded.** The kickoff asked for an `INPUT_LOCKED_DURING_RUN` matrix
+"for every applicable panel". **No such symbol exists anywhere in the plan or the repository** —
+I searched every tracked `.py` and `.md`. §8 task 2 asks for a UI-neutral derivation, and §5.3
+forbids any production panel from adopting this foundation at all, so a table of panel and widget
+names would be a table of names nothing may use, drifting the moment a panel was redesigned. The
+matrix is therefore keyed on the six control **kinds** §6.11 actually names, and its states are
+derived from the Phase 1 frozen set rather than restated beside it. No panel field, failure kind,
+retry policy or snapshot property was invented. The master index already recorded this shape at
+Phase 5 closeout, and both documents now agree.
+
+#### The RunSnapshot contract and how it is deeply immutable
+
+Deep immutability is not one frozen dataclass with mutable children. Each field earns it
+separately: `files` is Phase 3's already-immutable `ImportedFileSnapshot` of frozen occurrences;
+`catalog` and `import_options` are frozen dataclasses of `frozenset`s; `effective_config` is
+Plan 2's captured value; and `tool_options` goes through Phase 1's `freeze_options`, which
+deep-copies lists into tuples and dicts into read-only mappings and **refuses** anything it
+cannot copy into a value — a widget, a variable, a callable, a thread, an open file, a mutable
+dataclass, a reference cycle. A test edits a caller's nested dictionary and list after capture
+and finds the snapshot unmoved.
+
+`capture_run` is duck-typed on `files`: it takes an `ImportedFileSnapshot` or anything offering
+`snapshot()`, which the imported-file manager does. That deliberately avoids giving the job
+module an import to reach into — the beginning of a second manager.
+
+#### One configuration per run
+
+Proved by attack rather than assertion. After capture: the caller's list and nested dictionary
+are mutated; the imported-file manager is reordered, has rows removed and is cleared entirely;
+and `config.get_effective` is monkeypatched to raise if anything ever calls it again. The run
+still reports the three occurrences it was accepted with, in the order it was given them, with
+the threshold it captured — and the retry built from it does too.
+
+#### The lock derivation
+
+`ControlKind` has exactly six members, each traceable to one phrase of §6.11: imported input,
+processing option, job control, log view, progress/status, Open Output. `LOCK_MATRIX` maps every
+one of them — a kind that is never locked maps to an empty set rather than being absent, because
+"absent" and "never locked" must not look the same. Inputs and processing options are locked in
+exactly `INPUT_LOCKED_STATES`, *derived* from the Phase 1 frozen set so the two cannot disagree;
+everything else is never locked. Availability is separate from locking: `is_available` answers
+when Pause, Resume, Cancel and Retry Failed are meaningful, read straight off the transition
+table so an action is never offered for a move the controller would refuse, and Retry Failed
+additionally requires a retryable failure (§6.14). All fifty-four lock cells and all forty-five
+action cells are exercised.
+
+#### Item failure versus job failure
+
+`RunResult.settle` derives one terminal disposition, in an order that is the meaning: a
+cancelled run wins outright; then a fatal, item-less `FailureRecord` means the run itself broke
+(`FAILED`); then any failed item means the orchestration finished but lost something
+(`COMPLETED_WITH_FAILURES`, which is what makes Retry Failed possible); otherwise `SUCCEEDED`.
+**An item failure can never force `FAILED`** — a structural guard asserts that `RunResult` calls
+no controller method at all, so the authoritative Phase 5 transition mechanism is never bypassed.
+Items a cancelled run never reached report `NOT_ATTEMPTED`; they are not fabricated into failures.
+
+Outcomes are *derived* from the snapshot and the failure log rather than assembled by a caller,
+so an outcome cannot drift out of step with the records it summarises, contradictions are
+unconstructible, deliberate duplicates stay distinct (everything is keyed on occurrence id, never
+a path), and the counts cannot disagree with the list they count.
+
+#### Retry Failed
+
+`RunResult.retry()` returns Phase 1's `RetryRequest` holding the **exact original snapshot
+object** — tests assert identity, not equality. It selects all and only retryable failures, in
+the order they failed regardless of the order asked for, so the same result always yields the
+same request. It excludes successes, non-retryable failures, unattempted items and unknown ids;
+refuses duplicates, an empty selection and a foreign snapshot; mutates nothing; and reads nothing
+live. The plan defines no retry lineage beyond that snapshot identity and the ordered ids, so
+none was invented.
+
+#### Deviations
+
+**None.** No Phase 1–5 contract changed. `cancellation.py`, `importing.py`,
+`import_coordination.py`, `output_paths.py`, `maintenance.py` and **every approved Phase 1–5 test
+file** are byte-identical to the Phase 5 commit; the only two deleted code lines in this phase are
+a module docstring header and one test-list line, both rewritten in place.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **328 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**;
+  Phase 5 controller **173 passed**; Phase 6 run framing **174 passed**; maintenance and cleanup
+  **337 passed**; output paths **255 passed, 1 skipped, 1 warning**; the eight
+  cancellation-bearing production suites **61 passed**, unchanged.
+- Collection **2,121** (1,943 + 174 new tests + 4 net new boundary guards). Full suite **2,108
+  passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented Tk transient did
+  not recur. `scripts/verify.py` **RESULT: PASS**. Compile gate exit 0.
+- **Whitespace.** With only the three source files staged, `git diff --cached --check` reported
+  **nothing at all**, and `-- '*.py'` exits 0. Every finding in the broad check comes from the
+  documentation edits and is inherited: `Handoff.md`'s stored blob is CRLF, so every added line
+  ends in a carriage return, and the drop header uses markdown two-space hard line breaks. No
+  file was reformatted to make the check quieter.
+- The 13 skips are unchanged from the Phase 5 baseline — two Windows file-symlink privilege
+  skips, **three** `JACK_RYAN_M4B_FOLDER` fixture skips, five Phase 2 symlink skips, and one
+  Phase 2 and one Phase 3 case-insensitive-filesystem skip. Phase 6 added none: all 174 of its
+  tests are pure and run everywhere.
+- No test sleeps, starts a thread, opens a display, reads the repository or creates an output.
+  The few filesystem-shaped values are named under `tmp_path` and never opened, and one test
+  asserts the temporary directory is byte-for-byte unchanged after a whole run is described.
 
 ### Phase 5 — Cooperative job state, pause, resume, and cancel (2026-08-09, HOME-PC)
 
@@ -5207,6 +5329,49 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 6 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 6 start SHA:** `52f72f0d9c53f095d76d80b560ddb6cb29fdf69b`
+(the approved Phase 5 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_job_run_results.py` — 1,022 lines, **174 tests**, none skipped. Capture and
+  one-configuration-per-run, the lock derivation across every cell, item outcomes, failure
+  records, the run's disposition, Retry Failed, and the boundaries.
+
+**Files modified (4):**
+- `scripts/Universal/shared/job_control.py` — +461 / −1, now 1,693 lines. `capture_run`;
+  `ControlKind`, `LOCK_MATRIX`, `is_locked`, `JobAction`, `is_available`; `ItemStatus`,
+  `ItemOutcome`, `RunResult`. The single deleted line is the module docstring's header. No new
+  import edge: the module still imports only `shared.config`, `shared.cancellation` and
+  `shared.importing`.
+- `files/tests/test_plan3_boundaries.py` — +75 / −1. Four new guards: Phase 6 delivered its own
+  names and no more; no output descriptor exists on any Phase 6 type; the lock matrix is derived
+  and exhaustive; an item failure cannot force a job-level failure. The single deleted line is
+  the shipped-tests tuple.
+- `md-instructions/Handoff.md` — the Phase 6 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row, the
+  recorded start-state "Phase reached" row, two new gate rows, and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status -M -C`.
+- All **22** approved screenshots byte-identical to `origin/master` (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; **`output_paths.py`, `maintenance.py`, `importing.py`,
+  `import_coordination.py`, `cancellation.py`, `config.py`, `subprocess_utils.py`,
+  `logging_setup.py`, `ui_theme.py`, `launcher.py`, `config.toml`, `requirements.txt`, both root
+  launchers, all six production tool modules and every approved Phase 1–5 test file are
+  byte-identical to the Phase 5 commit** (blob hashes compared).
+- 36 production modules parsed with `ast`: none imports `shared.importing`,
+  `shared.job_control`, `shared.import_coordination` or `shared.job_ui`.
+- No dependency added; no packaging, release, tag or version change; no PR opened or merged.
 
 ### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 5 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
 
