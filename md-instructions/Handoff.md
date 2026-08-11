@@ -1,6 +1,78 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
+
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phase 0 complete; Phase 1 has NOT
+begun.** The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
+specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
+its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
+registration into one unified PDF/TXT queue. Maintainer decisions 1A–7A are recorded in §7 of the
+drop and are closed. `version.py` is `0.5.1` and stays there until approved Phase 15 closeout.
+
+- **Approved baseline SHA:** `809a43e754920fce2f11f08e3c401dcc4c7a5223` (`master` = `origin/master`)
+- **Branch:** `feature/0.6.1-tts-cover-workflows`
+- **Baseline suite at Phase 0:** 2521 passed, 13 skipped, 1 warning (2534 collected);
+  `verify.py` → `RESULT: PASS`; `compileall` exit 0.
+
+### Local Chatterbox voice assets — read-only, local-only
+
+Four maintainer-supplied recordings live in `files/Chatterbox-Voice-Uploads/`. Phase 0 added the
+narrow ignore rule at `.gitignore:55`; all four are provably ignored.
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `Female-1.mp3` | 32,999,135 | `a047d77fe191c1a957d36b1e9f9af8e67756a63672686c55731b30534bb8bde2` |
+| `Female-2.mp3` | 13,405,769 | `4bad0d3845199eae723aceb7a864b419fe553cd9d23799ee6390f54df08d3140` |
+| `Male-1.mp3` | 2,946,239 | `6258dde294a91b0c2e965e8579aafde10e9cff48957c2138432be4c6c80165ae` |
+| `Male-2.mp3` | 12,403,843 | `7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2` |
+
+Their only authorized provenance statement is: *maintainer-supplied local reference recording,
+authorized by the maintainer for use by this local Chatterbox integration.* No copyright, consent,
+redistribution or licence claim is made, and the speakers are not to be identified.
+
+**Standing rules:**
+
+- **Read-only inputs.** Never modified, renamed, moved, copied, trimmed, normalized or re-encoded
+  in place. Derivatives and cached conditionals belong under `files/runtime-data/` (ignored).
+- **Never staged, committed, pushed, packaged or released**, and never copied into `files/tests/`.
+  `git add -f` is forbidden against them.
+- **Local-asset portability boundary.** They exist only on this machine. Bundling or committing
+  them, or any cached voice identity data, to make Chatterbox work elsewhere is **not authorized**
+  and requires an explicit separate maintainer decision.
+- **Missing assets must never break anything.** On a machine without the recordings, the
+  application and every Edge and Kokoro voice still start and convert normally.
+- **No Chatterbox voice may be offered unless its required local asset or cached conditional is
+  truthfully available.** A voice whose asset is missing is shown unavailable with a
+  setup-required status — never offered as a selection that then fails, never silently
+  substituted, and never sourced from the internet.
+
+### Phase 0 — Baseline, branch, and local-asset protection (2026-08-11, HOME-PC)
+
+Pre-branch gates, all passed before the branch existed: `origin/master` fetched and still exactly
+`809a43e`; no tracked modification; untracked paths exactly the drop plus the four MP3s, enumerated
+explicitly rather than trusting the collapsed directory entry; no fifth file and no nested path
+under `files/Chatterbox-Voice-Uploads/`; the four names, byte sizes and SHA-256 values matching the
+drop exactly; the drop confirmed as the corrected sixteen-phase version; `VERSION` `0.5.1`;
+`config-template.toml` absent from worktree, index and `origin/master` tree; `launcher.TOOLS`
+exactly six entries; four canonical document names with exact casing and no alias; all 22 approved
+Plan 1/2 screenshots byte-identical to `origin/master`.
+
+Recorded for later phases: local `master` still has **no configured upstream** — noted, not
+"fixed", as the drop requires. `batch_convert_child.py`, `prereq-workflows.md` and
+`Vibe-Coding_Chat_Workflow.md` do not exist anywhere in this repository; verify every named symbol
+against the tree before implementing it. The three no-adoption guards Plan 4 will narrow **by AST**
+are `test_tool_output_integration.py::test_no_plan_three_importing_behaviour_arrived` (currently a
+substring guard whose mechanism must be replaced),
+`test_plan3_boundaries.py::test_no_production_module_imports_the_plan3_foundation` and
+`::test_the_launcher_and_every_panel_still_names_nothing_from_plan3`.
+
+Phase 0 changed only `.gitignore`, this document and the temporary drop. No production code, test,
+requirement, launcher, packaging or version change; nothing merged, tagged, released or published;
+no Mac action taken. **Next action: Phase 1 approval.**
+
+---
+
+## Previous Focus
 **v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — COMPLETE, APPROVED AND
 CLOSED OUT. All ten phases are done; the temporary drop is retired; the branch awaits integration
 review. Plan 2 is merged into `master` through pull request #3, and the Plan 3

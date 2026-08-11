@@ -48,6 +48,12 @@ test-files/
 # same rule as files/test-files/: local fixtures only, never staged.
 files/livid-lady-test-files/
 
+# Chatterbox voice references — maintainer-supplied LOCAL recordings, authorized only
+# for local Chatterbox use. Read-only inputs: never staged, committed, pushed, packaged
+# or released. Derivative clips and cached conditionals live under files/runtime-data/
+# (already ignored above). Added v0.6.1 Plan 4 Phase 0.
+files/Chatterbox-Voice-Uploads/
+
 # Agent config (.claude/, .codex/) — local per-machine wiring, removed from tracking
 # 2026-07-08 (d3443fe / e7cecd1); intentionally never tracked. Local copies stay on disk.
 .claude/
