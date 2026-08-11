@@ -1,8 +1,8 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–8 COMPLETE,
-PHASES 9–10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–9 COMPLETE
+AND MANUALLY APPROVED, PHASE 10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
 and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
 with its deduplication and atomic transactions, the background import coordinator with its own
@@ -17,8 +17,209 @@ contract for the existing `ProgressIndicator`, and a current-run rolling ETA tha
 compositional adapters draw all of the above through one main-thread pump, refuse every widget
 touch from a worker before a widget is reached, and close without leaving a callback behind. No
 production panel or launcher adopts any of it, no behaviour changed, and `version.py` is still
-`0.5.1`. Phase 9's Windows manual matrix has NOT been run and every later phase needs separate
-explicit maintainer approval.**
+`0.5.1`. **The Phase 9 Windows manual matrix was run on HOME-PC by the maintainer, who attested
+that every checked behaviour worked and returned an explicit verdict of APPROVED**, and the full
+automated matrix was re-run against that same commit with no regression. Phase 10 — approved
+closeout and temporary-drop retirement — is NOT started and needs separate explicit maintainer
+approval.**
+
+### Phase 9 — Full regression, Windows manual matrix, and approval gate (2026-08-10, HOME-PC)
+
+**Result: an evidence phase, and it changed no code. The maintainer ran the Phase 9 Windows manual
+matrix on HOME-PC using `files/tests/manual_plan3_harness.py` and returned an explicit verdict of
+APPROVED — all Phase 9 Windows manual checks passed. The complete automated matrix was re-run
+against the same commit and every figure is identical to the approved Phase 8 baseline: 2,534
+collected, 2,521 passed, 13 skipped, 1 warning, theme 17/17, `verify.py` RESULT: PASS, compile
+exit 0. No implementation deviations, no approved Phase 1–8 contract rewritten, and no production
+panel adopting Plan 3. The only changed paths are this Handoff entry, the active drop's status
+and baseline header, and the master index's Plan 3 status, evidence and next-action fields.**
+
+#### Starting state, verified before anything else
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`; HEAD, its configured upstream and
+`origin/feature/…` all exactly `bada212a8276a537c75073f0539147d689463f4a`; `origin/master`
+unchanged at `563df9884497032e19abd4437a0e66584cd9ec12`; all nine approved phase commits
+ancestors of HEAD. **The index and worktree were completely clean with zero untracked files** —
+which matters more than usual this phase, because the maintainer had just finished a manual
+session that included an import of the repository root, and a clean tree is what proves the scan
+wrote nothing. Version `0.5.1`; root `config-template.toml` absent from worktree, index and tree
+and tracked nowhere; four canonical documents with exact casing and no alias; four protected
+`don't-delete` references present; all 22 approved screenshots byte-identical to `origin/master`;
+`launcher.TOOLS` exactly six entries; 40 production modules AST-parsed and **none** importing a
+Plan 3 module.
+
+#### The maintainer's manual approval, recorded as supplied
+
+**Verdict: APPROVED — all Phase 9 Windows manual checks passed.**
+
+| Item | As supplied |
+|---|---|
+| Machine | HOME-PC |
+| Operating system | Windows 11 |
+| Python | 3.12.10, 64-bit |
+| Repository | `C:\Users\ematthew\Desktop\Apps\Coding\Repository_Workspaces\MyProjects\Home-PC\Audiobook-Creation-Tool` |
+| Harness | `files/tests/manual_plan3_harness.py`, launched successfully with no initialization error |
+| Fixture roots | Generated beneath `C:\Users\ematthew\AppData\Local\Temp\act-plan3-harness-*`; one observed fixture generated **33 paths** |
+| Attested working | Add Files and Add Folder; the imported-file listing, selection, clearing and supported-type controls; the fake-job controls and lifecycle; progress, current occurrence/stage, ETA, Summary, Details, failure reporting and completion. The maintainer confirmed the remaining manual cases passed |
+| Also performed | The repository folder was selected as an import root and produced an observed **380 supported files** |
+
+The maintainer's attestation is the complete result. It is recorded here as given and has not been
+expanded, itemised per checklist step, or supplemented with invented observations.
+
+#### What the screenshots visibly support — and what they do not
+
+The supplied screenshots visually support **a subset** of the attestation: successful harness
+startup; disposable fixture-root generation; 33 generated paths in one fixture; a 50-file import;
+clearing the imported list; a completed 1/1 fake job at 100%; Summary milestones for Running,
+Preparing, Converting, Finished and "1 of 1 items finished"; the repository-root import showing
+380 files; an active 106/380 job at 28%; a displayed ETA of `1m 36s`; per-occurrence conversion
+failure messages; and Pause and Cancel available while running.
+
+**The screenshots do not independently prove every checklist item**, and no claim here rests on
+them beyond the list above. Everything else in the manual result stands on the maintainer's
+explicit attestation.
+
+*Worth noting for its own sake:* the visible `106/380 — 28%` with an ETA of `1m 36s` is the
+Phase 7 estimator and the Phase 8 adapter behaving exactly as specified — a determinate count
+that is genuinely 28%, and a duration that only appeared once enough comparable samples existed.
+
+#### The repository-root import, classified honestly
+
+The active plan's §11 asks that manual evidence use **generated disposable fixtures only**, and
+the Phase 8 report's checklist said the same. Selecting the repository folder as an import root
+went **beyond that preferred boundary**. It is recorded as a deviation from the preferred test
+scope rather than glossed over.
+
+What it was not is a safety problem, and that is established by repository evidence rather than by
+assertion:
+
+- Importing is read-only by construction. An approved Phase 1 guard pins `shared/importing.py` to
+  exactly two filesystem verbs — `os.scandir` and `lstat` — and forbids every writing, content-
+  reading and link-following call; the coordinator touches the filesystem not at all; and
+  `shared/job_ui.py` makes no filesystem call whatsoever. Nothing in that path can write.
+- No processing was requested or reported. Selecting an import root fills a list; it starts no
+  job, and the harness's "job" is a timed no-op that produces no output in any case.
+- **`git status --short --untracked-files=all` returns nothing at all**, `git diff --name-only
+  HEAD` is empty, and the index matches HEAD. Every one of the 139 tracked files is byte-identical
+  to the commit, and the scan created no untracked file anywhere in the tree.
+- All 22 approved screenshots remain byte-identical to `origin/master`, the four protected
+  references and four canonical documents are intact, `config-template.toml` is still absent, and
+  version is still `0.5.1`.
+- For scale: the index holds exactly **one** file with an extension the harness catalog accepts
+  (`scripts/requirements.txt`). The observed 380 therefore came almost entirely from untracked and
+  ignored trees such as `.venv` — paths the repository does not record at all, which is a further
+  reason the tracked tree could not have changed.
+
+**Conclusion: the read-only repository scan caused no repository mutation.** The proof is Git's,
+not the harness's.
+
+#### Two evidence gaps, named rather than filled
+
+1. **Exact 100%-scaling confirmation is not independently recorded.** The maintainer's environment
+   details name HOME-PC, Windows 11 and Python 3.12.10 but do not state the display scaling, and
+   no screenshot establishes it. The functional Windows matrix is therefore recorded as **passed**;
+   the separate claim "verified at true Windows 11 100% scaling" is **not** recorded as proven.
+   Plan 9 owns the full DPI matrix regardless.
+2. **The literal harness source-tree before/after output was not supplied.** The harness's Record
+   and Compare buttons produce a path count and an UNCHANGED/CHANGED verdict, and that console
+   line did not come back with the attestation. The repository verification above is recorded as
+   **corroborating** evidence of source integrity; it is not presented as the harness's own output,
+   and the maintainer's passed verdict has not been converted into a fabricated console result.
+
+Neither gap contradicts the maintainer's verdict, and neither is a reason to ask for the matrix to
+be repeated.
+
+#### Complete automated re-verification
+
+| Gate | Result |
+|---|---|
+| `test_job_ui.py` alone | **128 passed, 0 skipped, 0 warnings**, ~1.0 s |
+| Repetition — full adapter suite | **128 passed × 10 consecutive runs**, identical |
+| Repetition — race-sensitive subset (worker, thread ownership, pump, drain, terminal, close, destroyed widget, Cancel Import) | **36 passed × 10 consecutive runs**, identical |
+| Repetition — Phase 4 + Phase 5 concurrency suites | **302 passed × 5 consecutive runs**, identical |
+| Phase 1 contracts and boundaries | **355 passed** |
+| Phase 2 traversal | **91 passed, 6 skipped** |
+| Phase 3 manager | **144 passed, 2 skipped** |
+| Phase 4 coordination | **129 passed** |
+| Phase 5 controller | **173 passed** |
+| Phase 6 run framing | **174 passed** |
+| Phase 7 reporting | **258 passed** |
+| Phase 8 adapters | **128 passed** |
+| Maintenance and cleanup | **337 passed** |
+| Output paths group | **255 passed, 1 skipped, 1 warning** |
+| Eight cancellation-bearing production suites | **61 passed**, unchanged |
+| `test_ui_theme.py` explicitly | **17 passed — all 17 executed** |
+| Collection | **2,534** |
+| Full suite | **2,521 passed, 13 skipped, 1 warning** in 28.61 s |
+| `scripts/verify.py` | **RESULT: PASS** (all five checks) |
+| `python -m compileall -q scripts files/tests` | exit **0** |
+
+Every figure equals the approved Phase 8 baseline. **No test was lost, deleted, skipped, xfailed,
+deselected or replaced, and no new warning appeared.**
+
+#### Skip reconciliation — 13, node by node, unchanged
+
+| Node | Count | Reason |
+|---|---|---|
+| `test_import_traversal.py:131` | **6** | 3 file + 3 directory symlinks, `[WinError 1314]` — a required privilege is not held by this account |
+| `test_cover_source_side.py:363` | 1 | file symlink, `[WinError 1314]` |
+| `test_output_paths.py:757` | 1 | file symlink, `[WinError 1314]` |
+| `test_import_traversal.py:552` | 1 | this filesystem is case-insensitive, so the two names are one file |
+| `test_import_manager.py:678` | 1 | this filesystem is case-insensitive, so the two names are one file |
+| `test_jack_ryan_final_product.py:40/:44/:64` | 3 | `JACK_RYAN_M4B_FOLDER` is unset |
+
+Total **13**, matching the reconciliation Phase 7 corrected and Phase 8 preserved. `test_job_ui.py`
+skips nothing: the Tk root opened on this host, and its module-scoped fixture would have skipped
+the whole file rather than silently thinning it. **The documented Tk root-creation transient did
+not recur**, so no Tk suite needed an explicit rerun beyond the one the matrix already requires.
+
+The one warning is unchanged and third-party:
+`.venv\Lib\site-packages\pydub\utils.py:14` — `DeprecationWarning: 'audioop' is deprecated and
+slated for removal in Python 3.13`.
+
+#### Whitespace, stated precisely
+
+Before staging, with a clean tree, both forms of `git diff --check` returned **nothing at all** —
+scoped to code (`-- '*.py'`) it exits **0**, and the broad form produced zero findings, because
+this phase changes no code. With the documentation staged the broad check reports the inherited
+structural findings this repository has always produced: `Handoff.md` is stored as a CRLF blob so
+every added line reads as trailing whitespace, and the active drop's header uses markdown
+two-space hard line breaks. **Phase 9 introduced no non-structural whitespace defect**, and no
+protected document was reformatted or normalised to quieten the check.
+
+#### Changed paths
+
+| Path | Change |
+|---|---|
+| `md-instructions/Handoff.md` | this entry |
+| `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` | status line and current-baseline header only |
+| `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` | Plan 3 status, evidence and immediate-next-action fields only |
+
+**No production code and no test code changed.** No generated artifact, no screenshot, no renamed
+or deleted path. `Briefing.md`, `Changelog.md` and `Decisions.md` were deliberately not touched —
+their lasting transfer belongs to Phase 10.
+
+#### No implementation deviations
+
+No approved Phase 1–8 public contract was rewritten. No production tool panel, launcher, TTS
+engine, importing, coordination, controller, event, progress, ETA, logger, output, config,
+maintenance, theme, cancellation or subprocess module changed. No dependency was added. No
+conversion, synthesis, ffmpeg, media probe, network call, output creation, settings write, cleanup
+or source mutation was performed, and no broad-root or repository scan was re-run by this phase.
+Windows 125% scaling and live macOS validation were **not run** and remain deferred to Plan 9;
+an automated Aqua-branch assertion is not a macOS pass and is not described as one.
+
+#### Phase 10 — not started
+
+**Phase 10 — Approved closeout and temporary-drop retirement** has not begun and needs explicit
+maintainer approval. Its entry gate is exactly what this phase just produced: the maintainer's
+explicit approval of the Phase 9 evidence and of every accurately recorded deferral. When
+authorized it transfers the lasting record into `Briefing.md`, `Changelog.md` (under
+`[Unreleased]`, with no v0.6.0 release heading) and `Decisions.md`, updates the master index to
+Plan 3 complete/approved/awaiting integration, deletes **only**
+`md-instructions/0.6.0-drop3-shared-job-controls-importing.md`, re-runs every gate after that
+deletion, and commits and pushes the closeout — without merging, deleting a branch, bumping the
+version, tagging, publishing, or beginning Plan 4.
 
 ### Phase 8 — Reusable Tk adapters and developer-only integration harness (2026-08-10, HOME-PC)
 
