@@ -1,8 +1,9 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
-**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — PHASES 0–9 COMPLETE
-AND MANUALLY APPROVED, PHASE 10 NOT STARTED. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — COMPLETE, APPROVED AND
+CLOSED OUT. All ten phases are done; the temporary drop is retired; the branch awaits integration
+review. Plan 2 is merged into `master` through pull request #3, and the Plan 3
 branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
 and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
 with its deduplication and atomic transactions, the background import coordinator with its own
@@ -19,9 +20,128 @@ touch from a worker before a widget is reached, and close without leaving a call
 production panel or launcher adopts any of it, no behaviour changed, and `version.py` is still
 `0.5.1`. **The Phase 9 Windows manual matrix was run on HOME-PC by the maintainer, who attested
 that every checked behaviour worked and returned an explicit verdict of APPROVED**, and the full
-automated matrix was re-run against that same commit with no regression. Phase 10 — approved
-closeout and temporary-drop retirement — is NOT started and needs separate explicit maintainer
-approval.**
+automated matrix was re-run against that same commit with no regression. Phase 10 has now
+transferred the lasting record into `Briefing.md`, `Changelog.md` (under `[Unreleased]`),
+`Decisions.md` and the master index, and retired the temporary drop. **The next action is Plan 3
+integration review only** — nothing has been merged, tagged, released or bumped, and Plan 4 is
+not started.**
+
+### Phase 10 — Approved closeout and temporary-drop retirement (2026-08-10, HOME-PC)
+
+**Result: the lasting Plan 3 record is transferred and the temporary drop is retired. This phase
+changed no production code, no test code, no configuration, no packaging and no screenshot — the
+entire diff is five documents plus the deletion of one temporary planning file. Plan 3 is
+complete, approved and awaiting integration review; `version.py` is still `0.5.1`, nothing was
+merged, tagged, released or published, and Plan 4 was not started.**
+
+#### Entry gate
+
+The maintainer explicitly approved the Phase 9 evidence and every accurately recorded deferral,
+including the functional Windows 11 HOME-PC matrix passing by attestation, the screenshots
+supporting only the recorded subset, the unrecorded exact 100%-scaling confirmation, the missing
+literal harness source-tree comparison output, the repository verification corroborating that the
+read-only repository-root scan mutated nothing, and the Windows 125% and live macOS deferrals to
+Plan 9 — with the explicit finding that **those gaps do not require the passed matrix to be
+repeated**.
+
+Starting state, verified before any edit: branch
+`feature/0.6.0-drop3-shared-job-controls-importing`; HEAD, its configured upstream and
+`origin/feature/…` all exactly `9f0cf211a89efb064f6acf435b324bd8c4c1805f`; `origin/master`
+unchanged at `563df9884497032e19abd4437a0e66584cd9ec12`; all ten approved phase commits ancestors
+of HEAD; index and worktree clean with zero untracked files; version `0.5.1`; root
+`config-template.toml` absent from worktree, index and committed tree and tracked nowhere; four
+canonical documents with exact casing and no alias; four protected `don't-delete` references
+present; all 22 approved screenshots byte-identical to `origin/master`; `launcher.TOOLS` exactly
+six entries; and no production module importing a Plan 3 module.
+
+#### What was transferred, and where
+
+| Document | What it now carries |
+|---|---|
+| `Briefing.md` | A new Architecture entry describing all four shared modules — the immutable vocabulary and read-only non-following traversal, the coordinator with its pre-scan broad-root warning and post-scan threshold and its independent Cancel Import, the truthful cooperative controller with frozen run snapshots, UI-neutral locking, item outcomes and Retry Failed against the original snapshot, the typed reporting with stale/post-terminal rejection and the Summary that structurally cannot leak a diagnostic, and the one Tk module with its single `after` chain, thread guard, reused `ProgressIndicator`, `ACT.*` isolation and preserved native branch — plus the harness's developer-only status. The Current Version and High-Level State sections now record Drop 3 as approved and closed, **explicitly as infrastructure no user can reach**, together with the evidence gaps and the two deferrals |
+| `Changelog.md` | Two entries under **`[Unreleased]`** — an *Added* entry for the foundation and a *Changed* entry for the closeout. **No v0.6.0 release heading was created.** Both state that no production tool uses any of it, that the launcher still lists six tools, and that the version is unchanged |
+| `Decisions.md` | One new ADR dated 2026-08-10, in the established newest-on-top signed format, recording six lasting choices: shipping a foundation with no adopters and guarding that boundary structurally; making a false state unconstructible rather than merely unasserted; injecting every clock so the whole drop tests without a single sleep; one Tk module with one `after` chain and one guard that raises before a widget is touched; composition and reuse over inheritance and reimplementation; and recording the manual evidence with its gaps intact. **Decisions 1–55 were not reopened** and no narrow implementation detail was promoted to a permanent decision |
+| `Handoff.md` | This entry. The Phase 9 evidence wording and limitations above are preserved verbatim |
+| Master index | Plan 3 marked complete, approved and awaiting integration, with the closeout commit and the immediate next action |
+
+#### The temporary drop, retired
+
+`md-instructions/0.6.0-drop3-shared-job-controls-importing.md` (979 lines) was deleted **after**
+the transfer above, and it is the **only** deleted path in this commit. `git diff --name-status
+-M -C` reports exactly one `D` and no `R`. The four canonical documents and the four protected
+`don't-delete` references all remain present with exact casing, and nothing was restored
+afterwards.
+
+#### Verification, run before and after the deletion
+
+| Gate | Before deletion | After deletion |
+|---|---|---|
+| `test_job_ui.py` alone | **128 passed, 0 skipped, 0 warnings** | **128 passed, 0 skipped, 0 warnings** |
+| Repetition — adapter suite | **128 passed × 5 consecutive runs** | — |
+| Repetition — race-sensitive subset | **36 passed × 5 consecutive runs** | — |
+| Repetition — Phase 4 + 5 concurrency | **302 passed × 3 consecutive runs** | — |
+| Phase 1 / 2 / 3 / 4 | **355** / **91 + 6 skipped** / **144 + 2 skipped** / **129** | unchanged |
+| Phase 5 / 6 / 7 / 8 | **173** / **174** / **258** / **128** | unchanged |
+| Maintenance + cleanup / output-paths group | **337** / **255 + 1 skipped + 1 warning** | unchanged |
+| Eight cancellation-bearing suites | **61 passed** | **61 passed** |
+| `test_ui_theme.py` explicitly | **17 passed — all 17 executed** | **17 passed — all 17 executed** |
+| Collection | **2,534** | **2,534** |
+| Full suite | **2,521 passed, 13 skipped, 1 warning** | **2,521 passed, 13 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** | **RESULT: PASS** |
+| `compileall -q scripts files/tests` | exit **0** | exit **0** |
+
+Deleting the drop changed nothing, which is the point: the temporary plan was never referenced by
+any test, gate or module. **No test was lost, deleted, skipped, xfailed, deselected or replaced,
+and no new warning appeared.**
+
+#### Skip reconciliation — 13, unchanged
+
+`test_import_traversal.py:131` **six** (three file and three directory symlinks, `[WinError
+1314]`); `test_cover_source_side.py:363` one; `test_output_paths.py:757` one;
+`test_import_traversal.py:552` one (case-insensitive filesystem); `test_import_manager.py:678`
+one (case-insensitive filesystem); `test_jack_ryan_final_product.py:40/:44/:64` three
+(`JACK_RYAN_M4B_FOLDER` unset). `test_job_ui.py` skips nothing, and the documented Tk
+root-creation transient did **not** recur. The one warning is unchanged and third-party:
+`.venv\Lib\site-packages\pydub\utils.py:14` — `DeprecationWarning: 'audioop' is deprecated`.
+
+#### Whitespace, stated precisely
+
+Scoped to code, `git diff --cached --check -- '*.py'` exits **0** — this phase changes no Python
+file at all. The broad staged check reports only the inherited structural findings this
+repository has always produced, all in `Handoff.md`, whose stored blob is CRLF so every added
+line reads as trailing whitespace; **the drop header's intentional two-space hard breaks are gone
+from the check because the file that carried them was retired**, and the other four documents add
+none. **Phase 10 introduced no non-structural whitespace defect**, and no protected document was
+reformatted or normalised to quieten the check.
+
+#### Final repository state
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`; start SHA
+`9f0cf211a89efb064f6acf435b324bd8c4c1805f`. Worktree and index clean; `origin/master` still
+`563df9884497032e19abd4437a0e66584cd9ec12`; version `0.5.1`; root `config-template.toml` still
+absent; four canonical documents and four protected references intact; all 22 approved
+screenshots byte-identical; `launcher.TOOLS` six entries; no production module importing a Plan 3
+module; requirements, both root launchers, packaging, release code, production code, tests,
+source media and runtime data byte-identical to the Phase 9 commit. **No pull request, merge,
+branch deletion, version bump, tag, release, packaging or publication was performed**, and no
+Plan 4 behaviour or planning work was introduced.
+
+#### No deviations
+
+No approved Phase 1–9 public contract was rewritten, no production panel or launcher adopted
+Plan 3, no dependency was added, and no real conversion, synthesis, ffmpeg, media probe, network
+call, output creation, settings write, cleanup or source mutation occurred. The Phase 9 manual
+matrix was **not** repeated, no broad root or repository scan was performed, and **Windows 125%
+scaling and live macOS validation were not run and remain deferred to Plan 9**.
+
+#### Next action
+
+**Plan 3 integration review only.** The feature branch
+`feature/0.6.0-drop3-shared-job-controls-importing` is complete, approved and pushed, and the
+maintainer owns the decision to merge it into `master`. **Plan 4 — TTS and Cover Image upgrades**
+is the next unopened plan in the approved series map and the first that adopts Plans 2 and 3 in a
+production panel; it has **not** been drafted or started and requires separate explicit maintainer
+approval.
 
 ### Phase 9 — Full regression, Windows manual matrix, and approval gate (2026-08-10, HOME-PC)
 

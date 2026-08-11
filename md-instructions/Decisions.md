@@ -4,6 +4,88 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-10 — Plan 3 is infrastructure with no adopters; truthfulness is enforced by construction rather than by review; the Tk boundary is one guarded module; and the manual evidence is recorded with its gaps intact
+
+**Decision (v0.6.0 Drop 3, Phases 1–9; recorded at the Phase 10 closeout).** Six choices worth
+keeping.
+
+**1. The foundation ships adopted by nothing, and structural tests keep it that way.** Four new
+shared modules exist and not one production panel, tool or launcher imports them. **Why build
+something and then deliberately not use it:** six panels currently each own their own importing,
+threading and progress code, and converting them in the same drop that invents the shared
+contracts would mean debugging the contracts and the conversions at once, with no way to tell
+which was wrong. Building the foundation first makes each later adoption a small, reviewable
+change against something already proven. The boundary is not a promise: parameterised guards
+AST-parse every module under `scripts/Universal/` and fail if any of them names a Plan 3 module,
+`launcher.TOOLS` is pinned at six entries, and the three Tk-free modules are proved to import no
+Tk at all. That last one is what makes the whole foundation testable with no display.
+
+**2. A state that would be a lie is made unconstructible, not merely unasserted.** Two claims
+matter most in a job UI, because both are easy to make and wrong: "it is paused" while an
+indivisible stage is still running, and "it is cancelled" before the worker has stopped. Rather
+than checking for them, the reporter mints every state-bearing event **from a controller
+snapshot** the controller itself handed out, and that snapshot type refuses to exist for a
+cancelled run without acknowledgement. **Why this rather than a validation rule:** a rule is a
+thing a future caller can forget or route around; an unconstructible value is not. The same
+reasoning shapes the Summary, which cannot leak a diagnostic because the projection that builds
+it **never reads the field diagnostics live in** — proven with 200 files' worth of churn
+producing three Summary lines — and the ETA, which returns `Calculating…` for every unreliable
+case (unknown total, fewer than three comparable samples, a changed category, paused, ended, or a
+question about another run) instead of a number nobody should trust.
+
+**3. Every timestamp and every clock read is injected.** None of the three Tk-free modules
+imports `time` or `datetime` or calls a clock; the caller supplies one. **Why:** §6.13's rolling
+ETA, the pause-exclusion arithmetic and the event ordering are all time-dependent, and the only
+way to test time-dependent behaviour without sleeping is to control the clock. The whole drop's
+1,460 tests contain **no sleep at all**; races are arranged with barriers, events and bounded
+joins, which means a hang fails loudly instead of the suite becoming slow and flaky.
+
+**4. The Tk boundary is one module, one `after` chain, and one guard.** `job_ui.py` is the only
+module in the drop that imports Tk. Inside it, `MainThreadPump` owns the single `after` chain —
+the Phase 4 import poller rides its `schedule`/`cancel` seam rather than opening a second one —
+and every public method that can reach a widget opens with a main-thread guard that **raises
+before the widget is touched**. **Why a guard rather than a convention:** "workers must not touch
+Tk" is the rule every tkinter application already has and the one they all eventually break, and
+a violation shows up as an intermittent crash in somebody else's feature months later. Here a
+worker's call fails immediately, at the call site, and a test proves the widget was unchanged.
+The pump's single chain is also what makes "no lingering callback after close" checkable at all:
+there is exactly one place to look.
+
+**5. Composition, and reuse of what already exists.** The adapters own frames rather than being
+them, take every decision as a callback, and define no base panel — a later tool builds its own
+layout and hands these components a parent. They create no second manager, coordinator,
+cancellation controller, event stream, progress implementation, logger, estimator or output
+planner; they reuse the existing `ui_theme.ProgressIndicator` unstyled and the existing
+`logging_setup` session logger. **Why:** an inheritance hierarchy invented before its first
+adopter is a hierarchy the adopters spend the next five plans fighting, and a second progress
+widget or a second log file is a divergence that only becomes visible once the two disagree.
+Windows widgets ask the theme bundle for `ACT.*` names and the macOS/aqua and classic branches
+ask for **no style at all**, which is why the native appearance is preserved without this module
+ever testing the platform — and a before/after snapshot proves no generic ttk style was touched,
+so the five unconverted panels render exactly as they did.
+
+**6. The manual evidence is recorded with its gaps intact.** The Windows matrix was run on
+HOME-PC and explicitly approved by the maintainer, and that attestation is the complete result —
+the supplied screenshots support only a subset of it and are described that way. Three things are
+written down rather than smoothed over: **exact 100%-display-scaling was never independently
+confirmed**, so the functional matrix is a pass while the true-100% claim is not made; the
+harness's literal source-tree before/after console line was not supplied, so repository
+verification is recorded as corroborating source integrity rather than presented as the harness's
+own output; and the maintainer additionally imported the repository folder as a root, which is
+**broader than the plan's disposable-fixture-only preference** and is recorded as a test-scope
+deviation. That last one was harmless and provably so: importing's entire filesystem budget is
+`scandir` and `lstat`, the worktree stayed completely clean with no untracked file, `git diff
+HEAD` was empty, and every tracked file and all 22 approved screenshots stayed byte-identical.
+**Why record all three:** the honest failure mode of an approval phase is a green box nobody
+observed, and a gap that is written down can be closed later, while a gap that is quietly rounded
+up to a pass cannot. **Windows 125% and live macOS were not run for Plan 3 and remain deferred to
+Plan 9**, consistent with the standing decision recorded on 2026-08-08.
+
+*Signed: Elijah Matthew (maintainer), 2026-08-10 — approving v0.6.0 Drop 3 Phase 9 at
+`9f0cf211a89efb064f6acf435b324bd8c4c1805f` and Plan 3 as a whole.*
+
+---
+
 ## 2026-08-08 — Archives ship `config.toml` by explicit scope, concat lists follow ffmpeg's own quoting rules, panels are told when the output base moves, and two validations are deferred rather than faked
 
 **Decision (v0.6.0 Drop 2, Phase 8 and its remediation; recorded at the Phase 9 closeout).**
