@@ -385,6 +385,82 @@ flashing during use.
   none; the packager never names it, the runtime never loads it, and automated tests prove both
   even while it sits directly beside `config.toml`.
 
+- **Shared importing and job-control foundation (v0.6.0 Drop 3).** Four modules under
+  `scripts/Universal/shared/` that **no production panel uses yet**. They exist so the tool
+  plans that follow can adopt one importer and one set of run controls instead of six
+  divergent ones; adoption itself belongs to Plans 4–8, and until then nothing a user can
+  reach behaves differently.
+
+  - **`importing.py`** — the immutable vocabulary plus the traversal core and the list owner.
+    An adopting tool supplies its own `SupportedTypeCatalog`; there is no universal media list
+    here. `ImportOptions` freezes the selected types, `include_hidden_folders` and
+    `allow_duplicate_files` per import. Traversal is **read-only and non-following**: its
+    entire filesystem budget is `os.scandir` and `lstat`, so it can neither write nor walk
+    through a symlink, a Windows junction or any other reparse point, all of which are refused
+    and reported rather than followed — link classification reuses the already-validated
+    `maintenance.is_link` rather than growing a second one, because a junction reports
+    `is_symlink() == False` and a naive check would fail open on exactly the case that matters.
+    Within each root, compatible direct files are emitted before child directories and both are
+    ordered by a Unicode-aware natural key, so `1, 2, 10` comes out in that order; root order is
+    never globally re-sorted. Hidden directories are skipped and reported unless the option is
+    on; a hidden file the user chose explicitly is still accepted. `ImportedFileManager` owns an
+    ordered list with a revision that moves only on a real change, mints a stable
+    **occurrence ID** per entry, restores selection by that ID rather than by index or path,
+    moves a multi-selected block as one unit without wrapping, and commits a planned transaction
+    **atomically** — a cancelled, declined, failed or conflicting import changes nothing at all.
+    Deduplication prefers non-following file identity and falls back to a normalized lexical
+    path; a deliberate duplicate gets a new occurrence but keeps its true source identity, so it
+    is never disguised as a different file. Removing or clearing the list never deletes a source.
+  - **`import_coordination.py`** — one background scan at a time, owned end to end.
+    `ImportCoordinator` fences every manager-touching entry point to the owning (main) thread,
+    raises the **broad-root warning before any worker exists** — a volume root, a UNC share root
+    or the exact home directory, refused outright if no confirmer was wired — publishes typed
+    events on a queue, and applies Plan 2's captured
+    `importing.large_result_warning_threshold` **after** a completed scan, where equal to the
+    threshold does not warn and there is no hard maximum. `ImportCancellation` is a per-operation
+    event with **no connection whatsoever** to a processing job's cancellation: Cancel Import
+    stops a scan and can never reach a conversion. `ImportPoller` is a Tk-free polling seam
+    shaped exactly like `after`/`after_cancel`.
+  - **`job_control.py`** — the cooperative run model and its reporting. `JobController` enforces
+    one transition table with a condition rather than a spin, and it is **truthful**: a pause
+    request stays `PAUSE_REQUESTED` while an indivisible stage runs and becomes `PAUSED` only on
+    the worker's acknowledgement, cancel wakes a paused worker and reaches `CANCELLED` only after
+    that worker has stopped starting work and cleaned up, and a run ends exactly once. No Python
+    thread and no OS process is ever suspended. `capture_run` deep-freezes one configuration per
+    run, `ControlKind`/`LOCK_MATRIX`/`is_locked` and `JobAction`/`is_available` derive control
+    state UI-neutrally, `RunResult` settles ordered item outcomes without letting an item failure
+    force a fatal job failure, and `RetryRequest` rebuilds Retry Failed **against the exact
+    original frozen snapshot** — never against current widgets, settings or list contents. The
+    reporting layer on top produces typed immutable events with an injected clock;
+    `JobEventStream` rejects stale-run, unknown-occurrence, post-terminal and duplicate-terminal
+    events and a rejected event is **inert** — not rendered, not counted, not logged. Summary
+    shows milestones and **structurally cannot** show a diagnostic, because the projection that
+    builds it never reads the field commands and tracebacks live in; Details keeps every one of
+    them. `LoggerBridge` feeds technical events to the **one existing** session logger and
+    creates no second log or retention policy. Progress is monotonic within a scope and an
+    ending never changes a counter, so a cancelled run keeps the count it really reached.
+    `EtaEstimator` uses only comparable completed samples from the current run — three minimum,
+    a rolling twenty, paused time excluded — and says `Calculating…` for every unreliable case
+    rather than guessing.
+  - **`job_ui.py`** — the only module in the drop that imports Tk, and the reason the other
+    three provably do not. It is compositional: each class *owns* a `frame` rather than *being*
+    one, every decision arrives as a callback, and there is no universal base panel for a later
+    tool to fight. `MainThreadPump` owns the single `after` chain (the import poller rides its
+    `schedule`/`cancel` seam rather than opening a second one), `MainThreadGuard` opens every
+    public Tk-reaching method so a worker is refused **before** a widget is touched, and workers
+    communicate only by putting immutable values on a queue. Teardown is idempotent, cancels its
+    own callback, makes later events inert and survives a destroyed root. It **reuses the
+    existing `ui_theme.ProgressIndicator`** unstyled, asks the theme bundle for `ACT.*` names on
+    Windows, and asks for **no style at all** on macOS aqua and the classic branch — which is
+    how the native appearance is preserved without this module ever testing the platform itself.
+    A snapshot proves it leaks into no generic ttk style.
+
+  A developer-only harness, `files/tests/manual_plan3_harness.py`, drives these adapters against
+  a generated disposable fixture root for manual validation. It has **no launcher entry, is not
+  collected by pytest, is imported by nothing under `scripts/`, and is excluded from both
+  release archives** by the packager's explicit `scripts/` scope; its "work" is a timed no-op
+  that runs no process and produces no output.
+
 ## Features
 
 - **TTS Audiobook** (`tts/epub2tts_gui.py`) — EPUB/PDF/TXT → MP3; 12 voices (7 Edge network +
@@ -487,9 +563,9 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 v0.5.1 (v0.5.0 line plus the Jenny Edge voice; v0.4.0 is the latest
 published GitHub release — remote: [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool))
 
-**v0.6.0 Drop 2 is approved and closed, and it did not change the version.** `version.py` is
-still `0.5.1`, there is no v0.6.0 heading, tag, release or published archive, and the wider
-v0.6.x initiative is **not** complete — six of the nine plans remain undrafted.
+**v0.6.0 Drops 2 and 3 are approved and closed, and neither changed the version.** `version.py`
+is still `0.5.1`, there is no v0.6.0 heading, tag, release or published archive, and the wider
+v0.6.x initiative is **not** complete — five of the nine plans remain undrafted.
 
 ## High-Level State
 
@@ -517,8 +593,37 @@ once-per-launch warnings, Preferences & Data with the shared output base and Res
 confirmed destination exceptions, the four-asset downloaded-data inventory with post-exit
 cleanup and rebuild, and `config.toml` in both release archives. Approved at Phase 8
 `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 is the documentation/retirement commit, not
-another feature phase. **The next unopened implementation work is Drop 3** (shared importing and
-job controls); it has not been drafted or started.
+another feature phase.
+
+**v0.6.0 Drop 3 (shared importing and job-control foundation) — approved 2026-08-10, not
+released, not merged.** Plan 3 delivered the four shared modules described under Architecture —
+`importing.py`, `import_coordination.py`, `job_control.py` and `job_ui.py` — plus 1,460 tests and
+a developer-only manual harness. **It is infrastructure, not a feature a user can reach:** no
+production panel or launcher imports any of it, `launcher.TOOLS` still holds exactly six tools,
+and no tool's behaviour changed. The Windows manual matrix was run on HOME-PC by the maintainer
+against generated disposable fixtures and **explicitly approved**; the automated gate at closeout
+is **2,534 collected, 2,521 passed, 13 skipped, 1 pre-existing warning**, theme 17/17,
+`verify.py` PASS, compile exit 0.
+
+**What Plan 3's evidence does and does not cover.** The maintainer's attestation is the complete
+manual result; the supplied screenshots visually support only a subset of it (harness startup,
+fixture generation, a 50-file import, list clearing, a completed 1/1 job, the Summary milestones,
+a 380-file repository import, an active 106/380 job at 28% with an ETA of `1m 36s`, per-occurrence
+failure messages, and Pause/Cancel availability while running). Two gaps are recorded rather than
+filled: **exact 100%-display-scaling confirmation was never independently recorded**, so the
+functional Windows matrix is a pass while the true-100% claim is not asserted; and the harness's
+literal source-tree before/after console line was not supplied, so repository verification stands
+as corroborating evidence of source integrity rather than as the harness's own output. The
+maintainer also imported the repository folder as a root (380 supported files) — **broader than
+the plan's disposable-fixture-only preference and recorded as a test-scope deviation.** It mutated
+nothing, and that is provable rather than asserted: importing is pinned to `scandir` and `lstat`,
+the worktree stayed completely clean with no untracked file, `git diff HEAD` was empty, and every
+tracked file and all 22 approved screenshots remained byte-identical. **Windows 125% scaling and
+live macOS validation were not run for Plan 3 and remain deferred to Plan 9.**
+
+**The next unopened implementation work is Plan 4** (TTS and Cover Image upgrades, the first plan
+that adopts Plans 2 and 3 in a production panel); it has not been drafted or started, and Plan 3's
+feature branch is awaiting integration review.
 
 **How Plan 2 was validated, and what was deliberately not validated.** The evidence is a clean
 extraction of the real Windows archive into a disposable root whose path carries a space, an

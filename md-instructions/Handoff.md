@@ -1,10 +1,1960 @@
 # Audiobook Creation Tool — Handoff
 
 ## Current Focus
+**v0.6.0 Drop 3 (Plan 3 — shared importing and job-control foundation) — COMPLETE, APPROVED AND
+CLOSED OUT. All ten phases are done; the temporary drop is retired; the branch awaits integration
+review. Plan 2 is merged into `master` through pull request #3, and the Plan 3
+branch `feature/0.6.0-drop3-shared-job-controls-importing` now carries the immutable importing
+and job-control vocabulary, a read-only link-refusing traversal core, the imported-file manager
+with its deduplication and atomic transactions, the background import coordinator with its own
+cancellation, the cooperative run controller with pause/resume/cancel and one-acknowledgement
+settlement, the run framing (one frozen configuration per run, a UI-neutral lock derivation,
+ordered item outcomes, and Retry Failed against the exact original snapshot), the reporting layer
+(typed event production that cannot claim a state the controller never reached, a stream that
+refuses stale and post-terminal events, Summary/Details projections that keep commands and
+tracebacks out of the Summary, a bridge to the one existing session logger, a truthful progress
+contract for the existing `ProgressIndicator`, and a current-run rolling ETA that says
+`Calculating…` rather than guess), and now the Tk boundary itself: `shared/job_ui.py`, whose two
+compositional adapters draw all of the above through one main-thread pump, refuse every widget
+touch from a worker before a widget is reached, and close without leaving a callback behind. No
+production panel or launcher adopts any of it, no behaviour changed, and `version.py` is still
+`0.5.1`. **The Phase 9 Windows manual matrix was run on HOME-PC by the maintainer, who attested
+that every checked behaviour worked and returned an explicit verdict of APPROVED**, and the full
+automated matrix was re-run against that same commit with no regression. Phase 10 has now
+transferred the lasting record into `Briefing.md`, `Changelog.md` (under `[Unreleased]`),
+`Decisions.md` and the master index, and retired the temporary drop. **The next action is Plan 3
+integration review only** — nothing has been merged, tagged, released or bumped, and Plan 4 is
+not started.**
+
+### Phase 10 — Approved closeout and temporary-drop retirement (2026-08-10, HOME-PC)
+
+**Result: the lasting Plan 3 record is transferred and the temporary drop is retired. This phase
+changed no production code, no test code, no configuration, no packaging and no screenshot — the
+entire diff is five documents plus the deletion of one temporary planning file. Plan 3 is
+complete, approved and awaiting integration review; `version.py` is still `0.5.1`, nothing was
+merged, tagged, released or published, and Plan 4 was not started.**
+
+#### Entry gate
+
+The maintainer explicitly approved the Phase 9 evidence and every accurately recorded deferral,
+including the functional Windows 11 HOME-PC matrix passing by attestation, the screenshots
+supporting only the recorded subset, the unrecorded exact 100%-scaling confirmation, the missing
+literal harness source-tree comparison output, the repository verification corroborating that the
+read-only repository-root scan mutated nothing, and the Windows 125% and live macOS deferrals to
+Plan 9 — with the explicit finding that **those gaps do not require the passed matrix to be
+repeated**.
+
+Starting state, verified before any edit: branch
+`feature/0.6.0-drop3-shared-job-controls-importing`; HEAD, its configured upstream and
+`origin/feature/…` all exactly `9f0cf211a89efb064f6acf435b324bd8c4c1805f`; `origin/master`
+unchanged at `563df9884497032e19abd4437a0e66584cd9ec12`; all ten approved phase commits ancestors
+of HEAD; index and worktree clean with zero untracked files; version `0.5.1`; root
+`config-template.toml` absent from worktree, index and committed tree and tracked nowhere; four
+canonical documents with exact casing and no alias; four protected `don't-delete` references
+present; all 22 approved screenshots byte-identical to `origin/master`; `launcher.TOOLS` exactly
+six entries; and no production module importing a Plan 3 module.
+
+#### What was transferred, and where
+
+| Document | What it now carries |
+|---|---|
+| `Briefing.md` | A new Architecture entry describing all four shared modules — the immutable vocabulary and read-only non-following traversal, the coordinator with its pre-scan broad-root warning and post-scan threshold and its independent Cancel Import, the truthful cooperative controller with frozen run snapshots, UI-neutral locking, item outcomes and Retry Failed against the original snapshot, the typed reporting with stale/post-terminal rejection and the Summary that structurally cannot leak a diagnostic, and the one Tk module with its single `after` chain, thread guard, reused `ProgressIndicator`, `ACT.*` isolation and preserved native branch — plus the harness's developer-only status. The Current Version and High-Level State sections now record Drop 3 as approved and closed, **explicitly as infrastructure no user can reach**, together with the evidence gaps and the two deferrals |
+| `Changelog.md` | Two entries under **`[Unreleased]`** — an *Added* entry for the foundation and a *Changed* entry for the closeout. **No v0.6.0 release heading was created.** Both state that no production tool uses any of it, that the launcher still lists six tools, and that the version is unchanged |
+| `Decisions.md` | One new ADR dated 2026-08-10, in the established newest-on-top signed format, recording six lasting choices: shipping a foundation with no adopters and guarding that boundary structurally; making a false state unconstructible rather than merely unasserted; injecting every clock so the whole drop tests without a single sleep; one Tk module with one `after` chain and one guard that raises before a widget is touched; composition and reuse over inheritance and reimplementation; and recording the manual evidence with its gaps intact. **Decisions 1–55 were not reopened** and no narrow implementation detail was promoted to a permanent decision |
+| `Handoff.md` | This entry. The Phase 9 evidence wording and limitations above are preserved verbatim |
+| Master index | Plan 3 marked complete, approved and awaiting integration, with the closeout commit and the immediate next action |
+
+#### The temporary drop, retired
+
+`md-instructions/0.6.0-drop3-shared-job-controls-importing.md` (979 lines) was deleted **after**
+the transfer above, and it is the **only** deleted path in this commit. `git diff --name-status
+-M -C` reports exactly one `D` and no `R`. The four canonical documents and the four protected
+`don't-delete` references all remain present with exact casing, and nothing was restored
+afterwards.
+
+#### Verification, run before and after the deletion
+
+| Gate | Before deletion | After deletion |
+|---|---|---|
+| `test_job_ui.py` alone | **128 passed, 0 skipped, 0 warnings** | **128 passed, 0 skipped, 0 warnings** |
+| Repetition — adapter suite | **128 passed × 5 consecutive runs** | — |
+| Repetition — race-sensitive subset | **36 passed × 5 consecutive runs** | — |
+| Repetition — Phase 4 + 5 concurrency | **302 passed × 3 consecutive runs** | — |
+| Phase 1 / 2 / 3 / 4 | **355** / **91 + 6 skipped** / **144 + 2 skipped** / **129** | unchanged |
+| Phase 5 / 6 / 7 / 8 | **173** / **174** / **258** / **128** | unchanged |
+| Maintenance + cleanup / output-paths group | **337** / **255 + 1 skipped + 1 warning** | unchanged |
+| Eight cancellation-bearing suites | **61 passed** | **61 passed** |
+| `test_ui_theme.py` explicitly | **17 passed — all 17 executed** | **17 passed — all 17 executed** |
+| Collection | **2,534** | **2,534** |
+| Full suite | **2,521 passed, 13 skipped, 1 warning** | **2,521 passed, 13 skipped, 1 warning** |
+| `scripts/verify.py` | **RESULT: PASS** | **RESULT: PASS** |
+| `compileall -q scripts files/tests` | exit **0** | exit **0** |
+
+Deleting the drop changed nothing, which is the point: the temporary plan was never referenced by
+any test, gate or module. **No test was lost, deleted, skipped, xfailed, deselected or replaced,
+and no new warning appeared.**
+
+#### Skip reconciliation — 13, unchanged
+
+`test_import_traversal.py:131` **six** (three file and three directory symlinks, `[WinError
+1314]`); `test_cover_source_side.py:363` one; `test_output_paths.py:757` one;
+`test_import_traversal.py:552` one (case-insensitive filesystem); `test_import_manager.py:678`
+one (case-insensitive filesystem); `test_jack_ryan_final_product.py:40/:44/:64` three
+(`JACK_RYAN_M4B_FOLDER` unset). `test_job_ui.py` skips nothing, and the documented Tk
+root-creation transient did **not** recur. The one warning is unchanged and third-party:
+`.venv\Lib\site-packages\pydub\utils.py:14` — `DeprecationWarning: 'audioop' is deprecated`.
+
+#### Whitespace, stated precisely
+
+Scoped to code, `git diff --cached --check -- '*.py'` exits **0** — this phase changes no Python
+file at all. The broad staged check reports only the inherited structural findings this
+repository has always produced, all in `Handoff.md`, whose stored blob is CRLF so every added
+line reads as trailing whitespace; **the drop header's intentional two-space hard breaks are gone
+from the check because the file that carried them was retired**, and the other four documents add
+none. **Phase 10 introduced no non-structural whitespace defect**, and no protected document was
+reformatted or normalised to quieten the check.
+
+#### Final repository state
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`; start SHA
+`9f0cf211a89efb064f6acf435b324bd8c4c1805f`. Worktree and index clean; `origin/master` still
+`563df9884497032e19abd4437a0e66584cd9ec12`; version `0.5.1`; root `config-template.toml` still
+absent; four canonical documents and four protected references intact; all 22 approved
+screenshots byte-identical; `launcher.TOOLS` six entries; no production module importing a Plan 3
+module; requirements, both root launchers, packaging, release code, production code, tests,
+source media and runtime data byte-identical to the Phase 9 commit. **No pull request, merge,
+branch deletion, version bump, tag, release, packaging or publication was performed**, and no
+Plan 4 behaviour or planning work was introduced.
+
+#### No deviations
+
+No approved Phase 1–9 public contract was rewritten, no production panel or launcher adopted
+Plan 3, no dependency was added, and no real conversion, synthesis, ffmpeg, media probe, network
+call, output creation, settings write, cleanup or source mutation occurred. The Phase 9 manual
+matrix was **not** repeated, no broad root or repository scan was performed, and **Windows 125%
+scaling and live macOS validation were not run and remain deferred to Plan 9**.
+
+#### Next action
+
+**Plan 3 integration review only.** The feature branch
+`feature/0.6.0-drop3-shared-job-controls-importing` is complete, approved and pushed, and the
+maintainer owns the decision to merge it into `master`. **Plan 4 — TTS and Cover Image upgrades**
+is the next unopened plan in the approved series map and the first that adopts Plans 2 and 3 in a
+production panel; it has **not** been drafted or started and requires separate explicit maintainer
+approval.
+
+### Phase 9 — Full regression, Windows manual matrix, and approval gate (2026-08-10, HOME-PC)
+
+**Result: an evidence phase, and it changed no code. The maintainer ran the Phase 9 Windows manual
+matrix on HOME-PC using `files/tests/manual_plan3_harness.py` and returned an explicit verdict of
+APPROVED — all Phase 9 Windows manual checks passed. The complete automated matrix was re-run
+against the same commit and every figure is identical to the approved Phase 8 baseline: 2,534
+collected, 2,521 passed, 13 skipped, 1 warning, theme 17/17, `verify.py` RESULT: PASS, compile
+exit 0. No implementation deviations, no approved Phase 1–8 contract rewritten, and no production
+panel adopting Plan 3. The only changed paths are this Handoff entry, the active drop's status
+and baseline header, and the master index's Plan 3 status, evidence and next-action fields.**
+
+#### Starting state, verified before anything else
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`; HEAD, its configured upstream and
+`origin/feature/…` all exactly `bada212a8276a537c75073f0539147d689463f4a`; `origin/master`
+unchanged at `563df9884497032e19abd4437a0e66584cd9ec12`; all nine approved phase commits
+ancestors of HEAD. **The index and worktree were completely clean with zero untracked files** —
+which matters more than usual this phase, because the maintainer had just finished a manual
+session that included an import of the repository root, and a clean tree is what proves the scan
+wrote nothing. Version `0.5.1`; root `config-template.toml` absent from worktree, index and tree
+and tracked nowhere; four canonical documents with exact casing and no alias; four protected
+`don't-delete` references present; all 22 approved screenshots byte-identical to `origin/master`;
+`launcher.TOOLS` exactly six entries; 40 production modules AST-parsed and **none** importing a
+Plan 3 module.
+
+#### The maintainer's manual approval, recorded as supplied
+
+**Verdict: APPROVED — all Phase 9 Windows manual checks passed.**
+
+| Item | As supplied |
+|---|---|
+| Machine | HOME-PC |
+| Operating system | Windows 11 |
+| Python | 3.12.10, 64-bit |
+| Repository | `C:\Users\ematthew\Desktop\Apps\Coding\Repository_Workspaces\MyProjects\Home-PC\Audiobook-Creation-Tool` |
+| Harness | `files/tests/manual_plan3_harness.py`, launched successfully with no initialization error |
+| Fixture roots | Generated beneath `C:\Users\ematthew\AppData\Local\Temp\act-plan3-harness-*`; one observed fixture generated **33 paths** |
+| Attested working | Add Files and Add Folder; the imported-file listing, selection, clearing and supported-type controls; the fake-job controls and lifecycle; progress, current occurrence/stage, ETA, Summary, Details, failure reporting and completion. The maintainer confirmed the remaining manual cases passed |
+| Also performed | The repository folder was selected as an import root and produced an observed **380 supported files** |
+
+The maintainer's attestation is the complete result. It is recorded here as given and has not been
+expanded, itemised per checklist step, or supplemented with invented observations.
+
+#### What the screenshots visibly support — and what they do not
+
+The supplied screenshots visually support **a subset** of the attestation: successful harness
+startup; disposable fixture-root generation; 33 generated paths in one fixture; a 50-file import;
+clearing the imported list; a completed 1/1 fake job at 100%; Summary milestones for Running,
+Preparing, Converting, Finished and "1 of 1 items finished"; the repository-root import showing
+380 files; an active 106/380 job at 28%; a displayed ETA of `1m 36s`; per-occurrence conversion
+failure messages; and Pause and Cancel available while running.
+
+**The screenshots do not independently prove every checklist item**, and no claim here rests on
+them beyond the list above. Everything else in the manual result stands on the maintainer's
+explicit attestation.
+
+*Worth noting for its own sake:* the visible `106/380 — 28%` with an ETA of `1m 36s` is the
+Phase 7 estimator and the Phase 8 adapter behaving exactly as specified — a determinate count
+that is genuinely 28%, and a duration that only appeared once enough comparable samples existed.
+
+#### The repository-root import, classified honestly
+
+The active plan's §11 asks that manual evidence use **generated disposable fixtures only**, and
+the Phase 8 report's checklist said the same. Selecting the repository folder as an import root
+went **beyond that preferred boundary**. It is recorded as a deviation from the preferred test
+scope rather than glossed over.
+
+What it was not is a safety problem, and that is established by repository evidence rather than by
+assertion:
+
+- Importing is read-only by construction. An approved Phase 1 guard pins `shared/importing.py` to
+  exactly two filesystem verbs — `os.scandir` and `lstat` — and forbids every writing, content-
+  reading and link-following call; the coordinator touches the filesystem not at all; and
+  `shared/job_ui.py` makes no filesystem call whatsoever. Nothing in that path can write.
+- No processing was requested or reported. Selecting an import root fills a list; it starts no
+  job, and the harness's "job" is a timed no-op that produces no output in any case.
+- **`git status --short --untracked-files=all` returns nothing at all**, `git diff --name-only
+  HEAD` is empty, and the index matches HEAD. Every one of the 139 tracked files is byte-identical
+  to the commit, and the scan created no untracked file anywhere in the tree.
+- All 22 approved screenshots remain byte-identical to `origin/master`, the four protected
+  references and four canonical documents are intact, `config-template.toml` is still absent, and
+  version is still `0.5.1`.
+- For scale: the index holds exactly **one** file with an extension the harness catalog accepts
+  (`scripts/requirements.txt`). The observed 380 therefore came almost entirely from untracked and
+  ignored trees such as `.venv` — paths the repository does not record at all, which is a further
+  reason the tracked tree could not have changed.
+
+**Conclusion: the read-only repository scan caused no repository mutation.** The proof is Git's,
+not the harness's.
+
+#### Two evidence gaps, named rather than filled
+
+1. **Exact 100%-scaling confirmation is not independently recorded.** The maintainer's environment
+   details name HOME-PC, Windows 11 and Python 3.12.10 but do not state the display scaling, and
+   no screenshot establishes it. The functional Windows matrix is therefore recorded as **passed**;
+   the separate claim "verified at true Windows 11 100% scaling" is **not** recorded as proven.
+   Plan 9 owns the full DPI matrix regardless.
+2. **The literal harness source-tree before/after output was not supplied.** The harness's Record
+   and Compare buttons produce a path count and an UNCHANGED/CHANGED verdict, and that console
+   line did not come back with the attestation. The repository verification above is recorded as
+   **corroborating** evidence of source integrity; it is not presented as the harness's own output,
+   and the maintainer's passed verdict has not been converted into a fabricated console result.
+
+Neither gap contradicts the maintainer's verdict, and neither is a reason to ask for the matrix to
+be repeated.
+
+#### Complete automated re-verification
+
+| Gate | Result |
+|---|---|
+| `test_job_ui.py` alone | **128 passed, 0 skipped, 0 warnings**, ~1.0 s |
+| Repetition — full adapter suite | **128 passed × 10 consecutive runs**, identical |
+| Repetition — race-sensitive subset (worker, thread ownership, pump, drain, terminal, close, destroyed widget, Cancel Import) | **36 passed × 10 consecutive runs**, identical |
+| Repetition — Phase 4 + Phase 5 concurrency suites | **302 passed × 5 consecutive runs**, identical |
+| Phase 1 contracts and boundaries | **355 passed** |
+| Phase 2 traversal | **91 passed, 6 skipped** |
+| Phase 3 manager | **144 passed, 2 skipped** |
+| Phase 4 coordination | **129 passed** |
+| Phase 5 controller | **173 passed** |
+| Phase 6 run framing | **174 passed** |
+| Phase 7 reporting | **258 passed** |
+| Phase 8 adapters | **128 passed** |
+| Maintenance and cleanup | **337 passed** |
+| Output paths group | **255 passed, 1 skipped, 1 warning** |
+| Eight cancellation-bearing production suites | **61 passed**, unchanged |
+| `test_ui_theme.py` explicitly | **17 passed — all 17 executed** |
+| Collection | **2,534** |
+| Full suite | **2,521 passed, 13 skipped, 1 warning** in 28.61 s |
+| `scripts/verify.py` | **RESULT: PASS** (all five checks) |
+| `python -m compileall -q scripts files/tests` | exit **0** |
+
+Every figure equals the approved Phase 8 baseline. **No test was lost, deleted, skipped, xfailed,
+deselected or replaced, and no new warning appeared.**
+
+#### Skip reconciliation — 13, node by node, unchanged
+
+| Node | Count | Reason |
+|---|---|---|
+| `test_import_traversal.py:131` | **6** | 3 file + 3 directory symlinks, `[WinError 1314]` — a required privilege is not held by this account |
+| `test_cover_source_side.py:363` | 1 | file symlink, `[WinError 1314]` |
+| `test_output_paths.py:757` | 1 | file symlink, `[WinError 1314]` |
+| `test_import_traversal.py:552` | 1 | this filesystem is case-insensitive, so the two names are one file |
+| `test_import_manager.py:678` | 1 | this filesystem is case-insensitive, so the two names are one file |
+| `test_jack_ryan_final_product.py:40/:44/:64` | 3 | `JACK_RYAN_M4B_FOLDER` is unset |
+
+Total **13**, matching the reconciliation Phase 7 corrected and Phase 8 preserved. `test_job_ui.py`
+skips nothing: the Tk root opened on this host, and its module-scoped fixture would have skipped
+the whole file rather than silently thinning it. **The documented Tk root-creation transient did
+not recur**, so no Tk suite needed an explicit rerun beyond the one the matrix already requires.
+
+The one warning is unchanged and third-party:
+`.venv\Lib\site-packages\pydub\utils.py:14` — `DeprecationWarning: 'audioop' is deprecated and
+slated for removal in Python 3.13`.
+
+#### Whitespace, stated precisely
+
+Before staging, with a clean tree, both forms of `git diff --check` returned **nothing at all** —
+scoped to code (`-- '*.py'`) it exits **0**, and the broad form produced zero findings, because
+this phase changes no code. With the documentation staged the broad check reports the inherited
+structural findings this repository has always produced: `Handoff.md` is stored as a CRLF blob so
+every added line reads as trailing whitespace, and the active drop's header uses markdown
+two-space hard line breaks. **Phase 9 introduced no non-structural whitespace defect**, and no
+protected document was reformatted or normalised to quieten the check.
+
+#### Changed paths
+
+| Path | Change |
+|---|---|
+| `md-instructions/Handoff.md` | this entry |
+| `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` | status line and current-baseline header only |
+| `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` | Plan 3 status, evidence and immediate-next-action fields only |
+
+**No production code and no test code changed.** No generated artifact, no screenshot, no renamed
+or deleted path. `Briefing.md`, `Changelog.md` and `Decisions.md` were deliberately not touched —
+their lasting transfer belongs to Phase 10.
+
+#### No implementation deviations
+
+No approved Phase 1–8 public contract was rewritten. No production tool panel, launcher, TTS
+engine, importing, coordination, controller, event, progress, ETA, logger, output, config,
+maintenance, theme, cancellation or subprocess module changed. No dependency was added. No
+conversion, synthesis, ffmpeg, media probe, network call, output creation, settings write, cleanup
+or source mutation was performed, and no broad-root or repository scan was re-run by this phase.
+Windows 125% scaling and live macOS validation were **not run** and remain deferred to Plan 9;
+an automated Aqua-branch assertion is not a macOS pass and is not described as one.
+
+#### Phase 10 — not started
+
+**Phase 10 — Approved closeout and temporary-drop retirement** has not begun and needs explicit
+maintainer approval. Its entry gate is exactly what this phase just produced: the maintainer's
+explicit approval of the Phase 9 evidence and of every accurately recorded deferral. When
+authorized it transfers the lasting record into `Briefing.md`, `Changelog.md` (under
+`[Unreleased]`, with no v0.6.0 release heading) and `Decisions.md`, updates the master index to
+Plan 3 complete/approved/awaiting integration, deletes **only**
+`md-instructions/0.6.0-drop3-shared-job-controls-importing.md`, re-runs every gate after that
+deletion, and commits and pushes the closeout — without merging, deleting a branch, bumping the
+version, tagging, publishing, or beginning Plan 4.
+
+### Phase 8 — Reusable Tk adapters and developer-only integration harness (2026-08-10, HOME-PC)
+
+**Result: one new production module, `shared/job_ui.py` (2,197 lines), is now the only module in
+Plan 3 that imports Tk — and the reason the other three provably still do not. It adds two
+compositional adapters and the small components they are built from, and it decides nothing: the
+manager owns the list, the coordinator owns the import, the controller owns the state, the event
+stream owns which events count, the approved projections own Summary and Details, `LOCK_MATRIX`
+owns what locks, `is_available` owns which buttons appear, `EtaEstimator` owns the estimate, and
+`ui_theme.ProgressIndicator` owns the bar. 128 focused Tk-boundary tests plus a disposable
+developer harness for the Phase 9 matrix. No approved Phase 1–7 contract was rewritten, no
+production panel adopted anything, `ui_theme.py` and `logging_setup.py` are byte-identical, and
+no mandatory gate was encountered.**
+
+#### The contract-extraction gate, before any edit
+
+| # | Contract | What the active plan and the approved source actually specify |
+|---|---|---|
+| A | Services to compose | `ImportedFileManager` (snapshot/count/selection/`plan`/`commit`/`remove_selected`/`clear`/`move_selected_up`/`move_selected_down`, selection restored by occurrence ID, revision moves only on a real change); `SupportedTypeCatalog` + `ImportOptions.for_catalog`; `ImportCoordinator` (`start`/`import_files`/`request_cancel`/`pump`/`confirm_pending`/`decline_pending`/`close`, owner-thread fenced, broad-root warning **before** any worker, captured-threshold confirmation after a completed scan); `ImportPoller` (a `schedule(delay_ms, cb)` / `cancel(handle)` seam shaped exactly like `after`/`after_cancel`); `JobController` + `JobSnapshot`; `ControlKind`/`LOCK_MATRIX`/`is_locked` and `JobAction`/`is_available`; `JobReporter`/`JobEventStream`/`project_summary`/`detail_lines`/`LoggerBridge`/`ProgressView`/`EtaEstimator`; `ui_theme.ProgressIndicator`; and the `ACT.*` vocabulary published **only** by the Windows branch of `apply_theme` |
+| B | Adapter architecture | §6.15: composition, callbacks and small protocols. Every class *owns* a `frame` rather than *being* one; no base panel, no inheritance hierarchy, no abstract class; values captured from widgets on the main thread and handed to workers only as frozen requests |
+| C | Imported-file adapter | Extended selection; imported and selected counts; Add Files / Add Folder / Move Up / Move Down / Remove / Clear; supported-type selection; include-hidden; allow-duplicates; live import status and discovered count; a **separate** Cancel Import; selection restored by occurrence ID after every rebuild; every dialog and confirmation on the main thread; completed / declined / cancelled / failed / closed / conflict all leaving the prior list untouched |
+| D | Job adapter | Authoritative state and status; Pause / Resume / Cancel / Retry Failed availability; input and processing-option locking through the existing matrix; the existing `ProgressIndicator`; current stage and occurrence; ETA text; Summary and Details; warnings, failures, an explicit output location, and the final result — and none of it derived, fabricated, rounded up or logged twice |
+| E | Pump and teardown | One main-thread chain; never `after`, `after_cancel`, a widget, a variable, a dialog or a style from a worker; producer order preserved; no `qsize`, no sleep, no timing guess; deterministic drain hooks; at most one scheduled callback; stale and post-terminal events inert; empty and bounded drains legal; inert after close; owned callback cancelled; destroyed root tolerated; teardown idempotent |
+| F | Styling | `theme["styles"]` exists on the Windows branch only, and every entry is already `ACT.*`-namespaced. On aqua and on the classic branch there is no bundle at all, and an empty style name is precisely "draw this natively" — so the native macOS branch is preserved by construction. `ProgressIndicator` is deliberately unstyled today and must stay so |
+| G | Harness | Phase 9 needs a real file dialog, a real junction refusal, a >1,000-result scan, a broad-root decline, a watchable pause, and a close during live work. None of that is reachable from a unit test, and building it during Phase 9 would mean writing code in a verification phase |
+| H | Scope | Frozen: §6.15 and §6.16. Unchangeable: every Phase 1–7 public contract. Narrow internal choices: the five recorded below. Deferred to Phase 9: the manual matrix. Deferred to Plans 4–8: adoption. Deferred to Plan 9: 125%, live macOS, packaging, release |
+
+**No unresolved omission was found and no mandatory gate was encountered.** In particular the
+§6.15 styling gate was *considered and not triggered*: the existing `ACT.*` catalog already
+publishes a frame, card, label, secondary label, status label, warning label, button, primary
+button, danger button, checkbutton, notebook, progressbar, scrollbar, treeview, labelframe and
+separator style, and the two classic Tk widgets this module needs — a `Listbox` and a `Text` —
+are coloured through the sanctioned `ui_theme.style_tk_widget` roles `list` and `log`. **No
+reusable style was missing, so `ui_theme.py` was not touched.**
+
+#### Five narrow internal choices, recorded
+
+1. **`MainThreadPump` owns the only `after` chain, and `ImportPoller` rides it.** The poller is
+   composed, not replaced — it is handed `pump.schedule` and `pump.cancel`, which is exactly the
+   seam Phase 4 designed for a caller that owns its own scheduling. The alternative, letting the
+   poller call `root.after` directly, would have meant two outstanding Tk callbacks, and
+   "at most one scheduled callback" would have become an aspiration rather than an assertion.
+2. **The event stream is the job adapter's only state source.** Every state-bearing event was
+   minted by Phase 7's reporter *from a controller snapshot*, so rendering the stream is
+   rendering the controller — and a second source (a snapshot pushed in from a worker thread)
+   would have been both racy and redundant. The consequence is recorded plainly: before any
+   state event arrives the adapter draws `IDLE`, which is what an unstarted run is.
+3. **`sync_selection` is public.** A click or an arrow key changes the widget and Tk fires
+   `<<ListboxSelect>>`; the handler behind that binding has to be nameable so the behaviour can
+   be driven in a test without simulating a mouse. Generating the virtual event is Tk's job and
+   does not fire on a withdrawn root, so testing through it would have tested Tk.
+4. **A confirmation nobody wired up fails closed.** If `confirm_large_result` is absent, the
+   adapter declines the pending transaction and says why — mirroring the coordinator's own rule
+   that an unwired broad-root warning refuses the scan. The refusal reason survives the terminal
+   outcome that follows it, so the status says "needs confirmation, which is not available here"
+   rather than the blander "nothing was added".
+5. **Three methods are exempt from the guard-first rule, by name.** `MainThreadPump.cancel`
+   flips a flag on its own token and must tolerate a stale one; `LockGroup.registered` reads a
+   dictionary; `JobControlBar.availability` is arithmetic over `is_available`. None reaches a Tk
+   object. Every other public method on every class opens with `self._guard.require(...)`, and a
+   structural guard walks the AST to prove it.
+
+#### What the adapters actually do
+
+**`MainThreadPump`** — one `after` chain, two kinds of rider. *Drains* are registered once and
+run on every tick in registration order; *scheduled callbacks* are one-shot and are how the
+poller re-registers itself. `tick()` is public because a deterministic test needs to advance the
+adapter without an event loop. `stop()` and `close()` are idempotent, cancel the outstanding
+callback and leave `pending is None`; a callback already in flight when `close()` lands returns
+without touching anything; a destroyed widget stops the chain rather than raising through it.
+
+**`ImportedFileList`** — an extended-selection `Listbox` over the manager. Selection is always
+occurrence IDs, never indices and never paths, so two deliberate duplicates of one path are two
+independently selectable rows and a moved row is still the selected row. Move Up and Move Down
+offer themselves only where the block can actually move. Remove and Clear mutate the manager and
+nothing else — a test snapshots the whole fixture tree around them and requires it byte-identical.
+
+**`ImportOptionsBar`** — the supplied catalog's types, all selected by default, any combination
+representable including none; include-hidden and allow-duplicates default off. `options()` freezes
+the widgets into an `ImportOptions` on the main thread, which is the only value a worker ever sees.
+
+**`ImportStatusBar`** — the live discovered count and a Cancel Import button wired to
+`coordinator.request_cancel()` and to nothing else. A test starts a real job controller alongside
+a real scan, cancels the import, and requires the controller still `RUNNING` and unacknowledged.
+
+**`ImportAdapter`** — composes those three with one coordinator and one poller. Add Files
+preserves dialog order; Add Folder preserves root order; the broad-root confirmer is handed
+straight to the coordinator so it fires *before* a thread exists; the threshold confirmer runs
+after a completed scan and before any commit. Exactly-at the captured threshold does not ask.
+Close cancels the scan, joins within the coordinator's bounded timeout, empties its queue, and
+claims nothing about an indivisible `scandir` that was still running.
+
+**`JobControlBar`, `JobStatusView`, `SummaryDetailsView`, `LockGroup`, `JobAdapter`** — every
+button's availability comes from `is_available`, every lock from `is_locked`, every Summary line
+from `project_summary`, every Details line from `detail_lines`, every progress value from
+`ProgressView` and every ETA string from `EtaEstimator.display`. A cancelled run that reached two
+of five keeps `2/5  40%` on screen; an unknown total stays indeterminate; `finish()` stops an
+animation and never invents a completion. Accepted technical events are forwarded by the stream's
+`LoggerBridge` and by nobody else — a test with a recording logger renders three times and finds
+exactly three log calls.
+
+#### The harness, and why it exists
+
+`files/tests/manual_plan3_harness.py` (553 lines) generates one disposable fixture root under the
+system temporary directory — natural-ordered names, nested discs, an unsupported file, a hidden
+folder, a second root with a repeated child name, a same-named root elsewhere, a real NTFS
+junction pointing inside the fixtures, and an optional `--large N` bulk folder — and refuses to
+run against the repository, the home directory, Downloads, Documents, Desktop, a volume root or
+anything `is_broad_root` classifies as broad. It then builds the *production* adapters and drives
+them with a fake job: a timed no-op that obeys the real controller, stays in `PAUSE_REQUESTED`
+through a deliberately indivisible first stage, acknowledges `PAUSED` at a real checkpoint,
+raises the real cancellation exception, fails every third item so Retry Failed becomes reachable,
+and produces no output whatsoever. Record/Compare buttons fingerprint the fixture tree so the
+before/after source check Phase 9 requires is one click each. It has no launcher entry, is not
+collected by pytest, is never imported by anything under `scripts/`, and is excluded from both
+release archives by the packager's explicit `scripts/` scope. **It was exercised end to end
+during Phase 8**: import 7 files, run to `COMPLETED_WITH_FAILURES` through a pause request, an
+acknowledged pause and a resume, then a second run cancelled mid-flight to `Cancelled after 2 of
+7 items.`, then closed — with the fixture digest identical before and after.
+
+#### Six boundary guards narrowed, and eleven added
+
+`PLAN3_MODULES` still names the three Tk-free modules and now sits beside `ADAPTER_MODULE` and
+`ALL_PLAN3_MODULES`; `PRODUCTION_SOURCES` excludes the adapter, because composing the foundation
+is the one thing it is for, and that it is adopted by nothing is proved separately from the
+launcher and panel side. `test_the_phase_eight_adapter_module_does_not_exist_yet` became
+`test_the_adapter_is_the_only_new_reusable_tk_module`; the recorded-but-not-created UI-test guard
+became `test_the_single_intended_ui_test_module_is_the_one_that_exists`, still asserting
+`test_import_ui.py` was never created; the dependency and clock guards now cover the adapter too;
+and the shipped/not-shipped guard names `job_ui.py`, `test_job_ui.py` and the harness. Eleven new
+guards prove the Tk-free core is still Tk-free, that the adapter composes rather than duplicates,
+that it defines no enum and no second estimator, that it reuses the one `ProgressIndicator`, that
+it constructs no thread and no queue and uses `threading` only to ask who is calling, that every
+public Tk-reaching method opens with the guard, that it creates and inspects no output, that it
+never logs what the bridge logged, that no module in the drop grows a universal base panel, that
+every style name comes from the theme bundle rather than a literal, and that the harness is
+registered nowhere.
+
+**Two substring guards were caught and rewritten as AST checks before they could pass wrongly** —
+the same lesson Phases 6 and 7 recorded. `"qsize" not in source` failed on the docstring that
+explains why the module avoids it, and `"subprocess" not in harness` failed on the sentence
+promising there is none. Both are now checked as attribute access and as imports.
+
+#### One genuine defect, caught by a test rather than by review
+
+`JobStatusView.apply` called through to `ProgressIndicator` without a destroyed-widget guard. The
+shared indicator knows nothing about teardown, so a worker's last event arriving after the window
+closed raised `TclError` out of an `after` callback — precisely the "no Tk traceback on close"
+requirement. `test_a_destroyed_widget_tree_does_not_take_the_adapter_down` found it; the fix
+checks `_alive(self.indicator.bar)` and wraps the three calls, and the same guard was added to
+`finish()`.
+
+#### Evidence
+
+- Focused: **`test_job_ui.py` 128 passed, 0 skipped**, ~0.9 s, identical over **eight consecutive
+  runs**; the race-sensitive subset (worker, thread-ownership, close-during-activity,
+  destroyed-widget, Cancel Import) **19 passed over five further consecutive runs**.
+- Focused Phase 1–7, all matching their approved baselines: Phase 1 contracts and boundaries
+  **355 passed** (337 + 18 net new guards); Phase 2 traversal **91 passed, 6 skipped**; Phase 3
+  manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**; Phase 5 controller
+  **173 passed**; Phase 6 run framing **174 passed**; Phase 7 reporting **258 passed**;
+  maintenance and cleanup **337 passed**; output paths **255 passed, 1 skipped, 1 warning**; the
+  eight cancellation-bearing production suites **61 passed**, unchanged.
+- Collection **2,534** (2,388 + 128 Phase 8 tests + 18 net new boundary guards). Full suite
+  **2,521 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed** and the documented Tk
+  root-creation transient did **not** recur. `verify.py` **RESULT: PASS**. `compileall` exit 0.
+- **The thirteen skips are unchanged and Phase 8 added none.** Node by node:
+  `test_import_traversal.py:131` six (three file and three directory symlinks, `[WinError 1314]`),
+  `test_cover_source_side.py:363` one, `test_output_paths.py:757` one,
+  `test_import_traversal.py:552` one, `test_import_manager.py:678` one, and
+  `test_jack_ryan_final_product.py:40/:44/:64` three. `test_job_ui.py` skips nothing: the Tk root
+  opened on this host, and the module-scoped fixture would have skipped the whole file rather
+  than silently thinning it.
+- The one warning is unchanged and third-party:
+  `.venv\Lib\site-packages\pydub\utils.py:14` — `DeprecationWarning: 'audioop' is deprecated`.
+- **`git diff --check`, stated precisely.** Restricted to code (`--cached --check -- '*.py'`) it
+  exits **0**, and with only the four code files staged the broad check reported **nothing at
+  all**. The staged markdown adds the inherited structural findings this repository has always
+  produced: `Handoff.md` is stored as a CRLF blob so every added line reads as trailing
+  whitespace, and the drop header uses markdown two-space hard line breaks. **Phase 8 introduced
+  no non-structural whitespace defect**, and no document was reformatted to quieten the check.
+- **Automated Tk ran on this host. The Phase 9 Windows manual matrix did not.** Windows 125%
+  scaling and live macOS remain not run and deferred, and an automated Aqua-branch assertion is
+  not a macOS pass.
+
+#### Changed paths
+
+| Path | Change |
+|---|---|
+| `scripts/Universal/shared/job_ui.py` | **added, 2,197 lines** — the only production change |
+| `files/tests/test_job_ui.py` | **added, 2,035 lines — 128 tests** |
+| `files/tests/manual_plan3_harness.py` | **added, 553 lines** — developer-only, not collected |
+| `files/tests/test_plan3_boundaries.py` | modified, **+320 / −18** → 1,442 lines, 100 → 118 tests |
+| `md-instructions/Handoff.md` | this entry |
+| `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` | status and baseline header only |
+| `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` | Plan 3 status, evidence and next action only |
+
+No generated artifact. No screenshot. No renamed or deleted path.
+
+#### Repository state
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`; start SHA
+`b922102c73992ca6edce90899f8b60fedd76990f`, confirmed equal to its upstream and to the origin
+feature branch before any edit, with a clean worktree and no untracked files, and all eight
+approved phase commits ancestors of HEAD. `origin/master` unchanged at
+`563df9884497032e19abd4437a0e66584cd9ec12`. Version `0.5.1`. Root `config-template.toml` absent
+from the worktree, the index and the tree, and tracked nowhere. Four canonical documents with
+exact casing and no alias; four protected `don't-delete` references present; **all 22 approved
+Plan 1/2 screenshots byte-identical to `origin/master`**. Byte-identical to the Phase 7 commit:
+`cancellation.py`, `importing.py`, `import_coordination.py`, `job_control.py`, `output_paths.py`,
+`maintenance.py`, `logging_setup.py`, `ui_theme.py`, `preferences_ui.py`, `subprocess_utils.py`,
+`config.py`, `version.py`, `release.py`, `settings.py`, `bootstrap.py`, `launcher.py`,
+`config.toml`, `requirements.txt`, `verify.py`, both root launchers, `Briefing.md`,
+`Changelog.md`, `Decisions.md`, every production tool panel and TTS module, and every approved
+Phase 1–7 test file except the boundary guards this phase was authorized to extend.
+`launcher.TOOLS` still holds exactly six entries and no production module names a Plan 3 module.
+
+#### Phase 9 — not started
+
+**Phase 9 — full regression, Windows manual matrix, and approval gate** has not begun and needs
+explicit maintainer approval. The exact Windows steps it requires are listed in the Phase 8
+completion report and are summarised here: run the harness from the repository root on HOME-PC at
+true Windows 11 100% scaling, recording OS, scaling, Python/venv, commit SHA and fixture root;
+record the source tree; then walk Add Files ordering and type combinations, Add Folder
+direct-files-before-children natural order, several roots including same-named ones, extended
+selection with move/remove/clear, duplicate suppression and the explicit override, hidden folders
+off and on, the NTFS junction being refused, a broad-root warning declined *before* any scan, a
+generated >1,000-result scan declined and then accepted, the live count with Cancel Import
+leaving the prior list unchanged, frozen inputs and lock state during a run, a pause requested
+during the indivisible stage followed by an acknowledged pause, resume and cancel-while-paused,
+Summary and Details, progress and the ETA fallback, failure collection and the failed-only retry
+request, and closing the window while a worker is still running; then compare the source tree and
+confirm it is unchanged. Windows 125% and live macOS stay recorded as not run.
+
+### Phase 7 — Typed events, Summary/Details, progress, and rolling ETA (2026-08-10, HOME-PC)
+
+**Result: `shared/job_control.py` gained the reporting layer — `JobReporter` produces the typed
+events, `JobEventStream` decides which of them belong to the run at all, `summary_lines` and
+`detail_lines` project the two views a person reads, `LoggerBridge` feeds the technical ones to
+the session logger this application already opens, `ProgressTracker` says what a progress bar may
+honestly show, and `EtaEstimator` answers "how much longer" — or, far more often, `Calculating…`.
+258 focused tests, all pure: an injected clock, a list for a queue, a recorder for a logger, and
+no display, no disk, no process and no real workload anywhere. The production change is
+`job_control.py` alone, +1,037/−7, and all seven deleted lines are module-docstring lines
+rewritten in place. No mandatory gate was encountered and no approved Phase 1–6 contract was
+rewritten.**
+
+#### The contract-extraction gate, before any edit
+
+| # | Contract | What the active plan and the approved source actually specify |
+|---|---|---|
+| A | Event vocabulary | `JobEventKind` has been frozen at **eleven** members since Phase 1, and `JobEvent` at **thirteen** fields. Per-kind required payloads are already enforced in `_require_payload`; the timestamp is injected, finite and non-negative; `message` is display-safe and single-line, `detail` unrestricted; `TERMINAL_EVENT_KINDS` = {`COMPLETED`, `CANCELLED`}. **Phase 7 added no kind, no field, no severity system and no parallel event type** — it only produces and consumes what Phase 1 froze |
+| B | Lifecycle and ordering | Production is owned by `JobReporter`; `sequence` is the ordering authority; run binding is `run_id`; occurrence binding is `item_id` ∈ the run's `item_ids`; staleness means "not this run", never a wall-clock interval; a run ends exactly once |
+| C | Summary vs Details | §6.12's two lists, turned into `SUMMARY_KINDS` and its complement — see the inclusion matrix below |
+| D | Progress | `ui_theme.ProgressIndicator` already has exactly three presentations (`update`, `set_indeterminate`, `reset`), so `ProgressMode` has exactly three members and Phase 8 maps one onto the other. No second progress implementation |
+| E | Existing logger | `logging_setup.get_logger()` takes no argument, returns the `audiobook_tool` logger at DEBUG with one `FileHandler`, opens the session file **on first call**, and prunes to `logging.max_sessions`. The bridge must therefore resolve it *lazily* and create nothing |
+| F | ETA | §6.13 in full: injected monotonic clock, comparable completed units only, current run only, current work category only, three-sample minimum, twenty-sample rolling window, paused time excluded, invalid units excluded, media probes never samples, no persistence, central formatting, `Calculating…` for everything unreliable |
+| G | Scope | Frozen: §6.12 and §6.13. Unchangeable: every Phase 1–6 public contract. Narrow internal choices: the four recorded below. Deferred to Phase 8: applying any of it to a real widget |
+
+**No unresolved omission was found, and no mandatory gate was encountered.** The plan resolved
+every contract Phase 7 needed. Nothing was invented to fill a gap: in particular the plan defines
+no retry lineage, so none was added, and it prescribes no public logger-level mapping, so the one
+used is internal and is *not* encoded in the event vocabulary.
+
+#### Four narrow internal choices, recorded
+
+1. **Level mapping.** `TECHNICAL_DETAIL` → `debug`, `WARNING` → `warning`, `FAILURE` → `error`.
+   The repository already writes `warning`, `exception`, `debug` and `info`; `error` is the
+   standard level for a failure recorded outside an `except` block. Deliberately a private
+   `LoggerBridge.LEVELS` mapping rather than a severity field on `JobEvent`, so the public
+   vocabulary did not grow to express an implementation detail. Milestones are **not** forwarded:
+   they are already on screen, and duplicating them would bury the diagnostics the log exists for.
+2. **`state_message`.** One concise display-safe sentence per state, in one place, because two
+   surfaces that each write their own "Paused" eventually disagree. §6.10's `Pause requested` is
+   reproduced word for word.
+3. **Details timestamps are elapsed, not wall-clock.** The clock is injected and monotonic, so it
+   has no calendar meaning; `[+1.500s]` is measured from the first event of the projection.
+   Printing a fabricated time of day beside a real diagnostic would be the one lie in the view
+   whose whole job is fidelity.
+4. **Two drain seams instead of a `queue` import.** `drain(iterable)` and `pump(pull)`, where
+   `pull` returns `None` when empty. Phase 8's adapter wraps `get_nowait` and its empty signal;
+   this module stays free of `queue`, never blocks, and never asks how many events are waiting.
+
+#### What the reporting layer does, and why
+
+**A state is never asserted, only copied.** Every state-bearing event is minted from a
+`JobSnapshot` the Phase 5 controller handed out — `state_changed(snapshot)`,
+`completed(snapshot)`, `cancelled(snapshot)`. That is what makes the two dangerous claims
+*unconstructible* rather than merely checked: `PAUSED` cannot be reported while an indivisible
+stage is still running, because the controller only reaches `PAUSED` on worker acknowledgement
+and there is no other way to obtain the snapshot; and `CANCELLED` cannot be reported before
+acknowledgement, because `JobSnapshot.__post_init__` refuses to construct a cancelled snapshot
+without it. `completed` additionally refuses any state that is not one of the three endings, and
+`cancelled` refuses anything but `CANCELLED`. A snapshot from another run is refused outright.
+
+**Ordering and the one lock.** `sequence` is allocated atomically under a plain `threading.Lock`
+that covers the counter and nothing else — neither the caller's clock nor the caller's publisher
+is invoked while it is held, because §5.4 forbids holding a lock across user code, and a boundary
+guard now proves it by walking the `with` block in `_emit`. One consequence is stated in the code
+rather than hidden: a reporter shared by several threads may hand its queue two events in the
+opposite order to their numbers, and the stream then refuses the later arrival as `OUT_OF_ORDER`
+rather than filing it in the wrong place. One run reports from one producer.
+
+**The stream is the single gate.** Four questions can only be answered against a run rather than
+against an event — is it ours, does it name an occurrence we have, has the run already ended, and
+where does it go in the order — so `JobEventStream` answers all four once and every consumer
+downstream sees the same story. Its verdicts are `ACCEPTED`, `STALE_RUN`, `UNKNOWN_ITEM`,
+`AFTER_TERMINAL`, `DUPLICATE_TERMINAL` and `OUT_OF_ORDER`. **A rejected event is completely
+inert**: not stored in the history, not projected into Summary or Details, and not forwarded to
+the logger — tested directly for both the stale-run and post-terminal cases. It is kept only in
+`rejected`, in memory, so a developer can see what was turned away and why. Deliberate duplicates
+of one path stay independently reportable throughout, because every binding is on occurrence id
+and never on a path — proved end to end with two occurrences of the same file.
+
+**Summary versus Details.** The inclusion matrix, built from §6.12:
+
+| In Summary | Out of Summary | In Details |
+|---|---|---|
+| state and stage changes; import count; concise warnings; concise failures; an explicitly supplied output location; the terminal result | every per-file diagnostic; raw commands; traceback text; detailed subprocess output; exception diagnostics | every accepted event, timestamped, with its diagnostics kept whole and multi-line detail indented rather than flattened |
+
+The anti-flooding rule is structural rather than a heuristic: `_summary_line` **never reads the
+`detail` field at all**, so a command or a traceback cannot reach the Summary by accident. Current
+stage and current occurrence are still "supported" by the Summary, but as *state* on `SummaryView`
+rather than as history — appending them two hundred times is exactly the flooding §6.12 forbids.
+A test drives two hundred files' worth of churn (603 events) through the projection and gets three
+Summary lines and 603 Details lines.
+
+**The logger bridge creates nothing.** It asks `logging_setup.get_logger()` for the one logger the
+launcher already opens, and only when it first has something to forward — constructing a bridge
+must never be what opens a log file, and a test proves it by making the resolver explode. There is
+no second logger, handler, file, formatter, retention policy or telemetry path; a guard asserts by
+name that none of `logging_setup`'s vocabulary appears in `job_control.py`, and `logging_setup.py`
+itself is byte-identical to the Phase 6 commit. The stdlib `logging` module stays forbidden.
+
+**Progress is truthful or it is indeterminate.** Two rules do all the work. Progress does not go
+backwards *within one scope* (one stage, one total), so a late or duplicated report cannot make a
+run look like it lost ground; when the total itself changes the scope changed, and the new pair is
+adopted rather than compared across. And **an ending changes no counter**: a run that succeeded
+after reporting three of five files shows three of five, because "it finished" and "it did all of
+it" are different claims and only the events can make the second one. An unknown total stays
+`INDETERMINATE` and is never turned into one-of-one. A new stage starts the count again.
+`ProgressView` is a frozen value with no widget in it; `ProgressMode`'s three members are exactly
+the three presentations `ProgressIndicator` already has, and Phase 7 instantiates none of them.
+
+**The ETA.** `EtaEstimator` measures with the injected clock between `begin(category)` and
+`complete()`, keeps a `deque(maxlen=20)` of comparable samples, needs three before it will say
+anything, and discards every unit that did not honestly complete. `PAUSED` starts an excluded
+interval and `RUNNING` closes it, so repeated pause/resume cycles are all subtracted to the
+second — while `PAUSE_REQUESTED` deliberately does **not** stop the clock, because §6.10 says the
+stage keeps running and counting that as a pause would understate every later estimate. A changed
+work category clears the history rather than averaging incomparable units. A new run or a retry
+gets a new estimator and there is nothing to inherit, because nothing is stored anywhere. A
+backwards or non-finite clock costs that one sample and leaves the earlier ones intact. It returns
+`Calculating…` for an unknown total, too few samples, a changed category, a paused run, a
+terminal run, and a question asked about a different run. `format_duration` is the single place a
+length of time becomes text, and a guard proves it is called from exactly one function.
+
+#### Deviations
+
+**None.** No approved Phase 1–6 contract was rewritten. `JobEventKind` still has eleven members
+and `JobEvent` still has its thirteen Phase 1 fields, checked by name in two suites.
+`cancellation.py`, `importing.py`, `import_coordination.py`, `output_paths.py`, `maintenance.py`,
+`logging_setup.py`, `ui_theme.py` and **every approved Phase 1–6 test file except the boundary
+guards** are byte-identical to the Phase 6 commit. `git diff --numstat` reports **zero deleted
+lines** in `job_control.py`'s existing sections; the only seven deletions are module-docstring
+lines rewritten in place, because the docstring said this module contains "no ETA arithmetic" and
+that had to stop being true before it stopped being written.
+
+*Six boundary guards were narrowed rather than weakened, each recorded here:* the controller's
+lock count is now checked **per class** (a stronger statement than the module-wide count it
+replaced, plus a new guard that no third class holds a lock, plus a new guard that `_emit` calls
+neither the clock nor the publisher under its lock); `shared.logging_setup` is permitted in
+`job_control.py` only, while the stdlib `logging` import stays forbidden everywhere; `pump` is
+exempted for `job_control.py` for exactly the reason `request_cancel` already was — two subsystems
+legitimately drain their own queues; the Phase 7 names moved off the "later phase" list and onto a
+positive `_PHASE_SEVEN_NAMES` list still forbidden in both importing modules; and the ETA guard
+split into one half that still forbids **all three** modules from reading a clock of their own and
+one half that keeps `Calculating…` and every estimator concept out of the importing modules,
+checked as defined names rather than as substrings.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **337 passed** (328 + 9 net new guards); Phase 2
+  traversal **91 passed, 6 skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4
+  coordination **129 passed**; Phase 5 controller **173 passed**; Phase 6 run framing **174
+  passed**; **Phase 7 reporting 258 passed, 0 skipped**, stable over **eight consecutive runs**
+  at 0.30 s; maintenance and cleanup **337 passed**; output paths **255 passed, 1 skipped, 1
+  warning**; the eight cancellation-bearing production suites **61 passed**, unchanged.
+- The eight cancellation-bearing suites, named once so the figure can be reproduced:
+  `test_maker_custom_destination.py` (31), `test_prototype_regression.py` (12),
+  `test_batch_convert_folders.py` (5), `test_m4b_maker_smoke.py` (4), `test_mp3_tool_smoke.py`
+  (3), `test_kokoro_timing_wiring.py` (3), `test_tts_smoke.py` (2),
+  `test_m4b_converter_smoke.py` (1) = **61**.
+- Collection **2,388** (2,121 + 258 new Phase 7 tests + 9 net new boundary guards). Full suite
+  **2,375 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented Tk
+  transient did not recur in any run. `scripts/verify.py` **RESULT: PASS** (re-run after the
+  documentation edits). Compile gate exit 0.
+- **The 13 skips, reconciled node by node — and a documentation correction.** The prose in the
+  Phase 6 entry said "five Phase 2 at `test_import_traversal.py:131`"; the actual number is
+  **six**, which is the whole of the arithmetic gap the Phase 7 kickoff flagged (the categories
+  summed to 12 against a real 13). No test was lost and no new skip appeared: the label was wrong
+  by one and is corrected here. The exact accounting, unchanged before and after Phase 7:
+
+| Node | Count | Reason |
+|---|---|---|
+| `test_import_traversal.py:131` | **6** | three file symlinks and three directory symlinks, all `[WinError 1314]` — privilege not held |
+| `test_cover_source_side.py:363` | 1 | file symlink, `[WinError 1314]` |
+| `test_output_paths.py:757` | 1 | file symlink, `OSError` |
+| `test_import_traversal.py:552` | 1 | this filesystem is case-insensitive |
+| `test_import_manager.py:678` | 1 | this filesystem is case-insensitive |
+| `test_jack_ryan_final_product.py:40`, `:44`, `:64` | 3 | `JACK_RYAN_M4B_FOLDER` fixture not set |
+| **Total** | **13** | |
+
+- **The 1 warning**, unchanged and third-party: `.venv\Lib\site-packages\pydub\utils.py:14` —
+  `DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13`.
+- **Whitespace, stated precisely.** Scoped to code, `git diff --check -- '*.py'` exits **0**. One
+  genuine defect was introduced and fixed rather than tolerated: moving the Phase 7 block below
+  the module's local validators (necessary, because `IDLE_PROGRESS` is evaluated at import and
+  needs them) left a blank line at end of file, which the check caught and which is gone. The
+  broad check's remaining findings are the established inherited ones — `Handoff.md` is stored as
+  a CRLF blob so every added line reads as trailing whitespace, and the drop header uses markdown
+  two-space hard line breaks. **Phase 7 introduced no new non-structural whitespace**, and no file
+  was reformatted to quieten the check. Note also that `job_control.py`'s worktree copy is CRLF
+  while its blob is LF; the block move was written with `newline=""` throughout, so no
+  line-ending change was recorded.
+- No test sleeps and none waits on a wall clock. The clock is injected everywhere; the one
+  genuinely concurrent test (four threads numbering a hundred events) uses a `threading.Barrier`
+  and bounded five-second joins that assert the thread finished.
+
+#### Repository state
+
+Branch `feature/0.6.0-drop3-shared-job-controls-importing`, start SHA
+`f3afa9c168741355499bb9e4ee920973a87333ce` (approved Phase 6), confirmed equal to its upstream
+and to `origin/feature/...` before any edit; `origin/master` still
+`563df9884497032e19abd4437a0e66584cd9ec12`; worktree and index clean with no untracked files at
+the start. All seven approved phase commits confirmed ancestors of HEAD. Version `0.5.1`. Root
+`config-template.toml` absent from the worktree, the index and the committed tree, and tracked
+nowhere. The four canonical documents keep their exact casing with no alias, the four protected
+`don't-delete` references are intact, and all **22** approved screenshots are byte-identical to
+`origin/master`. No production panel or launcher imports or names any Plan 3 module. No
+dependency was added — a new guard proves every import in all three Plan 3 modules is either the
+standard library or `shared`. `shared/job_ui.py` and `files/tests/test_job_ui.py` still do not
+exist; Phase 8 owns them.
+
+#### Changed paths
+
+| Path | Change |
+|---|---|
+| `scripts/Universal/shared/job_control.py` | **+1,037 / −7** → 2,723 lines (the seven are docstring lines rewritten in place) |
+| `files/tests/test_job_events_eta.py` | **added, 2,084 lines — 258 tests**, none skipped |
+| `files/tests/test_plan3_boundaries.py` | **+205 / −22** → 1,140 lines |
+| `md-instructions/Handoff.md` | this entry |
+| `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` | status/baseline header only |
+| `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` | Plan 3 status, evidence and next action only |
+
+No generated artifact was committed.
+
+#### Next
+
+**Phase 8 — Reusable Tk adapters and developer-only integration harness. Not started; it
+requires separate explicit maintainer approval.** It creates `shared/job_ui.py` and
+`files/tests/test_job_ui.py` (the single intended UI-test filename; `test_import_ui.py` will not
+be created), and brings its own boundaries: every widget mutation on the Tk/main thread with
+thread ids recorded, queue-only worker communication, close-during-scan and close-during-job
+without a traceback or a lingering `after` callback, `ACT.*` style isolation with the native
+macOS branch preserved, reuse of the existing `ProgressIndicator` rather than a new widget, and a
+developer harness with no launcher entry, no real output and no seventh production tool.
+
+### Phase 6 — Frozen snapshots, locking contract, failures, and Retry Failed (2026-08-09, HOME-PC)
+
+**Result: `shared/job_control.py` gained the frame around a run — `capture_run` freezes one
+configuration at the moment a run is accepted, `is_locked`/`is_available` derive what the UI may
+still touch, and `RunResult` settles what became of every occurrence, from which Retry Failed
+re-runs only the retryable failures against that same snapshot. 174 focused tests, all pure. No
+mandatory gate was encountered, and the risk gate was honoured by omission: no Phase 6 type
+carries an output descriptor, so Plan 2 keeps sole ownership of placement.**
+
+#### The contract-extraction gate, before any edit
+
+| # | Contract | What the active plan actually specifies |
+|---|---|---|
+| 1 | `RunSnapshot` fields | Already frozen in Phase 1 (§6.11): `snapshot_id`, `files`, `catalog`, `import_options`, `effective_config`, `tool_options`, `created_at`. Phase 6 adds the *capture* half |
+| 2 | Lock matrix | **No per-panel matrix exists.** §8 task 2 asks for a *UI-neutral lock-state derivation*; §6.11 names six kinds of control |
+| 3 | Item outcome vocabulary | The plan defines `FailureRecord`/`FailureLog` and the run's disposition; no per-item enum existed |
+| 4 | `RetryRequest` | Already complete in Phase 1: `snapshot` + `item_ids`, with `from_failures`. **No lineage fields are defined**, so none were invented |
+| 5 | Adapter or specimen | **None authorized.** Phase 8 owns adapters; §6.11 says panels do not adopt until their later plans |
+| 6 | Reuse unchanged | Phase 1 `JobState`, `LEGAL_TRANSITIONS`, `TERMINAL_STATES`, `INPUT_LOCKED_STATES`, `RunSnapshot`, `FailureRecord`, `FailureLog`, `RetryRequest`; every Phase 5 controller semantic |
+
+**One kickoff difference, recorded.** The kickoff asked for an `INPUT_LOCKED_DURING_RUN` matrix
+"for every applicable panel". **No such symbol exists anywhere in the plan or the repository** —
+I searched every tracked `.py` and `.md`. §8 task 2 asks for a UI-neutral derivation, and §5.3
+forbids any production panel from adopting this foundation at all, so a table of panel and widget
+names would be a table of names nothing may use, drifting the moment a panel was redesigned. The
+matrix is therefore keyed on the six control **kinds** §6.11 actually names, and its states are
+derived from the Phase 1 frozen set rather than restated beside it. No panel field, failure kind,
+retry policy or snapshot property was invented. The master index already recorded this shape at
+Phase 5 closeout, and both documents now agree.
+
+#### The RunSnapshot contract and how it is deeply immutable
+
+Deep immutability is not one frozen dataclass with mutable children. Each field earns it
+separately: `files` is Phase 3's already-immutable `ImportedFileSnapshot` of frozen occurrences;
+`catalog` and `import_options` are frozen dataclasses of `frozenset`s; `effective_config` is
+Plan 2's captured value; and `tool_options` goes through Phase 1's `freeze_options`, which
+deep-copies lists into tuples and dicts into read-only mappings and **refuses** anything it
+cannot copy into a value — a widget, a variable, a callable, a thread, an open file, a mutable
+dataclass, a reference cycle. A test edits a caller's nested dictionary and list after capture
+and finds the snapshot unmoved.
+
+`capture_run` is duck-typed on `files`: it takes an `ImportedFileSnapshot` or anything offering
+`snapshot()`, which the imported-file manager does. That deliberately avoids giving the job
+module an import to reach into — the beginning of a second manager.
+
+#### One configuration per run
+
+Proved by attack rather than assertion. After capture: the caller's list and nested dictionary
+are mutated; the imported-file manager is reordered, has rows removed and is cleared entirely;
+and `config.get_effective` is monkeypatched to raise if anything ever calls it again. The run
+still reports the three occurrences it was accepted with, in the order it was given them, with
+the threshold it captured — and the retry built from it does too.
+
+#### The lock derivation
+
+`ControlKind` has exactly six members, each traceable to one phrase of §6.11: imported input,
+processing option, job control, log view, progress/status, Open Output. `LOCK_MATRIX` maps every
+one of them — a kind that is never locked maps to an empty set rather than being absent, because
+"absent" and "never locked" must not look the same. Inputs and processing options are locked in
+exactly `INPUT_LOCKED_STATES`, *derived* from the Phase 1 frozen set so the two cannot disagree;
+everything else is never locked. Availability is separate from locking: `is_available` answers
+when Pause, Resume, Cancel and Retry Failed are meaningful, read straight off the transition
+table so an action is never offered for a move the controller would refuse, and Retry Failed
+additionally requires a retryable failure (§6.14). All fifty-four lock cells and all forty-five
+action cells are exercised.
+
+#### Item failure versus job failure
+
+`RunResult.settle` derives one terminal disposition, in an order that is the meaning: a
+cancelled run wins outright; then a fatal, item-less `FailureRecord` means the run itself broke
+(`FAILED`); then any failed item means the orchestration finished but lost something
+(`COMPLETED_WITH_FAILURES`, which is what makes Retry Failed possible); otherwise `SUCCEEDED`.
+**An item failure can never force `FAILED`** — a structural guard asserts that `RunResult` calls
+no controller method at all, so the authoritative Phase 5 transition mechanism is never bypassed.
+Items a cancelled run never reached report `NOT_ATTEMPTED`; they are not fabricated into failures.
+
+Outcomes are *derived* from the snapshot and the failure log rather than assembled by a caller,
+so an outcome cannot drift out of step with the records it summarises, contradictions are
+unconstructible, deliberate duplicates stay distinct (everything is keyed on occurrence id, never
+a path), and the counts cannot disagree with the list they count.
+
+#### Retry Failed
+
+`RunResult.retry()` returns Phase 1's `RetryRequest` holding the **exact original snapshot
+object** — tests assert identity, not equality. It selects all and only retryable failures, in
+the order they failed regardless of the order asked for, so the same result always yields the
+same request. It excludes successes, non-retryable failures, unattempted items and unknown ids;
+refuses duplicates, an empty selection and a foreign snapshot; mutates nothing; and reads nothing
+live. The plan defines no retry lineage beyond that snapshot identity and the ordered ids, so
+none was invented.
+
+#### Deviations
+
+**None.** No Phase 1–5 contract changed. `cancellation.py`, `importing.py`,
+`import_coordination.py`, `output_paths.py`, `maintenance.py` and **every approved Phase 1–5 test
+file** are byte-identical to the Phase 5 commit; the only two deleted code lines in this phase are
+a module docstring header and one test-list line, both rewritten in place.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **328 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**;
+  Phase 5 controller **173 passed**; Phase 6 run framing **174 passed**; maintenance and cleanup
+  **337 passed**; output paths **255 passed, 1 skipped, 1 warning**; the eight
+  cancellation-bearing production suites **61 passed**, unchanged.
+- Collection **2,121** (1,943 + 174 new tests + 4 net new boundary guards). Full suite **2,108
+  passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented Tk transient did
+  not recur. `scripts/verify.py` **RESULT: PASS**. Compile gate exit 0.
+- **Whitespace.** With only the three source files staged, `git diff --cached --check` reported
+  **nothing at all**, and `-- '*.py'` exits 0. Every finding in the broad check comes from the
+  documentation edits and is inherited: `Handoff.md`'s stored blob is CRLF, so every added line
+  ends in a carriage return, and the drop header uses markdown two-space hard line breaks. No
+  file was reformatted to make the check quieter.
+- The 13 skips are unchanged from the Phase 5 baseline — two Windows file-symlink privilege
+  skips, **three** `JACK_RYAN_M4B_FOLDER` fixture skips, five Phase 2 symlink skips, and one
+  Phase 2 and one Phase 3 case-insensitive-filesystem skip. Phase 6 added none: all 174 of its
+  tests are pure and run everywhere.
+- No test sleeps, starts a thread, opens a display, reads the repository or creates an output.
+  The few filesystem-shaped values are named under `tmp_path` and never opened, and one test
+  asserts the temporary directory is byte-for-byte unchanged after a whole run is described.
+
+### Phase 5 — Cooperative job state, pause, resume, and cancel (2026-08-09, HOME-PC)
+
+**Result: `shared/job_control.py` gained the object that owns a run — `JobController` and its
+immutable `JobSnapshot` — and `shared/cancellation.py` gained exactly one additive predicate.
+Pause and cancel are cooperative requests honoured at a condition-based checkpoint; a run is
+reported cancelled only after a worker actually acknowledged it; exactly one terminal result can
+win. The compatibility gate was **not encountered**: both pre-existing public names keep their
+signatures and behaviour, no line was deleted from that file, and all eight existing callers pass
+unchanged. 173 focused tests, no sleeps, stable over eight consecutive runs.**
+
+#### The compatibility gate: not encountered
+
+Before touching `shared/cancellation.py` I inventoried its entire public surface and every
+caller:
+
+| Public name | Kind | Preserved |
+|---|---|---|
+| `CancelCheck` | `Optional[Callable[[], bool]]` alias | unchanged |
+| `ConversionCancelled` | `Exception` subclass | unchanged, still directly under `Exception` |
+| `raise_if_cancelled(cancel_check, message="Cancelled.")` | function | unchanged, byte for byte |
+
+Callers: six production modules (`m4b_maker.py`, `m4b_metadata_editor.py`, `mp3_tool.py`,
+`epub2tts_gui.py`, `epub2tts_edge.py`, `kokoro_synth.py`) and two test modules
+(`test_prototype_regression.py`, `test_plan3_boundaries.py`). Their suites were run **before**
+any edit as the recorded baseline — 61 passed, 1 warning — and again afterwards: **identical**.
+
+The change is additive only. `git diff` on that file shows **zero deleted lines**; the single
+addition is `is_cancelled(cancel_check)`, the non-raising counterpart of `raise_if_cancelled`
+with the same `None`-tolerant rule. It closes a real gap rather than inventing one: the
+controller must *ask* whether cancellation was requested while deciding whether to keep a paused
+worker waiting, and `batch_convert.py` (twice) and `kokoro_synth.py` already open-code the exact
+same test. Those three callers were deliberately **not** rewired — Phase 5 keeps production
+workers unchanged — so they are simply available to adopt it later.
+
+**One kickoff difference, recorded.** The Phase 5 kickoff listed `CancellationController` among
+the existing public names to preserve. No such name has ever existed in this repository — the
+module has only ever defined the three above — and §8 of the active drop names only
+`ConversionCancelled` and `raise_if_cancelled`. The active drop is authoritative, so those are
+what was preserved, and nothing was invented to satisfy a name that was never there.
+
+#### State-transition semantics
+
+The Phase 1 table is unchanged and is now *enforced* rather than merely published. Exactly one
+method assigns the state, it calls `require_legal_transition` first, and a structural test
+asserts by `ast` that `_state` is assigned in only `__init__` and `_set_locked` — so an illegal
+move cannot reach the attribute by any path, including one a later phase adds. A parametrised
+test drives the controller into each of the nine states and attempts all nine successors, all
+eighty-one pairs, through that same authority.
+
+Commands and transitions are deliberately different things. `start()` is strict: starting twice,
+or starting a finished run, raises `IllegalJobTransition`. Pause, resume and cancel are
+**buttons**, and a button pressed where it means nothing is inert rather than explosive — pausing
+an idle run, resuming a running one, or pausing after cancel has been requested each return the
+current snapshot and move nothing, including the revision. The revision advances only on a real
+observable change, so a no-op cannot invalidate a snapshot another part of the UI is holding.
+
+#### Pause, resume, and the checkpoint
+
+`request_pause()` reaches `PAUSE_REQUESTED` and stops there. Only the worker, arriving at
+`checkpoint()`, can make it `PAUSED` — which is what makes the UI's "Pause requested" text
+truthful during an indivisible stage. A test parks a worker inside a simulated indivisible stage,
+requests the pause, asserts the state stays `PAUSE_REQUESTED`, then releases the stage and
+watches the acknowledgement arrive.
+
+`checkpoint()` returns immediately while running, waits on a `threading.Condition` while paused,
+and raises while cancelled. The wait releases the lock, so a snapshot can still be read and a
+resume or cancel still delivered while the worker sleeps. **No busy-spin, proved rather than
+asserted:** one test wraps the controller's own `Condition.wait` and asserts it was entered
+exactly once with no timeout argument — woken, not polled — and a structural guard rejects any
+`wait(...)` call in the module that carries one. Every wake re-checks from the top, so a spurious
+notification simply waits again and a cancel arriving mid-pause is honoured on the next pass.
+
+#### Cancellation and acknowledgement
+
+Cancel outranks pause and is checked first at every checkpoint. Requested before the run starts,
+the flag is recorded while the state stays `IDLE` — there is nothing running to cancel yet — and
+the first checkpoint after `start()` honours it. Requested after the run ended it does nothing at
+all, because a finished run must not begin describing itself as cancelled.
+
+**Requesting a cancellation is never an acknowledgement.** The acknowledgement is recorded only
+where a worker actually observes it, at most once per run, and repeated checkpoints re-raise
+without re-acknowledging or moving the revision. `finish_cancelled()` refuses outright if no
+checkpoint ever observed the cancellation, and `JobSnapshot` refuses to be constructed in the
+`CANCELLED` state without one — so "cancelled" means "it has actually stopped", enforced in two
+independent places rather than trusted.
+
+A run that genuinely finished before its next checkpoint reports `SUCCEEDED` with
+`cancel_requested` still true and `cancel_acknowledged` false. That is the honest outcome and the
+Phase 1 table always allowed it.
+
+#### Terminal integrity and concurrency ownership
+
+Every terminal state maps to an empty successor set, so the second settle attempt raises rather
+than replacing the first — completed-then-failed, failed-then-completed and
+cancelled-then-completed are all impossible by table lookup, not by a special case. A race test
+starts two threads on a barrier, one settling success and one settling cancellation, and asserts
+exactly one winner and exactly one `IllegalJobTransition`.
+
+State lives behind one `threading.Condition` built on a deliberately **non-reentrant** `Lock`, so
+an accidental re-entry deadlocks a test instead of silently succeeding. That choice is what makes
+"no callback under the lock" provable: a listener that reads the snapshot, the state and the
+cancel flag from inside the notification would hang if the guarantee were false, and it does not.
+Failure messages are validated *before* the state moves, and a failure detail refuses a live
+exception object outright and truncates at 2,000 characters.
+
+#### Deviations
+
+**None.** No Phase 1–4 contract was changed and no contradiction surfaced. The frozen nine-state
+vocabulary, the transition table, traversal, the imported-file manager, transaction semantics and
+the import coordinator are all byte-identical or behaviourally untouched.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **324 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**;
+  Phase 5 controller **173 passed**; maintenance and cleanup **337 passed**; output paths **255
+  passed, 1 skipped, 1 warning**; the eight cancellation-bearing production suites **61 passed**,
+  identical to the pre-edit baseline.
+- Collection **1,943** (1,767 + 173 new controller tests + 3 net new boundary tests). Full suite
+  **1,930 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented Tk
+  transient did not recur. `scripts/verify.py` **RESULT: PASS**. Compile gate exit 0.
+- **Whitespace.** With only the four source files staged, `git diff --cached --check` reported
+  **nothing at all**, and `-- '*.py'` exits 0. Every finding in the broad check comes from the
+  documentation edits and is inherited: `Handoff.md`'s stored blob is CRLF, so every added line
+  ends in a carriage return, and the drop header uses markdown two-space hard line breaks. No
+  file was reformatted to make the check quieter.
+- The 13 skips are unchanged from the Phase 4 baseline. Phase 5 added none: all 173 of its tests
+  run here, because the controller needs no privileged filesystem facility and no display.
+- No test sleeps and none waits on a wall clock. Pauses are arranged with per-checkpoint gates,
+  races with `threading.Barrier`, and "has it paused yet?" is answered by the controller's own
+  listener rather than by polling. Eight consecutive runs of the focused suite gave identical
+  results in 0.14 s each.
+
+### Phase 4 — Background import coordination and Cancel Import (2026-08-09, HOME-PC)
+
+**Result: a new pure companion module, `shared/import_coordination.py`, makes folder importing
+responsive without making it unsafe — one operation at a time, the broad-root warning before any
+worker exists, a bounded queue of frozen events, owner-thread fencing on every entry point that
+can reach the imported list, the captured >threshold confirmation, and atomic commit with
+bounded stale-revision recomputation — plus 129 focused tests. The cancellation isolation gate
+was **not encountered**: `shared/cancellation.py` is byte-identical and the coordinator does not
+import it at all. No Tk, no output run, no processing work, no source file touched.**
+
+#### The isolation gate: not encountered
+
+The active drop makes Phase 4 stop if import cancellation cannot be kept away from the
+processing job's controller without changing `shared/cancellation.py` or production processing
+code. It cannot arise here, because the two never meet:
+
+- `ImportCancellation` is a per-operation `threading.Event` behind a four-method class. It is
+  created fresh for each operation, is never reset, and raises nothing — cancelling a scan
+  returns a cancelled *result*, it does not unwind a stack.
+- `shared/import_coordination.py` does not import `shared/cancellation.py`, defines no
+  `ConversionCancelled`, and calls no `raise_if_cancelled`. An `ast` guard asserts both.
+- Behaviourally, a stand-in processing controller wired exactly as the existing tools wire one
+  stays unset across an import cancel, an import close and everything in between.
+- `shared/output_paths.py`, `shared/maintenance.py` and `shared/cancellation.py` are all
+  byte-identical to the approved Phase 3 commit, as are `config.py`, `config.toml`,
+  `requirements.txt`, both root launchers and every production panel.
+
+#### One deviation, recorded: the coordinator is its own module
+
+§7's "likely new production modules" names `importing.py`, `job_control.py` and `job_ui.py`.
+Phase 4's coordinator is a fourth, `shared/import_coordination.py`. §7 expressly allows a
+different split when it is explained and recorded, and the reason is a guard rather than a
+preference: `importing.py` carries an approved Phase 1 test proving it constructs no thread,
+owns no queue, and names `threading` exactly once — the lock inside `IdFactory`. Folding a
+worker and a queue into that file would have deleted that proof for the rest of the drop, and
+that proof is what keeps the value objects, the traversal core and the manager auditable as
+pure. The dependency runs one way, `import_coordination` → `importing`, exactly as
+`job_control` already does, and a guard asserts that too.
+
+#### What Phase 4 added
+
+- **`ImportCoordinator`** — the whole lifecycle of one import. `start()` validates, applies the
+  broad-root warning and creates at most one worker; `pump()` drains the queue on the owner
+  thread and resolves what it found; `confirm_pending()` / `decline_pending()` answer the
+  large-result question; `request_cancel()` is Cancel Import; `close()` cancels, joins and
+  refuses everything afterwards. `import_files()` routes Add Files through the identical
+  confirmation-and-commit path, synchronously, so there is exactly one door into the manager
+  rather than two that could drift apart.
+- **Owner-thread fencing.** The coordinator records the thread that constructed it, and every
+  entry point that can read or change the manager raises `ImportCoordinationError` if called
+  from anywhere else. "The worker never mutates the list" is therefore enforced, not documented;
+  a test drives each of the six entry points from a second thread and watches it refuse.
+- **`ImportEvent` / `ImportOutcome`** — the frozen queue vocabulary. Five event kinds (started,
+  discovered, completed, cancelled, failed), of which exactly one terminal kind is published per
+  accepted start. A `ScanResult` is already a frozen dataclass of tuples, so publishing one is
+  safe; an exception object never crosses, because a failure is converted to a display-safe
+  sentence plus a one-line technical detail before it is put on the queue.
+- **`ImportPoller`** — the seam Phase 8's Tk adapter will plug into. It takes a scheduler with
+  `root.after`'s shape and an optional cancel with `root.after_cancel`'s shape, and imports no
+  Tk itself. At most one callback is ever pending; `stop()` and `close()` are idempotent; and a
+  callback that fires after either one returns immediately without touching the coordinator,
+  which is how a destroyed widget is survived rather than crashed into.
+
+#### Decisions worth knowing
+
+- **Progress is coalesced, so the queue is bounded by design.** The worker asks a gate before
+  publishing a count and is refused while an earlier progress event is still unread. Ten
+  thousand discoveries produce one queued event, not ten thousand. Counts stay monotonic and
+  truthful — intermediate values are skipped, never invented or reordered.
+- **A count discovered after Cancel was pressed is not live progress.** The worker stops
+  offering counts once its flag is set, and the coordinator ignores any that were already in
+  flight, so the number on screen never climbs after the user asked the import to stop.
+- **A broad root with no confirmer wired up is refused, not scanned.** An application that
+  forgets to connect the warning must not silently walk a whole drive. Declining creates no
+  thread, and the check is lexical: a root that does not even exist is still classified without
+  a single filesystem call.
+- **Equal to the threshold does not warn.** Only a strictly greater proposal asks, per §6.7, and
+  the threshold is read from the `EffectiveConfig` frozen onto the request — a test monkeypatches
+  `config.get_effective` to explode and the import still completes.
+- **A stale revision is recomputed exactly once, never merged and never looped.** If the
+  recomputation proposes a materially different set — a different number of additions or
+  duplicate skips — and the user had already agreed to the old one, they are asked again rather
+  than given something they did not approve. A second conflict is reported as `CONFLICT` with
+  nothing appended, rather than retried forever.
+- **Close is orderly and truthful.** It sets the cancellation flag first, then joins within a
+  bounded timeout, then empties the queue. If the join expires it reports `worker_stopped=False`
+  rather than claiming a running call stopped (§5.4). The daemon flag on the worker is a
+  backstop for a hung network `scandir`, never the mechanism — a test proves no thread survives
+  a deterministic teardown.
+
+#### Evidence
+
+- Focused: Phase 1 contracts and boundaries **321 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager **144 passed, 2 skipped**; Phase 4 coordination **129 passed**;
+  maintenance and cleanup **337 passed**; the output-path group **255 passed, 1 skipped, 1
+  warning**; the existing processing-cancellation suites **32 passed**, unchanged.
+- Collection **1,767** (1,629 + 129 new coordination tests + 9 net new boundary tests). Full
+  suite **1,754 passed, 13 skipped, 1 warning**. Theme suite **17/17 executed**; the documented
+  Tk transient did not recur in this phase. `scripts/verify.py` **RESULT: PASS**. Compile gate
+  exit 0.
+- **Whitespace.** `git diff --check` against the Phase 3 starting commit is **completely clean
+  for the code change** — with only the three source files staged it reports nothing at all, and
+  `git diff --cached --check -- '*.py'` exits 0. Every finding in the broad check comes from the
+  documentation edits and is inherited, not introduced: `Handoff.md`'s stored blob is CRLF, so
+  every added line ends in a carriage return, and the drop header uses markdown two-space hard
+  line breaks. The same two files produce the same class of finding in the approved Phase 3
+  commit. No file was reformatted to make the check quieter.
+- The 13 skips are unchanged from the Phase 3 baseline: two Windows file-symlink privilege skips
+  (`[WinError 1314]`), three `JACK_RYAN_M4B_FOLDER` fixture skips, five Phase 2 symlink skips,
+  one Phase 2 and one Phase 3 case-insensitive-filesystem skip. Phase 4 added no skip: every one
+  of its 129 tests runs on this machine, because it needs no privileged filesystem facility.
+- No test sleeps. Races are arranged with `threading.Event` and injected scanners; every wait
+  carries a five-second explanatory timeout so a hang fails loudly.
+
+### Phase 3 — Imported-file manager, deduplication, atomic transactions (2026-08-09, HOME-PC)
+
+**Result: `shared/importing.py` gained the ownership half of the foundation — Add Files
+validation, deduplication by non-following source identity, the deliberate-duplicate override,
+atomic transactions against an expected revision, and the ordered manager with its selection and
+four mutations — plus 146 focused tests. The `output_paths.py` compatibility gate was **not
+encountered**: the manager feeds Plan 2's existing planners through a pure regrouping and
+`output_paths.py` is byte-identical. No worker, no queue, no Tk, no confirmation dialog, no
+output run.**
+
+#### The compatibility gate: not encountered
+
+The active drop makes Phase 3 stop if a manager snapshot cannot reach `plan_flat`,
+`plan_mirrored` or `plan_multi_root` without changing `output_paths.py`. It cannot arise here,
+because the planners already accept exactly what `ImportedFile` has carried since Phase 1:
+
+| Planner | What it asks for | What the importer already has |
+|---|---|---|
+| `plan_flat(root, sources)` | an iterable of source paths | every occurrence whose root is the `DIRECT_FILES` group (Decision 31A) |
+| `plan_mirrored(root, sources, source_root)` | sources plus their declared root | `ImportedFile.path` and `ImportedFile.mirroring_root` |
+| `plan_multi_root(root, grouped)` | `[(source_root, sources), …]` | occurrences grouped by `source_root`, in `ImportRoot.order` |
+
+`planning_groups()` is therefore a **regrouping and nothing more** — it sorts occurrences into
+those three shapes and decides no destination. No collision numbering, no sanitising, no run
+reservation and no directory creation exist in `importing.py`, and a structural guard now asserts
+that by name, so two services can never start disagreeing about where a file lands. Blob hashes
+for `output_paths.py`, `maintenance.py` and `shared/cancellation.py` are unchanged from the
+approved Phase 2 commit.
+
+#### What Phase 3 added to `shared/importing.py`
+
+- **`validate_direct_files`** — Add Files. It preserves the user's order *exactly* (natural
+  ordering belongs to Add Folder, where the user chose a tree rather than a sequence) and
+  re-inspects every path the dialog returned, in the same fail-closed order the scanner uses:
+  existence and readability first, then the link question, then the file's shape, then its type.
+  A directory, shortcut, junction, device node, vanished file, unreadable file, unsupported
+  extension and unusable path each become a reported problem rather than a silent omission. A
+  hidden file chosen **explicitly** is accepted — hidden policy exists so a scan does not sweep
+  up dot-files the user never saw, not to overrule a deliberate choice (§6.2). It never recurses,
+  never follows, never opens a file and never sorts.
+- **`plan_transaction` / `ImportTransaction`** — the deduplication pass. Each candidate's identity
+  is compared against every occurrence already in the snapshot *and* every candidate already
+  accepted in the same transaction, so a file cannot slip in twice by being reached two ways.
+  Identity is Phase 2's `capture_identity`: the platform's own non-following file id where there
+  is one — which is why a **hard link** is correctly recognised as the same physical source — and
+  a Unicode-normalised lexical key where there is not, casefolded only where the filesystem is
+  case-blind. Skips are recorded as `ProblemCategory.DUPLICATE`, kept distinct from unsupported,
+  link, unreadable and invalid problems, and each names the real path and the occurrence it
+  matched: a duplicate is never disguised as a different file.
+- **The duplicate override (Decision 35A)** — off by default, read from the frozen
+  `ImportOptions` and then **stamped onto the transaction**, so a preference toggled afterwards
+  cannot retroactively rewrite what that transaction meant. When on, every occurrence is kept:
+  same path, same root, same relative path, same identity, new occurrence id. A second copy is a
+  second *row*, not a second *file*.
+- **`ImportedFileManager`** — the ordered list, a monotonic `Revision`, and a selection kept by
+  occurrence id rather than row number, so it survives a reorder and can be restored after the UI
+  rebuilds its list. `plan` prepares, `commit` appends the whole accepted set once or appends
+  nothing, `recompute` re-plans a stale transaction against current state, and
+  `remove_selected` / `clear` / `move_selected_up` / `move_selected_down` mutate the list.
+- **`planning_groups` / `PlanningGroups`** — the Plan 2 adapter described above.
+
+#### Decisions worth knowing
+
+- **The revision moves only when something actually changed.** A no-op move, a removal with
+  nothing selected, a clear on an empty list and a commit whose accepted set is empty all leave it
+  alone — otherwise a no-op would invalidate a transaction another part of the UI is holding.
+  A valid-but-empty commit reports `NOTHING_TO_ADD` rather than a misleading success.
+- **Occurrence ids are minted by the manager's own `IdFactory` at planning time.** The scan's ids
+  are provisional; reissuing them is what guarantees both uniqueness against the existing list and
+  a distinct id for every deliberate duplicate. `commit` additionally refuses, loudly, any
+  transaction whose additions collide with ids already in the list — defence in depth behind the
+  revision check, for a transaction planned through a foreign factory.
+- **A cancelled, failed or declined result cannot become a transaction at all.** `plan_transaction`
+  raises on a non-committable `ScanResult`, and `ScanResult` already refuses to carry files unless
+  it completed — so "cannot partly modify the manager" is structural in two places, not a rule
+  someone has to remember in Phase 4.
+- **Move semantics, stated literally (§6.6).** Selected rows travel as one logical block across
+  the nearest adjacent unselected row, closing up around it; both selected and unselected rows keep
+  their relative order; nothing wraps. A block whose topmost row is already at the top will not
+  move up even if a lower selected row could — the block is one thing, and the call is a safe
+  no-op, exactly as it is with no selection and with everything selected. Repeated moves are
+  deterministic and reversible.
+- **A directory supplied to Add Files produces one refusal, not one per child.** It is not walked.
+
+#### Evidence
+
+- Focused: Phase 1 contracts + boundary guards **312 passed**; Phase 2 traversal **91 passed, 6
+  skipped**; Phase 3 manager/validation/dedupe/transactions/selection/compatibility **144 passed,
+  2 skipped**; maintenance + both cleanup suites **307 passed**; output-path group **255 passed,
+  1 skipped, 1 warning**; cancellation-bearing tool suites **30 passed**.
+- Collection **1,629**. Full suite **1,616 passed, 13 skipped, 1 warning**. Theme suite **17/17
+  executed**. `verify.py` **RESULT: PASS** on three consecutive runs, identical counts each time.
+  `compileall` exit 0.
+- **`git diff --check`, stated precisely.** Restricted to code (`-- '*.py'`) it exits **0**: no
+  Python file carries a whitespace defect. Unrestricted it reports trailing whitespace in exactly
+  two markdown files, for two structural reasons that predate this phase — `Handoff.md`'s stored
+  blob is CRLF (5,876 CRLF lines, 0 bare LF), so *every* added line ends in `\r` and Git counts
+  that as trailing whitespace, and the drop's header uses markdown two-space hard line breaks on
+  the lines this phase updated. Re-running the same check against the **approved Phase 2 commit**
+  (`git diff --check 8a8b0b1^ 8a8b0b1`) produces 239 flags in those same two files, so this is the
+  established state of the documentation and not something Phase 3 introduced. Phases 1 and 2
+  recorded the check as simply "clean", which was accurate for code and imprecise for those two
+  files; recorded here rather than silently repeated, and **no file was reformatted to make the
+  check quieter** — rewriting `Handoff.md`'s line endings would produce a 5,876-line diff for no
+  benefit.
+- The 13 skips are the 11 established ones plus Phase 3's two, each naming its exact limitation:
+  one `[WinError 1314]` file-symlink privilege skip and one case-insensitive-filesystem skip.
+  Symlink coverage is not lost to the privilege limit — refusal is additionally proved by
+  injecting the classifier, and real junctions run for real.
+- **The documented Tk skip transient recurred.** One `verify.py` run reported *1,607 passed, 22
+  skipped*, and a later direct run reproduced it in full with reasons: all 17 `test_ui_theme.py`
+  tests skipped with `Tk cannot open a display here: Can't find a usable init.tcl in the following
+  directories:`. It is environmental, confined to that one module, and unrelated to Plan 3.
+  `verify.py` and the Tk tests were **not** modified. The stable figures above were confirmed by
+  six consecutive runs (three `verify.py`, three direct) plus the explicit 17/17 theme run.
+
+### Phase 2 — Safe natural traversal core (2026-08-08, HOME-PC)
+
+**Result: `shared/importing.py` gained the scanning half of the foundation — natural ordering,
+broad-root classification, hidden detection, non-following identity capture and a synchronous
+`scan_roots()` — plus 91 focused traversal tests. The link-classification risk gate was
+**reached and cleared with evidence**; nothing was refactored. No manager, no worker, no queue,
+no Tk, no output run.**
+
+#### The risk gate: reached, evidenced, and cleared
+
+The active drop makes Phase 2 stop before refactoring if `maintenance.is_link` cannot safely
+classify an importing case. It was checked first, against real filesystem objects on this
+machine, and it classifies **all five** required cases correctly:
+
+| Required case | `maintenance.is_link` | Evidence |
+|---|---|---|
+| Ordinary file | `False` | real file under `tmp_path` |
+| Ordinary directory | `False` | real directory under `tmp_path` |
+| **Real NTFS junction** | **`True`** | created without elevation via `_winapi.CreateJunction`; `lstat` attributes `0x410` = `DIRECTORY \| REPARSE_POINT` |
+| File symlink | `True` | real symlink where creatable; otherwise skipped with the exact `WinError 1314` |
+| Directory symlink | `True` | same |
+| **Selected root that is a link** | **`True`** | a junction supplied as the chosen root |
+
+**The junction case is the one that justifies the reuse.** A junction reports
+`is_symlink() == False`; only the reparse-point attribute catches it. A hand-rolled
+`is_symlink()` check in the importer would have failed **open** on exactly the case this drop
+cares most about, and would have walked out of the selected tree. `maintenance.is_link` already
+tests both, so it is imported and used rather than re-implemented.
+
+**One nuance found, recorded, and handled without touching `maintenance.py`.** `is_link` answers
+`False` for a path it cannot `lstat` **at all**. That is the right answer for a cleanup target
+that is re-authorised immediately afterwards, but "I could not read it" must never be read as
+"safe to walk into". The scanner therefore settles **existence and readability first** and only
+then asks the link question, so an unreadable entry is refused as a problem and never reaches the
+link check. This is a sequencing decision inside `importing.py` — **not** an extraction, an
+extension, or a change to `maintenance.py`, whose only new caller is the one `is_link` import.
+
+**A second observation, not acted on.** `maintenance._is_link` assumes `st_file_attributes` is an
+integer. Every real `os.lstat` satisfies that; only a synthetic `os.stat_result` built from a
+bare ten-tuple leaves it `None`, which would raise `TypeError`. That is a fixture artefact, not a
+reachable production condition, so the **test fixture** was corrected to build realistic stat
+results and `maintenance.py` was left alone. Recorded here so a later phase can judge it rather
+than rediscover it.
+
+#### What Phase 2 added to `shared/importing.py`
+
+- **`natural_key`** — Unicode-aware, case-insensitive ordering that counts: digit runs compare as
+  integers, text runs as casefolded text, and the two are never compared to each other, so no
+  `int`/`str` comparison can raise. Ties break on the NFC-normalised original name, so `A` and
+  `a` have a deterministic order instead of depending on what the filesystem returned first. A
+  digit run past CPython's 4,300-digit `int()` limit degrades to text rather than crashing a scan.
+- **`RootBreadth` / `classify_root_breadth` / `is_broad_root`** — purely lexical classification of
+  volume roots, UNC share roots and the **injected** user home. Nothing is scanned in order to
+  discover that it is broad, and the home is a parameter, so a test never depends on who is
+  logged in. The warning itself is Phase 4.
+- **`is_hidden_name` / `has_hidden_attribute` / an injectable `hidden_probe`** — the portable
+  dot rule plus the Windows `FILE_ATTRIBUTE_HIDDEN` read through `lstat`, with the platform probe
+  injectable so Windows behaviour is provable on POSIX and vice versa.
+- **`capture_identity`** — prefers the platform's own `(st_dev, st_ino)`, so one physical file
+  reached through two spellings or a hard link is recognised as one source; falls back to an
+  NFC-normalised lexical absolute-path key, casefolded only where the filesystem is case-blind.
+  **`resolve()` is never called.** Phase 3 owns what to *do* with two matching identities.
+- **`scan_roots()`** — the synchronous core. Per root, in the order supplied and never globally
+  re-sorted: validate without following, enumerate one directory, classify every entry from a
+  **fresh `lstat`**, emit that directory's compatible files first in natural order, then descend
+  into its eligible children in the same order.
+
+#### The decisions inside the traversal worth knowing
+
+1. **It fails closed.** Every entry is re-`lstat`-ed rather than trusted from the `scandir`
+   buffer, so an entry that changed shape since enumeration is classified as it is *now*. A
+   `FileNotFoundError` becomes `VANISHED`, any other `OSError` becomes `UNREADABLE`, and neither
+   is descended into. Anything that is neither a regular file nor a directory becomes
+   `WRONG_TYPE`.
+2. **An explicit stack, not recursion.** A deep tree must not depend on Python's recursion limit,
+   and the ordering is easier to prove: children are pushed in reverse natural order so the first
+   child pops first, which yields files-then-depth-first without a second sort.
+3. **Root failures are `INVALID_ROOT`; entry failures keep their own category.** A missing,
+   unreadable, non-directory or linked *root* is one clearly attributable problem with the precise
+   cause in `technical_detail`; `LINK`, `UNREADABLE`, `VANISHED`, `WRONG_TYPE`, `HIDDEN` and
+   `UNSUPPORTED_TYPE` describe entries *inside* a scan. Both category families stay in use and
+   nothing is silently discarded.
+4. **Hidden folders are optional; hidden files never are.** `include_hidden_folders` gates
+   directories only. A hidden *file* found by walking is always skipped and reported — but the
+   vocabulary still accepts a hidden path the user chose deliberately, so Phase 3's `Add Files`
+   has something to build on. "Include hidden" is also not "include anything": a hidden folder
+   that is a junction is still refused.
+5. **`DIRECT_FILES` roots are not walked.** They name no tree; validating individually chosen
+   files is Phase 3's `Add Files`. A request mixing both kinds scans the folder roots and simply
+   ignores the direct group.
+6. **Cancelling an import raises nothing.** `scan_roots` returns a `ScanOutcome.CANCELLED` result
+   carrying **no files** — the Phase 1 invariant makes a partial commit unrepresentable — and
+   stops calling `on_count`. `shared.cancellation` is untouched and unmentioned: Cancel Import is
+   not the processing job's cancel.
+7. **A checkpoint was added inside the emission loop.** The plan names checkpoints before each
+   root, during entry classification, before each descent and before publication. Testing
+   "no callback after acknowledged cancellation" showed a directory holding thousands of matches
+   would keep reporting counts between checkpoints, so emission now checks too. The bound is
+   tighter than the plan requires and contradicts nothing in it.
+
+#### Structural guards updated, not deleted
+
+Three Phase 1 guards had to move as Phase 2 delivered what they forbade. Each was **narrowed**
+rather than removed:
+
+- The blanket "no filesystem call" guard split in two. `job_control.py` keeps the strict version
+  (**zero** filesystem verbs). `importing.py` gets a budget of **exactly `scandir` and `lstat`**,
+  with every write, every content read and every *following* call — `resolve`, `realpath`, `stat`,
+  `exists`, `is_dir`, `is_file`, `is_symlink`, `samefile`, `readlink` — still forbidden, plus a
+  text check for `follow_symlinks=True` and `.resolve()`.
+- The "imports no Plan 2 service" guard now permits `importing.py` exactly one edge to
+  maintenance, and a new test pins it: the **only** name borrowed is `is_link`, the whole module
+  is never imported, and no cleanup concept (`authorized_target`, `inventory`, `estimate_size`,
+  `PROTECTED_RELATIVE`, `ASSET_IDS`, …) appears in the importer. A companion test proves
+  `maintenance.py` itself was not rearranged and still imports neither `shutil` nor `subprocess`.
+- The later-phase name guard dropped Phase 2's own names (`scan_roots`, `natural_key`,
+  `classify_root_breadth`, hidden probes, `capture_identity`) and kept Phases 3–8, with a new
+  positive test asserting Phase 2 delivered exactly its own names and no manager, coordinator or
+  estimator.
+
+#### Deliberately not done
+
+No `ImportedFileManager`, deduplication against an existing list, duplicate override, transaction
+commit, worker thread, queue, polling, broad-root dialog, 1,000-result confirmation, pause/resume
+controller, ETA, Retry Failed, Tk adapter or developer specimen. No production panel or launcher
+touched. `shared/cancellation.py`, `shared/output_paths.py`, `shared/config.py`,
+`shared/maintenance.py`, packaging, requirements, launchers and `version.py` are **unchanged**.
+`Briefing.md`'s deferred packaging sentence is still untouched. The Phase 1 packaging remediation
+and every Phase 1 contract are preserved, and **no Phase 1 state-transition judgement call was
+altered** — the traversal work exposed no contradiction with them.
+
+#### Phase 2 verification (2026-08-08, HOME-PC, repo venv Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| Focused: Phase 1 contracts + boundary guards | **310 passed** |
+| Focused: Phase 2 traversal and safety | **91 passed, 6 skipped** |
+| Focused: `test_maintenance.py` + both cleanup suites (link/read-only) | **307 passed** |
+| Focused: `test_output_paths.py` + tool-output + refresh (no planning regression) | **255 passed, 1 skipped, 1 warning** |
+| Focused: cancellation-bearing tool suites | **16 passed** |
+| `-m pytest files/tests --collect-only -q` | **1481 collected** (1381 + 100) |
+| `-m pytest files/tests -q -rsw` (full suite) | **1470 passed, 11 skipped, 1 warning** |
+| `-m pytest files/tests/test_ui_theme.py -q -rsw` | **17 passed, 0 skipped — all 17 executed** |
+| `scripts/verify.py` (three consecutive runs) | **RESULT: PASS** each time, `1470 passed, 11 skipped, 1 warning` each time |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+**The 1 warning**, unchanged: `.venv\Lib\site-packages\pydub\utils.py:14` —
+`DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13`.
+
+**The 11 skips**, every one named. Five are the documented stable set carried since Phase 0:
+
+1. `test_cover_source_side.py:363` — file symlink, `[WinError 1314] A required privilege is not
+   held by the client`.
+2. `test_output_paths.py:757` — file symlink, same `WinError 1314`.
+3. `test_jack_ryan_final_product.py:40` — `set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture
+   folder to run`.
+4. `test_jack_ryan_final_product.py:44` — same reason.
+5. `test_jack_ryan_final_product.py:64` — same reason.
+
+Six are **new and expected**, each naming the exact platform limitation:
+
+6. `test_is_link_says_yes_to_a_file_symlink` — `WinError 1314`.
+7. `test_is_link_says_yes_to_a_directory_symlink` — `WinError 1314`.
+8. `test_a_file_symlink_inside_a_scanned_folder_is_refused` — `WinError 1314`.
+9. `test_a_directory_symlink_inside_a_scanned_folder_is_refused` — `WinError 1314`.
+10. `test_a_root_that_is_a_symlink_is_refused` — `WinError 1314`.
+11. `test_names_differing_only_in_case_are_both_collected` — *"this filesystem is
+    case-insensitive, so the two names are one file"* (NTFS).
+
+**Symlink coverage is not simply lost to the privilege limitation.**
+`test_link_refusal_is_proved_even_where_symlinks_cannot_be_created` injects the classifier and
+proves the refusal path on every machine, and **real NTFS junctions run for real without
+elevation** — root junctions, junctions inside a scanned folder, and a junction inside a folder
+the user asked to include as hidden are all refused, verified.
+
+**No Tk skip transient occurred in this phase.** All three `verify.py` runs and the direct suite
+run reported the identical `1470 passed, 11 skipped`, with collection steady at 1481.
+
+#### Next action
+
+**Phase 3 — Imported-file manager, deduplication, and atomic transactions.** **Not started.** It
+requires explicit maintainer approval before any work begins.
+
+### Phase 1 — Pure contracts and compatibility boundaries (2026-08-08, HOME-PC)
+
+**Result: two new platform-neutral modules of frozen value types, 307 new tests, and the Phase 0
+baseline defect repaired under the maintainer's approved option (a).** No traversal, no manager,
+no worker, no queue, no controller, no ETA and no Tk was written. `scripts/verify.py` is back to
+`RESULT: PASS`.
+
+#### The approved baseline remediation, first
+
+`files/tests/test_release_packaging.py` carried a *precondition* asserting the real repository
+root held **both** `config.toml` and `config-template.toml`. The maintainer's 2026-08-08
+instruction removed the template, so that guard was false and its two parametrised cases failed
+before reaching their real assertion.
+
+Under approved option (a) the test was **retained and narrowed, not deleted, skipped, xfailed or
+broadly rewritten**:
+
+- the precondition now asserts the current contract — `config.toml` present, `config-template.toml`
+  **absent** — with `os.listdir` still used instead of `Path.exists`, because an NTFS/APFS lookup
+  is case-insensitive and would confirm a name that is not there;
+- **the substantive assertion underneath is byte-identical**: `"config-template.toml" not in
+  names(archives[os_name])`;
+- the synthetic-root tests are untouched and still deliberately *create* a template in a
+  disposable `tmp_path` repository, so the packager is exercised against one it must refuse;
+- `import os` moved from inside the function to the module imports, and the module docstring's
+  now-obsolete "sits directly beside the real `config.toml`" sentence was corrected to say the
+  proof **moved to the synthetic fixture** rather than weakened.
+
+No `config-template.toml` was opened, restored, generated, staged, packaged or used. Focused
+result: `test_release_packaging.py` **34/34 PASS**, including all five template-related tests.
+Baseline immediately afterwards: **1074 collected, 1069 passed, 5 skipped, 1 warning**,
+`verify.py` **RESULT: PASS**, theme 17/17, `compileall` exit 0, `git diff --check` clean — exactly
+the expected stable figures, so Phase 1 proper began from green.
+
+The test's *name* — `test_the_untracked_template_beside_it_is_still_absent` — was deliberately
+left alone. "Beside it" is now stale, but renaming would make the test read as removed-and-added
+in any report that compares node ids, and the instruction was to retain it. Cosmetic only;
+flagged for whichever later phase touches that module anyway.
+
+#### What Phase 1 added
+
+**`scripts/Universal/shared/importing.py`** — the importing vocabulary. `SupportedType` /
+`SupportedTypeCatalog` (normalised dot-prefixed lowercase extensions; an extension may belong to
+exactly one type, or `supported_type_id` would be ambiguous), `ImportOptions` (all types selected
+by default; **an empty selection is deliberately representable**, because "you have not ticked
+anything" is a message the UI must show, not a constructor crash), `ImportRoot` (a selected folder
+that mirrors, or the one direct-files group that does not), `ImportedFile` (occurrence identity
+kept separate from source identity, so Decision 35A's deliberate duplicate is visibly the same
+source), `ImportProblem` with all nine refusal categories, `Revision` / `ImportedFileSnapshot`,
+`ScanRequest` / `ScanResult`, and `IdFactory`.
+
+**`scripts/Universal/shared/job_control.py`** — the job vocabulary. `JobState` (all nine states),
+the complete `LEGAL_TRANSITIONS` table, `TERMINAL_STATES`, `INPUT_LOCKED_STATES`,
+`freeze_options` / `is_frozen_options`, `RunSnapshot`, `FailureRecord` / `FailureLog`,
+`RetryRequest`, and `JobEvent` with all eleven kinds.
+
+**Three test modules** — `files/tests/test_importing.py` (103), `files/tests/test_job_control.py`
+(134) and `files/tests/test_plan3_boundaries.py` (70): **307 tests**.
+
+#### The decisions inside those contracts that are worth knowing
+
+1. **Every invalid value is unconstructable, not merely detectable.** All validation is in
+   `__post_init__` on frozen, slotted dataclasses, so there is no "validate it later" path for a
+   future phase to forget, and no `__dict__` on which a stray attribute could be set.
+2. **A non-completed scan carries no files at all.** `ScanResult` refuses to hold candidates when
+   its outcome is `CANCELLED` or `FAILED`. "A cancelled or declined import never changes the
+   manager" therefore stops being a rule Phase 4 has to remember and becomes something the value
+   cannot express. A `FAILED` result must also carry at least one problem — a failure that does
+   not say why is not a report.
+3. **`freeze_options` copies and refuses; it never keeps a live reference.** Lists become tuples,
+   dicts become new read-only mappings, sets become frozensets, and a widget, variable, callable,
+   module, thread primitive, open buffer, mutable dataclass, non-finite float, non-string key or
+   reference cycle is **rejected** rather than stored. Mutating the payload afterwards provably
+   cannot reach the snapshot. `RunSnapshot` freezes in `__post_init__` rather than trusting the
+   caller, so there is exactly one door.
+4. **Two transitions encode truthfulness over tidiness, and are the notable judgement call.**
+   `PAUSE_REQUESTED` and `CANCEL_REQUESTED` may both end the run directly in `SUCCEEDED` /
+   `COMPLETED_WITH_FAILURES` / `FAILED`, not only in `PAUSED` / `CANCELLED`. A pause or cancel
+   asked for during an indivisible stage does not stop that stage, and if the work genuinely
+   finished before the next safe checkpoint, reporting what happened is correct while claiming it
+   paused or was cancelled would be a lie. `RUNNING → PAUSED` and `PAUSED → CANCELLED` are
+   **illegal**: acknowledgement is mandatory in both directions. **Phase 5 is bound by this
+   table** — if it needs a different shape, that is a change to argue for, not to assume.
+5. **A fatal, job-level failure can never be retryable** (`item_id is None` ⇒ `retryable=False`),
+   and a `FailureLog` allows one record per item, because "an ordered subset of failed ids" must
+   not be ambiguous. `RetryRequest.from_failures` normalises any requested subset back into
+   failure order, so the same set of ids always produces the same request.
+6. **`RetryRequest` stores the original `RunSnapshot` object.** A test asserts
+   `request.snapshot is run` — identity, not equality — and that the class has exactly two fields,
+   so no destination, output directory or reservation can creep in. Retry placement stays with the
+   adopting plan and Plan 2's services.
+7. **User-facing text is validated as display-safe at construction.** `display_message` and event
+   `message` must be a single line and may never contain `Traceback (most recent call last)`;
+   `technical_detail` and event `detail` are unconstrained. Summary/Details *filtering* is Phase 7,
+   but the split that makes it possible is enforced now. The rule lives in exactly one function,
+   `importing.ensure_display_safe`; `job_control` wraps it only to raise its own error type.
+8. **Timestamps are carried, never read.** Nothing imports `time`; `created_at` and `timestamp`
+   come from an injected clock and must be finite and non-negative. NaN is refused so a frozen
+   value cannot become non-reflexive.
+9. **`IdFactory` is injected, not global.** A `threading.Lock` serialises its counter — a lock is
+   not concurrency, and creating one starts no thread; a test asserts the live thread count does
+   not move while four threads take 800 ids without a collision.
+
+#### Structural guards added (70 tests)
+
+- Neither module imports Tk, `queue`, `asyncio`, `concurrent`, `multiprocessing`, `subprocess`,
+  `logging`, `shutil`, `tomllib`, or any Plan 2 service module, and neither constructs a
+  `Thread`, `Timer`, `Queue`, `Condition`, `Event` or executor.
+- Neither performs any filesystem call — the AST is checked for `scandir`, `walk`, `iterdir`,
+  `glob`, `stat`, `lstat`, `exists`, `resolve`, `mkdir`, `write_text`, `open` and eighteen others.
+- Neither defines a name Plan 2 already owns (`get_effective`, `reserve_run_directory`,
+  `plan_mirrored`, `sanitize_component`, `get_logger`, `raise_if_cancelled`, …).
+- **The entire shipped tree** — every `.py` under `scripts/Universal/`, not just the six panels —
+  is parsed and proved not to import `shared.importing`, `shared.job_control` or `shared.job_ui`,
+  and the panels are additionally proved not to name any Plan 3 type. `launcher.TOOLS` still has
+  exactly six entries.
+- `shared/cancellation.py` is proved unchanged in shape: it still defines exactly
+  `ConversionCancelled` and `raise_if_cancelled`, imports exactly `__future__` and `typing`, and
+  behaves identically for `None` / false / true predicates and a custom message. Neither Plan 3
+  module mentions either name, so nothing shadows or re-exports it.
+- No Phase 2–8 behaviour has leaked in: 25 later-phase names (`scan_roots`, `natural_key`,
+  `ImportedFileManager`, `ImportCoordinator`, `JobController`, `EtaEstimator`, `build_ui`, …) are
+  proved undefined, `shared/job_ui.py` proved not to exist, and no ETA arithmetic or clock read
+  exists anywhere in the foundation.
+- The dependency runs one way: `job_control` imports `importing`, `importing` does not import
+  `job_control`, and `config` imports neither — the same discipline `logging_setup` follows.
+- Repository invariants: version `0.5.1`; `config.toml` and `requirements.txt` unchanged in shape
+  with every dependency `==`-pinned; both root launchers present; **all 22 approved screenshots
+  present by exact filename**; the four canonical documents exact with no alias and no
+  `CHANGELOG.md` / `DECISIONS.md` / `handoff.md` variant; all four protected references present;
+  and **root `config-template.toml` absent**.
+- The ships/does-not-ship split holds: the two modules are under `scripts/`, the three test
+  modules under `files/`, and neither leaked into the other tree.
+
+#### Phase 0 open item, now closed
+
+1. ~~**`verify.py` is FAILING at the baseline**, solely through `test_release_packaging.py:147`.~~
+   **RESOLVED in Phase 1** under the maintainer's approved option (a), as recorded above.
+   `verify.py` reports `RESULT: PASS`.
+
+#### Reconnaissance inconsistency resolved conservatively
+
+Phase 0 recorded that the plan's §7 names both `test_import_ui.py` and `test_job_ui.py` while
+§6.15 puts every adapter in one `shared/job_ui.py`. **One adapter module needs one Tk-boundary
+test module: `files/tests/test_job_ui.py` is the intended name, and `test_import_ui.py` will not
+be created.** No UI test module was created now to satisfy a filename list — Phase 1 adds no Tk
+test at all. `test_plan3_boundaries.py` asserts both files are still absent and carries that
+decision in its docstring so Phase 8 finds it.
+
+#### Deliberately not done
+
+- **No new importing→maintenance dependency and no refactor of link detection.** `maintenance.is_link`
+  was not imported, wrapped or moved; that risk gate belongs to Phase 2's traversal work.
+- **`Briefing.md` was not edited.** Its line 384 still describes the template as sitting beside
+  `config.toml`. Phase 1's authorised documentation is `Handoff.md`, the master index's current
+  status, and the drop's own status fields; `Briefing.md`/`Changelog.md`/`Decisions.md` belong to
+  the approved Phase 10 closeout. The discrepancy stays recorded.
+- No `conftest.py` change. The plan reserves that for later fake-clock/filesystem fixtures; Phase 1
+  needed none, and the two shared helpers `test_job_control.py` uses are imported from
+  `test_importing.py` instead.
+- No new dependency, plugin, skill, or `.claude`/`.codex` change.
+
+#### Phase 1 verification (2026-08-08, HOME-PC, repo venv Python 3.12.10)
+
+| Command | Result |
+|---|---|
+| Focused: the three new modules + `test_release_packaging.py` | **341 passed** |
+| `-m pytest files/tests --collect-only -q` | **1381 collected** (1074 + 307) |
+| `-m pytest files/tests -q -rsw` (full suite) | **1376 passed, 5 skipped, 1 warning** |
+| `-m pytest files/tests/test_ui_theme.py -q -rsw` | **17 passed, 0 skipped — all 17 executed** |
+| `scripts/verify.py` | **RESULT: PASS** — `pytest`, `deps`, `docs`, `docnames`, `config` all PASS |
+| `-m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check` | clean — exit 0 |
+
+The **1 warning** is the same pre-existing pydub `audioop` `DeprecationWarning`. The **5 skips**
+are the same five named in the Phase 0 record — two `WinError 1314` symlink-privilege skips
+(`test_cover_source_side.py:363`, `test_output_paths.py:757`) and three `JACK_RYAN_M4B_FOLDER`
+fixture skips (`test_jack_ryan_final_product.py:40`, `:44`, `:64`). **Phase 1 added no skip and no
+warning**, and no test was lost: 1074 → 1381 collected, and the 1069 that passed at the baseline
+all still pass.
+
+**The Tk skip transient recurred once more.** One `verify.py` invocation reported
+`1367 passed, 14 skipped`; three subsequent runs all reported the stable `1376 passed, 5 skipped`
+and `RESULT: PASS`, with collection at 1381 throughout. Fourth recorded occurrence (Plan 1 Phases
+3 and 4 at 17 skips, Plan 3 Phase 0 at 11, this one at 9); the reason string is again uncaptured
+because `verify.py` runs pytest without `-rs` — the master index §14 blind spot, still unowned.
+
+#### Next action
+
+**Phase 2 — Safe natural traversal core.** **Not started.** It requires explicit maintainer
+approval, and its own risk gate applies: if `maintenance.is_link` cannot safely classify an
+importing case, stop and report before refactoring maintenance or output-path services.
+
+### Phase 0 — Post-merge reorientation, repository invariants, and baseline evidence (2026-08-08, HOME-PC)
+
+#### Plan 3 branch and start state
+
+| Field | Value |
+|---|---|
+| Branch | `feature/0.6.0-drop3-shared-job-controls-importing` (new; existed **neither** locally **nor** on `origin` before creation) |
+| Start SHA / `origin/master` at fetch | `563df9884497032e19abd4437a0e66584cd9ec12` |
+| What that SHA is | the **merge commit for pull request #3**, parents `bada8a3dee87acf6a6619252bd31cdee429f1711` (previous `master`) and `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7` (Drop 2 head) |
+| Local `master` | fast-forwarded `bada8a3…` → `563df98…` with `git merge --ff-only origin/master`. No merge commit, reset, rebase, stash, clean, prune, force-push or history rewrite. Local `master` == `origin/master` |
+| Fetch | `git fetch origin --no-prune` — the only remote-mutating verb used was a later `git push` of this phase |
+| Version | `0.5.1` — unchanged. No bump, tag, release, publication or PR |
+
+The Drop 2 branch was **not** developed on. `master` was reconciled first, and the Plan 3 branch
+was cut from the verified local `master`.
+
+#### Drop 2 merge and required ancestry — verified, not assumed
+
+| Required commit | Ancestor of `origin/master` `563df98…` |
+|---|---|
+| Drop 2 head `c6fcac7b7469e36cb0d81de2cc524f46cec31bb7` | **YES** (`git merge-base --is-ancestor` → 0) |
+| Approved Drop 2 Phase 8 `0e7ad0c264cb2a46f3c64f968e24f00963cb1987` | **YES** |
+| Plan 1 merge (PR #2) `86933e6510c6303cadf3437dc295d000ffa9ee82` | **YES** |
+| Plan 1 feature head `f3d70e8c9017f2fec3ae459c1438dd71b42f9ef0` | **YES** |
+
+Both earlier feature branches are retained and untouched, locally and on `origin`:
+`feature/0.6.0-drop1-windows-ui-prototype` at `f3d70e8` and
+`feature/0.6.0-drop2-config-output-maintenance-foundation` at `c6fcac7`.
+
+**Stale merge metadata, recorded rather than rewritten.** PR #3's merge message body reads
+*"v0.6.0 Drop 2 Phase 0: reorientation, repository invariants, and baseline evidence"* — the
+title of Drop 2's *first* phase, not of the whole completed drop. The merge **content and
+ancestry are correct**; only the human-readable title is stale. The merge commit was not
+rewritten and must not be.
+
+#### `config-template.toml` — the maintainer's superseding instruction, applied
+
+The current contract is **absence**, and it supersedes the older "preserve it exactly" language.
+
+- **No removal was necessary.** The exact repository-root path `config-template.toml` was
+  **already absent** when this phase inspected the worktree — the maintainer removed it on
+  HOME-PC on 2026-08-08, before this session acted.
+- Proven, in this order, before any other step: `git ls-files --error-unmatch config-template.toml`
+  → *"did not match any file(s) known to git"* (**untracked**); `git ls-files | grep -i
+  config-template` → no index entry; `git ls-tree --name-only origin/master` → the root of the
+  merged tree holds only `.gitattributes`, `.gitignore`, `README.md`, both `Setup_and_Run-*`
+  launchers, `config.toml`, `files/`, `md-instructions/`, `scripts/` — **no template**; and a
+  case-exact `os.listdir(REPO_ROOT)` (never `Path.exists()`, which NTFS answers
+  case-insensitively) confirming the physical file is gone.
+- Nothing was deleted, recreated, restored, staged, committed, packaged, loaded or read by this
+  session. No `git clean`, no wildcard, no recursive delete, and no similarly named file
+  elsewhere was touched. No ignore rule was added, so a future tracked regression cannot be
+  concealed.
+- The **defensive guards stay**, exactly as the instruction allows: `shared/maintenance.py:168`
+  keeps `"config-template.toml"` in `PROTECTED_RELATIVE`, and
+  `test_repository_contract.py:249–255`, `test_release_packaging.py`, `test_maintenance.py`,
+  `test_cleanup_state.py` and `test_cleanup_worker.py` keep the filename as a
+  forbidden/protected string. Removing the local file does not weaken the rules that keep it out
+  of runtime loading and release archives.
+
+#### Phase 0 baseline evidence (2026-08-08, HOME-PC, repo venv Python 3.12.10)
+
+Run from the repository root with `.venv\Scripts\python.exe`. These are the **actual** merged-master
+numbers, not Plan 2's recorded closeout figures.
+
+| Command | Result |
+|---|---|
+| `-m pytest files/tests -q -rsw` (full suite) | **1074 collected — 1067 passed, 2 FAILED, 5 skipped, 1 warning** (17.4 s) |
+| `-m pytest files/tests/test_ui_theme.py -q -rsw` (explicit theme suite) | **17 passed, 0 skipped — all 17 executed** |
+| `scripts/verify.py` | **RESULT: FAIL** (exit 1). `pytest` FAIL; `deps`, `docs`, `docnames`, `config` all PASS |
+| `-m compileall -q scripts files/tests` | PASS — exit 0 |
+| `git diff --check` | clean — exit 0 |
+| `git diff --cached --check` | clean — exit 0 |
+| canonical documentation filename/alias check | PASS — 4 canonical names exact, no case-variant alias (`verify.py` `docnames`, backed by a case-exact `os.listdir`) |
+| protected `don't-delete` reference check | PASS — all 4 references present under their exact names |
+
+**The 1 warning**, named: `.venv\Lib\site-packages\pydub\utils.py:14` —
+`DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13`, raised at
+`import audioop`. Pre-existing, third-party, carried unchanged since Plan 1.
+
+**The 5 skips**, all named with their reasons:
+
+1. `test_cover_source_side.py:363` — *"this environment cannot create a file symlink:
+   [WinError 1314] A required privilege is not held by the client"*. This Windows account is not
+   elevated and lacks `SeCreateSymbolicLinkPrivilege`.
+2. `test_jack_ryan_final_product.py:40` — *"set JACK_RYAN_M4B_FOLDER to the Jack Ryan fixture
+   folder to run"*. Copyrighted local media fixture, deliberately not in the repository.
+3. `test_jack_ryan_final_product.py:44` — same reason.
+4. `test_jack_ryan_final_product.py:64` — same reason.
+5. `test_output_paths.py:757` — *"this environment cannot create a file symlink → symlink:
+   OSError: [WinError 1314] A required privilege is not held by the client"*. Same privilege
+   limitation as (1).
+
+None of the five is a masked failure, and the skip set is identical to Plan 2's five documented
+skips.
+
+#### Baseline FAILURE recorded, NOT fixed in Phase 0
+
+`verify.py` reports **RESULT: FAIL**, and the sole cause is two tests that the maintainer's own
+superseding `config-template.toml` instruction invalidated:
+
+```
+FAILED files/tests/test_release_packaging.py::test_the_untracked_template_beside_it_is_still_absent[Windows]
+FAILED files/tests/test_release_packaging.py::test_the_untracked_template_beside_it_is_still_absent[MacOS]
+```
+
+Both fail on the same line — `test_release_packaging.py:147`:
+
+```python
+entries = os.listdir(REPO_ROOT)
+assert "config.toml" in entries and "config-template.toml" in entries, (
+    "this test is only meaningful while both files sit at the root")
+```
+
+That is a **precondition guard**, not the safety assertion. It hard-codes the assumption that
+the maintainer's untracked template is sitting beside `config.toml` in the real repository. Now
+that the file is gone by instruction, the guard is false and the run stops before reaching the
+real check on line 149 (`"config-template.toml" not in names(archive)`).
+
+**The packaging safety property itself is unaffected and still proven green** by two tests that
+do not depend on the real worktree:
+
+- `test_a_template_in_a_synthetic_root_is_excluded_by_scope` — builds both archives from a
+  `tmp_path` fake repo that *does* contain a template, and asserts no member matches
+  `config-template`. **PASSED.**
+- `test_the_packager_never_names_the_template_at_all` — parses `shared/release.py` and asserts
+  the string is absent, along with `shutil`/`copytree`. **PASSED.**
+
+Arithmetic against Plan 2's closeout: 1074 collected then and now; the 1,069 that passed then
+are 1,067 passed + these 2 failed now. **No test was lost, added or silently skipped by the
+merge** — exactly two flipped, for exactly this reason.
+
+**Not fixed here, deliberately.** Phase 0's contract forbids changing production source, tests,
+configuration or packaging; the repair is a one-line change of a test precondition and belongs
+to the first phase authorized to touch `files/tests/`. Recorded as an open item below rather
+than quietly repaired or excluded.
+
+#### The documented Tk skip transient recurred once — reported, not smoothed over
+
+The **first** `verify.py` invocation of this phase reported `2 failed, 1056 passed, 16 skipped`
+— eleven passes that became skips. The two immediately following `verify.py` runs, and both
+direct `pytest` runs (including one reproducing `verify.py`'s exact absolute-path invocation),
+all reported the stable `2 failed, 1067 passed, 5 skipped`. Collected stayed 1074 throughout.
+
+This is the third occurrence of the transient recorded in this file (Plan 1 Phases 3 and 4, both
+17 extra skips; 11 this time), and the reason string was again **not captured** — `verify.py`
+runs `pytest` without `-rs`, which is precisely the *"`verify.py` skipped-suite detection blind
+spot"* carried in the master index §14 as unowned. The reported baseline above is the stable,
+thrice-reproduced figure; the transient is disclosed rather than averaged away.
+
+#### Skills audited for Plan 3
+
+| Skill / capability | Location | Verdict for Plan 3 |
+|---|---|---|
+| `audio-processing` | `.claude/skills/audio-processing/SKILL.md` | **Read and will use as a guardrail.** Plan 3 changes no audio behaviour, but its subprocess-list/`shlex.quote` rule, its copy-first/never-overwrite-the-original rule and its ffmpeg/ffprobe-presence discipline are exactly the boundaries the importer and job controller must not erode. |
+| `fullstack-bridge-sync` | `.claude/skills/fullstack-bridge-sync/` | **Not applicable** — Python↔TypeScript API contract syncing; this project has no frontend/backend split. |
+| `.codex/skills/` | repository | Present but empty of skills on this machine; nothing to audit. |
+| Superpowers — `test-driven-development` | user scope | **Will use** in Phases 1–8. Every Plan 3 module is pure logic or a queue boundary, which is the ideal shape for test-first. |
+| Superpowers — `systematic-debugging` | user scope | **Will use** if a Phase 4/5 concurrency test proves flaky; the plan forbids "fixing" a race by sleeping. |
+| Superpowers — `verification-before-completion` | user scope | **Will use** at every phase boundary; it is the same evidence-before-assertion rule this drop's §1 already imposes. |
+| Superpowers — `requesting-code-review` / `receiving-code-review` | user scope | Available for phase boundaries; optional. |
+| Superpowers — `brainstorming` / `writing-plans` / `executing-plans` | user scope | **Not needed** — the plan is already written, approved and phase-gated by the maintainer. |
+| Superpowers — `using-git-worktrees` | user scope | **Deliberately not used.** This drop names one branch in the main worktree; adding a worktree would contradict the recorded branch/SHA contract. |
+| Sequential Thinking (MCP) | user scope | **Will use** for the genuinely revisable reasoning in §6.5 (duplicate identity) and §6.9–6.10 (the pause/resume/cancel state machine and its races). |
+| Context7 (MCP) | user scope | Available for current stdlib/pytest API confirmation. Use is inherently limited — the drop forbids any new runtime dependency. |
+| UI-testing support | — | No dedicated UI-testing skill is installed. The repository's own Tk patterns are the harness: `test_ui_theme.py`'s module-scoped `tk_root` fixture, `test_prototype_regression.py`'s `_walk` widget crawler and `@windows_only` gate. |
+| Everything else offered (`dataviz`, `artifact-*`, `claude-in-chrome`, `claude-api`, `security-review`, `schedule`, `loop`, `init`, `run`, `fewer-permission-prompts`) | user scope | **Not applicable** to this drop. |
+
+**No skill, plugin, MCP server or dependency was installed, copied or modified**, and neither
+`.claude/` nor `.codex/` was expanded — the drop forbids it without separate approval.
+
+#### Implementation surface inspected (read-only, Phase 0)
+
+Every component named in the drop's §2 table was located and compared against the plan's cited
+line ranges. **The plan's map of the codebase is accurate; the drift found is minor and listed
+at the end.**
+
+| Component | Found at | Against the plan's citation |
+|---|---|---|
+| `shared/cancellation.py` | whole file is 38 lines: `CancelCheck` L21, `ConversionCancelled` L24, `raise_if_cancelled` L28–38 | cited "≈24–38" — **exact** |
+| `shared/config.py` | `ImportingConfig` L213, `EffectiveConfig` L219, `DEFAULT_LARGE_RESULT_WARNING_THRESHOLD = 1000` L112, validator L419–420, `SETTINGS_OVERLAY` L65 | cited "≈219–241" and "≈107–115" — **exact** |
+| `shared/output_paths.py` | `RunReservation` L615, `reserve_run_directory` L635, `plan_flat` L761, `plan_mirrored` L787, `plan_multi_root` L815, `DestinationPlanner` L526, `sanitize_component` L306, `assert_no_link_in` L405, `assert_contained` L445, `destination_hint` L118 | cited "≈615–632" and "≈720–855" — **exact** |
+| `shared/maintenance.py` | `is_link` L277, `authorized_target` L297, `estimate_size` L373, `inventory` L498 | cited "≈277" and "≈360–548" — **exact** |
+| `shared/preferences_ui.py` | `CleanupDialog` L489, `start_inventory` L663, `_poll` L678 | cited "≈663–710" — **exact** |
+| `shared/ui_theme.py` | `ProgressIndicator` L1002 (file 1076 lines), `WINDOWS_STYLE_PREFIX = "ACT"` L60, `style_tk_widget` L911, `enable_mousewheel` L968 | cited "≈1002–1052" — **exact** |
+| `shared/subprocess_utils.py` | `_hidden_kwargs` L19, `run` L32, `popen` L41, `check_output` L46, `install_no_window_guard` L54, `reveal_in_file_manager` L94; file is 110 lines | cited "19–110" — **exact** |
+| `shared/logging_setup.py` | `DEFAULT_MAX_SESSIONS = 30` L25, `configured_max_sessions` L35, `_prune_old_logs` L48, `get_logger` L60; file is 81 lines | cited "35–80" — **exact** |
+| `shared/settings.py` (201 lines), `launcher.py`, `scripts/verify.py` (299 lines), `.gitignore`, `.gitattributes`, `scripts/requirements.txt` (all `==`-pinned) | inspected | consistent |
+
+**Per-panel worker foundations** — every one of the six production panels already owns its own
+daemon thread(s), queue, `threading.Event`s and `after()` pump, exactly as the plan's §2 row
+"Tool workers" describes:
+
+| Panel | `threading.Thread` | queue | `threading.Event` | `.after(` | cancellation refs |
+|---|---:|---:|---:|---:|---:|
+| `tts/epub2tts_gui.py` | 1 | 2 | 2 | 1 | 3 |
+| `mp3_tools/m4b_converter.py` | 1 | 1 | 2 | 2 | 0 |
+| `mp3_tools/mp3_tool.py` | 3 | 1 | 2 | 2 | 11 |
+| `mp3_tools/m4b_maker.py` | 1 | 1 | 2 | 2 | 7 |
+| `mp3_tools/cover_resizer.py` | 1 | 1 | 2 | 2 | 0 |
+| `mp3_tools/m4b_metadata_editor.py` | 2 | 1 | 2 | 2 | 5 |
+
+**Current traversal**, which Plan 3 must not alter: `tts/batch_convert.py:241–246` (`rglob("*")`
+with a suffix check, commented as deliberate) and `tts/epub2tts_gui.py:564`
+(`in_root.rglob("*")`); the M4B Metadata Editor's folder picker is a **non-recursive
+`folder.iterdir()`** at `m4b_metadata_editor.py:728–736`. Elsewhere, `os.scandir` appears only
+in `shared/cleanup_worker.py:189` and `Path.rglob` only in `shared/release.py:125`.
+
+**Plan 3's own target modules do not exist yet**, as expected: `shared/importing.py`,
+`shared/job_control.py` and `shared/job_ui.py` are all absent. `files/tests/conftest.py` is a
+20-line `sys.path` shim with **no fixtures**, so Phase 2 onward will add the fake-clock and
+disposable-filesystem fixtures the plan anticipates.
+
+**Existing Plan 3 scope guards already in the suite**, which later phases must update rather
+than delete:
+
+- `test_config.py:277` `test_the_large_result_threshold_is_only_validated_not_consumed` — asserts
+  `config.py` contains none of `def scan`, `rglob`, `Cancel Import`, `recursive_scan`. The
+  threshold is validated and **consumed by nothing in `scripts/Universal/` today**, confirmed by
+  grep. This is the boundary the plan says Phase 4 replaces with captured-threshold tests.
+- `test_preferences_ui.py:873` `test_phase_two_added_no_later_phase_behaviour` — asserts
+  `preferences_ui.py` contains none of `reserve_run`, `Retry Failed`, `Pause`, `Resume`,
+  `large_result_warning_threshold`, `Add Book`. Plan 3 does not touch that module, so this guard
+  stays valid.
+- `test_prototype_regression.py:432–460` — `FORBIDDEN_TEXT` blocks `summary`, `details`, `eta`,
+  `retry`, `pause`, `resume`, `filter`, `add book`, `duplicate book`, `remove book` from
+  appearing as widget text in the shipped M4B Metadata Editor, and forbids a `ttk.Notebook` in
+  it. Because Plan 3 adopts nothing into a production panel, this must **continue to pass
+  unchanged** and is the sharpest available proof of the non-adoption boundary.
+
+**Genuine drift from the plan, all minor:**
+
+1. **The two failing packaging tests above** — the one substantive item. The plan's §1.1
+   anticipated that source/tests keep the *string*; it did not anticipate that one test asserts
+   the *file's physical presence*.
+2. The plan's §7 lists `files/tests/test_import_ui.py` **and** `files/tests/test_job_ui.py` among
+   likely new tests. Given §6.15 puts every adapter in one `shared/job_ui.py`, one Tk-boundary
+   module is likelier than two; recorded now so a later split or merge is a noted choice, not a
+   silent one.
+3. The plan says Phase 2 may reuse `maintenance.is_link`. It is public and importable at
+   `maintenance.py:277`, but `shared/maintenance.py` also carries the whole cleanup catalog, so
+   `shared/importing.py` importing it creates an importing→maintenance edge that does not exist
+   today. Flagged for Phase 2's risk gate; **no refactor is proposed or authorized here**.
+4. Read-only note, out of Phase 0's authorized edit set: `md-instructions/Briefing.md:384` still
+   describes the untracked template as sitting "directly beside `config.toml`". That sentence is
+   a *description* of the packaging contract, not an instruction to preserve the file, so it was
+   left alone — Phase 0 may edit only `Handoff.md`, the master index's current status/contract,
+   and this drop's status fields. A later authorized documentation phase can reword it.
+
+#### Superseded instructions updated in this phase
+
+`md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+said, in §4 and §10, to *preserve* the local `config-template.toml` exactly. Both statements are
+now replaced by the absence contract and marked as superseded. **Historical Plan 2 phase records
+were not rewritten** — they accurately state that the file existed, untracked and unchanged,
+while Plan 2 ran.
+
+#### Open items carried out of Phase 0
+
+1. ~~**`verify.py` is FAILING at the baseline**, solely through
+   `test_release_packaging.py:147`. It must be repaired by the first phase authorized to edit
+   `files/tests/`, and the honest fix is to make the precondition tolerate the file's absence
+   (or drop the worktree-dependent test in favour of the synthetic-root one that already proves
+   the property) — **not** to recreate the template and **not** to weaken line 149.~~
+   **RESOLVED 2026-08-08 in Phase 1** — the maintainer approved option (a) and the precondition
+   was narrowed in place. See the Phase 1 record above.
+2. The `verify.py` skipped-suite blind spot (master index §14) claimed a third victim here.
+   Still unowned; do not misreport skips because of it.
+3. Everything already carried from Plan 2 — live macOS, the Windows 125% matrix, Windows DPI
+   unawareness, M4B Converter clipping at `920×600`, Windows xHE-AAC, and the clean-machine
+   install — remains open and untouched.
+
+#### Next action
+
+**Phase 1 — Pure contracts and compatibility boundaries.** **Not started.** It requires explicit
+maintainer approval before any work begins, and it must not be started in the same turn as this
+summary.
+
+---
+
+## Previous Focus (v0.6.0 Drop 2 — Plan 2, approved 2026-08-08, merged through PR #3)
 **v0.6.0 Drop 2 (Plan 2 — configuration, output, and application-maintenance foundation) —
-COMPLETE, MAINTAINER-APPROVED AND CLOSED (2026-08-08). The feature branch is integration-ready
-and has not been merged. The next unopened implementation work is Drop 3, which requires new
-explicit maintainer direction and a fresh session.**
+COMPLETE, MAINTAINER-APPROVED AND CLOSED (2026-08-08), and since merged into `master` through
+pull request #3 as merge commit `563df9884497032e19abd4437a0e66584cd9ec12`.** The sections below
+are the record as written at closeout, when the branch was still unmerged; they are left
+historically accurate rather than rewritten.
 
 ### Phase 9 — Plan 2 approval closeout and temporary-drop retirement (2026-08-08, HOME-PC)
 
@@ -4175,6 +6125,339 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 6 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 6 start SHA:** `52f72f0d9c53f095d76d80b560ddb6cb29fdf69b`
+(the approved Phase 5 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_job_run_results.py` — 1,022 lines, **174 tests**, none skipped. Capture and
+  one-configuration-per-run, the lock derivation across every cell, item outcomes, failure
+  records, the run's disposition, Retry Failed, and the boundaries.
+
+**Files modified (4):**
+- `scripts/Universal/shared/job_control.py` — +461 / −1, now 1,693 lines. `capture_run`;
+  `ControlKind`, `LOCK_MATRIX`, `is_locked`, `JobAction`, `is_available`; `ItemStatus`,
+  `ItemOutcome`, `RunResult`. The single deleted line is the module docstring's header. No new
+  import edge: the module still imports only `shared.config`, `shared.cancellation` and
+  `shared.importing`.
+- `files/tests/test_plan3_boundaries.py` — +75 / −1. Four new guards: Phase 6 delivered its own
+  names and no more; no output descriptor exists on any Phase 6 type; the lock matrix is derived
+  and exhaustive; an item failure cannot force a job-level failure. The single deleted line is
+  the shipped-tests tuple.
+- `md-instructions/Handoff.md` — the Phase 6 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row, the
+  recorded start-state "Phase reached" row, two new gate rows, and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status -M -C`.
+- All **22** approved screenshots byte-identical to `origin/master` (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; **`output_paths.py`, `maintenance.py`, `importing.py`,
+  `import_coordination.py`, `cancellation.py`, `config.py`, `subprocess_utils.py`,
+  `logging_setup.py`, `ui_theme.py`, `launcher.py`, `config.toml`, `requirements.txt`, both root
+  launchers, all six production tool modules and every approved Phase 1–5 test file are
+  byte-identical to the Phase 5 commit** (blob hashes compared).
+- 36 production modules parsed with `ast`: none imports `shared.importing`,
+  `shared.job_control`, `shared.import_coordination` or `shared.job_ui`.
+- No dependency added; no packaging, release, tag or version change; no PR opened or merged.
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 5 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 5 start SHA:** `418deb93c53dd759643e50d6e0b292b9138491e5`
+(the approved Phase 4 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_job_controller.py` — 1,365 lines, **173 tests**, none skipped. The snapshot
+  invariants, the exhaustive eighty-one-pair transition proof, pause and resume, cancellation,
+  acknowledgement, failure and completion, the concurrency races, and compatibility with the
+  existing cancellation primitive in both directions.
+
+**Files modified (5):**
+- `scripts/Universal/shared/job_control.py` — +508 / −12, now 1,230 lines. `JobSnapshot`,
+  `JobController`, `MAX_FAILURE_DETAIL` and `_bounded_detail`. The twelve deleted lines are
+  eleven rewritten docstring lines and one widened import.
+- `scripts/Universal/shared/cancellation.py` — **+37 / −0**, purely additive: the `is_cancelled`
+  predicate and a docstring recording how Phase 5 extends the pattern. Nothing was removed and
+  nothing changed meaning.
+- `files/tests/test_plan3_boundaries.py` — +160 / −22, now 745+ lines. The pure-vocabulary list
+  narrowed to `importing.py` alone so its approved no-concurrency proof survives intact; the
+  job module given its own precise budget guard (one condition, one non-reentrant lock, no
+  thread or queue); the cancellation guard widened to admit the additive name while pinning both
+  originals; a new guard that only `job_control.py` may raise the conversion exception; a new
+  guard that the pause wait carries no timeout; a new per-caller resolution check; and the
+  later-phase name lists re-cut per module.
+- `md-instructions/Handoff.md` — the Phase 5 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row, the
+  recorded start-state "Phase reached" row, two new gate rows, and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status -M -C`.
+- All **22** approved screenshots byte-identical to `origin/master` (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; **`output_paths.py`, `maintenance.py`, `importing.py`,
+  `import_coordination.py`, `config.py`, `subprocess_utils.py`, `logging_setup.py`,
+  `ui_theme.py`, `launcher.py`, `config.toml`, `requirements.txt`, both root launchers and all
+  six production tool modules are byte-identical to the Phase 4 commit** (blob hashes compared).
+- 36 production modules parsed with `ast`: none imports `shared.importing`,
+  `shared.job_control`, `shared.import_coordination` or `shared.job_ui`.
+- No dependency added; no packaging, release, tag or version change; no PR opened or merged.
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 4 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 4 start SHA:** `2c7844e04b1a6b4a73d358867ec5b4e883e73efa`
+(the approved Phase 3 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (2):**
+- `scripts/Universal/shared/import_coordination.py` — 1,474 lines. The background coordinator,
+  its import-scoped cancellation, the frozen event and outcome vocabulary, and the Tk-free
+  poller seam. Recorded as a deviation from §7's expected module list, with its reason.
+- `files/tests/test_import_coordination.py` — 2,120 lines, **129 tests**, none skipped.
+  Vocabulary, lifecycle, thread ownership, cancellation, the isolation gate, queue behaviour,
+  broad-root confirmation, the captured threshold, commit coordination and revision drift, Add
+  Files, shutdown, the poller, and end-to-end safety.
+
+**Files modified (4):**
+- `files/tests/test_plan3_boundaries.py` — +190 / −23, now 745 lines. The module lists widened,
+  the no-thread/no-queue guard narrowed to the two vocabulary modules so its approved proof
+  survives intact, the later-phase name lists re-cut per module, the Phase 3 positive guard
+  grown into a Phase 4 one, and six new guards: one worker and one queue, no filesystem call at
+  all, cancellation isolation, the worker never had a manager to mutate, only `_commit` appends,
+  and the one-way dependency.
+- `md-instructions/Handoff.md` — the Phase 4 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row, the
+  recorded start-state "Phase reached" row, two new gate rows, and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status -M -C`.
+- All **22** approved screenshots byte-identical to `origin/master` (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree; nothing named
+  `config-template` is tracked anywhere.
+- `version.py` `0.5.1`; **`shared/output_paths.py`, `shared/maintenance.py`,
+  `shared/cancellation.py`, `shared/config.py`, `shared/subprocess_utils.py`,
+  `shared/logging_setup.py`, `shared/ui_theme.py`, `launcher.py`, `config.toml`,
+  `requirements.txt` and both root launchers are byte-identical to the Phase 3 commit** (blob
+  hashes compared).
+- 36 production modules parsed with `ast`: none imports `shared.importing`,
+  `shared.job_control`, `shared.import_coordination` or `shared.job_ui`.
+- No dependency added; no packaging, release, tag or version change; no PR opened or merged.
+
+### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 3 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 3 start SHA:** `8a8b0b169c59112d6d08e4510afc76a3f353e8a4`
+(the approved Phase 2 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_import_manager.py` — 1,498 lines, **146 tests** (144 run, 2 skipped with
+  exact platform reasons). Manager and snapshots, Add Files, deduplication, the duplicate
+  override, atomicity and conflicts, selection and reordering, Plan 2 compatibility, and safety.
+
+**Files modified (4):**
+- `scripts/Universal/shared/importing.py` — +891 / −11, now 2,216 lines. `validate_direct_files`,
+  `CommitStatus`/`ManagerOperation`, `ImportTransaction`/`CommitResult`/`MutationResult`,
+  `plan_transaction`, `PlanningGroups`/`planning_groups`, and `ImportedFileManager`. No new
+  import edge: the module still imports only `shared.config` and `maintenance.is_link`.
+- `files/tests/test_plan3_boundaries.py` — +79 / −26, now 578 lines. The later-phase guard split so the manager
+  vocabulary is permitted in `importing.py` and still forbidden in `job_control.py`, the Phase 2
+  positive guard grown into a Phase 3 one, and two new guards proving the importer neither plans
+  an output path nor caused `output_paths.py` to be rearranged.
+- `md-instructions/Handoff.md` — the Phase 3 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row,
+  recorded start-state "Phase reached", and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status`.
+- All **22** approved screenshots unchanged and unstaged (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; **`shared/output_paths.py`, `shared/maintenance.py` and
+  `shared/cancellation.py` byte-identical to the Phase 2 commit** (blob hashes compared);
+  `config.toml`, `requirements.txt`, both launchers, `shared/release.py`, `shared/config.py`,
+  `launcher.py` and all six production panels unchanged; no new dependency.
+- 36 production modules parsed with `ast`: none imports `shared.importing`, `shared.job_control`
+  or `shared.job_ui`.
+- No runtime data, settings, outputs or source media touched. Every fixture tree was built under
+  `tmp_path` and thrown away; a before/after mode-size-mtime snapshot proves the manager and Add
+  Files leave every source file exactly as they found it, and no run directory was reserved.
+
+### 2026-08-08 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 2 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 2 start SHA:** `bdfa4c0720ba506926340537c98cc21b27c07819`
+(the approved Phase 1 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (1):**
+- `files/tests/test_import_traversal.py` — 1,089 lines, **97 tests** (91 run, 6 skipped with
+  exact platform reasons). Includes the six `maintenance.is_link` risk-gate evidence tests.
+
+**Files modified (4):**
+- `scripts/Universal/shared/importing.py` — ~+521 / −9, now 1,336 lines. `natural_key`,
+  `RootBreadth`/`classify_root_breadth`/`is_broad_root`, `is_hidden_name`/`has_hidden_attribute`,
+  `capture_identity`, and `scan_roots` with its helpers. One new import edge:
+  `from shared.maintenance import is_link`.
+- `files/tests/test_plan3_boundaries.py` — ~+120 / −24. Three guards narrowed as Phase 2
+  delivered what they forbade, plus three new guards pinning the maintenance edge to `is_link`
+  and proving `maintenance.py` was not rearranged.
+- `md-instructions/Handoff.md` — the Phase 2 record, the Current Focus rewrite, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row,
+  recorded start-state "Phase reached", and the next action only.
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — status/baseline header fields.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated or restored.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files); no
+  rename or recase in `git diff --name-status`.
+- All **22** approved screenshots unchanged and unstaged (10 drop1 + 12 drop2).
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; `config.toml`, `requirements.txt`, both launchers, `shared/release.py`,
+  `shared/cancellation.py`, `shared/output_paths.py`, `shared/config.py`, `shared/maintenance.py`,
+  `launcher.py` and all six production panels **unchanged**; no new dependency.
+- No runtime data, settings, outputs or source media touched. Every fixture tree was built under
+  `tmp_path` and thrown away; the scan is read-only and a before/after mode-size-mtime snapshot
+  proves it.
+
+**Verification:** **1481 collected** (1381 + 100); **1470 passed, 11 skipped, 1 warning**; theme
+suite **17/17 executed**; `verify.py` **RESULT: PASS** on three consecutive runs with identical
+counts; `compileall` exit 0; `git diff --check` clean. Six of the eleven skips are new and each
+names its exact platform limitation (five `WinError 1314` symlink-privilege, one case-insensitive
+filesystem); real NTFS junctions ran for real without elevation. No Tk skip transient occurred.
+
+**Next:** Phase 3 (imported-file manager, deduplication, atomic transactions) — **not started**,
+pending explicit maintainer approval.
+
+### 2026-08-08 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 1 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** unchanged. **Phase 1 start SHA:** `d97b710b530555ec00e1f2c31b91699cf3c25449`
+(the approved Phase 0 commit, equal to its upstream at start). No fetch, merge, reset, stash,
+rebase or force-push; `master` was not touched and remains
+`563df9884497032e19abd4437a0e66584cd9ec12`.
+
+**Files added (5):**
+- `scripts/Universal/shared/importing.py` — 833 lines. The frozen importing vocabulary. Tk-free,
+  thread-free, filesystem-free.
+- `scripts/Universal/shared/job_control.py` — 737 lines. The frozen job vocabulary, the legal
+  transition table, and `freeze_options`.
+- `files/tests/test_importing.py` — 689 lines, **103 tests**.
+- `files/tests/test_job_control.py` — 721 lines, **134 tests**.
+- `files/tests/test_plan3_boundaries.py` — 423 lines, **70 structural tests**.
+
+**Files modified (3):**
+- `files/tests/test_release_packaging.py` — ~+27 / −8. The maintainer-approved option (a)
+  remediation only: the obsolete real-worktree precondition now asserts `config.toml` present and
+  `config-template.toml` **absent**; the substantive archive assertion is byte-identical; the
+  synthetic-root tests are untouched; `import os` hoisted; the module docstring's obsolete
+  coexistence sentence corrected. Nothing was deleted, skipped or xfailed.
+- `md-instructions/Handoff.md` — the Phase 1 record, the Current Focus rewrite, the Phase 0 open
+  item struck through as resolved, and this entry.
+- `md-instructions/don't-delete/…-Master-Implementation-Plan-Index.md` — Plan 3 status row and
+  the recorded start-state "Phase reached" only.
+
+**Files deleted or renamed:** none. `config-template.toml` was **not** recreated, restored,
+generated, opened, staged or packaged.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact, no alias; `md-instructions/don't-delete/` intact (4 files). No
+  rename or recase anywhere in `git diff --name-status`.
+- All **22** approved screenshots unchanged and unstaged (10 drop1 + 12 drop2), and now asserted
+  by exact filename in `test_plan3_boundaries.py`.
+- Root `config-template.toml` absent from worktree, index and committed tree.
+- `version.py` `0.5.1`; `config.toml`, `scripts/requirements.txt`, both root launchers,
+  `shared/release.py`, `shared/cancellation.py`, `shared/output_paths.py`, `shared/config.py`,
+  `launcher.py` and all six production panels **unchanged**; no new dependency.
+- No runtime data, settings, outputs or source media touched.
+
+**Verification:** **1381 collected** (1074 + 307); **1376 passed, 5 skipped, 1 warning**; focused
+341 passed; theme suite **17/17 executed**; `verify.py` **RESULT: PASS**; `compileall` exit 0;
+`git diff --check` clean. Phase 1 added no skip and no warning. The Tk skip transient recurred on
+one `verify.py` invocation (14 skips) and did not reproduce across three further runs.
+
+**Next:** Phase 2 (safe natural traversal core) — **not started**, pending explicit maintainer
+approval.
+
+### 2026-08-08 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 0 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
+
+**Branch:** **new** — `feature/0.6.0-drop3-shared-job-controls-importing`, created from verified
+local `master`. It existed neither locally nor on `origin` beforehand (`git rev-parse --verify`
+→ *"Needed a single revision"*; `git ls-remote --heads origin` → empty).
+**Phase 0 start SHA:** `563df9884497032e19abd4437a0e66584cd9ec12` — the PR #3 merge commit,
+confirmed byte-exact against `origin/master` after `git fetch origin --no-prune`.
+**Local `master`:** fast-forwarded `bada8a3dee87acf6a6619252bd31cdee429f1711` →
+`563df98…` with `git merge --ff-only origin/master`, after proving the old head was an ancestor.
+No prune, reset, rebase, stash, clean, force-push or history rewrite at any point. The Drop 2
+branch was not developed on and was not deleted.
+
+**Files added (0 by this session).**
+
+**Files modified (2):**
+- `md-instructions/Handoff.md` — the new Current Focus, the complete Phase 0 record (branch and
+  start state, ancestry table, the `config-template.toml` absence contract, baseline evidence,
+  the two recorded failures, the Tk skip transient, the skill audit, the read-only
+  implementation-surface reconnaissance and its drift list, open items, next action), the
+  demotion of Plan 2's sections to *Previous Focus*, and this entry.
+- `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`
+  — current status/contract only: §4 post-merge baseline and the replaced template rule, the §5
+  Plan 2/Plan 3 status rows and status note, §10's template rule, §15's immediate next action,
+  and a new Plan 3 recorded start state. The nine-plan structure, ownership sections and
+  dependency graph are untouched.
+
+**Files newly tracked (1):**
+- `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` — the active temporary drop the
+  maintainer placed in the worktree; its status/authorization line was updated to record Phase 0
+  as complete. It is tracked **only** on this branch.
+
+**Files deleted or renamed:** none. No file was deleted by this session, including
+`config-template.toml`, which was already absent when the phase began.
+
+**Protected-contract checks at commit time:**
+- Four canonical names exact (`Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md`); no
+  case-variant alias; no rename or recase in `git diff --name-status`.
+- `md-instructions/don't-delete/` intact — all four permanent references present under exact names.
+- All **22** approved screenshots unchanged and unstaged: ten under
+  `files/UI-Prototype-Screenshots/v0.6.0-drop1/`, twelve under `…/v0.6.0-drop2/`.
+- Root `config-template.toml` **absent** from the worktree, the index and the committed tree;
+  proven untracked before anything else; no `git clean`, wildcard or recursive deletion used.
+- `version.py` `0.5.1`; `config.toml`, `scripts/requirements.txt`, both root launchers,
+  packaging and every production module unchanged; no new dependency.
+- No runtime data, user settings, outputs or source media touched. `files/runtime-data/` and
+  `files/test-logs/` remain gitignored and untouched.
+
+**Verification:** 1074 collected; **1067 passed, 2 failed, 5 skipped, 1 warning**; theme suite
+**17/17 executed**; `verify.py` **RESULT: FAIL** — `pytest` FAIL, `deps`/`docs`/`docnames`/`config`
+PASS; `compileall -q scripts files/tests` exit 0; `git diff --check` and
+`git diff --cached --check` clean. The two failures are
+`test_release_packaging.py::test_the_untracked_template_beside_it_is_still_absent[Windows|MacOS]`,
+whose line-147 precondition requires the now-removed template to exist; the packaging safety
+property is still proven by two other tests that pass. Not repaired here — Phase 0 may not edit
+tests. Every skip and the single warning are named in the Phase 0 record above.
+
+**Next:** Phase 1 (pure contracts and compatibility boundaries) — **not started**, pending
+explicit maintainer approval.
 
 ### 2026-08-04 — HOME-PC — v0.6.0 Drop 2 (Plan 2) Phase 5 — committed and pushed to `feature/0.6.0-drop2-config-output-maintenance-foundation`
 

@@ -15,6 +15,65 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — shared importing and job-control foundation (v0.6.0 Drop 3, approved 2026-08-10)
+
+> Four new shared modules that **no production tool uses yet**. Plan 3 builds the importer and
+> the run controls once so that Plans 4–8 can adopt them instead of growing six divergent
+> versions. **Nothing a user can reach behaves differently:** the launcher still lists exactly
+> six tools, no panel imports any of this, and `version.py` is still `0.5.1`.
+
+- **`shared/importing.py`** — immutable import vocabulary (supported-type catalog, frozen
+  per-import options, roots, occurrences, problems, requests, results and snapshots); a
+  read-only, non-following traversal core that refuses symlinks, Windows junctions and other
+  reparse points and reports them rather than walking them; natural ordering that emits a
+  folder's compatible direct files before its child directories and sorts `1, 2, 10` correctly;
+  optional hidden-folder inclusion, default off; and `ImportedFileManager`, which owns the
+  ordered list, mints stable occurrence IDs, restores selection by ID after any rebuild, moves a
+  multi-selected block as one unit, deduplicates by non-following file identity with an explicit
+  per-import duplicate override, and commits transactions atomically. Removing or clearing the
+  list never deletes a source file, and neither does anything else here.
+- **`shared/import_coordination.py`** — one background scan at a time, with the broad-root
+  warning raised **before** any worker is created, live discovered counts published on a queue,
+  Plan 2's captured 1,000-result threshold confirmed **after** a completed scan, and an atomic
+  commit that a cancelled, declined, failed, closed or conflicting import never reaches. Cancel
+  Import is its own per-operation event with no connection to a processing job's cancellation.
+- **`shared/job_control.py`** — a cooperative run controller that is truthful about what it can
+  promise: a pause request stays "Pause requested" through an indivisible stage and becomes
+  "Paused" only on the worker's acknowledgement, cancel wakes a paused worker and reaches
+  "Cancelled" only after cleanup, and no thread or process is ever suspended. Plus one frozen
+  configuration per run, a UI-neutral lock and action-availability derivation, ordered item
+  outcomes that do not let one item failure fail the job, Retry Failed built against the exact
+  original snapshot, typed events with stale/post-terminal rejection, a Summary that
+  structurally cannot show a raw command or traceback while Details keeps every one, a bridge
+  into the **one existing** session logger, progress that never rounds an unfinished run up to
+  100%, and a conservative current-run ETA that says `Calculating…` rather than guess.
+- **`shared/job_ui.py`** — narrow compositional Tk adapters for the above: one main-thread queue
+  pump owning the single `after` chain, explicit thread ownership that rejects a worker's widget
+  access before any widget is touched, reuse of the existing shared `ProgressIndicator`,
+  close-safe idempotent teardown that leaves no callback behind, `ACT.*` styles on Windows with
+  no generic ttk style touched, and the native macOS/aqua appearance preserved by asking for no
+  style at all.
+- **Developer-only manual harness** `files/tests/manual_plan3_harness.py`, used for the Windows
+  manual matrix. It has no launcher entry, is never collected as a test, is imported by nothing
+  under `scripts/`, ships in neither release archive, and runs no real work.
+- **1,460 tests** across nine focused suites, including structural guards proving the three
+  Tk-free modules import no Tk, that no production module or launcher adopts any of this, and
+  that no runtime dependency was added.
+
+### Changed — Plan 3 closed out (v0.6.0 Drop 3 Phase 10, 2026-08-10)
+
+- The lasting importing/job-control architecture moved into `Briefing.md`, the non-obvious
+  Plan 3 choices into `Decisions.md`, and the final verification, approvals and deferrals into
+  `Handoff.md`. The master implementation index now records Drop 3 as complete and approved and
+  awaiting integration, with Plan 4 as the next unopened plan.
+- The temporary drop `md-instructions/0.6.0-drop3-shared-job-controls-importing.md` was retired,
+  as its plan directs, only after that transfer.
+- **No application source, packaging, screenshot or configuration change** is part of the
+  closeout, and **no version bump, tag, release, publication, merge or branch deletion** was
+  performed. The Windows manual matrix passed by explicit maintainer attestation; **exact
+  100%-display-scaling confirmation was not independently recorded**, and **Windows 125% scaling
+  and live macOS remain deferred, not passed**.
+
 ### Added — `config.toml` in both release archives (v0.6.0 Drop 2 Phase 8, 2026-08-07)
 
 > Both platform archives now ship the committed root configuration, and the maintainer's
