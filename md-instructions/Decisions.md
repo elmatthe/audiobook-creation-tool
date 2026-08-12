@@ -4,6 +4,62 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-11 — Image-format capability is a fifth shared module, proved by behaviour rather than by import, with decode and encode kept separate and a missing encoder refusing rather than substituting
+
+**Decision (v0.6.1 Plan 4, Phase 1).** Four choices, recorded here because Phase 1 requires a
+new `shared/` module to justify itself in this log — the module-split precedent from Plan 3 §7.
+
+**1. A new `shared/image_capabilities.py` rather than an extension of an existing module.**
+The phase's instruction is to prefer extending something that already exists, so the four
+candidates were checked before adding a fifth: `ffmpeg_utils.py` resolves and configures external
+*binaries* and pydub, `metadata.py` is M4B/MP4 tag mapping, `paths.py` is project-relative paths,
+and `bootstrap.py` is first-run setup and installation. **Why none of them:** an image codec
+capability is not a binary on PATH, not an audio tag, not a path and not a setup step, and
+putting it in the closest of them (`ffmpeg_utils.py`, on the grounds that both "probe for
+something optional") would mean a module whose docstring promises ffmpeg answering questions
+about Pillow plugins. That is the kind of shared module later readers stop trusting. The new
+module imports only the standard library at module level, so it costs nothing to import on a
+machine missing every optional image dependency.
+
+**2. Decode and encode are separate capabilities and are never collapsed into one boolean.**
+`pillow-heif` wraps a `libheif` build that may have been compiled with a decoder and no encoder,
+so "HEIC works" is two different questions. **Why it matters here rather than in the abstract:**
+the Cover tool has a source-side *replacement* mode. A machine that can read HEIC but not write
+it, reported as one boolean, would either crash mid-run or write a JPEG over an original's
+name — an irreversible, silent format change to the user's own file. Two flags make that state
+representable, and the panel offers HEIC for import while refusing it for output.
+
+**3. Capability is proved by encoding one real pixel, not by an import succeeding.**
+`register_heif_opener()` registers a *saver* whether or not an encoder exists behind it, so
+asking Pillow's registry would report an encoder that is not there. The probe therefore imports,
+registers, checks that Pillow genuinely gained the HEIF reader, and then encodes a 1×1 image to
+memory and sees what happens. **Why this shape:** it also means the module depends on no upstream
+symbol beyond `register_heif_opener`, so a `pillow-heif` release that renames or drops its own
+capability-query helpers still probes correctly. The probe never raises — every failure becomes a
+capability that says what is missing, with a truthful `detail` string for the log — which is what
+replaces the bare `try: import pillow_heif … except Exception: pass` that previously sat at
+module scope in `cover_resizer.py` and advertised support it had not verified.
+
+**4. A missing encoder refuses; it does not substitute (Decision 3A).** `resize_for_audiobook`
+now asks the probe before writing a `.heic`/`.heif` destination and raises
+`UnsupportedImageFormat` when it cannot honour the format. The pre-existing `.jpg` fallback for
+*unknown* extensions such as `.webp` is deliberately untouched: that format was never advertised
+as preserved, so falling back breaks no promise, while HEIC was. `REPLACEABLE_SUFFIXES` and
+`written_suffix()` are unchanged, because they encode what the writer can round-trip *by format*,
+which is a static fact and not a property of the machine.
+
+**And one thing deliberately not done.** `pillow-heif` is now pinned at `1.5.0` in
+`scripts/requirements.txt` (Decision 54A: officially pinned, probed, tested) but is **not** added
+to `bootstrap.REQUIRED_IMPORTS`. That list is the set of imports a machine must have, and adding
+it would turn optional HEIC support into a startup requirement — the opposite of the degraded
+behaviour this module exists to make truthful.
+
+*Recorded at v0.6.1 Plan 4 Phase 1, 2026-08-11, on `feature/0.6.1-tts-cover-workflows`. These are
+implementation decisions taken under the drop's delegated authority; maintainer approval of
+Phase 1 is pending and no closeout claim is made here.*
+
+---
+
 ## 2026-08-10 — Plan 3 is infrastructure with no adopters; truthfulness is enforced by construction rather than by review; the Tk boundary is one guarded module; and the manual evidence is recorded with its gaps intact
 
 **Decision (v0.6.0 Drop 3, Phases 1–9; recorded at the Phase 10 closeout).** Six choices worth

@@ -43,6 +43,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import image_capabilities
 from shared import output_paths
 from shared import paths
 from shared import settings
@@ -50,13 +51,14 @@ from shared import ui_theme
 
 from PIL import Image  # needs: pip install pillow
 
-# Try to add HEIC/HEIF support if pillow-heif is installed
-try:
-    import pillow_heif
-
-    pillow_heif.register_heif_opener()
-except Exception:
-    pass
+# HEIC/HEIF is optional and is now *probed*, not assumed (Decision 54A). The
+# shared seam imports pillow-heif once, registers its Pillow plugin once, and
+# reports decode and encode capability separately (Decision 3A). It never
+# raises, so a machine without the codec still builds this panel and still
+# handles JPG/JPEG/PNG exactly as before. Called here rather than lazily so the
+# registration still happens at import, as it did when this was a bare
+# try/except.
+image_capabilities.heif_capability()
 
 APP_TITLE = "Audiobook Cover Resizer v1.1"
 TARGET_SIZE = 1024  # default square size for covers
@@ -89,6 +91,17 @@ def _remembered_dir(key: str) -> Path:
         if p.exists():
             return p
     return Path.home()
+
+
+def _image_filetypes() -> list[tuple[str, str]]:
+    """The import dialog's filter, following the probe rather than a fixed list.
+
+    Offering ``*.heic`` on a machine that cannot decode HEIC is exactly the
+    untruthfulness the centralized probe removes: the user picks a file the
+    tool then fails to open. JPG/JPEG/PNG are always present.
+    """
+    patterns = " ".join(f"*{s}" for s in image_capabilities.decodable_suffixes())
+    return [("Images", patterns), ("All files", "*.*")]
 
 
 def written_suffix(suffix: str) -> str:
@@ -262,7 +275,13 @@ def resize_for_audiobook(in_path: Path, out_path: Path, size: int, letterbox: bo
         save_kwargs = {"format": "JPEG", "quality": 95}
     elif ext == ".png":
         save_kwargs = {"format": "PNG", "compress_level": 6}
-    elif ext in [".heic", ".heif"]:
+    elif ext in image_capabilities.HEIF_SUFFIXES:
+        # Decision 3A: HEIC/HEIF in, HEIC/HEIF out. If this machine cannot
+        # encode HEIF the item fails here with a truthful message; it is never
+        # quietly written as a .jpg. Under source-side replacement that
+        # substitution would silently change an original's format, so the
+        # refusal has to happen before anything is written.
+        image_capabilities.require_encoder(ext)
         save_kwargs = {"format": "HEIF", "quality": 95}
     else:
         out_path = out_path.with_suffix(".jpg")
@@ -439,10 +458,7 @@ class CoverResizerUI(ttk.Frame):
         files = filedialog.askopenfilenames(
             title="Select cover images",
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
-            filetypes=[
-                ("Images", "*.jpg *.jpeg *.png *.heic *.heif"),
-                ("All files", "*.*"),
-            ],
+            filetypes=_image_filetypes(),
         )
         if not files:
             return

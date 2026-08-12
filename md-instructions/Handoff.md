@@ -2,8 +2,8 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phase 0 complete; Phase 1 has NOT
-begun.** The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0 and 1 complete; Phase 2 has
+NOT begun.** The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
 its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
 registration into one unified PDF/TXT queue. Maintainer decisions 1A–7A are recorded in §7 of the
@@ -68,7 +68,53 @@ substring guard whose mechanism must be replaced),
 
 Phase 0 changed only `.gitignore`, this document and the temporary drop. No production code, test,
 requirement, launcher, packaging or version change; nothing merged, tagged, released or published;
-no Mac action taken. **Next action: Phase 1 approval.**
+no Mac action taken.
+
+### Phase 1 — Centralized image-capability detection and the `pillow-heif` pin (2026-08-11, HOME-PC)
+
+**Result: HEIC/HEIF is now a pinned, probed, separately-reported capability (Decisions 54A and
+3A), and the Cover panel consumes it instead of owning a bare optional import.** Five files
+changed — one new shared module, one new test module, `cover_resizer.py`, `scripts/requirements.txt`,
+and the two documents assigned to this phase. No behaviour changed for JPG/JPEG/PNG, and none of
+Phase 2's importer work was started.
+
+**What was built.** `scripts/Universal/shared/image_capabilities.py` replaces the module-level
+`try: import pillow_heif … except Exception: pass` that sat at `cover_resizer.py:53-59`. It
+imports the plugin once, registers it once (the cached answer is what makes registration
+exactly-once, under a lock so two workers cannot both register), and reports **decode and encode
+independently** — a `libheif` build can read HEIC and be unable to write it. Encode capability is
+proved by actually encoding a 1×1 image to memory, because `register_heif_opener()` registers a
+saver whether or not an encoder exists behind it. The probe never raises; every failure becomes a
+capability carrying a truthful reason. `resize_for_audiobook` now refuses a `.heic`/`.heif`
+destination it cannot honour, with `UnsupportedImageFormat`, rather than silently writing a
+`.jpg`; the pre-existing `.jpg` fallback for genuinely unknown extensions such as `.webp` is
+unchanged. `REPLACEABLE_SUFFIXES` and `written_suffix()` are byte-for-byte unchanged. The import
+dialog's filter now follows the probe rather than a hard-coded string. The reasoning for adding a
+fifth `shared/` module is recorded as an ADR in `Decisions.md`.
+
+**Dependency.** `pillow-heif==1.5.0` is now pinned in `scripts/requirements.txt`, replacing the
+commented-out `1.3.0` suggestion. Verified against PyPI on 2026-08-11: 1.5.0 is current stable
+(released 2026-07-22), `requires-python >=3.10`, `requires pillow>=11.1.0` (the project pins
+`12.2.0`), with cp312 wheels for `win_amd64`, `macosx_11_0_arm64` and manylinux. **It was not
+installed** — Phase 1 authorizes the pin, not an install — so this machine currently probes as
+HEIC-unavailable, which is exactly the degraded path the tests cover. `verify.py`'s pinning check
+and `release.py` needed no change, and `pillow_heif` was deliberately **not** added to
+`bootstrap.REQUIRED_IMPORTS`: that list is what a machine must have, and adding it would make
+optional HEIC support a startup requirement.
+
+**Gates.** 2556 passed, 13 skipped, 1 warning (2569 collected) against the Phase 0 baseline of
+2521/13/1 (2534 collected). The +35 is 34 new tests in `files/tests/test_image_capabilities.py`
+plus one automatically generated case — `test_no_production_module_imports_the_plan3_foundation`
+is parametrized over every production module, so the new shared module added a case, and it
+passes. Skips and the single third-party `pydub`/`audioop` `DeprecationWarning` are unchanged.
+`verify.py` → `RESULT: PASS`; `compileall` exit 0; `git diff --check` clean.
+
+**Not proven here, and not claimed.** Every capability state is constructed through injected
+probe seams, so nothing above is evidence that a real HEIC file decodes or encodes on any
+machine. Real HEIC behaviour is Phase 12 on Windows and Phase 13 on Apple Silicon, and neither
+substitutes for the other. No Mac action was taken.
+
+**Next action: Phase 2 approval.**
 
 ---
 
