@@ -32,6 +32,7 @@ removes only this operation's own temporary file.
 import queue
 import sys
 import threading
+import time
 from pathlib import Path
 
 import tkinter as tk
@@ -43,11 +44,15 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import config as shared_config
 from shared import image_capabilities
+from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import ui_theme
+from shared.import_coordination import ImportCoordinator
+from shared.importing import ImportedFileManager, SupportedType, SupportedTypeCatalog
 
 from PIL import Image  # needs: pip install pillow
 
@@ -91,6 +96,34 @@ def _remembered_dir(key: str) -> Path:
         if p.exists():
             return p
     return Path.home()
+
+
+def build_catalog() -> SupportedTypeCatalog:
+    """The image types this machine can actually import.
+
+    JPG/JPEG and PNG are always offered — Pillow provides them unconditionally
+    and no probe can take them away. HEIC/HEIF is offered only when the
+    centralized capability seam says this machine can *decode* it.
+
+    **Decode is the right question here, and only decode.** A build that reads
+    HEIC but cannot write it may still import one; the output side refuses
+    separately at write time rather than silently substituting a JPEG
+    (Decision 3A). Collapsing the two would either hide importable files or
+    promise an output this machine cannot produce.
+
+    Decision 16A supplies the rest: one control per type, every offered type
+    selected by default — which is what ``ImportOptions.for_catalog`` does with
+    ``default_selection()``.
+    """
+    offered = set(image_capabilities.decodable_suffixes())
+    types = [
+        SupportedType("jpg", "JPEG image", (".jpg", ".jpeg")),
+        SupportedType("png", "PNG image", (".png",)),
+    ]
+    heif = tuple(s for s in image_capabilities.HEIF_SUFFIXES if s in offered)
+    if heif:
+        types.append(SupportedType("heic", "HEIC / HEIF image", heif))
+    return SupportedTypeCatalog(tuple(types))
 
 
 def _image_filetypes() -> list[tuple[str, str]]:
@@ -295,14 +328,44 @@ def resize_for_audiobook(in_path: Path, out_path: Path, size: int, letterbox: bo
 
 
 class CoverResizerUI(ttk.Frame):
-    """The Cover Resizer tool as an embeddable frame."""
+    """The Cover Resizer tool as an embeddable frame.
 
-    def __init__(self, parent: tk.Misc):
+    v0.6.1 Plan 4 Phase 2 replaced this panel's own imported-file list — a
+    ``list[Path]``, a ``tk.Listbox`` and three hand-written buttons — with the
+    shared Plan 3 importing foundation. The
+    :class:`~shared.importing.ImportedFileManager` is now the **only**
+    authority on which files are imported, in what order, and which are
+    selected; nothing here keeps a parallel copy.
+
+    Every keyword below is a **seam with a production default**, present so the
+    suite can drive a real panel deterministically — a fake dialog, a stub
+    thread factory, an injected clock, an in-memory configuration — without a
+    display server, a real home directory or a real broad filesystem root. The
+    launcher passes none of them.
+    """
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        effective_config: object | None = None,
+        clock=None,
+        id_factory=None,
+        scanner=None,
+        thread_factory=None,
+        home: object | None = None,
+        choose_files=None,
+        choose_folder=None,
+        confirm_broad_root=None,
+        confirm_large_result=None,
+    ):
         super().__init__(parent)
 
-        self.files: list[Path] = []
+        self._closed = False
 
-        # Cancellation / worker plumbing (mirrors the TTS tool's pattern).
+        # Cancellation / worker plumbing (mirrors the TTS tool's pattern). This
+        # event belongs to the *processing* run and to nothing else: `Cancel
+        # Import` goes to the coordinator and never reaches it.
         self._busy = threading.Event()
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
@@ -316,32 +379,50 @@ class CoverResizerUI(ttk.Frame):
         output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
         self._last_run_dir = None
 
-        # Top buttons
-        top = ttk.Frame(self)
-        top.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 6))
-
-        self.btn_add = ttk.Button(top, text="Import Images", command=self.add_files)
-        self.btn_add.pack(side=tk.LEFT)
-
-        self.btn_remove = ttk.Button(top, text="Remove Selected", command=self.remove_selected)
-        self.btn_remove.pack(side=tk.LEFT, padx=8)
-
-        self.btn_clear = ttk.Button(top, text="Clear List", command=self.clear_list)
-        self.btn_clear.pack(side=tk.LEFT)
-
-        self.count_var = tk.StringVar(value="0 file(s)")
-        ttk.Label(top, textvariable=self.count_var).pack(side=tk.RIGHT)
-
-        # File list
-        list_frame = ttk.Frame(self)
-        list_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10)
-
-        self.listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, height=12)
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        sb = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox.configure(yscrollcommand=sb.set)
+        # --- the shared importing foundation ------------------------------ #
+        # One pump owns this panel's whole scheduled-callback chain: the import
+        # poller rides its `schedule` seam and the processing worker's queue is
+        # registered as a drain. There is no second `after` loop.
+        self._pump = job_ui.MainThreadPump(self)
+        self.import_catalog = build_catalog()
+        self._manager = ImportedFileManager(id_factory=id_factory)
+        self._coordinator = ImportCoordinator(
+            self._manager,
+            scanner=scanner,
+            clock=time.monotonic if clock is None else clock,
+            id_factory=id_factory,
+            # Handed to the coordinator rather than the adapter deliberately:
+            # the coordinator asks it *before* it creates a thread, so a decline
+            # starts no worker at all.
+            confirm_broad_root=(self._confirm_broad_root if confirm_broad_root is None
+                                else confirm_broad_root),
+            thread_factory=thread_factory,
+            **({} if home is None else {"home": home}),
+        )
+        self.importer = job_ui.ImportAdapter(
+            self,
+            catalog=self.import_catalog,
+            effective_config=(shared_config.get_effective() if effective_config is None
+                              else effective_config),
+            pump=self._pump,
+            manager=self._manager,
+            coordinator=self._coordinator,
+            # No theme bundle: this panel stays classic on Windows. Converting
+            # it to the namespaced design system belongs to Plan 9, and an empty
+            # style name is exactly what ttk means by "draw this the way the
+            # platform draws it".
+            theme=None,
+            clock=time.monotonic if clock is None else clock,
+            id_factory=id_factory,
+            choose_files=self._choose_files if choose_files is None else choose_files,
+            choose_folder=self._choose_folder if choose_folder is None else choose_folder,
+            confirm_large_result=(self._confirm_large_result
+                                  if confirm_large_result is None
+                                  else confirm_large_result),
+            list_height=12,
+        )
+        self.importer.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True,
+                                 padx=10, pady=(10, 6))
 
         # Options
         options = ttk.LabelFrame(self, text="Resize Options (applies to all images)")
@@ -449,43 +530,74 @@ class CoverResizerUI(ttk.Frame):
         )
         self.btn_cancel.pack(side=tk.LEFT, padx=8)
 
-        # Start draining the worker->GUI queue on the main thread.
-        self.after(150, self._pump_queue)
+        # The worker->GUI queue is a drain on the one pump, not a second chain.
+        self._pump.add_drain(self._drain_worker_queue)
+        self._pump.start()
 
-    # ------- UI callbacks -------
+    # ------- the imported list (owned by the shared manager) -------
 
-    def add_files(self):
-        files = filedialog.askopenfilenames(
+    @property
+    def manager(self) -> ImportedFileManager:
+        """The single authority on the imported list. Read it; never shadow it."""
+        return self._manager
+
+    def imported_files(self) -> list[Path]:
+        """The imported paths, in list order, from the manager's snapshot.
+
+        Main thread only, and the list it returns is a plain copy: what a run
+        freezes is this value, so a later import mutates the manager and never
+        a run that has already started.
+        """
+        return [imported.path for imported in self._manager.snapshot().files]
+
+    # ------- dialogs and confirmations, all on the owner thread -------
+
+    def _choose_files(self) -> tuple[str, ...]:
+        """The Add Files dialog. Order is the dialog's, and it is preserved."""
+        chosen = tuple(filedialog.askopenfilenames(
+            parent=self,
             title="Select cover images",
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
             filetypes=_image_filetypes(),
+        ) or ())
+        if chosen:
+            settings.set(KEY_INPUT_DIR, str(Path(chosen[0]).parent))
+        return chosen
+
+    def _choose_folder(self) -> tuple[str, ...]:
+        """The Add Folder dialog. One root, returned as the tuple the seam wants."""
+        chosen = filedialog.askdirectory(
+            parent=self,
+            title="Select a folder of cover images",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
+            mustexist=True,
         )
-        if not files:
-            return
+        if not chosen:
+            return ()
+        settings.set(KEY_INPUT_DIR, str(chosen))
+        return (str(chosen),)
 
-        for f in files:
-            p = Path(f)
-            self.files.append(p)
-            self.listbox.insert(tk.END, str(p))
+    def _confirm_broad_root(self, roots) -> bool:
+        """Asked before a scan thread exists, so declining starts no worker."""
+        listed = "\n".join(str(entry) for entry in roots)
+        return job_ui.ask_confirm(
+            self,
+            "Scan a very broad folder?",
+            "This covers a whole drive or your home folder:\n\n"
+            f"{listed}\n\nScanning it can take a long time. Continue?",
+        )
 
-        settings.set(KEY_INPUT_DIR, str(Path(files[0]).parent))
-        self.update_count()
+    def _confirm_large_result(self, outcome) -> bool:
+        """Answered after the scan and before anything is committed."""
+        return job_ui.ask_confirm(
+            self,
+            "Add a large number of images?",
+            f"{outcome.proposed_count:,} images are ready to be added.\n\n"
+            "Adding this many at once can make the list slow to work with. "
+            "Add them?",
+        )
 
-    def remove_selected(self):
-        sel = list(self.listbox.curselection())
-        sel.reverse()
-        for idx in sel:
-            self.listbox.delete(idx)
-            del self.files[idx]
-        self.update_count()
-
-    def clear_list(self):
-        self.listbox.delete(0, tk.END)
-        self.files.clear()
-        self.update_count()
-
-    def update_count(self):
-        self.count_var.set(f"{len(self.files)} file(s)")
+    # ------- UI callbacks -------
 
     def _on_source_side_change(self):
         """Enable the two choices only while source-side mode is on.
@@ -546,7 +658,10 @@ class CoverResizerUI(ttk.Frame):
     def start_resize(self):
         if self._busy.is_set():
             return
-        if not self.files:
+        # The manager's snapshot is the input, captured here on the main thread.
+        # Everything below works on this frozen copy.
+        files = self.imported_files()
+        if not files:
             messagebox.showwarning("No files", "Please import images first.")
             return
 
@@ -561,7 +676,6 @@ class CoverResizerUI(ttk.Frame):
             return
 
         mode = self.effective_mode()
-        files = list(self.files)
 
         if mode == ACTION_REPLACE:
             # Validate every source *before* the dialog, so the count shown is
@@ -622,10 +736,13 @@ class CoverResizerUI(ttk.Frame):
         self._log_q.put(("log", "Cancelling… will stop after the current image.\n"))
 
     def disable_inputs(self, state: bool):
+        # The imported list and the import options lock as one unit through the
+        # adapter. The import *status* bar deliberately does not: a scan that was
+        # already running when a resize started can still be cancelled, and that
+        # cancellation reaches the coordinator only — never this panel's
+        # processing cancel event.
+        self.importer.set_locked(state)
         widgets = [
-            self.btn_add,
-            self.btn_remove,
-            self.btn_clear,
             self.entry_size,
             self.chk_letterbox,
             self.btn_convert,
@@ -647,9 +764,16 @@ class CoverResizerUI(ttk.Frame):
         self.log.insert(tk.END, text)
         self.log.see(tk.END)
 
-    # ------- worker -> GUI queue pump (main thread) -------
+    # ------- worker -> GUI queue drain (main thread, on the one pump) -------
 
-    def _pump_queue(self):
+    def _drain_worker_queue(self):
+        """Drain the processing worker's queue. Registered once, on the pump.
+
+        This is the same body the panel's own ``after(150, ...)`` chain used to
+        run; what changed is that it no longer reschedules itself. The single
+        :class:`~shared.job_ui.MainThreadPump` calls it on every tick, alongside
+        the import poller, so exactly one Tk callback is ever outstanding.
+        """
         try:
             while True:
                 kind, payload = self._log_q.get_nowait()
@@ -662,13 +786,36 @@ class CoverResizerUI(ttk.Frame):
                     self._finish_idle()
         except queue.Empty:
             pass
-        self.after(150, self._pump_queue)
 
     def _finish_idle(self):
         self._busy.clear()
         self._cancel_event.clear()
         self.disable_inputs(False)
         self.btn_cancel.configure(state=tk.DISABLED)
+
+    # ------- teardown -------
+
+    def close(self):
+        """Close the import side and stop the pump. Idempotent, and safe late.
+
+        Closing the adapter cancels any running scan, joins its worker within
+        the coordinator's bounded timeout and makes every later event inert;
+        closing the pump cancels the outstanding callback and forgets every
+        drain. Nothing is left scheduled.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        importer = getattr(self, "importer", None)
+        if importer is not None:
+            importer.close()
+        pump = getattr(self, "_pump", None)
+        if pump is not None:
+            pump.close()
+
+    def destroy(self):
+        self.close()
+        super().destroy()
 
     # ------- worker (thread) -------
 
@@ -765,7 +912,13 @@ def main():
     root.title(APP_TITLE)
     root.geometry("900x640")
     root.minsize(900, 640)
-    build_ui(root)
+    ui = build_ui(root)
+
+    def _close():
+        ui.close()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", _close)
     root.mainloop()
 
 

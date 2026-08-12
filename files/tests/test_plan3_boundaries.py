@@ -61,6 +61,33 @@ PANELS = (
     "mp3_tools/m4b_metadata_editor.py",
 )
 
+#: The production modules that have **adopted** the Plan 3 foundation, and are
+#: therefore excluded from the two no-adoption guards below.
+#:
+#: Plan 3 shipped the foundation adopted by nothing, and these guards proved it.
+#: Plan 4 adopts it, one panel at a time, so the guards are **narrowed** to the
+#: modules that have not adopted yet rather than deleted or weakened — every
+#: other panel and every other module in ``scripts/Universal/`` is still held to
+#: exactly the boundary Plan 3 approved.
+#:
+#: v0.6.1 Plan 4 Phase 2 added the Cover panel. Plan 4 Phase 11 owns the rest of
+#: this migration — the TTS panel, and replacing the substring mechanism in
+#: ``test_tool_output_integration`` — so nothing else belongs here yet. Adding a
+#: name to this tuple is the only way a module can start using the foundation,
+#: and ``test_exactly_these_production_modules_have_adopted_the_foundation``
+#: pins the tuple against the tree so it cannot drift.
+ADOPTED = ("mp3_tools/cover_resizer.py",)
+
+
+def relative_name(path: Path) -> str:
+    return str(path.relative_to(UNIVERSAL)).replace(os.sep, "/")
+
+
+#: Everything still required to know nothing of Plan 3.
+UNADOPTED_SOURCES = tuple(
+    path for path in PRODUCTION_SOURCES if relative_name(path) not in set(ADOPTED))
+UNADOPTED_PANELS = tuple(entry for entry in PANELS if entry not in set(ADOPTED))
+
 
 def parse(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -536,10 +563,13 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize(
-    "path", PRODUCTION_SOURCES, ids=lambda p: str(p.relative_to(UNIVERSAL)).replace(os.sep, "/"))
+@pytest.mark.parametrize("path", UNADOPTED_SOURCES, ids=relative_name)
 def test_no_production_module_imports_the_plan3_foundation(path):
-    """The whole shipped tree, not only the six panels."""
+    """The whole shipped tree, minus the modules in ``ADOPTED``.
+
+    Unchanged in mechanism and in strictness; only the parametrization narrowed,
+    so every module that has not adopted is held to the same boundary.
+    """
     modules = imported_names(parse(path))
     for plan3 in PLAN3_MODULE_NAMES:
         assert f"shared.{plan3}" not in modules, (path.name, plan3)
@@ -547,7 +577,7 @@ def test_no_production_module_imports_the_plan3_foundation(path):
         assert f"shared.{plan3}" not in modules
 
 
-@pytest.mark.parametrize("relative", PANELS)
+@pytest.mark.parametrize("relative", UNADOPTED_PANELS)
 def test_the_launcher_and_every_panel_still_names_nothing_from_plan3(relative):
     text = (UNIVERSAL / relative).read_text(encoding="utf-8")
     for plan3 in PLAN3_MODULE_NAMES:
@@ -556,6 +586,50 @@ def test_the_launcher_and_every_panel_still_names_nothing_from_plan3(relative):
     for vocabulary in ("RunSnapshot", "RetryRequest", "FailureLog", "JobState",
                        "ImportedFileSnapshot", "SupportedTypeCatalog", "ScanRequest"):
         assert vocabulary not in text, (relative, vocabulary)
+
+
+def test_exactly_these_production_modules_have_adopted_the_foundation():
+    """``ADOPTED`` is measured against the tree, not trusted.
+
+    This is what keeps narrowing the two guards above honest: a module that
+    starts importing the foundation without being listed fails here, and a
+    module listed here that does *not* import it fails here too. So the
+    exclusion list can neither grow silently nor be padded to make a guard pass.
+    """
+    importers = set()
+    for path in PRODUCTION_SOURCES:
+        modules = imported_names(parse(path))
+        if any(f"shared.{plan3}" in modules or
+               any(entry.startswith(f"shared.{plan3}.") for entry in modules)
+               for plan3 in PLAN3_MODULE_NAMES):
+            importers.add(relative_name(path))
+    assert importers == set(ADOPTED), importers
+
+
+def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
+    """Adoption means *using* the shared services, not copying them.
+
+    Cover may name the foundation; what it may not do is define its own manager,
+    coordinator, poller, adapter or pump beside it. Checked by AST over the
+    panel's own class and function definitions rather than by substring, so a
+    comment or a docstring cannot pass or fail it.
+    """
+    forbidden = {
+        "ImportedFileManager", "ImportCoordinator", "ImportPoller",
+        "ImportAdapter", "MainThreadPump", "ImportedFileList", "ImportOptionsBar",
+        "ImportStatusBar", "JobController", "JobAdapter",
+    }
+    for relative in ADOPTED:
+        tree = parse(UNIVERSAL / relative)
+        defined = {
+            node.name for node in ast.walk(tree)
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        assert not (defined & forbidden), (relative, defined & forbidden)
+        modules = imported_names(tree)
+        assert "shared.importing" in modules, relative
+        assert "shared.import_coordination" in modules, relative
+        assert "shared.job_ui" in modules, relative
 
 
 def test_the_launcher_tool_registry_gained_no_seventh_entry():

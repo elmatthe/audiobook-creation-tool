@@ -460,6 +460,20 @@ def test_cover_leaves_imported_originals_untouched(output_base, tmp_path):
     assert cover_resizer.next_version_path  # dormant legacy helper still importable
 
 
+def _import_into_cover(ui, *paths):
+    """Put *paths* into the Cover panel the way the panel itself does.
+
+    v0.6.1 Plan 4 Phase 2 retired the panel's own ``files`` list; the shared
+    :class:`~shared.importing.ImportedFileManager` is now the only authority on
+    what is imported. Driving the adapter's own dialog seam keeps these tests
+    exercising the real direct-file path rather than reaching past it.
+    """
+    ui.importer._choose_files = lambda: tuple(paths)
+    ui.importer.add_files()
+    assert ui.imported_files() == list(paths)
+    return ui
+
+
 def test_cover_replacement_requires_all_three_gates(fresh_root, output_base, tmp_path):
     """The Phase 4 "unreachable" guard becomes the Phase 5 three-gate guard."""
     from mp3_tools import cover_resizer
@@ -470,7 +484,7 @@ def test_cover_replacement_requires_all_three_gates(fresh_root, output_base, tmp
     Image.new("RGB", (80, 40), (10, 20, 30)).save(src)
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
-    ui.files = [src]
+    _import_into_cover(ui, src)
 
     # Gate 1 closed: the radio alone is inert.
     ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
@@ -497,7 +511,7 @@ def test_cover_declining_confirmation_starts_nothing(fresh_root, output_base, tm
     before = src.read_bytes()
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
-    ui.files = [src]
+    _import_into_cover(ui, src)
     ui.var_source_side.set(True)
     ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
     monkeypatch.setattr(ui, "confirm_replacement", lambda count: False)

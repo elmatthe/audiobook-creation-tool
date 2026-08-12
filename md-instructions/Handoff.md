@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0 and 1 complete; Phase 2 has
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–2 complete; Phase 3 has
 NOT begun.** The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
 its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
@@ -115,6 +115,75 @@ machine. Real HEIC behaviour is Phase 12 on Windows and Phase 13 on Apple Silico
 substitutes for the other. No Mac action was taken.
 
 **Next action: Phase 2 approval.**
+
+### Phase 2 — Cover: shared importer adoption (2026-08-11, HOME-PC)
+
+**Result: the Cover panel is the first production panel to adopt the Plan 3 foundation.** Its
+own `self.files: list[Path]`, its `tk.Listbox`, its `add_files` / `remove_selected` /
+`clear_list` / `update_count` and its independent `after(150, …)` loop are gone. Processing
+still runs on the existing worker and queue, untouched.
+
+**Composition adopted — nothing reimplemented.** The panel builds one `ImportedFileManager`
+and one `ImportCoordinator`, hands both to one `job_ui.ImportAdapter`, and rides one
+`MainThreadPump`. The adapter supplies Add Files, Add Folder, Move Up, Move Down, Remove,
+Clear, the imported/selected counts, the per-type controls, include-hidden, allow-duplicates,
+the live discovered count and the import cancel control. `validate_direct_files`,
+`scan_roots`, `plan_transaction`, the broad-root warning and the captured large-result
+threshold are all consumed, never re-created — proven by an AST guard that fails if the panel
+defines any of those names itself.
+
+**Catalog and the HEIC boundary.** `build_catalog()` always offers JPG/JPEG and PNG, and
+offers HEIC/HEIF **only when Phase 1's centralized probe reports decode capability**. Decode
+is the only question asked here: a decode-only machine may import a HEIC, and the output side
+refuses separately at write time rather than substituting a JPEG (Decision 3A). No local
+`pillow_heif` import or registration returned to the panel. Decision 16A holds — one control
+per type, every offered type selected by default.
+
+**The manager is the single source of truth.** Displayed order, selection, count, removal,
+clearing and movement all come from it, and `imported_files()` reads its snapshot. A resize
+captures that snapshot on the main thread and freezes a plain copy, so a later import moves
+the manager and never a run that has already started. The worker still receives paths only.
+
+**One pump.** `MainThreadPump` owns the panel's whole scheduled-callback chain; the import
+poller rides its `schedule` seam and the processing worker's queue is registered as its single
+drain. `self.after(` no longer appears in the panel at all. `close()` (also reached through
+`destroy()`) closes the adapter and the pump, leaving nothing scheduled.
+
+**The two cancellations stay separate.** `Cancel Import` reaches the coordinator only;
+`Cancel` reaches the panel's own `_cancel_event` only. Locking inputs for a resize locks the
+imported list and the import options as one unit and deliberately leaves the import status
+bar alone, so a scan already running stays cancellable while a resize runs.
+
+**Two no-adoption guards were narrowed, by AST, and not weakened.** Plan 3 proved the
+foundation was adopted by nothing; Plan 4 makes that false for Cover. `ADOPTED` in
+`test_plan3_boundaries.py` now excludes exactly `mp3_tools/cover_resizer.py` from
+`test_no_production_module_imports_the_plan3_foundation` and
+`test_the_launcher_and_every_panel_still_names_nothing_from_plan3`; every other module and
+panel is held to the identical boundary. Two new guards keep that honest: one measures the
+real set of importers against `ADOPTED` (so the list can neither grow silently nor be padded),
+and one proves the adopting panel composes the services rather than defining its own. **The
+plan assigns guard migration to Phase 11**; Phase 2 did the minimum the universal
+full-suite gate forces, took only the Cover entry, and left the TTS entry and the substring
+mechanism in `test_tool_output_integration` for Phase 11 as written.
+
+**One pre-existing test needed updating.** `test_cover_declining_confirmation_starts_nothing`
+seeded the panel with `ui.files = [src]`; with that attribute retired the panel saw an empty
+list and opened a real modal warning dialog, which hung the suite. Both Cover sites now import
+through the adapter's own dialog seam via a small `_import_into_cover` helper, so they
+exercise the real shared direct-file path instead of reaching past it.
+
+**Gates.** 2607 passed, 13 skipped, 1 warning (2620 collected) against the Phase 1 baseline of
+2556/13/1 (2569 collected). The +51 is 51 new tests in `files/tests/test_cover_importing.py`,
+plus 2 new guards, minus the 2 parametrized cases the Cover exclusion removes. Skips and the
+single third-party `pydub`/`audioop` `DeprecationWarning` are unchanged. `verify.py` →
+`RESULT: PASS`; `compileall` exit 0; `git diff --check` clean.
+
+**Not started.** Phase 3's Details / List / Medium Thumbnail views, and Phase 4's
+`JobController`, output planning and Retry Failed. No dependency was installed or changed —
+`pillow-heif` is still pinned and still not installed locally, which is why the catalog on
+this machine truthfully offers JPG/JPEG and PNG only.
+
+**Next action: Phase 3 approval.**
 
 ---
 
