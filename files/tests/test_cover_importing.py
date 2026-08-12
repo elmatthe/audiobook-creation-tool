@@ -918,7 +918,10 @@ def test_the_two_cancellations_are_different_objects(make_panel):
 def test_exactly_one_pump_owns_the_panels_scheduled_callbacks(make_panel):
     panel = make_panel()
     assert panel._pump.running is True
-    assert panel._pump.drain_count == 1, "the worker queue is the single drain"
+    # Phase 3 added the browser's preview drain to this same chain. Two drains,
+    # still one pump: the count is what changed, the guarantee below is not.
+    assert panel._pump.drain_count == 2, (
+        "the processing worker queue and the browser both drain on the one pump")
     assert panel.importer.poller is not None
 
     source = PANEL_SOURCE.read_text(encoding="utf-8")

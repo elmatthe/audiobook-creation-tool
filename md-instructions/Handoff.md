@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–2 complete; Phase 3 has
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–3 complete; Phase 4 has
 NOT begun.** The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
 its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
@@ -184,6 +184,106 @@ single third-party `pydub`/`audioop` `DeprecationWarning` are unchanged. `verify
 this machine truthfully offers JPG/JPEG and PNG only.
 
 **Next action: Phase 3 approval.**
+
+### Phase 3 — Cover: Details / List / Medium Thumbnail browser (2026-08-12, HOME-PC)
+
+**Result: Decision 17A's three views exist, default to Details, and are projections of the
+Phase 2 manager rather than a second list.** Three files changed — one new test module,
+`cover_resizer.py`, and one assertion in `test_cover_importing.py`. No new production module,
+no dependency change, no `ACT.`-namespaced style, and no Phase 4 vocabulary anywhere.
+
+**What was built.** `CoverBrowser` lives inside `cover_resizer.py` and composes three widgets:
+a five-column `ttk.Treeview` for **Details** (filename, dimensions, format, file size, folder),
+a one-column `ttk.Treeview` for **List** (full path), and a `tk.Canvas` tile grid for **Medium
+Thumbnails**. All three sit on one raised page stack; switching between them is a `tkraise`
+plus a re-read of `manager.snapshot()`, so **order and selection survive by construction, not
+by being copied across**. Rows and tiles are keyed by occurrence id, so two deliberate
+duplicates of one path stay two independently selectable items. Nothing in the class sorts,
+filters or keeps a rival copy of the list — proved by AST.
+
+**Selection.** Both Treeviews are built `selectmode="none"` and all three views route every
+click and key through **one pure engine** (`resolve_selection` / `resolve_key`). That was a
+deliberate choice over Tk's native `extended` mode: the canvas has no native selection at all,
+so an engine was needed regardless, and using it everywhere gives the three views identical
+semantics with **anchors and ranges in manager order** rather than widget order. `Button-1`
+replaces, `Control-Button-1` and `Command-Button-1` toggle, `Shift-Button-1` extends, and
+arrows / Shift-arrows / Home / End / Control-a / Command-a navigate. Worth recording: Tk
+normalises binding names, so `bind()` reports `<Key-Up>` for `<Up>` and **`<Mod1-…>` for
+`<Command-…>`** — Command-click really is registered separately from Control-click, and a test
+that looks for the literal string it asked for will wrongly conclude it is missing.
+
+**Following the manager without a second callback chain.** The shared `ImportAdapter` builds
+its own `ImportedFileList` and exposes no selection-change hook, so rather than reaching into
+its private slots the browser compares `manager.revision` and `manager.selection` against what
+it last rendered, on the pump tick it already rides (`_sync_if_stale`). Every importer mutation
+— Remove, Clear, Move Up, Move Down, a committed import — advances the revision, so this
+catches all of them through the public contract. Selection made in the browser is pushed back
+to the importer's rows so the two never disagree on screen.
+
+**Thumbnails: lazy, visible-only, bounded.** `read_image_facts` and `encode_thumbnail` run on a
+decoder thread and produce **plain data only** — a frozen `ImageFacts` and PNG bytes; the
+`PhotoImage` is built on the main thread in `_accept`. Only the visible span is requested, and
+`visible_span` **hard-caps** it at `MAX_VISIBLE_ITEMS` (60). That cap is the real guarantee, not
+a nicety: an unmapped widget honestly answers "all of it" for its own extent, so without the
+cap a 5,000-image import would decode 5,000 previews. `ThumbnailCache` is an LRU with an
+explicit finite bound (`THUMBNAIL_CACHE_LIMIT` = 96 entries, deliberately a count and not a
+byte budget so eviction is deterministic) and it is the **only owner** of a decoded image —
+which is what makes eviction, `retain()` and `clear()` the whole lifetime story. Details and
+List never ask for an image at all.
+
+**Late results are inert.** A result is dropped if its occurrence was removed, if the manager
+moved to a newer revision while it decoded, or if the browser closed. None is an error and
+none loses anything: the next refresh asks again for whatever is still visible.
+
+**A real defect this phase surfaced and fixed.** The first full run produced **16 warnings
+against a baseline of 1** — `PytestUnraisableExceptionWarning: Variable.__del__ … main thread
+is not in main loop`, scattered across a dozen unrelated test files. Cause: the new decoder
+threads do enough allocation to trigger cyclic GC **on a worker thread**, and any Tk
+`Variable.__del__` that runs off the main thread raises, because the tests never enter
+`mainloop`. It is not specific to the objects the thread holds — it collects whatever Tk
+garbage happens to be pending. The fix is `CoverBrowser.close()` joining its outstanding
+decoder batches within a bounded `WORKER_JOIN_TIMEOUT`, mirroring how the import coordinator
+joins its own worker; batches are capped at 60 items so the wait is short and finite. That took
+the count back to the inherited 1. **Any future phase that adds a background thread to a Tk
+panel should expect this class of warning and join, not suppress.**
+
+**Gates.** 2698 passed, 13 skipped, 1 warning (2711 collected) against the Phase 2 baseline of
+2607/13/1 (2620 collected). The **+91 is exactly the 91 new tests** in
+`files/tests/test_cover_browser.py`; no parametrized case was added or removed, because the
+browser is a class inside the existing panel rather than a new production module. Skips are the
+same 13 environmental ones (symlink privilege WinError 1314, case-insensitive filesystem,
+`JACK_RYAN_M4B_FOLDER` unset) and the single warning is still the third-party `pydub`/`audioop`
+`DeprecationWarning`. `verify.py` → `RESULT: PASS`; `compileall` exit 0; `git diff --check` on
+`'*.py'` exit 0.
+
+**One existing test changed, and why.** `test_exactly_one_pump_owns_the_panels_scheduled_callbacks`
+asserted `drain_count == 1`. The browser registers its preview drain on the *same* pump, so the
+count is now 2. Only that number and its comment moved — the two assertions that actually
+enforce the one-pump design (`"self.after(" not in source` and `source.count("MainThreadPump(")
+== 1`) are byte-identical and still pass, and a new test names both drains explicitly.
+
+**One production shape chosen to keep an existing guard untouched.**
+`test_cover_source_side.py::test_focus_is_set_on_cancel_and_never_on_the_destructive_button`
+scans the whole module for `<Name>.focus_set()` and expects only `btn_cancel`. Giving the
+clicked view keyboard focus is legitimate and unrelated to the replacement dialog, so it is
+written as `self.surface(self._view).focus_set()` — which is also the more natural expression
+— and the guard stays exactly as written. Same precedent as Phase 2's comment reword.
+
+**Preserved and re-proved.** The manager is still the single imported-file source; `self.files`
+and `self.listbox` are still absent; the processing worker still reads no Tk variable and no
+widget (now also asserted for `browser` and `cache`); `Cancel Import` and the processing cancel
+are still separate objects; the old worker, its queue protocol and all three output modes are
+untouched. `disable_inputs` now locks the browser's selection with the rest, while leaving the
+**view switch** available — looking at the queue mutates nothing, so blinding the user during a
+run would buy no safety. The importer's own list height dropped from 12 rows to 6 so both
+components fit the supported minimum; nothing else about it changed.
+
+**Not started.** Phase 4's `JobController`, `JobAdapter`, output planning and Retry Failed. No
+dependency was installed or changed. **Installation validation is not applicable in Phase 3** —
+no dependency or setup change — so no `pip install`, no `pillow-heif` install, no
+`requirements.txt`/bootstrap/launcher edit, and neither root launcher was run. No Mac action.
+
+**Next action: Phase 4 approval.**
 
 ---
 
