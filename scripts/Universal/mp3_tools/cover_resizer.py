@@ -1420,6 +1420,34 @@ IDLE_RUN_ID = "cover-idle"
 #: stream and nothing here duplicates them.
 RESULT_MESSAGE = "result"
 
+#: The queue message that carries one finished image's measured duration, on that
+#: same queue. See :class:`TimingSample` for why timing travels as a message.
+TIMING_MESSAGE = "timing"
+
+
+@dataclass(frozen=True)
+class TimingSample:
+    """How long one finished image actually took, as plain immutable data.
+
+    The estimate itself lives in one :class:`~shared.job_control.EtaEstimator`
+    that the shared job adapter reads, and that object is compound mutable state
+    belonging to the thread that owns the widgets. So the worker does not touch
+    it. It measures a duration with the run's injected clock and sends *this* —
+    four immutable fields and nothing live — through the queue the main thread
+    already drains, and the main thread is the only place a sample is ever
+    recorded.
+
+    ``run_id`` and ``attempt`` are what make a late sample inert. The run id
+    alone is not enough: a retry re-runs the *same* frozen snapshot and therefore
+    carries the same id, so the attempt number is what tells one attempt's
+    leftovers from the attempt now running.
+    """
+
+    run_id: str
+    attempt: int
+    category: str
+    duration: float
+
 
 def written_name(source: Path) -> str:
     """The filename :func:`resize_for_audiobook` will actually write for *source*.
@@ -1589,6 +1617,10 @@ class CoverResizerUI(ttk.Frame):
         self._job_runner = job_runner
         self._worker = None
         self._run_count = 0
+        # Every acceptance of a run, first attempt or retry. A retry re-uses the
+        # original snapshot id, so this — not the run id — is what tells a
+        # retired attempt's late timing sample from the one now running.
+        self._attempt = 0
         self._snapshot = None
         self._controller = None
         self._reporter = None
@@ -2126,6 +2158,7 @@ class CoverResizerUI(ttk.Frame):
             self._destinations = dict(destinations)
         self._snapshot = snapshot
         self._result = None
+        self._attempt += 1
         self._controller = job_control.JobController(
             snapshot.snapshot_id, listener=self._on_state)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
@@ -2146,7 +2179,12 @@ class CoverResizerUI(ttk.Frame):
             "snapshot": snapshot,
             "controller": self._controller,
             "reporter": self._reporter,
-            "estimator": self._estimator,
+            # Timing travels back as data, never as a shared estimator: the
+            # worker is handed the clock and the two labels it needs to stamp a
+            # measurement, and nothing it can mutate.
+            "clock": self._clock,
+            "run_id": snapshot.snapshot_id,
+            "attempt": self._attempt,
         }
 
         self._busy.set()
@@ -2239,6 +2277,8 @@ class CoverResizerUI(ttk.Frame):
                         self.progress.update(*payload)
                     except tk.TclError:  # pragma: no cover - a destroyed indicator
                         pass
+                elif kind == TIMING_MESSAGE:
+                    self._record_timing(payload)
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
                 elif kind == "done":
@@ -2246,6 +2286,27 @@ class CoverResizerUI(ttk.Frame):
                     self._finish_idle()
         except queue.Empty:
             pass
+
+    def _record_timing(self, sample: TimingSample) -> bool:
+        """Apply one measured duration to this run's estimate. Main thread only.
+
+        Reached only from the drain above, which the one pump calls on the thread
+        that owns the widgets — so this is the single place any estimator is ever
+        mutated, and the worker never holds one at all.
+
+        A sample is dropped, inertly, if the panel has closed, if it belongs to a
+        run this panel has moved on from, or if it belongs to an earlier attempt
+        of the same run. None of those is an error: the sample simply describes
+        work whose estimate no longer exists.
+        """
+        if self._closed:
+            return False
+        estimator = self._estimator
+        if estimator is None:
+            return False
+        if sample.run_id != estimator.run_id or sample.attempt != self._attempt:
+            return False
+        return estimator.record(sample.category, sample.duration) is not None
 
     def _settle(self, result) -> None:
         """Take the settled run and let the shared controls offer what it allows.
@@ -2326,10 +2387,13 @@ class CoverResizerUI(ttk.Frame):
     def resize_worker(self, params: dict):
         """Resize every frozen item, cooperatively, on a worker thread.
 
-        Touches no widget and no Tk variable: everything it needs arrived in
-        *params*, and everything it says goes out through the panel's queue and
-        the run's reporter. The four job-control keys are optional, so the same
-        body still runs a plain, unreported batch when it is handed one.
+        Touches no widget, no Tk variable and no object the main thread also
+        mutates: everything it needs arrived in *params*, and everything it says
+        goes out through the panel's queue and the run's reporter. **The
+        estimator is deliberately not among its inputs** — it measures a duration
+        and sends the number, because an estimator is mutable state that belongs
+        to one thread. The job-control keys are all optional, so the same body
+        still runs a plain, unreported batch when it is handed one.
         """
         files = params["files"]
         size = params["size"]
@@ -2341,8 +2405,11 @@ class CoverResizerUI(ttk.Frame):
         destinations = params.get("destinations") or {}
         controller = params.get("controller")
         reporter = params.get("reporter")
-        estimator = params.get("estimator")
         snapshot = params.get("snapshot")
+        clock = params.get("clock")
+        run_id = params.get("run_id")
+        attempt = params.get("attempt", 0)
+        timed = clock is not None and run_id is not None
         total = len(files)
         cancelled = False
         replaced = 0
@@ -2368,8 +2435,12 @@ class CoverResizerUI(ttk.Frame):
             succeeded = False
             if reporter is not None and item_id is not None:
                 reporter.current_item(item_id, f"Resizing {in_file.name}")
-            if estimator is not None:
-                estimator.begin(ETA_CATEGORY)
+            # The measurement brackets this image's own work and nothing else —
+            # planning its destination, writing it, and for a replacement
+            # validating and installing it. Time the message then spends waiting
+            # in the queue is outside the bracket, so a slow drain can never be
+            # mistaken for a slow image.
+            started = clock() if timed else None
             try:
                 planned_name = in_file.stem + written_suffix(in_file.suffix)
                 if mode == ACTION_REPLACE:
@@ -2440,12 +2511,14 @@ class CoverResizerUI(ttk.Frame):
                                      stage=STAGE_RESIZE)
 
             finally:
-                if estimator is not None:
-                    # A unit that did not honestly complete is not history.
-                    if succeeded:
-                        estimator.complete()
-                    else:
-                        estimator.discard()
+                # Read once, first, so nothing this block does is counted as
+                # work. A unit that did not honestly complete is not history and
+                # sends nothing at all.
+                ended = clock() if timed else None
+                if succeeded and started is not None:
+                    self._log_q.put((TIMING_MESSAGE, TimingSample(
+                        run_id=run_id, attempt=attempt, category=ETA_CATEGORY,
+                        duration=float(ended) - float(started))))
                 if reporter is None:
                     self._log_q.put(("progress", (idx, total)))
                 else:

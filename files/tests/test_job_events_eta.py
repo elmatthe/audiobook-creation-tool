@@ -1829,6 +1829,160 @@ def test_a_backwards_clock_produces_no_sample(clock):
     assert est.sample_count == 0
 
 
+# --------------------------------------------------------------------------- #
+# An already-measured duration
+# --------------------------------------------------------------------------- #
+#
+# ``begin``/``complete`` measure with the estimator's own clock, which means the
+# thread that times a unit of work is also the thread that mutates the estimator.
+# A tool whose work happens on a worker thread cannot use that pair without
+# sharing this object across threads, so :meth:`EtaEstimator.record` accepts a
+# duration somebody else measured. It is the same reliability policy either way:
+# the category rule, the finite/non-negative rule, the bounded window, the
+# three-sample minimum and ``Calculating…`` are all unchanged, and this reads no
+# clock at all.
+
+
+def test_a_recorded_duration_becomes_a_sample(clock):
+    est = estimator(clock)
+    assert est.record("convert", 12.5) == pytest.approx(12.5)
+    assert est.samples == pytest.approx((12.5,))
+    assert est.category == "convert"
+
+
+def test_recording_reads_no_clock(clock):
+    """The whole point: the duration came from somewhere else."""
+    est = estimator(clock)
+    before = clock.reads
+    for _ in range(3):
+        est.record("convert", 10.0)
+    assert clock.reads == before
+
+
+def test_three_recorded_samples_estimate_exactly_as_three_measured_ones(clock):
+    measured = estimator(clock)
+    for _ in range(3):
+        sample(measured, clock, "convert", 10.0)
+    recorded = estimator(clock)
+    for _ in range(3):
+        recorded.record("convert", 10.0)
+    assert recorded.estimate(5) == measured.estimate(5)
+    assert recorded.display(5) == measured.display(5) == "50s"
+
+
+def test_two_recorded_samples_are_still_not_enough(clock):
+    est = estimator(clock)
+    for _ in range(2):
+        est.record("convert", 10.0)
+    assert est.display(5) == CALCULATING
+
+
+def test_a_recorded_window_still_keeps_only_the_latest_twenty(clock):
+    est = estimator(clock)
+    for _ in range(25):
+        est.record("convert", 1.0)
+    assert est.sample_count == DEFAULT_SAMPLE_WINDOW
+
+
+def test_a_changed_category_clears_recorded_history_too(clock):
+    est = estimator(clock)
+    for _ in range(3):
+        est.record("convert", 10.0)
+    assert est.display(1) == "10s"
+    est.record("upload", 2.0)
+    assert est.sample_count == 1
+    assert est.category == "upload"
+    assert est.display(1) == CALCULATING
+
+
+def test_recorded_and_measured_samples_share_one_category_history(clock):
+    est = estimator(clock)
+    sample(est, clock, "convert", 10.0)
+    est.record("convert", 10.0)
+    sample(est, clock, "convert", 10.0)
+    assert est.sample_count == 3
+    assert est.display(1) == "10s"
+
+
+@pytest.mark.parametrize("duration", [-0.001, float("inf"), float("nan")])
+def test_an_unusable_duration_records_nothing(clock, duration):
+    est = estimator(clock)
+    assert est.record("convert", duration) is None
+    assert est.sample_count == 0
+
+
+def test_a_zero_duration_is_a_real_sample(clock):
+    """Work faster than the clock's resolution is still work that finished."""
+    est = estimator(clock)
+    for _ in range(3):
+        est.record("convert", 0.0)
+    assert est.sample_count == 3
+    assert est.display(5) == "0s"
+
+
+@pytest.mark.parametrize("duration", ["10", None, True, [1.0]])
+def test_a_duration_that_is_not_a_number_is_refused(clock, duration):
+    with pytest.raises(JobContractError):
+        estimator(clock).record("convert", duration)
+
+
+def test_recording_needs_a_category(clock):
+    with pytest.raises(JobContractError):
+        estimator(clock).record("", 1.0)
+
+
+def test_recording_while_a_unit_is_being_timed_is_refused(clock):
+    """The two ways of measuring are alternatives, never a mixture in flight."""
+    est = estimator(clock)
+    est.begin("convert")
+    with pytest.raises(JobContractError):
+        est.record("convert", 1.0)
+    assert est.sample_count == 0
+
+
+def test_a_paused_run_still_reports_calculating_for_recorded_samples(clock):
+    est = estimator(clock)
+    for _ in range(3):
+        est.record("convert", 10.0)
+    est.note_state(JobState.PAUSED)
+    assert est.display(2) == CALCULATING
+
+
+def test_a_finished_run_still_reports_calculating_for_recorded_samples(clock):
+    est = estimator(clock)
+    for _ in range(3):
+        est.record("convert", 10.0)
+    est.note_state(JobState.SUCCEEDED)
+    assert est.display(2) == CALCULATING
+
+
+def test_recording_belongs_to_the_estimators_own_run(clock):
+    est = estimator(clock)
+    for _ in range(3):
+        est.record("convert", 10.0)
+    assert est.display(2, run_id=RUN) == "20s"
+    assert est.display(2, run_id=OTHER_RUN) == CALCULATING
+
+
+def test_recording_added_no_event_kind_field_or_transition():
+    """The narrow additive change is one estimator method and nothing else."""
+    assert len(JobEventKind) == 11
+    assert set(job_control.TERMINAL_EVENT_KINDS) == {
+        JobEventKind.COMPLETED, JobEventKind.CANCELLED}
+    assert len(JobState) == 9
+    tree = ast.parse((SHARED / "job_control.py").read_text(encoding="utf-8"))
+    estimator_methods = {
+        node.name
+        for klass in ast.walk(tree)
+        if isinstance(klass, ast.ClassDef) and klass.name == "EtaEstimator"
+        for node in klass.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    assert "record" in estimator_methods
+    assert {"begin", "complete", "discard", "note_state", "observe", "estimate",
+            "display"} <= estimator_methods
+
+
 def test_a_backwards_clock_leaves_earlier_samples_intact(clock):
     est = estimator(clock)
     for _ in range(3):
@@ -1936,8 +2090,11 @@ def test_a_media_duration_is_never_a_timing_sample(clock):
     for probe in ("ffprobe", "media_length", "audio_length", "mutagen",
                   "pydub", "soundfile", "probe("):
         assert probe not in text, probe
-    # And the only durations it knows are the ones it measured with the injected
-    # clock: every sample enters through ``complete()`` and nothing else.
+    # And the only durations it knows are ones somebody measured across real work
+    # with an injected clock. There are exactly two sanctioned entry points: the
+    # estimator times the unit itself (``complete``), or it is handed a duration
+    # a caller timed on its own thread (``record``). A third would be a new way
+    # for a number of unknown provenance to become history.
     tree = ast.parse((SHARED / "job_control.py").read_text(encoding="utf-8"))
     appending = {
         node.name for node in ast.walk(tree)
@@ -1949,7 +2106,15 @@ def test_a_media_duration_is_never_a_timing_sample(clock):
             and call.func.value.attr == "_samples"
             for call in ast.walk(node))
     }
-    assert appending == {"complete"}, appending
+    assert appending == {"complete", "record"}, appending
+    # ``record`` in particular invents nothing: it reads no clock of its own, so
+    # the number it stores can only be the one it was given.
+    recorder = next(node for node in ast.walk(tree)
+                    if isinstance(node, ast.FunctionDef) and node.name == "record")
+    reached = {node.attr for node in ast.walk(recorder)
+               if isinstance(node, ast.Attribute)}
+    for clock_access in ("_clock", "_read_clock"):
+        assert clock_access not in reached, clock_access
 
 
 def test_the_estimator_persists_nothing(clock):

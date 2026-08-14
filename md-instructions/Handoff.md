@@ -2,8 +2,9 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–4 complete; Phase 5 has
-NOT begun.** The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–3 approved; Phase 4 is
+implemented and remediated but AWAITING APPROVAL; Phase 5 has NOT begun.** The temporary drop
+`md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
 its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
 registration into one unified PDF/TXT queue. Maintainer decisions 1A–7A are recorded in §7 of the
@@ -375,10 +376,12 @@ test_a_directory_symlink_inside_a_scanned_folder_is_refused,
 test_a_root_that_is_a_symlink_is_refused}`, `test_jack_ryan_final_product.py::
 {test_folder_has_m4bs, test_finished_product_invariants[NOTSET],
 test_series_is_consistent_across_the_set}` and `test_output_paths.py::
-test_a_linked_destination_name_is_refused` — nine for symlink privilege (WinError 1314), two for a
-case-insensitive filesystem, three for `JACK_RYAN_M4B_FOLDER` being unset. (Phase 3's abbreviated
-categories summed to 12; the node-by-node list above is the real thirteen.) The single warning is
-still the third-party `pydub`/`audioop` `DeprecationWarning`.
+test_a_linked_destination_name_is_refused` — **eight** for symlink privilege (WinError 1314), two
+for a case-insensitive filesystem, three for `JACK_RYAN_M4B_FOLDER` being unset. (Phase 3's
+abbreviated categories summed to 12 and this entry first said nine, which sums to 14; the
+node-by-node list above is the real thirteen and 8 + 2 + 3 is its real grouping. Corrected during
+the Phase 4 remediation below — no skip changed, only the arithmetic describing it.) The single
+warning is still the third-party `pydub`/`audioop` `DeprecationWarning`.
 
 **Four existing tests changed, and why.** Each is a phase-ordering marker that Phase 4 is the
 phase to retire, or a mechanism made *more* precise — none is weakened:
@@ -419,7 +422,113 @@ changed. **Installation validation is not applicable in Phase 4** — no depende
 — so no `pip install`, no `pillow-heif` install, no `requirements.txt`/bootstrap/launcher edit,
 and neither root launcher was run. No Mac action.
 
-**Next action: Phase 5 approval.**
+**Next action: Phase 4 approval.**
+
+### Phase 4 remediation — Cover ETA sampling serialized through the queue (2026-08-14, HOME-PC)
+
+**Raised in review, and correctly.** The Phase 4 report disclosed, as a "deliberate trade-off",
+that one `EtaEstimator` was written by the worker (`begin`/`complete`/`discard`) while the
+main-thread `JobAdapter` read and mutated the same object (`observe` → `note_state`, `display`,
+`estimate`). That was not a trade-off to accept. Three things were wrong with it:
+
+1. `EtaEstimator` is compound mutable state — a `deque`, a category, an open-unit timestamp, a
+   pause accumulator and a terminal flag — with no synchronization of any kind.
+2. `estimate()` sums `_samples` while the worker may be appending to it. That can raise, not
+   merely return a slightly stale mean, so the report's "worst case is one imprecise sample" was
+   simply wrong.
+3. Plan 4 §5.5 says workers communicate **only** through the queue the main-thread pump drains.
+   One mutable object shared across the two threads violates that boundary whatever the observed
+   failure rate is.
+
+**The fix: the worker sends a number, not an object.** `resize_worker` no longer receives an
+estimator at all — it is not in `params`, and the worker names neither the class nor any of its
+methods (asserted by AST). Instead it reads the run's injected clock once before an image and once
+at the top of that image's `finally`, and on success puts a frozen
+`TimingSample(run_id, attempt, category, duration)` on the **existing** `_log_q`. The main thread's
+existing `_drain_worker_queue` consumes it and calls `_record_timing`, the single place any
+estimator is ever mutated. No new queue, no new drain, no `after` chain: still exactly one
+`MainThreadPump` with the same three drains.
+
+**Real work, not queue latency.** The measurement brackets one image's own work — planning its
+destination, writing it, and for a replacement validating and installing it — and closes before
+the message is queued. Proven rather than asserted: the tests use a clock that moves *only* inside
+`resize_for_audiobook`, so a recorded sample equals exactly the time attributed to the image;
+a companion test advances that clock by 500s while the message sits in the queue and the recorded
+sample is still `0.0`.
+
+**Main-thread-only, proven at runtime.** A recording subclass of the shared estimator captures
+`threading.get_ident()` on every one of its public operations. Across a real two-thread run every
+recorded call is the main thread, `record` is among them, and `begin`/`complete`/`discard` are
+never called at all — while the same test confirms the work genuinely ran off the main thread.
+
+**Fencing.** A sample is dropped inertly when the panel has closed, when its `run_id` is not the
+current estimator's, or when its `attempt` is not the attempt now running. The attempt counter is
+load-bearing rather than belt-and-braces: **a retry re-runs the same frozen snapshot and therefore
+carries the same run id**, so the run id alone cannot tell a first attempt's leftover sample from
+the retry's own. A retry still gets a brand-new estimator and inherits no sample.
+
+**One narrow additive shared change, as authorized.** `EtaEstimator` had no public way to accept
+an already-measured duration — `begin`/`complete` are inseparable from the estimator's own clock,
+which is precisely what forces the cross-thread sharing. `shared/job_control.py` therefore gains
+`EtaEstimator.record(category, duration)`: it clears history on a changed category exactly as
+`begin` does, keeps the bounded window, the three-sample minimum and `Calculating…` untouched,
+returns `None` without recording for a non-finite or negative duration exactly as `complete` does,
+raises `JobContractError` for a non-number, a blank category, or a call made while a unit is open,
+and **reads no clock at all**. No `JobEventKind`, `JobEvent` field, `RunSnapshot` field, controller
+transition, retry vocabulary or output descriptor changed — asserted by test. A pre-existing §6.13
+guard said every sample enters through `complete()`; it now names both sanctioned entry points and
+additionally proves `record` touches no clock, so it is stricter about the new one than the old
+wording was about anything.
+
+**Files changed.** `scripts/Universal/shared/job_control.py` (+44), `mp3_tools/cover_resizer.py`
+(+~85/−~20), `files/tests/test_job_events_eta.py` (+~150, 21 new tests),
+`files/tests/test_cover_jobs.py` (+~490/−~30, 16 net new tests), and this document.
+
+**A test-harness defect fixed on the way.** The Phase 4 `Gate` used two bare `Event`s, so two
+consecutive releases could be collapsed into one and a worker could block forever. It is now a
+counted barrier on a `Condition` — each image takes a ticket and waits for that ticket — and the
+cancel-during-an-image tests now request cancellation *before* releasing the image, so which
+checkpoint stops the run is decided rather than raced. Still no sleeps anywhere.
+
+**Gates.** 2827 passed, 13 skipped, 1 warning (2840 collected) against the Phase 4 baseline of
+2790/13/1 (2803 collected). The **+37 is exactly 21 new estimator tests + 16 net new Cover tests**
+(`test_job_events_eta.py` 258 → 279, `test_cover_jobs.py` 92 → 108); no parametrized case moved,
+because no production module was added. `verify.py` → `RESULT: PASS`; `compileall` exit 0;
+`git diff --check` on `'*.py'` exit 0. The race-and-ETA subset was re-run 7 consecutive times and
+the six concurrency-heavy modules 5 consecutive times, all green.
+
+**Skips, with the corrected grouping: 8 + 2 + 3 = 13.** Eight symlink-privilege (WinError 1314):
+`test_cover_source_side::test_replacement_refuses_a_linked_source`,
+`test_import_manager::test_a_file_symlink_supplied_as_a_file_is_refused`,
+`test_import_traversal::{test_is_link_says_yes_to_a_file_symlink,
+test_is_link_says_yes_to_a_directory_symlink, test_a_file_symlink_inside_a_scanned_folder_is_refused,
+test_a_directory_symlink_inside_a_scanned_folder_is_refused, test_a_root_that_is_a_symlink_is_refused}`,
+`test_output_paths::test_a_linked_destination_name_is_refused`. Two case-insensitive filesystem:
+`test_import_manager::test_case_only_names_on_a_case_sensitive_filesystem_stay_distinct`,
+`test_import_traversal::test_names_differing_only_in_case_are_both_collected`. Three
+`JACK_RYAN_M4B_FOLDER` unset: `test_jack_ryan_final_product::{test_folder_has_m4bs,
+test_finished_product_invariants[NOTSET], test_series_is_consistent_across_the_set}`. No skip was
+changed; only the arithmetic describing them was wrong, and it is corrected above. The one warning
+is still the third-party `pydub`/`audioop` `DeprecationWarning`.
+
+**Preserved.** Every approved Phase 4 behaviour is unchanged and still proven: one frozen
+`RunSnapshot` and stable occurrence identity; the manager as the sole imported-file authority;
+flat / mirrored / multi-root planning; the numbered-copy `SourceSidePlanner`; all four replacement
+gates and the atomic install; the retry built only from `RunResult.retry()`; successful outputs
+never overwritten; deliberate duplicates distinct; the checkpoint only between images; cancel
+waking a pause and never rolling back a completed replacement; Summary free of diagnostics;
+truthful progress; `LockGroup`/matrix locking; one pump with the same three drains; `Cancel Import`
+separate from processing cancellation; the three browser views; bounded browser workers and close
+cleanup. The owner-thread `gc.collect()` in `destroy()` is retained unchanged, its focused
+regression test is green, and no warning filter or `RuntimeError` suppression exists anywhere.
+
+**Installation validation: not applicable to this remediation** — no dependency or setup change.
+No `pip install`, no requirements/bootstrap/launcher edit, no `.venv` rebuild, neither root
+launcher run. No Mac action.
+
+**Phase 5 (EPUB production retirement and reference archival) is still not started.**
+
+**Next action: Phase 4 approval.**
 
 ---
 

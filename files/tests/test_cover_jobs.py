@@ -36,6 +36,7 @@ confirmation is answered through the panel's own seam, never by opening a modal.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 import queue
 import threading
@@ -159,25 +160,52 @@ class ThreadRunner:
 
 
 class Gate:
-    """A per-image barrier around the real resize. Signals only, never a sleep."""
+    """A counted per-image barrier around the real resize.
 
-    def __init__(self):
-        self.entered = threading.Event()
-        self.release = threading.Event()
+    Each image entering takes the next ticket and waits until that ticket is
+    allowed, so releasing image *n* can never be mistaken for releasing image
+    *n+1*. Everything waits on a real :class:`threading.Condition` with a bounded
+    timeout — no sleeps, and a run that never arrives fails loudly.
+
+    Given a clock it also advances it while it holds the image, which is how a
+    test attributes a known duration to real work and to nothing else.
+    """
+
+    def __init__(self, clock=None, seconds: float = 0.0):
+        self._condition = threading.Condition()
+        self._entered = 0
+        self._allowed = 0
+        self._clock = clock
+        self._seconds = seconds
         self.seen: list[str] = []
 
     def __call__(self, in_path, out_path, size, letterbox):
-        self.seen.append(Path(in_path).name)
-        self.entered.set()
-        assert self.release.wait(WAIT), "the gate was never released"
-        self.release.clear()
-        self.entered.clear()
+        with self._condition:
+            self.seen.append(Path(in_path).name)
+            self._entered += 1
+            mine = self._entered
+            self._condition.notify_all()
+            while self._allowed < mine:
+                assert self._condition.wait(WAIT), "the gate was never released"
+        if self._clock is not None:
+            self._clock.advance(self._seconds)
         return REAL_RESIZE(in_path, out_path, size=size, letterbox=letterbox)
 
-    def let_through(self) -> None:
-        """Release exactly the image now waiting."""
-        assert self.entered.wait(WAIT), "no image ever reached the gate"
-        self.release.set()
+    def wait_for_entry(self, count: int = 1) -> None:
+        """Block until *count* images have reached the gate."""
+        with self._condition:
+            while self._entered < count:
+                assert self._condition.wait(WAIT), "no image reached the gate"
+
+    def let_through(self, count: int = 1) -> None:
+        """Release exactly *count* images, one at a time and in order."""
+        for _ in range(count):
+            with self._condition:
+                target = self._allowed + 1
+                while self._entered < target:
+                    assert self._condition.wait(WAIT), "no image reached the gate"
+                self._allowed = target
+                self._condition.notify_all()
 
 
 def no_previews(requests, publish):
@@ -1173,13 +1201,13 @@ def test_pause_takes_effect_only_at_the_boundary_between_images(
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    assert gate.entered.wait(WAIT), "the first image never started"
+    gate.wait_for_entry(1)
 
     panel.pause()
     assert panel.job_controller.state is jc.JobState.PAUSE_REQUESTED, (
         "an indivisible stage keeps running; only the request is recorded")
 
-    gate.release.set()
+    gate.let_through()
     wait_for_state(panel, jc.JobState.PAUSED)
     assert gate.seen == ["a.jpg"], "the second image was not begun"
     drain(panel)
@@ -1206,8 +1234,9 @@ def test_a_paused_run_holds_no_half_written_output(
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    gate.let_through()
+    gate.wait_for_entry(1)
     panel.pause()
+    gate.let_through()
     wait_for_state(panel, jc.JobState.PAUSED)
 
     assert written_under(run_dir_of(output_base)) == ["a.jpg"], (
@@ -1231,8 +1260,9 @@ def test_resume_continues_without_redoing_completed_work(
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    gate.let_through()
+    gate.wait_for_entry(1)
     panel.pause()
+    gate.let_through()
     wait_for_state(panel, jc.JobState.PAUSED)
     panel.resume()
     gate.let_through()
@@ -1252,8 +1282,9 @@ def test_cancel_wakes_a_paused_worker(make_panel, output_base, tmp_path, monkeyp
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    gate.let_through()
+    gate.wait_for_entry(1)
     panel.pause()
+    gate.let_through()
     wait_for_state(panel, jc.JobState.PAUSED)
 
     panel.cancel()
@@ -1279,8 +1310,11 @@ def test_cancel_after_a_completed_replacement_leaves_it_replaced_and_says_so(
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    gate.let_through()
+    # Cancel while the first image is still being written, so the checkpoint
+    # after it is the one that stops the run — the second image never begins.
+    gate.wait_for_entry(1)
     panel.cancel()
+    gate.let_through()
     runner.join()
     drain(panel)
 
@@ -1423,8 +1457,9 @@ def test_progress_is_never_rounded_up_to_a_false_success(
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    gate.let_through()
+    gate.wait_for_entry(1)
     panel.cancel()
+    gate.let_through()
     runner.join()
     drain(panel)
 
@@ -1432,6 +1467,237 @@ def test_progress_is_never_rounded_up_to_a_false_success(
     assert view.total == 2
     assert view.completed == 1, "a cancelled run keeps the count it really reached"
     assert panel.run_result.succeeded_count == 1
+
+
+# --------------------------------------------------------------------------- #
+# 7a. The ETA: measured on the worker, applied on the main thread
+# --------------------------------------------------------------------------- #
+#
+# The estimator the shared adapter reads is a mutable object with compound state.
+# It therefore belongs to exactly one thread — the one that owns the widgets.
+# The worker measures a duration with the injected clock and sends that number,
+# as plain immutable data, through the queue the main thread already drains; the
+# main thread is the only place an estimator is ever touched.
+
+
+class ManualClock:
+    """A monotonic clock that moves only when a test says so.
+
+    Reading it never advances it, so any duration a run measures is exactly the
+    time a test chose to attribute to real work — which is what makes "this
+    measures the image, not the queue" checkable rather than assertable.
+    """
+
+    def __init__(self):
+        self.now = 0.0
+        self.reads = 0
+
+    def __call__(self) -> float:
+        self.reads += 1
+        return self.now
+
+    def advance(self, seconds: float) -> float:
+        self.now += float(seconds)
+        return self.now
+
+
+def resize_taking(clock: ManualClock, seconds: float):
+    """A real resize that also advances the clock, inside the work itself."""
+
+    def run(in_path, out_path, size, letterbox):
+        clock.advance(seconds)
+        return REAL_RESIZE(in_path, out_path, size=size, letterbox=letterbox)
+
+    return run
+
+
+def recording_estimators(monkeypatch):
+    """Replace the estimator with one that records the thread of every call."""
+    made: list = []
+
+    class Recording(jc.EtaEstimator):
+        def __init__(self, run_id, **kwargs):
+            super().__init__(run_id, **kwargs)
+            self.calls: list[tuple[str, int]] = []
+            made.append(self)
+
+        def _note(self, name):
+            self.calls.append((name, threading.get_ident()))
+
+        def record(self, category, duration):
+            self._note("record")
+            return super().record(category, duration)
+
+        def begin(self, category):
+            self._note("begin")
+            return super().begin(category)
+
+        def complete(self):
+            self._note("complete")
+            return super().complete()
+
+        def discard(self):
+            self._note("discard")
+            return super().discard()
+
+        def note_state(self, state):
+            self._note("note_state")
+            return super().note_state(state)
+
+        def observe(self, entry):
+            self._note("observe")
+            return super().observe(entry)
+
+        def estimate(self, remaining):
+            self._note("estimate")
+            return super().estimate(remaining)
+
+        def display(self, remaining, *, run_id=None):
+            self._note("display")
+            return super().display(remaining, run_id=run_id)
+
+    monkeypatch.setattr(cr.job_control, "EtaEstimator", Recording)
+    return made
+
+
+def timings_on(panel) -> list:
+    """Every timing message currently waiting on the worker queue."""
+    held, found = [], []
+    while True:
+        try:
+            message = panel._log_q.get_nowait()
+        except queue.Empty:
+            break
+        held.append(message)
+        if message[0] == cr.TIMING_MESSAGE:
+            found.append(message[1])
+    for message in held:
+        panel._log_q.put(message)
+    return found
+
+
+def test_the_worker_is_never_given_the_estimator(make_panel, tmp_path):
+    """The UI's estimator is not a worker input, by construction."""
+    runner = InlineRunner(defer=True)
+    panel = make_panel(job_runner=runner)
+    import_files(panel, make_image(tmp_path / "art" / "a.jpg"))
+
+    start(panel)
+
+    assert "estimator" not in runner.calls[0]
+    assert not any(isinstance(value, jc.EtaEstimator)
+                   for value in runner.calls[0].values())
+    worker = method_named("resize_worker")
+    names = {node.id for node in ast.walk(worker) if isinstance(node, ast.Name)}
+    attributes = {node.attr for node in ast.walk(worker)
+                  if isinstance(node, ast.Attribute)}
+    for forbidden in ("estimator", "EtaEstimator"):
+        assert forbidden not in names, forbidden
+        assert forbidden not in attributes, forbidden
+    for verb in ("record", "begin", "complete", "discard", "note_state",
+                 "observe", "estimate", "display"):
+        assert verb not in attributes, verb
+
+
+def test_the_worker_sends_timing_as_plain_immutable_data(
+    make_panel, output_base, tmp_path
+):
+    clock = ManualClock()
+    runner = InlineRunner(defer=True)
+    panel = make_panel(clock=clock, job_runner=runner)
+    import_files(panel, make_image(tmp_path / "art" / "a.jpg"))
+    start(panel)
+    runner.release()
+
+    samples = timings_on(panel)
+
+    assert len(samples) == 1
+    sample = samples[0]
+    assert dataclasses.is_dataclass(sample) and type(sample).__dataclass_params__.frozen
+    assert {field.name for field in dataclasses.fields(sample)} == {
+        "run_id", "attempt", "category", "duration"}
+    assert isinstance(sample.run_id, str) and isinstance(sample.attempt, int)
+    assert isinstance(sample.category, str) and isinstance(sample.duration, float)
+    assert sample.run_id == panel.run_snapshot.snapshot_id
+    assert sample.category == cr.ETA_CATEGORY
+
+
+def test_the_measured_duration_is_the_image_and_not_the_queue(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    """The clock moves only inside ``resize_for_audiobook``, so the sample is work."""
+    clock = ManualClock()
+    runner = InlineRunner(defer=True)
+    panel = make_panel(clock=clock, job_runner=runner)
+    import_files(panel, make_image(tmp_path / "art" / "a.jpg"))
+    monkeypatch.setattr(cr, "resize_for_audiobook", resize_taking(clock, 7.0))
+    start(panel)
+    runner.release()
+
+    assert timings_on(panel)[0].duration == pytest.approx(7.0)
+
+    drain(panel)
+    assert panel.job_estimator.samples == pytest.approx((7.0,))
+
+
+def test_queue_latency_alone_contributes_nothing(make_panel, output_base, tmp_path):
+    """A run whose work took no clock time records a zero, not a drain delay."""
+    clock = ManualClock()
+    runner = InlineRunner(defer=True)
+    panel = make_panel(clock=clock, job_runner=runner)
+    import_files(panel, make_image(tmp_path / "art" / "a.jpg"))
+    start(panel)
+    runner.release()
+    clock.advance(500.0)                 # time passes with the message in the queue
+    drain(panel)
+
+    assert panel.job_estimator.samples == pytest.approx((0.0,))
+
+
+def test_three_successful_images_produce_a_truthful_estimate(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    """Checked mid-run, because a finished run has nothing left to estimate."""
+    clock = ManualClock()
+    runner = ThreadRunner()
+    panel = make_panel(clock=clock, job_runner=runner)
+    import_files(panel, *(make_image(tmp_path / "art" / f"{i}.jpg") for i in range(4)))
+    gate = Gate(clock=clock, seconds=5.0)
+    monkeypatch.setattr(cr, "resize_for_audiobook", gate)
+
+    start(panel)
+    gate.let_through(3)
+    gate.wait_for_entry(4)              # three finished, the fourth is in flight
+    drain(panel)
+
+    estimator = panel.job_estimator
+    assert estimator.sample_count == 3
+    assert estimator.category == cr.ETA_CATEGORY
+    assert estimator.samples == pytest.approx((5.0, 5.0, 5.0))
+    assert estimator.estimate(3) == pytest.approx(15.0)
+    assert estimator.display(3) == "15s"
+    assert panel.jobs.status.eta_text == "5s", "one image left, five seconds each"
+
+    gate.let_through()
+    runner.join()
+    drain(panel)
+    assert panel.run_result.succeeded_count == 4
+
+
+def test_fewer_than_three_samples_still_says_calculating(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    clock = ManualClock()
+    panel = make_panel(clock=clock)
+    import_files(panel,
+                 make_image(tmp_path / "art" / "a.jpg"),
+                 make_image(tmp_path / "art" / "b.jpg"))
+    monkeypatch.setattr(cr, "resize_for_audiobook", resize_taking(clock, 5.0))
+
+    start(panel)
+
+    assert panel.job_estimator.sample_count == 2
+    assert panel.job_estimator.display(1) == jc.CALCULATING
 
 
 def test_the_estimate_says_calculating_until_it_is_trustworthy(
@@ -1446,17 +1712,6 @@ def test_the_estimate_says_calculating_until_it_is_trustworthy(
     assert panel.job_estimator.sample_count == 0
 
 
-def test_the_estimate_measures_one_comparable_category(make_panel, output_base, tmp_path):
-    sources = [make_image(tmp_path / "art" / f"{index}.jpg") for index in range(5)]
-    panel = make_panel()
-    import_files(panel, *sources)
-
-    start(panel)
-
-    assert panel.job_estimator.sample_count == 5
-    assert panel.job_estimator.category == cr.ETA_CATEGORY
-
-
 def test_a_failed_item_contributes_no_timing_sample(
     make_panel, output_base, tmp_path, monkeypatch
 ):
@@ -1469,6 +1724,249 @@ def test_a_failed_item_contributes_no_timing_sample(
     start(panel)
 
     assert panel.job_estimator.sample_count == 1, "a failed unit is not history"
+    assert len(timings_on(panel)) == 0, "and it sent nothing to record"
+
+
+def test_a_cancelled_image_contributes_no_timing_sample(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    clock = ManualClock()
+    runner = ThreadRunner()
+    panel = make_panel(clock=clock, job_runner=runner)
+    import_files(panel,
+                 make_image(tmp_path / "art" / "a.jpg"),
+                 make_image(tmp_path / "art" / "b.jpg"))
+    gate = Gate()
+    monkeypatch.setattr(cr, "resize_for_audiobook", gate)
+
+    start(panel)
+    gate.wait_for_entry(1)
+    panel.cancel()
+    gate.let_through()
+    runner.join()
+    drain(panel)
+
+    assert panel.run_result.cancelled is True
+    assert gate.seen == ["a.jpg"], "the cancelled image never began"
+    assert panel.job_estimator.sample_count == 1, "one finished image, one sample"
+
+
+def test_a_finished_run_reports_calculating_however_many_samples_it_has(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    clock = ManualClock()
+    panel = make_panel(clock=clock)
+    import_files(panel, *(make_image(tmp_path / "art" / f"{i}.jpg") for i in range(3)))
+    monkeypatch.setattr(cr, "resize_for_audiobook", resize_taking(clock, 5.0))
+
+    start(panel)
+
+    assert panel.job_estimator.sample_count == 3
+    assert panel.jobs.status.eta_text == jc.CALCULATING, (
+        "the run ended; there is nothing left to estimate")
+
+
+def test_a_paused_run_reports_calculating(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    clock = ManualClock()
+    runner = ThreadRunner()
+    panel = make_panel(clock=clock, job_runner=runner)
+    import_files(panel, *(make_image(tmp_path / "art" / f"{i}.jpg") for i in range(4)))
+    gate = Gate()
+    monkeypatch.setattr(cr, "resize_for_audiobook", gate)
+
+    start(panel)
+    for _ in range(3):
+        gate.let_through()
+    panel.pause()
+    wait_for_state(panel, jc.JobState.PAUSED)
+    drain(panel)
+
+    assert panel.job_estimator.sample_count == 3
+    assert panel.jobs.status.eta_text == jc.CALCULATING
+
+    panel.resume()
+    gate.let_through()
+    runner.join()
+    drain(panel)
+
+
+def test_every_estimator_call_happens_on_the_main_thread(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    """The whole point of the queue: one thread owns the estimator."""
+    made = recording_estimators(monkeypatch)
+    runner = ThreadRunner()
+    panel = make_panel(job_runner=runner)
+    import_files(panel,
+                 make_image(tmp_path / "art" / "a.jpg"),
+                 make_image(tmp_path / "art" / "b.jpg"))
+    gate = Gate()
+    monkeypatch.setattr(cr, "resize_for_audiobook", gate)
+
+    start(panel)
+    gate.let_through(2)
+    runner.join()
+    drain(panel)
+
+    main = threading.main_thread().ident
+    assert made, "the panel builds its estimator through the shared class"
+    calls = [call for estimator in made for call in estimator.calls]
+    assert calls, "the estimator was actually used"
+    offenders = [call for call in calls if call[1] != main]
+    assert offenders == [], offenders
+    assert any(name == "record" for name, _ident in calls)
+    assert not any(name in ("begin", "complete", "discard")
+                   for name, _ident in calls), "the worker's pair is no longer used"
+    worker_threads = {worker.ident for worker in runner.threads}
+    assert main not in worker_threads, "the work really did run off the main thread"
+
+
+def test_interleaved_timing_progress_and_state_messages_cannot_raise(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    """A controlled interleaving, drained one message at a time."""
+    clock = ManualClock()
+    runner = InlineRunner(defer=True)
+    panel = make_panel(clock=clock, job_runner=runner)
+    import_files(panel, *(make_image(tmp_path / "art" / f"{i}.jpg") for i in range(4)))
+    monkeypatch.setattr(cr, "resize_for_audiobook", resize_taking(clock, 3.0))
+    start(panel)
+    runner.release()
+
+    # Everything the run produced is now queued. Drain it interleaved with the
+    # pause, resume and terminal states the adapter also applies.
+    panel.pause()
+    panel.resume()
+    for _ in range(20):
+        panel._drain_worker_queue()
+        panel.jobs.drain()
+
+    estimator = panel.job_estimator
+    assert estimator.sample_count == 4
+    assert estimator.samples == pytest.approx((3.0, 3.0, 3.0, 3.0))
+    assert panel.run_result.succeeded_count == 4
+
+
+def test_a_timing_message_from_a_retired_run_is_inert(
+    make_panel, output_base, tmp_path
+):
+    clock = ManualClock()
+    panel = make_panel(clock=clock)
+    import_files(panel, make_image(tmp_path / "art" / "a.jpg"))
+    start(panel)
+    first = panel.job_estimator
+    stale_run = panel.run_snapshot.snapshot_id
+
+    start(panel)                          # a second run, a fresh estimator
+    current = panel.job_estimator
+    assert current is not first
+    before = current.sample_count
+
+    panel._log_q.put((cr.TIMING_MESSAGE, cr.TimingSample(
+        run_id=stale_run, attempt=1, category=cr.ETA_CATEGORY, duration=99.0)))
+    drain(panel)
+
+    assert current.sample_count == before
+    assert 99.0 not in current.samples
+
+
+def test_a_timing_message_from_an_earlier_attempt_of_the_same_run_is_inert(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    """A retry re-uses the run id, so the attempt is what fences the sample."""
+    clock = ManualClock()
+    panel = make_panel(clock=clock)
+    import_files(panel,
+                 make_image(tmp_path / "art" / "a.jpg"),
+                 make_image(tmp_path / "art" / "b.jpg"))
+    fail_named(monkeypatch, "b.jpg")
+    start(panel)
+    run_id = panel.run_snapshot.snapshot_id
+
+    monkeypatch.undo()
+    panel.retry_failed()
+    drain(panel)
+    current = panel.job_estimator
+    before = current.sample_count
+
+    panel._log_q.put((cr.TIMING_MESSAGE, cr.TimingSample(
+        run_id=run_id, attempt=1, category=cr.ETA_CATEGORY, duration=99.0)))
+    drain(panel)
+
+    assert current.sample_count == before, "the first attempt's sample stayed out"
+    assert 99.0 not in current.samples
+
+
+def test_a_retry_gets_a_fresh_estimator_with_no_inherited_history(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    clock = ManualClock()
+    panel = make_panel(clock=clock)
+    import_files(panel,
+                 make_image(tmp_path / "art" / "a.jpg"),
+                 make_image(tmp_path / "art" / "b.jpg"))
+    monkeypatch.setattr(cr, "resize_for_audiobook", resize_taking(clock, 5.0))
+    fail_named(monkeypatch, "b.jpg")
+    start(panel)
+    original = panel.job_estimator
+    assert original.sample_count == 1
+
+    monkeypatch.undo()
+    monkeypatch.setattr(cr, "resize_for_audiobook", resize_taking(clock, 9.0))
+    panel.retry_failed()
+    drain(panel)
+
+    retried = panel.job_estimator
+    assert retried is not original
+    assert retried.samples == pytest.approx((9.0,)), "no sample carried across"
+
+
+def test_closing_the_panel_makes_a_late_timing_message_inert(
+    make_panel, output_base, tmp_path
+):
+    clock = ManualClock()
+    panel = make_panel(clock=clock)
+    import_files(panel, make_image(tmp_path / "art" / "a.jpg"))
+    start(panel)
+    estimator = panel.job_estimator
+    before = estimator.sample_count
+    run_id = panel.run_snapshot.snapshot_id
+
+    panel.close()
+    panel._log_q.put((cr.TIMING_MESSAGE, cr.TimingSample(
+        run_id=run_id, attempt=panel._attempt, category=cr.ETA_CATEGORY,
+        duration=42.0)))
+    panel._drain_worker_queue()
+
+    assert estimator.sample_count == before
+    assert 42.0 not in estimator.samples
+
+
+def test_the_timing_message_rides_the_existing_worker_queue(make_panel):
+    """No fourth drain, no second queue, no new callback loop."""
+    panel = make_panel()
+    registered = list(panel._pump._drains)
+    assert len(registered) == 3, registered
+    drain_body = ast.unparse(method_named("_drain_worker_queue"))
+    assert "TIMING_MESSAGE" in drain_body
+    source = PANEL_SOURCE.read_text(encoding="utf-8")
+    assert ast.unparse(method_named("__init__")).count("add_drain(") == 1, (
+        "the panel registers one drain of its own; the browser and the job "
+        "adapter register theirs, and nothing added a fourth")
+    assert "self._log_q.put((TIMING_MESSAGE" in source, (
+        "timing rides the queue that already existed")
+    assert "self.after(" not in source and "after_idle" not in source
+    worker = ast.unparse(method_named("resize_worker"))
+    assert "Queue(" not in worker, "the worker creates no queue of its own"
+
+
+def test_recording_a_sample_is_reached_from_exactly_one_main_thread_place():
+    source = PANEL_SOURCE.read_text(encoding="utf-8")
+    assert source.count(".record(") == 1
+    body = ast.unparse(method_named("_record_timing"))
+    assert "_closed" in body and "run_id" in body and "attempt" in body
 
 
 def test_inputs_and_options_lock_through_the_shared_matrix(make_panel, tmp_path):
@@ -1642,8 +2140,9 @@ def test_closing_a_paused_run_cannot_deadlock(
     monkeypatch.setattr(cr, "resize_for_audiobook", gate)
 
     start(panel)
-    gate.let_through()
+    gate.wait_for_entry(1)
     panel.pause()
+    gate.let_through()
     wait_for_state(panel, jc.JobState.PAUSED)
 
     panel.close()                       # must request cancellation, then join

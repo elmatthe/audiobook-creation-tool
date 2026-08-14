@@ -2640,6 +2640,50 @@ class EtaEstimator:
         """Abandon the open unit. A cancelled or failed unit is not history."""
         self._clear_unit()
 
+    def record(self, category: str, duration: object) -> "float | None":
+        """Take one already-measured duration, in seconds, as a sample.
+
+        The alternative to :meth:`begin`/:meth:`complete`, and the reason it
+        exists is a threading one rather than a convenience one. That pair
+        measures with *this object's* clock, so whichever thread times a unit of
+        work is also the thread that mutates this estimator — and this estimator
+        is compound mutable state that a UI reads on its own thread. A tool whose
+        work happens on a worker therefore cannot use the pair without sharing
+        one estimator across two threads. With this method the worker measures a
+        number, sends the number, and the thread that owns the estimator is the
+        only one that ever touches it.
+
+        The reliability policy is not relaxed anywhere. A different *category* is
+        not comparable, so its history is cleared exactly as :meth:`begin` clears
+        it; the bounded window, the three-sample minimum and ``Calculating…``
+        are unchanged; and a duration that is not finite or is negative records
+        nothing and returns ``None``, exactly as an unusable measurement does in
+        :meth:`complete`.
+
+        This reads no clock at all — the duration came from somewhere else, and
+        that is the whole point. Mixing the two ways of measuring *in flight* is
+        a caller error rather than a merge, so recording while a unit is open is
+        refused; a category's history may of course hold samples from both.
+        """
+        name = _require_identifier("category", category)
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+            raise JobContractError(
+                f"duration must be a number, got {type(duration).__name__}")
+        if self._started_at is not None:
+            raise JobContractError(
+                "a unit is already being timed; complete or discard it first")
+        if name != self._category:
+            # A different kind of work is not comparable with what came before, so
+            # the history that would have been averaged is dropped rather than mixed.
+            self._samples.clear()
+            self._category = name
+        value = float(duration)
+        if not math.isfinite(value) or value < 0:
+            # One unmeasurable unit costs one sample and nothing else.
+            return None
+        self._samples.append(value)
+        return value
+
     def note_state(self, state: JobState) -> None:
         """Follow the authoritative run state, for pause exclusion and for endings.
 
