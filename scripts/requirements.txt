@@ -5,10 +5,13 @@
 # <3.13); the environment markers below guard the version-specific packages.
 
 # --- TTS (epub2tts-edge) ---
-beautifulsoup4==4.14.3
-ebooklib==0.20
+# EPUB was retired as an application input in v0.6.1 Plan 4 Phase 5 (maintainer
+# decision, 2026-08-11), so its three parsing dependencies went with it:
+#   beautifulsoup4==4.14.3  ebooklib==0.20  lxml==6.1.1
+# Their only consumers anywhere in the tree were chap2text_epub, export and
+# get_epub_cover, all preserved in files/archived-code/epub-tts/. Restoring EPUB
+# means restoring these three pins and bootstrap.REQUIRED_IMPORTS with them.
 edge-tts==7.2.8
-lxml==6.1.1
 mutagen==1.47.0
 nltk==3.9.4
 pillow==12.2.0

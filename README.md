@@ -2,7 +2,7 @@
 
 **A cross-platform desktop app that turns ebooks and loose audio into finished, tagged audiobooks — with a one-click installer, a single clean GUI, and no terminal required.**
 
-The Audiobook Creation Tool bundles a **text-to-speech engine** (EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
+The Audiobook Creation Tool bundles a **text-to-speech engine** (PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
 > **Status:** v0.5.0 (in development) — internal repository restructure to a single cross-platform code tree; **no feature or tool-behaviour changes**. The latest published release is **v0.4.0** (self-healing Kokoro AI-voice install + fully self-contained model cache); the download links below point at v0.4.0 until the v0.5.0 release is published. See [Known Limitations](#known-limitations).
 
@@ -39,7 +39,7 @@ All releases are listed on the [**Releases page**](https://github.com/elmatthe/a
 
 Six tools, one window:
 
-1. **TTS Audiobook** — Convert an **EPUB, PDF, or TXT** into a narrated **MP3** using either Microsoft **Edge TTS** (online, no setup, many natural voices) or the local **Kokoro‑82M** AI model (offline once downloaded). Single‑file mode and a batch‑a‑folder‑of‑PDFs mode, with a live log and a **Cancel** button that cleans up cleanly mid‑run.
+1. **TTS Audiobook** — Convert a **PDF or TXT** into a narrated **MP3** using either Microsoft **Edge TTS** (online, no setup, many natural voices) or the local **Kokoro‑82M** AI model (offline once downloaded). Single‑file mode and a batch‑a‑folder‑of‑PDFs mode, with a live log and a **Cancel** button that cleans up cleanly mid‑run.
 2. **M4B Converter** — Batch‑convert a folder of **M4B audiobooks → clean MP3s** (libmp3lame VBR), with optional bulk metadata and automatic track numbering.
 3. **MP3 Tool** — **Combine** many MP3s into one (with optional gaps and a timestamp sheet), **time‑edit** tracks (pad or trim seconds), and **bulk‑write ID3 tags** (title / artist / album / track numbers, with a paste‑in chapter‑title list).
 4. **M4B Maker** — Turn a set of MP3s into a single **chaptered .m4b** with embedded **cover art**, full metadata, and **Audiobookshelf series tags** (series name + part).
@@ -114,7 +114,7 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ## Tools — How to Use Each One
 
-**TTS Audiobook.** Pick an EPUB/PDF/TXT (or a folder of PDFs for batch mode), choose a voice, and click Start. Edge voices need no setup and run over the network; Kokoro voices run locally once the model is downloaded (Python < 3.13 only). The log streams progress; **Cancel** stops at the next chapter/paragraph boundary and removes all temp files.
+**TTS Audiobook.** Pick a PDF or TXT (or a folder of PDFs/TXTs for batch mode), choose a voice, and click Start. Edge voices need no setup and run over the network; Kokoro voices run locally once the model is downloaded (Python < 3.13 only). The log streams progress; **Cancel** stops at the next chapter/paragraph boundary and removes all temp files.
 
 **M4B Converter.** Add a folder of `.m4b` files, choose an output folder, optionally set bulk metadata and auto‑track numbering, and convert. Each book is re‑encoded to a clean VBR MP3.
 
@@ -144,7 +144,7 @@ Audiobook-Creation-Tool/
 │   ├── verify.py                # mechanical test/dep/docs gate (dev-only)
 │   ├── Universal/               # ALL program code — single cross-platform tree
 │   │   ├── launcher.py          # the unified GUI
-│   │   ├── tts/                 # TTS engine (Edge + Kokoro), PDF/EPUB extraction, batch
+│   │   ├── tts/                 # TTS engine (Edge + Kokoro), PDF text extraction, batch
 │   │   ├── mp3_tools/           # the five MP3/M4B tools
 │   │   └── shared/              # cross-cutting modules (see below)
 │   └── Windows/  MacOS/         # empty by design — only truly OS-specific code
@@ -156,7 +156,7 @@ A release zip is even simpler: a user who extracts it sees only the README, one 
 
 ### `scripts/{tts, mp3_tools, shared}`
 
-- **`tts/`** — the EPUB/PDF/TXT → MP3 engine: `epub2tts_edge/` (a hardened fork of [epub2tts‑edge](https://github.com/aedocw/epub2tts-edge)), `batch_convert.py`, `kokoro_synth.py` (local AI), `pdf_extractor.py` (PyMuPDF), and `voice_registry.py`.
+- **`tts/`** — the PDF/TXT → MP3 engine: `epub2tts_edge/` (a hardened fork of [epub2tts‑edge](https://github.com/aedocw/epub2tts-edge); the name is kept for provenance — EPUB itself was retired in v0.6.1 and its source preserved under `files/archived-code/epub-tts/`), `batch_convert.py`, `kokoro_synth.py` (local AI), `pdf_extractor.py` (PyMuPDF), and `voice_registry.py`.
 - **`mp3_tools/`** — one self‑contained module per tool (`m4b_converter.py`, `mp3_tool.py`, `m4b_maker.py`, `cover_resizer.py`, `m4b_metadata_editor.py`). Each exposes `build_ui(parent)` to embed in the launcher and a standalone `main()` for debugging.
 - **`shared/`** — `paths.py` (single source of truth for all paths), `subprocess_utils.py` (hidden‑console process wrappers), `ffmpeg_utils.py` (ffmpeg/ffprobe resolution + pydub config), `settings.py` (atomic JSON persistence), `cancellation.py` (cooperative cancel primitive), `metadata.py` (mutagen read/write + series atoms), `logging_setup.py`, `version.py`, `bootstrap.py` (the installer), and `release.py` (the dev packaging tool).
 
@@ -206,7 +206,7 @@ This project builds on excellent open‑source work:
 - **[edge‑tts](https://github.com/rany2/edge-tts)** — the Microsoft Edge TTS client.
 - **[Kokoro‑82M](https://huggingface.co/hexgrad/Kokoro-82M)** — the local AI text‑to‑speech model.
 
-Also gratefully relying on: [mutagen](https://mutagen.readthedocs.io/) (metadata), [PyMuPDF](https://pymupdf.readthedocs.io/) (PDF extraction), [pydub](https://github.com/jiaaro/pydub) + [ffmpeg](https://ffmpeg.org/) (audio), [ebooklib](https://github.com/aerkalov/ebooklib) (EPUB), [Pillow](https://python-pillow.org/) (images), and [NLTK](https://www.nltk.org/) (sentence tokenization).
+Also gratefully relying on: [mutagen](https://mutagen.readthedocs.io/) (metadata), [PyMuPDF](https://pymupdf.readthedocs.io/) (PDF extraction), [pydub](https://github.com/jiaaro/pydub) + [ffmpeg](https://ffmpeg.org/) (audio), [Pillow](https://python-pillow.org/) (images), and [NLTK](https://www.nltk.org/) (sentence tokenization).
 
 ---
 

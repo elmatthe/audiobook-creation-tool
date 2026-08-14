@@ -593,8 +593,10 @@ def test_tts_mirroring_uses_the_shared_planner_contract(output_base, tmp_path):
 
 
 def test_tts_flat_single_file_lands_in_the_run_root(output_base, tmp_path):
+    # v0.6.1 Plan 4 Phase 5: the fixture was ``novel.epub``. EPUB is no longer an
+    # accepted TTS input, so the same flat-placement coverage now runs on a PDF.
     reservation = op.reserve_run_directory("tts")
-    source = mp3_fixture(tmp_path / "books" / "novel.epub")
+    source = mp3_fixture(tmp_path / "books" / "novel.pdf")
     plan = op.plan_flat(reservation.run_directory, [source],
                         rename=lambda p: p.stem + ".mp3")
     assert plan.items[0].destination == reservation.run_directory / "novel.mp3"

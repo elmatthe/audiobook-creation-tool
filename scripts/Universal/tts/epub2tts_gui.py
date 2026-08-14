@@ -1,4 +1,10 @@
-"""Desktop GUI for epub2tts-edge (EPUB / PDF / TXT → MP3; batch PDF / TXT → MP3)."""
+"""Desktop GUI for the PDF / TXT → MP3 audiobook engine (single file, or batch a folder).
+
+The module and package names (``epub2tts_gui``, ``tts.epub2tts_edge``) are the upstream
+project's names and are kept deliberately — see ``files/archived-code/epub-tts/README.md``
+for the documented compatibility boundary. EPUB itself was retired as an application input
+by maintainer decision on 2026-08-11; PDF and TXT are the only supported types.
+"""
 
 from __future__ import annotations
 
@@ -32,8 +38,6 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from ebooklib import epub as epub_mod
-
 from shared import ffmpeg_utils
 from shared import output_paths
 from shared import paths
@@ -52,7 +56,6 @@ from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_TITLE_PAUSE_MS,
     DEFAULT_TRIM_SILENCE_DB,
     ensure_punkt,
-    export,
 )
 from tts.voice_registry import (
     DEFAULT_VOICE_LABEL,
@@ -98,7 +101,6 @@ def build_ui(parent: tk.Misc) -> None:
     output_paths.register_destination_hint(TOOL_KEY, output_var)
     bitrate_var = tk.StringVar(value="192k")
     voice_var = tk.StringVar(value=DEFAULT_SPEAKER)
-    epub_convert_var = tk.BooleanVar(value=True)
     overwrite_var = tk.BooleanVar(value=True)
     workers_var = tk.StringVar(value="2")
     resume_var = tk.BooleanVar(value=True)
@@ -164,7 +166,7 @@ def build_ui(parent: tk.Misc) -> None:
     modes = ttk.Frame(frm)
     modes.grid(row=r, column=1, sticky="w")
     ttk.Radiobutton(
-        modes, text="Single file (EPUB / PDF / TXT)", variable=mode_var, value="single"
+        modes, text="Single file (PDF / TXT)", variable=mode_var, value="single"
     ).pack(side=tk.LEFT, padx=(0, 12))
     ttk.Radiobutton(
         modes, text="Batch folder (PDF / TXT → MP3)", variable=mode_var, value="batch"
@@ -212,16 +214,10 @@ def build_ui(parent: tk.Misc) -> None:
         state="readonly",
     ).grid(row=sr, column=1, sticky="w", pady=(6, 0))
     sr += 1
-    ttk.Checkbutton(
-        opts,
-        text="EPUB: convert to audio in one step (otherwise export .txt only)",
-        variable=epub_convert_var,
-    ).grid(row=sr, column=0, columnspan=2, sticky="w", pady=(6, 0))
-    sr += 1
 
     pause_frm = ttk.LabelFrame(
         frm,
-        text="Pause timing — single-file EPUB / PDF / TXT (milliseconds)",
+        text="Pause timing — single-file PDF / TXT (milliseconds)",
         padding=8,
     )
     pause_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -473,9 +469,7 @@ def build_ui(parent: tk.Misc) -> None:
         pause_kw: dict = {}
         trim_chunks = trim_edge_chunks_var.get()
         if mode_var.get() == "single":
-            low = inp.lower()
-            epub_export_only = low.endswith(".epub") and not epub_convert_var.get()
-            if not epub_export_only and not is_kokoro:
+            if not is_kokoro:
                 try:
                     pause_kw = {
                         "sentencepause": _parse_pause_ms(
@@ -511,7 +505,6 @@ def build_ui(parent: tk.Misc) -> None:
         rate = rate_var.get().strip() or "+0%"
         resume = resume_var.get()
         overwrite = overwrite_var.get()
-        epub_convert = epub_convert_var.get()
         bitrate = bitrate_var.get()
         try:
             workers = int(workers_var.get() or "2")
@@ -695,12 +688,6 @@ def build_ui(parent: tk.Misc) -> None:
                         return
 
                     low = inp.lower()
-                    if low.endswith(".epub") and not epub_convert:
-                        book = epub_mod.read_epub(inp)
-                        export(book, inp, overwrite=overwrite)
-                        log_q.put(("done", "Exported EPUB to text (and cover PNG if present)."))
-                        return
-
                     if is_kokoro and mode == "single":
                         assert current_voice_entry is not None
                         import tempfile
@@ -722,13 +709,7 @@ def build_ui(parent: tk.Misc) -> None:
                             return
 
                         with tempfile.TemporaryDirectory(prefix="epub2tts_kokoro_gui_") as tmpd:
-                            if low.endswith(".epub"):
-                                book = epub_mod.read_epub(inp)
-                                export(book, inp, overwrite=True)
-                                txt_path = str(Path(inp).with_suffix(".txt"))
-                                if not Path(txt_path).exists():
-                                    txt_path = str(Path(tmpd) / f"{stem}.txt")
-                            elif low.endswith(".pdf"):
+                            if low.endswith(".pdf"):
                                 txt_path = str(Path(tmpd) / f"{stem}.txt")
                                 pdf_to_txt(inp, txt_path)
                                 log_q.put(("log", "PDF text extracted.\n"))
@@ -767,7 +748,6 @@ def build_ui(parent: tk.Misc) -> None:
                         mp3_bitrate=bitrate,
                         cover=None,
                         overwrite=overwrite,
-                        epub_convert=epub_convert if low.endswith(".epub") else False,
                         trim_tts_padding=pause_kw.get("trim_tts_padding", True),
                         trim_silence_db=pause_kw.get(
                             "trim_silence_db", float(DEFAULT_TRIM_SILENCE_DB)
@@ -825,7 +805,7 @@ def build_ui(parent: tk.Misc) -> None:
 
 def main() -> None:
     root = tk.Tk()
-    root.title("epub2tts-edge v1.1 — Audiobook")
+    root.title("TTS Audiobook — PDF / TXT → MP3")
     root.minsize(640, 680)
     build_ui(root)
     root.mainloop()
@@ -851,7 +831,7 @@ def _browse_input(mode_var: tk.StringVar, input_var: tk.StringVar) -> None:
         p = filedialog.askopenfilename(
             title="Source file",
             filetypes=[
-                ("Audiobook sources", "*.epub *.pdf *.txt"),
+                ("Audiobook sources", "*.pdf *.txt"),
                 ("All files", "*.*"),
             ],
         )

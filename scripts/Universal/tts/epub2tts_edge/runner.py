@@ -10,8 +10,6 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from ebooklib import epub as epub_mod
-
 from .epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
     DEFAULT_END_OF_BOOK_PAUSE_MS,
@@ -21,7 +19,6 @@ from .epub2tts_edge import (
     DEFAULT_TITLE_PAUSE_MS,
     DEFAULT_TRIM_SILENCE_DB,
     add_cover,
-    export,
     generate_metadata,
     get_book,
     make_m4b,
@@ -122,12 +119,11 @@ def run_conversion_job(
     trim_tts_padding: bool = True,
     trim_silence_db: float = DEFAULT_TRIM_SILENCE_DB,
     overwrite: bool = False,
-    epub_convert: bool = False,
     cancel_check=None,
     progress_callback=None,
 ) -> str:
     """
-    Convert EPUB (with epub_convert), PDF, or TXT to M4B or MP3.
+    Convert PDF or TXT to M4B or MP3.
     Returns the path to the final audio file.
 
     ``progress_callback(done, total)`` reports paragraph-level progress from
@@ -140,11 +136,8 @@ def run_conversion_job(
 
     stem = Path(sourcefile).stem
     suffix = Path(sourcefile).suffix.lower()
-    if suffix not in (".epub", ".pdf", ".txt"):
+    if suffix not in (".pdf", ".txt"):
         raise ValueError(f"Unsupported input type: {suffix}")
-
-    if suffix == ".epub" and not epub_convert:
-        raise ValueError("EPUB input requires epub_convert=True for audio output")
 
     tmp = tempfile.mkdtemp(prefix="epub2tts_")
     old_cwd = os.getcwd()
@@ -152,14 +145,7 @@ def run_conversion_job(
         os.chdir(tmp)
         work_txt = os.path.join(tmp, f"{stem}.txt")
 
-        if suffix == ".epub":
-            epub_name = os.path.basename(sourcefile)
-            local_epub = os.path.join(tmp, epub_name)
-            shutil.copy2(sourcefile, local_epub)
-            book = epub_mod.read_epub(local_epub)
-            export(book, local_epub, overwrite=True)
-            work_txt = local_epub.replace(".epub", ".txt")
-        elif suffix == ".pdf":
+        if suffix == ".pdf":
             from tts.pdf_extractor import pdf_to_txt
 
             pdf_to_txt(sourcefile, work_txt)

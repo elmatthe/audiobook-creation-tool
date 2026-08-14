@@ -618,13 +618,11 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog,
 _PIP_NAME = {
     "fitz": "pymupdf",
     "PIL": "pillow",
-    "bs4": "beautifulsoup4",
     "edge_tts": "edge-tts",
 }
 # Required (non-optional) imports to verify after install. Kokoro is intentionally
 # excluded — it is optional and gated to Python <3.13.
-REQUIRED_IMPORTS = ["edge_tts", "pydub", "fitz", "mutagen", "PIL", "ebooklib",
-                    "bs4", "nltk"]
+REQUIRED_IMPORTS = ["edge_tts", "pydub", "fitz", "mutagen", "PIL", "nltk"]
 
 
 def validate_installed_packages(log: SetupLog) -> bool:

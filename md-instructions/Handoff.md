@@ -2,8 +2,9 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–3 approved; Phase 4 is
-implemented and remediated but AWAITING APPROVAL; Phase 5 has NOT begun.** The temporary drop
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–4 approved (Phase 4 including
+its ETA-serialization remediation); Phase 5 is implemented and AWAITING APPROVAL; Phase 6 has NOT
+begun.** The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
 its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
@@ -528,7 +529,207 @@ launcher run. No Mac action.
 
 **Phase 5 (EPUB production retirement and reference archival) is still not started.**
 
-**Next action: Phase 4 approval.**
+**Next action: Phase 4 approval.** *(Given 2026-08-14; see below.)*
+
+### Phase 5 — EPUB production retirement and reference archival (2026-08-14, HOME-PC)
+
+**Result: EPUB is gone from every active production surface, its tracked source is preserved in
+a permanent, provably inert archive, and the shared Edge/PDF/TXT synthesis engine survived
+untouched.** Entry SHA `3d9de97e7befc27fa22210bdcc27f174aa594883`. Nine files changed, five
+added; **no production module was added, removed or renamed**, which is why the collected-test
+delta is exactly the new guard module and nothing else.
+
+**This was a disentangling job.** The fresh `rg` inventory confirmed §4.4.1's warning in full:
+`epub2tts_edge/` *is* the Edge synthesis engine for PDF and TXT, and only four of its twenty-four
+functions were EPUB-specific.
+
+#### The five-category inventory (re-derived, not trusted)
+
+1. **EPUB-exclusive.** `epub2tts_edge.py` — `chap2text_epub`, `get_epub_cover`, `export`,
+   `check_for_file`, the `namespaces` dict, the `ebooklib.epub` warning filter, the imports
+   `bs4.BeautifulSoup` / `ebooklib` / `ebooklib.epub` / `lxml.etree` / `PIL.Image` / `zipfile` /
+   `warnings`, and `main()`'s `--epub-convert` flag, `.epub` early exit and help string.
+   `runner.py` — the `epub_mod` import, the `export` import, the `epub_convert` parameter, the
+   `".epub"` suffix member, the `epub_convert=True` guard and the extraction branch.
+   `epub2tts_gui.py` — the `epub_mod` and `export` imports, `epub_convert_var`, the option
+   checkbox, `epub_export_only`, the hoisted `epub_convert` copy, the Edge export-only branch, the
+   Kokoro `.epub` branch, the `run_conversion_job` kwarg, the `*.epub` dialog filter and two
+   labels. **`check_for_file` was not EPUB-specific in itself** — `export` was simply its only
+   caller anywhere in the tree, so it was orphaned by the retirement rather than left as dead
+   interactive `input()` code in a GUI app. It is preserved in the archive.
+2. **Shared PDF/TXT/Edge infrastructure — untouched.** `read_book`, `run_edgespeak`,
+   `parallel_edgespeak`, `run_save`, `intra_sentence_chunks`, `_merge_nonspeakable_intra_chunks`,
+   `trim_silence_segment`, `trim_tts_chunk_file`, `append_silence`, `_export_audio`, `get_book`,
+   `generate_metadata`, `get_duration`, `make_m4b`, `make_mp3`, `add_cover`, `ensure_punkt`,
+   `_run_ffmpeg`, `_ensure_shared_on_path`, `_SPEAKABLE` and **every** timing constant;
+   `runner.py`'s `_normalize_for_match`, `_ensure_pdf_txt_has_chapter_heading` and the whole
+   PDF/TXT body of `run_conversion_job`. **`pdf_extractor.py`, `batch_convert.py`,
+   `kokoro_synth.py`, `voice_registry.py` and `generate_voice_samples.py` contain no EPUB code at
+   all** — the only matches are stale *upstream-project-name* docstring mentions. Zero edits to
+   all five.
+3. **Mixed-purpose.** Exactly the three §4.4.1 names, disentangled in place, never archived
+   wholesale.
+4. **Historical / test / reference.** No test file was EPUB-exclusive, so **nothing under
+   `files/tests/` was archived and no test was deleted**. `test_importing.py:284` (which asserts
+   `.epub` is *not* baked into the shared layer), `test_importing.py:600`, `test_job_control.py:416`
+   and `test_job_ui.py:851-854` (which use `"epub"` as an arbitrary *unknown* type id) are kept
+   verbatim — none is a TTS support expectation. Exactly **one** stale expectation was found and
+   retargeted: `test_tool_output_integration.py::test_tts_flat_single_file_lands_in_the_run_root`
+   planned a fixture named `novel.epub`; it now plans `novel.pdf`, preserving the identical
+   flat-placement coverage. `files/release-history/`, `Changelog.md`, `Decisions.md` and
+   `don't-delete/` are preserved history and are explicitly outside every guard's scope.
+5. **Dependency / bootstrap / launcher / docs / packaging.** `requirements.txt` ×3 pins,
+   `bootstrap._PIP_NAME` and `REQUIRED_IMPORTS`, `launcher.TOOLS[0].description`,
+   `tts/__init__.py`, `README.md`. `verify.py` and `release.py` needed no change.
+   `files/Dockerfile` was assessed and **left alone**: it is a dev-only asset outside `scripts/`,
+   it entry-points the *surviving* Edge engine rather than anything EPUB, and it is already
+   non-functional as committed (`COPY epub2tts_edge/… setup.py` — no `setup.py` exists and the
+   paths are not relative to `files/`).
+
+#### Rename decision: **A — names kept, boundary documented**
+
+`epub2tts_gui` / `epub2tts_edge` survive. A complete rename would have had to move atomically
+across the launcher module path, `bootstrap.LAUNCHER_FALLBACK`, `tts/__init__.py`, **nine** test
+modules holding those paths as literal strings, `files/Dockerfile` and `README.md` — while Phases
+6 and 7 restructure that same panel. Renaming now and restructuring next doubles the churn exactly
+where the drop's half-rename risk lives, and the names carry the GPL-3.0 provenance. The boundary
+is written down in three places: the panel's module docstring, `README.md`'s `scripts/tts` bullet,
+and a dedicated section of the archive manifest. A guard asserts the manifest says so.
+
+#### The archive
+
+`files/archived-code/epub-tts/` — tracked, permanent, **not deleted with the drop at closeout**.
+Every byte came from `git show 3d9de97:…`, never from the working directory.
+
+| Archived file | Original path | Preserves |
+|---|---|---|
+| `epub2tts_edge_epub_functions.py` | `scripts/Universal/tts/epub2tts_edge/epub2tts_edge.py` | `namespaces`, `chap2text_epub`, `get_epub_cover`, `export`, `check_for_file`, the CLI fragments |
+| `runner_epub_dispatch.py` | `scripts/Universal/tts/epub2tts_edge/runner.py` | the `.epub` guard and extraction branch, the removed import/parameter/suffix |
+| `epub2tts_gui_epub_surfaces.py` | `scripts/Universal/tts/epub2tts_gui.py` | the checkbox, the pause-skip, both worker branches, the dialog filter, both labels |
+| `README.md` | — | the manifest: per-file original path, archive path, purpose, source SHA, retirement reason, retained production counterpart, licence, and restoration guidance |
+
+**Inertness, proved rather than asserted.** `files/archived-code/` was re-verified as **not
+ignored** (`git check-ignore` exit 1) so **no `.gitignore` change was needed** — the negation-rule
+risk never arose. `release.py` walks `ROOT_FILES` + one entry launcher + `scripts/` only, so its
+built file list (45 members, enumerated without building a release) contains no `files/` path at
+all. The suite is invoked as `pytest files/tests`, so the archive is uncollectable by path; a guard
+additionally proves no archived file matches any default collection pattern. Further guards prove:
+the archive is outside `scripts/`; no production module names it in an executable string or
+imports it; no `sys.path` entry and no loaded module resolves inside it; it contains only `.py`
+and `.md`; it has no `__init__.py`, `conftest.py`, `setup.py`, `pyproject.toml` or `sitecustomize`;
+and **no archived module executes anything on import** (no top-level `if`, no top-level call).
+It holds no media, no book fixture and no untracked file.
+
+#### Dependency evidence (§4.7), package by package
+
+| Package | Consumers enumerated by search | Classification | Reverse-deps in the venv | Decision |
+|---|---|---|---|---|
+| `ebooklib==0.20` | `epub2tts_edge.py:15,16,60,174`; `runner.py:13`; `epub2tts_gui.py:35`; `bootstrap.REQUIRED_IMPORTS` | all EPUB-only | **none** | **removed** |
+| `beautifulsoup4==4.14.3` | `epub2tts_edge.py:14→102`, inside `chap2text_epub` only; `bootstrap._PIP_NAME` + `REQUIRED_IMPORTS` | single EPUB-only consumer | only optional extras (`transformers[dev/testing]`, `lxml[htmlsoup]`) | **removed** |
+| `lxml==6.1.1` | `epub2tts_edge.py:18→130,134`, inside `get_epub_cover` only | EPUB-only | `EbookLib→lxml` (itself removed), `beautifulsoup4[lxml]` extra, `networkx[extra]` — **no non-extra requirer among retained pins** | **removed** |
+
+Read from installed distribution metadata, not from memory, and re-asserted by a test that walks
+`importlib.metadata` and fails if any *retained* pin declares a bare (non-extra) requirement on one
+of the three. `bootstrap.REQUIRED_IMPORTS` is now
+`["edge_tts", "pydub", "fitz", "mutagen", "PIL", "nltk"]` and `_PIP_NAME` lost its `bs4` alias — a
+removed package still listed there would break a clean install. **Every retained pin is
+byte-identical**, including `pillow-heif==1.5.0`, `kokoro==0.9.4 ; python_version < "3.13"` and
+`audioop-lts==0.2.2 ; python_version >= "3.13"`. Nothing was upgraded, downgraded or reordered.
+The three removed pins are recorded verbatim in a `requirements.txt` comment and in the manifest so
+restoration is mechanical.
+
+#### Licence and attribution — intact, and now guarded
+
+`README.md`'s **License** section and the **Christopher Aedo / aedocw/epub2tts-edge** credit are
+byte-identical, and three new tests pin their exact wording. The surviving Edge engine is the same
+upstream derivation, so the obligation lives in production as well as in the archive; a fourth test
+asserts `generate_metadata` still writes the upstream URL into every M4B. **One** credit line
+changed: `ebooklib` was dropped from the "Also gratefully relying on" list, because the project no
+longer relies on it. That is a dependency acknowledgement, not the protected upstream attribution.
+
+#### Tests
+
+**Added:** `files/tests/test_epub_retirement.py` — **101 tests**, all AST- or metadata-driven, with
+an explicit production allow-list rather than a repository-wide substring ban. A meta-guard proves
+the allow-list equals the real set of production TTS modules on disk, so it can neither go stale nor
+be padded to hide one. Docstrings are excluded deliberately (describing the retirement is not
+offering it), and `.epub` is matched as a *file extension* (`\.epub(?![A-Za-z0-9_])`) so
+`tts.epub2tts_edge` cannot trip it. Coverage: PDF/TXT are the only accepted types; `.epub` cannot
+enter through dialogs, extension sets, mode controls, validation, folder traversal, stale persisted
+state, dispatch, retry or a direct internal call; no UI label, launcher description or CLI help
+offers it; Edge and Kokoro PDF/TXT paths are behaviourally unchanged; every timing, retry and voice
+default holds; the run directory is still reserved only after validation; the archive is inert and
+unpackaged; the manifest is accurate; licence and attribution survive; and the dependency contract
+holds both ways. **An import-blocking seam** poisons `sys.modules` with a sentinel that raises on
+attribute access and re-imports the engine and runner, so a lingering EPUB import fails loudly
+instead of passing because the package happens to still be installed in this venv.
+
+**Removed / weakened: none.** No test was deleted, skipped, xfailed or weakened. One fixture
+filename changed, as described above.
+
+**Collection reconciliation.** 2941 collected (2928 passed, 13 skipped) against the Phase-4
+remediation baseline of 2840 collected (2827 passed, 13 skipped). **+101 = exactly the 101 tests in
+`test_epub_retirement.py`.** No test was deleted (0), none was moved or archived (0), and no
+parametrized case moved (0) — `test_no_production_module_imports_the_plan3_foundation` is
+parametrized over production modules and Phase 5 added and removed none, only editing existing
+files. Nothing is unexplained.
+
+**Skips: the same 13, 8 + 2 + 3.** Eight symlink-privilege (WinError 1314):
+`test_cover_source_side::test_replacement_refuses_a_linked_source`,
+`test_import_manager::test_a_file_symlink_supplied_as_a_file_is_refused`,
+`test_import_traversal::{test_is_link_says_yes_to_a_file_symlink, test_is_link_says_yes_to_a_directory_symlink,
+test_a_file_symlink_inside_a_scanned_folder_is_refused, test_a_directory_symlink_inside_a_scanned_folder_is_refused,
+test_a_root_that_is_a_symlink_is_refused}`, `test_output_paths::test_a_linked_destination_name_is_refused`.
+Two case-insensitive filesystem: `test_import_manager::test_case_only_names_on_a_case_sensitive_filesystem_stay_distinct`,
+`test_import_traversal::test_names_differing_only_in_case_are_both_collected`. Three
+`JACK_RYAN_M4B_FOLDER` unset: `test_jack_ryan_final_product::{test_folder_has_m4bs,
+test_finished_product_invariants[NOTSET], test_series_is_consistent_across_the_set}`.
+
+**Warnings: still exactly 1** — the inherited third-party `pydub`/`audioop` `DeprecationWarning`.
+
+#### Gates
+
+`verify.py` → `RESULT: PASS` (all five checks); `compileall -q scripts files/tests` exit 0 — the
+inert archive is deliberately **not** compiled as runtime code; `git diff --check -- '*.py'` exit 0.
+
+#### Installation testing — deferred, not passed
+
+Phase 5's **narrow** dependency and bootstrap contract is **passed**: the automated dependency,
+bootstrap, requirements-pinning and release-packaging tests are green, and the import-blocking seam
+proves PDF/TXT operation does not need the removed packages. The **real end-user installation test
+is DEFERRED, not passed.** The Plan 4 dependency set is not final — the Chatterbox phases may still
+add or alter requirements — so no package was installed or uninstalled in the working `.venv`, the
+`.venv` was neither deleted nor rebuilt, no standalone pip clean install was run, `bootstrap.py`
+was not executed directly, and neither root launcher was run. At the later authorized Windows gate
+it must use the root `Setup_and_Run-audiobook-creation-tool.bat` for **both** a disposable clean
+first-run installation **and** a second-invocation existing-environment fast path.
+
+#### Preserved boundaries
+
+Version `0.5.1`; six launcher tools; `master` = `origin/master` = `809a43e`; `config-template.toml`
+absent from worktree and index; `pillow-heif==1.5.0`; all 22 approved Plan 1/2 screenshots
+byte-identical. Every approved Phase 4 Cover behaviour untouched — `cover_resizer.py`,
+`job_control.py`, `job_ui.py` and `image_capabilities.py` are not in the diff. The four reference
+recordings are byte-identical to their Phase 0 hashes, still ignored at `.gitignore:55`, and still
+absent from `git ls-files`; no audio, model, cache, log or runtime-data blob entered the index.
+**Phase 6 and later were not started**: no unified importer queue, no panel frame class, no
+`ImportAdapter` / `JobController` / `JobAdapter` / `planning_groups` / `capture_run` anywhere under
+`scripts/Universal/tts/`, no change to PDF/TXT output planning, no change to the Edge or Kokoro
+conversion flow, and no Edge timing rewrite. No Chatterbox work, no HEIC manual testing, no macOS
+action, no CUDA/Metal work, no version bump, no tag, release, packaging run, publication, merge or
+branch deletion.
+
+#### One contract reading resolved
+
+The drop's Phase 6 text says *"The mode radio is gone with EPUB in Phase 5."* Read literally that
+would delete the Single/Batch control now — but the surviving PDF/TXT workflow needs both paths
+until Phase 6 builds the unified queue, and the maintainer's Phase 5 kickoff is explicit and later
+in authority: *"Phase 5 removes EPUB and leaves the surviving PDF/TXT workflow operational. Phase 6
+owns the panel restructure and unified queue."* So Phase 5 removed the **EPUB** mode control
+(`epub_convert_var` and its checkbox) and retitled the radio to `Single file (PDF / TXT)`; the
+Single/Batch radio itself — not an EPUB control — survives for Phase 6 to collapse.
+
+**Next action: Phase 5 approval.**
 
 ---
 
