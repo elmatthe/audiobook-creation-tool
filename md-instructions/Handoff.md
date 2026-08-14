@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–3 complete; Phase 4 has
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–4 complete; Phase 5 has
 NOT begun.** The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
 its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
@@ -283,7 +283,143 @@ dependency was installed or changed. **Installation validation is not applicable
 no dependency or setup change — so no `pip install`, no `pillow-heif` install, no
 `requirements.txt`/bootstrap/launcher edit, and neither root launcher was run. No Mac action.
 
-**Next action: Phase 4 approval.**
+**Next action: Phase 4 approval.** *(Given 2026-08-13; see below.)*
+
+### Phase 4 — Cover: job-control, output and Retry Failed adoption (2026-08-13, HOME-PC)
+
+**Result: Cover's *run* now belongs to the shared Plan 3 foundation, and its output plan to
+Plan 2's three planners, with every clause of §4.2 still proven by test.** Five files changed —
+one new test module, `cover_resizer.py`, and one migrated guard in each of three existing test
+modules. No new production module, no dependency change, no `ACT.`-namespaced style, and no
+Phase-5-or-later vocabulary anywhere.
+
+**Composition adopted — nothing reimplemented.** `capture_run` freezes one run; a
+`JobController` owns its cooperative pause/resume/cancel; a `JobReporter` mints every event from
+a controller snapshot; a `JobAdapter` (with its `JobControlBar`, `JobStatusView`,
+`SummaryDetailsView`, `LockGroup` and `EtaEstimator`) renders the whole stream; `RunResult.settle`
+and `.retry()` are the only retry vocabulary. An AST guard fails if the panel *defines* any of
+those names.
+
+**One run, frozen once.** `start_resize` captures the manager snapshot, the catalog, the import
+options, the effective configuration and `{size, letterbox, mode}` in one `capture_run` call on
+the main thread, then never consults them again. Occurrence id is the item identity end to end —
+plan, worker, event stream, outcome and retry — so two deliberate duplicates of one path stay two
+items with two destinations and two retry entries.
+
+**Output planning.** `plan_destinations()` uses `planning_groups()` as the *only* bridge:
+individually chosen files go through `plan_flat` (Decision 31A), a single folder root through
+`plan_mirrored` (7A), several roots through `plan_multi_root` (41A) — all sharing one
+`DestinationPlanner`, so a flat file and a mirrored file can never be planned onto the same path.
+Destinations are planned under `written_name()`, the name the writer will *actually* produce, and
+the whole map is computed before the worker exists. That is what makes a retried item land where
+it would originally have landed and makes it impossible for it to take a name an earlier success
+already occupies. The two source-side modes plan per item at write time, exactly as before, and
+reserve no run directory.
+
+Occurrence ids are walked in parallel with `planning_groups`' own rule and then **cross-checked
+element by element** against the returned paths, raising `UnsafePathError` rather than allowing a
+silent mismatch. That check is why a second grouping cannot quietly drift into existence.
+
+**The destructive contract.** Unchanged, and now reachable from two callers instead of one:
+`_gate_replacement()` validates every source and then asks the one confirmation, and both a first
+run and a retry go through it — which is how `self.confirm_replacement(` still appears exactly
+once in the module and how a retry can never inherit an earlier answer. A declined confirmation
+still creates no run directory, no temporary file and no output, and now also no accepted run.
+
+**Pause, resume, cancel.** `controller.checkpoint()` is called once, at the top of the single
+per-image loop, before `resize_for_audiobook` — so a pause asked for mid-resize records
+"Pause requested" and takes effect at the next boundary, a paused run holds no half-written
+output, and resume redoes nothing. `cancel()` sets the panel's own `_cancel_event` **and** asks
+the controller, which wakes a worker already waiting at a paused checkpoint; the worker
+acknowledges at that checkpoint and only then may the run be settled as cancelled. A completed
+replacement is never rolled back and the log still says so. `Cancel Import` still reaches the
+coordinator only.
+
+**One pump, three drains.** The import poller rides the pump's `schedule` seam; the processing
+queue, the browser's previews and the job adapter are its three drains. `self.after(` still does
+not appear in the panel and `MainThreadPump(` still appears once. The adapter is rebuilt per run
+— one run owns one event stream and one estimate, and neither can be rebound — and closing the
+retired one is what drops its drain, so the count stays three however many runs a session
+performs. Both the Phase 2 and Phase 3 one-pump guards now **name** the three drains rather than
+counting them.
+
+**Close safety.** `close()` asks the controller to stop *before* joining, so closing a paused run
+finds a thread already unwinding rather than one that will never be woken; the join is bounded by
+the same `WORKER_JOIN_TIMEOUT` the browser uses.
+
+**A real defect this phase surfaced and fixed.** The first full run produced **2 warnings against
+a baseline of 1** — the same `PytestUnraisableExceptionWarning: Variable.__del__ … main thread is
+not in main loop` class Phase 3 hit, surfacing in an unrelated file. Cause: the shared job widgets
+bring Tk variables that survive `destroy` inside reference cycles, so they are freed by the
+*cyclic* collector, which runs on whichever thread crosses its threshold. `destroy()` now
+finishes its own teardown with an explicit `gc.collect()` after `super().destroy()`, on the thread
+that owns the widgets. Bisected by running the full suite without the new test module — still 2
+warnings — which proved it was the production change and not the tests. **The warning is fixed,
+never suppressed**, and a regression test asserts both the mechanism and the absence of any
+warning filter in the panel.
+
+**Gates.** 2790 passed, 13 skipped, 1 warning (2803 collected) against the Phase 3 baseline of
+2698/13/1 (2711 collected). The **+92 is exactly the 92 new tests** in
+`files/tests/test_cover_jobs.py`; no parametrized case moved, because Phase 4 added no production
+module. `verify.py` → `RESULT: PASS`; `compileall` exit 0; `git diff --check` on `'*.py'` exit 0.
+The race-sensitive subset was re-run 6 consecutive times and the five concurrency-heavy modules 5
+consecutive times, all green.
+
+The 13 skips are the same environmental ones, by node id: `test_cover_source_side.py::
+test_replacement_refuses_a_linked_source`, `test_import_manager.py::
+{test_a_file_symlink_supplied_as_a_file_is_refused, test_case_only_names_on_a_case_sensitive_filesystem_stay_distinct}`,
+`test_import_traversal.py::{test_is_link_says_yes_to_a_file_symlink,
+test_is_link_says_yes_to_a_directory_symlink, test_names_differing_only_in_case_are_both_collected,
+test_a_file_symlink_inside_a_scanned_folder_is_refused,
+test_a_directory_symlink_inside_a_scanned_folder_is_refused,
+test_a_root_that_is_a_symlink_is_refused}`, `test_jack_ryan_final_product.py::
+{test_folder_has_m4bs, test_finished_product_invariants[NOTSET],
+test_series_is_consistent_across_the_set}` and `test_output_paths.py::
+test_a_linked_destination_name_is_refused` — nine for symlink privilege (WinError 1314), two for a
+case-insensitive filesystem, three for `JACK_RYAN_M4B_FOLDER` being unset. (Phase 3's abbreviated
+categories summed to 12; the node-by-node list above is the real thirteen.) The single warning is
+still the third-party `pydub`/`audioop` `DeprecationWarning`.
+
+**Four existing tests changed, and why.** Each is a phase-ordering marker that Phase 4 is the
+phase to retire, or a mechanism made *more* precise — none is weakened:
+
+1. `test_cover_importing.py::test_the_processing_worker_and_its_queue_protocol_are_unchanged` —
+   the "kept" half is byte-identical; the half that asserted Phase 4 had not started now names
+   Phase-5-and-later vocabulary instead.
+2. `test_cover_browser.py::test_no_phase_four_vocabulary_entered_the_panel` — same marker, same
+   migration, renamed to `…no_phase_five_vocabulary…`.
+3. The worker's "reads no Tk variable and no widget" guard, in both modules — narrowed from *any*
+   attribute anywhere in the body to a **whitelist of the attributes it reaches on `self`**
+   (`_log_q` and `_cancel_event`, exactly). Strictly stronger, and no longer confusable with a
+   shared reporting call that happens to share a widget's name.
+4. `test_prototype_regression.py::test_building_the_whole_app_leaves_the_generic_styles_untouched`
+   — the values are now compared through one canonical spelling. Tcl answers
+   `{'tabmargins': '2 2 2 0'}` before any notebook has existed in the interpreter and
+   `{'tabmargins': [2, 2, 2, 0]}` afterwards: identical padding, two encodings. Cover is the first
+   panel to instantiate a `ttk.Notebook` (through the shared Summary/Details view), so the guard
+   reported a "leak" that was a property of lazy Tcl conversion. A real change of colour, layout
+   or state map still differs.
+
+**Two presentation decisions.** The panel's own `Cancel` button is retired in favour of the shared
+control bar's Pause / Resume / Cancel and the retry control; `Resize Covers` remains the panel's
+own Start. `self.progress` is now an alias of the shared status view's indicator, so there is
+exactly one progress model and nothing can draw a second, disagreeing bar. The Log pane is kept
+(it is the raw transcript, distinct from the shared Summary and Details projections) and shrunk
+from 8 rows to 4 so the whole panel still fits the supported minimum.
+
+**Preserved and re-proved.** The manager is still the single imported-file source; `self.files`
+and `self.listbox` are still absent; the three browser views, their default and their selection
+semantics are untouched; `Cancel Import` stays usable while a run's inputs are locked; the catalog
+still follows Phase 1's probe; `REPLACEABLE_SUFFIXES` and `written_suffix()` are byte-identical;
+and `resize_worker` still runs a plain, unreported batch when handed the legacy parameter dict,
+which is what keeps `test_cover_source_side.py` passing unmodified.
+
+**Not started.** Phase 5's EPUB retirement and reference archival. No dependency was installed or
+changed. **Installation validation is not applicable in Phase 4** — no dependency or setup change
+— so no `pip install`, no `pillow-heif` install, no `requirements.txt`/bootstrap/launcher edit,
+and neither root launcher was run. No Mac action.
+
+**Next action: Phase 5 approval.**
 
 ---
 

@@ -918,10 +918,14 @@ def test_the_two_cancellations_are_different_objects(make_panel):
 def test_exactly_one_pump_owns_the_panels_scheduled_callbacks(make_panel):
     panel = make_panel()
     assert panel._pump.running is True
-    # Phase 3 added the browser's preview drain to this same chain. Two drains,
-    # still one pump: the count is what changed, the guarantee below is not.
-    assert panel._pump.drain_count == 2, (
-        "the processing worker queue and the browser both drain on the one pump")
+    # Phase 3 added the browser's preview drain and Phase 4 the job adapter's.
+    # Three drains, still one pump — and they are named rather than counted, so
+    # a future drain cannot slip in behind an unchanged number.
+    registered = list(panel._pump._drains)
+    assert panel._drain_worker_queue in registered
+    assert panel.browser.drain in registered
+    assert panel.jobs.drain in registered
+    assert len(registered) == 3, registered
     assert panel.importer.poller is not None
 
     source = PANEL_SOURCE.read_text(encoding="utf-8")
@@ -975,16 +979,28 @@ def test_every_import_entry_point_is_fenced_to_the_owner_thread(make_panel):
 
 
 def test_the_processing_worker_reads_no_tk_variable_and_no_widget():
-    """The Phase 4 crash class this project already paid for once."""
+    """The Phase 4 crash class this project already paid for once.
+
+    Phase 4 tightened the mechanism rather than loosening it. The claim has
+    always been about what the worker reaches for *on the panel*, so that is now
+    what is measured — and it is measured as a whitelist, which is strictly
+    stronger than the old blacklist of names. It also stops the guard being
+    fooled the other way: ``reporter.progress`` is a shared reporting call and
+    has never been the panel's progress widget, but a scan of every attribute
+    anywhere in the body could not tell the two apart.
+    """
     worker = method_named("resize_worker")
-    attributes = {
-        node.attr for node in ast.walk(worker) if isinstance(node, ast.Attribute)
+    reached = {
+        node.attr for node in ast.walk(worker)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name) and node.value.id == "self"
     }
+    assert reached == {"_log_q", "_cancel_event"}, reached
     for forbidden in ("var_size", "var_letterbox", "var_source_side",
                       "var_source_action", "var_outdir", "importer", "listbox",
-                      "log", "progress", "manager"):
-        assert forbidden not in attributes, forbidden
-    assert "_log_q" in attributes, "it still reports through the queue"
+                      "log", "progress", "manager", "browser", "cache", "jobs"):
+        assert forbidden not in reached, forbidden
+    assert "_log_q" in reached, "it still reports through the queue"
 
 
 # --------------------------------------------------------------------------- #
@@ -1023,7 +1039,15 @@ def test_starting_a_resize_with_an_empty_list_warns_and_starts_nothing(
 
 
 def test_the_processing_worker_and_its_queue_protocol_are_unchanged():
-    """Phase 2 changed importing only — nothing about how a resize runs."""
+    """Phase 2 changed importing only — nothing about how a resize runs.
+
+    The kept list below is the half that is a real preservation contract, and it
+    is byte-identical to what Phase 2 wrote. The half that followed it was a
+    phase-ordering marker asserting Phase 4 had not started; Phase 4 is where
+    that stops being true, so it now names the vocabulary of the phases that
+    genuinely have not started. Phase 4's own surface is proved in
+    ``test_cover_jobs.py``.
+    """
     source = PANEL_SOURCE.read_text(encoding="utf-8")
     for kept in ("def resize_worker", "def start_resize", "def cancel",
                  "def disable_inputs", "def _finish_idle",
@@ -1032,9 +1056,9 @@ def test_the_processing_worker_and_its_queue_protocol_are_unchanged():
                  "temporary_sibling", "atomic_replace",
                  "validate_source_for_replacement", "REPLACEABLE_SUFFIXES"):
         assert kept in source, kept
-    # And none of Phase 4's vocabulary arrived early.
-    for later in ("JobController", "JobAdapter", "capture_run", "RetryRequest",
-                  "plan_mirrored", "plan_multi_root", "planning_groups"):
+    # And none of Phase 5-and-later's vocabulary arrived early.
+    for later in ("chatterbox", "Chatterbox", "voice_registry", "epub",
+                  "archived-code", "torch"):
         assert later not in source, later
 
 

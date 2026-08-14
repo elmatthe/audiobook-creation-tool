@@ -36,9 +36,20 @@ v0.6.1 Plan 4 Phase 3 adds Decision 17A's three ways to look at that list —
 Details, List and Medium Thumbnails — as :class:`CoverBrowser`. All three are
 projections of the same manager snapshot, keyed by occurrence id; previews are
 decoded off the main thread for visible tiles only and held in one bounded
-cache. Processing still runs on the worker below, unchanged.
+cache.
+
+v0.6.1 Plan 4 Phase 4 moves the run itself onto the shared job-control
+foundation. One run is frozen once by ``capture_run``; a ``JobController`` owns
+its cooperative pause, resume and cancel; a ``JobAdapter`` renders its whole
+event stream — controls, progress, the estimate, Summary and Details — and the
+shared lock matrix decides what a running job takes ownership of. Standard
+output is planned before the worker starts, through ``planning_groups`` and the
+three Plan 2 planners, so every occurrence has one collision-free destination
+that a later retry re-uses rather than re-invents. The two source-side modes and
+their four-gate destructive contract are unchanged.
 """
 
+import gc
 import io
 import math
 import queue
@@ -60,13 +71,27 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import config as shared_config
 from shared import image_capabilities
+from shared import job_control
 from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
-from shared import ui_theme
+from shared.cancellation import ConversionCancelled
 from shared.import_coordination import ImportCoordinator
-from shared.importing import ImportedFileManager, SupportedType, SupportedTypeCatalog
+from shared.importing import (
+    ImportedFileManager,
+    SupportedType,
+    SupportedTypeCatalog,
+    planning_groups,
+)
+from shared.job_control import (
+    FailureLog,
+    FailureRecord,
+    JobState,
+    RunResult,
+    capture_run,
+)
+from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 
 from PIL import Image  # needs: pip install pillow
 
@@ -1369,6 +1394,144 @@ class CoverBrowser:
                 f"cached={self.cache.size}, closed={self._closed})")
 
 
+# ---------- one run: freezing it, and planning where it writes ----------
+#
+# Everything below is plain data and pure functions. It decides *what* a run is
+# and *where* its outputs go, on the main thread, before a worker exists — which
+# is what makes a run frozen in the sense Decision 9A means, and what lets a
+# later retry land exactly where the original attempt would have.
+
+
+#: The one stage name this tool reports. An identifier, because that is what the
+#: shared event vocabulary accepts.
+STAGE_RESIZE = "resize"
+
+#: The estimator's work category. One image is one comparable unit of work; the
+#: estimate is thrown away rather than mixed if that ever stops being true.
+ETA_CATEGORY = "image"
+
+#: The run id the controls carry before anything has been started. Every real run
+#: uses its own frozen snapshot id instead.
+IDLE_RUN_ID = "cover-idle"
+
+#: The queue message that hands a settled run back to the main thread. It travels
+#: on the panel's existing worker queue beside "log", "progress" and "done"; it is
+#: not a second event vocabulary, because the run's *events* go through the shared
+#: stream and nothing here duplicates them.
+RESULT_MESSAGE = "result"
+
+
+def written_name(source: Path) -> str:
+    """The filename :func:`resize_for_audiobook` will actually write for *source*.
+
+    A destination has to be planned under the name that will exist, not under the
+    source's own: a ``.webp`` is written as ``.jpg``, so planning ``art.webp``
+    would reserve a name nothing ever occupies and leave the real one unchecked.
+    """
+    resolved = Path(source)
+    return resolved.stem + written_suffix(resolved.suffix)
+
+
+def _identity_buckets(snapshot):
+    """Split a snapshot's occurrence ids the way :func:`planning_groups` splits paths.
+
+    Returns ``(direct_ids, grouped_ids)`` — individually added occurrences in list
+    order, then folder-derived occurrences grouped by root and ordered by the root
+    order the user imported in, which is exactly the shared function's own rule.
+    The caller cross-checks the two against each other, so this cannot quietly
+    drift into a second grouping.
+    """
+    direct: list[str] = []
+    buckets: dict[str, list[str]] = {}
+    order: list[tuple[int, str]] = []
+    for entry in snapshot.files:
+        if entry.mirroring_root is None:
+            direct.append(entry.occurrence_id)
+            continue
+        key = entry.source_root.root_id
+        if key not in buckets:
+            buckets[key] = []
+            order.append((entry.source_root.order, key))
+        buckets[key].append(entry.occurrence_id)
+    order.sort()
+    return tuple(direct), tuple(tuple(buckets[key]) for _order, key in order)
+
+
+def _pair(occurrence_ids, plan, sources, lookup) -> dict:
+    """Attach one planned destination to each occurrence, or refuse.
+
+    The two walks above are independent, so they are verified against each other
+    rather than trusted: if the ids and the paths ever stopped lining up, a run
+    would write one occurrence's image to another's destination, and that has to
+    be a loud error rather than a quiet mix-up.
+    """
+    if len(occurrence_ids) != len(plan.items):
+        raise output_paths.UnsafePathError(
+            "the output plan does not cover every imported image",
+            f"{len(occurrence_ids)} occurrences, {len(plan.items)} planned outputs",
+        )
+    mapping = {}
+    for occurrence_id, item, source in zip(occurrence_ids, plan.items, sources):
+        if lookup[occurrence_id] != source:
+            raise output_paths.UnsafePathError(
+                "an imported image was matched to another image's destination",
+                f"{lookup[occurrence_id]} vs {source}",
+            )
+        mapping[occurrence_id] = item.destination
+    return mapping
+
+
+def plan_destinations(snapshot, run_root: Path, *, planner=None) -> dict:
+    """Where every occurrence of *snapshot* writes inside *run_root*.
+
+    :func:`~shared.importing.planning_groups` is the only bridge from an imported
+    list to Plan 2, and the three approved planners are the only things that
+    decide a destination: individually chosen files land flat (Decision 31A), one
+    folder root mirrors its relative parents (Decision 7A), and several roots each
+    get their own collision-safe container (Decision 41A). Direct files are
+    planned first and the roots follow, which is the order the shared grouping
+    presents them in.
+
+    All of them share one :class:`~shared.output_paths.DestinationPlanner`, so a
+    flat file and a mirrored file can never be planned onto the same path, and
+    ``Cover.jpg`` twice becomes ``Cover.jpg`` and ``Cover-1.jpg``. Nothing is
+    created here: this reserves no directory and opens no file.
+    """
+    root = Path(run_root)
+    tracker = output_paths.DestinationPlanner(root) if planner is None else planner
+    groups = planning_groups(snapshot)
+    direct_ids, grouped_ids = _identity_buckets(snapshot)
+    lookup = {entry.occurrence_id: entry.path for entry in snapshot.files}
+
+    mapping: dict = {}
+    if groups.direct:
+        plan = plan_flat(root, groups.direct, planner=tracker, rename=written_name)
+        mapping.update(_pair(direct_ids, plan, groups.direct, lookup))
+    if groups.grouped:
+        if groups.needs_multi_root:
+            plan = plan_multi_root(
+                root, groups.grouped, planner=tracker, rename=written_name)
+        else:
+            source_root, sources = groups.grouped[0]
+            plan = plan_mirrored(
+                root, sources, source_root, planner=tracker, rename=written_name)
+        flattened_ids = tuple(entry for group in grouped_ids for entry in group)
+        flattened_sources = tuple(
+            entry for _root, sources in groups.grouped for entry in sources)
+        mapping.update(_pair(flattened_ids, plan, flattened_sources, lookup))
+    return mapping
+
+
+def freeze_cover_options(size: int, letterbox: bool, mode: str) -> dict:
+    """Everything about a run that changes its output, as plain frozen values.
+
+    Deliberately small and deliberately opaque to the shared foundation: Plan 2
+    stays the only owner of what a destination *means*, so a mode travels here as
+    a word and is turned into paths by this module alone.
+    """
+    return {"size": int(size), "letterbox": bool(letterbox), "mode": str(mode)}
+
+
 # ---------- GUI ----------
 
 
@@ -1406,6 +1569,7 @@ class CoverResizerUI(ttk.Frame):
         preview_runner=None,
         viewport=None,
         cache_limit=None,
+        job_runner=None,
     ):
         super().__init__(parent)
 
@@ -1417,6 +1581,21 @@ class CoverResizerUI(ttk.Frame):
         self._busy = threading.Event()
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
+
+        # --- one run at a time, frozen once ------------------------------- #
+        self._clock = time.monotonic if clock is None else clock
+        self._effective_config = (shared_config.get_effective()
+                                  if effective_config is None else effective_config)
+        self._job_runner = job_runner
+        self._worker = None
+        self._run_count = 0
+        self._snapshot = None
+        self._controller = None
+        self._reporter = None
+        self._estimator = None
+        self._result = None
+        self._destinations: dict = {}
+        self._event_q: queue.Queue = queue.Queue()
 
         # Where the next run will go, shown read-only. The numbered run folder
         # is reserved when a validated resize starts, so building this panel
@@ -1437,7 +1616,7 @@ class CoverResizerUI(ttk.Frame):
         self._coordinator = ImportCoordinator(
             self._manager,
             scanner=scanner,
-            clock=time.monotonic if clock is None else clock,
+            clock=self._clock,
             id_factory=id_factory,
             # Handed to the coordinator rather than the adapter deliberately:
             # the coordinator asks it *before* it creates a thread, so a decline
@@ -1450,8 +1629,7 @@ class CoverResizerUI(ttk.Frame):
         self.importer = job_ui.ImportAdapter(
             self,
             catalog=self.import_catalog,
-            effective_config=(shared_config.get_effective() if effective_config is None
-                              else effective_config),
+            effective_config=self._effective_config,
             pump=self._pump,
             manager=self._manager,
             coordinator=self._coordinator,
@@ -1460,7 +1638,7 @@ class CoverResizerUI(ttk.Frame):
             # style name is exactly what ttk means by "draw this the way the
             # platform draws it".
             theme=None,
-            clock=time.monotonic if clock is None else clock,
+            clock=self._clock,
             id_factory=id_factory,
             choose_files=self._choose_files if choose_files is None else choose_files,
             choose_folder=self._choose_folder if choose_folder is None else choose_folder,
@@ -1567,35 +1745,36 @@ class CoverResizerUI(ttk.Frame):
                  "Change the location in Preferences & Data.",
         ).grid(row=row, column=1, columnspan=2, sticky="w", padx=8, pady=(0, 8))
 
-        # Log + progress
-        logf = ttk.LabelFrame(self, text="Log")
-        logf.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        # Start. Pause, Resume, Cancel and the retry control belong to the shared
+        # control bar below, which offers each of them exactly when the approved
+        # availability rules say it is meaningful.
+        action = ttk.Frame(self)
+        action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 6))
+        self.btn_convert = ttk.Button(action, text="Resize Covers", command=self.start_resize)
+        self.btn_convert.pack(side=tk.LEFT)
 
-        self.log = tk.Text(logf, height=8, wrap="word")
+        # The shared run controls, progress, estimate and Summary/Details live
+        # here. The adapter is rebuilt for each run — one run, one event stream,
+        # one estimate — so this container holds its place in the layout.
+        self.job_area = ttk.Frame(self)
+        self.job_area.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+
+        # The panel's own run log, unchanged. It is the raw transcript of what the
+        # worker did; Summary and Details above are the shared projections of the
+        # run's events, and neither is a copy of the other.
+        logf = ttk.LabelFrame(self, text="Log")
+        logf.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
+
+        self.log = tk.Text(logf, height=4, wrap="word")
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=sb2.set)
 
-        # Progress (bar + images-done/percentage label; updated only from the
-        # main-thread queue pump)
-        self.progress = ui_theme.ProgressIndicator(self, length=400)
-        self.progress.frame.pack(side=tk.BOTTOM, pady=(0, 10))
-
-        # Bottom action bar
-        action = ttk.Frame(self)
-        action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
-
-        self.btn_convert = ttk.Button(action, text="Resize Covers", command=self.start_resize)
-        self.btn_convert.pack(side=tk.LEFT)
-        self.btn_cancel = ttk.Button(
-            action, text="Cancel", command=self.cancel, state=tk.DISABLED
-        )
-        self.btn_cancel.pack(side=tk.LEFT, padx=8)
-
         # The worker->GUI queue is a drain on the one pump, not a second chain.
         self._pump.add_drain(self._drain_worker_queue)
+        self._install_jobs(IDLE_RUN_ID, ())
         self._pump.start()
 
     # ------- the imported list (owned by the shared manager) -------
@@ -1622,6 +1801,125 @@ class CoverResizerUI(ttk.Frame):
         not disagree on screen.
         """
         self.importer.list.select(occurrence_ids)
+
+    # ------- the run: what it is, and who is driving it -------
+
+    @property
+    def run_snapshot(self):
+        """The frozen configuration of the current or most recent run, if any."""
+        return self._snapshot
+
+    @property
+    def run_result(self):
+        """How the most recent run was settled, or ``None`` before the first."""
+        return self._result
+
+    @property
+    def job_controller(self):
+        """The cooperative controller of the current run, or ``None``."""
+        return self._controller
+
+    @property
+    def job_estimator(self):
+        """The current run's rolling estimate, or ``None`` before the first run."""
+        return self._estimator
+
+    def destinations(self) -> dict:
+        """Occurrence id to planned destination, for the frozen standard run.
+
+        Empty for the two source-side modes, which place each output beside its
+        own source at the moment it is written and therefore have no plan to
+        make in advance.
+        """
+        return dict(self._destinations)
+
+    def _install_jobs(self, run_id: str, item_ids) -> None:
+        """Point the shared run controls at one run. Main thread only.
+
+        A run owns its event stream and its estimate, and neither can be rebound,
+        so a new run gets a new adapter in the same container. The retired one is
+        closed first, which is what drops its drain — the pump keeps exactly one
+        job drain however many runs a session performs.
+        """
+        previous = getattr(self, "jobs", None)
+        if previous is not None:
+            previous.close()
+            previous.frame.destroy()
+        self._event_q = queue.Queue()
+        self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        self.jobs = job_ui.JobAdapter(
+            self.job_area,
+            run_id=run_id,
+            pump=self._pump,
+            # No theme bundle: this panel stays classic on Windows until Plan 9.
+            theme=None,
+            pull=job_ui.queue_pull(self._event_q),
+            estimator=self._estimator,
+            item_ids=item_ids,
+            on_pause=self.pause,
+            on_resume=self.resume,
+            on_cancel=self.cancel,
+            on_retry=self.retry_failed,
+            details_height=6,
+        )
+        self.jobs.frame.pack(fill=tk.BOTH, expand=True)
+        # One progress model, not two: the panel's indicator *is* the shared
+        # status view's, so nothing can draw a second, disagreeing bar.
+        self.progress = self.jobs.status.indicator
+        self.jobs.register_inputs(self.importer, self.browser)
+        self.jobs.register_options(self)
+        self.jobs.render()
+
+    def _publish(self, event) -> None:
+        """Hand one produced event to the queue the shared adapter drains.
+
+        Called from whichever thread produced it — the worker for progress and
+        failures, the main thread for a button press that moved the controller.
+        A queue is the only thing that crosses that boundary.
+        """
+        self._event_q.put(event)
+
+    def _on_state(self, snapshot) -> None:
+        """The controller's listener: copy its state into the event stream.
+
+        The reporter mints the event *from this snapshot*, so the UI can never
+        show a state the controller did not actually reach.
+        """
+        reporter = self._reporter
+        if reporter is not None:
+            reporter.state_changed(snapshot)
+
+    def pause(self) -> None:
+        """Ask the run to pause at its next boundary between images."""
+        controller = self._controller
+        if controller is not None:
+            controller.request_pause()
+
+    def resume(self) -> None:
+        """Return a paused run to running and wake its worker."""
+        controller = self._controller
+        if controller is not None:
+            controller.resume()
+
+    def retry_failed(self):
+        """Re-run only the retryable failures, against the exact original run.
+
+        Everything comes from the settled :class:`~shared.job_control.RunResult`:
+        the snapshot the run was accepted with, the failures it actually
+        recorded, and the destinations that run planned. Nothing is read from the
+        imported list, the widgets or the configuration as they stand now — which
+        is what keeps a retried item landing where it would originally have
+        landed, and what stops it overwriting an output that already succeeded.
+        """
+        result = self._result
+        if result is None or self._busy.is_set() or not result.has_retryable:
+            return None
+        request = result.retry()
+        return self._launch(request.snapshot, request.item_ids)
+
+    def set_locked(self, locked: bool) -> None:
+        """The shared lock matrix's hook onto this panel's own option controls."""
+        self.disable_inputs(bool(locked))
 
     # ------- dialogs and confirmations, all on the owner thread -------
 
@@ -1728,6 +2026,25 @@ class CoverResizerUI(ttk.Frame):
             replacement_button_label(count),
         )
 
+    def _gate_replacement(self, files):
+        """The complete replacement chain, or ``None`` if it does not open.
+
+        Every source is validated *before* the dialog, so the count shown is the
+        count that can actually be processed and a rejected import can never
+        reach the replacement boundary. Both a first run and a retry come through
+        here, which is why the confirmation is asked for from exactly one place
+        and a retry can never inherit an earlier answer.
+        """
+        try:
+            validated = self._validated_replacement_sources(files)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Cannot replace originals", exc.message)
+            return None
+        if not self.confirm_replacement(len(validated)):
+            self._log_q.put(("log", "\nReplacement cancelled. Nothing was changed.\n"))
+            return None
+        return validated
+
     def start_resize(self):
         if self._busy.is_set():
             return
@@ -1749,66 +2066,128 @@ class CoverResizerUI(ttk.Frame):
             return
 
         mode = self.effective_mode()
+        self._run_count += 1
+        # Decision 9A, in one call: the imported list, the catalog, the import
+        # options, the effective configuration and every output-affecting setting
+        # are copied here, on the main thread, and never consulted again.
+        snapshot = capture_run(
+            snapshot_id=f"cover-run-{self._run_count}",
+            files=self._manager,
+            catalog=self.import_catalog,
+            import_options=self.importer.options.options(),
+            effective_config=self._effective_config,
+            tool_options=freeze_cover_options(size, self.var_letterbox.get(), mode),
+            created_at=float(self._clock()),
+        )
 
-        if mode == ACTION_REPLACE:
-            # Validate every source *before* the dialog, so the count shown is
-            # the count that can actually be processed, and so a rejected
-            # import can never reach the replacement boundary.
-            try:
-                files = self._validated_replacement_sources(files)
-            except output_paths.OutputPathError as exc:
-                messagebox.showerror("Cannot replace originals", exc.message)
-                return
-            if not self.confirm_replacement(len(files)):
-                self._log_q.put(("log", "\nReplacement cancelled. Nothing was changed.\n"))
-                return
-
-        params = {
-            "size": size,
-            "letterbox": self.var_letterbox.get(),
-            "mode": mode,
-            "files": files,
-            "run_dir": None,
-            "planner": None,
-            "source_planner": None,
-        }
-
+        destinations: dict = {}
         if mode == MODE_STANDARD:
             # Only the standard route reserves a run; an exception-mode
             # operation must not leave an unused numbered folder behind.
             try:
                 reservation = output_paths.reserve_run_directory(TOOL_KEY)
+                destinations = plan_destinations(
+                    snapshot.files, reservation.run_directory,
+                    planner=reservation.planner())
             except output_paths.OutputPathError as exc:
                 messagebox.showerror("Output folder", exc.message)
                 return
-            params["run_dir"] = reservation.run_directory
-            params["planner"] = reservation.planner()
             self.var_outdir.set(str(reservation.run_directory))
             self._last_run_dir = reservation.run_directory
             self._log_q.put(("log", f"\nOutput folder: {reservation.run_directory}\n"))
         else:
-            params["source_planner"] = output_paths.SourceSidePlanner()
             where = ("beside each source image"
                      if mode == ACTION_NUMBERED else "over each original")
             self._log_q.put(("log", f"\nWriting {where}.\n"))
 
+        return self._launch(snapshot, snapshot.item_ids, destinations=destinations)
+
+    def _launch(self, snapshot, item_ids, *, destinations=None):
+        """Accept one run — first attempt or retry — and hand it to a worker.
+
+        The frozen snapshot decides everything: which occurrences run, in which
+        order, at what size, in which mode, and where each output goes. A retry
+        re-uses the destinations its original run planned, so a retried item
+        lands exactly where it would have landed and cannot take a name an
+        earlier success already occupies.
+        """
+        wanted = tuple(item_ids)
+        sources = {entry.occurrence_id: entry.path for entry in snapshot.files.files}
+        files = [sources[occurrence_id] for occurrence_id in wanted]
+        mode = snapshot.tool_options["mode"]
+
+        if mode == ACTION_REPLACE:
+            validated = self._gate_replacement(files)
+            if validated is None:
+                return None
+            files = validated
+
+        if destinations is not None:
+            self._destinations = dict(destinations)
+        self._snapshot = snapshot
+        self._result = None
+        self._controller = job_control.JobController(
+            snapshot.snapshot_id, listener=self._on_state)
+        self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
+        self._reporter = job_control.JobReporter.for_run(
+            snapshot, clock=self._clock, publish=self._publish)
+
+        params = {
+            "size": snapshot.tool_options["size"],
+            "letterbox": snapshot.tool_options["letterbox"],
+            "mode": mode,
+            "files": files,
+            "run_dir": self._last_run_dir if mode == MODE_STANDARD else None,
+            "planner": None,
+            "source_planner": (None if mode == MODE_STANDARD
+                               else output_paths.SourceSidePlanner()),
+            "item_ids": wanted,
+            "destinations": dict(self._destinations),
+            "snapshot": snapshot,
+            "controller": self._controller,
+            "reporter": self._reporter,
+            "estimator": self._estimator,
+        }
+
         self._busy.set()
         self._cancel_event.clear()
-        self.progress.update(0, len(params["files"]))
+        self._controller.start()
+        if mode == MODE_STANDARD and self._last_run_dir is not None:
+            self._reporter.output_location(self._last_run_dir)
+        self._reporter.progress(0, len(files), stage=STAGE_RESIZE)
         self.disable_inputs(True)
-        self.btn_cancel.configure(state=tk.NORMAL)
 
-        t = threading.Thread(target=self.resize_worker, args=(params,), daemon=True)
-        t.start()
+        runner = self._job_runner
+        self._worker = (self.run_resize_in_thread(params) if runner is None
+                        else runner(self, params))
+        return self._worker
+
+    def run_resize_in_thread(self, params: dict):
+        """Start the processing worker. The one place a resize thread is made."""
+        worker = threading.Thread(target=self.resize_worker, args=(params,),
+                                  daemon=True, name="cover-resize")
+        worker.start()
+        return worker
 
     def cancel(self):
         if not self._busy.is_set() or self._cancel_event.is_set():
             return
         self._cancel_event.set()
-        self.btn_cancel.configure(state=tk.DISABLED)
+        controller = self._controller
+        if controller is not None:
+            # Cooperative, and it wakes a worker already waiting at a paused
+            # checkpoint. Nothing is suspended or killed.
+            controller.request_cancel()
         self._log_q.put(("log", "Cancelling… will stop after the current image.\n"))
 
     def disable_inputs(self, state: bool):
+        """Lock or unlock this panel's inputs and processing options.
+
+        Which states lock is not decided here — the shared matrix decided it, and
+        the shared lock group calls this through :meth:`set_locked` whenever a
+        run moves. It stays callable directly because locking is also what stops
+        a *new* import starting mid-resize.
+        """
         # The imported list and the import options lock as one unit through the
         # adapter. The import *status* bar deliberately does not: a scan that was
         # already running when a resize started can still be cancelled, and that
@@ -1856,33 +2235,65 @@ class CoverResizerUI(ttk.Frame):
                 if kind == "log":
                     self.log_write(payload)
                 elif kind == "progress":
-                    self.progress.update(*payload)
+                    try:
+                        self.progress.update(*payload)
+                    except tk.TclError:  # pragma: no cover - a destroyed indicator
+                        pass
+                elif kind == RESULT_MESSAGE:
+                    self._settle(payload)
                 elif kind == "done":
                     self.log_write(payload)
                     self._finish_idle()
         except queue.Empty:
             pass
 
+    def _settle(self, result) -> None:
+        """Take the settled run and let the shared controls offer what it allows.
+
+        The result is the only authority on what failed and what may be retried;
+        this panel keeps no rival list beside it.
+        """
+        self._result = result
+        jobs = getattr(self, "jobs", None)
+        if jobs is not None and not jobs.closed:
+            jobs.set_result(result)
+
     def _finish_idle(self):
         self._busy.clear()
         self._cancel_event.clear()
         self.disable_inputs(False)
-        self.btn_cancel.configure(state=tk.DISABLED)
 
     # ------- teardown -------
 
     def close(self):
         """Close the import side and stop the pump. Idempotent, and safe late.
 
+        A processing run is asked to stop first, which is what makes closing a
+        *paused* run safe: the request wakes a worker waiting at a checkpoint, so
+        the bounded join below finds a thread that is already unwinding rather
+        than one that will never be woken.
+
         Closing the adapter cancels any running scan, joins its worker within
         the coordinator's bounded timeout and makes every later event inert;
         closing the browser releases every cached Tk image and drops its drain;
-        closing the pump cancels the outstanding callback and forgets every
-        drain. Nothing is left scheduled and no image is left held.
+        closing the job adapter drops its drain and makes every later event
+        inert; closing the pump cancels the outstanding callback and forgets
+        every drain. Nothing is left scheduled and no image is left held.
         """
         if self._closed:
             return
         self._closed = True
+        controller = self._controller
+        if controller is not None and not controller.is_terminal:
+            self._cancel_event.set()
+            controller.request_cancel()
+        worker = self._worker
+        if worker is not None and hasattr(worker, "join"):
+            worker.join(WORKER_JOIN_TIMEOUT)
+        self._worker = None
+        jobs = getattr(self, "jobs", None)
+        if jobs is not None:
+            jobs.close()
         importer = getattr(self, "importer", None)
         if importer is not None:
             importer.close()
@@ -1894,27 +2305,71 @@ class CoverResizerUI(ttk.Frame):
             pump.close()
 
     def destroy(self):
+        """Tear the panel down, and finish the teardown on this thread.
+
+        The explicit collection is not tidiness. Destroying the shared job
+        widgets leaves Tk variables in reference cycles, so they survive
+        ``destroy`` and are freed later by the cyclic collector — which runs on
+        whichever thread happens to cross its threshold. A Tk variable finalized
+        off the main thread raises "main thread is not in main loop", and it
+        surfaces in whatever unrelated code was running at the time. Collecting
+        here, on the thread that owns the widgets, is the same discipline
+        Phase 3 applied to its decoder threads: finish deterministically rather
+        than leave it to chance.
+        """
         self.close()
         super().destroy()
+        gc.collect()
 
     # ------- worker (thread) -------
 
     def resize_worker(self, params: dict):
+        """Resize every frozen item, cooperatively, on a worker thread.
+
+        Touches no widget and no Tk variable: everything it needs arrived in
+        *params*, and everything it says goes out through the panel's queue and
+        the run's reporter. The four job-control keys are optional, so the same
+        body still runs a plain, unreported batch when it is handed one.
+        """
         files = params["files"]
         size = params["size"]
         letterbox = params["letterbox"]
         mode = params["mode"]
         planner = params["planner"]
         source_planner = params["source_planner"]
+        item_ids = params.get("item_ids") or (None,) * len(files)
+        destinations = params.get("destinations") or {}
+        controller = params.get("controller")
+        reporter = params.get("reporter")
+        estimator = params.get("estimator")
+        snapshot = params.get("snapshot")
         total = len(files)
         cancelled = False
         replaced = 0
+        completed: list = []
+        failures: list = []
 
-        for idx, in_file in enumerate(files, start=1):
-            if self._cancel_event.is_set():
+        for idx, (item_id, in_file) in enumerate(zip(item_ids, files), start=1):
+            # The one cooperative boundary, and it sits between images: a pause
+            # asked for during a resize or a save is honoured here, not there.
+            if controller is not None:
+                if self._cancel_event.is_set():
+                    controller.request_cancel()
+                try:
+                    controller.checkpoint()
+                except ConversionCancelled:
+                    cancelled = True
+                    break
+            elif self._cancel_event.is_set():
                 cancelled = True
                 break
+
             temp_out = None
+            succeeded = False
+            if reporter is not None and item_id is not None:
+                reporter.current_item(item_id, f"Resizing {in_file.name}")
+            if estimator is not None:
+                estimator.begin(ETA_CATEGORY)
             try:
                 planned_name = in_file.stem + written_suffix(in_file.suffix)
                 if mode == ACTION_REPLACE:
@@ -1927,6 +2382,12 @@ class CoverResizerUI(ttk.Frame):
                 elif mode == ACTION_NUMBERED:
                     final_out = source_planner.plan_beside(in_file, name=planned_name)
                     output_paths.assert_not_input(final_out, files)
+                elif item_id is not None and item_id in destinations:
+                    # The destination this run planned before it started, which
+                    # is also the one a retry of this item will use.
+                    final_out = destinations[item_id]
+                    output_paths.assert_not_input(final_out, files)
+                    final_out.parent.mkdir(parents=True, exist_ok=True)
                 else:
                     final_out = planner.plan(planned_name)
                     output_paths.assert_not_input(final_out, files)
@@ -1954,6 +2415,9 @@ class CoverResizerUI(ttk.Frame):
                     replaced += 1
 
                 self._log_q.put(("log", " ✓ Done\n"))
+                succeeded = True
+                if item_id is not None:
+                    completed.append(item_id)
 
             except Exception as e:
                 # Remove only this operation's own temporary artifact. The
@@ -1964,9 +2428,28 @@ class CoverResizerUI(ttk.Frame):
                 except output_paths.OutputPathError:
                     pass
                 self._log_q.put(("log", f" ✗ Error: {e}\n"))
+                trouble = f"{in_file.name} could not be resized."
+                detail = f"{type(e).__name__}: {e}"
+                if snapshot is not None and item_id is not None:
+                    failures.append(FailureRecord(
+                        item_id=item_id, stage=STAGE_RESIZE,
+                        display_message=trouble, technical_detail=detail,
+                        retryable=True, snapshot_id=snapshot.snapshot_id))
+                if reporter is not None and item_id is not None:
+                    reporter.failure(trouble, detail, item_id=item_id,
+                                     stage=STAGE_RESIZE)
 
             finally:
-                self._log_q.put(("progress", (idx, total)))
+                if estimator is not None:
+                    # A unit that did not honestly complete is not history.
+                    if succeeded:
+                        estimator.complete()
+                    else:
+                        estimator.discard()
+                if reporter is None:
+                    self._log_q.put(("progress", (idx, total)))
+                else:
+                    reporter.progress(idx, total, item_id=item_id, stage=STAGE_RESIZE)
 
         # Truthful about a partial batch: anything already installed stays
         # installed, and cancellation never rolls a completed replacement back.
@@ -1974,6 +2457,25 @@ class CoverResizerUI(ttk.Frame):
         if mode == ACTION_REPLACE:
             tail = (f"{replaced} of {total} original(s) replaced; "
                     "any not reached are unchanged.\n")
+
+        if snapshot is not None:
+            log = FailureLog(snapshot_id=snapshot.snapshot_id, records=tuple(failures))
+            settled = RunResult.settle(snapshot, log, completed_ids=tuple(completed),
+                                       cancelled=cancelled)
+            if controller is not None:
+                if cancelled:
+                    final = controller.finish_cancelled()
+                elif settled.state is JobState.COMPLETED_WITH_FAILURES:
+                    final = controller.complete_with_failures()
+                else:
+                    final = controller.succeed()
+                if reporter is not None:
+                    if cancelled:
+                        reporter.cancelled(final)
+                    else:
+                        reporter.completed(final)
+            self._log_q.put((RESULT_MESSAGE, settled))
+
         if cancelled:
             self._log_q.put(("done", "\nCancelled. " + tail))
         else:

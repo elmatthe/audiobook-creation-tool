@@ -1025,10 +1025,18 @@ def test_a_locked_browser_looks_locked(make_panel, tmp_path):
 
 
 def test_the_browser_drain_rides_the_panels_one_pump(make_panel):
+    """Phase 4 added the job adapter's drain to the same chain.
+
+    Named rather than counted, so a later drain cannot slip in behind an
+    unchanged number. What this test is about — the browser owning no ``after``
+    chain of its own — is unchanged.
+    """
     panel = make_panel()
-    assert panel._pump.drain_count == 2, (
-        "exactly two drains: the processing worker queue and the browser — "
-        "and one pump owning both")
+    registered = list(panel._pump._drains)
+    assert panel.browser.drain in registered
+    assert panel._drain_worker_queue in registered
+    assert panel.jobs.drain in registered
+    assert len(registered) == 3, registered
     assert panel._pump.running is True
     assert panel._pump.pending is not None or panel._pump.closed is False
 
@@ -1071,13 +1079,20 @@ def test_the_manager_is_still_the_single_imported_file_source(make_panel, tmp_pa
 
 
 def test_the_processing_worker_still_reads_no_tk_variable_and_no_widget():
+    """Measured on what the worker reaches for *on the panel*, which is the claim.
+
+    Phase 4 tightened this from a blacklist of any attribute anywhere to a
+    whitelist of the panel attributes the worker may touch — stronger, and no
+    longer confusable with a shared reporting call that happens to share a name.
+    """
     worker = method_named("resize_worker")
-    attributes = {node.attr for node in ast.walk(worker)
-                  if isinstance(node, ast.Attribute)}
+    reached = {node.attr for node in ast.walk(worker)
+               if isinstance(node, ast.Attribute)
+               and isinstance(node.value, ast.Name) and node.value.id == "self"}
+    assert reached == {"_log_q", "_cancel_event"}, reached
     for forbidden in ("var_size", "var_letterbox", "importer", "browser",
                       "log", "progress", "manager", "cache"):
-        assert forbidden not in attributes, forbidden
-    assert "_log_q" in attributes
+        assert forbidden not in reached, forbidden
 
 
 def test_the_two_cancellations_are_still_separate(make_panel):
@@ -1108,11 +1123,17 @@ def test_starting_a_resize_still_captures_the_manager_snapshot(make_panel, tmp_p
     assert list(files) == panel.imported_files()
 
 
-def test_no_phase_four_vocabulary_entered_the_panel():
+def test_no_phase_five_vocabulary_entered_the_panel():
+    """A phase-ordering marker, moved on to the phases that have not started.
+
+    Phase 3 used it to prove job control had not arrived early; Phase 4 is where
+    job control legitimately arrives, and ``test_cover_jobs.py`` proves that
+    surface in full. What must still be absent is everything Phase 5 and later
+    own, and this is where that stays checked.
+    """
     source = PANEL_SOURCE.read_text(encoding="utf-8")
-    for forbidden in ("JobController", "JobAdapter", "capture_run", "RetryRequest",
-                      "RunResult", "planning_groups", "plan_mirrored",
-                      "plan_multi_root", "plan_flat", "request_pause"):
+    for forbidden in ("chatterbox", "Chatterbox", "voice_registry", "epub",
+                      "archived-code", "torch", "kokoro"):
         assert forbidden not in source, forbidden
 
 
