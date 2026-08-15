@@ -2,8 +2,8 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–4 approved (Phase 4 including
-its ETA-serialization remediation); Phase 5 is implemented and AWAITING APPROVAL; Phase 6 has NOT
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–5 approved (Phase 4 including
+its ETA-serialization remediation); Phase 6 is implemented and AWAITING APPROVAL; Phase 7 has NOT
 begun.** The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -729,7 +729,130 @@ owns the panel restructure and unified queue."* So Phase 5 removed the **EPUB** 
 (`epub_convert_var` and its checkbox) and retitled the radio to `Single file (PDF / TXT)`; the
 Single/Batch radio itself — not an EPUB control — survives for Phase 6 to collapse.
 
-**Next action: Phase 5 approval.**
+**Phase 5 was APPROVED by the maintainer on 2026-08-14.**
+
+---
+
+### Phase 6 — TTS: panel restructure and importer adoption (2026-08-14, HOME-PC)
+
+**Result: the TTS panel is a state-owning frame class with one unified PDF/TXT queue, and it is
+the second production adopter of the Plan 3 importing foundation.** Three files changed —
+`scripts/Universal/tts/epub2tts_gui.py`, a new `files/tests/test_tts_importing.py`, and one
+two-line narrowing of the Plan 3 adoption guard. No engine module was touched.
+
+**Entry checkpoint:** `47a829d` (Phase 5), branch `feature/0.6.1-tts-cover-workflows`, 7 ahead /
+0 behind `master`, worktree clean, `VERSION` `0.5.1`, six launcher tools, `config-template.toml`
+absent from worktree, index and tree.
+
+#### What was built
+
+`build_ui(parent)` was a closure-based function holding ~30 `tk.*Var`s in scope, which gave the
+shared adapters nothing to attach a lifetime to. It is now `TtsPanel(ttk.Frame)`; `build_ui` still
+takes the launcher's container, packs the panel into it, and now also returns it (the launcher
+ignores the return value, so its integration contract is unchanged). `close()` cancels the run,
+joins the worker within a bounded timeout, closes the `ImportAdapter` and closes the
+`MainThreadPump`; `destroy()` calls it first. The hand-written `root.after(200, pump_queue)` chain
+is gone — the log/progress queue is now a **drain** on the one pump, which the import poller also
+rides, so exactly one Tk callback is ever outstanding.
+
+The Single/Batch radio, the input entry box, `input_var` and `_browse_input` are gone. `Add Files`
+takes several PDF/TXT files through the shared direct-file validator; `Add Folder` recurses through
+the shared scanner with the existing broad-root pre-warning, the captured large-result threshold,
+the live discovered count and its own separate import cancel. Directly added files and
+folder-derived occurrences live in **one** `ImportedFileManager`, which is the sole authority: no
+second path list, no local scanner, no local dedup, no local natural sort, no local hidden-folder
+or link rule. Both option groups were retitled from the retired mode names to the halves of the
+queue they actually govern (`MP3 options — files added directly`, `Pause timing — files added
+directly`, `Options for files imported from a folder`); what each setting does is unchanged.
+
+**Provenance selects the processing path**, which is exactly the distinction the retired radio made
+and the distinction the shared importer already carries. A directly added file takes the rich
+chapter/pause engine (`run_conversion_job`) and lands flat in the run (Decision 31A); a
+folder-derived file takes the chunked batch worker (`convert_single_pdf`, which already accepts its
+mirrored target as `out_mp3`) and mirrors its folder (Decision 7A); several roots each get their own
+container (Decision 41A). Destinations come from `planning_groups(snapshot)` into `plan_flat` /
+`plan_mirrored` / `plan_multi_root` sharing **one** `DestinationPlanner`, so nothing in a mixed
+queue can be planned onto another item's path. One mixed queue is **one** run.
+
+**One genuinely new panel-side mechanism, recorded plainly.** `run_conversion_job` names its own
+artifact `<stem> (<speaker>).mp3`, so a directly added item is given a private `tempfile` staging
+directory and its finished file is moved to the planned destination. That is what stops two
+directly added files with the same stem overwriting each other — the one queue can now hold both,
+where the single-file mode could only hold one. The engine itself is called unchanged.
+
+#### Main-thread safety
+
+The three conversion helpers were deliberately moved **out** of the panel to module level, taking
+the queue and the cancel predicate rather than `self`. `conversion_worker` therefore reaches
+exactly two attributes on the panel — `_log_q` and `_cancel_event` — and the suite asserts that as
+an AST **whitelist**, which is stronger than a blacklist of known-bad names. Every Tk value and the
+manager snapshot are captured on the main thread before the thread starts; the worker receives
+plain values only. The two cancellation domains stay separate: the import cancel reaches the
+coordinator only, `cancel_job` reaches the conversion event only, and each is proved not to touch
+the other while the other is live.
+
+#### Gates
+
+**3012 collected / 2999 passed / 13 skipped / 1 warning**, against the approved Phase 5 baseline of
+2941 / 2928 / 13 / 1. The **+71** reconciles exactly: **+73** new tests in
+`files/tests/test_tts_importing.py`, **−2** parametrized cases removed because `tts/epub2tts_gui.py`
+moved from the two no-adoption guards' `UNADOPTED_*` lists into `ADOPTED`. No test was deleted,
+skipped, xfailed or weakened. Skips are the same 13 inherited environment skips (three
+`JACK_RYAN_M4B_FOLDER`, two case-insensitive-filesystem, eight Windows symlink-privilege
+`WinError 1314`); the single warning is still the third-party `pydub`/`audioop`
+`DeprecationWarning`. `verify.py` → `RESULT: PASS`; `compileall` exit 0; `git diff --check --
+'*.py'` clean.
+
+*Honest note on skip counts:* the symlink-privilege skips flap on this machine. One baseline run
+before any edit reported 22 skips / 2919 passed (the same 2941 collected) because nine more
+symlink tests skipped that run; an immediate re-run reported the approved 13 / 2928. The
+post-implementation run reported 13 skips. The **collected** count is the stable number and is what
+the delta above is reconciled against.
+
+#### Preserved boundaries
+
+`epub2tts_edge/*`, `kokoro_synth.py`, `pdf_extractor.py`, `voice_registry.py` and
+`batch_convert.py` are **not in the diff** — Phase 6 needed no seam in any of them, because
+`convert_single_pdf`'s `out_mp3` parameter already was one. Edge and Kokoro timing constants,
+retry counts, inter-chunk delay, the twelve voices and `DEFAULT_VOICE_LABEL` are unchanged and
+asserted by value. EPUB stays retired and is proved unable to enter through a direct add, a folder
+scan, a stale selection or the shared options; the tracked archive at `files/archived-code/epub-tts/`
+is untouched, and GPL-3.0 and the upstream attribution are unaffected. Cover's approved Phase 1–4
+behaviour is untouched. **No Phase 7 vocabulary arrived**: no `JobController`, `JobAdapter`,
+`JobControlBar`, `capture_run`, `RunResult`, retry execution, pause/resume or ETA anywhere in the
+panel. Phase 11's broader guard conversion was **not** performed — the third substring guard in
+`test_tool_output_integration` still stands unmodified, and the panel simply does not contain the
+literals it forbids. No Chatterbox work, no HEIC manual testing, no macOS action, no version bump,
+no tag, release, packaging run, merge or branch deletion.
+
+`VERSION` `0.5.1`; six launcher tools; `master` = `origin/master` = `809a43e`;
+`config-template.toml` absent. The four Chatterbox reference recordings are byte-identical to their
+Phase 0 SHA-256 values, still ignored at `.gitignore:55`, and still absent from `git ls-files`. The
+four `files/voices/*.wav` and `tests/fixtures/reference/The Moon.mp3` paths named in the Phase 6
+kickoff as protected recordings **do not exist anywhere in this repository** — recorded, and
+deliberately not created.
+
+#### Installation evidence
+
+**NOT APPLICABLE — no dependency or setup change.** No `pip install`, `pip uninstall` or upgrade;
+no bootstrap run; neither root launcher was executed; no clean venv was created. The real Windows
+installation gate remains deferred to the later authorized dependency-final phase and must use the
+root `Setup_and_Run-audiobook-creation-tool.bat` for both a disposable clean first-run installation
+and a second-invocation fast path.
+
+**Next action: Phase 6 approval. Phase 7 — TTS: job-control adoption and mirrored-output
+consolidation — is NOT authorized and was NOT started.**
+
+#### Session Sync Log — 2026-08-14 — HOME-PC — Phase 6
+
+- Changed: `scripts/Universal/tts/epub2tts_gui.py` (panel restructured to `TtsPanel`, unified
+  PDF/TXT queue, importer/pump adoption, planned destinations, worker helpers moved to module level)
+- Added:   `files/tests/test_tts_importing.py` (73 Phase 6 tests)
+- Changed: `files/tests/test_plan3_boundaries.py` (`ADOPTED` gains the TTS panel; adjacent comment
+  corrected so it stays true)
+- Changed: `md-instructions/Handoff.md` (this entry)
+- Note:    One commit on `feature/0.6.1-tts-cover-workflows`, pushed. `master` untouched. No AI
+           co-author trailers.
 
 ---
 

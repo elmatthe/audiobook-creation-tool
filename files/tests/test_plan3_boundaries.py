@@ -70,13 +70,14 @@ PANELS = (
 #: other panel and every other module in ``scripts/Universal/`` is still held to
 #: exactly the boundary Plan 3 approved.
 #:
-#: v0.6.1 Plan 4 Phase 2 added the Cover panel. Plan 4 Phase 11 owns the rest of
-#: this migration — the TTS panel, and replacing the substring mechanism in
-#: ``test_tool_output_integration`` — so nothing else belongs here yet. Adding a
+#: v0.6.1 Plan 4 Phase 2 added the Cover panel and Phase 6 added the TTS panel,
+#: which is the phase that actually makes TTS the second production adopter. Plan 4
+#: Phase 11 owns what is left of this migration — replacing the substring mechanism
+#: in ``test_tool_output_integration`` — so nothing else belongs here yet. Adding a
 #: name to this tuple is the only way a module can start using the foundation,
 #: and ``test_exactly_these_production_modules_have_adopted_the_foundation``
 #: pins the tuple against the tree so it cannot drift.
-ADOPTED = ("mp3_tools/cover_resizer.py",)
+ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py")
 
 
 def relative_name(path: Path) -> str:
