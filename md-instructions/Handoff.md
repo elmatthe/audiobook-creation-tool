@@ -2,9 +2,10 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–5 approved (Phase 4 including
-its ETA-serialization remediation); Phase 6 is implemented and AWAITING APPROVAL; Phase 7 has NOT
-begun.** The temporary drop
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–6 approved (Phase 4 including
+its ETA-serialization remediation; Phase 6 approved by the maintainer on 2026-08-15 in the prompt
+that authorized Phase 7); Phase 7 is implemented and AWAITING APPROVAL; Phase 8 has NOT begun.**
+The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
 its source, Phase 9 the four-output Chatterbox listening hard stop, and Phase 10 the approved-voice
@@ -733,7 +734,143 @@ Single/Batch radio itself — not an EPUB control — survives for Phase 6 to co
 
 ---
 
-### Phase 6 — TTS: panel restructure and importer adoption (2026-08-14, HOME-PC)
+### Phase 7 — TTS: job-control adoption and mirrored-output consolidation (2026-08-15, HOME-PC)
+
+**Result: the TTS run is owned by the shared `JobController`, presented by the shared `JobAdapter`,
+frozen once by `capture_run`, and its every destination is planned once and keyed by occurrence id
+so a retry lands where the original run planned.** Three files changed —
+`scripts/Universal/tts/epub2tts_gui.py`, a new `files/tests/test_tts_jobs.py`, and nine tests
+rewritten in place in `files/tests/test_tts_importing.py`. **No engine module was touched, and
+`batch_convert.py` did not need a seam** — Phase 6 already called `convert_single_pdf` with the
+planned target as `out_mp3`, which is the seam the drop hoped would suffice.
+
+**Entry checkpoint:** `d5be8af` (Phase 6, approved), branch `feature/0.6.1-tts-cover-workflows`,
+8 ahead / 0 behind `master`, worktree clean, `VERSION` `0.5.1`, six launcher tools,
+`config-template.toml` absent from worktree, index and tree. All four Chatterbox reference MP3s
+present and byte-identical to their Phase 0 sizes and SHA-256 values; the four older recordings
+named in the Phase 6 kickoff (`files/voices/*.wav`, `tests/fixtures/reference/The Moon.mp3`)
+**remain absent from this repository** and were deliberately not created.
+
+#### What was built
+
+**One run, frozen once.** `run_job()` validates, reads every remaining Tk variable on the main
+thread, then calls `capture_run` exactly once — freezing the imported snapshot, the PDF/TXT
+catalog, the live `ImportOptions`, the captured `EffectiveConfig` and a `freeze_tts_options`
+mapping holding every setting the worker or a retry could need (speaker, rate, resume, overwrite,
+bitrate, workers, Kokoro voice and speed, the end and paragraph pauses, and the whole `pause_kw`
+block). Only then is a run directory reserved, and only then are destinations planned. After that
+point neither the worker nor any retry consults a widget, a `tk.Variable`, the live
+`ImportedFileManager` or today's configuration.
+
+**Destinations are keyed by occurrence id.** `plan_destinations` now returns
+`occurrence_id -> PlannedOutput(source, destination, direct)`. It walks identities with
+`_identity_buckets` and paths with `planning_groups`, then cross-checks the two in `_pair` and
+raises `UnsafePathError` rather than pairing an occurrence with another's destination. Placement is
+unchanged and still Plan 2's alone: `plan_flat` for directly added files (31A), `plan_mirrored` for
+one folder root (7A), `plan_multi_root` for several (41A), all sharing the one
+`DestinationPlanner` the reservation hands out. Two deliberate duplicates of one path get two
+occurrence ids and two collision-safe destinations, and a retry of one can never reach the other.
+
+**The controller is the only processing-cancel authority.** Phase 6's `threading.Event` is gone.
+The Cancel button calls `controller.request_cancel()`; both engines receive
+`controller.cancel_check` through the same `cancel_check` seam their existing chapter/chunk
+checkpoints already used, so cancellation inside a conversion is as responsive as before. A run is
+reported `CANCELLED` only after the controller has genuinely acknowledged the cancellation at a
+checkpoint and this attempt's own partial artifact has been cleaned — the worker takes the
+acknowledgement itself, after cleanup, if an engine raised at its own checkpoint rather than at the
+controller's.
+
+**Pause is between source files, never inside one.** `controller.checkpoint()` is called before
+each directly added file and, inside the folder pool, at the top of each pooled task — so a paused
+run starts no new source, while a task already inside an indivisible conversion finishes it. A task
+that arrives during a pause waits on the controller's condition: woken, never polled, with no sleep
+anywhere in production. Cancel outranks pause and wakes a paused worker, which is also what makes
+`close()` safe during a pause. Tests assert that neither engine helper contains a checkpoint.
+
+**Item failure versus job failure.** A source that will not convert becomes a retryable
+`FailureRecord` against its occurrence, the run continues, and it settles
+`COMPLETED_WITH_FAILURES` — which is what makes the retry control available at all. Only a genuine
+orchestration failure produces a fatal, item-less, non-retryable record and `FAILED`. A final
+`finish()` guard makes sure the panel is released even if settlement itself raises.
+
+**The shared adapter is the processing UI.** One `JobAdapter` per attempt lives in a `job_area`
+row, installed at construction with an idle run id and replaced wholesale per run — the retired one
+is closed first, so the pump keeps exactly two drains however many runs a session performs. The
+panel's `self.progress` **is** the adapter's own indicator, so no second progress model exists. The
+importer registers as imported input and the panel as processing options, both locking through the
+shared matrix; Start stays the panel's own button (the shared bar does not own Start) but locks
+with the processing options. `LoggerBridge()` routes technical detail and failures to the one
+session log the launcher already opens.
+
+#### Deliberate presentation changes, both authorized by the drop
+
+- **Fine-grained single-file progress was retired.** The old single-direct path fed the progress
+  bar in paragraphs. With one truthful shared progress model counting completed source files, a
+  second stream counting paragraphs into the same bar would contradict it, so `progress_callback`
+  is now `None` for both engines and the current file is reported as a current-item event instead.
+  The drop's §19 explicitly prefers the shared event contract here.
+- **The Log box became "Engine output".** The engines are unchanged and chatty, and their
+  stdout/stderr is still captured — but it is now a raw transcript, not a job record. What
+  happened in the run (state, progress, current item, failures, output location, ending) comes only
+  from `JobAdapter` Summary/Details. Routing every engine line through the event stream instead was
+  rejected: the stream is an unbounded list re-projected on every drain, so a long book would make
+  rendering quadratic.
+
+#### Preserved, and proved
+
+PDF/TXT only; EPUB still retired and the archive still tracked and inert; `epub2tts_edge/*`,
+`kokoro_synth.py`, `pdf_extractor.py`, `voice_registry.py` and `batch_convert.py` all absent from
+the diff; Edge chunk/PDF retry counts, inter-chunk delay, chunk target and end-silence asserted by
+value; the twelve voices and `DEFAULT_VOICE_LABEL` asserted by value; per-source temp-chunk
+isolation still keyed on the run root; resume still skips an existing folder target on a first
+attempt and deliberately does **not** apply on a retry; Cover untouched; no Chatterbox, macOS or
+HEIC work; no dependency change.
+
+#### Gates
+
+Full suite **3085 collected / 3072 passed / 13 skipped / 1 warning** against the approved Phase 6
+baseline of 3012 / 2999 / 13 / 1. The delta reconciles exactly: **+73**, the whole of the new
+`test_tts_jobs.py`. Nothing was removed, renamed away or re-parametrized — `test_tts_importing.py`
+still collects 73 tests, with nine rewritten in place rather than deleted. Skips are the same 13
+inherited environment skips (8 Windows symlink-privilege `WinError 1314`, 2 case-insensitive
+filesystem, 3 `JACK_RYAN_M4B_FOLDER`); the one warning is the inherited third-party
+`pydub`/`audioop` `DeprecationWarning`. `python scripts/verify.py` → `RESULT: PASS` (all five
+checks). `compileall` exit 0. `git diff --check -- '*.py'` exit 0.
+`test_batch_convert_folders.py` passes **unmodified**, as the drop requires.
+
+#### Installation evidence
+
+**NOT APPLICABLE / NOT RUN in Phase 7** — no dependency or setup change. No `pip
+install`/`uninstall`/upgrade, no bootstrap run, no clean venv, and neither root `Setup_and_Run`
+launcher was executed. The real Windows installation gate remains deferred to the later authorized
+dependency-final phase and must use `Setup_and_Run-audiobook-creation-tool.bat` for both a
+disposable clean first-run and a second-run fast path.
+
+#### Residual risks, stated plainly
+
+- **No synthesis was executed.** Every engine call is proved through stubs at the panel seam —
+  argument for argument, including the planned targets and the controller's own `cancel_check` —
+  but no MP3 was produced end to end in this phase.
+- **Two event producers can still race**, as they can in the approved Cover adopter:
+  `JobReporter._emit` allocates its sequence under a lock but publishes outside it, so a main-thread
+  button press and a worker-thread report can reach the queue in the opposite order to their
+  numbers, and the stream would reject the later arrival as `OUT_OF_ORDER`. A rejected event is
+  inert, never misfiled, so no wrong state can be drawn. The terminal event is not exposed: once a
+  controller is terminal, `request_pause`/`resume`/`request_cancel` all dispatch nothing, and the
+  whole settlement sequence runs on the worker thread in order. Fixing the underlying window would
+  mean editing `shared/job_control.py`, which no phase has authorized.
+- **The rolling estimate is conservative for a concurrent folder pool.** Each sample is one file's
+  own wall-clock duration, so with several workers the remaining-time figure over-states rather
+  than under-states. Over-estimating never claims an early finish. Direct and folder work are kept
+  in separate ETA categories, so the estimator clears its history between them rather than
+  averaging two different kinds of work.
+
+**Phase 7 is implemented and AWAITING APPROVAL. Phase 8 (Chatterbox) is NOT AUTHORIZED and was NOT
+STARTED.**
+
+---
+
+### Phase 6 — TTS: panel restructure and importer adoption (2026-08-14, APPROVED 2026-08-15)
 
 **Result: the TTS panel is a state-owning frame class with one unified PDF/TXT queue, and it is
 the second production adopter of the Plan 3 importing foundation.** Three files changed —
@@ -6981,6 +7118,41 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 7 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
+
+**Branch:** unchanged. **Phase 7 start SHA:** `d5be8af43c1d043b6946459b3cd4cf7689dfe61d` (the
+approved Phase 6 commit, equal to its upstream at start). No fetch, merge, reset, stash, rebase,
+force-push or `git clean`; `master` was not touched and remains
+`809a43e754920fce2f11f08e3c401dcc4c7a5223`.
+
+**Files added (1):**
+- `files/tests/test_tts_jobs.py` — **73 tests**, none skipped. Run capture, controller lifecycle,
+  adapter installation and locking, direct/folder/multi-root placement, occurrence identity,
+  the retry contract, item-versus-job failure, pause between source files, cancellation, resume,
+  mirroring regression, the estimate, main-thread safety, engine freeze, and the Phase 8 boundary.
+
+**Files changed (2):**
+- `scripts/Universal/tts/epub2tts_gui.py` — job-control adoption, occurrence-keyed destinations,
+  the `_RunContext` worker body, and the retirement of the panel's own processing cancel event.
+- `files/tests/test_tts_importing.py` — **nine tests rewritten in place, none deleted.** Each one
+  encoded a Phase 6 processing UI that Phase 7 legitimately replaces: the drain count (now two),
+  the drain's message kinds, the worker's attribute whitelist (now `{_log_q}` — strictly narrower),
+  the worker's parameter shape, the three cancellation-domain tests, the checkpoint test, and the
+  phase-boundary test, which was **inverted** rather than dropped: job control is now asserted
+  present-and-not-reimplemented instead of absent.
+
+**Files deliberately NOT changed:** `scripts/Universal/tts/batch_convert.py` (the existing
+`out_mp3` seam sufficed), the whole `epub2tts_edge/` package, `kokoro_synth.py`, `pdf_extractor.py`,
+`voice_registry.py`, `shared/*`, `mp3_tools/*`, `launcher.py`, `scripts/requirements.txt`, and
+`files/tests/test_tool_output_integration.py` — the third substring guard belongs to Phase 11, so
+the panel was worded to avoid its five reserved literals rather than the guard being edited.
+`files/tests/test_batch_convert_folders.py` passes unmodified.
+
+**Gates:** 3085 collected / 3072 passed / 13 skipped / 1 warning (delta **+73**, reconciling
+exactly to the new module); `verify.py` → `RESULT: PASS`; `compileall` exit 0;
+`git diff --check` exit 0. All four Chatterbox reference MP3s byte-identical before and after,
+still ignored at `.gitignore:55`, still zero tracked matches.
 
 ### 2026-08-09 — HOME-PC — v0.6.0 Drop 3 (Plan 3) Phase 6 — committed and pushed to `feature/0.6.0-drop3-shared-job-controls-importing`
 

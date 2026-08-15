@@ -276,11 +276,17 @@ def test_closing_the_panel_closes_the_importer_and_stops_the_pump(make_panel):
 
 
 def test_exactly_one_pump_owns_the_panels_scheduled_callbacks(make_panel):
-    """One ``after`` chain: the import poller rides it and so does the log queue."""
+    """One ``after`` chain: the import poller rides it and so do the two drains.
+
+    Phase 7 added the shared job adapter, which registers its own drain on this
+    same pump rather than starting a second one — so the count is two drains and
+    still exactly one scheduled Tk callback.
+    """
     panel = make_panel()
     registered = list(panel._pump._drains)
     assert panel._drain_worker_queue in registered
-    assert len(registered) == 1, registered
+    assert panel.jobs.drain in registered
+    assert len(registered) == 2, registered
     assert panel.importer.poller is not None
 
     source = PANEL_SOURCE.read_text(encoding="utf-8")
@@ -301,26 +307,26 @@ def test_the_old_recurring_after_loop_is_gone_from_the_source():
     assert "after" not in calls, "a drain must never reschedule itself"
 
 
-def test_the_drain_still_delivers_log_progress_done_and_error(make_panel, monkeypatch):
-    from tkinter import messagebox
+def test_the_drain_still_delivers_the_engine_transcript_and_the_ending(make_panel):
+    """The drain carries the transcript and the ending; it makes no state claim.
 
-    shown: list[tuple] = []
-    monkeypatch.setattr(messagebox, "showerror", lambda *a, **k: shown.append(a))
+    Phase 7 moved progress and failure reporting onto the shared event stream, so
+    the ``progress`` and ``err`` messages this drain used to carry are gone — a
+    state a controller did not reach can no longer be drawn from this queue at all.
+    """
     panel = make_panel()
 
     panel._busy.set()
     panel._log_q.put(("log", "hello\n"))
-    panel._log_q.put(("progress", (1, 2)))
     panel._log_q.put(("done", "Conversion finished."))
     panel._pump.tick()
     assert "hello" in panel.log.get("1.0", "end")
+    assert "Conversion finished." in panel.log.get("1.0", "end")
     assert panel._busy.is_set() is False
 
-    panel._busy.set()
-    panel._log_q.put(("err", "it broke"))
-    panel._pump.tick()
-    assert shown and "it broke" in shown[0]
-    assert panel._busy.is_set() is False
+    drain = ast.unparse(method_named("_drain_worker_queue"))
+    assert "'progress'" not in drain and '"progress"' not in drain
+    assert "showerror" not in drain
 
 
 def test_the_panel_registers_exactly_one_destination_display(make_panel):
@@ -340,6 +346,10 @@ def test_the_conversion_worker_reads_no_tk_variable_and_no_widget():
 
     Measured as a whitelist of what the worker reaches for *on the panel*,
     which is strictly stronger than a blacklist of known-bad names.
+
+    Phase 6 allowed ``_log_q`` and ``_cancel_event``. Phase 7 retired the second
+    one — the run's controller is the only processing-cancel authority now — so the
+    whitelist is one attribute narrower than it was.
     """
     worker = method_named("conversion_worker")
     reached = {
@@ -347,7 +357,7 @@ def test_the_conversion_worker_reads_no_tk_variable_and_no_widget():
         if isinstance(node, ast.Attribute)
         and isinstance(node.value, ast.Name) and node.value.id == "self"
     }
-    assert reached == {"_log_q", "_cancel_event"}, reached
+    assert reached == {"_log_q"}, reached
 
 
 def test_no_worker_body_calls_get_on_a_tk_variable():
@@ -360,9 +370,19 @@ def test_no_worker_body_calls_get_on_a_tk_variable():
             assert forbidden not in body, (name, forbidden)
 
 
-def test_the_worker_is_handed_plain_values_only(make_panel, output_base, tmp_path,
-                                                monkeypatch):
-    """Every value the worker receives is a plain built-in, path or callable."""
+def test_the_worker_is_handed_no_tk_object_and_no_live_import_state(
+    make_panel, output_base, tmp_path, monkeypatch
+):
+    """Nothing the worker receives is a widget, a variable or the live queue.
+
+    Phase 6 could state this as "plain built-ins only". Phase 7 hands the worker
+    the run's controller, reporter and frozen snapshot as well, so the property is
+    stated as what it always meant: no Tk object and no live import state crosses
+    the thread boundary.
+    """
+    from shared import importing as shared_importing
+    from shared import job_ui
+
     chosen = sources(tmp_path / "books", "one.txt")
     panel = make_panel(choose_files=lambda: chosen)
     panel.importer.add_files()
@@ -374,14 +394,16 @@ def test_the_worker_is_handed_plain_values_only(make_panel, output_base, tmp_pat
 
     params = captured["params"]
     assert isinstance(params, dict)
-    allowed = (str, int, float, bool, bytes, Path, tuple, list, dict, type(None))
+    forbidden = (tk.Variable, tk.Misc, shared_importing.ImportedFileManager,
+                 job_ui.ImportAdapter, job_ui.JobAdapter, job_ui.MainThreadPump)
     for key, value in params.items():
-        assert isinstance(value, allowed), (key, type(value))
+        assert not isinstance(value, forbidden), (key, type(value))
     for item in params["items"]:
         assert isinstance(item, dict)
         assert isinstance(item["source"], Path)
         assert isinstance(item["destination"], Path)
         assert isinstance(item["direct"], bool)
+        assert isinstance(item["item_id"], str)
 
 
 class _FakeThread:
@@ -718,10 +740,13 @@ def test_a_cancelled_scan_leaves_no_partial_commit(make_panel, tmp_path):
     assert panel.manager.revision == revision
 
 
-def test_the_import_cancel_never_touches_the_processing_cancel_event(
-    make_panel, tmp_path
-):
-    """The two cancellation domains stay separate (drop §5.3)."""
+def test_the_import_cancel_never_touches_the_processing_run(make_panel, tmp_path):
+    """The two cancellation domains stay separate (drop §5.3).
+
+    Phase 7 replaced the panel's processing ``threading.Event`` with the run's own
+    :class:`~shared.job_control.JobController`, so "the conversion cancel is
+    untouched" is now stated against that controller instead.
+    """
     root = tmp_path / "Library"
     sources(root, "01.pdf")
     started, release = threading.Event(), threading.Event()
@@ -736,7 +761,7 @@ def test_the_import_cancel_never_touches_the_processing_cancel_event(
     release.set()
     panel._pump.tick()
 
-    assert panel._cancel_event.is_set() is False, "the conversion cancel is untouched"
+    assert panel._controller is None, "no processing run was ever created"
     assert panel._busy.is_set() is False
 
 
@@ -750,9 +775,10 @@ def test_the_processing_cancel_never_touches_the_import(make_panel, tmp_path):
 
     panel.importer.add_folder()
     assert started.wait(WAIT)
+    # A processing cancel with a run under way reaches the controller and stops
+    # exactly there; the coordinator running the scan never hears about it.
     panel._busy.set()
     panel.cancel_job()
-    assert panel._cancel_event.is_set() is True
     assert panel.importer.coordinator.cancel_requested is False
 
     release.set()
@@ -761,12 +787,13 @@ def test_the_processing_cancel_never_touches_the_import(make_panel, tmp_path):
     panel._busy.clear()
 
 
-def test_the_two_cancellations_are_different_objects(make_panel):
+def test_the_two_cancellations_are_different_authorities(make_panel):
     panel = make_panel()
-    assert isinstance(panel._cancel_event, threading.Event)
     body = ast.unparse(method_named("cancel_job"))
-    assert "_cancel_event" in body
+    assert "request_cancel" in body, "processing cancel goes to the controller"
     assert "importer" not in body and "coordinator" not in body
+    cancel_import = ast.unparse(method_named("close"))
+    assert "request_cancel" in cancel_import
 
 
 def test_closing_the_panel_mid_import_commits_nothing(make_panel, tmp_path):
@@ -1329,13 +1356,19 @@ def test_a_kokoro_pdf_still_goes_through_the_extractor_first(
 def test_the_worker_stops_at_the_existing_cancellation_checkpoint(
     make_panel, output_base, tmp_path, stubs
 ):
+    """Cancelled before the first file: the run converts nothing and says so.
+
+    Phase 7 arms this through the run's controller rather than the panel's retired
+    ``threading.Event`` — the controller is the only processing-cancel authority.
+    """
     chosen = sources(tmp_path / "books", "a.txt", "b.txt", "c.txt")
     panel = make_panel(choose_files=lambda: chosen)
     panel.importer.add_files()
-    _run_to_completion(panel, before_worker=panel._cancel_event.set)
+    _run_to_completion(panel, before_worker=lambda: panel._controller.request_cancel())
 
     assert stubs.conversion_jobs == [], "a cancelled run converts nothing"
     assert "Cancelled." in panel.log.get("1.0", "end")
+    assert panel._controller.state.value == "cancelled"
 
 
 def test_the_panel_reimplements_no_engine_and_changes_no_timing_default():
@@ -1404,16 +1437,26 @@ def test_the_panel_reimplements_none_of_the_shared_foundation():
     assert not (defined & forbidden), defined & forbidden
 
 
-def test_no_job_control_vocabulary_arrived():
-    """Phase 7 owns all of this; Phase 6 must not anticipate any of it."""
+def test_the_job_control_vocabulary_is_consumed_and_never_reimplemented():
+    """Phase 7 adopted all of this. It is imported, and none of it is redefined.
+
+    This test was written in Phase 6 to assert the *absence* of job control, which
+    was correct while Phase 7 was unauthorized. Phase 7 delivered it, so the guard
+    is inverted rather than dropped: the panel must reach for the shared symbols and
+    must define none of them itself.
+    """
+    assert "shared.job_control" in imported_modules()
+    defined = {
+        node.name for node in ast.walk(panel_tree())
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for shared_symbol in ("JobController", "JobAdapter", "JobControlBar",
+                          "JobStatusView", "SummaryDetailsView", "capture_run",
+                          "JobReporter", "JobEventStream", "RunResult",
+                          "RetryRequest", "EtaEstimator", "ProgressTracker"):
+        assert shared_symbol not in defined, shared_symbol
     source = PANEL_SOURCE.read_text(encoding="utf-8")
-    assert "shared.job_control" not in source
-    assert "job_control" not in imported_modules()
-    for later in ("JobController", "JobAdapter", "JobControlBar", "JobStatusView",
-                  "SummaryDetailsView", "capture_run", "JobReporter",
-                  "JobEventStream", "RunResult", "RetryRequest", "EtaEstimator",
-                  "LOCK_MATRIX", "ProgressTracker"):
-        assert later not in source, later
+    assert "LOCK_MATRIX = " not in source, "the lock matrix is consulted, not restated"
 
 
 def test_no_chatterbox_or_later_phase_vocabulary_arrived():
