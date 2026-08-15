@@ -1233,6 +1233,10 @@ def test_a_cancelled_run_keeps_the_outputs_that_already_finished(
         worker.join(WAIT)
 
     assert finished.exists(), "a completed output survives a cancellation"
+    # The controller reaches CANCELLED before the settled result is queued for the
+    # main thread, so the run is drained to its end rather than read mid-flight.
+    wait_for(lambda: panel._result is not None,
+             "the settled result never reached the panel", panel=panel)
     assert panel._result.cancelled is True
 
 
@@ -1516,13 +1520,18 @@ def test_the_worker_receives_no_tk_object_and_no_import_state(
         assert not isinstance(value, forbidden), (key, type(value))
     assert isinstance(params["snapshot"], RunSnapshot)
     assert isinstance(params["controller"], job_control.JobController)
-    assert isinstance(params["reporter"], job_control.JobReporter)
+    # The run's one publication authority, not the shared reporter behind it:
+    # ordering is only guaranteed while there is nothing to bypass it with.
+    assert isinstance(params["publisher"], panel_module.RunPublisher)
+    for key, value in params.items():
+        assert not isinstance(value, job_control.JobReporter), key
 
 
 def test_events_reach_the_ui_only_through_the_queue_the_pump_drains(make_panel):
-    publish = method_named("_publish")
-    text = ast.unparse(publish)
-    assert "_event_q.put" in text
+    """One route from a producer to the UI: the authority, then the queue."""
+    deliver = method_named("_deliver", owner="RunPublisher")
+    text = ast.unparse(deliver)
+    assert "_sink.put" in text
     assert "jobs" not in text and "render" not in text
 
 

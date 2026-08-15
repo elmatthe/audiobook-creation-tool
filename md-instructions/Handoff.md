@@ -4,7 +4,8 @@
 
 **v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–6 approved (Phase 4 including
 its ETA-serialization remediation; Phase 6 approved by the maintainer on 2026-08-15 in the prompt
-that authorized Phase 7); Phase 7 is implemented and AWAITING APPROVAL; Phase 8 has NOT begun.**
+that authorized Phase 7); Phase 7 is implemented, its reporting-order remediation is implemented,
+and Phase 7 remains AWAITING APPROVAL as a whole; Phase 8 has NOT begun.**
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -851,14 +852,9 @@ disposable clean first-run and a second-run fast path.
 - **No synthesis was executed.** Every engine call is proved through stubs at the panel seam —
   argument for argument, including the planned targets and the controller's own `cancel_check` —
   but no MP3 was produced end to end in this phase.
-- **Two event producers can still race**, as they can in the approved Cover adopter:
-  `JobReporter._emit` allocates its sequence under a lock but publishes outside it, so a main-thread
-  button press and a worker-thread report can reach the queue in the opposite order to their
-  numbers, and the stream would reject the later arrival as `OUT_OF_ORDER`. A rejected event is
-  inert, never misfiled, so no wrong state can be drawn. The terminal event is not exposed: once a
-  controller is terminal, `request_pause`/`resume`/`request_cancel` all dispatch nothing, and the
-  whole settlement sequence runs on the worker thread in order. Fixing the underlying window would
-  mean editing `shared/job_control.py`, which no phase has authorized.
+- ~~**Two event producers can still race.**~~ **Reported at review and REMEDIATED — see the
+  Phase 7 remediation record immediately below.** The window was real and reproducible, not
+  theoretical.
 - **The rolling estimate is conservative for a concurrent folder pool.** Each sample is one file's
   own wall-clock duration, so with several workers the remaining-time figure over-states rather
   than under-states. Over-estimating never claims an early finish. Direct and folder work are kept
@@ -867,6 +863,126 @@ disposable clean first-run and a second-run fast path.
 
 **Phase 7 is implemented and AWAITING APPROVAL. Phase 8 (Chatterbox) is NOT AUTHORIZED and was NOT
 STARTED.**
+
+---
+
+### Phase 7 remediation — TTS job reporting serialized through one producer (2026-08-15, HOME-PC)
+
+**Result: every TTS reporting call for a run goes through one `RunPublisher`, which holds a single
+lock across the whole of minting *and* publishing — so the order events enter the `JobAdapter`
+queue is the order `JobReporter` numbered them, and `JobEventStream` never has a lower number
+arriving late to refuse.** The remediation is entirely TTS-local: `shared/job_control.py` was not
+touched, `JobEventStream`'s `OUT_OF_ORDER` rule was not weakened, no second state machine or event
+vocabulary was created, nothing already accepted is re-sorted, and no engine module was edited.
+
+**Entry checkpoint:** `71887b8` (Phase 7), branch `feature/0.6.1-tts-cover-workflows`, 9 ahead /
+0 behind `master` (`809a43e`), worktree clean, `VERSION` `0.5.1`, six launcher tools,
+`config-template.toml` absent, no Chatterbox work present. All four Chatterbox reference MP3s
+verified byte-identical before and after; the four older recordings remain absent and were not
+recreated.
+
+#### The defect, in the maintainer's own terms
+
+`JobReporter._emit` allocates the event's `sequence` under its own lock, then calls the publisher
+with that lock released — deliberately, because §5.4 of the shared contract forbids holding a lock
+across caller code. The docstring states the rule that follows: *one run reports from one
+producer.* Phase 7's TTS panel had several: the Tk thread while a button moved the controller, the
+conversion worker, and every folder-pool thread that reached a checkpoint and dispatched a state
+change. So thread A could take N, be descheduled, thread B take and publish N + 1, and A publish N
+afterwards — leaving the stream to refuse the legitimate N as `OUT_OF_ORDER`.
+
+**It was reproduced, not assumed.** A throwaway probe against unmodified `71887b8` held one
+producer at the queue's own `put` and released a second: recorded arrival order **`[4, 3]`**,
+verdict **`EventVerdict.OUT_OF_ORDER`**, accepted sequences **`[0, 1, 2, 4]`** — sequence 3, a
+legitimate progress report, lost.
+
+#### The remediation
+
+**`RunPublisher`** (new, in `epub2tts_gui.py`) is the run's one publication authority. It owns the
+attempt's `JobReporter` — which is reachable from nowhere else, so there is nothing to bypass it
+with — and the attempt's queue. `_publish` takes one `threading.Lock` and holds it across the
+reporter call, whose own publisher hook does the `put`. A thread that would take N + 1 therefore
+cannot enter the reporter until the thread holding N has already queued its event.
+
+**It cannot deadlock.** The guarded region calls exactly two things: one shared reporter method
+(whose lock is a leaf) and one `put` on an unbounded queue (which never blocks). It never touches
+Tk, never touches the controller, and is never re-entered — enforced by a test that reads the
+class with its docstrings stripped. The controller dispatches its listener with its own lock
+released, so nothing waiting here is holding anything this waits for.
+
+**Retirement is lock-free.** `close()` sets an `Event`, so a panel being torn down can never block
+behind a report in flight. `TtsPanel.close()` retires the authority *before* it asks the run to
+stop, so the cancellation it provokes has nowhere to draw.
+
+**Superseded states are dropped, never drawn.** Because the controller dispatches outside its own
+lock, two threads that moved the run can arrive at the listener inverted — a `PAUSED` before the
+`PAUSE_REQUESTED` it answered. `state_changed` compares the snapshot's `revision`, the controller's
+own monotonic counter, and refuses one older than the last reported. Nothing is invented, nothing
+already accepted is reordered, and the endings (`completed`/`cancelled`) are deliberately outside
+the guard, because an ending is not a state.
+
+**Attempt lineage.** A retry re-uses the original `RunSnapshot` and therefore the original run id,
+so the id alone cannot tell a live report from a straggler. `_install_jobs` is the one retirement
+point: it closes the outgoing authority and installs a new one bound to the new queue. A retired
+authority publishes nothing and could not reach the live queue even if it did.
+
+#### Tests — written first, and RED first
+
+New: `files/tests/test_tts_reporting_order.py`, **14 tests**, sections A–I covering the race
+reproduction, admission exclusion, state-versus-worker, terminal, concurrent item reporting,
+pause/resume, cancellation, retry lineage and teardown. **Initial RED: 14 failed, 0 passed.**
+Exclusion is proved with no timing at all — while a producer is held inside the queue's `put`, the
+authority is asked directly whether it is free. The one bounded window in the file is the
+*opportunity* a second producer is given, never a wait for a race, and the verdict comes from the
+recorded arrival order either way. No test sleeps.
+
+Three existing tests were corrected, narrowly and truthfully; none was deleted, skipped, xfailed or
+weakened:
+
+- `test_tts_jobs.py::test_the_worker_receives_no_tk_object_and_no_import_state` — now asserts the
+  worker holds a `RunPublisher` and that **no** bare `JobReporter` appears in `params` at all,
+  which is strictly stronger than what it asserted before.
+- `test_tts_jobs.py::test_events_reach_the_ui_only_through_the_queue_the_pump_drains` — reads
+  `RunPublisher._deliver` instead of the retired `TtsPanel._publish`; the property is unchanged.
+- `test_tts_jobs.py::test_a_cancelled_run_keeps_the_outputs_that_already_finished` — a latent test
+  defect the timing change exposed: it read `panel._result` after waiting only for the controller
+  to reach `CANCELLED`, but the settled result is delivered to the main thread afterwards, through
+  the queue. It now drains to the end. No production behaviour changed.
+
+`files/tests/test_batch_convert_folders.py` passes **UNMODIFIED**. Cover production code is
+unchanged and its job tests pass as a regression consumer of the untouched shared foundation.
+
+#### Gates
+
+- Targeted §13 set (TTS ×4, batch-convert folders, job control/controller/events-ETA/results/UI,
+  import manager/coordination/traversal/importing, Plan 3 boundaries, tool-output integration,
+  output paths, EPUB retirement, Kokoro timing and voices, Cover ×5): **2244 passed, 10 skipped**.
+- Full suite: **3099 collected, 3086 passed, 13 skipped, 1 warning**. Baseline 3085 / 3072 / 13 / 1
+  → delta **+14 collected, +14 passed**, exactly the new module. `test_tts_jobs.py` still collects
+  73 and `test_tts_importing.py` still collects 73: nothing was removed or re-parametrized.
+- Skips (13, unchanged): 8 Windows symlink-privilege `WinError 1314`, 2 case-insensitive
+  filesystem, 3 `JACK_RYAN_M4B_FOLDER` env-gated. Warning (1, unchanged): third-party
+  `pydub`/`audioop` `DeprecationWarning`.
+- `python scripts/verify.py` → **`RESULT: PASS`**. `compileall` exit 0. `git diff --check` exit 0.
+
+#### Installation evidence
+
+**NOT APPLICABLE / NOT RUN.** No dependency change, no `pip` of any kind, no clean venv, neither
+`Setup_and_Run` launcher executed, no real synthesis. This remediation changes reporting
+orchestration only.
+
+**Phase 7, including this remediation, is AWAITING APPROVAL. Phase 8 (Chatterbox) is NOT AUTHORIZED
+and was NOT STARTED.**
+
+##### Session Sync Log — 2026-08-15 — HOME-PC — Phase 7 remediation
+
+- Entered at `71887b8`, 9 ahead / 0 behind `master` `809a43e`; clean.
+- Pre-fix race reproduced at the real queue boundary before any edit was made.
+- One production file changed (`epub2tts_gui.py`), one new test file, three tests corrected in
+  `test_tts_jobs.py`, this Handoff.
+- Committed as a separate remediation commit and pushed to
+  `origin/feature/0.6.1-tts-cover-workflows`. `master` untouched. No merge, tag, release, package,
+  version bump or branch deletion.
 
 ---
 

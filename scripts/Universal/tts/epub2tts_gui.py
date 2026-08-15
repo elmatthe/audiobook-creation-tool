@@ -34,6 +34,12 @@ a failed item be re-run. Phase 6's separate ``threading.Event`` processing cance
 gone: there is one cancellation authority for a run, and ``CANCELLED`` means a worker
 acknowledged it at a checkpoint and cleaned up, never that a button was pressed.
 
+Several threads have something to report — the Tk thread while a button moves the
+controller, the conversion worker, and every folder-pool thread that reaches a
+checkpoint — so they all report through one :class:`RunPublisher`. It holds a single
+lock across the whole of minting and publishing, which is what makes the order events
+reach the adapter's queue the order the shared reporter numbered them.
+
 Every occurrence's destination is planned once, before the run starts, and stored
 **by occurrence id** — because re-running a failure needs identity, and a path is
 not one.
@@ -359,6 +365,152 @@ def freeze_tts_options(
     }
 
 
+# --------------------------------------------------------------------------- #
+# The run's one publication authority
+# --------------------------------------------------------------------------- #
+
+
+class RunPublisher:
+    """The single producer that decides the order one run's events reach the UI.
+
+    ``JobReporter`` allocates an event's number under its own lock and then hands
+    the event to the publisher with that lock *released*, because §5.4 forbids
+    holding a lock across caller code. Its docstring states the rule that follows:
+    one run reports from one producer. This panel has several — the Tk thread while
+    a button moves the controller, the conversion worker, and every thread in the
+    folder pool that reaches a checkpoint and dispatches a state change — so this
+    is the one producer they share.
+
+    **Why N + 1 cannot overtake N.** The authority is held across the *whole* of
+    minting and publishing, not around the counter alone. A thread that would take
+    the next number cannot enter the reporter at all until the thread holding the
+    previous one has already put its event on the queue, so the order events enter
+    the queue is the order their numbers were allocated, and
+    ``JobEventStream`` never has a lower number arriving late to refuse.
+
+    **Why it cannot deadlock.** The guarded region calls exactly two things: one
+    shared reporter method, whose own lock is a leaf, and one ``put`` on an
+    unbounded queue, which never blocks. It never touches Tk, never touches the
+    run's controller, and is never re-entered — so no thread can be waiting here
+    for something held by a thread that is waiting for this.
+
+    **Why retirement is not guarded.** Closing sets a flag and takes nothing, so a
+    panel being torn down can never be blocked behind a report in flight. A closed
+    authority publishes nothing further, and it holds the queue it was built with
+    rather than reading the panel's current one — which is what keeps a retry
+    clean, since a retry re-uses the original ``RunSnapshot`` and therefore the
+    original run id, and a straggler from the attempt being re-run would otherwise
+    be indistinguishable from a live report.
+    """
+
+    __slots__ = ("_reporter", "_sink", "_lock", "_closed", "_revision")
+
+    def __init__(self, snapshot, *, clock, sink) -> None:
+        self._sink = sink
+        self._lock = threading.Lock()
+        self._closed = threading.Event()
+        self._revision = -1
+        self._reporter = job_control.JobReporter.for_run(
+            snapshot, clock=clock, publish=self._deliver)
+
+    # -- what a caller may ask ---------------------------------------------- #
+
+    @property
+    def run_id(self) -> str:
+        return self._reporter.run_id
+
+    @property
+    def lock(self) -> threading.Lock:
+        """The ordering authority itself. Held, a publication is in flight."""
+        return self._lock
+
+    @property
+    def sink(self):
+        """The queue this run publishes into, bound when the run was accepted."""
+        return self._sink
+
+    @property
+    def closed(self) -> bool:
+        return self._closed.is_set()
+
+    def close(self) -> None:
+        """Retire this attempt. Idempotent, lock-free, and safe from any thread."""
+        self._closed.set()
+
+    # -- production --------------------------------------------------------- #
+
+    def state_changed(self, snapshot):
+        """Report a controller state — and never one the run has already left.
+
+        The controller dispatches its listener with its own lock released, so two
+        threads that moved the run can arrive here in the opposite order to the
+        moves themselves: a ``PAUSED`` before the ``PAUSE_REQUESTED`` it answered.
+        A snapshot's revision is the controller's own monotonic counter, so a
+        snapshot older than the last one reported is simply not reported. Nothing
+        is invented in its place and nothing already accepted is re-ordered — the
+        run's current state is drawn from the state the run is currently in.
+        """
+        if self._closed.is_set():
+            return None
+        with self._lock:
+            if self._closed.is_set():
+                return None
+            revision = snapshot.revision
+            if revision <= self._revision:
+                return None
+            self._revision = revision
+            return self._reporter.state_changed(snapshot)
+
+    def progress(self, completed, total=None, *, item_id=None, stage=None,
+                 message=""):
+        return self._publish(
+            lambda: self._reporter.progress(
+                completed, total, item_id=item_id, stage=stage, message=message))
+
+    def current_item(self, item_id, message=""):
+        return self._publish(
+            lambda: self._reporter.current_item(item_id, message))
+
+    def failure(self, message, detail="", *, item_id=None, stage=None):
+        return self._publish(
+            lambda: self._reporter.failure(
+                message, detail, item_id=item_id, stage=stage))
+
+    def output_location(self, location, message=""):
+        return self._publish(
+            lambda: self._reporter.output_location(location, message))
+
+    def completed(self, snapshot, message=""):
+        """The run's one ending. Never revision-guarded: an ending is not a state."""
+        return self._publish(lambda: self._reporter.completed(snapshot, message))
+
+    def cancelled(self, snapshot, message=""):
+        """The one ending of a run a worker stopped and cleaned up after."""
+        return self._publish(lambda: self._reporter.cancelled(snapshot, message))
+
+    # -- internals ---------------------------------------------------------- #
+
+    def _publish(self, mint):
+        """Mint and deliver one event as a single indivisible step."""
+        if self._closed.is_set():
+            return None
+        with self._lock:
+            if self._closed.is_set():
+                return None
+            return mint()
+
+    def _deliver(self, entry) -> None:
+        """The reporter's publisher, called from inside the guarded region.
+
+        The queue is read at call time rather than bound once, so a test can watch
+        this boundary and so nothing here outlives the queue it was given.
+        """
+        self._sink.put(entry)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return (f"RunPublisher(run_id={self.run_id!r}, closed={self.closed})")
+
+
 class TtsPanel(ttk.Frame):
     """The TTS tool as an embeddable, state-owning frame.
 
@@ -402,7 +554,7 @@ class TtsPanel(ttk.Frame):
         self._run_count = 0
         self._attempt = 0
         self._controller = None
-        self._reporter = None
+        self._publisher = None
         self._estimator = None
         self._snapshot = None
         self._result = None
@@ -963,11 +1115,21 @@ class TtsPanel(ttk.Frame):
         a new run gets a new adapter in the same container. The retired one is closed
         first, which is what drops its drain — the pump keeps exactly one job drain
         however many runs a session performs.
+
+        This is also the one point at which an attempt's publication authority is
+        retired. It matters because a retry re-uses the original ``RunSnapshot`` and
+        therefore the original run id: without retirement, a late report from the
+        attempt being re-run would carry the live run's id and be indistinguishable
+        from a live one.
         """
         previous = getattr(self, "jobs", None)
         if previous is not None:
             previous.close()
             previous.frame.destroy()
+        retiring = getattr(self, "_publisher", None)
+        if retiring is not None:
+            retiring.close()
+        self._publisher = None
         self._event_q = queue.Queue()
         self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
         self.jobs = job_ui.JobAdapter(
@@ -997,24 +1159,19 @@ class TtsPanel(ttk.Frame):
         self.jobs.register_options(self)
         self.jobs.render()
 
-    def _publish(self, event) -> None:
-        """Hand one produced event to the queue the shared adapter drains.
-
-        Called from whichever thread produced it — the worker for progress and
-        failures, the main thread for a button press that moved the controller. A
-        queue is the only thing that crosses that boundary.
-        """
-        self._event_q.put(event)
-
-    def _on_state(self, snapshot) -> None:
+    def _on_state(self, snapshot):
         """The controller's listener: copy its state into the event stream.
 
-        The reporter mints the event *from this snapshot*, so the UI can never show
-        a state the controller did not actually reach.
+        The event is minted *from this snapshot*, so the UI can never show a state
+        the controller did not actually reach; and it goes through the run's one
+        publication authority, so it cannot overtake — or be overtaken by — a
+        report the worker is making at the same moment.
+
+        Called from whichever thread moved the run: the Tk thread for a button
+        press, the worker or a pool thread for a checkpoint or a settlement.
         """
-        reporter = self._reporter
-        if reporter is not None:
-            reporter.state_changed(snapshot)
+        publisher = self._publisher
+        return None if publisher is None else publisher.state_changed(snapshot)
 
     def pause(self) -> None:
         """Ask the run to pause at its next boundary between source files."""
@@ -1203,8 +1360,10 @@ class TtsPanel(ttk.Frame):
         self._controller = job_control.JobController(
             snapshot.snapshot_id, listener=self._on_state)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
-        self._reporter = job_control.JobReporter.for_run(
-            snapshot, clock=self._clock, publish=self._publish)
+        # Built after the adapter, so it binds *this* attempt's queue, and before
+        # the controller is started, so the very first state change is published.
+        self._publisher = RunPublisher(
+            snapshot, clock=self._clock, sink=self._event_q)
 
         params = {
             "items": items,
@@ -1224,7 +1383,9 @@ class TtsPanel(ttk.Frame):
             "pause_kw": dict(options["pause_kw"]),
             "snapshot": snapshot,
             "controller": self._controller,
-            "reporter": self._reporter,
+            # The authority, never the reporter behind it: there must be exactly
+            # one way for this run to reach the queue, with nothing to bypass.
+            "publisher": self._publisher,
             # Timing travels back as data, never as a shared estimator: the worker
             # is handed the clock and the labels it needs to stamp a measurement,
             # and nothing it can mutate.
@@ -1241,8 +1402,8 @@ class TtsPanel(ttk.Frame):
         self.set_locked(True)
         self._controller.start()
         if self._run_directory is not None:
-            self._reporter.output_location(self._run_directory)
-        self._reporter.progress(0, len(items), stage=STAGE_CONVERT)
+            self._publisher.output_location(self._run_directory)
+        self._publisher.progress(0, len(items), stage=STAGE_CONVERT)
 
         self._worker = threading.Thread(
             target=self.conversion_worker, args=(params,), daemon=True)
@@ -1280,6 +1441,13 @@ class TtsPanel(ttk.Frame):
         if self._closed:
             return
         self._closed = True
+        # Retired *before* the run is asked to stop, and deliberately so. Closing
+        # takes no lock, so it cannot be blocked behind a report already in flight;
+        # and a panel that is going away must draw nothing further, so the state
+        # changes the cancellation below provokes have nowhere to go.
+        publisher = self._publisher
+        if publisher is not None:
+            publisher.close()
         controller = self._controller
         if controller is not None and not controller.is_terminal:
             controller.request_cancel()
@@ -1347,7 +1515,7 @@ class _RunContext:
         self.log_q = log_q
         self.writer = QueueWriter(log_q)
         self.controller = params["controller"]
-        self.reporter = params["reporter"]
+        self.publisher = params["publisher"]
         self.snapshot = params["snapshot"]
         self.clock = params["clock"]
         self.run_id = params["run_id"]
@@ -1371,7 +1539,7 @@ class _RunContext:
         with self._counter:
             self._done += 1
             done = self._done
-        self.reporter.progress(done, self._total, item_id=item["item_id"],
+        self.publisher.progress(done, self._total, item_id=item["item_id"],
                                stage=STAGE_CONVERT)
 
     def record_success(self, item, duration: float, category: str) -> None:
@@ -1395,7 +1563,7 @@ class _RunContext:
             item_id=item["item_id"], stage=STAGE_CONVERT,
             display_message=trouble, technical_detail=detail,
             retryable=True, snapshot_id=self.snapshot.snapshot_id))
-        self.reporter.failure(trouble, detail, item_id=item["item_id"],
+        self.publisher.failure(trouble, detail, item_id=item["item_id"],
                               stage=STAGE_CONVERT)
         stamp = datetime.now().strftime("%H:%M:%S")
         self.log(f"[{stamp}] {item['source'].name} — FAILED: {detail}")
@@ -1462,7 +1630,7 @@ class _RunContext:
             except ConversionCancelled:
                 self.cancelled = True
                 return
-            self.reporter.current_item(
+            self.publisher.current_item(
                 item["item_id"], f"Converting {item['source'].name}")
             started = self.clock()
             try:
@@ -1515,13 +1683,13 @@ class _RunContext:
                                    cancelled=cancelled)
         if cancelled:
             final = self.controller.finish_cancelled()
-            self.reporter.cancelled(final)
+            self.publisher.cancelled(final)
         else:
             if settled.state is JobState.COMPLETED_WITH_FAILURES:
                 final = self.controller.complete_with_failures()
             else:
                 final = self.controller.succeed()
-            self.reporter.completed(final)
+            self.publisher.completed(final)
         self.log_q.put((RESULT_MESSAGE, settled))
         self.log_q.put(("done", "Cancelled." if cancelled else (
             f"Conversion finished: {len(self.completed)} ok, "
@@ -1539,9 +1707,9 @@ class _RunContext:
                               records=tuple(self.failures) + (fatal,))
         settled = RunResult.settle(self.snapshot, failures,
                                    completed_ids=tuple(self.completed))
-        self.reporter.failure(message, detail, stage=STAGE_CONVERT)
+        self.publisher.failure(message, detail, stage=STAGE_CONVERT)
         final = self.controller.fail(message, detail)
-        self.reporter.completed(final)
+        self.publisher.completed(final)
         self.log_q.put((RESULT_MESSAGE, settled))
         self.log_q.put(("done", message))
 
