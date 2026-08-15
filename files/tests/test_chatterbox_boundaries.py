@@ -1,8 +1,16 @@
-"""v0.6.1 Plan 4 Phase 8 — the registry preservation gate and the phase boundary.
+"""v0.6.1 Plan 4 — the registry preservation gate and the phase boundary.
 
-Phase 8 widens the ``BACKEND`` literal and adds an engine module. It adds **no**
-voice and **no** GUI dispatch: registering voices is Phase 10's job, and producing
-listening samples is Phase 9's. These tests fail if either arrives early.
+Phase 8 widened the ``BACKEND`` literal and added an engine module. Phase 9 added
+the listening-evaluation mode to ``generate_voice_samples.py``. Neither adds a
+voice or a GUI dispatch: registering voices is Phase 10's job, and Phase 10's
+entry gate is the maintainer's listening decision, which has not been made.
+
+**The boundary these tests draw now sits after Phase 9.** Phase 9 was authorized
+by the maintainer on 2026-08-15, so ``generate_voice_samples.py`` is no longer a
+file the word "chatterbox" may not appear in — its Phase 9 contract is asserted
+in detail by ``test_chatterbox_evaluation.py`` instead, and the guard slot it
+vacated here went to ``epub2tts_edge/runner.py``, which Phase 10 would be the
+first phase with any reason to touch.
 
 The twelve existing ``VoiceEntry`` rows are asserted by value — every field of
 every row — because a count check would pass a silently edited preset.
@@ -164,18 +172,18 @@ def test_the_registry_declares_no_voice_entry_for_chatterbox_in_source():
 
 
 # --------------------------------------------------------------------------- #
-# The phase boundary — Phase 9 and Phase 10 have not started
+# The phase boundary — Phase 10 has not started
 # --------------------------------------------------------------------------- #
-UNTOUCHED_BY_PHASE_EIGHT = [
+UNTOUCHED_BY_PHASE_NINE = [
     "epub2tts_gui.py",
-    "generate_voice_samples.py",
+    "epub2tts_edge/runner.py",
     "batch_convert.py",
     "kokoro_synth.py",
     "pdf_extractor.py",
 ]
 
 
-@pytest.mark.parametrize("filename", UNTOUCHED_BY_PHASE_EIGHT)
+@pytest.mark.parametrize("filename", UNTOUCHED_BY_PHASE_NINE)
 def test_no_chatterbox_dispatch_was_added_to_an_existing_tts_module(filename):
     tree = _tree(TTS_DIR / filename)
     imported: set[str] = set()
@@ -189,7 +197,7 @@ def test_no_chatterbox_dispatch_was_added_to_an_existing_tts_module(filename):
         f"{filename} imports the Chatterbox engine — that is Phase 10"
 
 
-@pytest.mark.parametrize("filename", UNTOUCHED_BY_PHASE_EIGHT)
+@pytest.mark.parametrize("filename", UNTOUCHED_BY_PHASE_NINE)
 def test_no_existing_tts_module_names_a_chatterbox_symbol(filename):
     tree = _tree(TTS_DIR / filename)
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
@@ -197,19 +205,38 @@ def test_no_existing_tts_module_names_a_chatterbox_symbol(filename):
     names |= {n.value for n in ast.walk(tree)
               if isinstance(n, ast.Constant) and isinstance(n.value, str)}
     assert not any("chatterbox" in str(n).lower() for n in names), \
-        f"{filename} references Chatterbox — that is Phase 9/10"
+        f"{filename} references Chatterbox — that is Phase 10"
 
 
-def test_the_phase_nine_evaluation_folder_was_not_created():
-    assert not (REPO_ROOT / "files" / "test-for-manual-listen-elmatthe"
-                / "chatterbox-eval").exists()
+def test_the_phase_nine_evaluation_folder_stays_out_of_the_repository():
+    """Phase 9 creates it locally; git must never see it or anything inside it."""
+    import subprocess
+
+    eval_dir = (REPO_ROOT / "files" / "test-for-manual-listen-elmatthe"
+                / "chatterbox-eval")
+    checked = subprocess.run(
+        ["git", "check-ignore", "-q", str(eval_dir / "chatterbox-female-1.wav")],
+        cwd=REPO_ROOT, capture_output=True, text=True,
+    )
+    assert checked.returncode == 0, "the evaluation folder is not gitignored"
 
 
-def test_the_sample_generator_still_covers_only_the_registered_voices():
+def test_the_sample_generator_reaches_chatterbox_only_behind_its_own_flag():
+    """Phase 9's mode is opt-in: an ordinary sample refresh must never load the model."""
+    src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
     tree = _tree(TTS_DIR / "generate_voice_samples.py")
-    strings = {n.value for n in ast.walk(tree)
-               if isinstance(n, ast.Constant) and isinstance(n.value, str)}
-    assert not any("chatterbox" in s.lower() for s in strings)
+    main = next(n for n in tree.body
+                if isinstance(n, ast.FunctionDef) and n.name == "main")
+
+    gated = [branch for branch in ast.walk(main)
+             if isinstance(branch, ast.If)
+             and "chatterbox_eval" in ast.get_source_segment(src, branch.test)]
+    assert len(gated) == 1, "the Chatterbox evaluation is not gated behind its flag"
+
+    inside = ast.get_source_segment(src, gated[0])
+    outside = ast.get_source_segment(src, main).replace(inside, "")
+    assert "run_chatterbox_evaluation" in inside
+    assert "chatterbox" not in outside.lower()
 
 
 # --------------------------------------------------------------------------- #

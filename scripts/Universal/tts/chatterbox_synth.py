@@ -382,7 +382,13 @@ def build_reference_clip(source_path, dest_path) -> Path:
 
 
 def _record_manifest(voice: ReferenceVoice, source: Path, derivative: Path) -> None:
-    """Trace label → source → full source SHA-256 → derivative → parameters."""
+    """Trace label → source → full source SHA-256 → derivative → parameters.
+
+    The conditional cache path is recorded alongside them even before that file
+    exists: it is derived deterministically from the same identity digest, so
+    naming it here keeps one manifest that accounts for every artefact a voice
+    produces, rather than a second one listing the other half.
+    """
     manifest_path = reference_clips_dir() / "manifest.json"
     _assert_writable_destination(manifest_path)
     try:
@@ -394,6 +400,8 @@ def _record_manifest(voice: ReferenceVoice, source: Path, derivative: Path) -> N
         "source_path": str(source),
         "source_sha256": voice.source_sha256,
         "derivative_path": str(derivative),
+        "conditionals_path": str(
+            conditionals_path(voice.voice_id, voice.source_sha256)),
         "parameters": derivative_spec(),
         "package": PACKAGE_REQUIREMENT,
         "model": MODEL_REPO_ID,
@@ -409,11 +417,12 @@ def prepare_reference_clip(voice_id: str,
     voice = get_reference_voice(voice_id)
     source = resolve_reference(voice_id)
     dest = derivative_path(voice_id, voice.source_sha256)
-    if dest.is_file():
-        return dest
-    log(f"Chatterbox: preparing a {REFERENCE_WINDOW_SECONDS}s reference clip for "
-        f"{voice.label}…")
-    build_reference_clip(source, dest)
+    if not dest.is_file():
+        log(f"Chatterbox: preparing a {REFERENCE_WINDOW_SECONDS}s reference clip "
+            f"for {voice.label}…")
+        build_reference_clip(source, dest)
+    # Recorded on every call, not only on a rebuild: a derivative cached by an
+    # earlier run would otherwise leave the manifest permanently incomplete.
     _record_manifest(voice, source, dest)
     return dest
 
@@ -573,6 +582,52 @@ def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str) -> None:
         AudioSegment.from_wav(tmp_wav_path).export(output_path, format="mp3")
     finally:
         Path(tmp_wav_path).unlink(missing_ok=True)
+
+
+def generation_defaults() -> dict:
+    """The pinned wheel's own ``generate()`` defaults, read off its signature.
+
+    Reported, never overridden: this module passes no generation keyword at all,
+    so these *are* the effective parameters. Introspecting beats transcribing —
+    a value copied into a docstring would drift silently on the next pin.
+    """
+    import inspect
+
+    from chatterbox.tts_turbo import ChatterboxTurboTTS
+
+    return {
+        name: parameter.default
+        for name, parameter in inspect.signature(
+            ChatterboxTurboTTS.generate).parameters.items()
+        if parameter.default is not inspect.Parameter.empty
+    }
+
+
+def synthesize_text_to_wav(
+    text: str,
+    output_path: str,
+    voice_id: str,
+    log: Callable[[str], None] = print,
+    device: str | None = None,
+) -> int:
+    """Synthesize ``text`` in the cloned voice ``voice_id`` straight to a WAV.
+
+    The same path as ``synthesize_text_to_mp3`` up to the point of writing, minus
+    the lossy encode: the returned waveform is written at the model's own sample
+    rate. Returns that sample rate so a caller can report what was actually used
+    rather than assuming it. Added for the Phase 9 listening evaluation, which
+    must not judge the engine through an MP3 encoder.
+    """
+    _assert_writable_destination(output_path)
+    model = _get_model(device)
+    load_conditionals(model, voice_id, log=log, device=device)
+    arr = _audio_array(model.generate(text))
+    if arr.size == 0:
+        raise ChatterboxUnavailable(
+            f"Chatterbox produced no audio for voice '{voice_id}'.")
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    sf.write(output_path, arr, model.sr)
+    return model.sr
 
 
 def synthesize_text_to_mp3(

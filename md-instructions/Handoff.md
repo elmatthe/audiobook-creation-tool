@@ -2,12 +2,17 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–7 approved (Phase 4 including
-its ETA-serialization remediation; Phase 6 approved 2026-08-15 in the prompt that authorized
-Phase 7; **Phase 7 including its reporting-order remediation approved by the maintainer on
-2026-08-15**, final SHA `c368542af9c158652da9a94db7f58619fa4fb6af`). Phase 8 is implemented —
-8a discovery, the 8b decision stop, the maintainer's two rulings, and the 8c engine foundation —
-and AWAITS APPROVAL. **Phase 9 is NOT AUTHORIZED and has NOT started.**
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–9 approved or implemented.**
+Phases 0–7 approved (Phase 4 including its ETA-serialization remediation; Phase 6 approved
+2026-08-15 in the prompt that authorized Phase 7; **Phase 7 including its reporting-order
+remediation approved by the maintainer on 2026-08-15**, final SHA
+`c368542af9c158652da9a94db7f58619fa4fb6af`). **Phase 8 was approved by the maintainer on
+2026-08-15**, in the prompt that authorized Phase 9 — approved SHA
+`ce6e62bcd4e0060786259c68f9d1c5c5b9c1c97b`. (Any earlier sentence in this file saying Phase 8
+"awaits approval" is stale and superseded by this one.) **Phase 9 is implemented and has reached
+its hard stop:** the four evaluation WAVs exist locally and the maintainer **has not listened
+yet**. **Phase 10 is NOT AUTHORIZED and has NOT started** — its entry gate is an explicit
+maintainer response to the Phase 9 four-row listening table below.
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -1247,6 +1252,166 @@ loader has a real MPS branch with CPU fallback); it is **not** a macOS proof.
 four files, zero tracked. One derivative and one cached conditional were produced for `Male-1` by
 the smoke test; both live under ignored `files/runtime-data/`. **Phase 9 has not started** — no
 evaluation folder, no four derivatives, no four listening outputs.
+
+**Approval.** The maintainer **approved Phase 8 on 2026-08-15**, at SHA
+`ce6e62bcd4e0060786259c68f9d1c5c5b9c1c97b`, in the same prompt that authorized Phase 9.
+
+---
+
+### Phase 9 — Chatterbox: listening-evaluation samples — HARD STOP (2026-08-15, HOME-PC)
+
+**Start SHA** `ce6e62bcd4e0060786259c68f9d1c5c5b9c1c97b` (approved Phase 8), branch
+`feature/0.6.1-tts-cover-workflows`, 11 ahead / 0 behind `master` at entry.
+
+**What this phase is.** Four maintainer-supplied recordings in, four evaluation WAVs out, a table,
+and a stop. It decides nothing. No voice was registered, no GUI or dispatch was touched, and
+Phase 10 was not begun.
+
+#### The four references — verified, and unchanged afterwards
+
+Each source's SHA-256 was verified **before** use and **re-verified after** all synthesis. All four
+are byte-identical to the values recorded at the top of this document, still exactly four files,
+still zero tracked.
+
+| Voice | Source | Source SHA-256 (verified twice) | Derivative | Conditional |
+|---|---|---|---|---|
+| `chatterbox-female-1` | `Female-1.mp3` | `a047d77f…4bb8bde2` | `female-1__a047d77fe191c1a9__3d3a090f288c.wav` | computed this run |
+| `chatterbox-female-2` | `Female-2.mp3` | `4bad0d38…f08d3140` | `female-2__4bad0d3845199eae__2c8230d3b25d.wav` | computed this run |
+| `chatterbox-male-1` | `Male-1.mp3` | `6258dde2…c80165ae` | `male-1__6258dde294a91b0c__5ae92af1f724.wav` | **reused** from Phase 8 |
+| `chatterbox-male-2` | `Male-2.mp3` | `7b8fd74d…b048d6ab2` | `male-2__7b8fd74dfb262740__e0390f888f05.wav` | computed this run |
+
+**Derivative spec — Phase 8's, unchanged and not re-invented here:** leading 15-second window,
+audio stream selected explicitly (`-map 0:a:0 -vn`, so the embedded cover art can never be picked
+up), mono, 24,000 Hz, `pcm_s16le`, **no caller-side loudness normalization** (the model normalizes
+to about -27 LUFS itself). Each derivative is 720,044 bytes — identical size, as a fixed-length
+PCM window must be. All four live under ignored `files/runtime-data/chatterbox/reference-clips/`;
+the four conditionals (~170 KB each) under `…/chatterbox/conditionals/`. `Male-1`'s derivative and
+conditional kept their Phase 8 timestamps: **reused, not rebuilt**, which is the cache working.
+
+#### The four outputs
+
+`files/test-for-manual-listen-elmatthe/chatterbox-eval/` — inside the parent that `.gitignore:35`
+already covers, so the audio cannot reach the repository. `tests/samples/voice_eval/` was **not**
+created; it sits outside the approved layout and outside that ignore rule.
+
+| Voice | Reference source | Output path | Duration | Parameters | Result |
+|---|---|---|---|---|---|
+| chatterbox-female-1 | Female-1.mp3 | `files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-female-1.wav` | 7.56 s | Turbo defaults (below) | **OK** |
+| chatterbox-female-2 | Female-2.mp3 | `files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-female-2.wav` | 7.92 s | Turbo defaults (below) | **OK** |
+| chatterbox-male-1 | Male-1.mp3 | `files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-male-1.wav` | 8.52 s | Turbo defaults (below) | **OK** |
+| chatterbox-male-2 | Male-2.mp3 | `files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-male-2.wav` | 8.64 s | Turbo defaults (below) | **OK** |
+
+All four are mono, 24,000 Hz, 16-bit PCM, readable and non-empty (181,440 / 190,080 / 204,480 /
+207,360 frames). Every output was rendered from the **identical** approved sentence: *"Welcome to
+the audiobook creation tool. This is a sample test evaluating Chatterbox for clarity, pacing, and
+emotional depth."* — no prefix, no suffix, no voice name.
+
+**Parameters — one set for all four, read off the pinned wheel's own signature rather than
+transcribed.** The module passes **no** generation keyword, so these *are* the effective values:
+`repetition_penalty=1.2, min_p=0.0, top_p=0.95, audio_prompt_path=None, exaggeration=0.0,
+cfg_weight=0.0, temperature=0.8, top_k=1000, norm_loudness=True`. Turbo logs a warning and
+**ignores** `cfg_weight` / `exaggeration` / `min_p` — they are reported because the signature
+carries them, not because they do anything here. No voice was tuned independently and no sweep,
+A/B variant or "best of" rerun was produced.
+
+#### Measured performance — device `cpu`
+
+| Voice | Wall time | Audio | RTF | Conditional |
+|---|---|---|---|---|
+| chatterbox-female-1 | 15.99 s | 7.56 s | 2.115 | computed |
+| chatterbox-female-2 | 10.63 s | 7.92 s | 1.343 | computed |
+| chatterbox-male-1 | 11.04 s | 8.52 s | 1.296 | reused |
+| chatterbox-male-2 | 11.56 s | 8.64 s | 1.338 | computed |
+
+**Successes 4, failures 0.** Derived aggregate: 49.22 s of compute for 32.64 s of audio, mean
+RTF **1.508** — clearly labelled as derived, and **not** comparable to Phase 8's 1.211 without the
+caveat below.
+
+**What the wall time includes, stated rather than glossed.** It is measured end-to-end per voice
+and therefore includes conditional computation, and for the first row the one-time model load. That
+is why `female-1` reads 2.115 while the other three cluster near 1.30–1.34; the three comparable
+rows sit close to Phase 8's measured 1.211 aggregate. These are **measurements on this machine**,
+not a generalization, and nothing here extrapolates them to audiobook length.
+
+#### Implementation
+
+Reused `tts/generate_voice_samples.py` as the drop requires — no second sample script exists.
+It gained a `--chatterbox-eval` mode, deliberately **opt-in**: an ordinary sample refresh must never
+load a ~3.9 GiB model by accident, and a test asserts the mode is unreachable outside that flag.
+The Edge and Kokoro branches, `SAMPLE_TEXT`, `_out_dir()`, `_select()` and the OK/FAIL reporting
+style are unchanged.
+
+The run is **two stages on purpose**. Stage one proves all four sources — hash plus derivative —
+and a single failure there is a hard stop that generates *nothing*, because a mismatched recording
+invalidates the comparison the maintainer is about to make. Stage two synthesizes; a failure there
+is a FAIL row and the remaining voices continue. Either way the table always has four rows and no
+failure is dropped or silently retried.
+
+`chatterbox_synth.py` took three narrow additions, no broadening: `synthesize_text_to_wav()` (the
+same path as the MP3 helper minus the lossy encode — the evaluation must not judge the engine
+through an MP3 encoder; returns the model's own sample rate so the caller reports what was used),
+`generation_defaults()` (introspects the wheel's `generate` signature, so a pin change cannot leave
+a stale figure in a docstring), and the manifest now records the conditional cache path and is
+refreshed on **every** `prepare_reference_clip` call rather than only on a rebuild — otherwise a
+derivative cached by an earlier run left the manifest permanently incomplete. **One** manifest
+still exists, at `files/runtime-data/chatterbox/reference-clips/manifest.json`, now with all four
+entries; no second competing manifest was invented.
+
+#### Gates
+
+Full suite **3341 passed, 13 skipped, 1 warning** (3354 collected) — exactly **+71** on the
+approved Phase 8 baseline of 3283, which is the new `test_chatterbox_evaluation.py` in full.
+`verify.py` **RESULT: PASS**, `compileall` exit 0, `git diff --check` clean (only the known
+CRLF-normalization notices). The 13 skips are unchanged and environmental (Windows symlink
+privilege, case-insensitive filesystem, unset `JACK_RYAN_M4B_FOLDER`).
+
+**Zero tests removed.** Three Phase 8 boundary guards were **retargeted, not deleted**, because
+Phase 9 is exactly the boundary they were written to detect and it is now authorized — the file's
+collected count is unchanged:
+
+| Was | Now | Why |
+|---|---|---|
+| `UNTOUCHED_BY_PHASE_EIGHT` listing `generate_voice_samples.py` | `UNTOUCHED_BY_PHASE_NINE` listing `epub2tts_edge/runner.py` | The generator is Phase 9's authorized target; the vacated slot went to the Edge runner, which Phase 10 would be the first phase to touch. Still five files, still two parametrized guards |
+| `test_the_phase_nine_evaluation_folder_was_not_created` | `test_the_phase_nine_evaluation_folder_stays_out_of_the_repository` | The folder now exists locally; what still matters is that `git check-ignore` refuses it |
+| `test_the_sample_generator_still_covers_only_the_registered_voices` | `test_the_sample_generator_reaches_chatterbox_only_behind_its_own_flag` | An AST check that `run_chatterbox_evaluation` appears **only** inside the `--chatterbox-eval` branch of `main` |
+
+No test was skipped, xfailed or weakened. Phase 9's own contract is asserted in far more detail by
+the 71 new tests than the guards they replaced ever did.
+
+#### Environment — nothing was mutated
+
+The real synthesis ran in the **retained Phase 8 probe environment**
+(`files/runtime-data/chatterbox/phase8-probe/baseline-venv`, Python 3.12.10), first verified to
+match the **committed** `scripts/requirements.txt` exactly: all 24 applicable pins present at the
+exact version, zero mismatches. The working `.venv` was **not** modified — it still has no
+Chatterbox, by design, and it is where the test suite and `verify.py` ran. Model weights were
+reused from `files/runtime-data/models/huggingface/`; **0 bytes downloaded**.
+`Setup_and_Run-audiobook-creation-tool.bat` was **not** run, CUDA was **not** configured or used
+(`torch 2.6.0+cpu` selects `cpu` truthfully through the Phase 8 selector), and no Mac was involved.
+
+#### Preservation
+
+No `VoiceEntry` added — still exactly twelve rows, asserted field-by-field, same order,
+`DEFAULT_VOICE_LABEL` unchanged, `display_labels()` unchanged. No GUI, dropdown, timing control,
+worker dispatch, direct/folder conversion, Retry Failed, output planning or unified-queue change.
+Phase 7's `RunPublisher` untouched. Edge, Kokoro and Cover untouched. EPUB remains retired. The
+four Chatterbox IDs remain **engine-internal**.
+
+#### The stop
+
+The four WAVs remain on disk, ignored and local-only, for the maintainer to listen to:
+
+```
+files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-female-1.wav
+files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-female-2.wav
+files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-male-1.wav
+files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-male-2.wav
+```
+
+**The maintainer has NOT listened yet.** No voice has been approved, rejected or ranked — that
+judgement is not the agent's to make. **Phase 10 is NOT AUTHORIZED and has NOT started.** Its entry
+gate is an explicit maintainer response to the table above, which must be recorded verbatim here
+when it arrives. The active Plan 4 drop is **not** retired.
 
 ---
 
@@ -7375,6 +7540,50 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 9 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
+
+**Branch:** unchanged. **Phase 9 start SHA:** `ce6e62bcd4e0060786259c68f9d1c5c5b9c1c97b` (the
+maintainer-approved Phase 8 commit, equal to its upstream at start; 11 ahead / 0 behind `master`).
+No fetch, merge, reset, stash, rebase, force-push or `git clean`; `master` was not touched and
+remains `809a43e754920fce2f11f08e3c401dcc4c7a5223`.
+
+**Files added (1):**
+- `files/tests/test_chatterbox_evaluation.py` — 71 tests. The evaluation mode and its opt-in flag,
+  the closed four-voice set, the approved sentence byte-for-byte, the four exact output names, the
+  single output root, the rejection of `tests/samples/voice_eval/`, exactly four generations, the
+  hash-mismatch hard stop, delegation of reference preparation to the engine, conditional reuse,
+  WAV writing at the model's own rate, four-row reporting with failures included, per-voice
+  performance, the protected-folder boundary, and the registry / GUI / Phase 10 boundaries.
+
+**Files changed (3):**
+- `scripts/Universal/tts/generate_voice_samples.py` — the `--chatterbox-eval` mode: the approved
+  text and voice IDs, `_chatterbox_eval_dir()`, `ChatterboxEvalResult`,
+  `run_chatterbox_evaluation()` (two stages: prove all four sources, then generate),
+  `format_chatterbox_table()`, `_report_chatterbox_evaluation()`, `_build_parser()`. Edge and
+  Kokoro behaviour is byte-for-byte unchanged.
+- `scripts/Universal/tts/chatterbox_synth.py` — three narrow additions: `synthesize_text_to_wav()`,
+  `generation_defaults()`, and the manifest now recording the conditional cache path and being
+  refreshed on every `prepare_reference_clip` call rather than only on a rebuild.
+- `files/tests/test_chatterbox_boundaries.py` — the boundary moved from "Phase 9 has not started"
+  to "Phase 10 has not started": one parametrize entry swapped and two guards retargeted. **No test
+  removed; the file's collected count is unchanged.**
+- `md-instructions/Handoff.md` — this entry, the Current Focus rewrite recording the maintainer's
+  Phase 8 approval, and the Phase 9 work-log section.
+
+**Not staged, by design (all provably ignored):** the four evaluation WAVs under
+`files/test-for-manual-listen-elmatthe/chatterbox-eval/`, the four derivatives and the manifest
+under `files/runtime-data/chatterbox/reference-clips/`, the four conditionals under
+`…/chatterbox/conditionals/`, the model cache, the probe venv, and the four protected source MP3s
+(zero tracked, re-hashed byte-identical after all synthesis). `git add -f` was not used.
+
+**Gates:** 3341 passed, 13 skipped, 1 warning (3354 collected, +71 on the Phase 8 baseline, zero
+removed); `verify.py` **RESULT: PASS**; `compileall` exit 0; `git diff --check` and
+`git diff --cached --check` clean.
+
+**State:** Phase 9 is at its **hard stop**. The maintainer has not listened. **Phase 10 is not
+authorized and has not started.** No merge, tag, release, packaging or VERSION bump; the branch is
+retained and the drop is not retired.
 
 ### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 8 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
 
