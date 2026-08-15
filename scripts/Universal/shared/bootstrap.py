@@ -300,6 +300,131 @@ def warmup_kokoro_pipeline(venv_py: Path, log: Callable[[str], None]) -> None:
 
 
 # ===========================================================================
+#  Chatterbox self-heal (probe + in-venv repair install)
+# ===========================================================================
+# The pinned Chatterbox stack — the *wheels*, mandatory for the engine to import,
+# distinct from the ~3.86 GiB model weights (gated by the first-run checkbox).
+# These mirror requirements.txt exactly. torch/transformers/numpy are pulled in
+# transitively at the versions chatterbox-tts pins.
+#
+# setuptools is in this list on purpose: `resemble-perth`, which chatterbox loads
+# to watermark its output, imports `pkg_resources`, and setuptools 82 removed it.
+# Repairing the engine without stepping setuptools back would leave a package that
+# imports but cannot build a model. See the note in requirements.txt.
+CHATTERBOX_PKGS = ["chatterbox-tts==0.1.7", "setuptools==80.9.0"]
+
+# The exact symbol the published 0.1.7 wheel ships. The package root exports only
+# ChatterboxTTS / ChatterboxVC / ChatterboxMultilingualTTS, so the import shown in
+# the upstream docs (`from chatterbox import ChatterboxTurboTTS`) does not work.
+_CHATTERBOX_PROBE = (
+    "import importlib.util as u, sys\n"
+    "mods = ['chatterbox', 'torch', 'torchaudio', 'librosa']\n"
+    "missing = [m for m in mods if u.find_spec(m) is None]\n"
+    "if missing:\n"
+    "    print('MISSING:' + ','.join(missing))\n"
+    "    sys.exit(1)\n"
+    "try:\n"
+    "    import chatterbox.tts_turbo as turbo\n"
+    "except Exception as exc:\n"
+    "    print('BROKEN:chatterbox.tts_turbo %r' % (exc,))\n"
+    "    sys.exit(1)\n"
+    "if not hasattr(turbo, 'ChatterboxTurboTTS'):\n"
+    "    print('BROKEN:ChatterboxTurboTTS is not exported by this release')\n"
+    "    sys.exit(1)\n"
+    "print('OK')\n"
+)
+
+
+def chatterbox_is_healthy(venv_py: Path) -> tuple[bool, str]:
+    """Probe the venv for the Chatterbox engine. Returns ``(ok, reason)``.
+
+    Unlike ``kokoro_is_healthy`` this genuinely imports ``chatterbox.tts_turbo``
+    and checks the class, because a resolvable-but-unusable install is the exact
+    failure mode this engine has (see the setuptools note above). That costs a few
+    seconds and pulls in torch, so it is deliberately **not** on the every-launch
+    fast path — it runs from setup and repair only. No weights are downloaded and
+    no model is constructed.
+    """
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-c", _CHATTERBOX_PROBE],
+            capture_output=True, text=True, timeout=180, **_hidden(),
+        )
+        out = (r.stdout or "").strip()
+        if r.returncode == 0 and out == "OK":
+            return True, "ok"
+        return False, out or (r.stderr or "").strip() or "unknown"
+    except Exception as exc:
+        return False, f"probe failed: {exc!r}"
+
+
+def ensure_chatterbox_installed(venv_py: Path, log: Callable[[str], None]) -> bool:
+    """Install the pinned Chatterbox stack into the existing venv.
+
+    Same self-heal shape as ``ensure_kokoro_installed``: into the venv that already
+    exists, never --user, never system site-packages.
+    """
+    log(f"Installing Chatterbox stack into venv: {' '.join(CHATTERBOX_PKGS)}")
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-m", "pip", "install", "--no-input", *CHATTERBOX_PKGS],
+            capture_output=True, text=True, timeout=1800, **_hidden(),
+        )
+        if r.stdout:
+            log(r.stdout.strip())
+        if r.returncode != 0:
+            if r.stderr:
+                log(r.stderr.strip())
+            return False
+        ok, reason = chatterbox_is_healthy(venv_py)
+        log(f"Post-install health-check: {reason}")
+        return ok
+    except Exception as exc:
+        log(f"ensure_chatterbox_installed failed: {exc!r}")
+        return False
+
+
+def warmup_chatterbox(venv_py: Path, log: Callable[[str], None]) -> None:
+    """One-shot CPU model build to pre-warm Chatterbox at install time.
+
+    Same rationale as ``warmup_kokoro_pipeline``: force Windows Smart App Control /
+    WDAC to evaluate the unsigned native DLLs inside the install dialog rather than
+    on the user's first synthesis. Only called after the weights have been
+    pre-downloaded, so this loads from the local cache. Best-effort: never raises.
+    """
+    log("Initializing the Chatterbox voice engine (first-run only)…")
+    hf_cache = RESOURCES_DIR / "models" / "huggingface"
+    env = os.environ.copy()
+    env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
+    env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
+    script = (
+        "import sys\n"
+        "try:\n"
+        "    from chatterbox.tts_turbo import ChatterboxTurboTTS\n"
+        "    ChatterboxTurboTTS.from_pretrained(\"cpu\")\n"
+        "    print('Chatterbox engine warmup complete.')\n"
+        "except OSError as e:\n"
+        "    print('Chatterbox warmup blocked (will load on first synthesis): %r' % (e,))\n"
+        "except Exception as e:\n"
+        "    print('Chatterbox warmup problem (non-fatal): %r' % (e,))\n"
+    )
+    try:
+        proc = subprocess.Popen(
+            [str(venv_py), "-c", script],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            env=env, **_hidden(),
+        )
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            if line:
+                log("  " + line)
+        proc.wait()
+    except OSError as exc:
+        log(f"  Chatterbox warmup could not run: {exc!r}")
+
+
+# ===========================================================================
 #  Subprocess helper (hide console windows on Windows)
 # ===========================================================================
 def _hidden() -> dict:
@@ -619,10 +744,17 @@ _PIP_NAME = {
     "fitz": "pymupdf",
     "PIL": "pillow",
     "edge_tts": "edge-tts",
+    "chatterbox": "chatterbox-tts",
 }
 # Required (non-optional) imports to verify after install. Kokoro is intentionally
 # excluded — it is optional and gated to Python <3.13.
-REQUIRED_IMPORTS = ["edge_tts", "pydub", "fitz", "mutagen", "PIL", "nltk"]
+REQUIRED_IMPORTS = ["edge_tts", "pydub", "fitz", "mutagen", "PIL", "nltk",
+                    "chatterbox"]
+
+# Imports that requirements.txt gates to Python <3.13. On a newer interpreter the
+# wheel is legitimately absent, so probing it would report a false failure and
+# trigger a reinstall that cannot succeed. Skip them there instead.
+_GATED_BELOW_313 = {"chatterbox"}
 
 
 def validate_installed_packages(log: SetupLog) -> bool:
@@ -634,8 +766,12 @@ def validate_installed_packages(log: SetupLog) -> bool:
     """
     py = venv_python()
     log.line("Verifying required packages import…")
+    venv_ver = _interp_version_argv([str(py)])
     failed: list[str] = []
     for mod in REQUIRED_IMPORTS:
+        if mod in _GATED_BELOW_313 and not _is_kokoro_compatible(venv_ver):
+            log.line(f"  '{mod}' is gated to Python <3.13 — skipping on this venv.")
+            continue
         if _probe_import(py, mod):
             continue
         dist = _PIP_NAME.get(mod, mod)
@@ -789,6 +925,51 @@ def predownload_kokoro(log: SetupLog) -> None:
                  "first use instead.")
 
 
+CHATTERBOX_MODEL_REPO = "ResembleAI/chatterbox-turbo"
+
+
+def predownload_chatterbox(log: SetupLog) -> None:
+    """Pre-download the Chatterbox Turbo weights (~3.9 GB). Best-effort; never fatal.
+
+    Fetches exactly the file set ``ChatterboxTurboTTS.from_pretrained`` asks for,
+    into the *same* in-tree HuggingFace cache Kokoro uses — there is no second
+    cache and nothing is bundled with the app.
+    """
+    py = venv_python()
+    check = _run([str(py), "-c",
+                  "import importlib.util as u, sys; "
+                  "sys.exit(0 if u.find_spec('chatterbox') else 1)"])
+    if check.returncode != 0:
+        log.line("Chatterbox package not installed (Python may be 3.13+) — "
+                 "skipping model pre-download.")
+        return
+    log.line("Pre-downloading Chatterbox Turbo model weights "
+             "(~3.9 GB, one-time)…")
+    hf_cache = RESOURCES_DIR / "models" / "huggingface"
+    env = os.environ.copy()
+    env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
+    env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
+    script = (
+        "from huggingface_hub import snapshot_download\n"
+        f"snapshot_download(repo_id={CHATTERBOX_MODEL_REPO!r},\n"
+        "    allow_patterns=['*.safetensors', '*.json', '*.txt', '*.pt', '*.model'])\n"
+        "print('Chatterbox model download complete.')\n"
+    )
+    proc = subprocess.Popen([str(py), "-c", script],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, env=env, **_hidden())
+    assert proc.stdout is not None
+    for raw in proc.stdout:
+        line = raw.rstrip()
+        if line:
+            log.line("  " + line)
+    if proc.wait() == 0:
+        log.line("  Chatterbox voice engine ready.")
+    else:
+        log.line("  Chatterbox pre-download had a problem; the model will "
+                 "download on first use instead.")
+
+
 # ===========================================================================
 #  Launch the GUI
 # ===========================================================================
@@ -897,18 +1078,27 @@ def launch_gui(log: SetupLog) -> bool:
 #  Orchestration (headless worker — drives the steps, reports progress)
 # ===========================================================================
 def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
-              log: SetupLog, headless: bool = False) -> tuple[bool, str]:
+              log: SetupLog, headless: bool = False,
+              download_chatterbox: bool = False) -> tuple[bool, str]:
     """Run the full setup. ``progress(step_index, message)`` updates the UI.
 
     With ``headless=True`` the install never requires a working Tk (used when no
     GUI-capable Python can be set up): the venv, dependencies, ffmpeg and the
     package-validation stage all run, but a Tk-less base is accepted instead of
     aborting. Returns ``(success, final_message)``.
+
+    ``download_chatterbox`` defaults to False: those weights are ~3.9 GB, so the
+    voice-cloning model is opt-in rather than part of a normal first run.
     """
     steps = ["Locating Python", "Creating environment", "Installing packages",
              "Installing ffmpeg"]
+    kokoro_step = chatterbox_step = None
     if download_kokoro:
+        kokoro_step = len(steps)
         steps.append("Downloading Kokoro voices")
+    if download_chatterbox:
+        chatterbox_step = len(steps)
+        steps.append("Downloading Chatterbox voice model")
     total = len(steps)
 
     progress(0, "Locating a suitable Python…")
@@ -958,12 +1148,19 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
                        "or see the log for the manual steps.")
 
     if download_kokoro:
-        progress(4, "Downloading Kokoro AI voices (~300 MB)…")
+        progress(kokoro_step, "Downloading Kokoro AI voices (~300 MB)…")
         predownload_kokoro(log)
         # Pre-warm the pipeline so Smart App Control / WDAC evaluates Kokoro's
         # unsigned native DLLs during this install dialog, not on first synthesis.
         if kokoro_is_healthy(venv_python())[0]:
             warmup_kokoro_pipeline(venv_python(), log.line)
+
+    if download_chatterbox:
+        progress(chatterbox_step, "Downloading the Chatterbox voice model (~3.9 GB)…")
+        predownload_chatterbox(log)
+        # Same first-load pre-warm rationale as Kokoro's, above.
+        if chatterbox_is_healthy(venv_python())[0]:
+            warmup_chatterbox(venv_python(), log.line)
 
     progress(total, "Setup complete.")
     return True, "Setup complete."
@@ -992,7 +1189,11 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     container = ttk.Frame(root, padding=18)
     container.pack(fill="both", expand=True)
 
+    # Chatterbox is unchecked by default: its weights are ~3.9 GB, more than ten
+    # times Kokoro's, and voice cloning is an optional extra rather than part of a
+    # normal first run. Kokoro's default is unchanged.
     state = {"download_kokoro": tk.BooleanVar(value=not skip_kokoro_default),
+             "download_chatterbox": tk.BooleanVar(value=False),
              "started": False, "done": False, "ok": False}
 
     # ---- Intro view -------------------------------------------------------
@@ -1016,7 +1217,14 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         text="Pre-download Kokoro AI voice model now (~300 MB). If unchecked, the "
              "model auto-downloads on first synthesis.",
         variable=state["download_kokoro"],
-    ).pack(anchor="w", pady=(16, 8))
+    ).pack(anchor="w", pady=(16, 4))
+    ttk.Checkbutton(
+        intro,
+        text="Also download the Chatterbox voice-cloning model now (~3.9 GB). "
+             "Optional — leave this unchecked unless you plan to use the cloned "
+             "voices; the model downloads on first use instead.",
+        variable=state["download_chatterbox"],
+    ).pack(anchor="w", pady=(0, 8))
 
     btn_row = ttk.Frame(intro)
     btn_row.pack(anchor="e", pady=(12, 0), fill="x")
@@ -1046,7 +1254,10 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         ui_queue.put(("step", step, message))
 
     def worker() -> None:
-        ok, final = run_setup(state["download_kokoro"].get(), on_progress, LOG)
+        ok, final = run_setup(
+            state["download_kokoro"].get(), on_progress, LOG,
+            download_chatterbox=state["download_chatterbox"].get(),
+        )
         ui_queue.put(("done", ok, final))
 
     def append_log(msg: str) -> None:
@@ -1061,9 +1272,10 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
         state["started"] = True
         intro.pack_forget()
         progress_frame.pack(fill="both", expand=True)
-        # Read the checkbox at click time (the user may have toggled it). The
+        # Read the checkboxes at click time (the user may have toggled them). The
         # bar's maximum must match the step count run_setup will report.
-        bar.configure(maximum=5 if state["download_kokoro"].get() else 4)
+        bar.configure(maximum=4 + state["download_kokoro"].get()
+                      + state["download_chatterbox"].get())
         threading.Thread(target=worker, daemon=True).start()
 
     begin_btn.configure(command=begin)

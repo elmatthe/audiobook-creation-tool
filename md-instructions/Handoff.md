@@ -2,10 +2,12 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–6 approved (Phase 4 including
-its ETA-serialization remediation; Phase 6 approved by the maintainer on 2026-08-15 in the prompt
-that authorized Phase 7); Phase 7 is implemented, its reporting-order remediation is implemented,
-and Phase 7 remains AWAITING APPROVAL as a whole; Phase 8 has NOT begun.**
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–7 approved (Phase 4 including
+its ETA-serialization remediation; Phase 6 approved 2026-08-15 in the prompt that authorized
+Phase 7; **Phase 7 including its reporting-order remediation approved by the maintainer on
+2026-08-15**, final SHA `c368542af9c158652da9a94db7f58619fa4fb6af`). Phase 8 is implemented —
+8a discovery, the 8b decision stop, the maintainer's two rulings, and the 8c engine foundation —
+and AWAITS APPROVAL. **Phase 9 is NOT AUTHORIZED and has NOT started.**
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -1106,6 +1108,145 @@ consolidation — is NOT authorized and was NOT started.**
 - Changed: `md-instructions/Handoff.md` (this entry)
 - Note:    One commit on `feature/0.6.1-tts-cover-workflows`, pushed. `master` untouched. No AI
            co-author trailers.
+
+### Phase 8 — Chatterbox: model selection, dependency proof, and the engine module (2026-08-15, HOME-PC)
+
+Ran as three gated stages: **8a discovery** in an isolated venv, an **8b hard stop** returned to
+the maintainer, and — after the maintainer resolved both gates — the **8c engine foundation**.
+
+#### 8a — what the exact wheel actually provides
+
+Every finding below comes from the published `chatterbox-tts` **0.1.7** wheel (released
+2026-03-26, MIT, `requires-python >=3.10`), not from documentation or from master. The §5.6
+Turbo/Nano discrepancy is **confirmed still true**:
+
+| Question | Answer, from the wheel |
+|---|---|
+| Import path | `chatterbox.tts_turbo.ChatterboxTurboTTS` — the package root exports only `ChatterboxTTS`, `ChatterboxVC`, `ChatterboxMultilingualTTS`, `SUPPORTED_LANGUAGES`, so the documented `from chatterbox import ChatterboxTurboTTS` **fails** |
+| Nano | **Not reachable from 0.1.7.** `from_pretrained` takes `device` only; there is no `nano=` parameter. That behaviour exists only on unversioned master |
+| Loaders | `from_pretrained(device)` → `from_local(ckpt_dir, device)` |
+| `generate` | `(text, repetition_penalty=1.2, min_p=0.0, top_p=0.95, audio_prompt_path=None, exaggeration=0.0, cfg_weight=0.0, temperature=0.8, top_k=1000, norm_loudness=True)`; Turbo logs a warning and **ignores** cfg_weight / exaggeration / min_p |
+| Output | `torch.float32`, shape `(1, N)`, sample rate `model.sr` = **24000** |
+| Reusable conditionals | **Yes** — `prepare_conditionals(wav_fpath, …)` plus `Conditionals.save()` / `.load(fpath, map_location=…)`; round-trip verified, ~170 KB per voice |
+| Model | `ResembleAI/chatterbox-turbo`, MIT, **4,044,167,698 bytes** (~3.86 GiB) |
+| Watermark | PerTh watermarking is applied inside `generate` and is **mandatory and default** |
+
+**Reference-audio contract, derived from the model's own code rather than from a docs figure.**
+`prepare_conditionals` asserts the input is **longer than 5 seconds**, then takes plain **leading
+slices**: `s3gen_ref_wav[:DEC_COND_LEN]` (10 s at 24 kHz) for the decoder and
+`ref_16k_wav[:ENC_COND_LEN]` (15 s at 16 kHz) for the speech tokenizer. It resamples to 24 kHz
+mono itself and **normalises loudness itself** to about **-27 LUFS**, so a caller must not
+pre-normalise. Raw MP3 loads directly (librosa read the 362.3 s `Male-1.mp3` in 11.57 s), but a
+short WAV derivative loads instantly — so a derivative is right on cost alone. The "10s" figure in
+an upstream example filename is a hint, not the specification.
+
+*Recorded nuance:* the **voice-encoder speaker embedding is computed over the whole loaded
+waveform**, not over a truncated window — only the decoder and tokenizer paths are sliced. A
+15-second derivative therefore also fixes the embedding to those 15 seconds. That is deterministic
+and matches the widest window the model consults, but it is a real characteristic of the choice and
+is written down here rather than assumed away.
+
+**Measured cost (HOME-PC, CPU, this machine only — these figures do not generalize).**
+
+| Metric | Measured |
+|---|---|
+| Aggregate real-time factor (compute ÷ audio) | **1.211** |
+| Throughput | **0.826 audio-seconds per compute-second** |
+| Per-chunk RTF | 1.228 / 1.214 / 1.175 / 1.189 — stable |
+| Peak working set | **~6,191 MB**; steady ~3,990 MB |
+| Model download | 4,044,167,698 bytes (~3.86 GiB), first fetch ~6 min 13 s |
+| Warm model load | 4.65 s (8.57 s in the clean-venv proof) |
+| `prepare_conditionals` | ~16.1 s per voice, one-time and cached (~170 KB) |
+| Installed-size delta | ~+1,152 MB (1363 → 2515 MB), 111 → 169 packages |
+| Device | `torch 2.6.0+cpu`; `cuda_available` **False**, `mps_built` **False** on Windows |
+
+**Generation is slower than real time.** It must not be described as real-time CPU synthesis.
+
+#### 8b — the hard stop, and the maintainer's two rulings
+
+Gates A (Kokoro damage), B (Python 3.12), C (four-reference cloning), F (CUDA/shared-torch) and I
+(licence) were all **clear**. Two triggered and the phase stopped with evidence rather than a
+workaround:
+
+- **Gate E — CPU practicality ambiguous.** RTF 1.21 with a 6.2 GB peak is neither clearly fine nor
+  clearly fatal; calling it "practical" would have meant inventing a threshold.
+  **Maintainer ruling (2026-08-15): ACCEPTED** for an **optional, non-default** engine.
+- **Gate G — an undeclared incompatibility.** `resemble-perth` imports `pkg_resources` but declares
+  **no dependencies at all**, and `chatterbox-tts` declares **no setuptools bound**. Under this
+  project's `setuptools==82.0.1`, which removed `pkg_resources`, the import fails, perth swallows it
+  and sets its watermarker class to `None`, and model construction dies with a misleading
+  `TypeError: 'NoneType' object is not callable`.
+  **Maintainer ruling (2026-08-15): AUTHORIZED** to pin exactly `setuptools==80.9.0`.
+
+**Kokoro compatibility, proven not assumed.** On the combined stack in an isolated Python 3.12.10
+venv, a real CPU synthesis through the production `tts/kokoro_synth.py` produced **byte-identical**
+output (33,837 bytes, 8.35 s audio) and the **full repository suite passed unchanged**.
+
+#### 8c — what was built
+
+**Dependencies (`scripts/requirements.txt`).** `setuptools==82.0.1` → **`80.9.0`**, with the reason
+recorded beside the pin as explicit **compatibility debt** (pkg_resources is deprecated and was
+slated for removal from 2025-11-30; move forward as soon as upstream stops importing it). Added
+`chatterbox-tts==0.1.7` plus the pins upstream leaves floating (`numpy==1.26.4`,
+`resemble-perth==1.0.1`, `s3tokenizer==0.3.0`, `spacy-pkuseg==1.0.1`, `pyloudnorm==0.2.0`,
+`omegaconf==2.3.1`) and the four headline downgrades stated explicitly rather than left implicit
+(`torch==2.6.0`, `torchaudio==2.6.0`, `transformers==5.2.0`, `safetensors==0.5.3`). All gated
+`python_version < "3.13"` alongside Kokoro. **No CUDA build, no index URL, no git/master source.**
+
+**Engine (`scripts/Universal/tts/chatterbox_synth.py`, new).** Mirrors `kokoro_synth.py`: the same
+module-load `HF_HOME` fallback into the **existing** in-tree cache (no second cache), lazy imports
+so nothing heavy loads at import, `_get_model(device)` with the same **single first-load**
+allowance for Windows Application Control, and `chatterbox_file_to_mp3(...)` carrying the identical
+worker signature. Device selection resolves `cuda → mps → cpu` behind one testable seam. Reference
+resolution verifies SHA-256 **on every use**; derivatives go to
+`files/runtime-data/chatterbox/reference-clips/` and conditionals to
+`…/chatterbox/conditionals/`, both keyed on `voice + source hash + engine release + clip spec`, so
+a stale entry misses rather than gets reused. A manifest records label → source → full source
+SHA-256 → derivative → parameters. Writes into `files/Chatterbox-Voice-Uploads/` are refused
+structurally. The four voice IDs exist **inside the engine only** and reach no dropdown.
+The PerTh watermark path is untouched.
+
+**Bootstrap (`shared/bootstrap.py`).** `CHATTERBOX_PKGS` (including the setuptools compatibility
+pin, because a repair without it leaves a package that imports but cannot build a model),
+`chatterbox_is_healthy()` — a subprocess probe that checks the exact module *and* class, since
+resolvable-but-unusable is this engine's actual failure mode, and therefore deliberately **kept off
+the every-launch fast path** — `ensure_chatterbox_installed()`, `warmup_chatterbox()` and
+`predownload_chatterbox()`. The first-run checkbox is **unchecked by default** and states the real
+~3.9 GB size; Kokoro's default is unchanged. `"chatterbox"` joined `REQUIRED_IMPORTS`, with a new
+`_GATED_BELOW_313` skip so a 3.13+ venv does not report a false failure for a package its own
+marker excludes. Missing *recordings* are deliberately **not** a setup requirement: a machine can
+have the package and no references and must still launch.
+
+**Registry (`tts/voice_registry.py`).** `BACKEND` widened to
+`Literal["edge", "kokoro", "chatterbox"]` and `_chatterbox_preset()` added. **No `VoiceEntry` row.**
+All twelve existing rows and `DEFAULT_VOICE_LABEL` are asserted field-by-field and unchanged.
+
+#### Gates
+
+Full suite **3270 passed, 13 skipped, 1 warning** (3283 collected), `verify.py` **RESULT: PASS**,
+`compileall` exit 0, `git diff --check` clean. Collection reconciled exactly against the 3099-node
+baseline: **+181** new Chatterbox tests, **+2** from the EPUB guard list gaining the new module,
+**+1** from `test_plan3_boundaries` auto-parametrizing over production modules. **Zero tests
+removed** — the two changed node ids are a `setuptools` parametrize id (82.0.1 → 80.9.0) and one
+documented rename in `test_tts_jobs.py`, each matched 1:1 by an added id. The 13 skips are all
+pre-existing and environmental (8 Windows symlink privilege, 2 case-insensitive filesystem, 3
+unset `JACK_RYAN_M4B_FOLDER`).
+
+**Clean-environment proof.** A fresh Python 3.12.10 venv built from the **committed**
+`requirements.txt` in one `pip install` with **no manual post-install correction**: `pip check`
+clean, every target version exact, the health probe passes, `ChatterboxTurboTTS` constructs on CPU,
+weights load from the existing cache (0 bytes downloaded), one real Chatterbox CPU synthesis
+succeeds, one real Kokoro CPU synthesis through the production module succeeds, and the full suite
+gives the identical 3270/13/1.
+
+**Not performed:** the working `.venv` was not modified, `Setup_and_Run-…bat` was not run, no CUDA
+was installed or benchmarked, and no Mac work was done. MPS evidence is code-reading only (the
+loader has a real MPS branch with CPU fallback); it is **not** a macOS proof.
+
+**Local-asset boundary.** All four recordings re-hashed before and after: byte-identical, exactly
+four files, zero tracked. One derivative and one cached conditional were produced for `Male-1` by
+the smoke test; both live under ignored `files/runtime-data/`. **Phase 9 has not started** — no
+evaluation folder, no four derivatives, no four listening outputs.
 
 ---
 
@@ -7234,6 +7375,60 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 8 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
+
+**Branch:** unchanged. **Phase 8 start SHA:** `c368542af9c158652da9a94db7f58619fa4fb6af` (the
+approved Phase 7 commit, equal to its upstream at start). No fetch, merge, reset, stash, rebase,
+force-push or `git clean`; `master` was not touched and remains
+`809a43e754920fce2f11f08e3c401dcc4c7a5223`.
+
+**Files added (5):**
+- `scripts/Universal/tts/chatterbox_synth.py` — the engine module: availability seams, reference
+  resolution with per-use SHA-256 verification, deterministic derivative preparation, cached
+  conditionals, `cuda → mps → cpu` selection, the single first-load allowance, and the
+  Kokoro-shaped worker entry points.
+- `files/tests/test_chatterbox_requirements.py` — 44 tests. The dependency contract asserted by
+  parsed value, including the setuptools compatibility pin and the absence of any CUDA or git source.
+- `files/tests/test_chatterbox_engine.py` — 69 tests. Lazy import, missing package, missing and
+  mismatched references, write refusal into the protected folder, derivative identity, audio
+  preparation (mono / 24 kHz / leading window / cover-art exclusion / source untouched /
+  deterministic), the conditional cache, device selection, the first-load allowance, and the
+  file-synthesis contract.
+- `files/tests/test_chatterbox_bootstrap.py` — 31 tests. Repair set, health probe, self-heal,
+  pre-download, warm-up, the opt-in checkbox, and startup safety.
+- `files/tests/test_chatterbox_boundaries.py` — 37 tests. The twelve existing voices by value, and
+  the Phase 9/10 boundary.
+
+**Files changed (5):**
+- `scripts/requirements.txt` — the setuptools step-back and the pinned Chatterbox stack.
+- `scripts/Universal/shared/bootstrap.py` — the Chatterbox counterparts of the Kokoro helpers.
+- `scripts/Universal/tts/voice_registry.py` — `BACKEND` widened, `_chatterbox_preset` added, **no row**.
+- `files/tests/test_epub_retirement.py` — three inventory updates, none weakened: the guard list
+  gains `tts/chatterbox_synth.py` (putting the new module *in* scope for every EPUB guard),
+  `REQUIRED_IMPORTS` gains `"chatterbox"`, and the tracked `setuptools` pin becomes `80.9.0`.
+- `files/tests/test_tts_jobs.py` — **one test retargeted, none deleted.**
+  `test_no_dependency_was_added_for_this_phase` asserted that `chatterbox` / `resemble-perth` /
+  `torchaudio` were absent, which was Phase 7's boundary; Phase 8 is the authorized phase that adds
+  exactly those. It is renamed to
+  `test_the_only_engine_dependency_added_since_is_the_authorized_one` and now requires the three to
+  be **present** while still forbidding a second engine, a CUDA pivot and any unpinned source — a
+  stronger guard, not a weaker one. The GUI-side boundary test beside it is untouched and still
+  forbids all Chatterbox vocabulary in the panel.
+
+**Files deliberately NOT changed:** `epub2tts_gui.py`, `batch_convert.py`, the whole
+`epub2tts_edge/` package, `kokoro_synth.py`, `pdf_extractor.py`, `generate_voice_samples.py`, the
+Cover Image modules, `shared/job_control.py`, `shared/job_ui.py`, `shared/cancellation.py`,
+`files/tests/test_batch_convert_folders.py` and `files/tests/test_tts_reporting_order.py` — the
+last two pass **unmodified**, as required. Phase 7's RunPublisher is untouched. EPUB remains
+retired and its archive inert. `version.py` stays `0.5.1`.
+
+**Nothing local was staged:** no reference MP3, derivative, conditional, model weight, HF cache
+entry, benchmark audio, probe venv, clean validation venv, setup log or any other
+`files/runtime-data/` file. No `git add -f`, no `git clean`.
+
+- Note:    One commit on `feature/0.6.1-tts-cover-workflows`, pushed. `master` untouched. No AI
+           co-author trailers. **Phase 9 is NOT AUTHORIZED and has NOT started.**
 
 ### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 7 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
 

@@ -56,6 +56,10 @@ PRODUCTION_TTS_SOURCES = (
     "tts/kokoro_synth.py",
     "tts/voice_registry.py",
     "tts/generate_voice_samples.py",
+    # Added by v0.6.1 Plan 4 Phase 8. Listing it here puts the new engine module
+    # in scope for every EPUB-retirement guard below, which is the point: a new
+    # production TTS module must not be a place EPUB can quietly come back.
+    "tts/chatterbox_synth.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them
@@ -82,7 +86,11 @@ RETAINED_PINS = {
     "pymupdf": "1.27.2.3",
     "pytest": "9.1.1",
     "scipy": "1.17.1",
-    "setuptools": "82.0.1",
+    # Stepped back from 82.0.1 by v0.6.1 Plan 4 Phase 8 (maintainer-authorized):
+    # 82 removed `pkg_resources`, which Chatterbox's watermark dependency still
+    # imports. Unrelated to the EPUB retirement — the pin is tracked here only so
+    # it cannot drift silently. See the note in scripts/requirements.txt.
+    "setuptools": "80.9.0",
     "soundfile": "0.13.1",
     "tqdm": "4.67.3",
 }
@@ -817,8 +825,10 @@ def test_bootstrap_no_longer_requires_a_removed_dependency(import_name):
 def test_bootstrap_still_requires_every_surviving_package():
     from shared import bootstrap
 
+    # "chatterbox" joined the list in v0.6.1 Plan 4 Phase 8; the six EPUB-era
+    # survivors are unchanged and still in their original order.
     assert bootstrap.REQUIRED_IMPORTS == [
-        "edge_tts", "pydub", "fitz", "mutagen", "PIL", "nltk"
+        "edge_tts", "pydub", "fitz", "mutagen", "PIL", "nltk", "chatterbox"
     ]
 
 

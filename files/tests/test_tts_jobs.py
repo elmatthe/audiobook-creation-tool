@@ -1641,12 +1641,28 @@ def test_no_chatterbox_or_later_phase_vocabulary_arrived():
         assert later not in source, later
 
 
-def test_no_dependency_was_added_for_this_phase():
+def test_the_only_engine_dependency_added_since_is_the_authorized_one():
+    """Phase 7 itself added no dependency; Phase 8 added exactly one engine stack.
+
+    This test previously asserted that ``chatterbox``/``resemble-perth``/
+    ``torchaudio`` were absent, which was Phase 7's boundary. v0.6.1 Plan 4 Phase 8
+    is the maintainer-authorized phase that adds precisely those, so the guard is
+    retargeted rather than dropped: the three are now required to be present, and
+    the checks that stop the stack growing sideways stay in force. The GUI-side
+    boundary is unchanged and still asserted by
+    ``test_no_chatterbox_or_later_phase_vocabulary_arrived`` above.
+    """
     requirements = (Path(__file__).resolve().parent.parent.parent
                     / "scripts" / "requirements.txt")
     text = requirements.read_text(encoding="utf-8").lower()
-    for later in ("chatterbox", "resemble-perth", "torchaudio"):
-        assert later not in text, later
+    for authorized in ("chatterbox-tts==0.1.7", "resemble-perth==1.0.1",
+                       "torchaudio==2.6.0"):
+        assert authorized in text, authorized
+    # No second engine, no CUDA pivot, no unpinned source — none of which is
+    # authorized by any phase up to and including 8.
+    for unauthorized in ("+cu", "download.pytorch.org", "--extra-index-url",
+                         "git+", "chatterbox-vc", "chatterbox-nano"):
+        assert unauthorized not in text, unauthorized
 
 
 def test_epub_stays_retired_and_the_archive_stays_inert():

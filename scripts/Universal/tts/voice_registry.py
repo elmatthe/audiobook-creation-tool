@@ -2,7 +2,7 @@
 voice_registry.py — Central registry of all supported TTS voices for epub2tts-edge v1.1.
 
 Each entry defines:
-  - backend:        "edge" | "kokoro"
+  - backend:        "edge" | "kokoro" | "chatterbox"
   - voice_id:       The voice identifier passed to the TTS engine
   - display_label:  Short human-readable name shown in the GUI dropdown
   - group_label:    Category header shown in the dropdown (cosmetic only)
@@ -13,6 +13,13 @@ Each entry defines:
                     For kokoro voices: speed (float str), sentencepause, paragraphpause,
                                        title_ms, chapter_ms, end_pause.
                     trim_edge_chunks is always False for kokoro.
+                    For chatterbox voices: the same field names as kokoro (the GUI
+                    reads one set of timing fields for every backend).
+
+The "chatterbox" backend was admitted here in v0.6.1 Plan 4 Phase 8 so the engine
+module and the preset helper have somewhere to land. **No Chatterbox VoiceEntry
+exists yet** — registering the four cloned voices is Phase 10's job, and the twelve
+rows below are unchanged by Phase 8.
 """
 
 from __future__ import annotations
@@ -20,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-BACKEND = Literal["edge", "kokoro"]
+BACKEND = Literal["edge", "kokoro", "chatterbox"]
 
 
 @dataclass(frozen=True)
@@ -76,6 +83,41 @@ def _kokoro_preset(
     }
 
 
+def _chatterbox_preset(
+    sentence: int = 600,
+    paragraph: int = 700,
+    title: int = 1000,
+    chapter: int = 1800,
+    end: int = 3000,
+) -> dict:
+    """Timing defaults for the local Chatterbox engine.
+
+    Deliberately identical in *shape* to ``_kokoro_preset`` — the GUI reads one set
+    of timing fields regardless of backend — and identical in *values* to it as
+    well, because both are local engines that emit clean chunk boundaries. There is
+    no ``rate``/speed control: the pinned Chatterbox Turbo API exposes no speed
+    parameter, so the field is carried at its neutral value rather than invented.
+    ``trim_edge_chunks`` stays off; edge-chunk trimming corrects an Edge TTS
+    artefact that local engines do not produce.
+
+    Added in v0.6.1 Plan 4 Phase 8 as engine foundation. It has no caller until
+    Phase 10 registers the voices.
+    """
+    return {
+        "sentencepause": str(sentence),
+        "paragraphpause": str(paragraph),
+        "title_ms": str(title),
+        "chapter_ms": str(chapter),
+        "end_pause": str(end),
+        "trim_dbfs": "-58",
+        "trim_edge_chunks": False,
+        "rate": "+0%",
+        "kokoro_speed": "1.0",
+    }
+
+
+# Exactly twelve rows: seven Edge, five Kokoro. Phase 8 added none — the four
+# Chatterbox voices are registered in Phase 10, not here.
 VOICES: list[VoiceEntry] = [
     VoiceEntry(
         backend="edge",
