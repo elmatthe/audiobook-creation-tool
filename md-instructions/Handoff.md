@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–10 approved or implemented.**
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–10 approved; Phase 11 implemented.**
 Phases 0–7 approved (Phase 4 including its ETA-serialization remediation; Phase 6 approved
 2026-08-15 in the prompt that authorized Phase 7; **Phase 7 including its reporting-order
 remediation approved by the maintainer on 2026-08-15**, final SHA
@@ -13,14 +13,19 @@ remediation approved by the maintainer on 2026-08-15**, final SHA
 2026-08-15** — they listened to all four evaluation WAVs and approved **all four**, with the GUI
 labels set to the ASCII-hyphen form `Chatterbox - Female 1`. The response is recorded verbatim in
 the Phase 10 entry. Approved Phase 9 SHA `2c63aa75521ae8e082d31923506aa6641ef0686f`.
-**Phase 10 is implemented:** the four approved voices are registered (sixteen `VoiceEntry` rows,
-the original twelve unchanged by value) and usable through the one unified PDF/TXT queue, behind a
-truthful registered-vs-available distinction. **Phase 11 is NOT AUTHORIZED and has NOT started.**
-Review of Phase 10 found one post-registration regression in the dev-only
-`generate_voice_samples.py` — ordinary mode classified every non-Kokoro row as Edge, so the four
-Chatterbox rows were posted to Edge TTS. **The Phase 10 remediation fixed it** (implementation
-commit `3708b469250b902b343df5024ea5506946cedf50`); see the remediation entry below. **Phase 10
-remains awaiting final approval until that remediation is reviewed.**
+**Phase 10 was APPROVED BY THE MAINTAINER ON 2026-08-15, INCLUDING ITS SAMPLE-DISPATCH
+REMEDIATION** — final approved SHA `075719945c5ad8d1c8fe335d0be3e7cfa07b43f2`, in the prompt that
+authorized Phase 11. (Any earlier sentence in this file saying Phase 10 "awaits final approval" is
+stale and superseded by this one.) The approval covers both commits and the history between them is
+deliberately preserved rather than rewritten: the four approved voices were registered by
+implementation commit `3708b469250b902b343df5024ea5506946cedf50` (sixteen `VoiceEntry` rows, the
+original twelve unchanged by value, usable through the one unified PDF/TXT queue behind a truthful
+registered-vs-available distinction); review of that commit then found one post-registration
+regression in the dev-only `generate_voice_samples.py`, where ordinary mode classified every
+non-Kokoro row as Edge and so posted the four Chatterbox rows to Edge TTS; and remediation commit
+`075719945c5ad8d1c8fe335d0be3e7cfa07b43f2` fixed it with backend-driven dispatch. Both entries stay
+below, in that order. **Phase 11 is implemented and awaits maintainer approval. Phase 12 is NOT
+AUTHORIZED and has NOT started.**
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -1805,8 +1810,215 @@ was staged. `git add -f` was never used and `git clean` was never run.
 
 No version bump, merge, tag, release, packaging or branch deletion; the working `.venv` was not
 mutated, no model was loaded, `Setup_and_Run` was not run, no CUDA, no Mac, no manual matrix. The
-Plan 4 drop is **not retired**. **Phase 11 — Structural guards, deterministic race and lifecycle
-testing — is NOT AUTHORIZED and has NOT started.**
+Plan 4 drop is **not retired**. *(Phase 11 was NOT AUTHORIZED at the time this entry was written;
+it has since been authorized and implemented — see the Phase 11 entry below. Phase 10 including
+this remediation was approved at `0757199`.)*
+
+---
+
+### Phase 11 — Structural guards, deterministic race and lifecycle testing (2026-08-15, HOME-PC)
+
+**Result: the last three no-adoption guards now measure structure instead of prose, and the six
+interleavings where Plan 3's two subsystems can collide are pinned by explicit latches rather than
+by luck. No production file changed** — the diff is two edited test modules, one new test module and
+this document. Entered at `0757199` (14 ahead / 0 behind `master` `809a43e`).
+
+#### A. Guard migration — three guards, stated one at a time
+
+The through-line: **UI wording is not evidence of adoption, in either direction.** All three guards
+now ask the structural question over `ast` nodes — `Import` / `ImportFrom` for imports, `Name` /
+`Attribute` for references, `Call` for constructions — so a comment or a docstring naming
+`JobController` neither passes nor fails any of them.
+
+| | Guard 1 | Guard 2 | Guard 3 |
+|---|---|---|---|
+| Original name | `test_tool_output_integration.py::test_no_plan_three_importing_behaviour_arrived` | `test_plan3_boundaries.py::test_no_production_module_imports_the_plan3_foundation` | `test_plan3_boundaries.py::test_the_launcher_and_every_panel_still_names_nothing_from_plan3` |
+| Mechanism before | **Substring.** Read each of the six tool modules as text and asserted the strings `Cancel Import`, `Retry Failed`, `Pause/Resume`, `rolling ETA`, `Include subfolders` were absent | **AST already**, over `UNADOPTED_SOURCES` | **Substring.** Read each unadopted panel as text and searched for `shared.<module>`, `import <module>` and seven vocabulary words |
+| Final name | `test_no_unadopted_tool_reached_for_the_plan3_foundation` (**renamed**) | unchanged | unchanged |
+| Mechanism after | AST via the shared `assert_no_plan3_adoption` helper, over the four unadopted tool modules | AST, unchanged in kind, **plus** a bare-import clause | AST via the same shared helper |
+| Covers | `mp3_tools.m4b_converter`, `mp3_tools.mp3_tool`, `mp3_tools.m4b_maker`, `mp3_tools.m4b_metadata_editor` | every `scripts/Universal/**/*.py` outside `ADOPTED` and the four foundation modules | `launcher.py`, `m4b_converter.py`, `mp3_tool.py`, `m4b_maker.py`, `m4b_metadata_editor.py` |
+
+**Why the rename, and why substring matching had to go.** The retired guard was not merely weak — it
+was **provably vacuous on the very modules it should have been watching**. Measured against the tree
+before any change: `cover_resizer.py` and `epub2tts_gui.py` contain **none** of its five strings,
+because both adopters get all five controls from `shared/job_ui.py`. The guard therefore went on
+passing, unchanged and green, through the exact two adoptions that made its blanket claim false.
+The converse hole is as bad: a panel could grow a private copy of the whole foundation without ever
+writing one of those words. The name went with the mechanism because the old name asserted something
+that is now, correctly, untrue.
+
+**Guard 2 was not weakened.** Its parametrization, its strictness and its AST mechanism are as
+approved; the one clause added refuses a **bare** `import job_ui` alongside the `shared.`-qualified
+spellings, so the import spelling cannot be used to slip past it.
+
+**The exact authorized set, and the proof it is measured rather than trusted:**
+
+```
+ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py")
+```
+
+Four separate tests keep that honest, and they fail from opposite directions:
+
+- `test_exactly_these_production_modules_have_adopted_the_foundation` walks every production module,
+  collects the real importer set from the tree, and asserts it **equals** `ADOPTED` and has length 2
+  — so the tuple can neither grow silently nor be padded to make a guard pass;
+- `test_exactly_two_production_modules_are_authorized_to_adopt` (new) pins both `ADOPTED` and the
+  derived `UNADOPTED_PANELS` as literals, so widening the authorization fails a test whose name says
+  what it protects;
+- `test_both_authorized_adopters_really_did_adopt` (new) proves each exclusion is paid for — if
+  Cover or TTS ever stopped importing the foundation, the exclusion would be hiding an unchecked
+  panel, and this fails instead;
+- `test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it` (pre-existing) keeps
+  adoption meaning *use*, not *copy*.
+
+**Measured adopter set == `ADOPTED`, exactly two.** The launcher, M4B Converter, MP3 Tool, M4B Maker
+and M4B Metadata Editor all remain unadopted and watched. No module was exempted, no guard deleted,
+no guard turned into a tautology.
+
+**The migration was mutation-checked, not assumed.** `assert_no_plan3_adoption` was run against both
+real adopters (bites), against a minimal module for each of the three arrival routes — import,
+reference, construction — plus the bare-import and attribute-module spellings (bites on all five),
+and against a module whose docstring, comments and string literals are stuffed with every guarded
+word and nothing else (correctly ignored).
+
+#### B. Deterministic race and lifecycle coverage
+
+New module `files/tests/test_plan4_lifecycle_races.py`, 30 cases. **No sleep, no poll, no
+run-it-until-it-happens.** Every ordering is arranged: a worker is parked on a `threading.Event`
+latch at the exact instruction the race is about, the test does the thing it wants to interleave,
+and only then releases. Cross-thread events that must be genuinely concurrent are pinned with a
+`threading.Barrier`. Waits carry a bounded timeout **so a broken contract fails loudly — the timeout
+is never the mechanism.**
+
+| Race | Synchronization mechanism | Forced ordering | Result | Production fix? |
+|---|---|---|---|---|
+| Cancel vs a completing item | `SettlingWorker` parked on an `Event` at a chosen instruction (before *or* after its last checkpoint); the cancel pressed from a second thread released by a `Barrier` | (A) settle → cancel; (B) cancel → last checkpoint → settle; (C) cancel lands *after* the last checkpoint | A: stays `SUCCEEDED`, revision frozen, no acknowledgement. B: `CANCELLED`, and a later `succeed()` raises `IllegalJobTransition`. C: `SUCCEEDED` and `finish_cancelled()` **refuses** rather than fabricating an acknowledgement. Exactly one terminal snapshot in every ordering | None |
+| `Cancel Import` vs a processing run | `ParkedScan` — a real scan held inside `ControlledScanner`, injected through each panel's own `scanner` / `thread_factory` constructor seams; the run made live through the job-runner seam with no worker | Both directions, on both panels: import-cancel-first and processing-cancel-first | The coordinator's cancellation and the run's never cross. Cover's `_cancel_event` stays clear on an import cancel; the coordinator stays `SCANNING` on a processing cancel; TTS the same with the controller as its only authority | None |
+| Pause vs a terminal transition | Worker parked *after* its last checkpoint; pause requested while it waits; parametrized over `SUCCEEDED` / `COMPLETED_WITH_FAILURES` / `FAILED`, plus `CANCELLED` via the acknowledgement path | pause → settle, and settle → pause | The run ends in its real terminal state, never `PAUSED`; a later `request_pause` moves neither state nor revision; a checkpoint reached *after* the ending **returns** instead of waiting for a resume that will never come | None |
+| Close vs an in-flight scan | `ParkedScan` held open, `close()` called, and only then released — parametrized over both adopting panels | close → late scan result | `worker_stopped` is honestly `False` (an indivisible `scandir` was not interrupted); the late result is inert; the manager is untouched; the pump is closed with nothing pending; no second worker; **no output run reserved** | None |
+| Stale revision vs commit | `MutatingManager` — a real `ImportedFileManager` armed with one genuine `clear()` / append per commit, timed to land between the plan and the commit planned against it. The stale verdict, the recomputation and the retry are all the production mechanism | mutate at the commit instant; and again during the retry | Exactly **one** recomputation and one retry; the commit is based on current state; no duplicate append; ordering, provenance and occurrence identity preserved; a second conflict reports truthfully and appends nothing | None |
+| Duplicate / post-terminal events | `JobReporter` + `JobEventStream` over one run id, with a whole published run drained twice | duplicate terminal; late progress/failure/warning; replayed event; whole-run replay | `DUPLICATE_TERMINAL`, `AFTER_TERMINAL` and `OUT_OF_ORDER` as the current `EventVerdict` contract states them; history, summary projection and progress all unmoved by every rejected event | None |
+
+**Every race was mutation-checked.** A deterministic test that cannot fail is not evidence, so each
+row was proved to bite by breaking production on purpose, running the row, and reverting:
+
+| Mutation | Row it broke |
+|---|---|
+| `JobController.request_cancel` no longer refuses a terminal run | cancel vs completing item |
+| Cover's `cancel()` also calls `importer.cancel_import()` | `Cancel Import` vs processing run |
+| `checkpoint()` waits instead of returning when terminal | pause vs terminal transition |
+| Neither panel closes its importer | close vs in-flight scan |
+| A second recomputation is attempted after the retry | stale revision vs commit |
+| `_judge` accepts post-terminal events | duplicate / post-terminal events |
+
+**Production was byte-identical before and after every mutation** (`git checkout --` after each;
+`git diff -- scripts/` empty).
+
+**New coverage that passes existing correct code vs new tests that exposed a defect.** All 30 cases
+are the **former**: they pin behaviour that was already correct, and no production defect was found.
+Per the phase contract no defect was manufactured to produce RED. Two genuine RED episodes occurred
+and both were **faults in the new tests, fixed there**:
+
+1. the first `MutatingManager` armed its one-shot mutation before seeding, so the seeding commit
+   consumed it and the stale path was never reached — the harness was rewritten to arm explicitly
+   after setup, one mutation per commit;
+2. the `checkpoint()`-deadlock mutation revealed that the late-checkpoint probe thread was
+   **non-daemon**, so a real regression would have hung the interpreter at exit rather than failing
+   loudly. It is now daemon, with the reason written at the call site, and the same mutation now
+   fails in 16s with three named failures. This is the only daemon thread in the module and it is
+   the one whose failure mode is an unreleasable wait.
+
+#### C. Repetition gate
+
+Race-sensitive subset:
+
+```
+pytest files/tests/test_plan4_lifecycle_races.py files/tests/test_job_controller.py \
+       files/tests/test_import_coordination.py files/tests/test_tts_reporting_order.py \
+       -q -p no:randomly
+```
+
+| Run | Result |
+|---|---|
+| 1 | 346 passed |
+| 2 | 346 passed |
+| 3 | 346 passed |
+| 4 | 346 passed |
+| 5 | 346 passed |
+| 6 | 346 passed |
+| 7 | 346 passed |
+| 8 | 346 passed |
+
+**8/8 consecutive green** against a required minimum of 5. Identical count and no flake in any run.
+
+#### D. Preservation
+
+`VERSION` is `0.5.1`; `launcher.TOOLS` is six entries; `config-template.toml` remains absent.
+`test_the_version_is_unchanged` and `test_the_launcher_tool_registry_gained_no_seventh_entry` were
+**not edited, not renamed and not weakened** — neither appears in the diff, and both pass exactly as
+written.
+
+Nothing in Cover changed: the three browser views, selection, importer semantics, the replacement
+confirmation chain, the output modes, `JobController` integration, Retry Failed, pause/cancel,
+source protection and HEIC behaviour are all proved unchanged by re-running their suites. Nothing in
+TTS changed: the PDF/TXT-only catalog, EPUB retirement, the unified queue, direct flat and folder
+mirrored placement, mixed runs, the sixteen voices, Chatterbox availability and dispatch, Edge and
+Kokoro dispatch, pause/cancel/progress, Retry Failed and the Phase 10 sample-generator remediation
+all stand.
+
+**`RunPublisher` was read and not written.** It remains the single TTS publication authority:
+sequence publishing stays inside its serialization lock, there is no second reporter and no
+Chatterbox-specific reporter, out-of-order rejection is not relaxed, and retry attempt retirement is
+unchanged. `test_tts_reporting_order.py` and `test_batch_convert_folders.py` ran **unmodified** —
+neither appears in the diff. No production module in `scripts/` appears in the diff at all.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Targeted (races, both boundary files, coordination, job control/UI/events/controller, Cover importing+jobs, TTS importing+jobs+reporting, all Chatterbox, batch folders, EPUB retirement, launcher smoke, repository contract) | **1790 passed** |
+| Full suite | **3494 collected, 3481 passed, 13 skipped, 1 warning** |
+| Collection delta vs the approved Phase 10 baseline of 3462 | **+32 exactly** |
+| `python scripts/verify.py` | `RESULT: PASS` |
+| `python -m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check -- '*.py'` / `--cached` | clean |
+
+**Collection reconciliation, +32 exactly:**
+
+| Source | Delta |
+|---|---|
+| `test_plan4_lifecycle_races.py` (new module, 30 cases) | +30 |
+| `test_tool_output_integration.py` — one guard retired, two added | +1 |
+| `test_plan3_boundaries.py` — one guard added; both migrated guards keep their existing parametrization | +1 |
+
+**Expected removed behavioural coverage: zero.** The one retired test name maps to a strictly
+stronger replacement:
+
+| Retired | Replaced by | Why stronger |
+|---|---|---|
+| `test_no_plan_three_importing_behaviour_arrived` | `test_no_unadopted_tool_reached_for_the_plan3_foundation` + `test_both_authorized_adopters_really_did_adopt` | The retired test asserted five UI strings were absent and was provably vacuous on both real adopters. The replacements assert the structural property it was standing in for — no import, no reference, no construction — over the four modules still held to it, and separately prove the two exclusions were earned |
+
+**No test was deleted, skipped, xfailed or materially weakened to make this phase pass.**
+
+The 13 skips are the same pre-existing set: 8 symlink-privilege, 2 case-insensitive-filesystem, 3
+`JACK_RYAN_M4B_FOLDER` env-gated. The single warning is the same third-party pydub `audioop`
+`DeprecationWarning`. **The known ffmpeg PATH skip flake did not recur** — every run reported 13
+skips, no `@needs_ffmpeg` test skipped, and `ffmpeg_utils.py` was not touched.
+
+#### Protected assets
+
+Re-hashed after all testing: all four recordings **byte-identical** to the table above.
+`git ls-files files/Chatterbox-Voice-Uploads/` returns **zero**. No source MP3, derivative, cached
+conditional, model data, Phase 9 WAV, ordinary sample MP3 or runtime-data file was staged. Staging
+was by explicit path only; `git add -f` was never used and `git clean` was never run. This phase
+neither read nor synthesised from the recordings.
+
+#### Not done
+
+No version bump, merge, tag, release, packaging or branch deletion; the Plan 4 drop is **not
+retired**; no docs closeout started. `Setup_and_Run` was not run, no CUDA was used, no Mac action
+was taken, no 125% scaling was tested, and no manual matrix was run. **Phase 11 awaits maintainer
+approval. Phase 12 — Windows manual matrix — is NOT AUTHORIZED and has NOT started.**
 
 ---
 
@@ -7935,6 +8147,46 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 11 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
+
+**Branch:** unchanged. **Phase 11 start SHA:** `075719945c5ad8d1c8fe335d0be3e7cfa07b43f2` (the
+maintainer-approved Phase 10 remediation, equal to its upstream at start; 14 ahead / 0 behind
+`master` `809a43e754920fce2f11f08e3c401dcc4c7a5223`). No fetch beyond the read-only preflight, and
+no merge, reset, stash, rebase, force-push or `git clean`; `master` was not touched.
+
+- Added:   `files/tests/test_plan4_lifecycle_races.py` (new — 30 deterministic race and lifecycle
+  cases across the six required interleavings, cross-panel, no sleeps)
+- Changed: `files/tests/test_plan3_boundaries.py` (guard 3 substring → AST; guard 2 gains a
+  bare-import clause; shared `referenced_names` / `constructed_names` /
+  `imports_the_plan3_foundation` / `assert_no_plan3_adoption` helpers plus the
+  `PLAN3_ADOPTION_SURFACES` and `PLAN3_VOCABULARY` sets; one new authorization guard)
+- Changed: `files/tests/test_tool_output_integration.py` (guard 1 substring → AST and truthfully
+  renamed to `test_no_unadopted_tool_reached_for_the_plan3_foundation`, plus
+  `test_both_authorized_adopters_really_did_adopt`)
+- Changed: `md-instructions/Handoff.md` (this file — Phase 10 final approval at `0757199` recorded
+  without rewriting the implementation/remediation history; new Phase 11 entry; this sync entry)
+- Note:    **No production file changed.** `git diff -- scripts/` is empty. The whole diff is three
+  test files and this document. `test_tts_reporting_order.py` and `test_batch_convert_folders.py`
+  ran **unmodified** and appear nowhere in the diff.
+- Note:    `test_the_version_is_unchanged` and `test_the_launcher_tool_registry_gained_no_seventh_entry`
+  were not edited, renamed or weakened. `VERSION` stays `0.5.1`; `launcher.TOOLS` stays six;
+  `config-template.toml` stays absent.
+- Note:    Both the guard migration and all six races were **mutation-checked** — production was
+  broken on purpose, the relevant test was shown to fail, and production was reverted with
+  `git checkout --` each time. Two genuine RED episodes were faults in the new tests and were fixed
+  there; no production defect was found and none was manufactured.
+- Note:    Protected Chatterbox assets re-hashed after all testing — all four byte-identical.
+  `git ls-files files/Chatterbox-Voice-Uploads/` returns zero. Staging by explicit path only; no
+  `git add -f`, no `git clean`.
+- Verify:  `.venv\Scripts\python.exe scripts/verify.py` → **RESULT: PASS**. Full suite 3494
+  collected / 3481 passed / 13 skipped / 1 warning (+32 exactly vs the approved 3462 baseline,
+  reconciled in the Phase 11 entry). Race subset run **8 consecutive times, 8/8 green** (minimum 5).
+  `compileall` exit 0; `git diff --check` clean before and after staging. The ffmpeg PATH skip flake
+  did not recur.
+- Note:    Phase 11 awaits maintainer approval. **Phase 12 — Windows manual matrix — is NOT
+  AUTHORIZED and has NOT started**: no manual matrix, no `Setup_and_Run`, no CUDA, no Mac, no 125%
+  scaling. The Plan 4 drop is not retired. No AI co-author trailer.
 
 ### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 9 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
 

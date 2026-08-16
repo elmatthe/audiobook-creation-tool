@@ -13,6 +13,7 @@ validation must all leave the filesystem untouched.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import sys
 import threading
@@ -786,13 +787,73 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
     assert "CLEANUP_SCHEDULED_MESSAGE" in source
 
 
-def test_no_plan_three_importing_behaviour_arrived():
+#: The two tool modules v0.6.1 Plan 4 authorized to adopt the Plan 3 foundation.
+#: Written as dotted module paths because that is what ``TOOL_MODULES`` holds; the
+#: authoritative list is ``test_plan3_boundaries.ADOPTED``, and the test below
+#: proves the two spellings agree rather than trusting that they do.
+PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui")
+
+
+def _tool_path(relative: str) -> Path:
+    return REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
+
+
+def test_no_unadopted_tool_reached_for_the_plan3_foundation():
+    """Replaces ``test_no_plan_three_importing_behaviour_arrived`` (Phase 11).
+
+    **Mechanism changed: substring → AST.** The retired version scanned every
+    tool's source text for UI wording — ``Cancel Import``, ``Retry Failed``,
+    ``Pause/Resume``, ``rolling ETA``, ``Include subfolders`` — and asserted none
+    of it had appeared. That was never proof of anything. A label is not
+    adoption: Cover and TTS have adopted the foundation and get all five of those
+    controls from ``shared/job_ui.py``, so their own sources still contain none
+    of those strings and the old guard went on passing while the thing it was
+    guarding stopped being true. Equally, a module could have grown its own
+    private copy of the whole foundation without ever writing one of those words.
+
+    What replaces it asks the structural question instead, over ``Import`` /
+    ``ImportFrom`` / ``Name`` / ``Attribute`` / ``Call`` nodes: does this tool
+    import a Plan 3 module, name one of its types, or construct one of its
+    objects? Comments and docstrings are invisible to it in both directions.
+
+    The two authorized adopters are excluded by name and checked separately, so
+    the guard narrowed rather than weakened: the other four tools are held to
+    exactly the boundary Plan 3 approved.
+    """
+    from test_plan3_boundaries import ADOPTED, assert_no_plan3_adoption
+
+    assert set(PLAN3_ADOPTERS) == {
+        entry.removesuffix(".py").replace("/", ".") for entry in ADOPTED
+    }, "the two spellings of the adopter list have drifted apart"
+
+    checked = []
     for relative in TOOL_MODULES.values():
-        path = REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
-        source = path.read_text(encoding="utf-8")
-        for plan_three in ("Cancel Import", "Retry Failed", "Pause/Resume",
-                           "rolling ETA", "Include subfolders"):
-            assert plan_three not in source, f"{relative}: {plan_three}"
+        if relative in PLAN3_ADOPTERS:
+            continue
+        tree = ast.parse(_tool_path(relative).read_text(encoding="utf-8"))
+        assert_no_plan3_adoption(tree, relative)
+        checked.append(relative)
+
+    assert sorted(checked) == [
+        "mp3_tools.m4b_converter",
+        "mp3_tools.m4b_maker",
+        "mp3_tools.m4b_metadata_editor",
+        "mp3_tools.mp3_tool",
+    ], checked
+
+
+def test_both_authorized_adopters_really_did_adopt():
+    """The other half of the narrowing, so the exclusion cannot be free.
+
+    Excluding a module from the guard above is only honest if that module has
+    genuinely adopted. If Cover or TTS ever stopped importing the foundation,
+    the exclusion would be hiding an unchecked panel — so it fails here instead.
+    """
+    from test_plan3_boundaries import imports_the_plan3_foundation
+
+    for relative in PLAN3_ADOPTERS:
+        tree = ast.parse(_tool_path(relative).read_text(encoding="utf-8"))
+        assert imports_the_plan3_foundation(tree), relative
 
 
 def test_the_window_constants_are_unchanged():

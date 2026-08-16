@@ -37,6 +37,28 @@ ALL_PLAN3_MODULES = PLAN3_MODULES + (ADAPTER_MODULE,)
 
 PLAN3_MODULE_NAMES = ("importing", "job_control", "import_coordination", "job_ui")
 
+#: The objects a module has to **construct** in order to be using the foundation
+#: rather than merely knowing it exists. v0.6.1 Plan 4 Phase 11 added this so the
+#: no-adoption guards can ask a structural question — "was one of these built?" —
+#: instead of the textual one they used to ask.
+PLAN3_ADOPTION_SURFACES = (
+    "ImportedFileManager", "ImportCoordinator", "ImportPoller", "ImportAdapter",
+    "MainThreadPump", "ImportedFileList", "ImportOptionsBar", "ImportStatusBar",
+    "LockGroup", "JobController", "JobAdapter", "JobControlBar", "JobStatusView",
+    "SummaryDetailsView", "JobReporter", "JobEventStream", "EtaEstimator",
+    "ProgressTracker", "LoggerBridge",
+)
+
+#: The foundation's data types. Naming one of these is adoption too: a panel that
+#: has never imported Plan 3 has no way to refer to them.
+PLAN3_VOCABULARY = (
+    "RunSnapshot", "RetryRequest", "FailureLog", "FailureRecord", "JobState",
+    "JobEvent", "JobSnapshot", "RunResult", "ItemOutcome", "EventVerdict",
+    "ImportedFileSnapshot", "ImportedFile", "SupportedTypeCatalog", "SupportedType",
+    "ScanRequest", "ScanResult", "ImportTransaction", "ImportOutcome",
+    "ImportOptions", "ImportRoot", "ImportCancellation",
+)
+
 #: The module that is pure *vocabulary and synchronous behaviour*. Phase 4 put its
 #: thread and its queue in ``import_coordination.py``, and Phase 5 put its condition
 #: in ``job_control.py``, precisely so this one keeps its approved proof that it
@@ -109,6 +131,22 @@ def imported_names(tree: ast.Module) -> set[str]:
     return names
 
 
+def referenced_names(tree: ast.Module) -> set[str]:
+    """Every identifier the module actually *names in code*.
+
+    ``ast.Name`` ids and ``ast.Attribute`` attrs only, so a comment, a docstring
+    or any other string literal contributes nothing — which is precisely the
+    property the substring guards this replaced did not have.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+    return names
+
+
 def called_attributes(tree: ast.Module) -> set[str]:
     return {
         node.func.attr for node in ast.walk(tree)
@@ -128,6 +166,57 @@ def defined_names(tree: ast.Module) -> set[str]:
         node.name for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     }
+
+
+def constructed_names(tree: ast.Module) -> set[str]:
+    """Every callee of a ``Call``, whether written bare or through an attribute."""
+    return called_bare_names(tree) | called_attributes(tree)
+
+
+def imports_the_plan3_foundation(tree: ast.Module) -> bool:
+    """Whether this module imports any Plan 3 module, in any import spelling."""
+    modules = imported_names(tree)
+    return any(
+        f"shared.{plan3}" in modules
+        or any(entry.startswith(f"shared.{plan3}.") for entry in modules)
+        or plan3 in modules
+        for plan3 in PLAN3_MODULE_NAMES
+    )
+
+
+def assert_no_plan3_adoption(tree: ast.Module, label: str) -> None:
+    """The one structural no-adoption proof, shared by every guard that needs it.
+
+    v0.6.1 Plan 4 Phase 11 introduced this. Adoption can arrive three ways, and
+    each is checked as an ``ast`` node kind rather than as text:
+
+    * an **import** — an ``Import`` / ``ImportFrom`` naming a Plan 3 module, in
+      any spelling including a bare one;
+    * a **reference** — a ``Name`` or ``Attribute`` naming a Plan 3 module or one
+      of its types;
+    * a **construction** — a ``Call`` whose callee is one of the adoption
+      surfaces.
+
+    A module that passes all three has not adopted the foundation, whatever its
+    comments, docstrings or button labels happen to say. That last clause is the
+    whole point of the migration: UI wording is not evidence either way, and the
+    guards that used to read for it were answering a question nobody asked.
+    """
+    modules = imported_names(tree)
+    for plan3 in PLAN3_MODULE_NAMES:
+        assert f"shared.{plan3}" not in modules, (label, plan3)
+        assert not any(
+            entry.startswith(f"shared.{plan3}.") for entry in modules), (label, plan3)
+        assert plan3 not in modules, (label, f"bare import {plan3}")
+
+    referenced = referenced_names(tree)
+    for plan3 in PLAN3_MODULE_NAMES:
+        assert plan3 not in referenced, (label, f"names the module {plan3}")
+    named = referenced & set(PLAN3_VOCABULARY + PLAN3_ADOPTION_SURFACES)
+    assert not named, (label, sorted(named))
+
+    built = constructed_names(tree) & set(PLAN3_ADOPTION_SURFACES)
+    assert not built, (label, sorted(built))
 
 
 @pytest.fixture(scope="module")
@@ -564,29 +653,58 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
+def test_exactly_two_production_modules_are_authorized_to_adopt():
+    """``ADOPTED`` is the whole authorization, stated once and pinned here.
+
+    Phase 11 states it as its own assertion rather than leaving it implicit in a
+    tuple literal, because every guard below narrows itself by this set. Widening
+    it is how a third adopter would hide, so widening it has to fail a test whose
+    name says what it is protecting.
+    """
+    assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py")
+    assert set(UNADOPTED_PANELS) == {
+        "launcher.py",
+        "mp3_tools/m4b_converter.py",
+        "mp3_tools/mp3_tool.py",
+        "mp3_tools/m4b_maker.py",
+        "mp3_tools/m4b_metadata_editor.py",
+    }
+
+
 @pytest.mark.parametrize("path", UNADOPTED_SOURCES, ids=relative_name)
 def test_no_production_module_imports_the_plan3_foundation(path):
     """The whole shipped tree, minus the modules in ``ADOPTED``.
 
-    Unchanged in mechanism and in strictness; only the parametrization narrowed,
-    so every module that has not adopted is held to the same boundary.
+    Still ``ast``, still the same strictness, still the same parametrization.
+    v0.6.1 Plan 4 Phase 11 added one clause and loosened none: a **bare** import
+    (``import job_ui``) is now refused as well as a ``shared.``-qualified one, so
+    the spelling cannot be used to slip past the guard.
     """
     modules = imported_names(parse(path))
     for plan3 in PLAN3_MODULE_NAMES:
         assert f"shared.{plan3}" not in modules, (path.name, plan3)
         assert not any(entry.startswith(f"shared.{plan3}.") for entry in modules), path.name
-        assert f"shared.{plan3}" not in modules
+        assert plan3 not in modules, (path.name, f"bare import {plan3}")
 
 
 @pytest.mark.parametrize("relative", UNADOPTED_PANELS)
 def test_the_launcher_and_every_panel_still_names_nothing_from_plan3(relative):
-    text = (UNIVERSAL / relative).read_text(encoding="utf-8")
-    for plan3 in PLAN3_MODULE_NAMES:
-        assert f"shared.{plan3}" not in text, (relative, plan3)
-        assert f"import {plan3}" not in text, (relative, plan3)
-    for vocabulary in ("RunSnapshot", "RetryRequest", "FailureLog", "JobState",
-                       "ImportedFileSnapshot", "SupportedTypeCatalog", "ScanRequest"):
-        assert vocabulary not in text, (relative, vocabulary)
+    """The launcher and every panel that has not adopted, proved structurally.
+
+    **Mechanism changed in v0.6.1 Plan 4 Phase 11: substring → AST.** This guard
+    used to read the panel as text and search for module names and vocabulary
+    words. Text cannot tell a real reference from a docstring, and Plan 4's two
+    adopters made the blanket claim false anyway, so the migration replaced the
+    mechanism rather than relaxing the assertion: imports, references and
+    constructions are now read as ``Import`` / ``ImportFrom`` / ``Name`` /
+    ``Attribute`` / ``Call`` nodes. A comment mentioning ``JobController``
+    neither fails this test nor passes it.
+
+    Cover and TTS are the two authorized exclusions; every other panel — and the
+    launcher — is held to exactly the boundary Plan 3 approved.
+    """
+    assert relative not in set(ADOPTED), "an adopter must never be checked here"
+    assert_no_plan3_adoption(parse(UNIVERSAL / relative), relative)
 
 
 def test_exactly_these_production_modules_have_adopted_the_foundation():
@@ -597,14 +715,12 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
     module listed here that does *not* import it fails here too. So the
     exclusion list can neither grow silently nor be padded to make a guard pass.
     """
-    importers = set()
-    for path in PRODUCTION_SOURCES:
-        modules = imported_names(parse(path))
-        if any(f"shared.{plan3}" in modules or
-               any(entry.startswith(f"shared.{plan3}.") for entry in modules)
-               for plan3 in PLAN3_MODULE_NAMES):
-            importers.add(relative_name(path))
+    importers = {
+        relative_name(path) for path in PRODUCTION_SOURCES
+        if imports_the_plan3_foundation(parse(path))
+    }
     assert importers == set(ADOPTED), importers
+    assert len(importers) == 2, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
