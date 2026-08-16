@@ -8,13 +8,21 @@ reads a real recording, or reaches the network: the engine is stubbed at the sea
 
 The rules under test are the drop's Phase 9 stop conditions: four sources in, four
 outputs out, under the already-ignored manual-listen folder, with the raw MP3s
-untouched, no ``VoiceEntry`` registered, and no GUI dispatch — the last two belong
-to Phase 10, which has not started.
+untouched, and nothing registered by the evaluation itself. Registration and GUI
+dispatch arrived separately at Phase 10, once the maintainer had listened.
+
+Section R was added by the **Phase 10 remediation**. Registering the four rows
+changed what "every registered voice" means for this same utility's *ordinary*
+mode, which still classified every non-Kokoro row as Edge and so handed the four
+Chatterbox voice_ids to ``edge_tts``. Ordinary sampling is now backend-driven, and
+section R pins that down while section A keeps the two modes apart.
 """
 
 from __future__ import annotations
 
 import ast
+import sys
+import types
 import wave
 from pathlib import Path
 
@@ -685,3 +693,215 @@ def test_the_evaluation_writes_no_manifest_of_its_own():
     """Phase 8 already established one; a second would compete with it."""
     src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
     assert "manifest" not in src.lower()
+
+
+# --------------------------------------------------------------------------- #
+# R. Ordinary registered-voice sampling — three backends, driven by the row
+# --------------------------------------------------------------------------- #
+# The Phase 10 remediation. Ordinary mode's dispatch was "kokoro -> Kokoro,
+# everything else -> Edge", which was true only while every non-Kokoro row was an
+# Edge row. Registering four Chatterbox rows made it false, and the utility began
+# posting Chatterbox voice_ids to the Edge service. The rule is the same one the
+# TTS panel adopted at Phase 10: read ``VoiceEntry.backend``, never "not Kokoro".
+#
+# Every engine is stubbed. Nothing here loads a model, reaches the network, or
+# writes outside ``tmp_path``.
+ORDINARY_EDGE_IDS = (
+    "en-US-SteffanNeural",
+    "en-US-AndrewMultilingualNeural",
+    "en-US-AndrewNeural",
+    "en-US-AriaNeural",
+    "en-US-AvaMultilingualNeural",
+    "en-US-AvaNeural",
+    "en-US-JennyNeural",
+)
+ORDINARY_KOKORO_IDS = ("af_heart", "af_bella", "am_michael", "bf_emma", "bm_george")
+
+
+class _SampleSeams:
+    """Records every ordinary-mode synthesis call, per backend."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str, str]] = []  # (seam, voice, text, dest)
+        self.fail_chatterbox_for: str | None = None
+
+    def record(self, seam: str, voice_id: str, text: str, dest) -> None:
+        self.calls.append((seam, voice_id, text, str(dest)))
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"stub mp3 for " + str(voice_id).encode())
+
+    def voices(self, seam: str) -> list[str]:
+        return [voice for s, voice, _t, _d in self.calls if s == seam]
+
+    def destinations(self, seam: str) -> list[str]:
+        return [dest for s, _v, _t, dest in self.calls if s == seam]
+
+    def texts(self, seam: str) -> set[str]:
+        return {text for s, _v, text, _d in self.calls if s == seam}
+
+
+@pytest.fixture
+def sample_seams(monkeypatch, tmp_path):
+    """Stub Edge, Kokoro and Chatterbox at the seams ordinary mode may use."""
+    seams = _SampleSeams()
+
+    out = _made(tmp_path / "manual-listen")
+    monkeypatch.setattr(gvs, "_out_dir", lambda: out)
+    monkeypatch.setattr(gvs.ffmpeg_utils, "configure_pydub", lambda: None)
+
+    class _Communicate:
+        """The only ``edge_tts`` surface the sample path uses."""
+
+        def __init__(self, text, voice_id, *args, **kwargs) -> None:
+            self._text, self._voice_id = text, voice_id
+
+        async def save(self, path) -> None:
+            seams.record("edge", self._voice_id, self._text, path)
+
+    edge_module = types.ModuleType("edge_tts")
+    edge_module.Communicate = _Communicate
+    monkeypatch.setitem(sys.modules, "edge_tts", edge_module)
+
+    def _kokoro_mp3(text, output_path, voice_id=None, **kwargs) -> None:
+        seams.record("kokoro", voice_id, text, output_path)
+
+    kokoro_module = types.ModuleType("tts.kokoro_synth")
+    kokoro_module.synthesize_text_to_mp3 = _kokoro_mp3
+    monkeypatch.setitem(sys.modules, "tts.kokoro_synth", kokoro_module)
+
+    def _chatterbox_mp3(text, output_path, voice_id=None, **kwargs) -> None:
+        if voice_id == seams.fail_chatterbox_for:
+            raise cbx.ChatterboxUnavailable(
+                f"The reference recording for {voice_id} is not installed.")
+        seams.record("chatterbox", voice_id, text, output_path)
+
+    monkeypatch.setattr(cbx, "synthesize_text_to_mp3", _chatterbox_mp3)
+    return seams
+
+
+def _main(monkeypatch, *patterns: str) -> int:
+    monkeypatch.setattr("sys.argv", ["generate_voice_samples.py", *patterns])
+    return gvs.main()
+
+
+def test_every_chatterbox_row_reaches_the_chatterbox_engine(sample_seams, monkeypatch):
+    _main(monkeypatch)
+    assert sample_seams.voices("chatterbox") == list(APPROVED_VOICE_IDS)
+
+
+def test_no_chatterbox_voice_is_ever_handed_to_edge_tts(sample_seams, monkeypatch):
+    """The regression itself: a cloned-voice id is meaningless to the Edge service."""
+    _main(monkeypatch)
+    assert sample_seams.voices("edge") == list(ORDINARY_EDGE_IDS)
+    for voice_id in APPROVED_VOICE_IDS:
+        assert voice_id not in sample_seams.voices("edge")
+
+
+def test_an_ordinary_run_covers_all_sixteen_rows_split_by_backend(sample_seams,
+                                                                 monkeypatch):
+    _main(monkeypatch)
+    assert len(sample_seams.calls) == 16
+    assert len(sample_seams.voices("edge")) == 7
+    assert len(sample_seams.voices("kokoro")) == 5
+    assert len(sample_seams.voices("chatterbox")) == 4
+
+
+def test_no_backend_reaches_another_backends_synthesis_seam(sample_seams, monkeypatch):
+    _main(monkeypatch)
+    assert sample_seams.voices("edge") == list(ORDINARY_EDGE_IDS)
+    assert sample_seams.voices("kokoro") == list(ORDINARY_KOKORO_IDS)
+    assert sample_seams.voices("chatterbox") == list(APPROVED_VOICE_IDS)
+
+
+@pytest.mark.parametrize("pattern,seam,expected", [
+    ("edge", "edge", ORDINARY_EDGE_IDS),
+    ("kokoro", "kokoro", ORDINARY_KOKORO_IDS),
+    ("chatterbox", "chatterbox", APPROVED_VOICE_IDS),
+])
+def test_a_backend_filter_selects_exactly_that_backend(sample_seams, monkeypatch,
+                                                       pattern, seam, expected):
+    _main(monkeypatch, pattern)
+    assert sample_seams.voices(seam) == list(expected)
+    assert len(sample_seams.calls) == len(expected)
+
+
+def test_the_chatterbox_filter_selects_exactly_the_four_approved_rows():
+    """One list of Chatterbox voices, and it is ``VOICES``."""
+    assert [v.voice_id for v in gvs._select(["chatterbox"])] == list(APPROVED_VOICE_IDS)
+
+
+def test_an_ordinary_chatterbox_sample_reads_the_ordinary_sample_text(sample_seams,
+                                                                     monkeypatch):
+    _main(monkeypatch, "chatterbox")
+    assert sample_seams.texts("chatterbox") == {gvs.SAMPLE_TEXT}
+    assert gvs.CHATTERBOX_EVAL_TEXT not in sample_seams.texts("chatterbox")
+
+
+def test_an_ordinary_chatterbox_sample_uses_the_generic_destination_name(sample_seams,
+                                                                        monkeypatch,
+                                                                        tmp_path):
+    _main(monkeypatch, "chatterbox")
+    assert [Path(d).name for d in sample_seams.destinations("chatterbox")] == [
+        f"chatterbox_{voice_id}.mp3" for voice_id in APPROVED_VOICE_IDS
+    ]
+    for dest in sample_seams.destinations("chatterbox"):
+        assert Path(dest).parent == tmp_path / "manual-listen"
+
+
+def test_an_ordinary_chatterbox_sample_never_lands_in_the_evaluation_folder(
+        sample_seams, monkeypatch, tmp_path):
+    """The four listening WAVs are evidence for a decision already made."""
+    _main(monkeypatch)
+    assert not (tmp_path / "manual-listen" / gvs.CHATTERBOX_EVAL_SUBDIR).exists()
+    for dest in sample_seams.destinations("chatterbox"):
+        assert gvs.CHATTERBOX_EVAL_SUBDIR not in Path(dest).parts
+        assert dest.endswith(".mp3")
+
+
+def test_ordinary_mode_never_calls_the_phase_nine_evaluation(sample_seams, monkeypatch):
+    called: list[str] = []
+    monkeypatch.setattr(gvs, "run_chatterbox_evaluation",
+                        lambda *a, **k: called.append("ran") or [])
+    _main(monkeypatch)
+    assert called == []
+    assert len(sample_seams.calls) == 16
+
+
+def test_the_evaluation_flag_never_enters_ordinary_dispatch(sample_seams, monkeypatch):
+    called: list[str] = []
+    monkeypatch.setattr(gvs, "run_chatterbox_evaluation",
+                        lambda *a, **k: called.append("ran") or [])
+    monkeypatch.setattr(gvs, "_report_chatterbox_evaluation", lambda results, log=print: 0)
+    _main(monkeypatch, "--chatterbox-eval")
+    assert called == ["ran"]
+    assert sample_seams.calls == []
+
+
+def test_a_failing_chatterbox_sample_does_not_stop_the_remaining_voices(sample_seams,
+                                                                       monkeypatch,
+                                                                       capsys):
+    sample_seams.fail_chatterbox_for = "chatterbox-female-2"
+    code = _main(monkeypatch, "chatterbox")
+    assert sample_seams.voices("chatterbox") == [
+        "chatterbox-female-1", "chatterbox-male-1", "chatterbox-male-2"]
+    out = capsys.readouterr().out
+    assert "FAIL Chatterbox - Female 2" in out
+    assert "1 failed" in out
+    assert code == 1
+
+
+def test_a_fully_successful_ordinary_run_reports_success(sample_seams, monkeypatch,
+                                                         capsys):
+    code = _main(monkeypatch)
+    assert code == 0
+    assert "16 ok, 0 failed" in capsys.readouterr().out
+
+
+def test_edge_and_kokoro_sample_naming_is_unchanged(sample_seams, monkeypatch,
+                                                    tmp_path):
+    _main(monkeypatch, "edge", "kokoro")
+    produced = sorted(p.name for p in (tmp_path / "manual-listen").iterdir())
+    assert produced == sorted(
+        [f"edge_{v}.mp3" for v in ORDINARY_EDGE_IDS]
+        + [f"kokoro_{v}.mp3" for v in ORDINARY_KOKORO_IDS]
+    )

@@ -16,8 +16,11 @@ the Phase 10 entry. Approved Phase 9 SHA `2c63aa75521ae8e082d31923506aa6641ef068
 **Phase 10 is implemented:** the four approved voices are registered (sixteen `VoiceEntry` rows,
 the original twelve unchanged by value) and usable through the one unified PDF/TXT queue, behind a
 truthful registered-vs-available distinction. **Phase 11 is NOT AUTHORIZED and has NOT started.**
-One discovered consequence needs a decision in Phase 11: the dev-only `generate_voice_samples.py`
-ordinary mode now routes the four Chatterbox rows to Edge TTS and exits 1 — see the Phase 10 entry.
+Review of Phase 10 found one post-registration regression in the dev-only
+`generate_voice_samples.py` — ordinary mode classified every non-Kokoro row as Edge, so the four
+Chatterbox rows were posted to Edge TTS. **The Phase 10 remediation fixed it** (implementation
+commit `3708b469250b902b343df5024ea5506946cedf50`); see the remediation entry below. **Phase 10
+remains awaiting final approval until that remediation is reviewed.**
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -1615,7 +1618,7 @@ The 13 skips are all environment or fixture gates: six symlink-privilege, two ca
 filesystem, three `JACK_RYAN_M4B_FOLDER` unset, and the cover symlink case. The single warning is
 the pre-existing pydub `audioop` `DeprecationWarning`.
 
-#### Discovered consequence — NOT fixed, needs a decision
+#### Discovered consequence — reported here, fixed by the Phase 10 remediation below
 
 Registering four rows has a side effect on the **dev-only** sample utility. `generate_voice_samples
 .py`'s ordinary mode iterates every registered voice and dispatches `kokoro` → Kokoro, **everything
@@ -1629,7 +1632,9 @@ requires reporting before broadening scope; more decisively, the obvious fix —
 in `main()` — would break Phase 9's guard
 `test_the_sample_generator_reaches_chatterbox_only_behind_its_own_flag`, which asserts the word
 never appears in `main()` outside the `--chatterbox-eval` branch. Fixing it properly therefore
-needs an authorized decision about that guard. **Recommended for Phase 11.**
+needed an authorized decision about that guard. The maintainer took it immediately rather than
+deferring: the guard was stale, the regression belonged to Phase 10, and Phase 11 has a different
+scope. **Fixed by the Phase 10 remediation entry below.**
 
 #### Protected assets
 
@@ -1661,6 +1666,147 @@ run, CUDA was **not** used, no Mac was involved, and no Windows manual matrix wa
 
 No version bump, merge, tag, release, packaging or branch deletion. **Phase 11 — Structural guards,
 deterministic race and lifecycle testing — is NOT AUTHORIZED and has NOT started.**
+
+### Phase 10 remediation — Chatterbox sample dispatch driven by the voice row (2026-08-15, HOME-PC)
+
+**Result: the QA sample utility now dispatches on `VoiceEntry.backend` across all three backends,
+so no Chatterbox voice is posted to the Edge service. No Phase 10 application behaviour changed —
+no application production file is in this diff. Phase 10 implementation commit
+`3708b469250b902b343df5024ea5506946cedf50`; the remediation is one further commit on
+`feature/0.6.1-tts-cover-workflows`.**
+
+#### Why this was not deferred to Phase 11
+
+The regression was **caused directly by Phase 10's own registration** — it did not exist before the
+four rows were added, and it exists in no other phase's work. Phase 11 is structural guards and
+deterministic race/lifecycle testing, an unrelated scope that should begin from a clean Phase 10
+checkpoint. Carrying a known post-registration defect into it would have mixed two causes in one
+review. Phase 10 therefore remains **awaiting final approval** until this remediation is reviewed.
+
+#### The defect
+
+`generate_voice_samples.py`'s ordinary loop read:
+
+```
+kokoro  -> Kokoro
+else    -> Edge
+```
+
+That is the same mistake the TTS panel carried before Phase 10 — treating "not Kokoro" as Edge.
+It was harmless only while every non-Kokoro row *was* an Edge row. The four registered Chatterbox
+rows fell into the `else`, so `chatterbox-female-1` and its three siblings were handed to
+`edge_tts.Communicate`, raised per voice, were caught by the survivor loop, printed as `FAIL`, and
+made a bare `python generate_voice_samples.py` exit 1.
+
+#### The fix
+
+Backend-driven dispatch, read from the row, with **no "everything else" to fall into**:
+
+| `VoiceEntry.backend` | Ordinary sample path |
+|---|---|
+| `edge` | `edge_tts.Communicate(SAMPLE_TEXT, voice_id).save(dest)` — unchanged |
+| `kokoro` | `tts.kokoro_synth.synthesize_text_to_mp3(SAMPLE_TEXT, dest, voice_id=…)` — unchanged |
+| `chatterbox` | `tts.chatterbox_synth.synthesize_text_to_mp3(SAMPLE_TEXT, dest, voice_id=…)` — **new** |
+| anything else | `ValueError`, caught by the existing survivor loop and reported as `FAIL` |
+
+The unknown-backend arm matters: a future fourth backend now fails loudly on its own row instead of
+being silently mis-sent to whichever engine happened to be written last. That is precisely the
+failure mode being repaired.
+
+No new list of Chatterbox voices was introduced — selection is still `VOICES` through `_select`,
+and `_matches` was not touched.
+
+#### The two workflows stay separate
+
+| | Ordinary registered-voice sample | Phase 9 listening evaluation |
+|---|---|---|
+| Trigger | any ordinary invocation | `--chatterbox-eval` only |
+| Text | `SAMPLE_TEXT` | `CHATTERBOX_EVAL_TEXT` |
+| Entry point | `chatterbox_synth.synthesize_text_to_mp3` | `run_chatterbox_evaluation` |
+| Output | `<backend>_<voice_id>.mp3` beside every other sample | four WAVs in `chatterbox-eval/` |
+| Purpose | a QA sample like any other voice's | the manual-listening evidence, already acted on |
+
+Ordinary mode never calls `run_chatterbox_evaluation`, never reads `CHATTERBOX_EVAL_TEXT`, never
+names `_chatterbox_eval_dir`, and writes nothing into `chatterbox-eval/`. **The four approved Phase
+9 WAVs were not regenerated, overwritten or deleted, and no real synthesis ran in this remediation.**
+
+#### The no-argument contract stays truthful
+
+"No patterns means every registered voice" still holds, and that is now **sixteen**: 7 Edge, 5
+Kokoro, 4 Chatterbox. The four rows were deliberately **not** excluded to avoid the model load —
+excluding them would have made the documented contract false. Using this developer utility for the
+Chatterbox rows now requires the local package, model and reference recordings; a missing one fails
+that row through the existing survivor behaviour and the run continues. The **application is
+unaffected** by a missing developer-sample dependency. Backend filters work by name for all three:
+`chatterbox` selects exactly the four approved rows and nothing else.
+
+#### Guard migration — one stale assertion, three truthful ones
+
+| | Before | After |
+|---|---|---|
+| Name | `test_the_sample_generator_reaches_chatterbox_only_behind_its_own_flag` | `test_the_listening_evaluation_reaches_chatterbox_only_behind_its_own_flag` |
+| Claim | the word `chatterbox` appears nowhere in `main()` outside the flag branch | the **evaluation's own symbols** (`run_chatterbox_evaluation`, `_report_chatterbox_evaluation`, `CHATTERBOX_EVAL_TEXT`, `CHATTERBOX_EVAL_VOICE_IDS`, `CHATTERBOX_EVAL_SUBDIR`, `_chatterbox_eval_dir`, `synthesize_text_to_wav`, `.wav`) appear nowhere outside it |
+| Added | — | `test_ordinary_sample_generation_dispatches_on_the_voice_row_backend` — AST: every backend comparison in `main()` is `v.backend == <name>` and the set of named backends is exactly `{edge, kokoro, chatterbox}` |
+| Added | — | `test_the_ordinary_chatterbox_branch_is_not_the_edge_branch` — AST: the single `Communicate` call's innermost guard is `v.backend == "edge"`, and that branch names no Chatterbox symbol |
+
+The old assertion became false the moment Phase 10 registered Chatterbox as a supported backend; it
+was **migrated, not deleted**, and the replacement is strictly stronger — it pins both the isolation
+the old guard was protecting *and* the dispatch the old guard would have forbidden. Fourteen
+behavioural tests in `test_chatterbox_evaluation.py` section R prove the same two halves by running
+`main()` against stubbed engines.
+
+#### Tests — written first, and RED first
+
+RED before any production edit: **10 failed, 113 passed** across the two files. The failures were
+for exactly the right reason — `sample_seams.voices("edge")` contained `chatterbox-female-1` and its
+three siblings, and the AST guards found `v.backend == "kokoro"` where the Edge branch's guard
+should be. After the fix: **123 passed**.
+
+Every engine is stubbed — `edge_tts` and `tts.kokoro_synth` through `sys.modules`,
+`chatterbox_synth.synthesize_text_to_mp3` through the already-imported module — so nothing loads a
+model, reaches the network, or writes outside `tmp_path`. All stubs are installed with
+`monkeypatch`, so no module state survives a test.
+
+#### Preservation
+
+No Phase 10 application production file is in this diff: `voice_registry.py`, `epub2tts_gui.py`,
+`chatterbox_synth.py`, `kokoro_synth.py`, `batch_convert.py`, `pdf_extractor.py`, `bootstrap.py`,
+`requirements.txt`, `shared/job_control.py`, `shared/job_ui.py` and the Cover files are all
+untouched. The sixteen-row registry, the four display labels, the Steffan default, the availability
+projection, the TTS panel, the backend freeze, direct/folder/mixed conversion, pause, cancel,
+progress, Retry Failed, `RunPublisher`, output planning, Edge, Kokoro and EPUB retirement are all
+proved unchanged by re-running their suites. `test_tts_reporting_order.py` and
+`test_batch_convert_folders.py` ran **unmodified** — neither appears in the diff.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| Targeted (all `test_chatterbox_*`, EPUB retirement, TTS jobs/importing/reporting/smoke, batch folders) | **555 passed** |
+| Full suite | **3462 collected, 3449 passed, 13 skipped, 1 warning** |
+| Collection delta vs the Phase 10 baseline of 3444 | **+18 exactly** — 16 new cases in section R (13 functions, one parametrized three ways) plus a net +2 in the boundary file (one guard retired, three added). **Zero tests deleted, skipped, xfailed or weakened** |
+| `python scripts/verify.py` | `RESULT: PASS` (config version `0.5.1`, platforms Windows/MacOS) |
+| `python -m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check -- '*.py'` / `--cached` | clean |
+
+The 13 skips and the single pydub `audioop` `DeprecationWarning` are the same pre-existing set
+recorded for Phase 10. **The ffmpeg PATH skip flake did not recur** in this remediation — every run
+reported 13 skips — and `ffmpeg_utils.py` was not touched.
+
+#### Protected assets
+
+Re-hashed after all testing. All four **byte-identical** to the Phase 10 table above, same byte
+counts. `git ls-files files/Chatterbox-Voice-Uploads/ files/runtime-data/
+files/test-for-manual-listen-elmatthe/` returns **zero**. No protected MP3, derivative, cached
+conditional, manifest, Phase 9 WAV, ordinary sample MP3, model weight, runtime cache or probe venv
+was staged. `git add -f` was never used and `git clean` was never run.
+
+#### Not done
+
+No version bump, merge, tag, release, packaging or branch deletion; the working `.venv` was not
+mutated, no model was loaded, `Setup_and_Run` was not run, no CUDA, no Mac, no manual matrix. The
+Plan 4 drop is **not retired**. **Phase 11 — Structural guards, deterministic race and lifecycle
+testing — is NOT AUTHORIZED and has NOT started.**
 
 ---
 

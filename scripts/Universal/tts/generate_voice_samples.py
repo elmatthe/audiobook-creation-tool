@@ -2,7 +2,10 @@
 
 Writes to files/test-for-manual-listen-elmatthe/<backend>_<voice_id>.mp3.
 Dev/QA helper — never imported by the app. Edge samples need network; Kokoro
-samples need the local model (~300 MB).
+samples need the local model (~300 MB); Chatterbox samples need the local
+package, the local model and the maintainer's reference recordings, which exist
+on one machine only. A missing dependency fails that voice's row and the run
+continues — the application itself is unaffected either way.
 
 Usage:
     python generate_voice_samples.py                 # every registered voice
@@ -312,11 +315,25 @@ def main() -> int:
     for v in selected:
         dest = out / f"{v.backend}_{v.voice_id}.mp3"
         try:
+            # Dispatch on the row's own backend. This used to read "kokoro, else
+            # Edge", which was only ever true because every non-Kokoro row was an
+            # Edge row; registering the Chatterbox voices made it post cloned-voice
+            # ids to the Edge service. An unknown backend is now an error rather
+            # than a silent fall-through to whichever engine is listed last.
             if v.backend == "kokoro":
                 from tts.kokoro_synth import synthesize_text_to_mp3
 
                 synthesize_text_to_mp3(SAMPLE_TEXT, str(dest), voice_id=v.voice_id)
-            else:
+            elif v.backend == "chatterbox":
+                # The ordinary sample, not the Phase 9 listening evaluation: the
+                # same SAMPLE_TEXT and the same <backend>_<voice_id>.mp3 name as
+                # every other row. The four evaluation WAVs stay behind their flag.
+                from tts.chatterbox_synth import (
+                    synthesize_text_to_mp3 as chatterbox_text_to_mp3,
+                )
+
+                chatterbox_text_to_mp3(SAMPLE_TEXT, str(dest), voice_id=v.voice_id)
+            elif v.backend == "edge":
                 import asyncio
 
                 import edge_tts
@@ -325,6 +342,9 @@ def main() -> int:
                     await edge_tts.Communicate(SAMPLE_TEXT, v.voice_id).save(str(dest))
 
                 asyncio.run(_speak())
+            else:
+                raise ValueError(
+                    f"No sample path for backend {v.backend!r} ({v.voice_id}).")
             print(f"OK   {v.display_label} -> {dest.name}")
             ok += 1
         except Exception as e:  # keep going; QA wants the survivors
