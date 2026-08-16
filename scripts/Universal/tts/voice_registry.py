@@ -17,9 +17,18 @@ Each entry defines:
                     reads one set of timing fields for every backend).
 
 The "chatterbox" backend was admitted here in v0.6.1 Plan 4 Phase 8 so the engine
-module and the preset helper have somewhere to land. **No Chatterbox VoiceEntry
-exists yet** — registering the four cloned voices is Phase 10's job, and the twelve
-rows below are unchanged by Phase 8.
+module and the preset helper have somewhere to land. **Phase 10 registered the four
+approved cloned voices**, after the maintainer listened to all four Phase 9
+evaluation outputs on 2026-08-15 and approved every one of them. The twelve
+pre-existing rows are unchanged by both phases, in value and in order; the four
+approved rows are appended after them.
+
+**Registered is not the same as available.** A row here says a voice is part of the
+supported configuration. Whether it can actually run on *this* machine is a separate
+question, owned by ``tts/chatterbox_synth.py`` — the Chatterbox voices are backed by
+local, maintainer-supplied reference recordings that exist on one machine only. A
+missing recording leaves the row in place and reports "setup required"; it never
+removes a voice, substitutes another, or fetches anything.
 """
 
 from __future__ import annotations
@@ -100,8 +109,10 @@ def _chatterbox_preset(
     ``trim_edge_chunks`` stays off; edge-chunk trimming corrects an Edge TTS
     artefact that local engines do not produce.
 
-    Added in v0.6.1 Plan 4 Phase 8 as engine foundation. It has no caller until
-    Phase 10 registers the voices.
+    Added in v0.6.1 Plan 4 Phase 8 as engine foundation; Phase 10's four rows are
+    its only callers, and all four take it **unmodified**. The maintainer approved
+    every voice under one common set of model parameters, so there is deliberately
+    no per-voice tuning here: Female 1 is not timed differently from Male 2.
     """
     return {
         "sentencepause": str(sentence),
@@ -116,8 +127,14 @@ def _chatterbox_preset(
     }
 
 
-# Exactly twelve rows: seven Edge, five Kokoro. Phase 8 added none — the four
-# Chatterbox voices are registered in Phase 10, not here.
+#: The one cosmetic heading the four Chatterbox rows share, in the same
+#: "<engine> — <category>" shape the Edge and Kokoro groups already use. It is a
+#: dropdown separator only and never part of a voice's name.
+CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
+
+# Sixteen rows: seven Edge, five Kokoro, then the four approved Chatterbox voices.
+# The first twelve are exactly as they were before Phase 10 — same order, same
+# values — because adding a third engine must not change the other two.
 VOICES: list[VoiceEntry] = [
     VoiceEntry(
         backend="edge",
@@ -207,6 +224,40 @@ VOICES: list[VoiceEntry] = [
         display_label="George (bm_george) — British Male",
         group_label="Kokoro Local AI — British English",
         timing_preset=_kokoro_preset(speed=1.0, sentence=600),
+    ),
+    # ---- v0.6.1 Plan 4 Phase 10: the four approved Chatterbox voices ---- #
+    # The display labels are the maintainer's own, written exactly as approved on
+    # 2026-08-15: an ASCII hyphen surrounded by spaces, not the em dash the drop's
+    # §5.7 had proposed. They may be renamed in a later version; they are not
+    # renamed here, and no engine detail ("Turbo", "CPU", "cloned") belongs in
+    # them — that wording lives in the panel's engine/status line.
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-female-1",
+        display_label="Chatterbox - Female 1",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
+    ),
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-female-2",
+        display_label="Chatterbox - Female 2",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
+    ),
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-male-1",
+        display_label="Chatterbox - Male 1",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
+    ),
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-male-2",
+        display_label="Chatterbox - Male 2",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
     ),
 ]
 

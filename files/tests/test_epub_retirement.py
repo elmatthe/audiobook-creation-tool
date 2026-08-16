@@ -536,13 +536,20 @@ def test_every_batch_retry_constant_keeps_its_approved_value():
     assert batch_convert.INTER_CHUNK_DELAY_SEC == 0.8
 
 
-def test_the_twelve_voices_and_the_default_label_are_unchanged():
+def test_the_edge_and_kokoro_voices_and_the_default_label_are_unchanged():
+    """EPUB retirement did not touch the registry, and neither did adding a backend.
+
+    The Edge and Kokoro counts are what this test is about; the four approved
+    Chatterbox rows Phase 10 appended are counted here only to prove nothing else
+    appeared beside them.
+    """
     from tts import voice_registry as vr
 
-    assert len(vr.VOICES) == 12
+    assert len(vr.VOICES) == 16
     assert vr.DEFAULT_VOICE_LABEL == vr.display_labels()[0]
     assert len([v for v in vr.VOICES if v.backend == "edge"]) == 7
     assert len([v for v in vr.VOICES if v.backend == "kokoro"]) == 5
+    assert len([v for v in vr.VOICES if v.backend == "chatterbox"]) == 4
     for voice in vr.VOICES:
         assert isinstance(voice.timing_preset, dict) and voice.timing_preset
 

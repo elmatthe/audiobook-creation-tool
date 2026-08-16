@@ -47,6 +47,24 @@ The same file may sit in the queue twice, deliberately, as two occurrences with 
 collision-safe destinations; a retry reuses the destination its original run planned
 and therefore can never overwrite an earlier success.
 
+v0.6.1 Plan 4 Phase 10 added a third engine. The maintainer approved all four
+locally cloned Chatterbox voices on 2026-08-15, and they are registered in
+``voice_registry`` alongside the Edge and Kokoro rows. What changed here is
+deliberately small: the engine choice that used to be one ``is_kokoro`` boolean is
+now the run's frozen ``backend``, and the worker makes a **three-way** decision at
+the synthesis seam. There is no second queue, no second run, no second controller,
+no second progress model and no second output planner — a Chatterbox run is the
+same run, taking the same frozen snapshot down the same path, and only the call
+that actually produces audio is different.
+
+Two things are genuinely new. **A registered voice is not necessarily an available
+one**: the cloning voices are backed by local reference recordings that exist only
+where the maintainer put them, so a voice whose recording is missing or altered is
+shown as setup-required and refuses to start a run — rather than being offered,
+accepted, and failing partway through. And the engine choice is frozen as an
+explicit ``backend``/``voice_id`` pair, so a retry re-runs the voice the original
+run used even if the dropdown has moved on since.
+
 The conversion engines themselves are untouched: ``run_conversion_job``,
 ``convert_single_pdf``, ``kokoro_file_to_mp3`` and ``pdf_to_txt`` are consumed exactly
 as they were, with their timing constants, retry counts and per-source temp-chunk
@@ -155,6 +173,50 @@ RESULT_MESSAGE = "result"
 
 #: The queue message carrying one finished file's measured duration.
 TIMING_MESSAGE = "timing"
+
+#: What the engine line says when a locally cloned voice is selected. Engine
+#: wording lives here and never in a voice's name: the four voice labels are the
+#: maintainer's own and are shown exactly as approved.
+CHATTERBOX_ENGINE_LABEL = "Chatterbox Turbo (Local AI)"
+
+
+def chatterbox_status(voice_id: str) -> tuple[bool, str]:
+    """The panel's one question to the local cloning engine: can this voice run?
+
+    Everything that makes the answer true or false — where the reference recording
+    lives, what it must hash to, what cached voice data is bound to, whether the
+    package is installed — belongs to ``tts/chatterbox_synth.py`` and stays there.
+    This panel gets a boolean and a sentence fit to show a non-technical user, and
+    knows nothing else about it.
+
+    The import is lazy and both failure modes are answered rather than raised, so a
+    machine with no local engine installed at all still builds this panel, still
+    lists every voice, and still converts with Edge and Kokoro.
+    """
+    try:
+        from tts.chatterbox_synth import voice_availability
+    except Exception as exc:  # noqa: BLE001 - a missing engine is a status, not a crash
+        return False, (
+            "The local voice-cloning engine is not available on this computer "
+            f"({exc}). Edge and Kokoro voices are unaffected."
+        )
+    try:
+        return voice_availability(voice_id)
+    except Exception as exc:  # noqa: BLE001 - likewise: report it, never crash a panel
+        return False, (
+            f"This voice could not be checked on this computer ({exc}). "
+            "Edge and Kokoro voices are unaffected."
+        )
+
+
+def _default_chatterbox_status(voice_id: str) -> tuple[bool, str]:
+    """The panel's default seam — one hop, so the module function stays patchable.
+
+    A constructor keyword of the same name shadows :func:`chatterbox_status` inside
+    ``__init__``, and binding the function object there would also freeze it. This
+    resolves the name at call time instead.
+    """
+    return chatterbox_status(voice_id)
 
 
 @dataclass(frozen=True)
@@ -339,9 +401,9 @@ def plan_destinations(snapshot, run_root: Path, *, direct_rename, grouped_rename
 
 
 def freeze_tts_options(
-    *, speaker: str, rate: str, resume: bool, overwrite: bool, bitrate: str,
-    workers: int, kokoro_voice_id, kokoro_speed: float, end_pause: int,
-    paragraph_pause: int, pause_kw: dict,
+    *, speaker: str, backend: str, voice_id: str, rate: str, resume: bool,
+    overwrite: bool, bitrate: str, workers: int, kokoro_speed: float,
+    end_pause: int, paragraph_pause: int, pause_kw: dict,
 ) -> dict:
     """Everything about a run that changes what it produces, as plain frozen values.
 
@@ -349,15 +411,22 @@ def freeze_tts_options(
     the only owner of what a destination *means*, so nothing here is a path. These are
     the settings the worker reads instead of reading a widget, and the settings a
     retry re-uses instead of reading today's widget.
+
+    ``backend`` and ``voice_id`` are the run's engine identity, and they are the
+    *only* thing that decides which engine synthesises it. They are explicit fields
+    rather than something inferred from ``speaker`` or matched out of a display
+    label, because a display label is a name shown to a person and names change —
+    the maintainer may rename a voice without any run behaving differently.
     """
     return {
         "speaker": str(speaker),
+        "backend": str(backend),
+        "voice_id": str(voice_id),
         "rate": str(rate),
         "resume": bool(resume),
         "overwrite": bool(overwrite),
         "bitrate": str(bitrate),
         "workers": int(workers),
-        "kokoro_voice_id": None if kokoro_voice_id is None else str(kokoro_voice_id),
         "kokoro_speed": float(kokoro_speed),
         "end_pause": int(end_pause),
         "paragraph_pause": int(paragraph_pause),
@@ -535,6 +604,7 @@ class TtsPanel(ttk.Frame):
         choose_folder=None,
         confirm_broad_root=None,
         confirm_large_result=None,
+        chatterbox_status=None,
     ):
         super().__init__(parent)
         ffmpeg_utils.configure_pydub()
@@ -564,6 +634,14 @@ class TtsPanel(ttk.Frame):
         self._clock = time.monotonic if clock is None else clock
         self._effective_config = (shared_config.get_effective()
                                   if effective_config is None else effective_config)
+
+        # The whole of this panel's knowledge about whether a locally cloned voice
+        # can run: one seam that answers, one boolean, one message. Not a second
+        # registry and not a second state machine — a registered voice stays
+        # registered whatever this says.
+        self._chatterbox_status = (chatterbox_status if chatterbox_status is not None
+                                   else _default_chatterbox_status)
+        self._voice_available = True
 
         # ---- Tk state ---------------------------------------------------- #
         # Where the next run will go, shown read-only. The numbered run folder is
@@ -853,6 +931,22 @@ class TtsPanel(ttk.Frame):
                                     pady=(4, 0))
         self.kokoro_notice_lbl.grid_remove()
 
+        # The truthful "this voice cannot run here" line. Same row of the same
+        # frame as every other voice message — this is the existing pattern, not a
+        # new voice-management screen. It is empty and hidden unless the selected
+        # voice genuinely needs setting up on this computer.
+        self.voice_status_var = tk.StringVar(value="")
+        self.voice_status_lbl = ttk.Label(
+            voice_frm,
+            textvariable=self.voice_status_var,
+            wraplength=560,
+            foreground="firebrick",
+            justify=tk.LEFT,
+        )
+        self.voice_status_lbl.grid(row=4, column=0, columnspan=2, sticky="w",
+                                   pady=(4, 0))
+        self.voice_status_lbl.grid_remove()
+
         self.voice_combo.bind("<<ComboboxSelected>>", self._on_voice_selected)
         self._on_voice_selected()
 
@@ -871,7 +965,10 @@ class TtsPanel(ttk.Frame):
                 "Edge TTS voices use network synthesis via edge-tts (no Natural "
                 "Reader login). Kokoro voices (Heart, Bella, Michael, Emma, George) "
                 "run locally using the Kokoro-82M open-source AI model; ~300 MB "
-                "model download required on first use."
+                "model download required on first use. The cloned voices run "
+                "locally too, from reference recordings kept on this computer; if "
+                "a recording is not present here, that voice reports what it needs "
+                "and the other voices are unaffected."
             ),
             wraplength=620,
             justify=tk.LEFT,
@@ -988,7 +1085,20 @@ class TtsPanel(ttk.Frame):
         self.rate_var.set(preset["rate"])
         self.kokoro_speed_var.set(preset["kokoro_speed"])
 
-        if entry.backend == "kokoro":
+        if entry.backend == "chatterbox":
+            # No speed control: the pinned engine exposes no speed parameter, so
+            # showing Kokoro's would be a lie about what it does. No temperature,
+            # exaggeration or cfg_weight control either — the maintainer approved
+            # these four voices at the engine's own defaults, and this phase
+            # integrates them rather than building a tuning console.
+            self.backend_label_var.set(
+                f"Engine: {CHATTERBOX_ENGINE_LABEL}  |  Voice: {entry.voice_id}  "
+                f"|  Group: {entry.group_label}"
+            )
+            self.kokoro_speed_frm.grid_remove()
+            self.kokoro_notice_lbl.grid_remove()
+            self._refresh_voice_status(entry)
+        elif entry.backend == "kokoro":
             self.backend_label_var.set(
                 f"Engine: Kokoro local AI  |  Voice code: {entry.voice_id}  "
                 f"|  Group: {entry.group_label}"
@@ -1008,6 +1118,7 @@ class TtsPanel(ttk.Frame):
             self.kokoro_notice_var.set(notice)
             self.kokoro_notice_lbl.grid()
             self.trim_edge_chunks_var.set(False)
+            self._refresh_voice_status(entry)
         else:
             self.backend_label_var.set(
                 f"Engine: Microsoft Edge TTS  |  Voice ID: {entry.voice_id}  "
@@ -1015,6 +1126,40 @@ class TtsPanel(ttk.Frame):
             )
             self.kokoro_speed_frm.grid_remove()
             self.kokoro_notice_lbl.grid_remove()
+            self._refresh_voice_status(entry)
+
+    def _refresh_voice_status(self, entry) -> tuple[bool, str]:
+        """Project the selected voice's real availability onto this panel.
+
+        Main thread only, and deliberately the *whole* of the projection: one
+        boolean and one message, recomputed from the engine's own answer. There is
+        no second registry here and no second state machine — a voice stays
+        registered whatever this returns, and this returns what the engine says
+        rather than deciding anything itself.
+
+        Asked again at Start as well as at selection, because the answer can change
+        while the panel is open: a reference recording the maintainer moves between
+        picking a voice and pressing Start must stop the run, not fail inside it.
+
+        Edge and Kokoro are never asked. Nothing local has to be present for them,
+        so they are unconditionally available and the local cloning engine is never
+        loaded, probed or imported on their account.
+        """
+        if entry is None or entry.backend != "chatterbox":
+            self._voice_available = True
+            self.voice_status_var.set("")
+            self.voice_status_lbl.grid_remove()
+            return True, ""
+
+        ok, reason = self._chatterbox_status(entry.voice_id)
+        self._voice_available = bool(ok)
+        if self._voice_available:
+            self.voice_status_var.set("")
+            self.voice_status_lbl.grid_remove()
+        else:
+            self.voice_status_var.set(reason)
+            self.voice_status_lbl.grid()
+        return self._voice_available, reason
 
     # ------- worker -> GUI queue drain (main thread, on the one pump) -------
 
@@ -1212,15 +1357,29 @@ class TtsPanel(ttk.Frame):
             messagebox.showwarning("Missing input", "Add at least one PDF or TXT file.")
             return
 
+        # One backend value decides everything downstream: which engine converts,
+        # which controls applied, how a destination is named. It comes from the
+        # registry entry, never from the label the user sees, and a run carries it
+        # frozen so a retry cannot be answered by today's dropdown.
         current_voice_entry = get_voice(self.selected_voice_label.get())
-        is_kokoro = (
-            current_voice_entry is not None and current_voice_entry.backend == "kokoro"
-        )
         speaker = self.voice_var.get().strip() or DEFAULT_SPEAKER
+        backend = "edge" if current_voice_entry is None else current_voice_entry.backend
+        voice_id = (speaker if current_voice_entry is None
+                    else current_voice_entry.voice_id)
+
+        # A locally cloned voice needs its reference recording on *this* computer.
+        # Asked here rather than trusted from selection time, and before anything is
+        # frozen, reserved or synthesised — so an unavailable voice stops the run at
+        # the button instead of failing partway through a conversion. Nothing falls
+        # back to another voice or another engine.
+        available, unavailable_reason = self._refresh_voice_status(current_voice_entry)
+        if not available:
+            messagebox.showwarning("Voice unavailable", unavailable_reason)
+            return
 
         pause_kw: dict = {}
         trim_chunks = self.trim_edge_chunks_var.get()
-        if not is_kokoro:
+        if backend == "edge":
             try:
                 pause_kw = {
                     "sentencepause": _parse_pause_ms(
@@ -1281,13 +1440,13 @@ class TtsPanel(ttk.Frame):
             effective_config=self._effective_config,
             tool_options=freeze_tts_options(
                 speaker=speaker,
+                backend=backend,
+                voice_id=voice_id,
                 rate=self.rate_var.get().strip() or "+0%",
                 resume=self.resume_var.get(),
                 overwrite=self.overwrite_var.get(),
                 bitrate=self.bitrate_var.get(),
                 workers=workers,
-                kokoro_voice_id=(None if not is_kokoro
-                                 else current_voice_entry.voice_id),
                 kokoro_speed=kokoro_speed,
                 end_pause=end_pause,
                 paragraph_pause=paragraph_pause,
@@ -1313,9 +1472,11 @@ class TtsPanel(ttk.Frame):
             destinations = plan_destinations(
                 snapshot.files,
                 run_directory,
+                # Only the Edge engine names its own artifact after the speaker.
+                # Every local engine writes ``<stem>.mp3``, so they share one shape.
                 direct_rename=(
-                    mp3_output_name if is_kokoro
-                    else (lambda source: direct_output_name(source, speaker))
+                    (lambda source: direct_output_name(source, speaker))
+                    if backend == "edge" else mp3_output_name
                 ),
                 grouped_rename=mp3_output_name,
                 planner=reservation.planner(),
@@ -1371,12 +1532,16 @@ class TtsPanel(ttk.Frame):
             # Every processing setting comes from the frozen snapshot, never from a
             # widget — which is what makes a retry use the run's own settings.
             "speaker": options["speaker"],
+            # The run's engine identity, frozen. A retry re-reads this and never
+            # the combobox, so changing the voice after a failure cannot change
+            # which engine or which voice the retry uses.
+            "backend": options["backend"],
+            "voice_id": options["voice_id"],
             "rate": options["rate"],
             "resume": options["resume"],
             "overwrite": options["overwrite"],
             "bitrate": options["bitrate"],
             "workers": options["workers"],
-            "kokoro_voice_id": options["kokoro_voice_id"],
             "kokoro_speed": options["kokoro_speed"],
             "end_pause": options["end_pause"],
             "paragraph_pause": options["paragraph_pause"],
@@ -1621,7 +1786,7 @@ class _RunContext:
     def run_direct_items(self) -> None:
         """Directly added files, one at a time, through the rich engine."""
         params = self.params
-        kokoro_voice_id = params["kokoro_voice_id"]
+        backend = params["backend"]
         for item in [entry for entry in self.items if entry["direct"]]:
             try:
                 # The one cooperative boundary, and it sits *between* source files:
@@ -1634,9 +1799,15 @@ class _RunContext:
                 item["item_id"], f"Converting {item['source'].name}")
             started = self.clock()
             try:
-                if kokoro_voice_id is not None:
+                # The one place the three engines differ, and it is three calls
+                # deep in one shared loop — not three pipelines. Everything either
+                # side of this line is identical for all of them.
+                if backend == "kokoro":
                     convert_with_kokoro(item, params, self.log_q, self.log,
                                         self.cancel_check)
+                elif backend == "chatterbox":
+                    convert_with_chatterbox(item, params, self.log_q, self.log,
+                                            self.cancel_check)
                 else:
                     convert_with_edge_engine(item, params, self.log_q,
                                              self.cancel_check)
@@ -1817,7 +1988,7 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
         kokoro_file_to_mp3(
             text_path,
             str(destination),
-            voice_id=params["kokoro_voice_id"],
+            voice_id=params["voice_id"],
             speed=params["kokoro_speed"],
             end_silence_ms=params["end_pause"],
             chunk_pause_ms=params["paragraph_pause"],
@@ -1833,6 +2004,56 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
     from tts.pdf_extractor import pdf_to_txt
 
     with tempfile.TemporaryDirectory(prefix=f"kk_{source.stem}_") as work:
+        text_path = str(Path(work) / f"{source.stem}.txt")
+        pdf_to_txt(str(source), text_path)
+        synthesize(text_path)
+
+
+def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
+    """One file through ``chatterbox_file_to_mp3``, the engine's own entry point.
+
+    Deliberately the same shape as :func:`convert_with_kokoro`, because the two are
+    the same *kind* of thing: a local model that wants plain text and writes one
+    MP3. A PDF therefore takes the **same** extractor the Kokoro path takes — there
+    is one PDF-to-text seam in this tool and this adds no second one — and a TXT is
+    handed over as it stands.
+
+    The import stays inside the function so a machine without the local engine
+    installed never loads the model stack to open this panel, and so nothing is
+    imported at all unless a run actually selected this backend.
+
+    ``progress_callback`` is deliberately not supplied, for exactly the reason the
+    Kokoro path gives: the run has one progress model — the shared job status view,
+    counting completed *source files* — and a second stream counting synthesis
+    chunks into the same bar would contradict it. Cancellation does reach the
+    engine, through the controller's own predicate, and is honoured between chunks.
+    """
+    from tts.chatterbox_synth import chatterbox_file_to_mp3
+
+    source = item["source"]
+    destination = item["destination"]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    progress = None
+
+    def synthesize(text_path: str) -> None:
+        chatterbox_file_to_mp3(
+            text_path,
+            str(destination),
+            voice_id=params["voice_id"],
+            end_silence_ms=params["end_pause"],
+            chunk_pause_ms=params["paragraph_pause"],
+            log=log,
+            cancel_check=cancel_check,
+            progress_callback=progress,
+        )
+
+    if source.suffix.lower() == ".txt":
+        synthesize(str(source))
+        return
+
+    from tts.pdf_extractor import pdf_to_txt
+
+    with tempfile.TemporaryDirectory(prefix=f"cb_{source.stem}_") as work:
         text_path = str(Path(work) / f"{source.stem}.txt")
         pdf_to_txt(str(source), text_path)
         synthesize(text_path)
@@ -1859,12 +2080,19 @@ def convert_folder_items(folder_items, run) -> None:
     from tts import batch_convert
 
     params = run.params
-    kokoro_voice_id = params["kokoro_voice_id"]
+    backend = params["backend"]
     run_directory = params["run_directory"]
-    if kokoro_voice_id is not None:
+    if backend == "edge":
+        workers = max(1, min(32, params["workers"]))
+    elif backend == "kokoro":
         workers = max(1, min(params["workers"], 8))
     else:
-        workers = max(1, min(32, params["workers"]))
+        # One at a time for the cloning engine, and this is correctness rather
+        # than tuning: every item in a run shares one cached model object whose
+        # voice conditioning is attached to it, so concurrent generations would be
+        # racing one another's state. Edge is network-bound and Kokoro is
+        # per-call independent; this one is neither.
+        workers = 1
 
     def convert(item):
         try:
@@ -1873,9 +2101,13 @@ def convert_folder_items(folder_items, run) -> None:
             return "cancelled", item, None, None
         started = run.clock()
         try:
-            if kokoro_voice_id is not None:
+            if backend == "kokoro":
                 convert_with_kokoro(item, params, run.log_q, run.log,
                                     run.cancel_check)
+                return "success", item, None, run.clock() - started
+            if backend == "chatterbox":
+                convert_with_chatterbox(item, params, run.log_q, run.log,
+                                        run.cancel_check)
                 return "success", item, None, run.clock() - started
             status, _path, message = batch_convert.convert_single_pdf(
                 item["source"],

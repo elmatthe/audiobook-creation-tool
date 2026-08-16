@@ -388,7 +388,10 @@ def test_every_processing_option_the_worker_uses_is_frozen_in_tool_options(
     assert options["resume"] is False
     assert options["overwrite"] is False
     assert options["speaker"] == "en-US-SteffanNeural"
-    assert options["kokoro_voice_id"] is None
+    # Phase 10 replaced the single ``kokoro_voice_id`` field with the run's
+    # explicit engine identity, which is what the three-way dispatch reads.
+    assert options["backend"] == "edge"
+    assert options["voice_id"] == "en-US-SteffanNeural"
     assert options["pause_kw"]["sentencepause"] == 800
     assert options["pause_kw"]["trim_silence_db"] == -58.0
     assert job_control.is_frozen_options(options)
@@ -1588,7 +1591,7 @@ def test_no_engine_module_changed_and_no_timing_default_moved():
 
     assert vr.DEFAULT_VOICE_LABEL == "Steffan — en-US Male (default)"
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
-    assert len(vr.VOICES) == 12
+    assert len(vr.VOICES) == 16
 
 
 def test_the_panel_reimplements_no_engine():
@@ -1635,10 +1638,28 @@ def test_the_panel_composes_the_shared_job_foundation():
 
 
 def test_no_chatterbox_or_later_phase_vocabulary_arrived():
+    """Retargeted at Phase 10, which was authorized to add exactly the Chatterbox seam.
+
+    The panel may now name the local cloning engine — that is the whole of what
+    Phase 10 did, and the shape of it is asserted in detail by
+    ``test_chatterbox_integration.py``. What must still be absent is everything the
+    panel has no business importing: the model stack itself, a device pivot, or
+    another tool's image dependency. The GUI asks one status question and calls one
+    engine entry point; it never touches torch.
+    """
     source = PANEL_SOURCE.read_text(encoding="utf-8")
-    for later in ("chatterbox", "Chatterbox", "torch", "pillow_heif", "cuda",
-                  "mps", "chatterbox_synth"):
+    for later in ("torch", "pillow_heif", "resemble_perth", "librosa"):
         assert later not in source, later
+    # The panel may import this project's engine wrapper; it may never import the
+    # third-party model package, which is what would drag torch into a GUI build.
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            roots = {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            roots = {(node.module or "").split(".")[0]}
+        else:
+            continue
+        assert "chatterbox" not in roots, ast.dump(node)
 
 
 def test_the_only_engine_dependency_added_since_is_the_authorized_one():

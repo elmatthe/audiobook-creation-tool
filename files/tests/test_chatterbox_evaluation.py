@@ -200,7 +200,12 @@ def test_the_ordinary_sample_text_is_untouched_by_phase_nine():
 
 
 def test_the_ordinary_selection_still_covers_every_registered_voice():
-    assert len(gvs._select([])) == len(voice_registry.VOICES) == 12
+    """``_select`` means "every registered voice", and it still does.
+
+    Phase 10 registered four more, so the number moved from twelve to sixteen.
+    ``_select`` itself is unchanged and its contract is unchanged.
+    """
+    assert len(gvs._select([])) == len(voice_registry.VOICES) == 16
 
 
 def test_the_ordinary_backend_filters_still_work():
@@ -592,11 +597,20 @@ def test_the_generator_names_no_write_target_inside_the_protected_folder():
 
 
 # --------------------------------------------------------------------------- #
-# O. No voice is registered — the maintainer has not listened yet
+# O. The evaluation itself still registers nothing
 # --------------------------------------------------------------------------- #
-def test_phase_nine_registers_no_chatterbox_voice():
-    assert [v for v in voice_registry.VOICES if v.backend == "chatterbox"] == []
-    assert len(voice_registry.VOICES) == 12
+def test_the_evaluation_ids_match_the_voices_phase_ten_registered():
+    """Phase 9 registered nothing; Phase 10 registered exactly what it evaluated.
+
+    The listening evaluation and the registry must describe the same four voices —
+    a fifth in either place would mean the maintainer approved something other than
+    what shipped.
+    """
+    registered = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
+    assert len(registered) == 4
+    assert len(voice_registry.VOICES) == 16
+    assert sorted(v.voice_id for v in registered) == sorted(
+        gvs.CHATTERBOX_EVAL_VOICE_IDS)
 
 
 def test_running_the_evaluation_registers_nothing(engine):
@@ -605,15 +619,16 @@ def test_running_the_evaluation_registers_nothing(engine):
     assert list(voice_registry.VOICES) == before
 
 
-def test_the_default_voice_is_untouched_by_phase_nine():
+def test_the_default_voice_is_untouched_by_either_phase():
     assert voice_registry.DEFAULT_VOICE_LABEL == "Steffan — en-US Male (default)"
 
 
 # --------------------------------------------------------------------------- #
-# P/Q. Phase 10 has not started
+# P/Q. The conversion engines were never edited to add a backend
 # --------------------------------------------------------------------------- #
+# ``epub2tts_gui.py`` was removed from this list at Phase 10, which was authorized
+# to add exactly that dispatch. The engines below were not, and still must not.
 PHASE_TEN_MODULES = (
-    "epub2tts_gui.py",
     "batch_convert.py",
     "kokoro_synth.py",
     "epub2tts_edge/runner.py",
@@ -621,7 +636,7 @@ PHASE_TEN_MODULES = (
 
 
 @pytest.mark.parametrize("filename", PHASE_TEN_MODULES)
-def test_no_chatterbox_dispatch_reached_an_integration_module(filename):
+def test_no_chatterbox_dispatch_reached_a_conversion_engine(filename):
     tree = _tree(TTS_DIR / filename)
     names = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
     names |= {n.value for n in ast.walk(tree)
@@ -632,11 +647,12 @@ def test_no_chatterbox_dispatch_reached_an_integration_module(filename):
         elif isinstance(node, ast.ImportFrom):
             names.add(node.module or "")
     assert not any("chatterbox" in str(n).lower() for n in names), \
-        f"{filename} references Chatterbox — that is Phase 10"
+        f"{filename} references Chatterbox — the engines stay untouched"
 
 
-def test_the_gui_voice_dropdown_still_offers_only_the_twelve_labels():
-    assert len(voice_registry.display_labels()) == 12
+def test_the_gui_voice_dropdown_offers_the_twelve_plus_the_four_approved():
+    labels = voice_registry.display_labels()
+    assert len(labels) == 16 == len(set(labels))
 
 
 def test_the_generator_is_the_only_production_file_phase_nine_widened():

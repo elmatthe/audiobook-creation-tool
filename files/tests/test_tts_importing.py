@@ -1396,7 +1396,7 @@ def test_the_panel_reimplements_no_engine_and_changes_no_timing_default():
     assert batch_convert.PDF_MAX_RETRIES == 2
     assert batch_convert.CHUNK_MAX_RETRIES == 5
     assert batch_convert.INTER_CHUNK_DELAY_SEC == 0.8
-    assert len(vr.VOICES) == 12
+    assert len(vr.VOICES) == 16
     assert vr.DEFAULT_VOICE_LABEL == vr.display_labels()[0]
 
 
@@ -1461,8 +1461,21 @@ def test_the_job_control_vocabulary_is_consumed_and_never_reimplemented():
 
 def test_no_chatterbox_or_later_phase_vocabulary_arrived():
     source = PANEL_SOURCE.read_text(encoding="utf-8")
-    for later in ("chatterbox", "Chatterbox", "torch", "pillow_heif"):
+    # Retargeted at Phase 10: the panel may name the local cloning engine, which
+    # is what Phase 10 was authorized to integrate. The model stack itself must
+    # still never be imported here — see test_chatterbox_integration.py.
+    for later in ("torch", "pillow_heif", "resemble_perth", "librosa"):
         assert later not in source, later
+    # The panel may import this project's engine wrapper; it may never import the
+    # third-party model package, which is what would drag torch into a GUI build.
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            roots = {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            roots = {(node.module or "").split(".")[0]}
+        else:
+            continue
+        assert "chatterbox" not in roots, ast.dump(node)
     # ``archived-code`` is excluded from the substring sweep on purpose: Phase 5's
     # module header cites the archive manifest, which is prose. That the path is
     # never an *executable* string is the property that matters, and it is proved

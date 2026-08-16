@@ -274,6 +274,59 @@ def engine_status(voice_id: str | None = None) -> tuple[bool, str]:
     return reference_status(voice_id)
 
 
+#: Memo for :func:`voice_availability` **only**. Keyed by voice id, holding the
+#: source recording's identity as the filesystem reports it. Never consulted by
+#: anything on the conversion path.
+_AVAILABILITY_MEMO: dict[str, tuple[object, bool, str]] = {}
+
+
+def _source_stamp(path: Path):
+    """``(size, mtime_ns)`` for a source recording, or ``None`` if it is not there.
+
+    Cheap enough to ask on every dropdown refresh, and it changes whenever the file
+    is replaced, edited, truncated or removed — which is exactly when the memo below
+    must be discarded.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_size, stat.st_mtime_ns)
+
+
+def voice_availability(voice_id: str) -> tuple[bool, str]:
+    """``(ok, reason)`` cheap enough for a GUI to ask on every voice selection.
+
+    The same answer :func:`engine_status` gives, memoised per process against the
+    source recording's ``(size, mtime_ns)``. Added in Phase 10 as the *one* seam a
+    GUI needs: without it a dropdown refresh would re-hash a 33 MB recording every
+    time, and with it the panel still needs to know nothing about hashes,
+    derivative filenames, the manifest format or conditionals.
+
+    Deliberately does none of the expensive or destructive things: it loads no
+    model, downloads no weights, synthesizes nothing, writes nothing and creates no
+    derivative. It is also **not** a substitute for verification — every real use
+    still goes through :func:`resolve_reference`, which re-checks the full SHA-256
+    on the conversion path exactly as it always has. A memo miss simply means the
+    full check runs again.
+    """
+    ok, reason = package_status()
+    if not ok:
+        return False, reason
+    try:
+        get_reference_voice(voice_id)
+    except ChatterboxUnavailable as exc:
+        return False, str(exc)
+
+    stamp = _source_stamp(reference_source_path(voice_id))
+    cached = _AVAILABILITY_MEMO.get(voice_id)
+    if cached is not None and cached[0] == stamp:
+        return cached[1], cached[2]
+    ok, reason = reference_status(voice_id)
+    _AVAILABILITY_MEMO[voice_id] = (stamp, ok, reason)
+    return ok, reason
+
+
 # --------------------------------------------------------------------------- #
 # Derivative identity
 # --------------------------------------------------------------------------- #

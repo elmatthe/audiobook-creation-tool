@@ -2,17 +2,22 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–9 approved or implemented.**
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–10 approved or implemented.**
 Phases 0–7 approved (Phase 4 including its ETA-serialization remediation; Phase 6 approved
 2026-08-15 in the prompt that authorized Phase 7; **Phase 7 including its reporting-order
 remediation approved by the maintainer on 2026-08-15**, final SHA
 `c368542af9c158652da9a94db7f58619fa4fb6af`). **Phase 8 was approved by the maintainer on
 2026-08-15**, in the prompt that authorized Phase 9 — approved SHA
 `ce6e62bcd4e0060786259c68f9d1c5c5b9c1c97b`. (Any earlier sentence in this file saying Phase 8
-"awaits approval" is stale and superseded by this one.) **Phase 9 is implemented and has reached
-its hard stop:** the four evaluation WAVs exist locally and the maintainer **has not listened
-yet**. **Phase 10 is NOT AUTHORIZED and has NOT started** — its entry gate is an explicit
-maintainer response to the Phase 9 four-row listening table below.
+"awaits approval" is stale and superseded by this one.) **Phase 9 was approved by the maintainer on
+2026-08-15** — they listened to all four evaluation WAVs and approved **all four**, with the GUI
+labels set to the ASCII-hyphen form `Chatterbox - Female 1`. The response is recorded verbatim in
+the Phase 10 entry. Approved Phase 9 SHA `2c63aa75521ae8e082d31923506aa6641ef0686f`.
+**Phase 10 is implemented:** the four approved voices are registered (sixteen `VoiceEntry` rows,
+the original twelve unchanged by value) and usable through the one unified PDF/TXT queue, behind a
+truthful registered-vs-available distinction. **Phase 11 is NOT AUTHORIZED and has NOT started.**
+One discovered consequence needs a decision in Phase 11: the dev-only `generate_voice_samples.py`
+ordinary mode now routes the four Chatterbox rows to Edge TTS and exits 1 — see the Phase 10 entry.
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -1408,10 +1413,254 @@ files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-male-1.wav
 files/test-for-manual-listen-elmatthe/chatterbox-eval/chatterbox-male-2.wav
 ```
 
-**The maintainer has NOT listened yet.** No voice has been approved, rejected or ranked — that
-judgement is not the agent's to make. **Phase 10 is NOT AUTHORIZED and has NOT started.** Its entry
-gate is an explicit maintainer response to the table above, which must be recorded verbatim here
-when it arrives. The active Plan 4 drop is **not** retired.
+**The maintainer listened on 2026-08-15 and approved all four.** The response is recorded verbatim
+in the Phase 10 entry below, and Phase 10 was authorized on the strength of it. The four WAVs stay
+on disk, ignored and local-only, as reference evidence until Plan 4 closes. The active Plan 4 drop
+is **not** retired.
+
+---
+
+### Phase 10 — Chatterbox: lock the approved voices and integrate the unified queue (2026-08-15, HOME-PC)
+
+**Start SHA** `2c63aa75521ae8e082d31923506aa6641ef0686f` (approved Phase 9), branch
+`feature/0.6.1-tts-cover-workflows`, 12 ahead / 0 behind `master` at entry.
+**Approved Phase 9 SHA:** `2c63aa75521ae8e082d31923506aa6641ef0686f`.
+**Protected `master`:** `809a43e754920fce2f11f08e3c401dcc4c7a5223`, unchanged.
+
+#### The listening gate — the maintainer's response, verbatim
+
+> I just listened to all 4 and I am very happy with the results and i want to keep them:
+>
+> Female 1 — approve
+> Female 2 — approve
+> Male 1 — approve
+> Male 2 — approve
+>
+> Leave names as Chatterbox - Female 1, etc. for display on the gui (i might change them later). I am very happy with how they sound in fact.
+
+**Summary of the decision (the verbatim quote above is the authority, not this paragraph).**
+All four voices are approved. **Zero rejected, zero deferred, zero renamed in substance.** No
+source mapping changed and no `voice_id` changed. The maintainer explicitly set the GUI display
+labels to the **ASCII-hyphen** form — `Chatterbox - Female 1` — superseding the em-dash labels the
+drop's §5.7 had proposed. The maintainer may rename them in a later version; they were not renamed
+in this phase.
+
+#### What was registered
+
+`VOICES` went from twelve rows to **sixteen**. The first twelve are unchanged **by value** —
+backend, `voice_id`, `display_label`, `group_label` and every key of every `timing_preset` — in
+their original order, and `DEFAULT_VOICE_LABEL` is still Steffan. The four approved rows are
+appended after them, in this order:
+
+| # | backend | `voice_id` | `display_label` | `group_label` | timing preset |
+|---|---|---|---|---|---|
+| 13 | `chatterbox` | `chatterbox-female-1` | `Chatterbox - Female 1` | `Chatterbox Turbo Local AI — Cloned Voices` | `_chatterbox_preset()` |
+| 14 | `chatterbox` | `chatterbox-female-2` | `Chatterbox - Female 2` | `Chatterbox Turbo Local AI — Cloned Voices` | `_chatterbox_preset()` |
+| 15 | `chatterbox` | `chatterbox-male-1` | `Chatterbox - Male 1` | `Chatterbox Turbo Local AI — Cloned Voices` | `_chatterbox_preset()` |
+| 16 | `chatterbox` | `chatterbox-male-2` | `Chatterbox - Male 2` | `Chatterbox Turbo Local AI — Cloned Voices` | `_chatterbox_preset()` |
+
+All four take Phase 8's `_chatterbox_preset()` **unmodified and identically** — 600/700/1000/1800/
+3000 ms, `trim_dbfs` -58, `trim_edge_chunks` False, `rate` `+0%`, `kokoro_speed` `1.0`. There is
+deliberately **no per-voice tuning**: the maintainer approved all four under one common parameter
+set, so Female 1 is not timed differently from Male 2. The group label is cosmetic, shared by all
+four, and is not part of any voice's name.
+
+#### Registered is not the same as available
+
+The four voices are backed by local reference recordings that exist only where the maintainer put
+them. Phase 10 keeps those two ideas apart:
+
+- **Registered** — the row is in `VOICES` on every machine. A missing recording never removes a
+  voice, and the four MP3s are **not** an installation requirement.
+- **Available** — the local reference is present and valid *here*. Answered by the engine, never
+  re-derived by the GUI.
+
+`chatterbox_synth.voice_availability(voice_id)` is the one narrow read-only helper Phase 10 added
+to the engine (§23). It gives the same answer `engine_status` gives, memoised per process on the
+source recording's `(size, mtime_ns)`, so selecting a voice does not re-hash a 33 MB file every
+time. It loads no model, downloads nothing, synthesizes nothing, writes nothing and builds no
+derivative. It is **not** a replacement for verification: `resolve_reference` still re-checks the
+full SHA-256 on every real conversion, exactly as before, and a memo miss simply runs the full
+check again.
+
+The panel projects that into **one boolean and one message** — no second registry, no second state
+machine. It never hashes, never names a derivative, never reads the manifest. Behaviour:
+
+- an unavailable voice stays selectable in the dropdown but shows a truthful setup-required reason
+  under the voice row, and **Start is refused before capture, before the run directory is reserved
+  and before any worker exists**;
+- the check is re-asked at Start, not trusted from selection time, so a recording removed in
+  between stops the run at the button rather than failing mid-conversion;
+- **no substitution of any kind** — not another Chatterbox voice, not Kokoro, not Edge, and nothing
+  fetched from the internet;
+- one missing recording leaves the other three fully usable; all four missing leaves Edge and
+  Kokoro fully usable and the app starting normally;
+- a machine with no engine package at all gets a truthful status, never an exception — the seam
+  answers rather than raises.
+
+#### Dispatch — one backend, not two booleans
+
+`is_kokoro` is gone. The run freezes an explicit **`backend`** (`edge` / `kokoro` / `chatterbox`)
+and **`voice_id`** in `tool_options`, taken from the registry entry — never inferred from a display
+label, so renaming a voice later cannot change what any run does. `kokoro_voice_id` was replaced by
+that pair rather than joined by a second flag.
+
+The three-way decision is **three calls deep in one shared loop**, at the synthesis seam only. One
+queue, one frozen run, one `JobController`, one `RunPublisher`, one progress model, one set of
+output planners, one retry lineage — all shared. Backend-specific behaviour is confined to: which
+engine function is called; whether Edge's pause/trim block is parsed; whether the direct filename
+carries the speaker; and the folder-pool width.
+
+**Folder-pool width for Chatterbox is 1, and that is correctness, not tuning.** Every item in a run
+shares one cached model object whose voice conditioning is attached to it, so concurrent
+generations would race that state. Edge stays at 32, Kokoro at 8, both unchanged.
+
+#### Controls by backend
+
+| Control | Edge | Kokoro | Chatterbox |
+|---|---|---|---|
+| Engine label | `Engine: Microsoft Edge TTS \| Voice ID: … \| Group: …` | `Engine: Kokoro local AI \| …` | `Engine: Chatterbox Turbo (Local AI) \| Voice: … \| Group: …` |
+| Kokoro speed spinbox | hidden | **shown** | **hidden** |
+| Kokoro download notice | hidden | shown | hidden |
+| Voice-status line | hidden | hidden | shown only when setup is required |
+| Edge pause/trim block parsed into `pause_kw` | yes | no | no |
+| Direct output filename | `<stem> (<speaker>).mp3` | `<stem>.mp3` | `<stem>.mp3` |
+
+No Chatterbox tuning UI was invented: the pinned Turbo release exposes no speed parameter, and
+`temperature` / `exaggeration` / `cfg_weight` / `top_p` / `top_k` are deliberately absent. Phase 9
+approved the engine's own defaults. Engine wording (`Turbo`, `Local AI`) lives in the engine line
+and never in a voice's name.
+
+#### Conversion coverage — all through the one queue
+
+Direct TXT, direct PDF, folder TXT, folder PDF, nested folders, the same stem in two subfolders,
+and **mixed direct + folder in one frozen run** all convert with a Chatterbox voice. Direct inputs
+land **flat**; folder-derived inputs **mirror** their root; two roots each keep their own
+**container** through `plan_multi_root`. PDFs take the **existing** `pdf_to_txt` seam — no second
+extractor, and `pdf_extractor.py` was not edited. Deliberate duplicates stay two collision-safe
+outputs. The worker never rescans a folder; provenance comes from the frozen occurrence.
+
+#### Job controls
+
+Pause and resume run through the same `JobController` lifecycle as Edge and Kokoro, at the same
+boundary between source files — a generation already in flight is never torn down. Cancel goes
+through the controller's own `cancel_check` predicate, which is what the engine receives; a
+cancelled run settles `CANCELLED`, claims no false success, and its partial output is discarded
+while earlier successes survive. No second cancellation `Event` exists. Progress publishes only
+through `RunPublisher`; as with Kokoro, the engine's fine-grained chunk callback is deliberately
+**not** wired, because the run's one progress model counts completed source files and a second
+stream into the same bar would contradict it.
+
+**A retry reuses the original frozen `RunSnapshot`** — the exact object — with the original
+`backend`, the original `voice_id`, the original source occurrence and the original destination.
+Proven explicitly: changing the dropdown to a Kokoro voice between the failure and the retry still
+retries with the original Chatterbox voice. An earlier success is never overwritten, direct and
+mirrored placement both survive, and the retired attempt's publisher stays closed.
+
+#### Preservation
+
+`RunPublisher`, `shared/job_control.py` and `shared/job_ui.py` are **untouched** — not in the diff
+at all — and `test_tts_reporting_order.py` and `test_batch_convert_folders.py` both ran
+**unmodified**. `kokoro_synth.py`, `batch_convert.py`, `pdf_extractor.py`,
+`epub2tts_edge/runner.py`, `generate_voice_samples.py`, `scripts/requirements.txt`,
+`shared/bootstrap.py` and every Cover file are unchanged. The seven Edge and five Kokoro rows are
+asserted field-by-field. EPUB remains retired: PDF and TXT are still the only catalog types, an
+EPUB cannot enter direct add, folder scan or retry, and no legacy Single/Batch mode or mode radio
+returned. `VERSION` is still `0.5.1`; `launcher.TOOLS` is still six; `config-template.toml` is
+still absent.
+
+#### Tests and gates
+
+Tests were written first and **genuine RED was recorded**: the new file opened at **67 failed, 24
+passed**, the 24 being preservation assertions that must already have held.
+
+| Gate | Result |
+|---|---|
+| Full suite (fixed order) | **3444 collected, 3431 passed, 13 skipped, 1 warning** |
+| Full suite (randomized order) | 3431 passed, 13 skipped — no ordering leak |
+| `python scripts/verify.py` | **`RESULT: PASS`** |
+| `python -m compileall -q scripts files/tests` | exit 0 |
+| `git diff --check -- '*.py'` | clean, before and after staging |
+
+**Collection delta: 3354 → 3444, exactly +90.** `test_chatterbox_integration.py` adds **93** tests;
+**3** parametrized cases were removed, all of them the `epub2tts_gui.py` entry in two
+"Phase 10 has not started" guard lists. **Zero tests were deleted, skipped, xfailed or weakened.**
+
+Boundary guards were **migrated, not dropped**, and the retargeting is recorded in each file:
+
+| Guard | Was | Now |
+|---|---|---|
+| registry row count | exactly 12 | exactly 16, **first 12 asserted unchanged by value and order** |
+| `test_no_chatterbox_voice_is_registered_in_phase_eight` | zero chatterbox rows | exactly four, all after the twelve |
+| em-dash lookup guard | four labels unreachable | retained — the superseded labels must never be registry labels |
+| registry AST row check | 12 rows, all edge/kokoro | 16 rows, `["edge"]*7 + ["kokoro"]*5 + ["chatterbox"]*4` |
+| `UNTOUCHED_BY_PHASE_NINE` / `PHASE_TEN_MODULES` | included `epub2tts_gui.py` | `epub2tts_gui.py` removed — Phase 10 was authorized to add exactly that dispatch. The four **engine** modules remain guarded |
+| panel vocabulary sweep | no `chatterbox` substring anywhere | substring guard retargeted at `torch` / `librosa` / `resemble_perth` / `pillow_heif`, plus a new **AST** guard that the panel never imports the third-party `chatterbox` package |
+| frozen-options guard | `kokoro_voice_id is None` | `backend == "edge"` and `voice_id == "en-US-SteffanNeural"` |
+
+The retired guard's subject is covered far more thoroughly than before: 93 assertions now describe
+the panel-side contract that the removed "has not started" cases used to stand in for.
+
+**The known ffmpeg skip flake occurred once and was not fixed here.** One full run reported **24
+skipped** instead of 13, with **zero failures**. Cause proved to be the pre-existing PATH-lookup
+condition and nothing else: this machine has no bundled `files/bin/ffmpeg.exe`, so
+`ffmpeg_utils._find` falls back to `shutil.which`, and `have_ffmpeg()` is `lru_cache`d at its first
+call — a transient miss gates the 11 ffmpeg-marked tests for the whole process. Removing
+`C:\ffmpeg\bin` from `PATH` reproduces skips on demand with no code change; restoring it gives
+85 passed / 0 skipped on the same subset. `ffmpeg_utils.py` is **not in this phase's diff**. Two
+subsequent full runs, fixed and randomized order, both gave 13 skips. **Reported, not hidden, and
+deliberately not broadened into.**
+
+The 13 skips are all environment or fixture gates: six symlink-privilege, two case-insensitive
+filesystem, three `JACK_RYAN_M4B_FOLDER` unset, and the cover symlink case. The single warning is
+the pre-existing pydub `audioop` `DeprecationWarning`.
+
+#### Discovered consequence — NOT fixed, needs a decision
+
+Registering four rows has a side effect on the **dev-only** sample utility. `generate_voice_samples
+.py`'s ordinary mode iterates every registered voice and dispatches `kokoro` → Kokoro, **everything
+else → Edge TTS**. With four Chatterbox rows registered, a bare `python generate_voice_samples.py`
+now hands `chatterbox-female-1` to `edge_tts`, which raises per voice, is caught and printed as
+`FAIL`, and makes the utility exit 1 instead of 0. Nothing in the application is affected — this
+file is never imported by anything the app runs, and normal conversion does not go near it.
+
+**It was deliberately left alone.** §25 lists `generate_voice_samples.py` as do-not-edit and
+requires reporting before broadening scope; more decisively, the obvious fix — a Chatterbox branch
+in `main()` — would break Phase 9's guard
+`test_the_sample_generator_reaches_chatterbox_only_behind_its_own_flag`, which asserts the word
+never appears in `main()` outside the `--chatterbox-eval` branch. Fixing it properly therefore
+needs an authorized decision about that guard. **Recommended for Phase 11.**
+
+#### Protected assets
+
+Re-hashed before staging and again after all tests. All four **byte-identical**, still exactly four
+files, still zero tracked:
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `Female-1.mp3` | 32,999,135 | `a047d77fe191c1a957d36b1e9f9af8e67756a63672686c55731b30534bb8bde2` |
+| `Female-2.mp3` | 13,405,769 | `4bad0d3845199eae723aceb7a864b419fe553cd9d23799ee6390f54df08d3140` |
+| `Male-1.mp3` | 2,946,239 | `6258dde294a91b0c2e965e8579aafde10e9cff48957c2138432be4c6c80165ae` |
+| `Male-2.mp3` | 12,403,843 | `7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2` |
+
+`git ls-files files/Chatterbox-Voice-Uploads/ files/runtime-data/` returns **zero**. No source MP3,
+derivative, cached conditional, manifest, evaluation WAV, model weight, runtime cache or probe venv
+was staged. `git add -f` was never used and `git clean` was never run. The four Phase 9 evaluation
+WAVs remain on disk, ignored and local-only.
+
+#### Environment
+
+**No real synthesis ran in this phase** — every engine boundary is stubbed, so nothing loaded Turbo
+weights, read a maintainer recording, or reached the network. The working `.venv` was **not**
+modified and still has no Chatterbox, by design. The Phase 8/9 probe environment was **not** used
+and needed no real integration smoke: the automated boundaries prove the worker calls the engine's
+Phase 8 contract with the right arguments. `Setup_and_Run-audiobook-creation-tool.bat` was **not**
+run, CUDA was **not** used, no Mac was involved, and no Windows manual matrix was performed.
+
+#### Not done
+
+No version bump, merge, tag, release, packaging or branch deletion. **Phase 11 — Structural guards,
+deterministic race and lifecycle testing — is NOT AUTHORIZED and has NOT started.**
 
 ---
 

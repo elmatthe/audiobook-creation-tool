@@ -1,18 +1,30 @@
 """v0.6.1 Plan 4 — the registry preservation gate and the phase boundary.
 
 Phase 8 widened the ``BACKEND`` literal and added an engine module. Phase 9 added
-the listening-evaluation mode to ``generate_voice_samples.py``. Neither adds a
-voice or a GUI dispatch: registering voices is Phase 10's job, and Phase 10's
-entry gate is the maintainer's listening decision, which has not been made.
+the listening-evaluation mode to ``generate_voice_samples.py``. Phase 10 — after
+the maintainer listened to all four evaluation outputs on 2026-08-15 and approved
+every one of them — registered the four approved rows and taught the TTS panel a
+three-way backend dispatch.
 
-**The boundary these tests draw now sits after Phase 9.** Phase 9 was authorized
-by the maintainer on 2026-08-15, so ``generate_voice_samples.py`` is no longer a
-file the word "chatterbox" may not appear in — its Phase 9 contract is asserted
-in detail by ``test_chatterbox_evaluation.py`` instead, and the guard slot it
-vacated here went to ``epub2tts_edge/runner.py``, which Phase 10 would be the
-first phase with any reason to touch.
+**The boundary these tests draw now sits after Phase 10.** Two guards were
+retargeted rather than deleted, and the distinction matters:
 
-The twelve existing ``VoiceEntry`` rows are asserted by value — every field of
+* the registry is no longer asserted to hold *twelve* rows, because four approved
+  rows were legitimately appended. What survives, and is asserted here in more
+  detail than before, is that **the original twelve are untouched** — every field
+  of every row, in the original order, as the first twelve of sixteen;
+* ``epub2tts_gui.py`` left the "no Chatterbox may appear here" list, because
+  integrating the approved voices into the one unified queue is precisely what
+  Phase 10 was authorized to do. The four modules still on that list —
+  ``epub2tts_edge/runner.py``, ``batch_convert.py``, ``kokoro_synth.py`` and
+  ``pdf_extractor.py`` — are the ones adding a third engine must **not** have
+  touched, and they remain guarded.
+
+The panel-side contract that replaced the retired guard is asserted in full by
+``test_chatterbox_integration.py``; nothing was dropped without a stronger
+replacement.
+
+The twelve pre-existing ``VoiceEntry`` rows are asserted by value — every field of
 every row — because a count check would pass a silently edited preset.
 """
 
@@ -126,8 +138,11 @@ EXPECTED_VOICES = [
 ]
 
 
-def test_the_registry_still_holds_exactly_twelve_voices():
-    assert len(voice_registry.VOICES) == 12
+def test_the_twelve_pre_existing_rows_are_still_the_first_twelve():
+    """Phase 10 appended; it did not insert, re-order or replace."""
+    assert len(voice_registry.VOICES) == 16
+    assert len([v for v in voice_registry.VOICES[:12]
+                if v.backend in ("edge", "kokoro")]) == 12
 
 
 @pytest.mark.parametrize("index,expected", list(enumerate(EXPECTED_VOICES)))
@@ -146,36 +161,44 @@ def test_the_default_voice_is_still_steffan():
     assert voice_registry.DEFAULT_VOICE_LABEL == voice_registry.VOICES[0].display_label
 
 
-def test_the_dropdown_offers_the_same_twelve_labels_in_the_same_order():
-    assert voice_registry.display_labels() == [v[2] for v in EXPECTED_VOICES]
+def test_the_dropdown_still_opens_with_the_same_twelve_labels_in_order():
+    assert voice_registry.display_labels()[:12] == [v[2] for v in EXPECTED_VOICES]
 
 
-def test_no_chatterbox_voice_is_registered_in_phase_eight():
-    assert [v for v in voice_registry.VOICES if v.backend == "chatterbox"] == []
+def test_exactly_four_chatterbox_rows_exist_and_all_sit_after_the_twelve():
+    """The set is closed at four (drop §5.7) and none of them displaced a row."""
+    chatterbox = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
+    assert len(chatterbox) == 4
+    assert voice_registry.VOICES[12:] == chatterbox
 
 
-def test_no_chatterbox_voice_is_reachable_through_the_lookup():
+def test_the_em_dash_labels_this_drop_proposed_are_not_what_was_registered():
+    """§5.7 proposed em dashes; the maintainer approved ASCII hyphens instead."""
     for label in ("Chatterbox — Female 1", "Chatterbox — Female 2",
                   "Chatterbox — Male 1", "Chatterbox — Male 2"):
         assert voice_registry.get_voice(label) is None
 
 
-def test_the_registry_declares_no_voice_entry_for_chatterbox_in_source():
-    """Belt and braces: an AST check, so a commented-out row cannot creep back."""
+def test_the_registry_source_declares_exactly_the_rows_it_should():
+    """Belt and braces: an AST check, so a stray or duplicated row cannot creep in."""
     tree = _tree(TTS_DIR / "voice_registry.py")
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 12
-    for row in rows:
-        backend = next(k.value for k in row.keywords if k.arg == "backend")
-        assert backend.value in ("edge", "kokoro")
+    assert len(rows) == 16
+    backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
+                for row in rows]
+    assert backends[:12] == ["edge"] * 7 + ["kokoro"] * 5
+    assert backends[12:] == ["chatterbox"] * 4
 
 
 # --------------------------------------------------------------------------- #
-# The phase boundary — Phase 10 has not started
+# The phase boundary — the engines themselves were never edited
 # --------------------------------------------------------------------------- #
-UNTOUCHED_BY_PHASE_NINE = [
-    "epub2tts_gui.py",
+#
+# ``epub2tts_gui.py`` left this list at Phase 10, which was authorized to add the
+# GUI dispatch. Everything else here is an engine or an engine's runner: adding a
+# third backend must not have reached into any of them, and that is still true.
+UNTOUCHED_BY_CHATTERBOX = [
     "epub2tts_edge/runner.py",
     "batch_convert.py",
     "kokoro_synth.py",
@@ -183,7 +206,7 @@ UNTOUCHED_BY_PHASE_NINE = [
 ]
 
 
-@pytest.mark.parametrize("filename", UNTOUCHED_BY_PHASE_NINE)
+@pytest.mark.parametrize("filename", UNTOUCHED_BY_CHATTERBOX)
 def test_no_chatterbox_dispatch_was_added_to_an_existing_tts_module(filename):
     tree = _tree(TTS_DIR / filename)
     imported: set[str] = set()
@@ -194,10 +217,10 @@ def test_no_chatterbox_dispatch_was_added_to_an_existing_tts_module(filename):
             imported.add(node.module or "")
             imported.update(f"{node.module}.{a.name}" for a in node.names)
     assert not any("chatterbox" in name for name in imported), \
-        f"{filename} imports the Chatterbox engine — that is Phase 10"
+        f"{filename} imports the Chatterbox engine — engines stay untouched"
 
 
-@pytest.mark.parametrize("filename", UNTOUCHED_BY_PHASE_NINE)
+@pytest.mark.parametrize("filename", UNTOUCHED_BY_CHATTERBOX)
 def test_no_existing_tts_module_names_a_chatterbox_symbol(filename):
     tree = _tree(TTS_DIR / filename)
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
@@ -205,7 +228,7 @@ def test_no_existing_tts_module_names_a_chatterbox_symbol(filename):
     names |= {n.value for n in ast.walk(tree)
               if isinstance(n, ast.Constant) and isinstance(n.value, str)}
     assert not any("chatterbox" in str(n).lower() for n in names), \
-        f"{filename} references Chatterbox — that is Phase 10"
+        f"{filename} references Chatterbox — engines stay untouched"
 
 
 def test_the_phase_nine_evaluation_folder_stays_out_of_the_repository():
