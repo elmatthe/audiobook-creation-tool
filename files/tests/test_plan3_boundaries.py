@@ -1022,8 +1022,17 @@ def test_no_second_progress_or_logging_implementation_exists():
             assert not any(entry.endswith(plan3) for entry in modules), (reused, plan3)
     theme = defined_names(parse(SHARED / "ui_theme.py"))
     assert "ProgressIndicator" in theme
+    # Still an exact set, so a second logging implementation appearing here would
+    # still fail this test. The four names beyond the original three are v0.6.1
+    # Plan 4 Phase 12's fatal-fault diagnostic: a native crash inside a torch
+    # extension kills the process without unwinding, so the session logger — the
+    # one place this application writes diagnostics — is where `faulthandler` had
+    # to be wired. That is an authorized Plan 4 extension of this module, not
+    # Plan 3 rebuilding logging, which is what the assertion exists to forbid.
     assert defined_names(parse(SHARED / "logging_setup.py")) == {
-        "configured_max_sessions", "_prune_old_logs", "get_logger"}
+        "configured_max_sessions", "_prune_old_logs", "get_logger",
+        "session_log_path", "enable_fatal_diagnostics",
+        "disable_fatal_diagnostics", "fatal_diagnostics_armed"}
 
 
 def test_phase_six_added_no_output_descriptor():

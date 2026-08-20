@@ -98,6 +98,7 @@ class _Engine:
         self.sample_rate = 24000
         self.fail_hash_for: str | None = None
         self.fail_generation_for: str | None = None
+        self.generation_used: dict | None = None
         self.cached_conditionals: set[str] = set()
 
     # --- reference resolution -------------------------------------------- #
@@ -136,7 +137,12 @@ class _Engine:
 
     # --- synthesis --------------------------------------------------------- #
     def synthesize_text_to_wav(self, text, output_path, voice_id, log=print,
-                               device=None) -> int:
+                               device=None, generation=None) -> int:
+        # ``generation`` mirrors the production signature added by the v0.6.1
+        # Plan 4 Phase 12 tuning pass, where --chatterbox-eval began passing the
+        # historical Phase 9 parameters explicitly. Recorded so a test can assert
+        # which contract the evaluation ran under.
+        self.generation_used = generation
         if voice_id == self.fail_generation_for:
             raise cbx.ChatterboxUnavailable(
                 f"Chatterbox produced no audio for voice '{voice_id}'.")
@@ -150,13 +156,18 @@ class _Engine:
     def generation_defaults(self) -> dict:
         return {"temperature": 0.8, "repetition_penalty": 2.0, "top_p": 1.0}
 
+    def phase9_evaluation_params(self) -> dict:
+        """The historical Phase 9 contract the evaluation must reproduce."""
+        return {"temperature": 0.8, "repetition_penalty": 2.0, "top_p": 1.0}
+
 
 @pytest.fixture
 def engine(monkeypatch, tmp_path):
     """Point the evaluation at a stub engine and a throwaway output tree."""
     stub = _Engine(tmp_path)
     for name in ("resolve_reference", "prepare_reference_clip", "conditionals_path",
-                 "load_conditionals", "synthesize_text_to_wav", "generation_defaults"):
+                 "load_conditionals", "synthesize_text_to_wav", "generation_defaults",
+                 "phase9_evaluation_params"):
         monkeypatch.setattr(cbx, name, getattr(stub, name), raising=False)
     monkeypatch.setattr(cbx, "select_device", lambda: "cpu")
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: tmp_path / "uploads")
@@ -905,3 +916,17 @@ def test_edge_and_kokoro_sample_naming_is_unchanged(sample_seams, monkeypatch,
         [f"edge_{v}.mp3" for v in ORDINARY_EDGE_IDS]
         + [f"kokoro_{v}.mp3" for v in ORDINARY_KOKORO_IDS]
     )
+
+
+# --------------------------------------------------------------------------- #
+# The historical-evidence contract (v0.6.1 Plan 4 Phase 12 tuning pass)
+# --------------------------------------------------------------------------- #
+def test_the_evaluation_runs_at_the_historical_phase_nine_temperature(engine):
+    """Production moved to 0.72; the approved WAVs were made at 0.8.
+
+    --chatterbox-eval exists to reproduce that historical listening contract, so
+    it must not silently re-render the approval evidence at the newer value.
+    """
+    gvs.run_chatterbox_evaluation(log=lambda _m: None)
+    assert engine.generation_used is not None
+    assert engine.generation_used["temperature"] == 0.8

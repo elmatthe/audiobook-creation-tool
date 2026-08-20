@@ -32,6 +32,8 @@ CPython) because it runs *before* the virtual environment and its packages exist
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import platform
 import shutil
@@ -161,6 +163,148 @@ def venv_python(windowed: bool = False) -> Path:
 
 def venv_pip() -> list[str]:
     return [str(venv_python()), "-m", "pip"]
+
+
+# ===========================================================================
+#  Requirements drift — binding an environment to the pins it was built from
+#
+#  v0.6.1 Plan 4 Phase 12 remediation. `venv_is_valid()` below answers "can this
+#  interpreter run?", which is *not* the same question as "does this environment
+#  have the packages the current release needs?". Treating the first as the
+#  second is what let a perfectly working pre-Plan-4 `.venv` sit there with no
+#  `chatterbox-tts` and no `pillow-heif` after both were pinned: the fast path
+#  saw pythonw.exe, launched, self-healed Kokoro only, and never mentioned that
+#  two features were quietly missing. The only cure was deleting the venv by
+#  hand, which no non-technical user would ever discover.
+#
+#  So an environment now carries a stamp of the exact requirements.txt it was
+#  last successfully reconciled against. The comparison is one hash of one file:
+#  cheap enough to do on every launch, which is what keeps the fast path fast.
+#
+#  The stamp lives INSIDE the venv on purpose. It is disposable local state that
+#  is never tracked, and it travels with the directory — so renaming an old
+#  environment back into place is correctly seen as stale rather than current.
+# ===========================================================================
+#: Filename of the per-environment requirements stamp, inside the venv.
+REQUIREMENTS_STATE_NAME = ".requirements-state.json"
+
+#: Exit code meaning "the user chose not to install", as distinct from "the
+#: install broke".
+#:
+#: v0.6.1 Plan 4 Phase 12 remediation. ``run_with_gui`` used to end with
+#: ``return 0 if state["ok"] else 1``, and ``state["ok"]`` is only ever set by a
+#: *completed* install — so clicking Cancel returned 1, and the launcher, which
+#: correctly treats any non-zero as failure, told the user "Setup did not
+#: complete successfully (exit code 1)". Declining an optional install is not a
+#: failure, and saying so is alarming and untrue.
+#:
+#: 2 is deliberately neither 0 (which would hide a real problem) nor 1 (the
+#: failure code). A genuine error still exits 1.
+EXIT_SETUP_CANCELLED = 2
+
+
+def setup_exit_code(*, started: bool, done: bool, ok: bool) -> int:
+    """Map a first-run dialog outcome to a process exit code.
+
+    Split out of ``run_with_gui`` so the mapping is testable without a display,
+    and so all four outcomes are stated in one place rather than implied by a
+    conditional expression:
+
+    * completed successfully                      -> 0
+    * closed without ever pressing Begin Setup    -> :data:`EXIT_SETUP_CANCELLED`
+    * ran and failed                              -> 1
+    * closed part-way through an install          -> 1
+
+    The last case is deliberately *not* cancellation: an interrupted install can
+    leave a partial environment behind, so reporting it as incomplete is the
+    truthful answer.
+    """
+    if ok:
+        return 0
+    if not started:
+        return EXIT_SETUP_CANCELLED
+    return 1
+
+
+def requirements_state_path() -> Path:
+    return VENV_DIR / REQUIREMENTS_STATE_NAME
+
+
+def requirements_fingerprint() -> str:
+    """SHA-256 of ``requirements.txt``. Empty string when there is no file.
+
+    Hashing the file's bytes — rather than a parsed package list — means any
+    change that could affect an install (a pin, a marker, an added or removed
+    line) counts as drift, with no parser to disagree with pip.
+    """
+    try:
+        return hashlib.sha256(REQUIREMENTS_FILE.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def requirements_are_current() -> bool:
+    """True when this environment was already reconciled against these pins.
+
+    A missing, unreadable, malformed or mismatched stamp all mean the same
+    thing — reconcile once — because none of them is evidence of success.
+    """
+    fingerprint = requirements_fingerprint()
+    if not fingerprint:
+        return True  # nothing to reconcile against; never loop on pip
+    try:
+        payload = json.loads(requirements_state_path().read_text(encoding="utf-8"))
+        return payload.get("requirements_sha256") == fingerprint
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def record_requirements_state() -> None:
+    """Stamp this environment as reconciled. **Only ever call after success.**"""
+    fingerprint = requirements_fingerprint()
+    if not fingerprint:
+        return
+    try:
+        requirements_state_path().parent.mkdir(parents=True, exist_ok=True)
+        requirements_state_path().write_text(
+            json.dumps({
+                "requirements_sha256": fingerprint,
+                "requirements_file": str(REQUIREMENTS_FILE),
+                "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # an unstamped environment reconciles again; that is safe, not fatal
+
+
+def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
+    """Reconcile this environment with ``requirements.txt`` if the pins changed.
+
+    Returns ``(ok, message)``. The environment is **never** deleted or recreated:
+    a changed pin costs one ``pip install -r``, not a rebuild. Weights are not
+    touched — package repair and the optional model pre-downloads stay separate,
+    so a new pin can never trigger a multi-gigabyte surprise download.
+
+    On failure no stamp is written, so the next launch tries again rather than
+    remembering a failure as success.
+    """
+    if requirements_are_current():
+        return True, "Dependencies match the installed requirements."
+
+    log.line("Dependencies have changed since this environment was set up — "
+             "reconciling it with scripts/requirements.txt…")
+    if not pip_install_requirements(log):
+        return False, ("Some dependencies could not be installed. The application "
+                       "will still open, but features needing them may be "
+                       "unavailable.")
+    if not validate_installed_packages(log):
+        return False, ("Some dependencies installed but could not be imported. The "
+                       "application will still open, but features needing them may "
+                       "be unavailable.")
+    record_requirements_state()
+    log.line("  Dependencies reconciled; this environment is now up to date.")
+    return True, "Dependencies reconciled."
 
 
 def venv_is_valid() -> bool:
@@ -1139,6 +1283,10 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
     # pip exiting 0 isn't proof the packages import — verify explicitly.
     validate_installed_packages(log)
 
+    # Bind this environment to the pins it was just built from, so a later
+    # release that changes requirements.txt is detected instead of ignored.
+    record_requirements_state()
+
     progress(3, "Setting up ffmpeg…")
     if not ensure_ffmpeg(log):
         # Non-fatal: Edge TTS still works without ffmpeg for some paths, but most
@@ -1179,8 +1327,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     root = tk.Tk()
     root.title("Audiobook Creation Tool — Setup")
-    root.geometry("640x520")
-    root.minsize(560, 440)
+    root.geometry("720x600")
+    root.minsize(640, 560)
     try:
         ttk.Style().theme_use("vista" if IS_WINDOWS else "aqua")
     except Exception:
@@ -1188,6 +1336,29 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
 
     container = ttk.Frame(root, padding=18)
     container.pack(fill="both", expand=True)
+
+    # ---- Responsive wrapping ---------------------------------------------
+    #
+    # v0.6.1 Plan 4 Phase 12 remediation. The first-run dialog clipped its own
+    # explanatory text at 1920x1080 / 100% scaling: the option descriptions were
+    # long single-line ``ttk.Checkbutton`` labels, and **ttk.Checkbutton has no
+    # wraplength option** (only ttk.Label and the classic tk widgets do), so
+    # there was nothing to make them fold. Widening the window would only move
+    # the cut, so instead every long string lives in a real wrapped Label whose
+    # wraplength tracks the actual window width. The checkbuttons keep only a
+    # short actionable phrase, which cannot outgrow the frame.
+    _wrapped: list = []
+
+    def _wrap_to_width(event=None) -> None:
+        width = container.winfo_width()
+        if width <= 1:  # not yet mapped
+            return
+        target = max(320, width - 48)
+        for label in _wrapped:
+            if label.cget("wraplength") != target:
+                label.configure(wraplength=target)
+
+    container.bind("<Configure>", _wrap_to_width)
 
     # Chatterbox is unchecked by default: its weights are ~3.9 GB, more than ten
     # times Kokoro's, and voice cloning is an optional extra rather than part of a
@@ -1201,33 +1372,52 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     ttk.Label(intro, text="Welcome to the Audiobook Creation Tool",
               font=("Segoe UI" if IS_WINDOWS else "Helvetica", 16, "bold")
               ).pack(anchor="w", pady=(0, 8))
-    ttk.Label(
+    _intro_body = ttk.Label(
         intro,
         text=("This one-time setup will install everything the app needs:\n"
               "  •  a private Python environment (kept inside this folder)\n"
               "  •  the audio libraries and ffmpeg\n"
               "  •  optionally, the local Kokoro AI voices (~300 MB)\n\n"
-              "Nothing is installed system-wide except Python and ffmpeg if they\n"
-              "are missing. After this finishes, the app opens automatically and\n"
+              "Nothing is installed system-wide except Python and ffmpeg if they "
+              "are missing. After this finishes, the app opens automatically and "
               "future launches are instant."),
         justify="left",
-    ).pack(anchor="w")
+    )
+    _intro_body.pack(anchor="w", fill="x")
+    _wrapped.append(_intro_body)
+
+    # Each option is a SHORT checkbutton label plus a wrapped description below
+    # it. The description carries the same words the single-line label used to,
+    # so nothing was cut — only the widget that renders it changed.
     ttk.Checkbutton(
         intro,
-        text="Pre-download Kokoro AI voice model now (~300 MB). If unchecked, the "
-             "model auto-downloads on first synthesis.",
+        text="Pre-download the Kokoro AI voice model now (~300 MB)",
         variable=state["download_kokoro"],
-    ).pack(anchor="w", pady=(16, 4))
+    ).pack(anchor="w", pady=(16, 0))
+    _kokoro_note = ttk.Label(
+        intro,
+        text="If unchecked, the model auto-downloads on first synthesis.",
+        justify="left",
+    )
+    _kokoro_note.pack(anchor="w", padx=(22, 0), pady=(0, 8), fill="x")
+    _wrapped.append(_kokoro_note)
+
     ttk.Checkbutton(
         intro,
-        text="Also download the Chatterbox voice-cloning model now (~3.9 GB). "
-             "Optional — leave this unchecked unless you plan to use the cloned "
-             "voices; the model downloads on first use instead.",
+        text="Also download the Chatterbox voice-cloning model now (~3.9 GB)",
         variable=state["download_chatterbox"],
-    ).pack(anchor="w", pady=(0, 8))
+    ).pack(anchor="w", pady=(4, 0))
+    _chatterbox_note = ttk.Label(
+        intro,
+        text="Optional — leave this unchecked unless you plan to use the cloned "
+             "voices; the model downloads on first use instead.",
+        justify="left",
+    )
+    _chatterbox_note.pack(anchor="w", padx=(22, 0), pady=(0, 8), fill="x")
+    _wrapped.append(_chatterbox_note)
 
     btn_row = ttk.Frame(intro)
-    btn_row.pack(anchor="e", pady=(12, 0), fill="x")
+    btn_row.pack(side="bottom", anchor="e", pady=(12, 0), fill="x")
     ttk.Button(btn_row, text="Cancel", command=root.destroy).pack(side="right", padx=(8, 0))
     begin_btn = ttk.Button(btn_row, text="Begin Setup")
     begin_btn.pack(side="right")
@@ -1318,7 +1508,8 @@ def run_with_gui(skip_kokoro_default: bool = False) -> int:
     root.after(120, poll)
     root.mainloop()
     LOG.close()
-    return 0 if state["ok"] else 1
+    return setup_exit_code(started=state["started"], done=state["done"],
+                           ok=state["ok"])
 
 
 def _open_folder(path: Path) -> None:
@@ -1359,13 +1550,22 @@ def _configure_hf_cache() -> Path:
 # ===========================================================================
 #  Self-heal dialogs (small Tk windows reusing the first-run log-pane pattern)
 # ===========================================================================
-def show_repair_dialog(work: Callable[[], bool]) -> bool:
-    """Show a small "Repairing Kokoro install…" window while ``work`` runs.
+def show_repair_dialog(
+    work: Callable[[], bool],
+    *,
+    title: str = "Repairing the Kokoro AI voice install…",
+    detail: str = ("Installing the local AI voice libraries. This is a one-time "
+                   "repair; Edge TTS voices work regardless."),
+) -> bool:
+    """Show a small progress window while ``work`` runs.
 
     Reuses the first-run flow's live-log pane: ``work`` runs on a worker thread
     and everything tee'd through ``LOG`` is mirrored into the Text pane. Returns
     ``work()``'s boolean result. If Tk cannot start (headless Python), ``work``
     is run directly with no window so the repair still happens.
+
+    ``title``/``detail`` default to the original Kokoro wording, so the existing
+    caller is unchanged; the Phase 12 requirements reconciliation passes its own.
     """
     try:
         import queue
@@ -1392,13 +1592,11 @@ def show_repair_dialog(work: Callable[[], bool]) -> bool:
     frame = ttk.Frame(root, padding=14)
     frame.pack(fill="both", expand=True)
     ttk.Label(
-        frame, text="Repairing the Kokoro AI voice install…",
+        frame, text=title,
         font=("Segoe UI" if IS_WINDOWS else "Helvetica", 12, "bold"),
     ).pack(anchor="w", pady=(0, 6))
     ttk.Label(
-        frame,
-        text="Installing the local AI voice libraries. This is a one-time repair; "
-             "Edge TTS voices work regardless.",
+        frame, text=detail,
         wraplength=520, justify="left",
     ).pack(anchor="w", pady=(0, 8))
     bar = ttk.Progressbar(frame, mode="indeterminate")
@@ -1467,15 +1665,44 @@ def show_warning_dialog(title: str, message: str) -> None:
 
 
 def _launch_with_kokoro_healthcheck() -> int:
-    """Probe Kokoro health, self-heal if needed, then launch the GUI.
+    """Reconcile dependencies, probe Kokoro health, self-heal, then launch the GUI.
 
     Runs on *every* launch (both the ``--launch-only`` fast path used by the
     ``.bat``/``.command`` and the ``venv_is_valid()`` path in ``main()``), so a
     partial first-run install or a manually-uninstalled ``kokoro`` is repaired
     before the user ever hits a Kokoro batch. Never blocks launch: if the repair
     fails, a clear warning is shown and the GUI still opens (Edge TTS works).
+
+    The requirements reconciliation added in the v0.6.1 Plan 4 Phase 12
+    remediation runs **first**, because a stale environment is exactly the case
+    where Kokoro's own probe would otherwise be the only thing checked. When the
+    pins are unchanged it is one file hash and costs nothing.
     """
     venv_py = venv_python()
+
+    if not requirements_are_current():
+        LOG.line("Requirements changed since this environment was set up.")
+        outcome: dict = {}
+
+        def _reconcile() -> bool:
+            ok_req, message = ensure_requirements_current(LOG)
+            outcome["message"] = message
+            return ok_req
+
+        show_repair_dialog(
+            _reconcile,
+            title="Updating the app's components…",
+            detail="This version needs components the current installation does "
+                   "not have yet. This is a one-time update; nothing is being "
+                   "deleted and your settings are untouched.",
+        )
+        if not requirements_are_current():
+            show_warning_dialog(
+                "Some components could not be updated",
+                outcome.get("message", "Some dependencies could not be installed.")
+                + f"\n\nSee log: {LOG.path}",
+            )
+
     ok, reason = kokoro_is_healthy(venv_py)
     LOG.line(f"Kokoro health-check: {reason}")
     if not ok:

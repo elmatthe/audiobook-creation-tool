@@ -35,6 +35,29 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
+from shared import ffmpeg_utils
+
+#: Kokoro's model rate. Fixed by the model, not a choice made here.
+SAMPLE_RATE = 24000
+
+
+def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str,
+                bitrate: str | None = None) -> None:
+    """Write assembled PCM out as the one and only lossy generation.
+
+    The encoding contract comes from :func:`shared.ffmpeg_utils.mp3_export_options`
+    rather than from ffmpeg's defaults — see that module for why a defaulted
+    export produced files whose advertised duration was half their real length.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+        tmp_wav_path = tmp_wav.name
+    try:
+        sf.write(tmp_wav_path, arr, sample_rate)
+        AudioSegment.from_wav(tmp_wav_path).export(
+            output_path, **ffmpeg_utils.mp3_export_options(bitrate))
+    finally:
+        Path(tmp_wav_path).unlink(missing_ok=True)
+
 # Fires the single first-load retry (below) only once per process. The first
 # KPipeline load can be transiently blocked while Windows Smart App Control / WDAC
 # evaluates Kokoro's unsigned native DLLs; subsequent in-process loads that fail
@@ -100,6 +123,7 @@ def synthesize_text_to_mp3(
     voice_id: str,
     speed: float = 1.0,
     log: Callable[[str], None] = print,
+    bitrate: str | None = None,
 ) -> None:
     """Synthesize `text` using Kokoro and save the result as an MP3 file at `output_path`."""
     lang_code = _lang_code_for_voice(voice_id)
@@ -121,18 +145,7 @@ def synthesize_text_to_mp3(
     if not audio_chunks:
         raise RuntimeError(f"Kokoro produced no audio for voice '{voice_id}'.")
 
-    combined = np.concatenate(audio_chunks)
-    sample_rate = 24000
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
-        tmp_wav_path = tmp_wav.name
-
-    try:
-        sf.write(tmp_wav_path, combined, sample_rate)
-        seg = AudioSegment.from_wav(tmp_wav_path)
-        seg.export(output_path, format="mp3")
-    finally:
-        Path(tmp_wav_path).unlink(missing_ok=True)
+    _export_mp3(np.concatenate(audio_chunks), SAMPLE_RATE, output_path, bitrate)
 
 
 def split_into_chunks(text: str, max_chars: int = 3000) -> list[str]:
@@ -184,12 +197,17 @@ def kokoro_file_to_mp3(
     log: Callable[[str], None] = print,
     cancel_check: Callable[[], bool] | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    bitrate: str | None = None,
 ) -> None:
     """Read plain text from file → Kokoro TTS → single MP3.
 
     ``progress_callback(done, total)`` is invoked after each synthesis chunk
     (total = chunk count). It runs on the calling (worker) thread, so a GUI
     caller must enqueue from it, never touch Tk widgets directly.
+
+    **Assembly happens in PCM and the file is encoded exactly once.** The chunks
+    are numpy arrays already, so writing each one out as its own MP3 and decoding
+    it back only to merge them added a whole lossy generation for nothing.
     """
     src = Path(source_path)
     if not src.exists():
@@ -223,48 +241,44 @@ def kokoro_file_to_mp3(
             f"Could not load Kokoro pipeline. Install with: pip install kokoro soundfile scipy\n{e}"
         ) from e
 
-    segment_paths: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="epub2tts_kokoro_") as tmpdir:
-        for idx, chunk in enumerate(chunks, start=1):
-            if cancel_check is not None and cancel_check():  # between chunks
-                from shared.cancellation import ConversionCancelled
+    # Silence built at the model's own rate, so configured pauses are exact sample
+    # counts rather than something resampled from another rate on the way in.
+    gap = np.zeros(int(SAMPLE_RATE * chunk_pause_ms / 1000.0), dtype="float32")
+    rendered: list[np.ndarray] = []
+    for idx, chunk in enumerate(chunks, start=1):
+        if cancel_check is not None and cancel_check():  # between chunks
+            from shared.cancellation import ConversionCancelled
 
-                raise ConversionCancelled("Conversion cancelled by user.")
-            log(f"  Kokoro chunk {idx}/{len(chunks)}...")
-            chunk_wav = str(Path(tmpdir) / f"chunk_{idx:04d}.wav")
-            chunk_mp3 = str(Path(tmpdir) / f"chunk_{idx:04d}.mp3")
+            raise ConversionCancelled("Conversion cancelled by user.")
+        log(f"  Kokoro chunk {idx}/{len(chunks)}...")
 
-            audio_chunks: list[np.ndarray] = []
-            generator = pipeline(chunk, voice=voice_id, speed=speed, split_pattern=r"\n+")
-            for _, _, audio in generator:
-                if audio is not None:
-                    arr = audio.numpy() if hasattr(audio, "numpy") else np.array(audio)
-                    audio_chunks.append(arr)
+        audio_chunks: list[np.ndarray] = []
+        generator = pipeline(chunk, voice=voice_id, speed=speed, split_pattern=r"\n+")
+        for _, _, audio in generator:
+            if audio is not None:
+                arr = audio.numpy() if hasattr(audio, "numpy") else np.array(audio)
+                audio_chunks.append(arr)
 
-            if not audio_chunks:
-                log(f"  Warning: chunk {idx} produced no audio, skipping.")
-                if progress_callback is not None:
-                    progress_callback(idx, len(chunks))
-                continue
-
-            combined = np.concatenate(audio_chunks)
-            sf.write(chunk_wav, combined, 24000)
-            seg = AudioSegment.from_wav(chunk_wav)
-            seg.export(chunk_mp3, format="mp3")
-            segment_paths.append(chunk_mp3)
+        if not audio_chunks:
+            log(f"  Warning: chunk {idx} produced no audio, skipping.")
             if progress_callback is not None:
                 progress_callback(idx, len(chunks))
+            continue
 
-        if not segment_paths:
-            raise RuntimeError("Kokoro produced no audio segments.")
+        # Same order as before: every rendered chunk is followed by the pause.
+        rendered.append(np.concatenate(audio_chunks))
+        if gap.size:
+            rendered.append(gap)
+        if progress_callback is not None:
+            progress_callback(idx, len(chunks))
 
-        log("  Merging Kokoro segments...")
-        merged = AudioSegment.empty()
-        silence_chunk = AudioSegment.silent(duration=chunk_pause_ms)
-        for sp in segment_paths:
-            merged += AudioSegment.from_mp3(sp) + silence_chunk
-        if end_silence_ms > 0:
-            merged += AudioSegment.silent(duration=end_silence_ms)
-        merged.export(output_mp3_path, format="mp3")
+    if not rendered:
+        raise RuntimeError("Kokoro produced no audio segments.")
+
+    log("  Assembling Kokoro audio...")
+    if end_silence_ms > 0:
+        rendered.append(np.zeros(int(SAMPLE_RATE * end_silence_ms / 1000.0),
+                                 dtype="float32"))
+    _export_mp3(np.concatenate(rendered), SAMPLE_RATE, output_mp3_path, bitrate)
 
     log(f"Kokoro: saved → {output_mp3_path}")

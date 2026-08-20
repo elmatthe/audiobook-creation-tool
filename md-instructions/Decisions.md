@@ -4,6 +4,160 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-19 — Chatterbox narration timing is frozen for Plan 4, and the MP3 file-size question is closed at the tested default
+
+**Decision (v0.6.1 Plan 4, Phase 12 closeout — the maintainer's ruling after listening to the
+regenerated chapter).**
+
+**1. The remaining pauses are accepted, and narration timing is frozen for the rest of Plan 4.**
+The natural-boundary remediation did what it was scoped to do: it removed *unpredictable,
+formatting-driven* silence, taking the worst interior gap from 8.73 s to 2.90 s. The maintainer
+listened and approved — much better, dead air resolved, a small amount of pause/lag remaining and
+acceptable for this release. So: no global silence trimming, no maximum-model-silence cap, no change
+to temperature (0.72), the 300-character ceiling, the chunk/paragraph pause, the end silence or
+`COLON_PAUSE_MS` (75), and no further text-boundary heuristics without a demonstrated defect.
+
+**Why:** the goal was never uniform timing. The four remaining ≥2 s pauses each correlate to a chunk
+with zero newlines whose text contains a written ellipsis or literally narrates a silence — the model
+pausing where the author wrote a pause. Post-processing those away would flatten intentional prose to
+cure a symptom that no longer has the defect behind it, and it would do so on approved, listened-to
+audio. Fine-grained pause/rhythm tuning is recorded as a future observation needing its own
+authorization and its own evidence, not as pending work.
+
+**2. The bitrate stays where it was tested. The file-size consequence is accepted, not re-litigated.**
+The MP3 finalization ADR below referred one open question to the maintainer: honouring the panel's
+`192k` default makes local-engine output an effective 160 kbps, ~5× the old 32 kbps (144 MB → 720 MB
+for a ten-hour audiobook). **Ruling: keep the currently tested bitrate and default behaviour.** No
+`64k` option is added, the default is not changed to `128k`, and the finalization architecture is not
+reopened.
+
+**Why:** the ~5× size is the price of the defect being fixed, and it was paid knowingly — the flagged
+consequence went to the maintainer with the numbers attached, and the approval came *after* listening
+to two long-form chapters produced at that contract. Changing the encode now would invalidate the
+manual evidence that just closed the phase. Nothing is lost by waiting: the existing dropdown already
+offers `128k` with no code change, and the 64 kbps correctness floor below stands regardless of which
+value is chosen.
+
+**3. The one native crash is still not claimed to be fixed.** The `pythonw.exe` / `torch_cpu.dll`
+`0xC0000005` access violation is recorded as historical, characterised from the WER minidump, and
+never reproduced in nine controlled attempts or any later run. Fatal-fault diagnostics were added and
+self-proved so a recurrence is observable. **Closing Phase 12 does not close that**, and no document
+may describe it as resolved.
+
+— Ruled by the maintainer on 2026-08-19 after the Chapter 1144 recheck; recorded by Claude Code at
+the Phase 12 closeout.
+
+---
+
+## 2026-08-18 — Chatterbox text is planned on natural boundaries, and no structural newline ever reaches the model
+
+**Decision (v0.6.1 Plan 4, Phase 12 uncontrolled-silence remediation).**
+
+**1. A raw newline is never an instruction to the model.** `split_for_chatterbox` guarantees that
+no structural `\n` reaches `model.generate()`. A line break after a completed sentence becomes a
+boundary; a line break inside a continuing sentence becomes an ordinary space.
+
+**Why:** a newline handed to Chatterbox is rendered as a pause of no fixed length. A real chapter
+contained an **8.73-second** silence produced that way, plus five more of 2.2–2.5 s. Every
+configured pause in that file was correct — the silence was inside a single `generate()` call, and
+the application had no control over it. Pause length must be the application's decision, expressed
+in the assembly, not the model's improvisation on a formatting character.
+
+**2. A sentence ends at a terminator followed by optional closing quotes or brackets.** The old rule
+required the terminator to be the last character before the whitespace, so `."` / `?"` / `!"` — how
+every line of dialogue ends — was not a sentence. Seventeen line breaks survived into the model in
+one 6,251-character chapter.
+
+**3. The hierarchy is paragraph → sentence → clause → whitespace → hard limit**, descended only as
+far as the ceiling forces. Clause splitting (`;` `:` `—` `,`, in that order) applies **only** to a
+single sentence already over the ceiling, so ordinary prose is never cut at a comma. The colon sits
+below the semicolon on purpose: a colon that stays inside a chunk still earns its 75 ms
+`COLON_PAUSE_MS`, whereas promoting it to a boundary would convert that into the 700 ms inter-chunk
+pause.
+
+**4. Units are packed, not emitted one per sentence.** Every chunk boundary earns a configured
+pause, so one-sentence-per-chunk would insert a gap after every full stop and read as machine-gun
+narration. Consecutive units are joined up to the 300-character ceiling.
+
+**5. A chunk plan that does not preserve its source is refused, not returned.**
+`_assert_content_preserved` compares every non-whitespace character, in order, and raises
+`ChunkPlanError` on mismatch. Whitespace is deliberately excluded — this splitter is *required* to
+normalise structural whitespace, which is how decision 1 is kept — so the invariant is
+content-exact rather than byte-exact.
+
+**Why:** Phase 10 shipped a run that truncated a 2,889-character chunk to 2.1% of its content **and
+reported success**. Silent loss of narration is the failure mode that matters here; a run that stops
+and says so is strictly better.
+
+**6. The Web Novel Editor was a design reference only.** `elmatthe/web-novel-editor`
+(`ai/chunking.py`, `rules/spacing_cleanup.py`) supplied two ideas: retain natural boundaries and
+refuse a plan that cannot reproduce its input, and the closing-punctuation sentence-end form. **No
+code was copied, imported or vendored, and no cross-repository dependency exists.**
+
+**7. This is Chatterbox's splitter alone.** `kokoro_synth.split_into_chunks` (3,000 characters) and
+Edge's `batch_convert.split_into_chunks` are untouched. The 300-character ceiling is not imposed on
+any other engine.
+
+*— Decided by the maintainer, implemented and measured 2026-08-18 on HOME-PC.*
+
+---
+
+## 2026-08-18 — Every TTS final MP3 is encoded exactly once, through one explicit contract, never on ffmpeg's defaults — and never below 64 kbps
+
+**Decision (v0.6.1 Plan 4, Phase 12 audio-finalization audit).**
+
+**1. The final encode contract is explicit and lives in one place.**
+`shared.ffmpeg_utils.mp3_export_options(bitrate)` returns `format`/`codec`/`bitrate` — explicit
+`libmp3lame`, explicit bitrate — and every TTS finalization goes through it: Kokoro, Chatterbox,
+and the Edge *folder* path. Returned as keywords rather than performed there, so the encode stays
+next to the audio and a test can assert the contract without running ffmpeg.
+
+**Why:** pydub's `DEFAULT_CODECS` maps only `ogg`, so `export(path, format="mp3")` runs ffmpeg with
+no codec and no bitrate and the output shape becomes a property of whichever ffmpeg is installed.
+On this project's build that was 32 kbps for 24 kHz mono.
+
+**2. Never below 64 kbps for a 24 kHz mono stream. This is a correctness floor, not taste.**
+A Xing/Info header needs a 100-byte seek table, which does not fit in a 32 kbps MPEG-2 frame
+(96 bytes). ffmpeg is therefore forced to emit the header frame at 64 kbps while the audio frames
+stay at 32 — and still tag the file `Info`, i.e. constant bitrate. Any player that trusts that
+declaration and reads the first frame's bitrate reports **exactly half** the real duration.
+Measured with Windows Media Foundation on a 2:00 fixture: 1:50 at 24 kbps, 1:54 at 32, 1:58 at 48,
+and exactly 2:00 from 64 kbps up. **Consequence: the panel's bitrate combobox must never offer a
+value below 64k.**
+
+**3. ffprobe and mutagen are not sufficient evidence that an MP3 is well-formed.**
+Both read the Xing frame count and so report the correct duration for a file that is internally
+inconsistent. All 168 shipped outputs passed under both. The regression guard therefore asserts a
+structural invariant — the header frame's bitrate must equal the audio frames' bitrate — read from
+the frame headers directly.
+
+**4. Local engines assemble in PCM and encode once; the Edge folder path cannot and is exempt.**
+Kokoro and Chatterbox hold numpy arrays, so writing per-chunk MP3s and decoding them back to merge
+was a whole lossy generation for nothing — measured at **2.47 dB** on real Chatterbox speech
+(19.25 dB → 16.79 dB SNR), consistent with the 1.66 dB recorded earlier on different material. The
+Edge folder path receives already-encoded MP3 chunks from the network, so its second generation is
+unavoidable; only its final contract was made explicit.
+
+**5. Sample rate and channel count are deliberately NOT normalized.**
+The MP3 Tool normalizes to 44.1 kHz stereo through PCM for its own job, and that remains correct
+there. TTS output stays at the engine's native 24 kHz mono: resampling and channel expansion would
+add cost and loss without improving duration, seeking or compatibility — the 64 kbps floor is what
+fixes those, and a single-encoded 24 kHz mono file reads correctly in every parser tested.
+
+**6. The bitrate comes from the control the user already sets, not a new constant.**
+The TTS panel has always had an "MP3 bitrate" combobox (128k/192k/320k, default 192k) frozen into
+each run as `params["bitrate"]` — but only the Edge *direct* path read it. Honouring it everywhere
+fixes the defect for every selectable value with no new setting and no GUI change.
+**Known consequence, flagged rather than absorbed:** local-engine output goes from 32 kbps to an
+effective 160 kbps (192k clamps to the MPEG-2 ceiling at 24 kHz), so files are ~5× larger —
+144 MB → 720 MB for a ten-hour audiobook. Changing it needs no code: pick `128k` in the existing
+dropdown, or add a `64k` option if smaller files are wanted.
+
+— Root-caused and implemented by Claude Code under the maintainer's Phase 12 audio-audit
+authorization; the file-size consequence is referred to the maintainer for decision.
+
+---
+
 ## 2026-08-11 — Image-format capability is a fifth shared module, proved by behaviour rather than by import, with decode and encode kept separate and a missing encoder refusing rather than substituting
 
 **Decision (v0.6.1 Plan 4, Phase 1).** Four choices, recorded here because Phase 1 requires a

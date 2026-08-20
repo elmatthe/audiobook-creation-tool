@@ -194,6 +194,63 @@ def needs_special_aac_decoder(info: dict | None) -> bool:
     return is_xhe_aac(info) and not _decoder_available("aac_at")
 
 
+# --------------------------------------------------------------------------- #
+# The final MP3 encoding contract
+#
+# pydub's ``DEFAULT_CODECS`` maps only ``ogg``. Exporting ``format="mp3"`` with
+# nothing else therefore runs ``ffmpeg -f wav -i … -f mp3 out.mp3`` with **no
+# encoder and no bitrate**, leaving the contract to whatever the local ffmpeg
+# defaults to. On this project's build that is 32 kbps for a 24 kHz mono stream,
+# and that low bitrate is what broke player-reported duration.
+#
+# The mechanism is exact and was measured, not guessed. A Xing/Info header needs
+# room for a 100-byte seek table, which does not fit inside a 32 kbps MPEG-2
+# frame (96 bytes), so ffmpeg is forced to emit that one header frame at 64 kbps
+# while every audio frame stays at 32 — and still marks the file ``Info``, which
+# declares constant bitrate. A player that believes the CBR declaration and reads
+# the bitrate off the first frame computes a duration **exactly half** the truth.
+# ffprobe and mutagen read the Xing frame count instead, which is why they always
+# looked right and the defect reached shipped audio.
+#
+# Encoding at 64 kbps or above makes the header frame and the audio frames agree,
+# and the reported duration becomes correct in every parser tested. Measured with
+# Windows Media Foundation on a 2:00 fixture: 1:50 at 24 kbps, 1:54 at 32, 1:58 at
+# 48, and exactly 2:00 from 64 kbps upward.
+# --------------------------------------------------------------------------- #
+
+#: The encoder every final MP3 is written with. Named explicitly for the same
+#: reason the bitrate is: so the output does not depend on which encoder a
+#: particular ffmpeg build happens to select for the mp3 muxer.
+FINAL_MP3_CODEC = "libmp3lame"
+
+#: Used when a caller supplies nothing. Deliberately the same value the TTS
+#: panel's "MP3 bitrate" control already defaults to, so the contract and the
+#: control the user actually sees cannot drift apart.
+DEFAULT_MP3_BITRATE = "192k"
+
+
+def mp3_export_options(bitrate: str | None = None) -> dict:
+    """The pydub ``export`` keywords that pin the final MP3 contract.
+
+    Returned as keywords rather than performed here so the encode stays where the
+    audio is, and so a test can assert the contract without running ffmpeg.
+
+    ``bitrate`` is the run's chosen value — the panel offers 128k/192k/320k, all
+    of them safely above the 64 kbps threshold described above. Anything falsy
+    falls back to :data:`DEFAULT_MP3_BITRATE`, so a caller that has no opinion
+    still gets an explicit contract rather than ffmpeg's default.
+
+    Sample rate and channel count are deliberately **absent**: each engine's own
+    output is already correct for speech (24 kHz mono for the local engines), and
+    resampling or expanding it to stereo would add cost and loss for no benefit.
+    """
+    return {
+        "format": "mp3",
+        "codec": FINAL_MP3_CODEC,
+        "bitrate": bitrate or DEFAULT_MP3_BITRATE,
+    }
+
+
 _pydub_configured = False
 
 

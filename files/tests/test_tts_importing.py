@@ -1180,10 +1180,11 @@ class _Stubs:
             return str(produced)
 
         def convert_single_pdf(path, output_dir, speaker, rate, log=print,
-                               progress_report=None, cancel_check=None, out_mp3=None):
+                               progress_report=None, cancel_check=None, out_mp3=None,
+                               bitrate=None):
             self.batch_items.append({
                 "source": path, "output_dir": output_dir, "speaker": speaker,
-                "rate": rate, "out_mp3": out_mp3})
+                "rate": rate, "out_mp3": out_mp3, "bitrate": bitrate})
             Path(out_mp3).parent.mkdir(parents=True, exist_ok=True)
             Path(out_mp3).write_bytes(b"audio")
             if progress_report is not None:

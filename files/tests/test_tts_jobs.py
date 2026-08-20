@@ -241,10 +241,11 @@ class FailingStubs(_Stubs):
             return str(produced)
 
         def convert_single_pdf(path, output_dir, speaker, rate, log=print,
-                               progress_report=None, cancel_check=None, out_mp3=None):
+                               progress_report=None, cancel_check=None, out_mp3=None,
+                               bitrate=None):
             self.batch_items.append({
                 "source": path, "output_dir": output_dir, "speaker": speaker,
-                "rate": rate, "out_mp3": out_mp3})
+                "rate": rate, "out_mp3": out_mp3, "bitrate": bitrate})
             if self.marker in Path(path).name:
                 # A partial artifact is exactly what a failed conversion leaves
                 # behind, and Phase 7 must not mistake it for a resume skip.
@@ -309,8 +310,10 @@ class GatedStubs(_Stubs):
             return str(produced)
 
         def convert_single_pdf(path, output_dir, speaker, rate, log=print,
-                               progress_report=None, cancel_check=None, out_mp3=None):
-            self.batch_items.append({"source": path, "out_mp3": out_mp3})
+                               progress_report=None, cancel_check=None, out_mp3=None,
+                               bitrate=None):
+            self.batch_items.append({"source": path, "out_mp3": out_mp3,
+                                     "bitrate": bitrate})
             hold(Path(path).name)
             Path(out_mp3).parent.mkdir(parents=True, exist_ok=True)
             Path(out_mp3).write_bytes(b"audio")
@@ -1614,6 +1617,11 @@ def test_the_batch_worker_is_still_called_through_its_existing_seam(
     for item in stubs.batch_items:
         assert item["out_mp3"] is not None, "the planned target travels as out_mp3"
         assert Path(item["out_mp3"]).is_relative_to(params["run_directory"])
+        # v0.6.1 Plan 4 Phase 12: the run's chosen MP3 bitrate has to reach the
+        # folder half of the queue too. It did not before, so folder items were
+        # finished on ffmpeg's default while direct items used the real choice.
+        assert item["bitrate"] == params["bitrate"], (
+            "the run's bitrate must reach the batch worker")
 
 
 # --------------------------------------------------------------------------- #

@@ -162,10 +162,16 @@ def run_chatterbox_evaluation(
     from tts import chatterbox_synth as cbx
 
     resolved_device = device or cbx.select_device()
+    # The HISTORICAL Phase 9 contract, not current production. The four approved
+    # listening WAVs were rendered before the Phase 12 tuning existed, so this
+    # command must keep reproducing them at that temperature; ordinary samples
+    # (``generate`` below) follow current production instead. Reporting the values
+    # actually used beats reporting the wheel's defaults, which production no
+    # longer matches.
     try:
-        generation = cbx.generation_defaults()
-    except Exception as exc:  # engine absent, or the signature moved
-        log(f"Could not read the engine's generation defaults: {exc!r}")
+        generation = cbx.phase9_evaluation_params()
+    except Exception as exc:  # engine absent, or the seam moved
+        log(f"Could not read the evaluation generation parameters: {exc!r}")
         generation = {}
     parameters = {
         "package": cbx.PACKAGE_REQUIREMENT,
@@ -222,6 +228,7 @@ def run_chatterbox_evaluation(
             cbx.synthesize_text_to_wav(
                 CHATTERBOX_EVAL_TEXT, str(dest), result.voice_id,
                 log=log, device=resolved_device,
+                generation=generation or None,
             )
             result.wall_seconds = time.perf_counter() - started
             result.audio_seconds = _wav_seconds(dest)

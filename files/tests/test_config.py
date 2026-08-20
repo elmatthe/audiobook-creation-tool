@@ -431,10 +431,20 @@ def test_the_overlay_allowlist_is_exactly_the_output_base():
 
 
 def test_known_user_state_keys_are_carried_without_being_configuration(tmp_path):
+    """Fixture corrected by the v0.6.1 Plan 4 Phase 12 remediation.
+
+    The assertion is unchanged; only the sample key is. This used to pass
+    ``"input_dir"``, which was in ``USER_STATE_SETTINGS`` but which **no writer in
+    this repository has ever produced** — so the test proved the allowlist worked
+    for a key that could not occur, while the real namespaced keys the panels do
+    write (``cover_resizer.input_dir``) warned the user on every launch. The key
+    below is taken from ``cover_resizer.KEY_INPUT_DIR``.
+    """
     effective = load_body(
         tmp_path,
         VALID_BODY.format(version=VERSION),
-        settings_data={"last_tool": "m4b_metadata", "input_dir": "D:/Books"},
+        settings_data={"last_tool": "m4b_metadata",
+                       "cover_resizer.input_dir": "D:/Books"},
     )
     assert effective.diagnostics == ()          # legitimate state, not a warning
     assert "last_tool" not in effective.sources  # ...and never a configuration key

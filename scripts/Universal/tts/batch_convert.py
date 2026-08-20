@@ -32,6 +32,7 @@ _SCRIPTS_ROOT = _Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import ffmpeg_utils
 from tts.pdf_extractor import extract_text_from_pdf
 
 DEFAULT_SPEAKER = "en-US-SteffanNeural"
@@ -100,14 +101,23 @@ def synthesize_chunk_mp3(text: str, path: str, voice: str, rate: str) -> None:
     asyncio.run(chunk_to_mp3(text, path, voice, rate))
 
 
-def merge_mp3s(chunk_paths: list[str], output_mp3_path: str) -> None:
+def merge_mp3s(chunk_paths: list[str], output_mp3_path: str,
+               bitrate: str | None = None) -> None:
+    """Join the per-chunk MP3s the Edge service returned into one file.
+
+    Unlike the local engines this genuinely cannot avoid a second generation —
+    the chunks arrive from the network already encoded, so merging them means
+    decoding and re-encoding. What it *can* do is stop leaving the final encode
+    to ffmpeg's defaults, which is what produced files whose advertised duration
+    was half their real length (see ``shared.ffmpeg_utils``).
+    """
     combined = AudioSegment.empty()
     silence = AudioSegment.silent(duration=CHUNK_PAUSE_MS)
     for chunk_path in chunk_paths:
         combined += AudioSegment.from_mp3(chunk_path) + silence
     if END_RECORDING_SILENCE_MS > 0:
         combined += AudioSegment.silent(duration=END_RECORDING_SILENCE_MS)
-    combined.export(output_mp3_path, format="mp3")
+    combined.export(output_mp3_path, **ffmpeg_utils.mp3_export_options(bitrate))
 
 
 def convert_single_pdf(
@@ -119,11 +129,16 @@ def convert_single_pdf(
     progress_report: Callable[[str, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     out_mp3: Path | None = None,
+    bitrate: str | None = None,
 ) -> tuple[str, Path, str | None]:
     """Convert one source file (.pdf or .txt) to MP3.
 
     ``out_mp3`` is the mirrored target computed by run_batch_convert; when
     omitted (direct callers) it falls back to the flat ``output_dir/<stem>.mp3``.
+
+    ``bitrate`` is the run's chosen MP3 bitrate, passed through to the final
+    encode so this folder path and the Edge direct path agree on the output
+    contract instead of one of them silently using ffmpeg's default.
     """
     stem = pdf_path.stem
     if out_mp3 is None:
@@ -186,7 +201,7 @@ def convert_single_pdf(
                     time.sleep(INTER_CHUNK_DELAY_SEC)
 
                 out_mp3.parent.mkdir(parents=True, exist_ok=True)
-                merge_mp3s(chunk_paths, str(out_mp3))
+                merge_mp3s(chunk_paths, str(out_mp3), bitrate)
                 if progress_report is not None:
                     progress_report(stem, "completed")
                 return "success", pdf_path, None

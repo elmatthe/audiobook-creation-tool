@@ -300,8 +300,27 @@ def test_an_unknown_voice_id_is_rejected_rather_than_guessed():
         cbx.resolve_reference("chatterbox-male-9")
 
 
+def _engine_executable_source() -> str:
+    """The engine with comments and docstrings stripped.
+
+    Strengthened by the v0.6.1 Plan 4 Phase 12 tuning pass. The guard below used
+    to scan the raw file, which meant documentation *about* URLs tripped it: the
+    prose-colon rule has to name "https://" as an example of a colon form that
+    must NOT receive a pause. Parsing to an AST keeps the guard catching a real
+    ``urlopen(...)`` while letting the module explain itself.
+    """
+    import ast
+
+    tree = ast.parse(Path(cbx.__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)) and ast.get_docstring(node):
+            node.body = node.body[1:]
+    return ast.unparse(tree)
+
+
 def test_nothing_is_ever_downloaded_to_replace_a_missing_reference():
-    src = Path(cbx.__file__).read_text(encoding="utf-8")
+    src = _engine_executable_source()
     for token in ("urllib", "requests", "urlopen", "http://", "https://"):
         assert token not in src, f"engine reaches the network via {token!r}"
 
@@ -692,14 +711,28 @@ def _source_text(tmp_path: Path, sentences: int = 40) -> Path:
     return path
 
 
-def test_file_synthesis_reuses_the_existing_chunker(synth_ready, tmp_path):
+def test_file_synthesis_uses_the_chatterbox_chunker_not_kokoros(synth_ready, tmp_path):
+    """Retargeted by the v0.6.1 Plan 4 Phase 12 remediation — the assertion is
+    inverted, deliberately, because it used to encode the defect.
+
+    Phase 8 wrote this as ``test_file_synthesis_reuses_the_existing_chunker`` and
+    asserted the Chatterbox path produced *exactly* Kokoro's chunk count. The
+    Phase 12 manual matrix proved that reuse is the bug: Kokoro's 3,000-character
+    default is ten times Chatterbox Turbo's supported input, and three real
+    chapters converted that way reported success while producing ~2% of their
+    audio. The engine now owns ``split_for_chatterbox``; this test is the guard
+    that it is never wired back to Kokoro's. Nothing is weakened — the contract
+    asserted here is strictly stronger, and the full ceiling contract lives in
+    ``test_chatterbox_longform.py``.
+    """
+    body = " ".join(f"This is sentence number {i} of the sample text." for i in range(400))
     source = _source_text(tmp_path, sentences=400)
     out = tmp_path / "out.mp3"
     cbx.chatterbox_file_to_mp3(str(source), str(out), "chatterbox-male-1",
                               log=lambda _m: None)
-    expected = len(split_into_chunks(
-        " ".join(f"This is sentence number {i} of the sample text." for i in range(400))))
-    assert len(synth_ready.generated) == expected > 1
+    kokoro_would_make = len(split_into_chunks(body))
+    assert len(synth_ready.generated) > kokoro_would_make > 1
+    assert max(len(t) for t in synth_ready.generated) <= cbx.CHATTERBOX_MAX_CHUNK_CHARS
 
 
 def test_file_synthesis_writes_the_requested_mp3(synth_ready, tmp_path):

@@ -1995,6 +1995,10 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
             log=log,
             cancel_check=cancel_check,
             progress_callback=progress,
+            # The run's own "MP3 bitrate" choice. Until the Phase 12 audio audit
+            # only the Edge direct path read it, so the local engines silently
+            # produced whatever ffmpeg defaulted to.
+            bitrate=params["bitrate"],
         )
 
     if source.suffix.lower() == ".txt":
@@ -2045,6 +2049,10 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
             log=log,
             cancel_check=cancel_check,
             progress_callback=progress,
+            # The run's own "MP3 bitrate" choice. Until the Phase 12 audio audit
+            # only the Edge direct path read it, so the local engines silently
+            # produced whatever ffmpeg defaulted to.
+            bitrate=params["bitrate"],
         )
 
     if source.suffix.lower() == ".txt":
@@ -2118,6 +2126,9 @@ def convert_folder_items(folder_items, run) -> None:
                 None,
                 run.cancel_check,
                 item["destination"],
+                # Same run-level choice the direct paths use, so the folder half
+                # of a queue cannot finish to a different contract.
+                bitrate=params["bitrate"],
             )
             return status, item, message, run.clock() - started
         except ConversionCancelled:

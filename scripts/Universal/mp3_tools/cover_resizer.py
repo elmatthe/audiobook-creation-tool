@@ -817,6 +817,10 @@ class CoverBrowser:
         self._results: queue.Queue = queue.Queue()
         self._rendered_revision = -1
         self._rendered_selection: tuple[str, ...] = ()
+        #: Last span hydrated, so repeated scroll callbacks are near-free.
+        self._rendered_span: tuple[int, int] | None = None
+        #: Re-entrancy guard: repainting tiles re-fires ``yscrollcommand``.
+        self._scrolling = False
         self._anchor: str | None = None
         self._cursor: str | None = None
         self._tiles: tuple[str, ...] = ()
@@ -891,7 +895,7 @@ class CoverBrowser:
         tree.grid(row=0, column=0, sticky="nsew")
         bar = ttk.Scrollbar(page, orient="vertical", command=tree.yview)
         bar.grid(row=0, column=1, sticky="ns")
-        tree.configure(yscrollcommand=bar.set)
+        tree.configure(yscrollcommand=self._scroll_reporter(bar))
         return tree
 
     def _tile_canvas(self, view_id: str) -> tk.Canvas:
@@ -901,8 +905,45 @@ class CoverBrowser:
         canvas.grid(row=0, column=0, sticky="nsew")
         bar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
         bar.grid(row=0, column=1, sticky="ns")
-        canvas.configure(yscrollcommand=bar.set)
+        canvas.configure(yscrollcommand=self._scroll_reporter(bar))
+        # ``ttk.Treeview`` gets <MouseWheel> from its Tk *class* bindings, which is
+        # why Details and List always scrolled. ``tk.Canvas`` has no such class
+        # binding, so without this the wheel did nothing over the thumbnail
+        # viewport while the scrollbar worked — exactly the Block 1 report. Bound
+        # on the canvas itself, never with ``bind_all``: a global binding would
+        # steal the wheel from every other panel in the launcher. The tiles are
+        # canvas *items*, not child widgets, so this one binding covers the whole
+        # viewport including the images and their labels.
+        canvas.bind("<MouseWheel>", self._wheel_handler(canvas), add="+")
+        for button, direction in (("<Button-4>", -1), ("<Button-5>", 1)):
+            canvas.bind(button, self._wheel_handler(canvas, units=direction),
+                        add="+")
         return canvas
+
+    def _scroll_reporter(self, bar):
+        """Keep the scrollbar in step, and tell the browser the viewport moved.
+
+        Hooking ``yscrollcommand`` catches **every** way a view can scroll — the
+        wheel, dragging the scrollbar, keyboard navigation, a programmatic
+        ``yview`` — from one place per view, instead of chasing each input.
+        """
+        def report(first, last):
+            bar.set(first, last)
+            self.notify_scrolled()
+        return report
+
+    def _wheel_handler(self, canvas, units: int | None = None):
+        def handle(event):
+            if units is not None:
+                step = units
+            else:
+                # Windows reports multiples of 120; macOS reports small integers.
+                delta = int(event.delta)
+                step = -(delta // 120) if abs(delta) >= 120 else -delta
+            if step:
+                canvas.yview_scroll(step, "units")
+            return "break"
+        return handle
 
     def _build_placeholder(self) -> tk.PhotoImage:
         """One shared image for everything that cannot be decoded.
@@ -1081,6 +1122,7 @@ class CoverBrowser:
         self._render_rows(snapshot)
         self._rendered_selection = self._manager.selection
         self._paint_selection()
+        self._rendered_span = self.visible_range()
         self.request_visible()
         self._consume()
         return self._order
@@ -1235,6 +1277,45 @@ class CoverBrowser:
 
     # -- the decoder, and the one pump -------------------------------------- #
 
+    def notify_scrolled(self) -> bool:
+        """The viewport moved: hydrate whatever is now on screen.
+
+        Before this existed, ``request_visible()`` was reachable only from
+        ``refresh()`` — construction, a view switch, or a manager *revision*
+        change. Scrolling is none of those, so the visible span was computed once
+        and never again: with 34 images the first screenful hydrated and every row
+        below it kept its ``…`` for good, and the thumbnail canvas showed blank
+        space because ``_render_tiles`` paints only the visible span while sizing
+        ``scrollregion`` for every row.
+
+        Cheap on the common path. The span is compared against the last one
+        rendered and an unchanged span returns immediately, so the many
+        ``yscrollcommand`` callbacks a single drag produces cost one tuple compare
+        each. Already-decoded occurrences are skipped by ``request_visible``
+        itself, so hydration stays lazy and nothing is decoded twice.
+
+        Returns True when this call actually did something.
+        """
+        if self._closed or not self._order:
+            return False
+        # Re-entrancy: repainting tiles reconfigures ``scrollregion``, which fires
+        # ``yscrollcommand`` again. Without this guard that is an endless loop.
+        if self._scrolling:
+            return False
+        span = self.visible_range()
+        if span == self._rendered_span:
+            return False
+        self._scrolling = True
+        try:
+            self._rendered_span = span
+            if self._view == VIEW_THUMBNAILS:
+                self._render_tiles()
+            self.request_visible()
+            self._consume()
+        finally:
+            self._scrolling = False
+        return True
+
     def request_visible(self) -> tuple[str, ...]:
         """Ask the decoder for whatever the visible span still needs, and no more."""
         if self._closed or not self._order:
@@ -1364,6 +1445,7 @@ class CoverBrowser:
         self._inflight.clear()
         self._tiles = ()
         self._tile_selection = ()
+        self._rendered_span = None
         self._on_selection_change = None
         while True:
             try:

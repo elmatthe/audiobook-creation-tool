@@ -2,7 +2,36 @@
 
 ## Current Focus
 
-**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–10 approved; Phase 11 implemented.**
+**v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–12 are now approved, and PHASE 12
+IS COMMITTED AND PUSHED.** The Windows manual matrix is **COMPLETE**: every row is maintainer-approved,
+with the deferrals left standing as deferrals rather than converted into passes. The matrix ran in
+blocks and produced five real defects, each root-caused before being fixed — Chatterbox long-form
+synthesis silently truncating to ~2% of its audio (Kokoro's 3,000-character chunker was ten times
+Turbo's supported input); an existing `.venv` silently skipping newly pinned requirements; a clipped
+first-run setup dialog and its Cancel semantics; a settings allowlist written with key names no
+writer in this repository has ever used; the Cover browser's local scrolling; and, largest of all,
+**every TTS final MP3 encoded on ffmpeg's defaults at 32 kbps**, which made players report exactly
+half the true duration — root-caused to a Xing header frame that cannot fit inside a 32 kbps MPEG-2
+frame, fixed by one explicit encode contract across Kokoro, Chatterbox and the Edge folder path, and
+**manually approved by ear on a ≈7-minute Female 1 chapter and a ≈10-minute Male 1 chapter**, both
+correct in iTunes and QuickTime. The last blocker was an **uncontrolled multi-second silence** in the
+Male 1 long-form output: root-caused to a sentence-boundary blind spot (`."` / `?"` / `!"` before a
+line break was not a sentence end, so **17 raw newlines reached `model.generate()`**, and the model
+renders one as a pause of no fixed length) and **FIXED** by a natural-boundary chunk planner —
+paragraph → sentence → clause → whitespace → hard limit, units packed to the 300-character ceiling,
+no structural newline reaching the model, and a plan refused outright if it does not preserve its
+source. Real regeneration took the worst interior silence from **8.73 s to 2.90 s** with the duration
+essentially unchanged (488.94 → 486.34 s). **The maintainer listened and approved it on 2026-08-19**
+— much better, dead air resolved, a small amount of pause/lag remaining and **accepted for this
+release**. Chatterbox narration timing is therefore **frozen for Plan 4**; residual pause/rhythm
+tuning is a recorded future observation, not scheduled work. The **file-size consequence is CLOSED**:
+the maintainer ruled to keep the currently tested bitrate and default (effective 160 kbps, ~5× the
+old 32 kbps), so no `64k` option is added and the MP3-finalization architecture is not reopened. A
+**future general pronunciation-override requirement** (global and per-voice scopes, plus the separate
+A-versus-B distinction between deterministic override and generation consistency; `Tamar`, `Nephis`,
+`Ascended` as evidence only) is recorded below and is **NOT implemented**. The one native
+`torch_cpu.dll` `0xC0000005` crash remains **historical, characterised, never reproduced — and is
+NOT claimed to be fixed.**
 Phases 0–7 approved (Phase 4 including its ETA-serialization remediation; Phase 6 approved
 2026-08-15 in the prompt that authorized Phase 7; **Phase 7 including its reporting-order
 remediation approved by the maintainer on 2026-08-15**, final SHA
@@ -24,8 +53,22 @@ registered-vs-available distinction); review of that commit then found one post-
 regression in the dev-only `generate_voice_samples.py`, where ordinary mode classified every
 non-Kokoro row as Edge and so posted the four Chatterbox rows to Edge TTS; and remediation commit
 `075719945c5ad8d1c8fe335d0be3e7cfa07b43f2` fixed it with backend-driven dispatch. Both entries stay
-below, in that order. **Phase 11 is implemented and awaits maintainer approval. Phase 12 is NOT
-AUTHORIZED and has NOT started.**
+below, in that order. **Phase 11 was APPROVED BY THE MAINTAINER ON 2026-08-15** — approved SHA
+`82042f73b02894f3c881fbb0d5ce61aadbaa9948`, in the prompt that authorized Phase 12 preparation.
+(Any earlier sentence in this file saying Phase 11 "awaits maintainer approval" is stale and
+superseded by this one.) **Phase 12 — the Windows manual matrix — was run in maintainer-approved
+blocks and is COMPLETE AND APPROVED as of 2026-08-19.** Banked in order: the clean BAT first-run
+install, stale-`.venv` reconciliation, the second-launch fast path, the setup dialog and its Cancel
+semantics, the settings-warning fix, real HEIC, Edge and Kokoro usability, Chatterbox Female 1
+long-form intelligibility, the selected tuning (ceiling 300, temperature 0.72, prose-colon pause
+75 ms); on 2026-08-17, **Block 1 and the entire Cover Image manual section**; on 2026-08-18, the
+**four-voice Chatterbox seven-file queue** (Female 1, Female 2, Male 1, Male 2 — all 7/7, application
+stable, all four sounded good), the **long-form final-MP3 recheck** on Female 1 and Male 1, and
+**Block 3** (Pause/Resume, Cancel, Retry Failed and the degraded/missing-reference case); and on
+2026-08-19 the **natural-boundary silence recheck** that closed the last open row. (Any earlier
+sentence in this file saying Block 3 "awaits the maintainer", that "no Phase 12 commit exists" or
+that "Phase 12 is NOT complete" is stale and superseded by this one.) **Phase 13 — the live macOS
+HEIC and Chatterbox/Metal gate — is NOT AUTHORIZED and has NOT started.**
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -2019,6 +2062,2005 @@ No version bump, merge, tag, release, packaging or branch deletion; the Plan 4 d
 retired**; no docs closeout started. `Setup_and_Run` was not run, no CUDA was used, no Mac action
 was taken, no 125% scaling was tested, and no manual matrix was run. **Phase 11 awaits maintainer
 approval. Phase 12 — Windows manual matrix — is NOT AUTHORIZED and has NOT started.**
+*(Superseded 2026-08-15: Phase 11 was approved at `82042f73b02894f3c881fbb0d5ce61aadbaa9948` and
+Phase 12 preparation was authorized. The paragraph above is left as written for the record.)*
+
+### Phase 12 — Windows manual matrix — PREPARED, AWAITING MAINTAINER EXECUTION (2026-08-15, HOME-PC)
+
+**Status: PREPARATION ONLY. The matrix has NOT been run, no result is recorded, no attestation
+exists, and no Phase 12 commit has been created.** This section is uncommitted working state.
+
+**Phase 11 is APPROVED**, final SHA `82042f73b02894f3c881fbb0d5ce61aadbaa9948`. Preflight
+re-verified at that SHA: branch `feature/0.6.1-tts-cover-workflows`, local head equal to its
+upstream, `master` = `origin/master` = `809a43e754920fce2f11f08e3c401dcc4c7a5223`, 15 ahead /
+0 behind, tracked worktree and index clean, `VERSION` `0.5.1`, `launcher.TOOLS` six entries,
+`config-template.toml` absent, `voice_registry.VOICES` sixteen rows with the four ASCII-hyphen
+Chatterbox labels and `DEFAULT_VOICE_LABEL` still Steffan.
+
+#### The blocking finding — the working `.venv` does not match `scripts/requirements.txt`
+
+Recorded plainly because it decides whether half the matrix can run at all. The working `.venv`
+is still the **pre-Plan-4** environment. Phases 8 and 9 deliberately never modified it; they ran
+in the retained probe environment at
+`files/runtime-data/chatterbox/phase8-probe/baseline-venv`.
+
+| Package | Pinned in `scripts/requirements.txt` | Installed in `.venv` |
+|---|---|---|
+| `chatterbox-tts` | `0.1.7` | **absent** |
+| `torchaudio` | `2.6.0` | **absent** |
+| `librosa` | `0.11.0` | **absent** |
+| `resemble-perth` | `1.0.1` | **absent** |
+| `pillow-heif` | `1.5.0` | **absent** |
+| `torch` | `2.6.0` | 2.13.0 |
+| `transformers` | `5.2.0` | 5.13.0 |
+| `numpy` | `1.26.4` | 2.5.1 |
+| `setuptools` | `80.9.0` | 82.0.1 |
+
+**`Setup_and_Run-audiobook-creation-tool.bat` will not repair this.** Read at
+`Setup_and_Run-audiobook-creation-tool.bat:21-24`: when `.venv\Scripts\pythonw.exe` exists the
+BAT launches `bootstrap.py --launch-only` and exits. `bootstrap.main()` routes that to
+`_launch_with_kokoro_healthcheck()` (`bootstrap.py:1549-1552`), which self-heals **Kokoro only**
+and never runs `pip install -r requirements.txt`. So both BAT invocations take the fast path and
+neither installs the Plan 4 dependency set. This is a genuine gap in the installation story, not
+a fixture problem, and it was **not** worked around by a manual `pip install`.
+
+Consequences, measured rather than assumed:
+
+- In the working `.venv`, `shared.image_capabilities.heif_capability()` reports
+  `decode=False, encode=False` and `cover_resizer.build_catalog()` offers only `jpg` and `png` —
+  **no HEIC checkbox at all**, so the real HEIC matrix (checklist J) cannot run there.
+- In the working `.venv`, `chatterbox_synth.package_status()` fails on the missing engine, so all
+  four Chatterbox voices report engine-unavailable rather than the reference-based status the
+  matrix is meant to exercise (checklist O–V).
+- In the Phase 8 probe environment, which **was** verified against the committed
+  `scripts/requirements.txt`, the same probe reports `decode=True, encode=True`
+  (`pillow-heif 1.5.0`, `libheif 1.23.1`) and a real HEIC → HEIC round-trip through
+  `cover_resizer.resize_for_audiobook` produced `format='HEIF'`, `ftypheic`, 1024×1024.
+
+The choice of how to close the gap is the maintainer's and is recorded in the manual checklist,
+section A.
+
+#### What preparation built — all disposable, all ignored
+
+- `files/runtime-data/phase12-manual-fixtures/` (ignored at `.gitignore:29`, proven with
+  `git check-ignore -v`), carrying its own `README-DISPOSABLE.md` manifest: valid cover images
+  with duplicate stems and nested folders; a 34-image browser/selection set; a 3,000-file
+  >1,000-result tree; a **60,000-file** Cancel Import tree calibrated against a real
+  `scan_roots` call (**7.1 s** warm, versus 0.27 s for the 3,000-file tree, which is far too fast
+  to cancel by hand); truncated-but-importable failure fixtures with their repair bytes for both
+  panels; separate replacement-mode fixtures for decline / accept / retry; three **genuine**
+  HEIC/HEIF bitstreams written by the real codec; a generated stand-in home for the broad-root
+  test; and PDF/TXT sources written with the project's existing PyMuPDF.
+- A disposable detached worktree at `C:\Users\ematthew\AppData\Local\Temp\act-phase12-degraded`,
+  at exactly `82042f73…`, verified to contain **zero** `.mp3`/`.wav`/`.pt` files, no
+  `files/Chatterbox-Voice-Uploads/` and no `files/runtime-data/`. Launched from there with the
+  probe interpreter, `paths.REPO_ROOT` resolves to the worktree and all four voices report
+  *"Setup required … the reference recording is not present"* — the degraded case proven without
+  touching a protected recording.
+- No protected recording was renamed, moved, copied, hidden or read for any of this.
+
+#### Verified untouched
+
+`git diff -- scripts/` is **empty**; `git status --porcelain --untracked-files=all` is empty
+(fixtures and worktree are outside the repository or ignored). Focused sanity set — Phase 11
+lifecycle/races, Cover importing/browser/jobs/source-side/smoke, image capabilities, TTS
+importing/jobs/reporting-order, Chatterbox integration/engine/boundaries, EPUB retirement, both
+Plan 3 boundary guard files — **1004 passed, 1 skipped, 1 warning**. Full gate re-run and
+identical to the approved Phase 11 baseline: **3481 passed, 13 skipped, 1 warning**;
+`scripts/verify.py` → **RESULT: PASS**; `compileall` exit 0. The four protected recordings
+re-hashed after all work — all four **byte-identical**, still exactly four files;
+`git ls-files files/Chatterbox-Voice-Uploads/ files/runtime-data/` returns zero.
+
+#### Deferrals carried into the matrix, never to be recorded as passes
+
+- **Windows 125% scaling — DEFERRED TO PLAN 9.** Not part of Phase 12.
+- **TTS whole-form scrolling** — the options form sits inside a scrolling canvas at every size.
+  Observe and record only; flag for a Plan 9 §14 entry. Not redesigned here.
+- **HEIC decode-available / encode-unavailable** — a real machine in that state cannot be
+  produced on Windows without a hand-built decode-only `libheif` or a production edit, both of
+  which are refused. `files/tests/test_image_capabilities.py` covers the branch through the
+  probe's injectable seams; that is supporting evidence, not a manual observation, and is
+  recorded as a gap rather than a pass.
+
+#### Not done
+
+No stage, no commit, no push. Phase 12 is **not** complete and no attestation has been written —
+the maintainer must supply it. No version bump, merge, tag, release or packaging. The Plan 4 drop
+is not retired. No CUDA, no Mac, no 125% scaling. **Phase 13 is NOT AUTHORIZED and has NOT
+started.**
+
+### Phase 12 — maintainer manual findings, 2026-08-16, HOME-PC, 1920×1080 @ 100%
+
+The maintainer executed the environment and setup sections of the matrix. Recorded verbatim in
+substance; **no Chatterbox row is claimed as a pass.**
+
+**A. The pre-existing `.venv` / first BAT behaviour — confirmed the predicted defect.** The
+existing environment held no Plan 4 Chatterbox dependencies and no `pillow-heif`. Launching
+through the BAT left Chatterbox unavailable and HEIC unavailable, with nothing explaining why.
+Edge and Kokoro remained usable throughout.
+
+**B. Clean first-run setup — success.** The maintainer renamed `.venv` to
+`.venv-phase12-preexisting-backup`, ran the root BAT with no `.venv` present, and got the genuine
+first-run setup window. Setup completed and installed a new working environment. HEIC/HEIF then
+appeared as a supported Cover type, a real `.heic` imported and displayed (Details reporting
+HEIF, Medium Thumbnails rendering the actual image), and the Chatterbox package and model became
+usable. **This is the first real Windows evidence for Decision 54A's decode path.**
+
+**C. Setup UI defect.** The first-run setup window clipped part of the long explanatory and
+checkbox text at 100% scaling. Screenshot supplied. Fixed in this remediation — §Setup dialog.
+
+**D. Chatterbox production failure — the blocker.** `Chatterbox - Female 1` was run against
+`Chapter 3008.txt`, `Chapter 3009.txt` and `Chapter 3010.txt`. **All three jobs reported success**
+and all three MP3s are, in the maintainer's words, completely unintelligible — nothing like the
+Phase 9 evaluation samples they had approved. Edge Steffan immediately afterwards was normal;
+Kokoro remained usable. Root-caused and fixed below; **awaiting the maintainer's listening
+verdict on the post-fix candidate.**
+
+**E. TTS pause-timing controls still visible.** The maintainer observed the Pause timing section
+and the Trim Edge TTS padding checkbox are still present. **This is the existing deferred
+UI-compression requirement, not new work and not authorized here.** Their visible removal belongs
+to the later UI-compression / no-scroll planning pass, with the tested underlying behaviour and
+internal defaults retained. Not touched in this remediation; Edge timing behaviour unchanged.
+Recorded alongside the Phase 12 TTS whole-form scrolling observation for Plan 9 §14.
+
+### Phase 12 remediation — three defects diagnosed and fixed (2026-08-16, HOME-PC)
+
+**Status: PREPARED, UNCOMMITTED, awaiting maintainer listening + Windows setup retest.** No
+remediation commit exists. Phase 12 remains open. Phase 13 not started.
+
+#### Defect 1 — Chatterbox long-form synthesis (the blocker)
+
+**Root cause, established by measurement before any edit was made.** Phase 10 routed
+`chatterbox_file_to_mp3` through `kokoro_synth.split_into_chunks`, whose default ceiling is
+**3,000 characters**. That is correct for Kokoro and roughly ten times what Chatterbox Turbo
+supports. The three chapters measured 6,867 / 6,644 / 6,420 characters after production
+preprocessing and produced **exactly 3 chunks each**, with maximum chunk lengths of **2,968 /
+3,002 / 2,983** — reconciling exactly with the "3 Chatterbox chunks per chapter" the logs showed.
+
+Two facts read **off the pinned wheel**, not off documentation:
+
+- `chatterbox/models/t3/t3.py` caps generation at `inference_turbo(..., max_gen_len=1000)` speech
+  tokens, and `chatterbox/models/s3tokenizer/s3tokenizer.py` sets `S3_TOKEN_RATE = 25`. **One
+  `generate()` call can emit at most 1000/25 = 40 seconds of audio, ever**, and `generate()` never
+  overrides that cap. A 3,000-character chunk needs ~190 s, so it could never have been rendered
+  whole.
+- `chatterbox/tts_turbo.py:271` tokenizes with `truncation=True`, so over-long text is dropped in
+  silence rather than refused — which is why three broken runs all reported success.
+
+**Primary upstream evidence.** `resemble-ai/chatterbox` master ships `gradio_tts_turbo_app.py`
+whose input box is labelled **`"Text to synthesize (max chars 300)"`** (line 123), and its own
+`example_tts_turbo.py` uses a 240-character string. No blog or fork was used.
+
+**Real A/B probe on this machine**, Female 1, `cpu`, cached Phase 9 conditional reused, generation
+parameters at the pinned wheel's own defaults:
+
+| Probe | chars | audio | chars / audio-second |
+|---|---|---|---|
+| A — Phase 9 evaluation sentence (control) | 125 | 7.88 s | 15.9 |
+| **B — first production chunk today** | **2,889** | **3.84 s** | **752.3** |
+| C — sentence-aware piece ≤300 | 275 | 17.92 s | 15.3 |
+| C — sentence-aware piece ≤300 | 294 | 18.20 s | 16.2 |
+| C — sentence-aware piece ≤300 | 278 | 16.24 s | 17.1 |
+| C — sentence-aware piece ≤300 | 296 | 18.60 s | 15.9 |
+
+At the healthy ~16 characters per audio-second, the 2,889-character chunk needed ~181 seconds and
+produced **3.84** — **2.1% of its text**. The maintainer's own broken `Chapter 3008.mp3` is
+**30.58 s** for 6,867 characters (224.6 chars/s) against an expected ~7 minutes. Every ≤300
+piece lands on the control rate. **The defect is objectively measurable without listening.**
+
+**The fix.** `CHATTERBOX_MAX_CHUNK_CHARS = 300` and a Chatterbox-owned
+`split_for_chatterbox()` — paragraph, then sentence, then whitespace, then (only for a single
+unbroken token) a hard slice. `kokoro_synth.split_into_chunks` is **unchanged and unimported by
+the generation path**; Kokoro still splits at 3,000. No generation defaults changed, no GUI
+option added, no user-facing chunk-size choice, no label-driven behaviour.
+
+**Post-fix candidate, produced through the real production entry point:** 6,867 characters →
+**52 chunks, longest 295** → **414.48 s (6 min 54 s)** of audio at **16.57 chars/audio-second**,
+matching the control rate. That is 13.6× the broken output. **Intelligibility is the maintainer's
+call, not this session's** — the candidate is at
+`files/runtime-data/phase12-chatterbox-remediation/Chapter-3008-Female-1-postfix.mp3`.
+
+#### MP3 assembly — investigated, measured, deliberately left alone
+
+Confirmed exactly as suspected: each chunk is written to WAV, encoded to MP3, those MP3s are
+decoded again during merge, and the merged result is exported to MP3 a second time
+(`chatterbox_synth.py`, the `segment_paths` loop). Measured rather than assumed:
+
+- **Boundary artefacts: none.** Merging four real generated WAVs through the current MP3 path and
+  through a WAV-only path produced **identical durations** (70,960.0 ms both ways, 0.0 ms drift).
+  ffmpeg strips LAME encoder delay/padding correctly, so no gap accumulates per chunk.
+- **Generational loss: 1.66 dB.** SNR against the original waveform was 16.05 dB after one encode
+  and 14.39 dB after two. Real, modest, and **per-sample — it does not compound with chunk
+  count**, so raising the chunk count from 3 to 52 does not worsen it.
+
+1.66 dB does not make speech unintelligible; a 2.1% text-completion rate does. Per the
+remediation's own instruction to prefer leaving the merge architecture alone absent evidence,
+**it was not changed.** Recorded for a later decision: the single-encode design (merge from
+WAV/PCM, encode once at the destination) would recover that 1.66 dB, and pydub's default export
+is ~32 kbps at 24 kHz — which is also what the maintainer's broken files show.
+
+#### Defect 2 — an existing `.venv` silently skips newly pinned requirements
+
+**Root cause.** `Setup_and_Run-audiobook-creation-tool.bat:21-24` treats the existence of
+`.venv\Scripts\pythonw.exe` as proof that setup is current and hands off to
+`bootstrap.py --launch-only`; `main()` routes that to `_launch_with_kokoro_healthcheck()`, which
+self-healed **Kokoro only**. A valid older environment therefore missed `chatterbox-tts`,
+`pillow-heif` and every changed pin forever, with no message and no route to recovery short of
+deleting the environment by hand.
+
+**The fix — a per-environment requirements fingerprint.** `requirements_fingerprint()` is the
+SHA-256 of `scripts/requirements.txt`; `record_requirements_state()` writes it to
+`.venv/.requirements-state.json` **only after `pip_install_requirements` and
+`validate_installed_packages` both succeed**; `requirements_are_current()` compares them; and
+`ensure_requirements_current()` runs one reconciliation when they differ. It is wired into
+`_launch_with_kokoro_healthcheck()` **before** the Kokoro probe, and into `run_setup()` after
+validation.
+
+- Unchanged pins → one file hash, no pip, fast path preserved.
+- Missing stamp (an older environment) → reconcile **once**, not every launch.
+- Changed pins → reconcile, behind the existing repair dialog (generalized to take its own title
+  and detail; the Kokoro caller's wording is byte-identical to before).
+- Failure → **no stamp is written**, a truthful warning is shown, and the app still opens so Edge
+  TTS keeps working. The next launch retries.
+- The environment is **never** deleted or recreated because a pin changed.
+- Model weights are untouched: package repair and the ~3.9 GiB Chatterbox pre-download stay
+  separate, so a new pin can never trigger a surprise multi-gigabyte download.
+
+The stamp lives **inside the venv** deliberately — disposable, never tracked, and it travels with
+the directory, so renaming an old environment back into place is correctly detected as stale.
+`Setup_and_Run-audiobook-creation-tool.bat` was **not** modified; no hash is hard-coded anywhere
+outside `requirements.txt`/`bootstrap.py`.
+
+#### Defect 3 — first-run setup dialog clipped its own text
+
+**Root cause.** The two option descriptions were long single-line `ttk.Checkbutton` labels, and
+**`ttk.Checkbutton` has no `wraplength` option** — only `ttk.Label` and the classic `tk` widgets
+do. There was nothing that could make them fold, so the fixed 640-pixel window simply cut them.
+
+**The fix.** Checkbutton labels now carry only a short actionable phrase; every long string moved
+into a real wrapped `ttk.Label` whose `wraplength` tracks the window through a `<Configure>`
+binding. Geometry went 640×520 → 720×600 and minsize 560×440 → 640×560 — a modest bump, not a
+sledgehammer, and a test pins it below 900×760 so nobody "fixes" this by enlarging the window
+again. The button row is pinned to the bottom so Begin Setup and Cancel cannot be pushed off.
+Wording and meaning are unchanged, Chatterbox stays unchecked, Kokoro keeps its default.
+
+#### Defect 4 — the "Some settings could not be used" warning (a real allowlist bug)
+
+**The exact ignored keys**, from the maintainer's own `files/runtime-data/settings.json`:
+`cover_resizer.input_dir`, `m4b_maker.input_dir`, `m4b_maker.output_dir`, `m4b_metadata.cover_dir`,
+`m4b_metadata.input_dir`, `mp3_tool.input_dir`, `window_geometry`.
+
+**Classified against every production writer, by search:**
+
+| Key | Class | Evidence |
+|---|---|---|
+| `cover_resizer.input_dir` | **A — legitimate** | `cover_resizer.py:1967,1980` |
+| `m4b_maker.input_dir` | **A — legitimate** | `m4b_maker.py:608` |
+| `m4b_metadata.input_dir` | **A — legitimate** | `m4b_metadata_editor.py:723,751` |
+| `m4b_metadata.cover_dir` | **A — legitimate** | `m4b_metadata_editor.py:1009` |
+| `mp3_tool.input_dir` | **A — legitimate** | `mp3_tool.py:562` |
+| `m4b_maker.output_dir` | **B — stale** | no writer in the tree; last written by `466c3d9` |
+| `window_geometry` | **B — stale** | no writer in the tree; last written by `df900bf` |
+
+`config.USER_STATE_SETTINGS` had been written with **un-namespaced names** — `input_dir`,
+`m4b_cover_dir`, `tts_output_dir` and so on — that **no writer in this repository has ever
+produced**. The allowlist matched nothing, so the app warned the user once per launch about the
+"last folder used" state it had just written itself. The list now names the exact keys production
+writes (including `m4b_converter.input_dir` and `m4b_maker.cover_dir`, which were absent locally
+only because those tools had not been used).
+
+**The two class-B keys are left warning truthfully.** `settings.json` was **not** reset and no key
+was deleted. Verified live afterwards: the warning now reads
+`ignored: m4b_maker.output_dir, window_geometry` and nothing else. A new
+`test_settings_allowlist.py` re-derives every `settings.set(...)` key from the source by AST, so
+the list cannot drift again, and asserts the allowlist never becomes a wildcard and never gains
+power over `config.toml`.
+
+#### Preserved untouched
+
+Kokoro engine and chunk sizing, Edge synthesis and timing, the voice registry (16 rows, four
+ASCII-hyphen Chatterbox labels, `DEFAULT_VOICE_LABEL` Steffan), Cover production code, image
+capability architecture, `job_control`, `job_ui`, the importer, output planners, the launcher
+registry (six tools), `VERSION` `0.5.1`, `config-template.toml` still absent. The TTS pause-timing
+UI was **not** removed. `test_tts_reporting_order.py` and `test_batch_convert_folders.py` ran
+**unmodified** and appear nowhere in the diff.
+
+#### Gates
+
+Full suite **3574 collected / 3561 passed / 13 skipped / 1 warning**, against the approved Phase 11
+baseline of 3494 / 3481 / 13 / 1: **+80 collected, +80 passed, skips and warning unchanged**. The
++80 reconciles exactly — `test_chatterbox_longform.py` 25, `test_bootstrap_requirements_state.py`
+27, `test_settings_allowlist.py` 20, `test_bootstrap_setup_dialog_fit.py` 8.
+`scripts/verify.py` → **RESULT: PASS**. `compileall` exit 0. `git diff --check -- '*.py'` exit 0
+(only the inherited LF→CRLF normalization notices).
+
+**One anomalous full run reported 62 skips.** Investigated rather than ignored: the extra 49 were
+symlink-guarded tests skipping on `[WinError 1314] A required privilege is not held by the
+client`, a pre-existing conditional guard across a 57-reference symlink population. Three
+subsequent runs all returned the baseline 13. Not a regression from this work, and recorded rather
+than smoothed over. The Tk `init.tcl` transient also recurred once in
+`test_bootstrap_setup_dialog_fit.py`, which skips rather than fails on it; re-runs gave 8/8.
+
+#### Protected assets
+
+Re-hashed before and after all real synthesis. All four **byte-identical**, still exactly four
+files. `git ls-files files/Chatterbox-Voice-Uploads/ files/runtime-data/ files/test-files/`
+returns **zero**. The Phase 9 evaluation WAVs and the maintainer's three bad F1 MP3s were not
+modified, renamed or overwritten. The approved Phase 9 conditionals were reused, not rebuilt.
+`.venv-phase12-preexisting-backup` is excluded through `.git/info/exclude` — a local-only file —
+rather than by editing the tracked `.gitignore`.
+
+#### Not done
+
+No stage, no commit, no push. The rest of the Phase 12 manual matrix was **not** continued. No
+version bump, merge, tag, release or packaging. No Mac, no CUDA, no 125% scaling. **Phase 13 is
+NOT AUTHORIZED and has NOT started.**
+
+### Phase 12 remediation — MAINTAINER APPROVED, with a manual-feedback pass (2026-08-16, HOME-PC)
+
+**The remediation was manually retested by the maintainer and APPROVED**, with a few small quality
+notes handled below. Still uncommitted; Phase 12 remains open.
+
+#### What the maintainer verified
+
+| Area | Result |
+|---|---|
+| Short control (A) | **PASS** |
+| Old long-chunk diagnostic (B) | broken exactly as predicted |
+| `Chapter-3008-Female-1-postfix.mp3`, full 6 m 54 s listened to | **PASS**, with the notes below |
+| Compared against the old broken `Chapter 3008.mp3` | yes |
+| Overall remediation manual retest | **APPROVED**, subject to small details |
+| Old-venv upgrade through the BAT | **PASS** — stale requirements detected, *"Updating the app's components…"* shown, **no manual pip needed**, app launched, HEIC available, Chatterbox Female 1 available, second invocation took the fast path with no repeat update, fresh-good `.venv` restored afterwards |
+| Setup window at 1920×1080 / 100% | **PASS** — all intro text, Kokoro text, Chatterbox text, Begin Setup and Cancel visible; Chatterbox unchecked |
+
+The full-production-file approval is treated as sufficient evidence for the ≤300-character
+chunking fix. The maintainer is **not** being sent back to listen to C pieces 01–04 for paperwork.
+
+**Verbatim Chatterbox review:**
+
+> "Chapter-3008-Female-1-postfix.mp3 Full Review. Reads a few words incorrectly like `Ascended` it
+> reads like `as-ken-did`, it also read the name `Tamar` differently a few times and
+> inconsistently, sometimes it said "Tay-Mar" and other times it read "Ta-Mar" and a also it needs
+> to pause ever so slightly (only a fraction of a second if that) after `:`. it read "Chapter 3008:
+> Beautiful Dream." too hurriedly because it did not pause after the : long enough. It does not
+> need to pause long, but only a fraction more if possible. However overall, everything sounded
+> excellent, if anything it may be exagerating a little too much and needs to be a bit more relaxed
+> sounding but only ever so slightly."
+
+**No pronunciation dictionary was built.** "Ascended" and "Tamar" are treated as evidence about
+sampling stability, not as permission to special-case one audiobook. A guard in
+`test_chatterbox_tuning.py` fails if either word — or a lexicon/phoneme-override structure — ever
+appears in the engine.
+
+#### Current generation settings, established before changing anything
+
+Every call site was a bare `model.generate(text)`, so the effective values were the pinned wheel's
+own defaults and were invisible in this repository. **Phase 9 evaluation and audiobook production
+were therefore provably identical** — both passed no keywords. Effective values:
+`temperature 0.8`, `top_p 0.95`, `top_k 1000`, `repetition_penalty 1.2`, `min_p 0.0`,
+`exaggeration 0.0`, `cfg_weight 0.0`, `norm_loudness True`; and `prepare_conditionals` used its own
+default `exaggeration=0.5`. There is no seed handling in production; the probes below fix
+`torch.manual_seed` so a comparison isolates one parameter.
+
+They are now centralized as explicit named constants and one `generation_params()` used by all
+three entry points. **The values are byte-identical to the wheel's defaults** — a test asserts each
+one against the installed signature — so this changed no behaviour, it only made the settings
+visible and made the maintainer's choice a one-line edit.
+
+#### The finding that changed the plan — exaggeration is inert on Turbo
+
+The obvious reading is that `generate()` ignores `exaggeration` but
+`prepare_conditionals(exaggeration=…)` → `T3Cond.emotion_adv` still works. **It does not.**
+`chatterbox/tts_turbo.py` builds its T3 config with `hp.emotion_adv = False`, so
+`cond_enc.py`'s `if self.hp.emotion_adv:` branch never runs and the value is dropped from the
+conditioning; `prepare_conditionals` stores it and nothing consumes it.
+
+Measured, not assumed: a conditional rebuilt at `0.35` instead of `0.5`, regenerating the same text
+under a fixed seed, produced **byte-identical audio — max absolute sample difference 0.0**. That
+candidate was therefore **withdrawn as a placebo** rather than offered, and the engine now records
+the fact so nobody rediscovers it. **Temperature is the only working lever**, and it happens to
+address both of the maintainer's notes at once: lower temperature means both steadier proper-noun
+pronunciation and less dramatic delivery.
+
+#### Set A — expressiveness / pronunciation candidates
+
+Exact source excerpts, verbatim from `Chapter 3008.txt`: the 258-character `"…You are Ascended
+now, after all…"` passage, and the two real `Tamar` sentences. Fixed seed `20260816`; only
+`temperature` differs; all three outputs verified byte-distinct.
+
+| Candidate | Changed | Value | `ascended` | `tamar` |
+|---|---|---|---|---|
+| **A — current** | nothing | temp 0.8 | `A-current-ascended.wav` 18.44 s | `A-current-tamar.wav` 7.24 s |
+| **B — milder** | temperature | 0.72 | `B-milder-temp072-ascended.wav` 16.36 s | `B-milder-temp072-tamar.wav` 7.16 s |
+| **C — steadier** | temperature | 0.65 | `C-steadier-temp065-ascended.wav` 16.36 s | `C-steadier-temp065-tamar.wav` 7.24 s |
+
+All under `files/runtime-data/phase12-chatterbox-remediation/manual-feedback/`. **No production
+tuning value was changed** — `GENERATION_TEMPERATURE` stays at 0.8 until the maintainer picks.
+
+#### Set B — the colon pause
+
+**A text-only fix is impossible, and this was proven rather than guessed.**
+`chatterbox.tts.punc_norm` replaces **every** `":"` with `","` before tokenisation, so the model
+never sees a colon. `'Chapter 3008: Beautiful Dream.'`, `'Chapter 3008 : …'`, `'Chapter 3008:  …'`
+and `'Chapter 3008:\n\n…'` all normalise to the identical `'Chapter 3008, Beautiful Dream.'`.
+(Noted in passing, not fixed here: the same rule mangles `12:30` → `12,30` and `https://` →
+`https,//` upstream.)
+
+The pause must therefore come from assembly. The generic rule tested is **a colon followed by
+whitespace** — which by construction never matches `12:30`, `3:1` or `https://`, all verified. The
+colon is **not** deleted: it stays at the end of the first segment, where the model renders its
+usual comma break, and the inserted silence adds only the requested fraction.
+
+| Candidate | Inserted | File | Duration |
+|---|---|---|---|
+| A — current | 0 ms | `A-current-colon-title.wav` | 3.24 s |
+| B | 75 ms | `B-colon-pause-75ms-title.wav` | 3.27 s |
+| C | 125 ms | `C-colon-pause-125ms-title.wav` | 3.33 s |
+
+**Production is NOT yet changed for the colon.** Splitting at colons would alter chunk counts,
+progress accounting and cancellation granularity, so the implementation waits on the maintainer
+choosing a pause length — exactly as the pass allows.
+
+#### Setup Cancel — fixed
+
+`run_with_gui` ended with `return 0 if state["ok"] else 1`, and `state["ok"]` is only set by a
+*completed* install, so Cancel returned 1 and the launcher — correctly treating non-zero as
+failure — printed *"Setup did not complete successfully (exit code 1)"*. There was no third state.
+
+Now `EXIT_SETUP_CANCELLED = 2` and a `setup_exit_code(started, done, ok)` mapping: completed → 0,
+closed without ever pressing Begin Setup → 2, ran and failed → 1, **closed part-way through an
+install → 1** (an interrupted install can leave a partial environment, so "incomplete" is the
+truthful answer). The `.bat` handles 2 before the failure branch, prints *"Setup cancelled. Nothing
+was installed."* and exits cleanly with no `pause`. Genuine errors are unchanged, the daily fast
+path is unchanged, and Cancel provably writes no requirements stamp — the only two stampers are
+`run_setup` and `ensure_requirements_current`, neither reachable from a cancelled dialog.
+
+#### Settings warning — verified live, no change needed
+
+Read from the newest real session log after the maintainer's own BAT launch
+(`session_2026-08-16_090311.log`):
+
+```
+ignored: m4b_maker.output_dir, window_geometry; allowlisted: output_base_directory
+```
+
+**Exactly the expected two**, both genuinely stale with no writer left in the tree. No regression,
+no further allowlist defect, no production change, and `settings.json` was **not** mutated.
+
+#### Gates
+
+Full suite **3614 collected / 3601 passed / 13 skipped / 1 warning**, against this remediation's
+own 3574 / 3561 / 13 / 1: **+40 collected, +40 passed, skips and warning unchanged**. The +40
+reconciles exactly — `test_bootstrap_setup_cancel.py` 21 and `test_chatterbox_tuning.py` 19.
+Against the approved Phase 11 baseline of 3494 / 3481 / 13 / 1 the whole uncommitted remediation is
+**+120 collected, +120 passed**, with skips and the single third-party `pydub`/`audioop` warning
+unchanged throughout. `scripts/verify.py` → **RESULT: PASS**; `compileall` exit 0;
+`git diff --check -- '*.py'` exit 0.
+
+#### Protected assets
+
+Re-hashed before and after all probe synthesis — all four **byte-identical**, still exactly four
+files, `git ls-files files/Chatterbox-Voice-Uploads/` returns **zero**. The approved Phase 9
+conditionals were reused and their mtimes are unchanged (2026-08-15); the 0.35 conditional was
+built in memory only and never written to the cache. The Phase 9 WAVs, the earlier Phase 12
+diagnostics and the maintainer's three bad F1 MP3s were not touched.
+
+#### Not done
+
+No stage, no commit, no push. The general Phase 12 matrix was **not** resumed. No colon-pause
+production change and no tuning value change pending the maintainer's ear. **Phase 13 is NOT
+AUTHORIZED and has NOT started.**
+
+### Phase 12 — maintainer's final micro-gate choices, applied (2026-08-16, HOME-PC)
+
+The maintainer completed the micro-gate and chose. Recorded exactly, nothing inferred beyond it.
+
+| Item | Choice | Maintainer's words |
+|---|---|---|
+| Temperature | **B — 0.72** | *"best sounding one in my opinion"* |
+| `Ascended` | **good** — pronounced correctly at candidate B | |
+| `Tamar` | **still incorrect** — required pronunciation is **"Tay-mar"** | |
+| Colon pause | **B — +75 ms** | |
+| Setup Cancel | **PASS** — cancel message shown correctly | |
+
+Applied: `GENERATION_TEMPERATURE = 0.72` and `COLON_PAUSE_MS = 75`. 125 ms was not selected and is
+not used anywhere.
+
+#### OPEN / DEFERRED — general pronunciation-override requirement
+
+> **The Chatterbox model may pronounce proper names inconsistently. The maintainer specifically
+> observed "Tamar" and requires "Tay-mar".**
+
+**This is not solved, and it is not claimed to be solved.** It was deliberately *not* implemented,
+because the only way to satisfy it inside this remediation would be a word rule for one novel's
+vocabulary — the wrong architectural layer. There is no `Tamar` regex, no `Ascended` regex, no
+audiobook vocabulary and no hidden pronunciation dictionary; a guard in
+`test_chatterbox_selected_tuning.py` strips comments and docstrings and fails if any of those
+tokens appears in **executable** engine code, and a companion test fails if this requirement ever
+disappears from this document.
+
+A future **general pronunciation-override facility** could carry entries such as `Tamar -> Tay-mar`.
+That is a separately designed feature and is **not authorized in Plan 4**. Tamar variance does
+**not** block the Chatterbox long-form engine fix, which the maintainer approved on the full
+6 m 54 s file.
+
+#### Phase 9 historical evidence vs current production — kept distinct
+
+| | Temperature | Meaning |
+|---|---|---|
+| **Phase 9 listening evidence** | **0.8** | the four approved WAVs; `--chatterbox-eval` still reproduces this |
+| **Phase 12 production tuning** | **0.72** | chosen after the long-form manual review; what ordinary conversions and ordinary QA samples use |
+
+The four Phase 9 WAVs were **not** regenerated, **not** modified, and this document does not claim
+they were made at 0.72. `phase9_evaluation_params()` is `generation_params()` with only the
+temperature overridden — a test enforces that *only* temperature differs, so a future correction to
+another parameter reaches both rather than leaving the evaluation path silently stale. The
+evaluation report now prints the parameters actually used instead of the wheel's defaults, which
+production no longer matches.
+
+#### The colon pause — how it is implemented
+
+Rule: **a colon followed by whitespace**. That one condition excludes every non-prose form by
+construction, because none of them has whitespace after the colon — `12:30`, `01:02:03`, `3:1`,
+`10:9`, `https://`, `ftp://` are all left whole (each is a test case). No URL-scheme list and no
+digit lookaround is needed, which is why this rule was preferred over anything cleverer.
+`"Reminder: the meeting is at 12:30 today."` splits at the prose colon only.
+
+The colon is never deleted — it stays on the end of the preceding segment, where the model renders
+it as the comma-length break it always did, and the 75 ms supplies the rest.
+
+**Job semantics are unchanged**, which was the main design constraint. The split happens *inside*
+`_synthesize_chunk`, so a colon is punctuation rather than a unit of work: the chunk stays one
+chunk, the progress total is still the chunk count, one tick is still reported per chunk, and no
+fake "source file" is created. `JobController`, `RunPublisher`, Phase 7 reporting authority and the
+frozen-queue/Retry-Failed contract are untouched. Cancellation is now checked between colon
+segments *as well as* between chunks — strictly more responsive, never less.
+
+**The audio assembly pipeline is unchanged** (Section 8 of the authorization). The colon segments
+are joined as plain PCM *before* the chunk is encoded, so the existing WAV→MP3→merge path is
+byte-for-byte the same shape and no additional encode generation is introduced. The previously
+measured 1.66 dB double-encode debt therefore stands exactly as recorded, neither worsened nor
+addressed.
+
+#### Manual evidence already banked — do not repeat
+
+| Item | Status |
+|---|---|
+| Clean BAT first-run installation | **PASS** |
+| Stale old-`.venv` automatic reconciliation ("Updating the app's components…", no manual pip) | **PASS** |
+| Second BAT launch fast path | **PASS** |
+| Setup dialog layout, 1920×1080 @ 100% (intro, Kokoro, Chatterbox, Begin Setup, Cancel all visible; Chatterbox unchecked) | **PASS** |
+| Setup Cancel semantics + message | **PASS** |
+| Chatterbox Female 1 long-form intelligibility (full 6 m 54 s) | **PASS** |
+| HEIC availability, import and display | **PASS** |
+| Edge Steffan preserved | **PASS** |
+| Kokoro preserved | **PASS** |
+
+#### Settings warning — unchanged and correct
+
+Still exactly `m4b_maker.output_dir` and `window_geometry`, both genuinely stale with no writer in
+the tree. `settings.json` was not mutated, the allowlist was not widened further, and the generic
+dialog may still appear for the maintainer's historical settings file. **That is not a failure of
+this remediation.**
+
+#### Still deferred
+
+- **Windows 125% scaling — DEFERRED TO PLAN 9.** Never to be recorded as a pass.
+- **TTS whole-form scrolling and the visible pause-timing / Trim-Edge-padding controls — DEFERRED
+  UI observation for Plan 9.** Not removed here; Edge timing behaviour unchanged.
+- **`Tamar` → "Tay-mar" — OPEN general pronunciation requirement**, above.
+
+### Phase 12 Block 1 — Cover browser: maintainer result and remediation (2026-08-16, HOME-PC)
+
+Tested at 1920×1080 / 100% scaling.
+
+**Passed:** default-window controls reachable; minimum-window controls reachable; maximized layout
+usable; keyboard selection; Ctrl multi-select; Shift range-select; List view; selection and order
+preserved across view changes; `A-cover-basic` imported 11 correctly; duplicate stems coexist; a
+direct re-add of `square-1024.png` stayed a second occurrence. Maintainer: *"Cover Image Window
+looks good"* and *"other than that everything ui wise looks good, all features and buttons are
+reachable and viewable."* **No Cover layout redesign was undertaken.**
+
+**Failed / uncertain, all with `B-cover-browser` (34 images):** some Details rows kept showing
+`…`; some thumbnail tiles stayed blank until interacted with; mouse-wheel scrolling did nothing
+over the thumbnail viewport while dragging its scrollbar worked; and a whole-form scrollbar was
+reported at maximized size.
+
+#### Reproduced first, on the real panel
+
+A disposable harness under `files/runtime-data/phase12-cover-browser-investigation/` drove the real
+`CoverResizerUI` with the real fixture through the real importer. All 34 imported. Before any fix,
+at 1024×720:
+
+| Symptom | Measured |
+|---|---|
+| Details metadata | **11/34** hydrated, `visible_range() = (0, 11)`, 23 rows showing `…` |
+| Details after scrolling to the bottom | **still 11/34** — the same 23 rows |
+| Thumbnails | **10/34** images, 24 tiles blank |
+| Thumbnails after scrolling | **still 10/34** |
+| Wheel over the canvas | `yview` unchanged — `MOVED=False` |
+| `canvas.yview_scroll` called directly | scrolled fine, proving the canvas was scrollable all along |
+
+#### Root cause — one gap, plus one missing binding
+
+**Hydration (Details *and* thumbnails, the same bug).** `request_visible()` was reachable only
+from `refresh()`, and `refresh()` runs on construction, a view switch, or a manager **revision**
+change. **Scrolling is none of those**, so the visible span was computed once and never
+recomputed. `_render_tiles` compounds it for thumbnails: it paints only `self._order[start:stop]`
+while sizing `scrollregion` for *every* row, so scrolling revealed canvas area that had never been
+drawn — the blank tiles.
+
+*A correction to the reported symptom:* clicking a blank tile did **not** hydrate it — measured
+directly (`that tile now has an image: False`). What actually revived tiles for the maintainer was
+any action that reaches `refresh()` (a view switch, Remove, Move Up/Down, another import), which
+recomputes the span at the *current* scroll position. Same root cause, different trigger; the
+"click makes it appear" reading is not what the code does.
+
+**The wheel.** `ttk.Treeview` carries `<MouseWheel>` in its Tk **class** bindings, which is why
+Details and List always scrolled for free. `tk.Canvas` has no such class binding and nothing in
+this panel supplied one — introspection showed the canvas's class bindings as literally `[]`.
+
+#### Whole-form scrollbar — a maintainer interpretation correction, not a defect
+
+Inspected the widget tree at maximized size rather than judging by appearance. **Seven** scrollbars
+exist under the Cover panel and every one belongs to an inner widget — the imported-file list, the
+three browser pages, and the Summary/Details notebook. **There is no outer whole-form scrollbar**:
+the root has no scrollbar and `CoverResizerUI` is not inside a scrolling canvas. What was seen was
+the browser-local scrollbar. **Recorded as Block 1.4 interpretation correction, not a production
+defect, and nothing was changed for it.**
+
+One honest observation kept for Plan 9, not acted on: at maximized 1080p the panel's
+`reqheight` is 1188 against an actual 1009, so the form is compressed rather than scrolled. That is
+layout headroom, not a scrollbar, and it belongs to the deferred Plan 9 UI work.
+
+#### The fix — one seam, plus the binding
+
+- `_scroll_reporter(bar)` wraps each view's existing `yscrollcommand`. It sets the scrollbar as
+  before and then calls `notify_scrolled()`. Hooking `yscrollcommand` catches **every** way a view
+  can scroll — wheel, scrollbar drag, keyboard, programmatic `yview` — from one place per view
+  instead of chasing each input.
+- `notify_scrolled()` compares the current span against the last one hydrated and returns
+  immediately when unchanged, so the many callbacks one drag produces cost a tuple compare each.
+  When it has moved it repaints tiles (thumbnails only) and calls the existing `request_visible()`,
+  which already skips anything decoded — **hydration stays lazy and nothing is decoded twice**. A
+  `_scrolling` re-entrancy guard is required because repainting tiles reconfigures `scrollregion`,
+  which re-fires `yscrollcommand`.
+- `<MouseWheel>` (plus `<Button-4>`/`<Button-5>` for X11) bound **on the canvas itself**, never
+  `bind_all` — a global binding would steal the wheel from every other panel in the launcher. The
+  tiles are canvas *items*, not child widgets, so one binding covers the whole viewport including
+  the images and their labels. Windows reports multiples of 120 and macOS small integers; both are
+  normalised.
+
+Nothing else changed: no redesign, no fonts, colours or layout, and the Treeviews keep Tk's own
+wheel behaviour.
+
+#### After the fix, on the real panel
+
+| Check | Result |
+|---|---|
+| Details, wheel sweep top → bottom | reached bottom in 23 notches, **34/34 hydrated, 0 rows showing `…`** |
+| Thumbnails, wheel sweep top → bottom | reached bottom in 29 notches, **34/34 images, 0 blank tiles** |
+| Wheel over the canvas | `MOVED=True` |
+| Selection and order across Details → List → Medium → Details | **both preserved** |
+| Maximized | 34/34 facts, 34/34 images |
+
+Screenshots (ignored, untracked) in
+`files/runtime-data/phase12-cover-browser-investigation/`: `before-details-initial.png`,
+`before-details-scrolled.png`, `before-thumbnails-initial.png`, `before-thumbnails-dragged.png`,
+`before-thumbnail-after-click.png`, `before-maximized.png`, and the matching `after-*.png`
+including `after-details-swept-bottom.png`, `after-thumbnails-swept-bottom.png` and
+`after-maximized-final.png`.
+
+#### Tests
+
+`files/tests/test_cover_browser_scroll.py` — 18 tests, RED first (15 failing for the stated
+reasons, including the wheel not moving the canvas and the last occurrence never being painted).
+Three test-side faults were found and corrected rather than papered over: lazy hydration means
+off-screen rows legitimately keep their placeholder, so only the *visible* span is asserted; an
+unmapped canvas has ~1px height **and Tk does not deliver `<MouseWheel>` to an unmapped widget at
+all** (verified directly), so the wheel tests map the panel; and a raw `bind_all` substring check
+flagged the comment explaining why `bind_all` is refused, so it now parses the AST. Run **8
+consecutive times, 8/8 green**.
+
+### Phase 12 Block 1 — MAINTAINER APPROVED; Cover Image manual section banked (2026-08-17, HOME-PC)
+
+**Still uncommitted. Phase 12 remains open. No Phase 12 commit exists. Phase 13 not authorized, not
+started.**
+
+Maintainer recheck of the Block 1 remediation, verbatim:
+
+> PHASE 12 BLOCK 1 REMEDIATION RECHECK
+> B-cover-browser imported count: **34**
+> Details wheel scrolling: **PASS**
+> Details metadata hydrates while scrolling: **PASS**
+> Any persistent "..." valid rows: **NO** — *"everything looks good"*
+> Medium Thumbnail mouse-wheel scrolling: **PASS**
+> Newly visible thumbnails auto-render: **PASS**
+> Any persistent blank valid tiles: **NO** — *"everything looks good"*
+> View-switch sanity check: **PASS**
+> **OVERALL BLOCK 1 REMEDIATION: PASS**
+
+and, separately: *"all manual steps for Cover Image passed"*.
+
+**Consequences, recorded so no one re-opens them:**
+
+- **Phase 12 Block 1 is APPROVED.**
+- The **entire Windows Cover Image manual section is COMPLETE and BANKED** — browser views,
+  selection, importing, HEIC, output modes and everything else already attested. It must **not** be
+  requested again in a later block.
+- The Block 1.4 interpretation correction stands unchanged: **Cover has no outer whole-form
+  scrollbar**; the observed scrollbar was browser-local.
+- The Plan 9 Cover observation stands unchanged and un-acted-on: at maximized 1080p the panel's
+  `reqheight` exceeds its actual height, so the form compresses rather than scrolls. **Cover was not
+  redesigned in Plan 4.**
+
+### Phase 12 Block 2 — TTS unified queue / output / EPUB retirement: PREPARED (2026-08-17, HOME-PC)
+
+**Preparation and read-only preflight only. No production code was changed in this block. Nothing
+staged, committed or pushed. Phase 12 remains open.**
+
+Block 2 is the next bounded manual block: the ordinary PDF/TXT queue and its output contract. It
+maps onto the already-written checklist sections **L (TTS sizing/scrolling)**, **M (unified direct +
+folder run)** and **N (EPUB absence)** in
+`files/runtime-data/phase12-manual-fixtures/PHASE-12-MANUAL-CHECKLIST.md`, which this block refreshed
+with exact measured paths. The later Chatterbox job-control and degraded-reference matrix (sections
+O–V) is **not** part of Block 2.
+
+#### Preflight — the manual instructions were validated before being issued
+
+A disposable harness under `files/runtime-data/phase12-block2-preflight/` (`preflight.py`,
+`preflight2.py`) drove the **real `TtsPanel`** with the **real shared importer** over the **real
+Phase 12 fixtures**, then asked production's own `plan_destinations` where each occurrence would
+write. Read-only: nothing was synthesised, no real run directory was reserved, and the planner was
+handed a throwaway temp root.
+
+| Question | Measured answer |
+|---|---|
+| Direct + folder in one queue | **7 occurrences** — `Add Files` gave 2, `Add Folder` on `I-tts-folder` added 5 into the **same** manager |
+| Queue order | deterministic: `direct-note.txt`, `direct-brief.pdf`, then `root-level.txt`, `Book 1\Chapter 1.pdf`, `Book 1\Chapter 2.txt`, `Book 2\Chapter 1.pdf`, `Book 2\Deeper\Chapter 3.txt` |
+| Provenance | the two direct occurrences carry `mirroring_root = None`; all five folder-derived ones carry the folder root — manager-backed, not inferred from the path |
+| Planned outputs (Edge `Steffan — en-US Male (default)` → `en-US-SteffanNeural`) | `direct-note (en-US-SteffanNeural).mp3` and `direct-brief (en-US-SteffanNeural).mp3` **flat**; `root-level.mp3`, `Book 1\Chapter 1.mp3`, `Book 1\Chapter 2.mp3`, `Book 2\Chapter 1.mp3`, `Book 2\Deeper\Chapter 3.mp3` **mirrored** |
+| Overwrite risk | **7 planned, 7 distinct, no collision.** Both `Chapter 1.mp3` survive, separated by their mirrored folders |
+| Run reservation timing | tool parent had **0 entries before importing and 0 after** — importing creates nothing; planning created **0** files or directories. The reservation happens only after validation at `epub2tts_gui.py:1458-1461` |
+| Next run folder | `TTS-Audiobook-1` under `…\Downloads\Audiobook-Creation-Tool-Outputs\TTS-Audiobook-Outputs\` (no prior runs exist) |
+| EPUB in the UI | **0** of 59 user-visible widget strings mention EPUB. `Add Files` filters are exactly `("Audiobook sources", "*.pdf *.txt")` + `("All files", "*.*")` (`epub2tts_gui.py:1035-1038`); the catalog is unconditionally PDF + TXT (`build_catalog`, `:265-267`); the launcher description reads *"Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro AI voices."* |
+| Mode selector | **0** radio buttons anywhere in the panel; **0** Single/Batch/Mode labels. The only surviving mention of the old two-model design is the module docstring recording that Phase 6 removed it |
+| Fixture integrity | all three fixture PDFs extract with production's own `pdf_to_txt` (103 / 102 / 102 chars); all four TXT sources read cleanly. The maintainer will not meet a broken fixture |
+
+**Preflight verdict: clean. No production defect was found, so no remediation was undertaken and no
+knowingly broken matrix was handed over.**
+
+#### The TTS scroll observation — measured, recorded, not fixed
+
+Five scrollbars exist under the TTS panel; the options form genuinely sits inside a `tk.Canvas`
+(`epub2tts_gui.py:729-759`) whose `ttk.Scrollbar` is gridded unconditionally, so it stays mapped even
+when the form fits. Measured: at **1024×720** the panel's `reqheight` is **1002** against an actual
+**720**; **maximized at 1920×1009** the `reqheight` is **1002** against an actual **1009** — it fits,
+yet the scrollbar is still shown. **Recorded as a Plan 9 §14 deferral, exactly as the drop instructs
+(§Phase 12, "record what you observe; do not redesign the form here"). The TTS form was not
+redesigned and the pause-timing / Trim-Edge-padding controls were not removed.**
+
+#### Gates re-run at this state
+
+| Gate | Result |
+|---|---|
+| TTS / importing / import-coordination / job-control / output-paths / launcher subset | **1123 passed, 1 skipped, 1 warning** |
+| `python scripts/verify.py` | **RESULT: PASS** — pytest **3656 passed, 13 skipped, 1 warning**; deps pinned; docs; docnames; config version **0.5.1** |
+| `git ls-files files/Chatterbox-Voice-Uploads/` | **0** |
+| HEAD / index | `82042f73b02894f3c881fbb0d5ce61aadbaa9948`, **15 ahead / 0 behind**, nothing staged |
+
+Identical to the Block 1 close-out numbers — this block changed no code, and the suite confirms it.
+
+#### Out of Block 2, deliberately
+
+Not run and not requested: any further Cover test, the >1,000-result import, broad-root import,
+`Cancel Import` mid-scan, the TTS pause/resume/cancel matrix, Retry Failed, the four-voice Chatterbox
+queue, missing-reference/degraded Chatterbox, another Chatterbox long-form listen, another Edge or
+Kokoro usability pass, setup / old-`.venv` / HEIC / setup-Cancel, Windows 125% scaling, macOS, and
+Phase 13. The `Tamar → "Tay-mar"` general pronunciation override remains **open** and is still not
+solved by any engine-specific rule.
+
+### Phase 12 — NEW BLOCKER: Chatterbox native crash, investigated, NOT reproduced (2026-08-18, HOME-PC)
+
+**The Phase 12 manual matrix is STOPPED. No production code was changed by this investigation —
+the working tree is byte-identical to the Block 2 state apart from this entry. No fix was invented
+for an unproven cause. Phase 12 remains open; Phase 13 not authorized, not started.**
+
+#### What the maintainer observed (2026-08-17, 1920×1080 @ 100%)
+
+Four runs in one application process (launched 21:13:32, `pythonw.exe` via the BAT):
+
+| Run | Engine | Result |
+|---|---|---|
+| `TTS-Audiobook-1` 21:15:53–21:16:01 | Edge Steffan | **7 ok, 0 failed** |
+| `TTS-Audiobook-2` 21:17:57–21:18:07 | Edge Steffan | **7 ok** |
+| `TTS-Audiobook-3` 21:20:00–21:20:09 | Kokoro | **7 ok** |
+| `TTS-Audiobook-4` created 21:20:22 | **Chatterbox Female 1** | **the whole application vanished; folder empty** |
+
+No handled failure dialog appeared. Edge, Kokoro and the earlier Chatterbox long-form listening
+result all stand; **this is a new crash/lifecycle failure and none of the settled tuning was
+reopened.**
+
+#### What actually killed the process — hard evidence, not inference
+
+Windows Application event log, **21:20:30**, and the matching WER report:
+
+```
+Faulting application : pythonw.exe 3.12.10150.1013
+Faulting module      : …\.venv\Lib\site-packages\torch\lib\torch_cpu.dll
+Exception code       : 0xC0000005          (access violation)
+Fault offset         : 0x0000000006046EDB
+```
+
+WER also wrote a 47.9 MiB minidump (`%LOCALAPPDATA%\CrashDumps\pythonw.exe.35608.dmp`), parsed
+here with a stdlib-only reader (`files/runtime-data/phase12-chatterbox-crash/dump.py`,
+`stack.py`, `vm.py`, `threads.py`, `unloaded.py`):
+
+| Question | Answer from the dump |
+|---|---|
+| Exception | `0xC0000005`, **read** of address `0x000000000004DAC0` |
+| Faulting module | `torch_cpu.dll`, base `0x7FF9197C0000`, RVA `0x6046EDB` (nearest exported symbol `at::native::_rowwise_prune` + 0x30B — the real frame is an unexported neighbour) |
+| Faulting thread's stack | `python312` → `torch_python` → `torch_cpu`/`c10`, with `_safetensors_rust.pyd` present — a torch operation called from Python on a worker thread, **not** a Tk main-thread violation |
+| Process size at death | **6.99 GiB private, 5.88 GiB working set**, peak private 8.98 GiB, on a **31.05 GiB** machine |
+| Threads / modules | 64 threads, 514 modules, **29 copies of `espeak-ng.dll`** |
+| Unloaded modules | 10, all shell/richedit (`MsftEdit`, `xmllite`, `windows.system.launcher`) from file dialogs — nothing relevant |
+
+**This is a null-ish pointer dereference inside native torch code, not memory exhaustion.** A read
+of `0x4DAC0` is a base pointer of zero plus an offset; an out-of-memory condition in torch raises
+`std::bad_alloc`/`RuntimeError` in Python instead. The process held 7 GiB on a 31 GiB machine.
+**Resource pressure is therefore NOT being claimed as the cause.**
+
+#### Nine controlled reproduction attempts — all survived
+
+Real fixtures, real production entry points, same `.venv`, and the **same** `torch_cpu.dll`
+(PE `TimeDateStamp 0x679439CE` on disk == the value in the dump). `torch 2.6.0+cpu`,
+`torch.version.cuda = None`, `cuda available = False` — the CPU-only contract held, and no CUDA
+work was introduced.
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | Headless, one worker thread, Chatterbox × 7 items | 7/7, exit 0 |
+| 2 | Headless, real Kokoro run then Chatterbox, one thread | 7/7, exit 0 |
+| 3 | Headless, Kokoro on thread 1 (joined, thread exited), Chatterbox on a **new** thread — the GUI's one-thread-per-run lifecycle | 7/7, exit 0 |
+| 4 | **Real `TtsPanel` in a live Tk root**: Edge → Kokoro → Chatterbox, driven through the panel's own `run_job()` | 21/21, exit 0 |
+| 5 | Real panel: **Edge → Edge → Kokoro → Chatterbox** (the maintainer's exact order) | 28/28, exit 0 |
+| 6–8 | Real panel, Kokoro → Chatterbox, three fresh processes | 3 × clean, exit 0 |
+| 9 | Real panel under **`pythonw.exe`** (no console, as the BAT launches it) | clean, exit 0 |
+
+Every attempt ran with `faulthandler` armed, so a native access violation would have printed all
+Python stacks; none did.
+
+**Hypotheses tested and eliminated by measurement, not by argument:**
+
+- *Environment drift* — the working `.venv` and the Phase 8 probe venv hold **identical** versions
+  of torch, torchaudio, chatterbox-tts, transformers, numpy, librosa, resemble-perth, safetensors,
+  s3tokenizer and setuptools. Not an environment difference.
+- *Concurrent generations racing one shared model* — already impossible: the folder path pins
+  `workers = 1` for Chatterbox and direct items run strictly sequentially before it.
+- *A dead worker thread from the previous run poisoning torch's thread state* — scenario 3 was
+  built specifically to prove it and did not crash.
+- *The 29 `espeak-ng.dll` copies looked alarming* — **my own process reaches exactly 29 after one
+  ordinary Kokoro run.** That is normal upstream Kokoro/misaki behaviour, identical in the crashed
+  process. Eliminated.
+- *Tk main-thread violation* — the faulting stack is a Python-called torch frame, and there are no
+  Tcl/Tk frames on it.
+- *A DLL unloaded from under running code* — the unloaded list is shell dialog DLLs only.
+
+The only measured difference between the crashed process and my closest reproduction is size:
+**6.99 GiB private / 514 modules there against 6.09 GiB / 425 modules here**, the extra being the
+Cover Image panel and file-dialog shell extensions the maintainer had loaded. That is a difference
+in degree, and it does not by itself explain a null dereference.
+
+#### Why the Chatterbox run folder was empty — answered, and it is NOT a second defect
+
+Traced through the code rather than assumed:
+
+- The run directory is reserved at **validated Start** (`epub2tts_gui.py`, `reserve_run_directory`),
+  so it exists from the first moment of the run, before any audio is made.
+- **There is no staging area and no deferred materialisation.** `chatterbox_file_to_mp3` writes each
+  item's MP3 straight to its planned destination as that item's last act; the per-chunk WAV/MP3s
+  live in a `tempfile.TemporaryDirectory` under the OS temp directory, never under the run folder.
+- `discard_partial` only runs on the cancel and item-failure paths, neither of which executed.
+
+So an empty folder means **no item ever completed**. With the folder stamped 21:20:22 and the crash
+at 21:20:30, and measured Chatterbox timings here of ~5 s to load the model plus 6–13 s for the
+first item, **the process died inside the first file** — during model load or the first generation.
+The maintainer's impression of "about halfway through" is not what the timestamps show; nothing had
+finished. The empty folder is exactly what the existing placement transaction predicts, so **output
+semantics were not changed.**
+
+#### Protected assets and state
+
+Four recordings hashed before and after every synthesis, unchanged:
+`A047D77F…` Female-1, `4BAD0D38…` Female-2, `6258DDE2…` Male-1, `7B8FD74D…` Male-2 — four files,
+`git ls-files` returns **0**. No reference clip or conditional was rebuilt, and **every WAV under
+`runtime-data` still carries its 2026-08-15/16 timestamp** — the Phase 9 evaluation samples and the
+manual-feedback A/B sets were neither regenerated nor modified.
+
+Gates re-run at this exact tree state: `verify.py` **RESULT: PASS** — pytest **3656 passed, 13
+skipped, 1 warning**; deps pinned; docs; docnames; config version **0.5.1**. Identical to the Block 2
+figures, as it must be: **no production or test file was touched.**
+
+#### Outcome: C — NOT REPRODUCIBLE. No speculative fix was written.
+
+The crash is real, singular (exactly one APPCRASH in the whole day's event log) and precisely
+characterised, but it did not recur in nine attempts including the maintainer's exact sequence under
+`pythonw.exe`. Writing a production change now would be guessing, and the one change that would
+"work" — wrapping the engine so a fatal native failure looks like an item failure — is explicitly
+forbidden and would be a lie about a dead process.
+
+**Smallest next diagnostic step, proposed and NOT implemented:** the application currently has no
+crash visibility at all — the session log's last line is 21:13:44 and the native death left nothing
+behind. Arming `faulthandler` at launcher start-up against the existing per-session log file would
+make the next occurrence print the exact Python frame inside the engine, at a cost of one file
+handle and no behaviour change. It is diagnostics rather than a fix, so it awaits the maintainer's
+decision.
+
+**Chatterbox Phase 12 manual coverage is NOT passed and is NOT banked.**
+
+### Phase 12 — fatal-fault diagnostics added (observation only) (2026-08-18, HOME-PC)
+
+**This is instrumentation, NOT a fix. The native `torch_cpu.dll` crash is still unexplained and
+still NOT claimed fixed. Chatterbox is NOT marked passed. Phase 12 remains open; Phase 13 not
+authorized, not started. Nothing staged, committed or pushed; VERSION still 0.5.1.**
+
+#### Why
+
+The crash killed the process without unwinding, so no `except` ran, no handler flushed, and the
+session log simply stopped — the last line written was 21:13:44, seven minutes before the death.
+The investigation therefore had only the Windows event log and a WER minidump to work from. The
+standard library already solves this: `faulthandler` installs handlers — including, on Windows, one
+for structured exceptions such as an access violation — that dump every thread's Python frames
+before the process dies. That names the engine call in flight.
+
+#### What changed — two files, +110 lines, no new dependency
+
+| File | Change |
+|---|---|
+| `shared/logging_setup.py` (+105) | `session_log_path()`, `enable_fatal_diagnostics(*, faulthandler_module=None)`, `disable_fatal_diagnostics()`, `fatal_diagnostics_armed()`; `get_logger()` now remembers the session log path |
+| `launcher.py` (+6, one statement) | `LauncherApp.__init__` arms it immediately after `get_logger()` |
+
+Design points that were deliberate rather than incidental:
+
+- **Not the logging handler's stream.** `logging.shutdown()` closes handler streams at interpreter
+  exit, and `faulthandler` writes through a raw descriptor at fault time, so handing it that stream
+  would give it a dangling fd exactly when it matters. It gets **its own append handle to the same
+  session log file**, held at module scope and never closed — one file for the user to attach, and a
+  descriptor valid for the whole process lifetime.
+- **Idempotent.** A second call returns `True` without opening a second handle or re-enabling, so
+  nothing stacks and nothing leaks.
+- **Cannot break start-up.** Every failure path is caught, reported through the existing logger as a
+  warning, and swallowed; the launcher opens either way.
+- **Armed before anything can fault.** It runs before `_build_ui()` and before `select_tool()`, so
+  no tool panel — and therefore no conversion worker — can exist first. Asserted by parsing the
+  launcher's AST, not by matching strings, so a comment cannot satisfy it.
+- **Injectable seam** (`faulthandler_module=`) so the suite proves the wiring without a test that
+  has to kill the interpreter.
+
+Explicitly untouched: torch configuration, Chatterbox model lifecycle, worker counts, chunking,
+temperature, pauses, Kokoro/Edge behaviour, output placement, the TTS UI. No subprocess isolation,
+no CUDA, no dump parser in production, no GUI-visible change, no `requirements.txt` change.
+
+#### Tests — RED first, and proven so
+
+`files/tests/test_fatal_diagnostics.py`, **29 tests**. RED was demonstrated by restoring both
+production files to HEAD and re-running: **2 failed, 19 errors, 8 passed** — the 8 being the
+invariants (six tools, VERSION, the settled Chatterbox values, requirements) that must hold before
+and after. Implementation restored, **29/29 green, five consecutive runs**.
+
+They cover: arming at start-up; `all_threads=True`; the target being this session's own log; the
+handle still open and writable **after the logging handler is closed**; the handle not being the
+handler's stream; arming twice opening no second handle; disable closing exactly one; re-arming;
+a refusing `faulthandler` returning `False` without raising, leaving nothing armed, no dangling
+handle, a warning in the log, and the ordinary logger still working; stdlib-only imports; no
+subprocess; six tools; VERSION 0.5.1; ceiling 300 / temp 0.72 / Phase 9 0.8 / colon 75 ms; four
+Chatterbox voices among sixteen; and no `faulthandler` wiring in any engine module.
+
+**One existing guard legitimately fired and was updated, not weakened.**
+`test_plan3_boundaries.py::test_no_second_progress_or_logging_implementation_exists` pins the exact
+set of names defined in `logging_setup.py`, to prove Plan 3 never rebuilt logging. Adding four
+functions broke that frozen set. It is **still an exact-set equality** — any *other* function
+appearing still fails it — with the four new names listed and a comment recording that they are an
+authorized Plan 4 Phase 12 extension of the module, not Plan 3 reimplementing logging.
+
+#### Self-proof — the facility really captures a fatal fault
+
+A disposable child process (`files/runtime-data/phase12-chatterbox-crash/selfproof.py`) armed the
+**real** facility (no stub), started a background thread parked in a recognisably named frame, and
+faulted deliberately via `faulthandler._sigsegv()`. The session log then contained:
+
+```
+Fatal Python error: Segmentation fault
+Thread 0x00008f48 (most recent call first):
+  … selfproof.py, line 31 in a_worker_thread_parked_inside_the_engine
+Current thread 0x00008e9c (most recent call first):
+  … selfproof.py, line 56 in main
+```
+
+**Both threads, with Python frames, in the session log** — exactly what was missing on 2026-08-17.
+The child died by `abort()` (exit code 3), which is how Windows terminates after the handler runs.
+Nothing here went near `torch_cpu.dll`, the `.venv`, or the maintainer's dump.
+
+#### Claude's one real Chatterbox attempt — PASS, and it proves nothing about the crash
+
+Through the **real `LauncherApp`** (so the production arming path ran), the launcher's own
+`build_ui` TTS panel, the same seven fixtures, Chatterbox - Female 1, CPU-only, one Start:
+
+- session log line 2: `Fatal-fault diagnostics armed -> …session_2026-08-18_091506.log`;
+- run settled after **62.2 s**, **7 files produced**, correct flat/mirrored placement;
+- **process survived**, exit 0; **zero** new APPCRASH events in the Windows Application log today.
+
+**Recorded as "not reproduced" — the original crash is NOT declared fixed.** Ten clean runs across
+two sessions do not explain one native fault, and nothing in this sub-block could have fixed it.
+
+#### Gates
+
+| Gate | Result |
+|---|---|
+| `test_fatal_diagnostics.py` | **29 passed × 5 consecutive runs** |
+| `test_plan3_boundaries.py` | 119 passed |
+| Focused launcher / logging / TTS / Chatterbox / job / import subset | 2639 passed, 8 skipped |
+| **Full suite** | **3685 passed, 13 skipped, 1 warning** — was 3656/13/1, so **+29 collected and +29 passed**, reconciling exactly to the one new file; **skips and the warning unchanged** |
+| `verify.py` | **RESULT: PASS** |
+| `compileall` / `git diff --check` | exit 0 / exit 0 |
+| Launcher tools / VERSION | **6** / **0.5.1** |
+
+No test deleted, weakened, skipped or xfailed; no runtime dependency added. Four protected
+recordings re-hashed after the real synthesis run — `A047D77F…`, `4BAD0D38…`, `6258DDE2…`,
+`7B8FD74D…` — byte-identical, four files, `git ls-files` **0**. The maintainer's WER minidump is
+untouched (50,264,044 bytes, 2026-08-17 21:20:34).
+
+#### Next
+
+One minimal maintainer recheck: launch normally, TTS, the same seven files, Chatterbox - Female 1,
+**Start once**. If it crashes, do not relaunch — report the approximate time so the newly
+instrumented session log and fresh WER evidence can be read together. If it succeeds, stop for
+review before deciding whether one clean run clears the blocker.
+
+### Phase 12 — BANKED: four-voice Chatterbox manual run (2026-08-18, HOME-PC, maintainer)
+
+The maintainer ran the **same seven Phase 12 PDF/TXT files through all four registered Chatterbox
+voices** — Female 1, Female 2, Male 1, Male 2. Every one of the four runs:
+
+- kept the application alive for the whole run;
+- completed the full seven-file queue;
+- reported `Conversion finished: 7 ok, 0 failed.`;
+- produced the expected files;
+- **sounded good to the maintainer.**
+
+Verified locally against the actual outputs rather than assumed: the four runs are
+`TTS-Audiobook-22` … `TTS-Audiobook-25` under
+`~/Downloads/Audiobook-Creation-Tool-Outputs/TTS-Audiobook-Outputs/`, timestamped 16:51–16:55 on
+2026-08-18, each holding exactly 7 MP3s in the expected flat/mirrored layout.
+
+**This is banked. Do not ask the maintainer to repeat the four-voice seven-file test.**
+
+The original `torch_cpu.dll` access violation remains exactly as recorded above: a genuine
+historical event, never reproduced, **not** claimed fixed. The fatal-fault diagnostics stay — this
+audit found no reason to remove them, and they cost nothing at runtime.
+
+### Phase 12 — TTS final-MP3 integrity audit: root cause found and fixed (2026-08-18, HOME-PC)
+
+**Maintainer report.** Some produced TTS MP3s show an obviously wrong playback duration in iTunes —
+the example given was roughly 5 seconds displayed for roughly 10 minutes of real audio.
+
+#### Root cause — a defaulted final encode, proven by controlled experiment
+
+pydub's `DEFAULT_CODECS` maps only `ogg`. Every local TTS engine finished its file with
+`AudioSegment.export(path, format="mp3")` and nothing else, which runs
+`ffmpeg -f wav -i … -f mp3 out.mp3` with **no codec and no bitrate**. The encode contract was
+whatever the local ffmpeg defaulted to — on this project's build, **32 kbps** for 24 kHz mono.
+
+That low bitrate is the defect's mechanism, and the mechanism is exact. A Xing/Info header carries a
+100-byte seek table, which does not fit inside a 32 kbps MPEG-2 frame (96 bytes), so ffmpeg is
+forced to emit that one header frame at **64 kbps** while every audio frame stays at 32 — and still
+tags the file `Info`, which *declares constant bitrate*. **A player that believes the CBR
+declaration and reads the bitrate off the first frame computes exactly half the real duration.**
+
+Confirmed on the maintainer's own shipped file (`TTS-Audiobook-22/Book 1/Chapter 1.mp3`): 533 audio
+frames at 32 kbps, one header frame at 64 kbps, naive estimate **6.426 s for a 12.816 s file**.
+
+**Why every automated check missed it.** ffprobe and mutagen read the Xing *frame count*, not the
+advertised bitrate, so both report the correct duration on a file that is internally inconsistent.
+All 168 of the maintainer's outputs agreed to within 2% under ffprobe/mutagen/decoded-PCM. The
+defect is only visible either from the frame headers directly or through a parser that trusts the
+CBR claim.
+
+**Reproduced with a real third-party parser.** Windows Media Foundation (the shell property store),
+on a deterministic 2:00 fixture, single-encoded at a range of bitrates:
+
+| stream bitrate | real | WMF reports | error |
+|---|---|---|---|
+| 24 kbps | 2:00 | 1:50 | −8.3% |
+| **32 kbps (the shipped default)** | 2:00 | **1:54** | **−5.0%** |
+| 40 kbps | 2:00 | 1:56 | −3.3% |
+| 48 kbps | 2:00 | 1:58 | −1.7% |
+| 56 kbps | 2:00 | 1:59 | −0.8% |
+| **64 kbps and above** | 2:00 | **2:00** | **0** |
+
+The error scales monotonically with the header/stream mismatch and vanishes at exactly the bitrate
+where the header frame can finally match the audio frames. The real 6:54 Chapter 3008 file read as
+**6:34** in WMF, and the 10-minute current-pipeline fixture as **9:38** against a true 10:07.
+
+**Honest limit of the reproduction.** This mechanism produces an error of *up to 2×*. It does not by
+itself explain a 120× report (5 s shown for 10 min), and iTunes is **not installed on this machine**,
+so its exact behaviour could not be measured directly. What is established: this is a genuine,
+reproducible, structural defect in exactly the reported area; it is the **only** duration defect
+present in any TTS path; and it is now gone. Whether it fully accounts for what iTunes displayed is
+for the maintainer's recheck to confirm.
+
+#### The dispatch map that the audit produced
+
+| engine | direct file | folder item |
+|---|---|---|
+| Edge | `make_mp3(bitrate="192k")` → 160 kbps, header matches — **clean, left alone** | `batch_convert.merge_mp3s` → ffmpeg default 32 kbps — **was broken** |
+| Kokoro | `kokoro_file_to_mp3` → default 32 kbps — **was broken** | same |
+| Chatterbox | `chatterbox_file_to_mp3` → default 32 kbps — **was broken** | same |
+
+Direct and folder paths did **not** share a finalization contract. Run `TTS-Audiobook-10` shows it
+exactly: its two direct Edge files are 160 kbps and its five folder files are 32 kbps.
+
+There is already a user-visible **"MP3 bitrate"** control in the TTS panel (default `192k`, offering
+128k/192k/320k) and `params["bitrate"]` is frozen into every run — but **only the Edge direct path
+ever read it.** The other four surfaces silently ignored the user's choice.
+
+#### The fix
+
+`shared/ffmpeg_utils.mp3_export_options(bitrate)` is the one contract: explicit `libmp3lame`,
+explicit bitrate, defaulting to the same `192k` the panel defaults to. Sample rate and channel count
+are deliberately **absent** — 24 kHz mono is already right for these engines and resampling to
+44.1 kHz stereo (as the MP3 Tool does, correctly, for its own very different job) would add cost and
+loss for nothing.
+
+Applied to: `kokoro_synth._export_mp3` (new) and `kokoro_file_to_mp3`;
+`chatterbox_synth._export_mp3`, `synthesize_text_to_mp3` and `chatterbox_file_to_mp3`;
+`batch_convert.merge_mp3s` / `convert_single_pdf`. `epub2tts_gui` now passes `params["bitrate"]` to
+all three engines and both paths. **No new setting, no GUI change** — the control already existed
+and is now simply honoured.
+
+Both local engines also now **assemble in PCM and encode exactly once**. They were writing every
+chunk out as its own MP3 and decoding it back only to merge, for audio that was a numpy array the
+whole time. Configured pauses are built at the model's own sample rate, so `chunk_pause_ms` and
+`end_silence_ms` are exact sample counts rather than resampled from pydub's 11,025 Hz silence
+default. Chunk order, progress accounting, cancellation checkpoints and output placement are
+unchanged. The Edge **folder** path still decodes and re-encodes — its chunks arrive from the network
+already encoded, so that generation is unavoidable — but its final contract is now explicit too.
+
+#### Double-encode debt — re-measured, old record kept
+
+The Phase 12 remediation recorded **1.66 dB** (16.05 dB after one encode, 14.39 after two) on real
+generated audio, and deliberately left it. Re-measured on real Chatterbox Female 1 speech through
+the same comparison:
+
+- one generation at the old default: **19.25 dB** SNR against the lossless source
+- two generations at the old default (**the file that actually shipped**): **16.79 dB**
+- → **double-encode debt on real speech: 2.47 dB** — same phenomenon, same order as the 1.66 dB
+  recorded earlier; the difference is different text, voice and settings, not a contradiction. The
+  earlier record stands as measured.
+- the new contract, single explicit encode: **25.92 dB** → **+9.13 dB over the file that shipped**
+  (2.47 dB from removing the second generation, the rest from no longer encoding at 32 kbps).
+
+#### THE ONE DECISION THE MAINTAINER NEEDS TO MAKE — file size
+
+Honouring the panel's `192k` default means the local engines now encode at **160 kbps** (MPEG-2 at
+24 kHz caps at 160, so `192k` clamps — this is exactly what the Edge direct path has always done).
+That is **5× the old 32 kbps**:
+
+| contract | per hour | 10-hour audiobook |
+|---|---|---|
+| old default (32 kbps) | 14.4 MB | 144 MB |
+| **new, panel default `192k` → 160 kbps** | **72.0 MB** | **720 MB** |
+| panel option `128k` | 57.6 MB | 576 MB |
+| (not currently offered) 64 kbps | 28.8 MB | 288 MB |
+
+This is **not** being done silently — it is flagged here and at the manual gate. Two things make it
+easy to change: the maintainer can already pick `128k` in the existing dropdown with no code change,
+and adding a `64k` option (the lowest value that keeps the header consistent, and still +6 dB better
+than what shipped) is a one-line change to the combobox `values` tuple. **No lower value should ever
+be offered** — below 64 kbps the original defect returns by construction.
+
+#### Evidence
+
+- **RED first.** The 31 new tests in `files/tests/test_mp3_finalization.py` were written before the
+  fix and run against it: **25 failed, 6 passed** (the 6 are preservation invariants that must hold
+  either way). After the fix: **31 passed**.
+- `test_the_defaulted_export_this_phase_replaced_would_fail_the_invariant` characterizes the defect
+  itself and asserts the guard rejects it, so the guard is proven to have teeth.
+- **Real production output**, real models, measured four ways: Chatterbox Female 1 → header frame
+  160 kbps / audio frames all 160 kbps, ffprobe 21.386 · mutagen 21.456 · decoded PCM 21.386,
+  naive first-frame estimate 21.482 s vs 21.480 s real. Kokoro af_heart → same shape, naive 22.514 s
+  vs 22.512 s real. Both 24 kHz mono, preserved. **WMF now reads both correctly.**
+- Full suite **3716 passed, 13 skipped, 1 warning** against a baseline of **3685/13/1** — **+31
+  exactly**, matching the new file; skips and warning unchanged. `verify.py` **RESULT: PASS**;
+  `compileall` exit 0; `git diff --check` clean apart from this markdown file; VERSION `0.5.1`;
+  `launcher.TOOLS` **6**.
+- Three test doubles for `convert_single_pdf` (in `test_tts_jobs.py` ×2 and `test_tts_importing.py`)
+  were updated to accept `bitrate`, keeping them in sync with the seam they double. The batch-seam
+  test was **strengthened**, not restored: it now asserts the run's bitrate actually reaches the
+  folder worker. Two Kokoro guards (`test_the_remediation_did_not_edit_the_kokoro_engine`,
+  `test_no_chatterbox_dispatch_reached_a_conversion_engine`) fired on a docstring that named
+  Chatterbox inside `kokoro_synth.py`; **both guards were left exactly as they are** and the wording
+  was changed instead.
+- Protected recordings re-hashed after real synthesis — `A047D77F…`, `4BAD0D38…`, `6258DDE2…`,
+  `7B8FD74D…` — byte-identical, four files, none tracked.
+- Upstream `pkg_resources`/`LoRACompatibleLinear` deprecation warnings were seen in the maintainer's
+  logs and are **unrelated** to this defect; nothing was upgraded to silence them.
+
+#### Next
+
+Small manual recheck, one voice only — see the gate handed to the maintainer. Phase 12 stays OPEN;
+no commit exists; Phase 13 is not authorized.
+
+### Phase 12 — BANKED: TTS final-MP3 finalization manual recheck APPROVED (2026-08-18, maintainer)
+
+The maintainer performed the small one-voice recheck asked for above, and then went further and
+did it on two voices with real long-form chapters. **The TTS MP3 finalization remediation is
+manually APPROVED.**
+
+| Voice | Material | Listened | Audio quality | MP3 duration | iTunes | QuickTime |
+|---|---|---|---|---|---|---|
+| **Chatterbox - Female 1** | ≈ 7-minute real chapter | in full | **excellent** | **correct** | playback/timing **correct** | **agreed** |
+| **Chatterbox - Male 1** | ≈ 10-minute real chapter | in full | **good** | **correct** | playback/timing **correct** | **agreed** |
+
+No major audio-quality problem was observed in either. Two independent players agreeing on the
+duration is the point: the defect was that a first-frame-sampling parser read a wrong number, and
+both parsers now read the right one on multi-minute material — the length at which the old defect
+was most visible.
+
+**This is banked. Do not ask the maintainer to repeat the duration or audio-quality test.**
+
+Still open and untouched by this approval: the **file-size consequence**. Honouring the panel's
+`192k` setting means an effective 160 kbps (MPEG-2 caps at 160 for 24 kHz mono) against the old
+defaulted 32 kbps — roughly **5×**, about 144 MB → 720 MB for a ten-hour book. `128k` is already
+selectable with no code change; a `64k` option would be a one-line combobox addition. Nothing
+below 64 kbps may ever be offered, because that is where the defect returns by construction. **The
+maintainer has not yet made this decision.**
+
+The `torch_cpu.dll` access violation is unchanged by any of this: a genuine historical event, never
+reproduced, **not** claimed fixed. The fatal-fault diagnostics stay.
+
+### Phase 12 — FUTURE REQUIREMENT (not implemented): general pronunciation override
+
+Recorded here as a **future feature/research requirement**, expanding the deferral already held
+above under *"OPEN / DEFERRED — general pronunciation-override requirement"*. **Nothing in this
+requirement is implemented, and it is explicitly NOT authorized in Plan 4.** No word-specific rule
+was added to any engine; the existing guards in `test_chatterbox_selected_tuning.py` and
+`test_chatterbox_tuning.py` that fail if such a rule appears in executable engine code are intact
+and passing.
+
+**What the maintainer eventually wants:**
+
+1. A general pronunciation-override facility associated with the TTS scripts/configuration.
+2. **Two scopes**, both supported: an override that applies to **all applicable voices**, and an
+   override scoped to **one particular voice**.
+3. The ability to add words and proper names and specify how each should be pronounced.
+4. **Consistency** as a first-class requirement, separate from correctness: repeated occurrences of
+   the same name or term should sound as consistent as is technically practical, rather than
+   occasionally sounding like two different names.
+
+**Observations — evidence only. These are illustrations of the requirement and must never become
+hard-coded rules:**
+
+| Term | Heard as | Maintainer wants | Where observed |
+|---|---|---|---|
+| `Tamar` | "Ta-mar", varying within a chapter | ≈ **"Tay-mar"** | the original recorded example |
+| `Nephis` | ≈ "Ne-fis" | ≈ **"nee-fise"** | new, 2026-08-18 |
+| `Ascended` | ≈ "As-ken-did" | the ordinary word | seen with Female 1 earlier, **again with Male 1** |
+
+That `Ascended` recurs on a *second* voice is itself evidence: it points at model/text handling
+rather than at one voice's conditioning.
+
+**This must begin as a research/design spike, not a pile of regex hacks.** The spike should answer,
+per engine:
+
+- whether native phoneme / lexicon / SSML-style control exists at all;
+- whether deterministic text preprocessing (phonetic respelling) is the right seam instead;
+- how Edge, Kokoro and Chatterbox differ — they will not share one mechanism;
+- whether Chatterbox's remaining variation is controllable, or is fundamentally sampling/model
+  variance that can be improved but not guaranteed;
+- whether repeated-name consistency can be **guaranteed** or only **improved** — and saying which,
+  honestly, is part of the deliverable;
+- case, plural and word-boundary handling;
+- how to preserve the original source and log text while synthesising transformed pronunciation
+  text, so logs and Details never show the respelled form;
+- safe user-editable storage, and the precedence rule between global and per-voice entries.
+
+**Two separable problems — the spike must not conflate them (recorded 2026-08-19).** The maintainer
+named this distinction explicitly, and it decides what can honestly be promised:
+
+| | The problem | What a solution looks like | Can it be guaranteed? |
+|---|---|---|---|
+| **A. Deterministic pronunciation override** | A particular source token is spoken wrongly, and the user wants to control how it is spoken | Transform that token into a controlled synthesis representation — engine-native phonemes/lexicon/SSML where it exists, otherwise deterministic phonetic respelling at a text seam | **Plausibly yes**, per engine. The transform is deterministic input; whether the engine honours it is the thing to measure |
+| **B. Generation consistency** | The *same* name is spoken two different ways across repetitions or across generations, with no wrong input to fix | Reduce the occasions on which a stochastic local model varies — seeding, conditioning, temperature, chunk placement, or making A carry the term so the model has less to improvise | **Probably not fully.** Some of this is inherent model sampling variance. The spike's deliverable includes saying, per engine, how much is controllable and how much is not |
+
+A is a text/configuration problem. B is a model-behaviour problem. Solving A will *reduce* B —
+a respelled term has less room to vary — but it will not eliminate it, and the research must not
+report an A-shaped fix as if it settled B.
+
+**Not researched and not designed in this block** — only preserved.
+
+### Phase 12 — INVESTIGATION: over-long silences in TTS-Audiobook-27, root-caused (2026-08-18, HOME-PC)
+
+**Maintainer report.** Listening again to the Chatterbox Male 1 long-form output, there were about
+two places where the narration stopped in silence for roughly three seconds — too long.
+
+**No production code was changed by this investigation.** The finding below is recorded; the fix is
+**proposed, not applied**, because it changes chunking for every Chatterbox conversion and that is
+outside what this block authorizes.
+
+#### What is actually in the file
+
+`~/Downloads/…/TTS-Audiobook-27/Chapter 1144_ Theater of Shadows.mp3` — 8:08.94, 160 kbps,
+24 kHz mono (so it is a post-remediation file). Source:
+`~/Downloads/webscraped-tests/shadow-slave-1/Chapter 1144_ Theater of Shadows.pdf`. The session
+logs hold only the settings-allowlist warning — per-chunk output goes to the panel's log view, not
+to disk — so this was established from the audio and the text instead.
+
+**The inserted silences and the model's silences can be told apart exactly, and that is what
+settles it.** Assembly appends `np.zeros` between chunks, which survives the encode as *literally
+zero* samples; anything the model produces has a floor around −91 dB. Searching for exact-zero runs
+found **26** of them and nothing else:
+
+| Exact-zero runs | Measured | Configured | Reading |
+|---|---|---|---|
+| 25 inter-chunk gaps | 0.580–0.604 s each | `paragraphpause` **700 ms** | correct (MP3 edge blur trims the measured edges) |
+| 1 at the end | 3.638 s | end **3000 ms** + final gap 700 ms = 3.7 s | correct |
+
+25 gaps ⇒ **26 chunks**, exactly what `split_for_chatterbox` produces for this text. Total inserted
+silence **21.2 s of 488.94 s**. **Every configured pause is behaving exactly as set.**
+
+Now the over-long ones. Taking every audible silence ≥ 1.5 s and asking which chunk it sits in:
+
+| Start | Length | Between which exact-zero gaps | Verdict |
+|---|---|---|---|
+| **156.92 s** | **8.73 s** | inside chunk **10** | **model-generated** |
+| 318.50 s | 2.52 s | inside chunk 18 | model-generated |
+| 374.63 s | 2.21 s | inside chunk 21 | model-generated |
+| 392.55 s | 2.49 s | inside chunk 22 | model-generated |
+| 461.11 s | 2.42 s | inside chunk 25 | model-generated |
+| 470.54 s | 2.25 s | inside chunk 25 | model-generated |
+
+**Not one of them is at a chunk join.** Ordinary joins measure a median of **1.09 s** (0.6 s of
+inserted zeros plus the model's own tail) and the 90th percentile is 1.76 s. The complaint is about
+silence the model emitted *inside* a single `generate()` call.
+
+#### Why the model did it — a splitter blind spot, not a pause setting
+
+`_SENTENCE_END` is `(?<=[.!?])\s+` (`chatterbox_synth.py:276`). The lookbehind demands that the
+character immediately before the whitespace be `.`, `!` or `?`. In this text — a webnovel scrape,
+dialogue-heavy — a spoken line ends **`."` / `?"` / `!"`**: the **closing quote comes after the
+terminator**, so the lookbehind fails and the line break is *not* a sentence boundary. It is not a
+paragraph boundary either: `_PARAGRAPH_BREAK` is `\n\s*\n` and this file has only **2** blank lines.
+
+Counted over the 62 line breaks in the extracted text:
+
+| Character before the newline | Count | Split? | Fate |
+|---|---|---|---|
+| `.` / `?` | 32 | **yes**, sentence boundary | removed |
+| `\n` (blank line) | 2 | **yes**, paragraph boundary | removed |
+| `"` closing quote | **17** | **no** | **survives into the chunk** |
+| `:` colon | 11 | not by the chunker — but `split_at_prose_colon` splits it at synthesis | removed before `generate()` |
+
+So **17 raw `\n` characters are handed straight to `model.generate()`**, spread over **10 of the 26
+chunks** — and Chatterbox renders an embedded newline as a pause of no fixed length.
+
+**The correlation is complete:**
+
+- 10 chunks contain a newline that reaches `generate()`.
+- **All 6** over-long silences occurred in those 10 chunks.
+- **0** occurred in the other 16.
+
+(By chance that is `C(10,6)/C(26,6)` ≈ **0.09%**.) The worst case, chunk 10, is
+`'After a minute, he cleared his throat awkwardly:\n"Well, I... I will be going, then. My job here... is done?"\nMorrow glanced at him indifferently. "Go."\nThe thrall was…'` — two embedded newlines and two
+ellipses, and it took **29.3 s** to speak 258 characters against roughly 19 s expected.
+
+**This is text-driven, not voice-driven.** Nothing about Male 1 causes it; the same source would do
+the same thing on any Chatterbox voice. It is invisible on prose without quoted dialogue, which is
+why the earlier fixtures and the seven-file matrix never showed it.
+
+#### The proposed fix — dry-run only, NOT applied
+
+One line: let the sentence terminator be followed by an optional closing quote —
+
+```python
+_SENTENCE_END = re.compile(r"(?<=[.!?][\"'’”])\s+|(?<=[.!?])\s+")
+```
+
+(Python needs fixed-width lookbehind, hence the alternation rather than `?`.) Dry-run against this
+chapter, with production untouched:
+
+| | Chunks | Max chars | Newlines reaching `generate()` |
+|---|---|---|---|
+| current | 26 | 300 | **17** |
+| proposed | 25 | 300 | **0** |
+
+Word stream identical — **1,060 words in, 1,060 words out**, same order, nothing dropped or
+duplicated; no empty chunk; the 300-character ceiling still respected.
+
+**Not applied, and here is the blast radius the maintainer should weigh:** it changes chunk
+boundaries for *every* Chatterbox conversion, so it re-opens the long-form intelligibility
+evidence and the four-voice run to some degree. It also arguably belongs with the 700 ms
+inter-chunk pause: a dialogue line break becoming a chunk boundary means it gets the *configured*
+pause instead of whatever the model invents — which is the point, but it is a change in narration
+rhythm, not only a bug fix.
+
+**Kokoro is not affected the same way** — its splitter has a 3,000-character ceiling and rarely
+splits at all — and Edge is unaffected. Neither was examined further; neither was touched.
+
+Harness: `files/runtime-data/phase12-silence-audit/` (`chunks.py`, `anatomy.py`, `floor.py`),
+ignored, disposable. The maintainer's MP3 was read only, never modified.
+
+### Phase 12 — BANKED: every other Windows manual row is maintainer-approved (2026-08-18)
+
+The maintainer's words: *"Other than that, all other manual tests are approved and ready to be
+committed for this phase."*
+
+Checked against this document before banking — **no contradictory failed observation exists**; the
+only open item recorded anywhere was the uncontrolled Chatterbox silence, which is what "other than
+that" refers to. Approved and banked:
+
+| Area | Status |
+|---|---|
+| Pause / Resume, Cancel, Retry Failed (Block 3) | **APPROVED** |
+| Degraded / missing-reference behaviour (Block 3) | **APPROVED** |
+| All Cover Image rows (Block 1) | **APPROVED** — already banked 2026-08-17 |
+| Edge ordinary queue · Kokoro ordinary queue | **APPROVED** |
+| Mixed direct + folder queue and output placement | **APPROVED** |
+| EPUB retirement surfaces | **APPROVED** |
+| All four Chatterbox voices, seven-file unified queue | **APPROVED** |
+| Chatterbox Female 1 long-form quality | **APPROVED** |
+| MP3 finalization / duration rechecks | **APPROVED** |
+| Female 1 ≈7-minute and Male 1 ≈10-minute post-finalization playback | **APPROVED** |
+| Setup / `.venv` / HEIC / settings gates | **APPROVED** |
+
+**None of these is to be re-run.** Deferrals stay deferrals and are not converted into passes:
+Windows 125% scaling (Plan 9), the TTS whole-form scroll observation (Plan 9 §14), and the
+HEIC decode-available/encode-unavailable gap.
+
+**The one remaining blocker was the uncontrolled Chatterbox silence — remediated below.**
+
+### Phase 12 — Chatterbox natural text-chunk boundaries: uncontrolled silence FIXED (2026-08-18, HOME-PC)
+
+#### 1. The observation
+
+Listening again to the Male 1 long-form output, the maintainer heard about two places where the
+narration stopped in silence for roughly three seconds. Source:
+`~/Downloads/…/TTS-Audiobook-27/Chapter 1144_ Theater of Shadows.mp3`, from the web-scraped Shadow
+Slave PDF of the same name.
+
+#### 2. What TTS-Audiobook-27 actually contained
+
+8:08.94, 160 kbps, 24 kHz mono — a post-finalization file. The session logs held only the
+settings-allowlist warning (per-chunk output goes to the panel's log view, not to disk), so this was
+established from the audio and the text.
+
+**Inserted silence and model silence are distinguishable exactly**, which is what settled it:
+assembly appends `np.zeros`, and that survives the encode as *literally zero* samples, while model
+output has a floor near −91 dB. Searching for exact-zero runs found **26 and nothing else** —
+**25 inter-chunk gaps of 0.580–0.604 s** against the configured **700 ms**, and one terminal
+**3.638 s** against the configured 3000 ms end silence plus the final 700 ms gap. 25 gaps ⇒ 26
+chunks, exactly what the splitter planned. **Every configured pause was correct.**
+
+The long silences were all *interior*:
+
+| Position | Length | Inside chunk |
+|---|---|---|
+| **2:36.9** | **8.73 s** | 10 |
+| 5:18.5 | 2.52 s | 18 |
+| 6:14.6 | 2.21 s | 21 |
+| 6:32.6 | 2.49 s | 22 |
+| 7:41.1 | 2.42 s | 25 |
+| 7:50.5 | 2.25 s | 25 |
+
+Not one at a chunk join. Ordinary joins measured a median of 1.09 s.
+
+#### 3. Root cause
+
+`_SENTENCE_END` was `(?<=[.!?])\s+` — the character immediately before the whitespace had to be a
+terminator. Dialogue does not look like that: a spoken line ends **`."` / `?"` / `!"`**, with the
+closing quote *after* the terminator, so the lookbehind failed. A single `\n` is not a paragraph
+break either (`_PARAGRAPH_BREAK` is `\n\s*\n`, and this file had **2** blank lines).
+
+Of 62 line breaks: 32 split on `.`/`?`, 2 were blank lines, 11 followed a colon and were already
+handled at synthesis by `split_at_prose_colon` — and **17 followed a closing quote and were handed
+to `model.generate()` as raw `\n`**, across 10 of the 26 chunks. Chatterbox renders an embedded
+newline as a pause of no fixed length.
+
+**The correlation was complete: all 6 over-long silences fell in those 10 chunks; 0 in the other
+16.** By chance, `C(10,6)/C(26,6)` ≈ **0.09%**.
+
+**Text-driven, not voice-driven.** Nothing about Male 1 causes it; the same source would do the same
+on any Chatterbox voice, and it is invisible on prose without quoted dialogue — which is why the
+fixtures and the seven-file matrix never showed it.
+
+#### 4. Web Novel Editor — read-only design reference
+
+`elmatthe/web-novel-editor` @ `feature/plan-2b-cloud-providers` was read, not used:
+
+| Read | Idea taken |
+|---|---|
+| `ai/chunking.py` | paragraph-first planning; retain natural boundaries; **refuse a plan that cannot reproduce its input** (`plan.reassemble(...) != text → raise`) |
+| `rules/spacing_cleanup.py` | `_ENDS_SENTENCE_RE = [.!?…]["'’”)\]]*$` — the closing-punctuation sentence end, and the "next line is not lowercase" paragraph heuristic |
+| `pipelines/shadow_slave.py`, `test_ai_editor.py` | how the invariants are asserted |
+
+**No code was copied, imported or vendored. There is no cross-repository dependency**, and that
+repository was not modified. One principle deliberately *not* adopted: it may **reject** a paragraph
+larger than the budget (`ContextTooLong`). Chatterbox cannot — its ceiling is 300 characters and
+ordinary paragraphs exceed it — so the principle was adapted into a descent hierarchy.
+
+#### 5. The hierarchy now implemented
+
+1. **Paragraph** — a blank line. Never crossed, even when two paragraphs would fit together.
+2. **Sentence** — `[.!?…]` + optional closers `"'’”‘“)]»` + whitespace + a next character that is
+   not lowercase. The lowercase guard stops `"My job here... is done?"` being cut at the ellipsis,
+   which would have put a 700 ms pause mid-sentence.
+3. **Clause** — `;` then `:` then `—`/`–` then `,`, and **only** for a sentence already over the
+   ceiling. The colon sits below the semicolon so an ordinary colon stays inside its chunk and keeps
+   its 75 ms rather than becoming a 700 ms boundary.
+4. **Whitespace** — nearest word boundary.
+5. **Hard limit** — only for a single token with no boundary in it.
+
+**Units are then packed** up to 300 characters. One sentence is *not* one chunk: every boundary
+earns a configured pause, so that would read as machine-gun narration.
+
+**Newline contract:** `_normalize_whitespace` collapses every whitespace run inside a unit, so a
+surviving line break becomes the space a narrator reads. **No structural newline can reach
+`generate()`.**
+
+#### 6. Content integrity
+
+`_assert_content_preserved` compares **every non-whitespace character, in order**, and raises
+`ChunkPlanError` rather than returning a lossy plan. Whitespace is excluded deliberately: this
+splitter is *required* to normalise structural whitespace. A dropped word, a duplicated clause, a
+lost full stop from one `strip()` too many, or a reordered paragraph all fail it. A test monkeypatches
+`_pack_words` to drop text and asserts the plan is refused, so the safety net is proven, not trusted.
+
+#### 7. Chapter 1144 — before and after planning (read-only, no synthesis)
+
+| | Before | After |
+|---|---|---|
+| Characters / words | 6,251 / 1,060 | unchanged |
+| Blank-line paragraphs | 3 | 3 |
+| Planned chunks | 26 | **26** |
+| Max chunk length | 300 | **300** (ceiling held) |
+| Median chunk | 249 | 253 |
+| `generate()` calls | 43 | 38 |
+| **Raw newlines reaching `generate()`** | **17** | **0** |
+| Sentences over the ceiling (forced clause/whitespace split) | — | **0** |
+| Words in / out | — | **1,060 / 1,060** |
+| Every character preserved in order | — | **True** |
+| Nothing duplicated | — | **True** |
+
+The chapter never needed levels 3–5 at all; every sentence fits under 300 characters.
+
+#### 8. Chapter 1144 — before and after AUDIO (real synthesis, Male 1, CPU, 600.7 s)
+
+Regenerated through the production entry point with the registered Male 1 preset (700 ms chunk
+pause, 3000 ms end silence) and the panel's default `192k`.
+
+| | BEFORE (`TTS-Audiobook-27`) | AFTER |
+|---|---|---|
+| Duration | 488.94 s | **486.34 s** |
+| Inserted exact-zero gaps | 26 (median 0.580 s, last 3.638 s) | 26 (median 0.604 s, last 3.654 s) |
+| Quiet spans ≥ 0.8 s | 77, median **1.09 s** | 82, median **1.05 s** |
+| **Interior model silences ≥ 2 s** | **6** | **4** |
+| **Worst interior silence** | **8.73 s** | **2.90 s** |
+| ffprobe / mutagen / decoded | 488.940 / 489.000 / 488.940 | **486.340 / 486.408 / 486.340** |
+| Bitrate / rate / channels | 160k / 24 kHz / mono | **160k / 24 kHz / mono** |
+| Peak · clipped samples · DC | 0.6431 · 0 · −7.85e−05 | 0.7334 · **0** · −7.82e−05 |
+| Strict decode (`-err_detect explode`) | CLEAN | **CLEAN** |
+| Seek to EOF−5 s | OK | **OK** |
+
+**The narration did not get faster.** Total duration fell by only 2.60 s while a 5.83 s excess
+silence was removed — so everything else grew slightly. Median quiet span moved 1.09 → 1.05 s, and
+the configured gaps, colon pause and end silence are all still present and measured. No silence was
+trimmed, no waveform was post-processed; only the text boundary changed.
+
+**The four remaining ≥2 s pauses were correlated back to their text rather than assumed to be
+defects. All four chunks contain zero newlines**, and each pause lands on written drama:
+
+| New position | Length | Chunk | What the text says there |
+|---|---|---|---|
+| 2:44.41 | 2.90 s | 10 | `"Well, I... I will be going, then. My job here... is done?"` — hesitation ellipses |
+| 5:26.24 | 2.34 s | 19 | `The two Awakened she had sent to relay the order...` — trailing ellipsis |
+| 6:06.03 | 2.21 s | 21 | `There was a short span of silence, and then she heard…` — a narrated silence |
+| 7:17.79 | 2.04 s | 24 | `There was a stretch of silence again` / `"Sister... we are coming."` |
+
+These are the model pausing where the author wrote a pause. **What disappeared is the class of
+silence caused by a formatting character.**
+
+#### 9. Scope held
+
+Unchanged and re-asserted by test: ceiling **300**, temperature **0.72**, Phase 9 evaluation
+temperature **0.8**, `COLON_PAUSE_MS` **75**, chunk-pause and end-silence behaviour, the explicit
+MP3 finalization contract and its single lossy encode, the bitrate selector and its `192k` default
+(**deliberately not reopened**), voice conditioning, the four identities, CPU execution,
+cancellation checkpoints, Pause/Resume, Retry Failed, progress reporting, output placement, the
+unified queue, EPUB retirement, fatal diagnostics. No CUDA. No pronunciation-override work; no
+`Tamar`/`Nephis`/`Ascended` rule — those guards still pass.
+
+**Kokoro and Edge were not touched.** Ownership was verified rather than assumed: `split_for_chatterbox`
+is the engine's own, `kokoro_synth.split_into_chunks` keeps its 3,000-character default (asserted by
+test) and `batch_convert.split_into_chunks` is separate.
+
+#### 10. Gates
+
+| Gate | Result |
+|---|---|
+| New `test_chatterbox_chunking.py` — **RED first** | **20 failed, 41 passed** before the fix; the 41 were the existing-behaviour guards |
+| Same file after | **61 passed**, ×3 consecutive runs |
+| Chatterbox suite (long-form, tuning, selected tuning, engine, integration, boundaries, evaluation) + Kokoro timing | **369 passed** |
+| Broad focused set (Chatterbox ×10, MP3 finalization, TTS jobs/importing/reporting, lifecycle races, job control, fatal diagnostics, EPUB, Kokoro, Plan 3 boundaries) | **1,284 passed** |
+| Race subset ×3 | **44 passed** each |
+| `python scripts/verify.py` | **RESULT: PASS** — pytest **3777 passed, 13 skipped, 1 warning** |
+| **Test-count reconciliation** | 3716 → **3777 = +61 exactly**, the new file's 61 tests. **Skips unchanged at 13; warning unchanged at 1.** No test deleted, weakened, skipped or xfailed |
+| `compileall` | exit **0** |
+| `git diff --check` | 1,592 + 56 hits, **only the two markdown docs, all the `\r` of CRLF** (measured: 0 real trailing spaces/tabs). **No code file flagged** |
+| Dependencies | **none added**; all `==`-pinned |
+| VERSION / `launcher.TOOLS` | **0.5.1** / **6** |
+| Protected recordings | four files, byte-identical (`a047d77f…`, `4bad0d38…`, `6258dde2…`, `7b8fd74d…`); `git ls-files` → **0** |
+| HEAD / index | `82042f73…`, nothing staged, no commit created |
+
+Production change surface for this block: `scripts/Universal/tts/chatterbox_synth.py` only.
+New test file `files/tests/test_chatterbox_chunking.py` (61 tests). Harness under
+`files/runtime-data/phase12-silence-audit/` (ignored, disposable) — `chunks.py`, `anatomy.py`,
+`floor.py`, `replan.py`, `resynth.py`, `compare.py`, `correlate.py` and the regenerated MP3.
+
+**One honest note on the full-suite count.** An initial full run reported 31 skipped while the real
+synthesis was saturating the CPU — the known transient *"no Tk display available / can't find a
+usable tk.tcl"*. It was **re-run on an idle machine and returned to 13**, per the standing rule:
+rerun, never weaken. Nothing was changed to make it pass.
+
+### Phase 12 Block 3 — Chatterbox job-control + degraded reference: PREFLIGHT CLEAN, awaiting the maintainer (2026-08-18, HOME-PC)
+
+**Preparation and read-only preflight only. No production code was changed in this block; the
+tracked diff is byte-identical to the audio-finalization state apart from this entry and the
+disposable harness. Nothing staged, committed or pushed. Phase 12 remains OPEN.**
+
+Block 3 is the last bounded manual block of the Phase 12 matrix: **Pause, Resume, Cancel, Retry
+Failed and the degraded/missing-reference case, for Chatterbox.** It maps onto checklist sections
+**S, T, U, V**. Sections **O–R** (each voice converting normally) are **superseded** by the banked
+four-voice seven-file run and are not being asked for again.
+
+#### The environment changed, and it matters
+
+The working `.venv` is **no longer** the pre-Plan-4 environment recorded as the Phase 12 blocking
+finding. Measured today, it now matches `scripts/requirements.txt` exactly:
+
+| Package | Pinned | Installed in `.venv` |
+|---|---|---|
+| `chatterbox-tts` | `0.1.7` | **0.1.7** |
+| `torch` / `torchaudio` | `2.6.0` | **2.6.0 / 2.6.0** |
+| `transformers` | `5.2.0` | **5.2.0** |
+| `numpy` | `1.26.4` | **1.26.4** |
+| `librosa` | `0.11.0` | **0.11.0** |
+| `resemble-perth` | `1.0.1` | **1.0.1** |
+| `pillow-heif` | `1.5.0` | **1.5.0** |
+| `setuptools` | `80.9.0` | **80.9.0** |
+
+So Block 3 runs from the **ordinary BAT launch (L1)**, not the probe interpreter. The recorded
+finding W4 — *the BAT does not install the Plan 4 dependency set into an existing `.venv`* — stands
+as a finding about the installer; it is simply no longer an obstacle to running this matrix.
+
+#### The plan-wording question, answered in the open rather than assumed
+
+Plan 4 §Phase 12 says: *"every registered voice exercised in the unified queue with pause, cancel
+and Retry Failed, plus the degraded case where a reference recording is absent."*
+
+Read strictly distributively, that is 4 voices × 3 controls = twelve manual runs. **The reading
+taken here is that "every registered voice exercised in the unified queue" is the per-voice
+requirement — already satisfied 4/4 — and "with pause, cancel and Retry Failed" enumerates the
+controls the matrix must cover.** Two things support it, and both are stated so the maintainer can
+overrule:
+
+1. **The drop says "each" when it means each.** The immediately preceding clause is *"Retry Failed
+   in each Cover output mode"*. The distributive marker is present there and absent here.
+2. **The controls are structurally voice-independent, and this was verified rather than asserted.**
+   `voice_id` appears **zero** times in `shared/job_control.py` and **zero** times in
+   `shared/job_ui.py`. In the panel it only sets a widget variable, builds the engine-description
+   line, is checked for availability, is frozen into the run snapshot, and is handed to the three
+   engine calls. No pause, resume, cancel, retry or settlement path reads it. All four Chatterbox
+   rows take the identical `backend == "chatterbox"` branch at `epub2tts_gui.py:1808` and `:2116`
+   and differ **only** in which reference conditional `chatterbox_file_to_mp3` loads.
+
+**This is a stated interpretation, not a silent weakening.** If the maintainer wants the strict
+reading, the extension is mechanical: repeat rows S/T/U on Female 2, Male 1 and Male 2. It is
+offered explicitly in the checklist rather than dropped.
+
+#### Preflight — what was verified before anything was handed over
+
+**Pause / Resume.** Pause is cooperative and sits **between source files**, by design, in both
+halves of the queue: `run_direct_items` calls `controller.checkpoint()` before each direct source
+(`epub2tts_gui.py:1794`), and the folder pool calls it before each task (`:2107`). A task arriving
+during a pause **waits on the controller's condition — woken, never polled**; a task already inside
+a conversion finishes it. **Native inference is never suspended.** For Chatterbox the pool runs
+`workers = 1` (`:2103`) — correctness, not tuning: every item shares one cached model object whose
+voice conditioning is attached to it. Resume continues the **same** run and the same snapshot;
+nothing is replanned.
+
+**Cancel.** Cooperative, at chunk granularity. `chatterbox_file_to_mp3` consults `cancel_check`
+between chunks (`chatterbox_synth.py:1094`) and `_synthesize_chunk` consults it between colon
+segments (`:919`); both raise `ConversionCancelled`. **No thread is killed and no native call is
+torn down.** A cancelled item's partial output is discarded through `discard_partial`
+(`epub2tts_gui.py:1815`, `:2149`); items that already succeeded are **kept** — a covered contract
+(`test_a_cancelled_run_keeps_the_outputs_that_already_finished`). `settle()` claims `CANCELLED`
+only if the controller genuinely acknowledged at a checkpoint (`:1843-1848`).
+
+**Retry Failed.** The deterministic seam already exists and needs no engine edit, no network
+outage and no protected file: the prepared `retry` fixture pairs a good PDF with a **truncated**
+one. Validated today through production's own extractor, on temp copies, leaving the fixtures
+byte-unchanged:
+
+| Fixture | Bytes | Through `pdf_to_txt` |
+|---|---|---|
+| `retry/good-source.pdf` | 1,055 | **extracts** — 102 chars |
+| `retry/broken-source.pdf` | 353 | **raises `FileDataError`** — the deterministic failure |
+| `retry-repair/broken-source-REPAIRED.pdf` | 1,063 | **extracts** — 106 chars |
+
+The failure is caught per item and recorded `retryable=True`; a retry re-uses the original frozen
+snapshot, so the **original voice and backend** and the **original destination** are authoritative
+and today's dropdown is never consulted (`:1333-1346`, `:1533-1537`). Automated cover already
+exists — `test_retry_reuses_the_original_backend_voice_and_destination`,
+`test_a_retry_uses_the_original_voice_even_after_the_dropdown_changed`,
+`test_a_chatterbox_retry_never_overwrites_an_earlier_success` — and is **supporting evidence,
+labelled as automated, not as the manual observation.**
+
+**Degraded / missing reference — proven again, and more strongly than before.** The disposable
+detached worktree at `C:\Users\ematthew\AppData\Local\Temp\act-phase12-degraded` was **refreshed to
+the current working tree's `scripts/Universal`** (`diff -rq` reports identical), so the manual row
+now exercises today's code rather than the committed Phase 11 code. Verified: **zero** `.mp3`,
+`.wav`, `.pt` or `.npz` files anywhere in it; no `files/Chatterbox-Voice-Uploads/`; no
+`files/runtime-data/`. Probed with the **main `.venv`** — which is the stronger case, because the
+Chatterbox *package* is genuinely installed there and only the *recordings* are absent:
+
+| Measurement | Result |
+|---|---|
+| `paths.REPO_ROOT` | resolves **inside the worktree** |
+| `chatterbox_synth.package_status()` | `(True, 'ok')` — the engine is present |
+| Chatterbox rows registered / **available** | 4 / **0** |
+| Message per voice | *"Setup required for Chatterbox — Female 1: the reference recording 'Female-1.mp3' is not present in …. This voice is unavailable on this machine; Edge and Kokoro voices are unaffected."* |
+| Edge voices | **7 present and selectable** |
+| Kokoro voices | **5 present and selectable** |
+| Anything downloaded or substituted | **none** |
+
+**No protected recording was renamed, moved, copied, hidden, edited or read to produce any of
+this**, and the manual row asks the maintainer to do nothing of the kind either.
+
+**Preflight verdict: clean. No production defect was found, so no remediation was undertaken, no
+scope was broadened, and no knowingly broken path was handed over.**
+
+#### Gates re-run at this state
+
+| Gate | Result |
+|---|---|
+| Focused set — TTS jobs/importing/reporting-order, Chatterbox integration/engine/boundaries/long-form/tuning/selected-tuning, Plan 4 lifecycle+races, job control/controller, fatal diagnostics, MP3 finalization, EPUB retirement | **939 passed, 1 warning** |
+| Race-sensitive subset (`test_plan4_lifecycle_races.py` + `test_tts_reporting_order.py`) **× 3 consecutive runs** | **44 passed** each time |
+| `python scripts/verify.py` | **RESULT: PASS** — pytest **3716 passed, 13 skipped, 1 warning**; deps `==`-pinned; docs; docnames; config version **0.5.1** |
+| Test-count reconciliation | **3716 / 13 / 1 — identical to the audio-finalization close-out. Δ = 0.** This block added, deleted, weakened, skipped and xfailed **nothing**, and the suite confirms it |
+| `compileall` | exit **0** |
+| `git diff --check` | **1,253 hits in `Handoff.md` + 56 in `Decisions.md`, all "trailing whitespace", and all of them the `\r` of CRLF.** Measured: those two files have **0** lines with a real trailing space or tab. `core.autocrlf=true` with `* text=auto` writes CRLF on Windows and normalizes on commit. **No code file is flagged** |
+| Protected recordings | four files, all four **byte-identical** (`a047d77f…`, `4bad0d38…`, `6258dde2…`, `7b8fd74d…`); `git ls-files files/Chatterbox-Voice-Uploads/ files/runtime-data/` → **0** |
+| HEAD / index | `82042f73b02894f3c881fbb0d5ce61aadbaa9948`; **15 ahead / 0 behind** `origin/master` (`809a43e7…`); nothing staged |
+| `VERSION` / `launcher.TOOLS` | **0.5.1** / **6** |
+
+#### Disposable harness
+
+`files/runtime-data/phase12-block3-preflight/` — `degraded_probe.py`, `retry_fixture_probe.py`.
+Ignored at `.gitignore:29`, proven with `git check-ignore -v`. Delete freely.
+
+#### Out of Block 3, deliberately
+
+Not run and not requested: any Cover test, the >1,000-result or broad-root import, `Cancel Import`
+mid-scan, any further Edge or Kokoro run, any further audio-quality listening, any further MP3
+duration check, mixed-queue placement, EPUB UI, HEIC, setup / BAT / old-`.venv`, another long-form
+Chatterbox generation, Windows 125% scaling, macOS, and Phase 13.
+
+### Phase 12 — FINAL GATE PASSED: Chapter 1144 natural-boundary recheck APPROVED (2026-08-19, maintainer)
+
+**This was the last open item in the entire Phase 12 Windows matrix. It is approved. The matrix is
+complete.**
+
+The maintainer listened to the regenerated file
+`files/runtime-data/phase12-silence-audit/resynth/chapter-1144-male1-new.mp3` (Chatterbox – Male 1,
+production path, CPU) and reported:
+
+- the previous large silence gaps are **substantially reduced**;
+- the result **sounds much better**;
+- the formerly unacceptable **long dead-air behaviour is resolved**;
+- **a small amount of pause/lag remains**;
+- the remaining behaviour is **acceptable for the current release**;
+- further pause/rhythm refinement **may be revisited later**;
+- **MP3 audio remains acceptable.**
+
+**Independent inspection (ChatGPT, on the same supplied file).** Recorded because it corroborates
+the measurements from a second tool rather than restating them:
+
+| Property | Reported |
+|---|---|
+| Duration | ≈ **486.34 s** / 8:06.34 |
+| Format | **24 kHz mono** |
+| The former ≈8.7 s formatting-driven silence | **absent** |
+| Remaining noticeable interior quiet regions | roughly the **2–3 s class**, depending on detection threshold — not the former extreme hole |
+| Verdict | **acceptable for Plan 4**; should **not** trigger additional waveform trimming or speculative TTS tuning now |
+
+Both agree with Claude's own measurements recorded in the remediation entry above (worst interior
+silence **8.73 s → 2.90 s**, interior ≥2 s **6 → 4**, duration 488.94 → 486.34 s).
+
+#### Accepted residual behaviour — frozen for Plan 4, not a defect
+
+Chatterbox narration timing is **frozen at its current behaviour** for the remainder of Plan 4. The
+completed fix eliminated *unpredictable formatting/newline-driven* multi-second silence. It was
+never intended to force natural narration into uniform timing, and the remaining pauses are the
+model responding to written ellipses and to text that narrates a silence.
+
+**Explicitly NOT to be done now**, by maintainer instruction — each of these would be a change to
+approved, listened-to behaviour on no evidence:
+
+- globally trimming generated silence, or imposing a maximum model-silence duration;
+- altering `GENERATION_TEMPERATURE` (0.72), the 300-character ceiling, the chunk/paragraph pause,
+  the end silence, or `COLON_PAUSE_MS` (75);
+- adding further text-boundary heuristics without a demonstrated defect;
+- re-running the Chapter 1144 tuning loop.
+
+**Deferred, recorded, not scheduled:** fine-grained narration pause/rhythm tuning — a future
+observation, alongside the pronunciation/consistency requirement above. Revisiting it needs its own
+authorization and its own evidence.
+
+#### The file-size question is CLOSED for Plan 4
+
+The audio-finalization entry above referred one open decision to the maintainer: honouring the
+panel's `192k` default makes local-engine output an effective 160 kbps, ~5× the old 32 kbps
+(144 MB → 720 MB for a ten-hour audiobook). **The maintainer's ruling: preserve the currently tested
+bitrate and default behaviour; do not reopen bitrate choices now.**
+
+Therefore, in this closeout and until separately authorized: **no `64k` option is added**, the
+default is **not** changed to `128k`, and the MP3-finalization architecture is **not** reopened. The
+existing dropdown already offers `128k` with no code change if smaller files are ever wanted, and
+the 64 kbps correctness floor recorded in `Decisions.md` stands regardless.
+
+#### The Phase 12 Windows matrix — complete
+
+Every row is now maintainer-approved. The banked table above (*"every other Windows manual row is
+maintainer-approved"*) plus this final audio gate covers: setup / `.venv` reconciliation / second-launch
+fast path / setup dialog and Cancel / settings warning / VERSION unchanged; the entire Cover Image
+section including the three browser views, selection, hydration, scrolling, shared importing,
+broad-root and folder import, `Cancel Import`, job controls, Retry Failed in each output mode, the
+replacement chain, and real HEIC with format preserved; the unified PDF/TXT queue with direct and
+folder-derived items in one run, flat versus mirrored placement, duplicate basenames, and EPUB
+offered nowhere; Edge and Kokoro real production runs; all four Chatterbox voices at 7 ok / 0 failed
+with Pause/Resume, Cancel, Retry Failed and the degraded/missing-reference case; the MP3 finalization
+contract verified by ear and by parser on two long-form chapters; and this natural-boundary recheck.
+
+**Deferrals stay deferrals and were not converted into passes:** Windows 125% scaling (Plan 9), the
+TTS whole-form scroll observation (Plan 9 §14), the HEIC decode-available/encode-unavailable gap, and
+live macOS (Phase 13).
+
+**The native crash keeps its honest wording.** One genuine `pythonw.exe` / `torch_cpu.dll`
+`0xC0000005` access violation occurred, was characterised precisely from the WER minidump, and was
+**never reproduced** in nine controlled attempts or in any later run by Claude or the maintainer.
+Fatal-fault diagnostics were added and self-proved so that a recurrence is observable. **It is NOT
+claimed to be fixed**, and nothing in this closeout may be read as claiming that.
+
+### Phase 12 — closeout: final verification, commit and push (2026-08-19, HOME-PC)
+
+The accumulated Phase 12 work — every Windows validation fix and test since Phase 11 — is committed
+as **one checkpoint** on `feature/0.6.1-tts-cover-workflows` and pushed. Splitting approved work into
+artificial historical commits was considered and rejected: no authority document requires it, and the
+maintainer approved the state, not a sequence.
+
+#### Final gates, run from the completed tree
+
+| Gate | Result |
+|---|---|
+| Full `pytest` | **3777 passed, 13 skipped, 1 warning** (3790 collected) |
+| **Reconciliation vs committed HEAD `82042f73…`** (3481 passed / 13 / 1, 3494 collected) | **+296 collected, exactly** — see the table below |
+| Reconciliation vs the last reported working-tree figure | **3777/13/1 → 3777/13/1, delta zero** |
+| Focused high-risk set (46 modules: Chatterbox ×10, MP3 finalization, fatal diagnostics, TTS jobs/importing/reporting/smoke, lifecycle races, job control/controller/events/results/UI, EPUB retirement, Kokoro ×2, Plan 3 boundaries, Cover ×6, image capabilities, importing ×4, output paths, tool-output integration, settings ×3, bootstrap ×3, batch folders) | **3062 passed, 10 skipped** |
+| Race-sensitive subset (`test_plan4_lifecycle_races.py` + `test_tts_reporting_order.py`) **× 5 consecutive runs** | **44 passed** every run, identical |
+| `test_plan4_lifecycle_races.py` alone × 5 | **30 passed** every run |
+| `python scripts/verify.py` | **RESULT: PASS** — pytest, deps `==`-pinned, docs de-templated, 4 canonical doc names, `config.toml` valid at version 0.5.1 |
+| `python -m compileall -q scripts files/tests` | exit **0** |
+| `git diff --check -- '*.py'` | exit **0**, clean |
+| `git diff --check` (all) | **1,932 hits: 1,823 `Handoff.md` + 109 `Decisions.md`, every one the `\r` of CRLF.** Measured directly: **0** real trailing spaces or tabs in the added lines of `*.md`, `*.py` or `*.bat`. **No code file flagged.** Neither document was reformatted to silence inherited line-ending noise |
+| Dependencies | `scripts/requirements.txt` **unchanged in this diff**; 27 entries, **0 unpinned**; **no new dependency** |
+| VERSION / `launcher.TOOLS` | **0.5.1** / **6** |
+| Tests deleted / weakened / newly skipped / xfailed | **none** — proven below |
+| Protected recordings | four files, byte-identical; `git ls-files` → **0** |
+
+**Collection reconciliation, +296 exactly:**
+
+| Source | Delta |
+|---|---|
+| `test_chatterbox_chunking.py` (new) | +61 |
+| `test_chatterbox_selected_tuning.py` (new) | +36 |
+| `test_mp3_finalization.py` (new) | +31 |
+| `test_fatal_diagnostics.py` (new) | +29 |
+| `test_bootstrap_requirements_state.py` (new) | +27 |
+| `test_chatterbox_longform.py` (new) | +25 |
+| `test_bootstrap_setup_cancel.py` (new) | +21 |
+| `test_settings_allowlist.py` (new) | +20 |
+| `test_chatterbox_tuning.py` (new) | +19 |
+| `test_cover_browser_scroll.py` (new) | +18 |
+| `test_bootstrap_setup_dialog_fit.py` (new) | +8 |
+| **Eleven new files** | **+295** |
+| `test_chatterbox_evaluation.py` — `test_the_evaluation_runs_at_the_historical_phase_nine_temperature` added | +1 |
+| `test_chatterbox_engine.py` — one test **renamed and strengthened**, not removed | 0 |
+| **Total** | **+296** |
+
+**One honest note on the skip count, again.** `verify.py` was re-run after the documentation edits
+and that one run reported **3756 passed / 34 skipped** — the same known Tk transient
+(*"no usable tk.tcl"*) that appeared during the silence remediation, with the collected total
+unchanged at 3790. It was **re-run rather than accommodated**, and returned to **3777 / 13 / 1**,
+with `-rs` confirming the 13 are exactly the documented pre-existing set: 8 symlink-privilege,
+2 case-insensitive-filesystem, 3 `JACK_RYAN_M4B_FOLDER` env-gated. Nothing was changed to make it
+pass. The rule stands: rerun, never weaken.
+
+**No behavioural coverage was lost.** One test name disappears from the diff and it is a rename with
+a stronger assertion: `test_file_synthesis_reuses_the_existing_chunker` →
+`test_file_synthesis_uses_the_chatterbox_chunker_not_kokoros`. The old test asserted the Chatterbox
+path produced *exactly* Kokoro's chunk count — it encoded the long-form defect. The replacement
+asserts the opposite and adds the ceiling check; its docstring records the inversion. Grep over the
+whole test diff finds **zero** added `skipif`, `xfail`, `pytest.skip` or `@pytest.mark.skip`. The 13
+skips are the same pre-existing set (8 symlink-privilege, 2 case-insensitive-filesystem, 3
+`JACK_RYAN_M4B_FOLDER` env-gated) and the one warning is the same third-party pydub `audioop`
+`DeprecationWarning`.
+
+#### What was committed, grouped
+
+**Production (13 files)**
+
+| File | What Phase 12 changed |
+|---|---|
+| `scripts/Universal/tts/chatterbox_synth.py` | Long-form chunking (300-char ceiling, own splitter), the selected tuning, the prose-colon pause, single-encode MP3 finalization, and the natural-boundary chunk planner with its content-preservation refusal |
+| `scripts/Universal/tts/kokoro_synth.py` | Explicit MP3 finalization contract; single lossy encode |
+| `scripts/Universal/tts/batch_convert.py` | Explicit MP3 finalization contract on the Edge folder path |
+| `scripts/Universal/tts/epub2tts_gui.py` | The run's `bitrate` reaches Kokoro, Chatterbox and the folder worker |
+| `scripts/Universal/tts/generate_voice_samples.py` | Phase 9 evaluation reproduces its historical temperature; ordinary samples follow current production |
+| `scripts/Universal/shared/ffmpeg_utils.py` | `mp3_export_options()` — the one explicit final-encode contract, with the 64 kbps floor documented |
+| `scripts/Universal/shared/logging_setup.py` | Fatal-fault diagnostics (observation only) |
+| `scripts/Universal/shared/bootstrap.py` | Requirements-state reconciliation for an existing `.venv`; setup-dialog fit; Cancel semantics |
+| `scripts/Universal/shared/config.py` | `USER_STATE_SETTINGS` corrected to the namespaced keys production actually writes |
+| `scripts/Universal/launcher.py` | Arms fatal diagnostics before any panel exists |
+| `scripts/Universal/mp3_tools/cover_resizer.py` | Cover browser scrolling seam and the missing binding |
+| `Setup_and_Run-audiobook-creation-tool.bat` | Exit code 2 (user cancelled setup) closes cleanly instead of reporting failure |
+
+**Tests (17 files — 11 new, 6 updated)**
+
+New: `test_chatterbox_chunking.py`, `test_chatterbox_longform.py`, `test_chatterbox_tuning.py`,
+`test_chatterbox_selected_tuning.py`, `test_mp3_finalization.py`, `test_fatal_diagnostics.py`,
+`test_cover_browser_scroll.py`, `test_settings_allowlist.py`,
+`test_bootstrap_requirements_state.py`, `test_bootstrap_setup_cancel.py`,
+`test_bootstrap_setup_dialog_fit.py`.
+Updated: `test_chatterbox_engine.py`, `test_chatterbox_evaluation.py`, `test_config.py`,
+`test_plan3_boundaries.py`, `test_tts_importing.py`, `test_tts_jobs.py`.
+
+**Documentation (2 files)** — `md-instructions/Handoff.md` and `md-instructions/Decisions.md`.
+
+`Briefing.md`, `Changelog.md`, `README.md` and the Master Implementation Plan Index were **read and
+deliberately not edited.** Drop §1.2 and Phase 15 assign the permanent-record transfer to the
+authorized closeout phase and forbid it "as a side effect of another phase"; Phases 0–11 committed
+under the same convention. Editing them here would be churn against an explicit instruction.
+
+#### Deliberately excluded from the commit
+
+Everything generated is already ignored, so nothing hazardous was reachable; staging was by explicit
+path only, and `git add -A`, `git add -f`, `git clean` and `git reset --hard` were never used. Not
+staged: `files/Chatterbox-Voice-Uploads/` (the four protected recordings), all of
+`files/runtime-data/` (the silence-audit harness and its regenerated MP3, the Block 3 preflight
+probes, the manual-fixture checklist, model/cache data, the Phase 8 probe venv), `files/test-files/`,
+`files/test-logs/`, `files/test-for-manual-listen-elmatthe/`, `.venv/`,
+`.venv-phase12-preexisting-backup/`, `dist/`, every `__pycache__/`, `.pytest_cache/`, `.claude/`,
+`.codex/`, `AI-WORKSPACE.md`, `Map-Repo-Structure.bat`. No file from `~/Downloads` was ever inside
+the repository, and no WER minidump was copied into it.
+
+#### Not done
+
+No merge, no pull request (the drop says *"Commit + push. Next: Phase 13"* — a PR is not part of the
+Plan 4 phase contract), no tag, no release, no packaging, no branch deletion, no `release.py`.
+**`VERSION` stays `0.5.1`** — the bump belongs to Phase 15 alone. The drop
+`md-instructions/0.6.1-tts-cover-workflows.md` is **not** retired. No macOS action was taken and no
+CUDA was used. **Phase 13 — the live macOS HEIC and Chatterbox/Metal gate — is NOT AUTHORIZED and
+has NOT started.**
 
 ---
 
@@ -8147,6 +10189,87 @@ dead legacy files below).
 ---
 
 ## Session Sync Log (newest first)
+
+### 2026-08-19 — HOME-PC — v0.6.1 Plan 4 Phase 12 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
+
+**Branch:** unchanged. **Phase 12 start SHA:** `82042f73b02894f3c881fbb0d5ce61aadbaa9948` (the
+maintainer-approved Phase 11, equal to its upstream at start; 15 ahead / 0 behind `master`
+`809a43e754920fce2f11f08e3c401dcc4c7a5223`). One checkpoint commit for the whole approved Phase 12
+body of work. No merge, reset, stash, rebase, force-push, `git clean` or tag; `master` was not
+touched and no pull request was opened.
+
+- Added:   `files/tests/test_chatterbox_chunking.py` (61 — the natural-boundary planner: newline
+  contract, packing, hierarchy, content integrity, surrounding-contract preservation)
+- Added:   `files/tests/test_chatterbox_longform.py` (25 — the 300-character ceiling and the
+  truncation defect that made three real chapters produce ~2% of their audio)
+- Added:   `files/tests/test_chatterbox_tuning.py` (19) and
+  `files/tests/test_chatterbox_selected_tuning.py` (36 — the maintainer's chosen temperature 0.72
+  and the generic prose-colon pause, plus the guards that fail if a novel-specific pronunciation
+  rule ever appears in executable engine code)
+- Added:   `files/tests/test_mp3_finalization.py` (31 — the explicit encode contract, the 64 kbps
+  correctness floor, and the single-lossy-encode invariant; written RED, 25 failed / 6 passed
+  before the fix)
+- Added:   `files/tests/test_fatal_diagnostics.py` (29 — observation-only fatal-fault capture)
+- Added:   `files/tests/test_cover_browser_scroll.py` (18 — local scrolling and the missing binding)
+- Added:   `files/tests/test_settings_allowlist.py` (20 — the allowlist re-derived from production
+  `settings.set(...)` call sites by AST so it cannot drift again)
+- Added:   `files/tests/test_bootstrap_requirements_state.py` (27),
+  `files/tests/test_bootstrap_setup_cancel.py` (21),
+  `files/tests/test_bootstrap_setup_dialog_fit.py` (8)
+- Changed: `scripts/Universal/tts/chatterbox_synth.py` (own splitter and 300-char ceiling, selected
+  tuning, prose-colon pause, single-encode finalization, natural-boundary chunk planner with
+  `ChunkPlanError` refusal)
+- Changed: `scripts/Universal/tts/kokoro_synth.py`, `scripts/Universal/tts/batch_convert.py`
+  (explicit MP3 finalization contract; single lossy encode where the engine holds PCM)
+- Changed: `scripts/Universal/tts/epub2tts_gui.py` (the run's `bitrate` reaches Kokoro, Chatterbox
+  and the folder worker — previously only the Edge direct path read it)
+- Changed: `scripts/Universal/tts/generate_voice_samples.py` (Phase 9 evaluation reproduces its
+  historical temperature; ordinary samples follow current production)
+- Changed: `scripts/Universal/shared/ffmpeg_utils.py` (`mp3_export_options()` — one explicit
+  final-encode contract, with the measured 64 kbps floor documented)
+- Changed: `scripts/Universal/shared/logging_setup.py`, `scripts/Universal/launcher.py`
+  (fatal-fault diagnostics, armed before any panel exists — observation only)
+- Changed: `scripts/Universal/shared/bootstrap.py` (requirements-state reconciliation for an
+  existing `.venv`, setup-dialog fit, Cancel semantics)
+- Changed: `scripts/Universal/shared/config.py` (`USER_STATE_SETTINGS` corrected to the namespaced
+  keys production actually writes)
+- Changed: `scripts/Universal/mp3_tools/cover_resizer.py` (browser scrolling seam and binding)
+- Changed: `Setup_and_Run-audiobook-creation-tool.bat` (exit code 2 = user cancelled setup, closes
+  cleanly instead of reporting failure)
+- Changed: `files/tests/test_chatterbox_engine.py` (network guard now AST-based so the module may
+  document `https://` as a colon form that must **not** get a pause; one test renamed and
+  **strengthened** — it used to assert Chatterbox produced exactly Kokoro's chunk count, which
+  encoded the defect), `files/tests/test_chatterbox_evaluation.py` (+1 test),
+  `files/tests/test_config.py`, `files/tests/test_plan3_boundaries.py`,
+  `files/tests/test_tts_importing.py`, `files/tests/test_tts_jobs.py` (doubles kept in sync with
+  the seam they double; the batch-seam test strengthened, not restored)
+- Changed: `md-instructions/Handoff.md` (this file — Current Focus rewritten to the completed and
+  committed state, the final audio-gate approval, the accepted residual behaviour, the closed
+  file-size question, the A/B pronunciation research distinction, the closeout gate record, and
+  this sync entry)
+- Changed: `md-instructions/Decisions.md` (the natural-boundary chunking ADR, the MP3 finalization
+  ADR, and the Phase 12 closing rulings)
+- Note:    **Not staged and not committed** — the four protected recordings in
+  `files/Chatterbox-Voice-Uploads/`, all of `files/runtime-data/` (silence-audit harness and its
+  regenerated MP3, Block 3 preflight probes, manual-fixture checklist, model/cache data, the
+  Phase 8 probe venv), `files/test-files/`, `files/test-logs/`,
+  `files/test-for-manual-listen-elmatthe/`, `.venv/`, `.venv-phase12-preexisting-backup/`, `dist/`,
+  every `__pycache__/`. Staging was by explicit path; `git add -A`, `git add -f`, `git clean` and
+  `git reset --hard` were never used.
+- Note:    `Briefing.md`, `Changelog.md`, `README.md` and the Master Implementation Plan Index were
+  read and **deliberately not edited** — drop §1.2 and Phase 15 assign the permanent-record
+  transfer to the authorized closeout phase and forbid it as a side effect of another phase.
+- Note:    Full suite **3777 passed, 13 skipped, 1 warning** (3790 collected) — **+296 exactly**
+  over Phase 11's 3494, reconciled file by file in the closeout entry. No test deleted, weakened,
+  skipped or xfailed. `verify.py` **RESULT: PASS**; `compileall` exit 0;
+  `git diff --check -- '*.py'` clean, and the 1,932 whole-diff hits are **all** CRLF `\r` in the two
+  markdown documents with **0** real trailing spaces or tabs.
+- Note:    `VERSION` stays `0.5.1`; `launcher.TOOLS` stays six; no new dependency (27 pinned, 0
+  unpinned, `requirements.txt` unchanged in this diff).
+- Note:    Protected Chatterbox assets re-hashed after all testing — all four byte-identical;
+  `git ls-files files/Chatterbox-Voice-Uploads/` returns zero.
+- Note:    **Phase 13 is NOT authorized and has NOT started.** Stop here for maintainer/ChatGPT
+  review of the pushed branch.
 
 ### 2026-08-15 — HOME-PC — v0.6.1 Plan 4 Phase 11 — committed and pushed to `feature/0.6.1-tts-cover-workflows`
 
