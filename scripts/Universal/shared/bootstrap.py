@@ -340,6 +340,18 @@ def venv_is_valid() -> bool:
 # checkbox / --skip-kokoro-download). torch is pulled in transitively by kokoro.
 KOKORO_PKGS = ["kokoro==0.9.4", "soundfile==0.13.1", "scipy==1.17.1"]
 
+# Every Kokoro subprocess this module launches opens with these lines. Building a
+# KPipeline is what first initializes eSpeak NG in native code, and on an
+# installation whose paths are too long for eSpeak's fixed data-path buffer that
+# initialization exits the process outright (see shared/espeak_data.py). Setup and
+# runtime therefore apply the *same* contract in the same place — after the kokoro
+# import, before the pipeline is built — rather than one hack each.
+KOKORO_SUBPROCESS_PREAMBLE = (
+    "import sys\n"
+    f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
+    "from shared import espeak_data\n"
+)
+
 
 def kokoro_is_healthy(venv_py: Path) -> tuple[bool, str]:
     """Probe the venv for kokoro + soundfile + scipy. Returns ``(ok, reason)``.
@@ -417,9 +429,10 @@ def warmup_kokoro_pipeline(venv_py: Path, log: Callable[[str], None]) -> None:
     env["HF_HOME"] = env.get("HF_HOME") or str(hf_cache)
     env.setdefault("HUGGINGFACE_HUB_CACHE", str(hf_cache / "hub"))
     script = (
-        "import sys\n"
+        KOKORO_SUBPROCESS_PREAMBLE +
         "try:\n"
         "    from kokoro import KPipeline\n"
+        "    espeak_data.configure()\n"
         "    KPipeline(lang_code='a')\n"
         "    print('Kokoro pipeline warmup complete.')\n"
         "except OSError as e:\n"
@@ -1049,10 +1062,12 @@ def predownload_kokoro(log: SetupLog) -> None:
         return
     log.line("Pre-downloading Kokoro-82M model weights (~300 MB, one-time)…")
     script = (
-        "from kokoro import KPipeline;"
-        "KPipeline(lang_code='a');"
-        "KPipeline(lang_code='b');"
-        "print('Kokoro model download complete.')"
+        KOKORO_SUBPROCESS_PREAMBLE +
+        "from kokoro import KPipeline\n"
+        "espeak_data.configure()\n"
+        "KPipeline(lang_code='a')\n"
+        "KPipeline(lang_code='b')\n"
+        "print('Kokoro model download complete.')\n"
     )
     proc = subprocess.Popen([str(py), "-c", script],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

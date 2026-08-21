@@ -68,7 +68,19 @@ stable, all four sounded good), the **long-form final-MP3 recheck** on Female 1 
 2026-08-19 the **natural-boundary silence recheck** that closed the last open row. (Any earlier
 sentence in this file saying Block 3 "awaits the maintainer", that "no Phase 12 commit exists" or
 that "Phase 12 is NOT complete" is stale and superseded by this one.) **Phase 13 — the live macOS
-HEIC and Chatterbox/Metal gate — is NOT AUTHORIZED and has NOT started.**
+HEIC and Chatterbox/Metal gate — RAN ON A REAL APPLE SILICON MAC AND IS COMPLETE AND
+MAINTAINER-APPROVED as of 2026-08-21.** (Any earlier sentence in this file saying Phase 13 is "NOT
+AUTHORIZED", "not started" or "not authorized, not started" — including the one in the Phase 12
+closeout entry, which was true when written — is stale and superseded by this one.) **Phases 0–13
+are therefore complete and approved.** The macOS gate banked real genuine-HEIC decode/encode with a
+12/12 mechanical proof, the Cover Aqua geometry fix, a root-caused eSpeak-NG deep-path native
+failure repaired inside this repository, the maintainer's sixteen-label voice-dropdown override, and
+**real four-voice Chatterbox synthesis on Metal/MPS with all four outputs listened to and approved**.
+It also exposed one defect that is **deliberately NOT fixed here**: Finder's `.DS_Store` can leak
+into release packaging. Packaging is explicitly out of Plan 4 scope (drop §"Out of scope"), so that
+finding is **recorded as a Plan 9 deferral, not a fix**. **The next action is Phase 14 — full
+regression and the approval gate. Phase 14 has NOT started, and Phase 15 closeout (including the
+`0.5.1` → `0.6.1` bump) remains unauthorized.**
 The temporary drop
 `md-instructions/0.6.1-tts-cover-workflows.md` is the authoritative
 specification: sixteen phases (0–15), with Phase 5 retiring EPUB from production and archiving
@@ -103,9 +115,16 @@ redistribution or licence claim is made, and the speakers are not to be identifi
   in place. Derivatives and cached conditionals belong under `files/runtime-data/` (ignored).
 - **Never staged, committed, pushed, packaged or released**, and never copied into `files/tests/`.
   `git add -f` is forbidden against them.
-- **Local-asset portability boundary.** They exist only on this machine. Bundling or committing
-  them, or any cached voice identity data, to make Chatterbox work elsewhere is **not authorized**
-  and requires an explicit separate maintainer decision.
+- **Local-asset portability boundary.** They travel only by the maintainer's own hand. The
+  maintainer may place the authorized recordings on an explicitly authorized machine for local
+  Chatterbox use — as they did on HOME-MacOS on 2026-08-21, copying the four originals in manually
+  — and each such machine is a separate, explicit decision. **They are never distributed through
+  Git, packages or releases**, and no machine acquires them automatically by cloning, pulling or
+  extracting an archive. Bundling or committing them, or any cached voice identity data, to make
+  Chatterbox work elsewhere is **not authorized**. (An earlier version of this bullet said they
+  "exist only on this machine"; that wording predates the authorized macOS placement and wrongly
+  implied a single physical machine. The rule was never about how many machines — it is that Git
+  and the release artifacts never carry them.)
 - **Missing assets must never break anything.** On a machine without the recordings, the
   application and every Edge and Kokoro voice still start and convert normally.
 - **No Chatterbox voice may be offered unless its required local asset or cached conditional is
@@ -4061,6 +4080,250 @@ Plan 4 phase contract), no tag, no release, no packaging, no branch deletion, no
 `md-instructions/0.6.1-tts-cover-workflows.md` is **not** retired. No macOS action was taken and no
 CUDA was used. **Phase 13 — the live macOS HEIC and Chatterbox/Metal gate — is NOT AUTHORIZED and
 has NOT started.**
+
+---
+
+### Phase 13 — Live macOS gate: HEIC, Cover, Kokoro/eSpeak, voice labels, and Chatterbox on Metal (2026-08-20/21, HOME-MacOS)
+
+The first time this repository ran on hardware that was not Windows. It was run in five
+maintainer-authorized sub-blocks (13A preflight/remediation, 13A.2 the Kokoro native blocker, 13A.3
+the label rename, 13B the real MPS gate, 13C this closeout) and is committed as **one checkpoint**,
+the same convention Phases 0–12 used.
+
+#### Environment
+
+Started from the approved Phase 12 SHA `db8d0041860953ff0098ff0d5ad0c32d6e47549e` on the correct
+`origin`, with `origin/master` still exactly `809a43e…`. **Apple M4 Pro, `arm64`, macOS 26.5.2
+(25F84), Python 3.12.13 — a native arm64 interpreter, not Rosetta** (`file` on the binary reports
+`Mach-O 64-bit executable arm64`). The official `Setup_and_Run-audiobook-creation-tool.command`
+built the environment and installed the pinned stack unaided; `torch 2.6.0` with **CUDA
+unavailable and MPS built and available**, which is the expected shape on this machine.
+
+#### Four real automated failures, and what each one actually was
+
+The Mac run failed four things Windows could never have caught. Every one was root-caused before
+it was touched, and **not one was resolved by weakening a test**.
+
+| # | Failure | Diagnosis | Disposition |
+|---|---|---|---|
+| 1 | `test_the_lexical_fallback_casefolds_only_where_the_filesystem_is_case_blind` | **A real production defect plus a wrong test assumption.** `capture_identity` casefolded only for `PureWindowsPath`, so on case-insensitive APFS two spellings of one file got two identities. The test's own premise — *Darwin ⇒ case-insensitive* — was equally wrong | Fixed in production with a small explicit seam, `importing.filesystem_is_case_insensitive()`, which **asks the volume, never the platform**: Darwin `os.pathconf(_PC_CASE_SENSITIVE)` first, then a read-only case-flipped `lstat` compared by `(st_dev, st_ino)`, cached per device, defaulting conservatively to case-sensitive. No `resolve()`, no writes, and the `(st_dev, st_ino)` fast path is untouched. A second copy of the same wrong assumption in `test_import_traversal.py` was corrected the same way |
+| 2 | `test_sanitize_relative_rejects_absolute_and_traversal` | `sanitize_relative("C:/Windows")` passed through on POSIX as a literal relative folder named `C:` — a Windows-shaped path silently becoming a real directory on a Mac | Fixed: `output_paths.sanitize_relative` now parses with `PureWindowsPath` **first** and rejects any foreign drive, root or UNC syntax before the POSIX check |
+| 3 | `test_registry_order_is_unchanged_by_the_shell` | **Test defect only, no production fault.** The Darwin/Finder launcher shell exposes `sidebar_rows`; the Windows ACT and classic shells expose `buttons`. The assertion knew only `buttons` | The assertion is now shell-aware and still **exact and ordered** — not relaxed to set equality, length or membership |
+| 4 | Cover Image: the primary **Resize Covers** action was not visible | Measured real Aqua geometry rather than guessing. The panel's outer stack was `pack`, and `pack` grants earlier widgets their full requested height and simply drops what will not fit — the action button's `winfo_ismapped()` was `0` | Converted that one outer stack to `grid` with explicit row weights. Measured, not assumed: Tk removes a shortfall from weighted rows **in proportion to weight**, so the first attempt (browser weight 4) collapsed the browser to 53 px; six weight sets were swept at three host heights before settling on (3,3,3,2), with the imported queue and the action row pinned at weight 0. The options block gained its own scroll region. **No outer whole-form scrollbar was added and no Plan 9 UI-compression work was started** |
+
+The maintainer then exercised the live Cover panel: 40-image folder and root import, every control,
+**Resize Covers visible**, Pause and Cancel — all approved.
+
+#### Genuine HEIC — real file, real APIs, 12/12
+
+Run against a genuine maintainer-supplied `.heic` through the production code, never a renamed or
+synthesized file, and never by crawling Photos or the home folder. All twelve mechanical checks
+passed: real ISO-BMFF `ftyp` brand; decode; **HEIC in → HEIC out with no silent JPEG substitution**;
+decode and encode capabilities reported **separately** and truthfully; thumbnail, resize and save;
+output reopened and verified at 1024×1024 HEIF with no `.jpg` anywhere. **The source file's SHA-256
+was unchanged afterwards.** The maintainer confirmed the resized output opens correctly in Preview
+and approved the live Aqua/Finder presentation.
+
+#### Kokoro — a native abort, root-caused to a 160-byte buffer
+
+Real Kokoro synthesis on this Mac died with **exit 1 and no Python traceback** — a native `exit()`,
+uncatchable by `try`/`except`. Root cause, read off the pinned artifacts rather than guessed:
+espeak-ng stores its data path in a fixed **`N_PATH_HOME = 160`-byte** buffer and fills it with
+`snprintf("%s/espeak-ng-data")`. This project's venv path is 147 characters, so the write **truncated
+silently**, espeak fell back to its compiled-in `PATH_ESPEAK_DATA`, found nothing, and aborted. The
+chain that reaches it is kokoro 0.9.4 → misaki 0.9.4 (which sets the library and data path at import)
+→ phonemizer-fork 3.3.2, whose `_ESPEAK_DATA_PATH` class attribute **beats** the
+`PHONEMIZER_ESPEAK_DATA_PATH` environment variable. Upstream has the same report open
+(`bootphon/phonemizer` #196). All process-killing probes were run in child processes.
+
+Fixed with a new repository-owned seam, `scripts/Universal/shared/espeak_data.py`: when the bundled
+data directory's path would not fit, it links a **short** root (under `RESOURCES_DIR/espeak-ng`, else
+the system temp dir) at the wheel's own data and points both the environment variable and
+`EspeakWrapper.set_data_path` at it; when the path already fits it does nothing at all. It is wired
+into **both** entry points — `kokoro_synth._instantiate_pipeline` and the two `bootstrap.py`
+subprocesses — so bootstrap and runtime cannot disagree. What it deliberately does **not** do:
+no dependency repin, no `site-packages` patch, no Homebrew or system espeak install, no vendored
+binary, **and no disabling or reducing of the English `EspeakFallback`** — permanently disabling the
+fallback to dodge the crash was explicitly not authorized and was not done. The link is a 0-byte
+symlink pointing at the wheel's own data (a Windows junction on Windows), so it is deterministic on
+a clean future machine and harmless where the path already fits.
+
+Two independent fresh-process production smokes passed (61,484 B, 3000 ms, 24 kHz mono, peak
+−8.1 dBFS). The maintainer then ran the real GUI: **TXT + PDF together in one unified queue, Heart /
+`af_heart`, 2 ok / 0 failed**, listened to both and approved. After the label rename they selected
+**`Kokoro Female (Default) - Heart (en-US)`** and converted again — **1 ok / 0 failed**, normal MP3,
+no crash, approved.
+
+**Observed, not a defect and not changed here:** English Kokoro/Misaki may fetch `en_core_web_sm`
+once on first successful use, so the first English run needs network. **No installer-policy change
+was made in Plan 4.**
+
+#### Voice labels — an explicit maintainer override
+
+The maintainer **explicitly superseded** the earlier Plan 4 constraint that the first twelve
+`display_label` strings stay byte-identical. **The override is limited to user-facing display
+labels.** The canonical dropdown is now, in this exact order:
+
+`Edge Male - Steffan (en-US)` · `Edge Male - Andrew (en-Multilingual)` · `Edge Male - Andrew (en-US)` ·
+`Edge Female - Aria (en-US)` · `Edge Female - Ava (en-Multilingual)` · `Edge Female - Ava (en-US)` ·
+`Edge Female - Jenny (en-US)` · `Kokoro Female (Default) - Heart (en-US)` ·
+`Kokoro Female - Bella (en-US)` · `Kokoro Male - Michael (en-US)` · `Kokoro Female - Emma (en-UK)` ·
+`Kokoro Male - George (en-UK)` · `Chatterbox - Female 1` · `Chatterbox - Female 2` ·
+`Chatterbox - Male 1` · `Chatterbox - Male 2`
+
+The four Chatterbox labels already matched and were **not retyped**, to avoid diff churn. The
+binding contract lives in `files/tests/test_voice_labels.py` (39 tests): the exact ordered list, each
+label resolving, **each of the twelve former labels proven unoffered and unresolvable**, and the
+backend / `voice_id` / `group_label` / `timing_preset` columns and row order pinned against the
+literal Phase-8 table. Voice IDs, backends, timing presets, ordering and the Steffan default identity
+(`VOICES[0]`, `en-US-SteffanNeural`, edge) are **unchanged**. The maintainer visually approved the
+real Aqua dropdown.
+
+**No migration mechanism was built, deliberately.** The selected voice is **not persisted by display
+label — it is not persisted at all**: no `settings.set` call names a voice, `USER_STATE_SETTINGS`
+holds no voice key, and the panel rebuilds from `DEFAULT_VOICE_LABEL` every time. Inventing
+compatibility code for a persistence path that does not exist would have been fiction; two tests now
+pin the absence so a future change that starts persisting a voice fails loudly.
+
+#### Chatterbox — the degraded path first, then real Metal
+
+**Before** any recording was placed on the Mac, the degraded path was verified: the application
+started, Edge and Kokoro were unaffected, every Chatterbox voice reported **setup-required
+truthfully**, nothing was substituted, downloaded or crashed — and `select_device()` already resolved
+to `mps`.
+
+The maintainer then **manually copied the four approved original references** into
+`files/Chatterbox-Voice-Uploads/`. All four names, sizes and SHA-256 values matched the production
+registry exactly; all four were proven ignored by `.gitignore:55`, absent from `git ls-files` and
+absent from `git status`. **They were re-hashed after all four syntheses and were byte-identical**,
+mtimes included — production re-verifies each hash on every use and physically refuses to write
+inside that folder.
+
+Real MPS evidence, read off the live production model rather than asserted from availability:
+`select_device()` → **`"mps"`**; the model cache held **only** the MPS model; `model.device == mps`;
+**all 694,834,668 parameters and every buffer on `mps:0`** (`t3` 427,380,131 · `s3gen` 266,030,919 ·
+`ve` 1,423,618), the attached `model.conds` tensors likewise; and **3.1–3.5 GB of live Metal
+allocation** measured through `torch.mps.current_allocated_memory()`. **No CPU model was ever built
+and no CPU fallback satisfied any run.**
+
+All four production voices synthesized end to end through the real
+`chatterbox_synth.chatterbox_file_to_mp3` path with production settings unchanged (temperature 0.72,
+top-p 0.95, top-k 1000, repetition penalty 1.2, 300-character ceiling — **not** the historical
+Phase-9 evaluation parameters):
+
+| Voice | Elapsed | Output | Duration | Media validation |
+|---|---|---|---|---|
+| `chatterbox-female-1` | 74.40 s | 241,964 B | 12.005 s | mp3, 1 audio stream, 24 kHz mono, 288,120 frames decoded, all finite, peak −9.87 dBFS |
+| `chatterbox-female-2` | 7.59 s | 258,764 B | 12.845 s | mp3, 1 stream, 24 kHz mono, all finite, peak −8.01 dBFS |
+| `chatterbox-male-1` | 8.73 s | 280,364 B | 13.925 s | mp3, 1 stream, 24 kHz mono, all finite, peak −7.79 dBFS |
+| `chatterbox-male-2` | 7.26 s | 256,364 B | 12.725 s | mp3, 1 stream, 24 kHz mono, all finite, peak −10.68 dBFS |
+
+Each run resolved **its own** registry-declared reference, and the derivative and cached-conditional
+filenames embed the source hash, which confirms the pairing independently on disk. **The maintainer
+listened to all four and APPROVED ALL FOUR on 2026-08-21** — the final manual gate for Phase 13.
+
+**Cold start, observed and accepted:** the first run took ~74 s because it included the initial
+~3.8 GB Turbo download, model load and first conditioning; every later voice took ~7–9 s. This is
+expected first-run cost on a new machine, **not a defect and not something Plan 4 will retune.**
+
+#### Deferred, NOT fixed: `.DS_Store` leaks into release packaging
+
+The real Mac gate exposed a credible packaging defect: Finder writes `.DS_Store` into any folder it
+displays, the packager walks the **working tree** rather than the index, and those files are ignored
+by Git — so packaging had never seen one until the tree was first opened on macOS. Seven had appeared
+in this checkout; `test_no_developer_or_runtime_state_leaks[Windows|MacOS]` caught two of them inside
+the packaged `scripts/` tree.
+
+A narrow fix was prototyped and proved locally (an `EXCLUDED_FILE_NAMES` set in `release.py` plus
+planted-cruft coverage in `test_release_packaging.py`). **It is deliberately not in this commit.**
+Plan 4's "Out of scope" section places tag, packaging, release and publication work in **Plan 9**, so
+both files were restored to HEAD and the patch kept only as local scratch under the ignored
+`files/runtime-data/`. **The packaging defect is NOT fixed and must not be recorded as fixed** —
+revisit it under Plan 9 / packaging scope. The two offending `.DS_Store` files inside `scripts/` were
+deleted locally, each first proven to be a regular Finder `Bud1` file, untracked and ignored; that
+restored a clean test environment and is **not** evidence of a fix, since Finder will simply write
+them again.
+
+#### Final gates, run from the completed tree
+
+| Gate | Result |
+|---|---|
+| Full `pytest` | **3823 passed, 44 skipped, 6 warnings** (3867 collected) |
+| Reconciliation vs the Phase 13B checkpoint (3823 / 44 / 6, 3867 collected) | **delta zero** — the only tracked change since is `Handoff.md`, and the packaging pair is back at HEAD |
+| Focused Mac-remediation set (28 modules: importer/traversal identity, output paths, launcher smoke, Cover layout/browser/import, `espeak_data`, Kokoro voices + timing, voice labels, Chatterbox ×10, TTS jobs/importing/reporting/smoke, release packaging) | **1458 passed, 18 skipped** |
+| `python scripts/verify.py` | **RESULT: PASS** — pytest; deps `==`-pinned; docs de-templated; 4 canonical doc names; `config.toml` valid at version 0.5.1 |
+| `python -m compileall -q scripts files/tests` | exit **0** |
+| `git diff --check` / `git diff HEAD --check` / `git diff --cached --check` | exit **0** |
+| VERSION / `launcher.TOOLS` / `config-template.toml` | **0.5.1** / **6** / **absent** |
+| `scripts/requirements.txt` | **unchanged** — zero diff, no repin, no new dependency |
+| Protected recordings | four files, all four SHA-256 exact, `git ls-files` → **0**, never staged |
+| Tests deleted / weakened / newly skipped / xfailed | **none** |
+
+**Skip reconciliation, 44 exactly** — 31 more than the Windows baseline of 13, every one a
+platform-inverted skip that Windows runs and macOS cannot, or the reverse:
+
+| Reason | Count |
+|---|---|
+| ACT design system is win32-only (`m4b_metadata_editor_ui` 6, `preferences_ui` 5, `preferences_maintenance_ui` 5, `prototype_regression` 4) | 20 |
+| Windows-only OS primitives (junctions 7, `FILE_ATTRIBUTE_HIDDEN` 4, open-handle deletion 3, Windows `PurePath` flavour 1) | 15 |
+| ACT Windows launcher shell only builds on win32 | 4 |
+| `JACK_RYAN_M4B_FOLDER` env-gated | 3 |
+| **This filesystem is case-insensitive** — the two APFS skips, which are the *inverse* of the two symlink/case skips Windows reports | 2 |
+| **Total** | **44** |
+
+**Warning reconciliation, 6 exactly:** the one inherited third-party `pydub`/`audioop`
+`DeprecationWarning`, plus five `DeprecationWarning`s raised by CPython's importer about SWIG-built
+native types (`SwigPyPacked` ×2, `SwigPyObject` ×2, `swigvarlink` ×1) in a third-party extension
+loaded on this platform. **All six are third-party; none originates in this repository and none was
+suppressed.**
+
+#### What was committed, grouped
+
+**Production (6 files)**
+
+| File | What Phase 13 changed |
+|---|---|
+| `scripts/Universal/shared/importing.py` | `filesystem_is_case_insensitive()` — the volume-driven case seam — and identity keys that fold case only where the volume actually does (+125 / −4) |
+| `scripts/Universal/shared/output_paths.py` | `sanitize_relative` rejects foreign Windows drive/root/UNC syntax on POSIX (+15 / −2) |
+| `scripts/Universal/mp3_tools/cover_resizer.py` | Outer stack `pack` → `grid` with measured row weights; scrollable options region; the primary action can no longer be clipped (+84 / −10) |
+| `scripts/Universal/shared/espeak_data.py` | **New.** The eSpeak short-data-path seam (+205) |
+| `scripts/Universal/shared/bootstrap.py` | Both Kokoro subprocesses configure `espeak_data` before building the pipeline (+20 / −5) |
+| `scripts/Universal/tts/kokoro_synth.py` | `espeak_data.configure()` between the kokoro import and `KPipeline(...)` (+10) |
+| `scripts/Universal/tts/voice_registry.py` | The twelve renamed `display_label` strings and the corrected comments; every other column untouched (+30 / −18) |
+
+**Tests (11 files — 3 new, 8 updated)**
+
+New: `test_cover_layout.py` (+143), `test_espeak_data.py` (+283), `test_voice_labels.py` (+208).
+Updated: `test_import_manager.py` (+101 / −7), `test_import_traversal.py` (+33 / −3),
+`test_launcher_smoke.py` (+24 / −2), `test_output_paths.py` (+26),
+`test_chatterbox_boundaries.py` (+22 / −14), `test_chatterbox_integration.py` (+10 / −5),
+`test_chatterbox_evaluation.py` (+1 / −1), `test_tts_jobs.py` (+1 / −1).
+
+**Documentation (1 file)** — `md-instructions/Handoff.md`. `Briefing.md`, `Changelog.md`,
+`Decisions.md`, `README.md` and the Master Implementation Plan Index were read and **deliberately
+not edited**: the permanent-record transfer belongs to the authorized Phase 15 closeout, and Phases
+0–12 committed under the same convention.
+
+#### Deliberately excluded from the commit
+
+Staging was **by explicit path only**; `git add .`, `git add -A`, `git add -f`, `git clean` and
+`git reset --hard` were never used. Not staged: `scripts/Universal/shared/release.py` and
+`files/tests/test_release_packaging.py` (restored to HEAD — the out-of-scope packaging deferral
+above); `files/Chatterbox-Voice-Uploads/` (the four protected recordings); all of
+`files/runtime-data/` (the four approved MPS samples and their source text, the deterministic
+reference clips and cached conditionals, the ~3.8 GB Turbo model cache, the Kokoro weights, the HEIC
+and Kokoro proof harnesses, the eSpeak probes, the preserved packaging patch);
+`files/UI-Prototype-Screenshots/mac-screenshots/` (eight new Mac screenshots, still untracked and
+untouched); `.venv/`; every `__pycache__/`. `AI-WORKSPACE.md` remains intentionally absent and was
+not recreated.
+
+#### Not done
+
+No merge, no pull request (the drop says *"Commit + push. Next: Phase 14"*), no tag, no release, no
+packaging, no publication, no `release.py` run, no branch deletion. **`VERSION` stays `0.5.1`** — the
+bump belongs to Phase 15 alone. The drop `md-instructions/0.6.1-tts-cover-workflows.md` is **not**
+retired. No CUDA was used and none is required. **Phase 14 — full regression and the approval gate —
+has NOT started, and Phase 15 closeout is NOT authorized.**
 
 ---
 

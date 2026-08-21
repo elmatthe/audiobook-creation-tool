@@ -639,7 +639,7 @@ def test_running_the_evaluation_registers_nothing(engine):
 
 
 def test_the_default_voice_is_untouched_by_either_phase():
-    assert voice_registry.DEFAULT_VOICE_LABEL == "Steffan — en-US Male (default)"
+    assert voice_registry.DEFAULT_VOICE_LABEL == "Edge Male - Steffan (en-US)"
 
 
 # --------------------------------------------------------------------------- #

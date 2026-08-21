@@ -92,6 +92,7 @@ from shared.job_control import (
     capture_run,
 )
 from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
+from shared.ui_theme import enable_mousewheel
 
 from PIL import Image  # needs: pip install pillow
 
@@ -1761,7 +1762,48 @@ class CoverResizerUI(ttk.Frame):
                                   else confirm_large_result),
             list_height=6,
         )
-        self.importer.frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 6))
+        # ---- layout ------------------------------------------------------- #
+        # Measured on the real Aqua shell (Phase 13A): this panel asks for about
+        # 1219 px of height, and the launcher's content host is 604 px at the
+        # supported 1024x720 default and 484 px at the 920x600 minimum. Stacked
+        # with `pack`, requested height is claimed in packing order, so the four
+        # sections below the browser — including the primary `Resize Covers`
+        # action — were never mapped at all.
+        #
+        # `grid` with explicit row weights puts the shortfall where it belongs:
+        # a weight-0 row always gets its requested height, and the flexible
+        # regions (browser, options, run area) absorb what is missing. The
+        # options form is the one section that cannot usefully shrink — every
+        # control in it, including `Save beside source images`, has to stay
+        # reachable — so it scrolls inside its own region, exactly as the TTS
+        # panel and the metadata editor already do. No outer whole-form
+        # scrollbar, no platform branch, and every widget keeps its own native
+        # aqua/ttk rendering.
+        # Weights, not pixel floors. Two things about `grid` decide these values:
+        #   * a weight-0 row always gets its requested height, so the queue, the
+        #     action and nothing else are pinned;
+        #   * when the window is too small, grid takes the *shortfall* from the
+        #     weighted rows in proportion to their weight — a larger weight
+        #     therefore yields a *smaller* row under pressure, and the same
+        #     weight decides how it grows again once there is room to spare.
+        # A `minsize` floor on any row above the action would push the action
+        # back off a short window, which is the defect itself, so there is none.
+        # Rows 1 and 2 carry enough of the shortfall between them that the queue,
+        # the browser, the options and the action all stay inside even the
+        # 920x600 minimum — measured at 31 px to spare there and 71 px at the
+        # 1024x720 default. Above roughly 1219 px of content host nothing is
+        # short at all: every row renders at its natural size, which is this
+        # panel exactly as it looked before, and is what a maximised Windows
+        # window already gives it.
+        self.rowconfigure(0, weight=0)   # imported queue — fixed, always visible
+        self.rowconfigure(1, weight=3)   # the browser
+        self.rowconfigure(2, weight=3)   # scrollable resize options
+        self.rowconfigure(3, weight=0)   # Resize Covers — fixed, always visible
+        self.rowconfigure(4, weight=3)   # shared run controls and Summary
+        self.rowconfigure(5, weight=2)   # run log — the transcript, not the tool
+        self.columnconfigure(0, weight=1)
+
+        self.importer.frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 6))
 
         # --- the three browser views (Decision 17A) ------------------------ #
         # A projection of the same manager, not a second list: the importer above
@@ -1777,12 +1819,44 @@ class CoverResizerUI(ttk.Frame):
             cache_limit=cache_limit,
             on_selection_change=self._on_browser_selection,
         )
-        self.browser.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True,
-                                padx=10, pady=(0, 6))
+        self.browser.frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 6))
 
-        # Options
-        options = ttk.LabelFrame(self, text="Resize Options (applies to all images)")
-        options.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10, ipady=4)
+        # Options. The form itself is untouched — same LabelFrame, same grid of
+        # controls, same variables — it simply lives on a scrollable canvas now
+        # so a short window hides none of it.
+        options_wrap = ttk.Frame(self)
+        options_wrap.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
+        options_wrap.rowconfigure(0, weight=1)
+        options_wrap.columnconfigure(0, weight=1)
+        options_canvas = tk.Canvas(options_wrap, highlightthickness=0, borderwidth=0)
+        options_canvas.grid(row=0, column=0, sticky="nsew")
+        options_sb = ttk.Scrollbar(
+            options_wrap, orient="vertical", command=options_canvas.yview)
+        options_sb.grid(row=0, column=1, sticky="ns")
+        options_canvas.configure(yscrollcommand=options_sb.set)
+
+        options_form = ttk.Frame(options_canvas)
+        _options_window = options_canvas.create_window(
+            (0, 0), window=options_form, anchor="nw")
+
+        def _sync_options_scrollregion(_event: object | None = None) -> None:
+            options_canvas.configure(scrollregion=options_canvas.bbox("all"))
+
+        def _sync_options_width(event: object) -> None:
+            # Keep the form as wide as the canvas so the "we" rows still stretch.
+            options_canvas.itemconfigure(_options_window, width=event.width)
+
+        options_form.bind("<Configure>", _sync_options_scrollregion)
+        options_canvas.bind("<Configure>", _sync_options_width)
+        # The launcher reuses one root across tools, so the wheel is bound only
+        # while the pointer is over this region — the same scoping the TTS panel
+        # uses for its own options canvas.
+        enable_mousewheel(options_canvas, hover_region=options_wrap)
+
+        self.options_canvas = options_canvas
+        options = ttk.LabelFrame(
+            options_form, text="Resize Options (applies to all images)")
+        options.pack(side=tk.TOP, fill=tk.BOTH, expand=True, ipady=4)
 
         row = 0
 
@@ -1863,7 +1937,7 @@ class CoverResizerUI(ttk.Frame):
         # control bar below, which offers each of them exactly when the approved
         # availability rules say it is meaningful.
         action = ttk.Frame(self)
-        action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 6))
+        action.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
         self.btn_convert = ttk.Button(action, text="Resize Covers", command=self.start_resize)
         self.btn_convert.pack(side=tk.LEFT)
 
@@ -1871,13 +1945,13 @@ class CoverResizerUI(ttk.Frame):
         # here. The adapter is rebuilt for each run — one run, one event stream,
         # one estimate — so this container holds its place in the layout.
         self.job_area = ttk.Frame(self)
-        self.job_area.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+        self.job_area.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 6))
 
         # The panel's own run log, unchanged. It is the raw transcript of what the
         # worker did; Summary and Details above are the shared projections of the
         # run's events, and neither is a copy of the other.
         logf = ttk.LabelFrame(self, text="Log")
-        logf.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
+        logf.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         self.log = tk.Text(logf, height=4, wrap="word")
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

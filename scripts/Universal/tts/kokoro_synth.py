@@ -35,6 +35,7 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
+from shared import espeak_data
 from shared import ffmpeg_utils
 
 #: Kokoro's model rate. Fixed by the model, not a choice made here.
@@ -84,6 +85,15 @@ def _instantiate_pipeline(lang_code: str):
     """Lazy-import kokoro and build a KPipeline (defers loading torch to first use)."""
     from kokoro import KPipeline  # type: ignore
 
+    # Between the import and the construction on purpose. Importing kokoro pulls
+    # in misaki, which hands phonemizer the espeak wheel's own data directory;
+    # building the pipeline is what first opens that path in native code. On an
+    # installation whose paths are too long for eSpeak NG's fixed buffer, that
+    # open fails over to the wheel's build-machine path and the library calls
+    # exit(), killing the process before any Python handler can run. This
+    # re-points it at the same bundled data through a path that fits, and does
+    # nothing at all where the real one already does. See shared.espeak_data.
+    espeak_data.configure()
     return KPipeline(lang_code=lang_code)
 
 

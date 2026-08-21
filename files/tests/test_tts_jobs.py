@@ -1592,7 +1592,7 @@ def test_no_engine_module_changed_and_no_timing_default_moved():
     assert engine.DEFAULT_END_OF_BOOK_PAUSE_MS == 3000
     assert engine.DEFAULT_TRIM_SILENCE_DB == -58.0
 
-    assert vr.DEFAULT_VOICE_LABEL == "Steffan — en-US Male (default)"
+    assert vr.DEFAULT_VOICE_LABEL == "Edge Male - Steffan (en-US)"
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
     assert len(vr.VOICES) == 16
 

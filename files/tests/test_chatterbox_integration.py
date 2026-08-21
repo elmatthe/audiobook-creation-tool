@@ -214,8 +214,13 @@ def test_the_registry_now_holds_sixteen_voices():
     assert len(vr.VOICES) == 16
 
 
-def test_the_twelve_existing_rows_are_unchanged_in_value_and_order():
-    """Imported from the Phase 8 gate, so there is one description of the twelve."""
+def test_the_twelve_existing_rows_keep_their_engine_values_and_order():
+    """Imported from the Phase 8 gate, so there is one description of the twelve.
+
+    Phase 13A.3 renamed the display labels by maintainer override; that table is
+    the single place the new wording is written down, and every other column is
+    still compared value for value.
+    """
     from test_chatterbox_boundaries import EXPECTED_VOICES
 
     assert len(EXPECTED_VOICES) == 12
@@ -279,7 +284,7 @@ def test_the_chatterbox_rows_carry_the_kokoro_shaped_timing_fields():
 
 
 def test_the_default_voice_is_still_steffan():
-    assert vr.DEFAULT_VOICE_LABEL == "Steffan — en-US Male (default)"
+    assert vr.DEFAULT_VOICE_LABEL == "Edge Male - Steffan (en-US)"
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
 
 
@@ -737,7 +742,7 @@ def test_the_frozen_options_carry_the_backend_and_the_voice_id(
 
 @pytest.mark.parametrize("label,backend,voice_id", [
     (vr.DEFAULT_VOICE_LABEL, "edge", "en-US-SteffanNeural"),
-    ("Heart (af_heart) — US Female (Kokoro default)", "kokoro", "af_heart"),
+    ("Kokoro Female (Default) - Heart (en-US)", "kokoro", "af_heart"),
     (FEMALE_1, "chatterbox", "chatterbox-female-1"),
 ])
 def test_every_backend_freezes_its_own_identity(
@@ -1160,7 +1165,7 @@ def test_a_retry_uses_the_original_voice_even_after_the_dropdown_changed(
     select(panel, "Chatterbox - Male 2")
     run_attempt(panel)
 
-    select(panel, "Heart (af_heart) — US Female (Kokoro default)")
+    select(panel, "Kokoro Female (Default) - Heart (en-US)")
     second = run_attempt(panel, panel.retry_failed)
 
     assert second["backend"] == "chatterbox"

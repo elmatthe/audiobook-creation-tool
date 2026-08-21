@@ -148,6 +148,22 @@ def test_all_six_tools_build_without_error_panels(tk_root, tmp_path, monkeypatch
 # Lifecycle: registry order, build-once containers, preserved state
 # ---------------------------------------------------------------------------
 
+def _navigation_map(app) -> dict:
+    """The navigation control map the built shell actually fills, in its own order.
+
+    The Finder-style macOS shell navigates through source-list rows
+    (``sidebar_rows``); the Windows and classic shells navigate through nav
+    buttons (``buttons``). Which one exists is a property of the shell, not
+    something a test may pick — so the map is read from the built shell and the
+    order assertion stays exact either way.
+    """
+    if app.theme["mode"] == "aqua":
+        assert not app.buttons, "the Finder shell navigates by rows, not nav buttons"
+        return app.sidebar_rows
+    assert not hasattr(app, "sidebar_rows"), "only the Finder shell builds a source list"
+    return app.buttons
+
+
 def test_registry_order_is_unchanged_by_the_shell(fresh_root, fake_settings):
     """Whichever shell is built, the six tools stay in their existing order."""
     import launcher
@@ -155,8 +171,14 @@ def test_registry_order_is_unchanged_by_the_shell(fresh_root, fake_settings):
     assert [t.key for t in launcher.TOOLS] == EXPECTED_TOOLS
     app = launcher.LauncherApp(fresh_root)
     assert [t.key for t in app._available_tools()] == EXPECTED_TOOLS
-    # Every available tool got a navigation control in the same order.
-    assert list(app.buttons) == EXPECTED_TOOLS
+    # Every available tool got a navigation control in the same order, in
+    # whichever map this shell navigates by.
+    assert list(_navigation_map(app)) == EXPECTED_TOOLS
+    # And each key really is a live control, not a bare dictionary entry.
+    for key in EXPECTED_TOOLS:
+        control = _navigation_map(app)[key]
+        widget = control[0] if isinstance(control, tuple) else control
+        assert widget.winfo_exists()
 
 
 def test_panels_are_built_once_and_switching_does_not_rebuild(

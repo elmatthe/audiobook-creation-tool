@@ -83,62 +83,62 @@ def test_the_chatterbox_preset_disables_edge_chunk_trimming():
 # The twelve existing rows, asserted by value
 # --------------------------------------------------------------------------- #
 EXPECTED_VOICES = [
-    ("edge", "en-US-SteffanNeural", "Steffan — en-US Male (default)",
+    ("edge", "en-US-SteffanNeural", "Edge Male - Steffan (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "800", "paragraphpause": "850", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AndrewMultilingualNeural", "Andrew Multilingual — en-US Male",
+    ("edge", "en-US-AndrewMultilingualNeural", "Edge Male - Andrew (en-Multilingual)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "820", "paragraphpause": "870", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AndrewNeural", "Andrew — en-US Male",
+    ("edge", "en-US-AndrewNeural", "Edge Male - Andrew (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "820", "paragraphpause": "870", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AriaNeural", "Aria — en-US Female",
+    ("edge", "en-US-AriaNeural", "Edge Female - Aria (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AvaMultilingualNeural", "Ava Multilingual — en-US Female",
+    ("edge", "en-US-AvaMultilingualNeural", "Edge Female - Ava (en-Multilingual)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AvaNeural", "Ava — en-US Female",
+    ("edge", "en-US-AvaNeural", "Edge Female - Ava (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-JennyNeural", "Jenny — en-US Female",
+    ("edge", "en-US-JennyNeural", "Edge Female - Jenny (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "750", "paragraphpause": "800", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("kokoro", "af_heart", "Heart (af_heart) — US Female (Kokoro default)",
+    ("kokoro", "af_heart", "Kokoro Female (Default) - Heart (en-US)",
      "Kokoro Local AI — American English",
      {"sentencepause": "600", "paragraphpause": "700", "title_ms": "1000",
       "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("kokoro", "af_bella", "Bella (af_bella) — US Female",
+    ("kokoro", "af_bella", "Kokoro Female - Bella (en-US)",
      "Kokoro Local AI — American English",
      {"sentencepause": "620", "paragraphpause": "700", "title_ms": "1000",
       "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("kokoro", "am_michael", "Michael (am_michael) — US Male",
+    ("kokoro", "am_michael", "Kokoro Male - Michael (en-US)",
      "Kokoro Local AI — American English",
      {"sentencepause": "580", "paragraphpause": "700", "title_ms": "1000",
       "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("kokoro", "bf_emma", "Emma (bf_emma) — British Female",
+    ("kokoro", "bf_emma", "Kokoro Female - Emma (en-UK)",
      "Kokoro Local AI — British English",
      {"sentencepause": "640", "paragraphpause": "700", "title_ms": "1000",
       "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": False, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("kokoro", "bm_george", "George (bm_george) — British Male",
+    ("kokoro", "bm_george", "Kokoro Male - George (en-UK)",
      "Kokoro Local AI — British English",
      {"sentencepause": "600", "paragraphpause": "700", "title_ms": "1000",
       "chapter_ms": "1800", "end_pause": "3000", "trim_dbfs": "-58",
@@ -154,7 +154,15 @@ def test_the_twelve_pre_existing_rows_are_still_the_first_twelve():
 
 
 @pytest.mark.parametrize("index,expected", list(enumerate(EXPECTED_VOICES)))
-def test_each_existing_voice_row_survives_phase_eight_byte_for_byte(index, expected):
+def test_each_existing_voice_row_keeps_its_engine_identity_and_timing(index, expected):
+    """Everything the engines read is still exactly what Phase 8 froze.
+
+    The ``display_label`` column carries the wording the maintainer specified in
+    Phase 13A.3, which explicitly supersedes the drop's byte-identical-label
+    constraint. That is the *only* column the rename was allowed to touch, so the
+    backend, the voice id, the group and the whole timing preset are still
+    asserted here value for value.
+    """
     backend, voice_id, display, group, preset = expected
     entry = voice_registry.VOICES[index]
     assert entry.backend == backend
@@ -165,7 +173,7 @@ def test_each_existing_voice_row_survives_phase_eight_byte_for_byte(index, expec
 
 
 def test_the_default_voice_is_still_steffan():
-    assert voice_registry.DEFAULT_VOICE_LABEL == "Steffan — en-US Male (default)"
+    assert voice_registry.DEFAULT_VOICE_LABEL == "Edge Male - Steffan (en-US)"
     assert voice_registry.DEFAULT_VOICE_LABEL == voice_registry.VOICES[0].display_label
 
 

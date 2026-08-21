@@ -20,8 +20,18 @@ The "chatterbox" backend was admitted here in v0.6.1 Plan 4 Phase 8 so the engin
 module and the preset helper have somewhere to land. **Phase 10 registered the four
 approved cloned voices**, after the maintainer listened to all four Phase 9
 evaluation outputs on 2026-08-15 and approved every one of them. The twelve
-pre-existing rows are unchanged by both phases, in value and in order; the four
+pre-existing rows were unchanged by both phases, in value and in order; the four
 approved rows are appended after them.
+
+**Phase 13A.3 renamed the first twelve ``display_label`` strings** to the exact
+wording the maintainer specified on 2026-08-20, which explicitly supersedes the
+drop's earlier "byte-identical labels" constraint. The rename is user-facing text
+only: every ``backend``, ``voice_id``, ``group_label`` and ``timing_preset`` — and
+the order of all sixteen rows — is untouched, Steffan is still row 0 and still the
+default, and the four Chatterbox labels were already the requested strings and were
+not retyped. Nothing persists a voice by label (no ``settings.set`` writes one and
+no key for it exists in ``shared.config.USER_STATE_SETTINGS``), so the rename needs
+no migration and none was invented.
 
 **Registered is not the same as available.** A row here says a voice is part of the
 supported configuration. Whether it can actually run on *this* machine is a separate
@@ -133,55 +143,56 @@ def _chatterbox_preset(
 CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 
 # Sixteen rows: seven Edge, five Kokoro, then the four approved Chatterbox voices.
-# The first twelve are exactly as they were before Phase 10 — same order, same
-# values — because adding a third engine must not change the other two.
+# The first twelve keep the order, the voice ids and the timing they had before
+# Phase 10 — adding a third engine did not change the other two — and carry the
+# display wording the maintainer specified in Phase 13A.3.
 VOICES: list[VoiceEntry] = [
     VoiceEntry(
         backend="edge",
         voice_id="en-US-SteffanNeural",
-        display_label="Steffan — en-US Male (default)",
+        display_label="Edge Male - Steffan (en-US)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(),
     ),
     VoiceEntry(
         backend="edge",
         voice_id="en-US-AndrewMultilingualNeural",
-        display_label="Andrew Multilingual — en-US Male",
+        display_label="Edge Male - Andrew (en-Multilingual)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(sentence=820, paragraph=870),
     ),
     VoiceEntry(
         backend="edge",
         voice_id="en-US-AndrewNeural",
-        display_label="Andrew — en-US Male",
+        display_label="Edge Male - Andrew (en-US)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(sentence=820, paragraph=870),
     ),
     VoiceEntry(
         backend="edge",
         voice_id="en-US-AriaNeural",
-        display_label="Aria — en-US Female",
+        display_label="Edge Female - Aria (en-US)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(sentence=780, paragraph=830),
     ),
     VoiceEntry(
         backend="edge",
         voice_id="en-US-AvaMultilingualNeural",
-        display_label="Ava Multilingual — en-US Female",
+        display_label="Edge Female - Ava (en-Multilingual)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(sentence=780, paragraph=830),
     ),
     VoiceEntry(
         backend="edge",
         voice_id="en-US-AvaNeural",
-        display_label="Ava — en-US Female",
+        display_label="Edge Female - Ava (en-US)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(sentence=780, paragraph=830),
     ),
     VoiceEntry(
         backend="edge",
         voice_id="en-US-JennyNeural",
-        display_label="Jenny — en-US Female",
+        display_label="Edge Female - Jenny (en-US)",
         group_label="Microsoft Edge TTS — English (US)",
         # Measured against Steffan on the same source: in single-file mode Jenny's
         # real gaps are already ~75ms SHORTER than his (877ms vs 951ms), so this is
@@ -193,44 +204,45 @@ VOICES: list[VoiceEntry] = [
     VoiceEntry(
         backend="kokoro",
         voice_id="af_heart",
-        display_label="Heart (af_heart) — US Female (Kokoro default)",
+        display_label="Kokoro Female (Default) - Heart (en-US)",
         group_label="Kokoro Local AI — American English",
         timing_preset=_kokoro_preset(speed=1.0),
     ),
     VoiceEntry(
         backend="kokoro",
         voice_id="af_bella",
-        display_label="Bella (af_bella) — US Female",
+        display_label="Kokoro Female - Bella (en-US)",
         group_label="Kokoro Local AI — American English",
         timing_preset=_kokoro_preset(speed=1.0, sentence=620),
     ),
     VoiceEntry(
         backend="kokoro",
         voice_id="am_michael",
-        display_label="Michael (am_michael) — US Male",
+        display_label="Kokoro Male - Michael (en-US)",
         group_label="Kokoro Local AI — American English",
         timing_preset=_kokoro_preset(speed=1.0, sentence=580),
     ),
     VoiceEntry(
         backend="kokoro",
         voice_id="bf_emma",
-        display_label="Emma (bf_emma) — British Female",
+        display_label="Kokoro Female - Emma (en-UK)",
         group_label="Kokoro Local AI — British English",
         timing_preset=_kokoro_preset(speed=1.0, sentence=640),
     ),
     VoiceEntry(
         backend="kokoro",
         voice_id="bm_george",
-        display_label="George (bm_george) — British Male",
+        display_label="Kokoro Male - George (en-UK)",
         group_label="Kokoro Local AI — British English",
         timing_preset=_kokoro_preset(speed=1.0, sentence=600),
     ),
     # ---- v0.6.1 Plan 4 Phase 10: the four approved Chatterbox voices ---- #
     # The display labels are the maintainer's own, written exactly as approved on
     # 2026-08-15: an ASCII hyphen surrounded by spaces, not the em dash the drop's
-    # §5.7 had proposed. They may be renamed in a later version; they are not
-    # renamed here, and no engine detail ("Turbo", "CPU", "cloned") belongs in
-    # them — that wording lives in the panel's engine/status line.
+    # §5.7 had proposed. Phase 13A.3 asked for these same four strings, so they are
+    # left exactly as they are rather than retyped into an identical diff. No engine
+    # detail ("Turbo", "CPU", "cloned") belongs in them — that wording lives in the
+    # panel's engine/status line.
     VoiceEntry(
         backend="chatterbox",
         voice_id="chatterbox-female-1",
