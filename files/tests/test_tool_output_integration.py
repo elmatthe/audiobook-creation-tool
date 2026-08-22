@@ -13,6 +13,7 @@ validation must all leave the filesystem untouched.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import sys
 import threading
@@ -25,6 +26,7 @@ from tkinter import ttk  # noqa: E402
 
 from shared import config, output_paths as op  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
+import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -53,13 +55,7 @@ EXPECTED_PARENTS = {
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture
@@ -460,6 +456,20 @@ def test_cover_leaves_imported_originals_untouched(output_base, tmp_path):
     assert cover_resizer.next_version_path  # dormant legacy helper still importable
 
 
+def _import_into_cover(ui, *paths):
+    """Put *paths* into the Cover panel the way the panel itself does.
+
+    v0.6.1 Plan 4 Phase 2 retired the panel's own ``files`` list; the shared
+    :class:`~shared.importing.ImportedFileManager` is now the only authority on
+    what is imported. Driving the adapter's own dialog seam keeps these tests
+    exercising the real direct-file path rather than reaching past it.
+    """
+    ui.importer._choose_files = lambda: tuple(paths)
+    ui.importer.add_files()
+    assert ui.imported_files() == list(paths)
+    return ui
+
+
 def test_cover_replacement_requires_all_three_gates(fresh_root, output_base, tmp_path):
     """The Phase 4 "unreachable" guard becomes the Phase 5 three-gate guard."""
     from mp3_tools import cover_resizer
@@ -470,7 +480,7 @@ def test_cover_replacement_requires_all_three_gates(fresh_root, output_base, tmp
     Image.new("RGB", (80, 40), (10, 20, 30)).save(src)
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
-    ui.files = [src]
+    _import_into_cover(ui, src)
 
     # Gate 1 closed: the radio alone is inert.
     ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
@@ -497,7 +507,7 @@ def test_cover_declining_confirmation_starts_nothing(fresh_root, output_base, tm
     before = src.read_bytes()
 
     ui = cover_resizer.build_ui(ttk.Frame(fresh_root))
-    ui.files = [src]
+    _import_into_cover(ui, src)
     ui.var_source_side.set(True)
     ui.var_source_action.set(cover_resizer.ACTION_REPLACE)
     monkeypatch.setattr(ui, "confirm_replacement", lambda count: False)
@@ -579,8 +589,10 @@ def test_tts_mirroring_uses_the_shared_planner_contract(output_base, tmp_path):
 
 
 def test_tts_flat_single_file_lands_in_the_run_root(output_base, tmp_path):
+    # v0.6.1 Plan 4 Phase 5: the fixture was ``novel.epub``. EPUB is no longer an
+    # accepted TTS input, so the same flat-placement coverage now runs on a PDF.
     reservation = op.reserve_run_directory("tts")
-    source = mp3_fixture(tmp_path / "books" / "novel.epub")
+    source = mp3_fixture(tmp_path / "books" / "novel.pdf")
     plan = op.plan_flat(reservation.run_directory, [source],
                         rename=lambda p: p.stem + ".mp3")
     assert plan.items[0].destination == reservation.run_directory / "novel.mp3"
@@ -770,13 +782,73 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
     assert "CLEANUP_SCHEDULED_MESSAGE" in source
 
 
-def test_no_plan_three_importing_behaviour_arrived():
+#: The two tool modules v0.6.1 Plan 4 authorized to adopt the Plan 3 foundation.
+#: Written as dotted module paths because that is what ``TOOL_MODULES`` holds; the
+#: authoritative list is ``test_plan3_boundaries.ADOPTED``, and the test below
+#: proves the two spellings agree rather than trusting that they do.
+PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui")
+
+
+def _tool_path(relative: str) -> Path:
+    return REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
+
+
+def test_no_unadopted_tool_reached_for_the_plan3_foundation():
+    """Replaces ``test_no_plan_three_importing_behaviour_arrived`` (Phase 11).
+
+    **Mechanism changed: substring → AST.** The retired version scanned every
+    tool's source text for UI wording — ``Cancel Import``, ``Retry Failed``,
+    ``Pause/Resume``, ``rolling ETA``, ``Include subfolders`` — and asserted none
+    of it had appeared. That was never proof of anything. A label is not
+    adoption: Cover and TTS have adopted the foundation and get all five of those
+    controls from ``shared/job_ui.py``, so their own sources still contain none
+    of those strings and the old guard went on passing while the thing it was
+    guarding stopped being true. Equally, a module could have grown its own
+    private copy of the whole foundation without ever writing one of those words.
+
+    What replaces it asks the structural question instead, over ``Import`` /
+    ``ImportFrom`` / ``Name`` / ``Attribute`` / ``Call`` nodes: does this tool
+    import a Plan 3 module, name one of its types, or construct one of its
+    objects? Comments and docstrings are invisible to it in both directions.
+
+    The two authorized adopters are excluded by name and checked separately, so
+    the guard narrowed rather than weakened: the other four tools are held to
+    exactly the boundary Plan 3 approved.
+    """
+    from test_plan3_boundaries import ADOPTED, assert_no_plan3_adoption
+
+    assert set(PLAN3_ADOPTERS) == {
+        entry.removesuffix(".py").replace("/", ".") for entry in ADOPTED
+    }, "the two spellings of the adopter list have drifted apart"
+
+    checked = []
     for relative in TOOL_MODULES.values():
-        path = REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
-        source = path.read_text(encoding="utf-8")
-        for plan_three in ("Cancel Import", "Retry Failed", "Pause/Resume",
-                           "rolling ETA", "Include subfolders"):
-            assert plan_three not in source, f"{relative}: {plan_three}"
+        if relative in PLAN3_ADOPTERS:
+            continue
+        tree = ast.parse(_tool_path(relative).read_text(encoding="utf-8"))
+        assert_no_plan3_adoption(tree, relative)
+        checked.append(relative)
+
+    assert sorted(checked) == [
+        "mp3_tools.m4b_converter",
+        "mp3_tools.m4b_maker",
+        "mp3_tools.m4b_metadata_editor",
+        "mp3_tools.mp3_tool",
+    ], checked
+
+
+def test_both_authorized_adopters_really_did_adopt():
+    """The other half of the narrowing, so the exclusion cannot be free.
+
+    Excluding a module from the guard above is only honest if that module has
+    genuinely adopted. If Cover or TTS ever stopped importing the foundation,
+    the exclusion would be hiding an unchecked panel — so it fails here instead.
+    """
+    from test_plan3_boundaries import imports_the_plan3_foundation
+
+    for relative in PLAN3_ADOPTERS:
+        tree = ast.parse(_tool_path(relative).read_text(encoding="utf-8"))
+        assert imports_the_plan3_foundation(tree), relative
 
 
 def test_the_window_constants_are_unchanged():
@@ -789,7 +861,9 @@ def test_the_window_constants_are_unchanged():
 def test_the_version_is_unchanged():
     from shared.version import VERSION
 
-    assert VERSION == "0.5.1"
+    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # nowhere else. This guard now pins the approved closeout version.
+    assert VERSION == "0.6.1"
 
 
 # --------------------------------------------------------------------------- #

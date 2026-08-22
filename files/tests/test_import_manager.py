@@ -659,16 +659,123 @@ def test_the_lexical_fallback_identity_is_used_when_the_platform_reports_none(
     assert first != second, "two different names must not collapse into one identity"
 
 
-def test_the_lexical_fallback_casefolds_only_where_the_filesystem_is_case_blind():
-    from shared.importing import capture_identity
+def _case_only_identities(monkeypatch, *, case_blind: bool) -> tuple[str, str]:
+    """Both spellings' fallback identities, with the volume answer forced.
 
+    The seam is patched rather than the platform, so both answers are proved on
+    whichever filesystem the test runner happens to be using.
+    """
+    monkeypatch.setattr(
+        importing, "filesystem_is_case_insensitive", lambda _path: case_blind)
     base = Path(os.path.abspath(os.sep + "act-fixture"))
-    lower = capture_identity(base / "book.mp3")
-    upper = capture_identity(base / "BOOK.mp3")
-    if WINDOWS or sys.platform == "darwin":
-        assert lower == upper, "a case-blind filesystem must fold these together"
+    return (importing.capture_identity(base / "book.mp3"),
+            importing.capture_identity(base / "BOOK.mp3"))
+
+
+def test_the_lexical_fallback_folds_case_on_a_case_blind_filesystem(monkeypatch):
+    """One file reached by two spellings is one source on a case-blind volume."""
+    lower, upper = _case_only_identities(monkeypatch, case_blind=True)
+    assert lower.startswith("path:") and upper.startswith("path:")
+    assert lower == upper, "a case-blind filesystem must fold these together"
+
+
+def test_the_lexical_fallback_defers_to_the_path_flavour_before_the_volume(monkeypatch):
+    """Pinning the volume seam to ``False`` isolates which of the two rules decides.
+
+    ``_identity_key`` folds case when *either* the path flavour is Windows *or* the
+    volume reports itself case-blind, and the flavour is tested first. With the
+    volume answer forced to "case-sensitive", a POSIX flavour therefore keeps the two
+    spellings apart — including on a case-sensitive APFS volume, which is the branch
+    this proves — while the Windows flavour folds them anyway, because at that layer
+    case-blindness is a property of the path API rather than of the volume.
+    """
+    lower, upper = _case_only_identities(monkeypatch, case_blind=False)
+    assert lower.startswith("path:") and upper.startswith("path:")
+    if WINDOWS:
+        assert lower == upper, (
+            "the Windows path flavour folds case before the volume is consulted")
     else:
         assert lower != upper, "a case-sensitive volume keeps two real files apart"
+
+
+def test_the_windows_flavour_folds_case_whatever_the_volume_answers(monkeypatch):
+    """Windows path semantics are case-blind at the API layer, not per volume."""
+    monkeypatch.setattr(
+        importing, "filesystem_is_case_insensitive", lambda _path: False)
+    if not WINDOWS:
+        pytest.skip("PurePath is only the Windows flavour on Windows")
+    base = Path(os.path.abspath(os.sep + "act-fixture"))
+    assert (importing.capture_identity(base / "book.mp3")
+            == importing.capture_identity(base / "BOOK.mp3"))
+
+
+def _volume_folds_case(directory: Path) -> bool | None:
+    """Independent read-only answer for *directory*'s volume, or ``None`` if unclear.
+
+    Deliberately does not call the production probe: a live assertion that used the
+    same code it is checking would only prove the code agrees with itself.
+    """
+    name = directory.name
+    flipped = name.upper() if name != name.upper() else name.lower()
+    if not name or flipped == name:
+        return None
+    twin = directory.parent / flipped
+    try:
+        original_stat, twin_stat = os.lstat(directory), os.lstat(twin)
+    except OSError:
+        return False
+    return ((original_stat.st_dev, original_stat.st_ino)
+            == (twin_stat.st_dev, twin_stat.st_ino))
+
+
+def test_the_lexical_fallback_matches_this_machines_real_volume(tmp_path):
+    """The live supplement: whatever this actual volume does, identity agrees.
+
+    Both names are missing, so the platform reports no ``(st_dev, st_ino)`` and the
+    lexical fallback is what answers — which is exactly the path under test.
+    """
+    folds = _volume_folds_case(tmp_path)
+    if folds is None:
+        pytest.skip("this temporary directory name has no case to flip")
+    missing = tmp_path / "missing"
+    lower = importing.capture_identity(missing / "book.mp3")
+    upper = importing.capture_identity(missing / "BOOK.mp3")
+    assert lower.startswith("path:") and upper.startswith("path:")
+    if folds:
+        assert lower == upper, "this volume folds case, so these are one source"
+    else:
+        assert lower != upper, "this volume is case-sensitive, so these are two files"
+
+
+def test_the_case_probe_reads_the_volume_and_never_writes_to_it(tmp_path):
+    """Identity capture stays read-only: no probe file is left in a source folder."""
+    before = sorted(p.name for p in tmp_path.iterdir())
+    answer = importing.filesystem_is_case_insensitive(tmp_path / "missing" / "book.mp3")
+    assert isinstance(answer, bool)
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    independent = _volume_folds_case(tmp_path)
+    if independent is not None:
+        assert answer == independent, "the probe must match what the volume really does"
+
+
+def test_the_case_probe_answers_conservatively_when_nothing_exists(monkeypatch):
+    """An undeterminable volume keeps two spellings apart rather than merging them."""
+    if os.name == "nt":
+        pytest.skip("the Windows path layer is case-blind by definition")
+    monkeypatch.setattr(importing, "_nearest_existing_ancestor", lambda _path: None)
+    assert importing.filesystem_is_case_insensitive(Path(os.sep) / "act-fixture") is False
+
+
+def test_root_classification_never_asks_the_filesystem_about_case(monkeypatch):
+    """Root breadth stays purely lexical — the probe is not on that path at all."""
+    def _refuse(_path):
+        raise AssertionError("classify_root_breadth must not touch the filesystem")
+
+    monkeypatch.setattr(importing, "filesystem_is_case_insensitive", _refuse)
+    home = PurePath("/Users/someone")
+    assert importing.classify_root_breadth(home, home=home) is importing.RootBreadth.USER_HOME
+    assert importing.classify_root_breadth(
+        PurePath("/Users/someone/Books"), home=home) is importing.RootBreadth.NARROW
 
 
 def test_case_only_names_on_a_case_sensitive_filesystem_stay_distinct(tmp_path):

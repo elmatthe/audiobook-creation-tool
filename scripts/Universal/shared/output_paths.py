@@ -33,7 +33,7 @@ import sys
 import tempfile
 import unicodedata
 from dataclasses import dataclass, field
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PureWindowsPath
 from types import MappingProxyType
 from typing import Iterable, Mapping, Sequence
 
@@ -360,8 +360,21 @@ def sanitize_relative(relative: PurePath | str, *, fallback: str = FALLBACK_COMP
     Raises :class:`UnsafePathError` for an absolute path or any ``..`` element
     — a mirrored relative path must stay inside its root, and silently
     rewriting a traversal attempt would hide a real problem.
+
+    Foreign Windows syntax is rejected too, on every platform. ``C:/Windows``
+    parses as a harmless two-part relative path under POSIX rules, so a path
+    that names a drive, a UNC share or a device would otherwise be *mirrored*
+    into a literal ``C:`` folder rather than refused. The host OS cannot decide
+    this — the text is read a second time with Windows rules, explicitly.
     """
-    pure = PurePath(str(relative).replace("\\", "/"))
+    text = str(relative)
+    windows = PureWindowsPath(text)
+    if windows.is_absolute() or windows.drive or windows.root:
+        raise UnsafePathError(
+            "a source path outside the chosen folder cannot be mirrored",
+            f"absolute relative path: {relative!r}",
+        )
+    pure = PurePath(text.replace("\\", "/"))
     if pure.is_absolute() or (pure.drive or pure.root):
         raise UnsafePathError(
             "a source path outside the chosen folder cannot be mirrored",

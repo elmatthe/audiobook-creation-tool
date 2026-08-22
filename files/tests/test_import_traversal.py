@@ -409,13 +409,43 @@ def test_identity_falls_back_to_a_lexical_key_when_the_platform_reports_none(tmp
     assert "a.mp3" in identity.lower()
 
 
-def test_the_lexical_fallback_matches_the_platforms_own_case_rule(tmp_path):
+def test_the_lexical_fallback_matches_the_volumes_own_case_rule(tmp_path):
+    """The rule belongs to the volume, not to the platform.
+
+    ``os.name == "posix"`` covers both the default case-insensitive macOS APFS
+    volume and a case-sensitive one, so the platform cannot answer this. The
+    expectation is therefore taken from what this volume really does, checked
+    independently of the production probe; both answers are proved
+    deterministically in ``test_import_manager.py``.
+    """
     upper = capture_identity(tmp_path / "A.MP3", fake_stat(stat.S_IFREG))
     lower = capture_identity(tmp_path / "a.mp3", fake_stat(stat.S_IFREG))
-    if os.name == "nt":
-        assert upper == lower, "Windows is case-blind, so these are one source"
+    assert upper.startswith("path:") and lower.startswith("path:")
+    folds = _volume_folds_case(tmp_path)
+    if folds is None:
+        pytest.skip("this temporary directory name has no case to flip")
+    if folds:
+        assert upper == lower, "this volume folds case, so these are one source"
     else:
         assert upper != lower, "a case-sensitive volume keeps them apart"
+
+
+def _volume_folds_case(directory: Path) -> bool | None:
+    """Whether *directory* is reachable through a case-flipped spelling of itself.
+
+    Deliberately independent of :func:`shared.importing.filesystem_is_case_insensitive`
+    — an expectation computed by the code under test would prove only that the
+    code agrees with itself. Read-only: nothing is created.
+    """
+    name = directory.name
+    flipped = name.upper() if name != name.upper() else name.lower()
+    if not name or flipped == name:
+        return None
+    try:
+        original, twin = os.lstat(directory), os.lstat(directory.parent / flipped)
+    except OSError:
+        return False
+    return (original.st_dev, original.st_ino) == (twin.st_dev, twin.st_ino)
 
 
 def test_identity_capture_never_resolves_through_a_link(tmp_path):

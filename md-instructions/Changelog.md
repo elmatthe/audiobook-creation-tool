@@ -15,6 +15,149 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Removed — **BREAKING: EPUB is no longer a supported TTS input** (v0.6.1 Plan 4 Phase 5, 2026-08-14)
+
+> **This is a breaking change for anyone who converted EPUB files.** The TTS Audiobook tool now
+> accepts **PDF and TXT only**. There is no EPUB mode, no EPUB conversion option, no `.epub`
+> dialog filter and no internal dispatch route that will accept one — a stale saved state, a
+> retry or a direct internal call is refused just as the UI is.
+
+- The EPUB-exclusive source is **preserved, not deleted**, in a permanent tracked archive at
+  **`files/archived-code/epub-tts/`** — three extracted source files plus a `README.md` manifest
+  recording, per file, its original path, purpose, source SHA, retirement reason, the retained
+  production counterpart, its licence and how to restore it. The archive is **provably inert**:
+  it lives outside `scripts/`, no production module imports or names it, it is uncollectable as
+  tests, it contains no `__init__.py` / `conftest.py` / `setup.py`, nothing in it executes on
+  import, and `release.py` cannot package it (the packager walks `ROOT_FILES` + one launcher +
+  `scripts/` only). **It is permanent and was not deleted with the temporary plan drop.**
+- **The shared Edge/PDF/TXT synthesis engine survived untouched.** Only four of
+  `epub2tts_edge`'s twenty-four functions were EPUB-specific; every PDF/TXT and Edge code path,
+  every timing constant and all five sibling TTS modules are unchanged. The module names
+  `epub2tts_edge` / `epub2tts_gui` are **deliberately kept** — they carry the GPL-3.0 upstream
+  provenance, and a rename across the launcher, bootstrap fallback, nine test modules and the
+  Dockerfile while Phases 6–7 restructured the same panel was the larger risk. The boundary is
+  documented in the panel docstring, the README and the archive manifest.
+- **Dependencies removed on evidence:** `ebooklib==0.20`, `beautifulsoup4==4.14.3` and
+  `lxml==6.1.1`, each with its consumers enumerated and its reverse-dependencies checked; the
+  three pins are recorded verbatim in a `requirements.txt` comment and in the manifest so
+  restoration is mechanical. `bootstrap.REQUIRED_IMPORTS` and `_PIP_NAME` were updated to match.
+  **Every retained pin is byte-identical.**
+- **GPL-3.0 licence and the Christopher Aedo / `aedocw/epub2tts-edge` attribution are intact**
+  in production as well as in the archive, now pinned by tests. Only the `ebooklib` line left the
+  "gratefully relying on" list, because the project no longer relies on it.
+- 101 AST- and metadata-driven guard tests (`files/tests/test_epub_retirement.py`). No test was
+  deleted, skipped, xfailed or weakened.
+
+### Added — TTS and Cover Image workflows (v0.6.1 Plan 4, approved 2026-08-21)
+
+> Plan 4 is the first plan to adopt the Plan 2 configuration/output services and the Plan 3
+> importing and job-control foundation **inside production panels**. The launcher still lists
+> exactly six tools.
+
+- **One unified PDF/TXT queue in TTS Audiobook.** Direct files and whole folders coexist in a
+  single queue and a single run — no separate single-file and batch modes. Occurrence identity,
+  deliberate duplicates, provenance and natural ordering are preserved; folder-derived items are
+  mirrored into the output tree and direct files are placed flat; and the run's frozen snapshot
+  is what a Retry Failed re-runs, so a retry reproduces the exact original configuration.
+- **A third TTS engine: Chatterbox**, with four maintainer-authorized voices —
+  `Chatterbox - Female 1 / Female 2 / Male 1 / Male 2` — bringing the dropdown to sixteen rows.
+  It is **optional and non-default**: the first-run setup checkbox is unchecked and states the
+  real ~3.9 GB model size, and Kokoro's default is unchanged.
+  - **Device selection is CPU-first** and resolves `cuda → mps → cpu` behind one testable seam.
+    No CUDA build, index URL or git source was added. On Apple Silicon it really does run on
+    Metal — measured, not assumed.
+  - **Degraded installs stay truthful.** A machine without the `chatterbox-tts` package starts
+    normally and still offers the twelve Edge/Kokoro voices. A machine without the reference
+    recordings starts, converts, and reports every Chatterbox voice as *setup required* rather
+    than offering a selection that cannot work. Missing recordings are deliberately **not** a
+    startup requirement.
+  - Reference audio is verified by SHA-256 **on every use**; derivatives and cached voice
+    identity data live under the ignored `files/runtime-data/`, keyed on voice + source hash +
+    engine release + clip spec so a stale entry misses rather than gets reused, and writes into
+    the recordings folder are refused structurally.
+- **A Cover Image browser with three views — Details, List and Medium Thumbnails**, defaulting to
+  Details. All three are projections of the one shared imported-file manager rather than a second
+  list, so order and selection survive a view switch by construction, and two deliberate
+  duplicates of one path stay two independently selectable items. Selection semantics are
+  identical across the three views because click and key handling routes through one pure engine.
+  Thumbnail decoding is lazy, visible-only and hard-capped at 60 items, with a bounded LRU cache
+  as the single owner of a decoded image.
+- **HEIC/HEIF is a probed capability with decode and encode reported separately**
+  (`shared/image_capabilities.py`, pinned at `pillow-heif==1.5.0`). Encode capability is proved
+  by actually encoding, because registering the HEIF opener installs a saver whether or not an
+  encoder exists behind it. A destination the build cannot honour is **refused truthfully** —
+  HEIC output is never silently substituted with JPEG.
+- **Cover Image and TTS both adopt the shared job controls** — Pause/Resume, Cancel, Summary and
+  Details, progress, current-run ETA and Retry Failed — and the shared output services, including
+  the Cover tool's source-side destination exception.
+- **The twelve original voice rows keep their identity** — voice IDs, backends, timing presets,
+  ordering and the Steffan default are unchanged. Their **display labels** were deliberately
+  restyled by explicit maintainer override on 2026-08-21 into one consistent
+  `Engine Gender - Name (locale)` form; the exact ordered list is pinned by 39 tests.
+
+### Changed — TTS narration and output quality (v0.6.1 Plan 4 Phase 12, 2026-08-19)
+
+- **Every TTS final MP3 is now encoded exactly once through one explicit contract, never on
+  ffmpeg's defaults.** The old path produced 32 kbps output whose Xing header could not fit in an
+  MPEG-2 frame, so players reported exactly half the true duration. Kokoro, Chatterbox and the
+  Edge folder path now share the explicit encode, with a 64 kbps correctness floor. The
+  file-size consequence — the panel's `192k` default yielding an effective 160 kbps, roughly 5×
+  the old size — was put to the maintainer with the numbers and **accepted as tested**; no
+  `64k` option was added and the default was not changed.
+- **Chatterbox text is planned on natural boundaries** — paragraph → sentence → clause →
+  whitespace → hard limit, packed to a 300-character ceiling — and **no structural newline ever
+  reaches the model**, because the model renders one as a pause of no fixed length. This took the
+  worst measured interior silence in a real chapter from **8.73 s to 2.90 s** with the duration
+  essentially unchanged (488.94 → 486.34 s). Narration timing is **frozen for Plan 4** by
+  maintainer ruling after listening; residual pause/rhythm tuning is a recorded observation, not
+  scheduled work.
+
+### Fixed — a hover-scoped mouse-wheel binding could outlive its own panel (v0.6.1 Plan 4 Phase 14, 2026-08-22)
+
+- `shared/ui_theme.enable_mousewheel` takes the shared root's single global `<MouseWheel>` slot
+  while the pointer is inside a scrollable options region — which is how the Cover, TTS and M4B
+  options columns all scroll. It gave that slot back only on `<Leave>`, and **two real lifecycle
+  paths never fire one**: the launcher's tool switch `pack_forget()`s the outgoing panel out from
+  under the pointer, and closing a panel destroys the region outright. The stranded binding then
+  scrolled the tool the user had just left and, once the widget was gone, fired at a Tcl command
+  that no longer existed on every subsequent wheel tick. Release is now also wired to `<Unmap>`
+  and `<Destroy>`, and is **ownership-guarded** — a region only ever gives back the binding it
+  still holds, so a stale region's teardown cannot steal the wheel from the region the pointer is
+  actually over. 11 direct lifecycle tests cover it.
+- The Cover browser's wheel-locality contract was **corrected without being weakened**. Its old
+  assertion — that no global `<MouseWheel>` binding may exist anywhere, ever — was true of the
+  browser but false of the application, making it a tripwire for another panel's legitimate hover
+  state. It now measures what actually matters: the browser's binding lives on its own Canvas, and
+  building, scrolling and closing it leaves whatever owned the shared slot exactly as it found it.
+
+### Changed — a missing Tk root is a failure on Windows, not a skip (v0.6.1 Plan 4 Phase 14, 2026-08-22)
+
+- Every live-Tk test module opened its own root inside `try/except TclError → pytest.skip`. That
+  is right on a headless POSIX box and wrong on Windows, where the desktop *is* the platform:
+  Phase 14 measured one full-suite run that **silently dropped forty-nine Chatterbox integration
+  tests and still exited zero**. The classification now lives once in `files/tests/tk_gate.py`
+  and is made from the platform, not from the text of the error — a failed root **fails** the run
+  where a windowing system is part of the platform and still **skips** where a display is
+  genuinely optional. Any other exception propagates as itself. A structural AST guard prevents a
+  new module from reopening the hole. **Developer-only; no production code is involved.**
+
+### Changed — v0.6.1 version identity, and Plan 4 closed out (v0.6.1 Plan 4 Phase 15, 2026-08-22)
+
+- `version.py` moved from `0.5.1` to **`0.6.1`**, with `config.toml` and the version guard tests
+  updated in the same commit. **This is a version-identity closeout, not a release:** no tag, no
+  GitHub release, no packaging, no publication, no `release.py` run, and no merge. There is
+  deliberately **no `[0.6.1]` heading in this changelog**.
+- The lasting Plan 4 record moved into `Briefing.md`, `Decisions.md`, `Handoff.md`, `README.md`
+  and the master implementation index, and the temporary drop
+  `md-instructions/0.6.1-tts-cover-workflows.md` was retired — **only** after that transfer, and
+  with every gate re-run afterwards. `files/archived-code/epub-tts/` is permanent and stays.
+- **Deferred, and recorded as deferrals rather than passes:** the Windows 125% display-scaling
+  matrix; Windows DPI awareness; the `.DS_Store`-into-release-packaging defect found on the Mac
+  (prototyped, deliberately **not** committed — packaging belongs to Plan 9); and a general
+  pronunciation-override capability, which is a recorded future requirement and is **not
+  implemented**. The one native `torch_cpu.dll` `0xC0000005` crash remains **historical,
+  characterised and never reproduced — it is not claimed to be fixed.**
+
 ### Added — shared importing and job-control foundation (v0.6.0 Drop 3, approved 2026-08-10)
 
 > Four new shared modules that **no production tool uses yet**. Plan 3 builds the importer and

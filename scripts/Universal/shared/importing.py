@@ -73,6 +73,7 @@ import math
 import os
 import re
 import stat as _stat
+import sys
 import threading
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
@@ -93,6 +94,7 @@ __all__ = [
     "is_hidden_name",
     "has_hidden_attribute",
     "capture_identity",
+    "filesystem_is_case_insensitive",
     "classify_root_breadth",
     "is_broad_root",
     "scan_roots",
@@ -950,7 +952,12 @@ def _pure(path: object) -> PurePath:
 
 
 def _lexical_key(path: PurePath) -> tuple[str, ...]:
-    """Comparison parts, casefolded only where the path flavour is case-blind."""
+    """Comparison parts, casefolded only where the path *flavour* is case-blind.
+
+    Purely lexical, because root classification never touches the filesystem. Source
+    identity has a different question to answer and uses :func:`_identity_key`, which
+    asks the volume itself.
+    """
     parts = tuple(unicodedata.normalize("NFC", part) for part in path.parts)
     if isinstance(path, PureWindowsPath):
         return tuple(part.casefold() for part in parts)
@@ -1029,6 +1036,118 @@ def _is_hidden(path: Path, stat_result: object, probe: HiddenProbe | None) -> bo
 # Source identity
 # --------------------------------------------------------------------------- #
 
+#: Darwin's ``_PC_CASE_SENSITIVE`` from ``<unistd.h>``. Python does not publish it in
+#: ``os.pathconf_names``, and the number means something else entirely on Linux, so it
+#: is only ever passed on Darwin. Everywhere else the flip probe below answers instead.
+_DARWIN_PC_CASE_SENSITIVE = 11
+
+#: Case-blindness is a property of the *volume*, not of one file, so one answer per
+#: device serves every path on it. ``st_dev`` is the stable identity we already read
+#: for :func:`capture_identity`, and it costs no extra syscall to key on.
+_CASE_BLIND_BY_DEVICE: dict[int, bool] = {}
+
+
+def _nearest_existing_ancestor(path: Path) -> Path | None:
+    """The closest component of *path* that exists, without following links.
+
+    Read-only, and it never creates a probe file in a user's source folder: the
+    question "does this volume fold case?" is answered from what is already there.
+    """
+    current = path
+    while True:
+        try:
+            os.lstat(current)
+            return current
+        except OSError:
+            pass
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+def _flipped_name_is_the_same_file(directory: Path) -> bool:
+    """Whether *directory* is reachable through a case-flipped spelling of its name.
+
+    The portable fallback for platforms that will not answer ``pathconf``: an existing
+    name is re-spelled and looked up. Nothing is created, nothing is written, and a
+    match only counts when the two spellings report the same ``(st_dev, st_ino)``.
+    """
+    name = directory.name
+    flipped = name.upper() if name != name.upper() else name.lower()
+    if not name or flipped == name:
+        return False
+    try:
+        original = os.lstat(directory)
+        twin = os.lstat(directory.parent / flipped)
+    except OSError:
+        return False
+    return (original.st_dev, original.st_ino) == (twin.st_dev, twin.st_ino)
+
+
+def filesystem_is_case_insensitive(path: object) -> bool:
+    """Whether the volume holding *path* treats two case-only spellings as one file.
+
+    This is a **filesystem** question, not a platform one. The default macOS APFS
+    volume is case-insensitive while a case-sensitive APFS volume on the same machine
+    is not, so ``sys.platform`` cannot answer it and is never asked to.
+
+    Answered read-only, from the nearest component that already exists: the volume is
+    asked directly where the platform can answer, and otherwise an existing name is
+    looked up in a flipped spelling. An undeterminable volume answers ``False`` — the
+    conservative side, which keeps two spellings apart rather than merging two files
+    that might genuinely be different.
+    """
+    if os.name == "nt":
+        # The Win32 path layer is case-insensitive regardless of the underlying
+        # volume, which is what ``PureWindowsPath`` already encodes.
+        return True
+    ancestor = _nearest_existing_ancestor(Path(os.path.abspath(os.fspath(path))))
+    if ancestor is None:
+        return False
+    try:
+        device = os.lstat(ancestor).st_dev
+    except OSError:
+        device = None
+    if device is not None and device in _CASE_BLIND_BY_DEVICE:
+        return _CASE_BLIND_BY_DEVICE[device]
+    answer = _probe_case_blindness(ancestor)
+    if device is not None:
+        _CASE_BLIND_BY_DEVICE[device] = answer
+    return answer
+
+
+def _probe_case_blindness(existing: Path) -> bool:
+    if sys.platform == "darwin":
+        try:
+            return not bool(os.pathconf(str(existing), _DARWIN_PC_CASE_SENSITIVE))
+        except (OSError, ValueError, AttributeError):
+            pass
+    name = os.pathconf_names.get("PC_CASE_SENSITIVE")
+    if name is not None:
+        try:
+            return not bool(os.pathconf(str(existing), name))
+        except (OSError, ValueError, AttributeError):
+            pass
+    probe = existing
+    while probe.name:
+        if _flipped_name_is_the_same_file(probe):
+            return True
+        parent = probe.parent
+        if parent == probe:
+            break
+        probe = parent
+    return False
+
+
+def _identity_key(absolute: Path) -> tuple[str, ...]:
+    """The lexical identity parts, casefolded where the *filesystem* is case-blind."""
+    pure = PurePath(absolute)
+    parts = tuple(unicodedata.normalize("NFC", part) for part in pure.parts)
+    if isinstance(pure, PureWindowsPath) or filesystem_is_case_insensitive(absolute):
+        return tuple(part.casefold() for part in parts)
+    return parts
+
 
 def capture_identity(path: Path, stat_result: object = None) -> str:
     """A key for "is this the same source file?", captured without following links.
@@ -1038,8 +1157,10 @@ def capture_identity(path: Path, stat_result: object = None) -> str:
     through a hard link, is recognised as one source.
 
     Falls back to a lexical absolute-path key when the platform reports no usable
-    identity: NFC-normalised, and casefolded only where the filesystem is case-blind,
-    so a case-sensitive macOS volume keeps two genuinely different files apart.
+    identity: NFC-normalised, and casefolded only where the filesystem is case-blind
+    (:func:`filesystem_is_case_insensitive`, which asks the volume rather than the
+    platform), so a case-sensitive macOS volume keeps two genuinely different files
+    apart while the default case-insensitive one folds two spellings of one file.
 
     ``resolve()`` is never used — following a link to decide identity is exactly what
     this drop refuses to do. Phase 3 owns what to *do* with two matching identities.
@@ -1053,7 +1174,7 @@ def capture_identity(path: Path, stat_result: object = None) -> str:
         pass
     if device and inode:
         return f"file:{device}:{inode}"
-    return "path:" + "\x00".join(_lexical_key(PurePath(absolute)))
+    return "path:" + "\x00".join(_identity_key(absolute))
 
 
 # --------------------------------------------------------------------------- #

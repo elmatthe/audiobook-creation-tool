@@ -5,16 +5,30 @@
 # <3.13); the environment markers below guard the version-specific packages.
 
 # --- TTS (epub2tts-edge) ---
-beautifulsoup4==4.14.3
-ebooklib==0.20
+# EPUB was retired as an application input in v0.6.1 Plan 4 Phase 5 (maintainer
+# decision, 2026-08-11), so its three parsing dependencies went with it:
+#   beautifulsoup4==4.14.3  ebooklib==0.20  lxml==6.1.1
+# Their only consumers anywhere in the tree were chap2text_epub, export and
+# get_epub_cover, all preserved in files/archived-code/epub-tts/. Restoring EPUB
+# means restoring these three pins and bootstrap.REQUIRED_IMPORTS with them.
 edge-tts==7.2.8
-lxml==6.1.1
 mutagen==1.47.0
 nltk==3.9.4
 pillow==12.2.0
 pydub==0.25.1
 pymupdf==1.27.2.3
-setuptools==82.0.1
+# setuptools is held at 80.9.0 — the last release that still ships `pkg_resources`.
+# `resemble-perth` (Chatterbox's watermarker, see below) imports pkg_resources but
+# declares no dependencies at all, and chatterbox-tts declares no setuptools bound.
+# Under setuptools 82.0.1 the import fails, perth swallows it and sets its
+# watermarker class to None, and ChatterboxTurboTTS construction dies with a
+# misleading `TypeError: 'NoneType' object is not callable`. Proven in the v0.6.1
+# Plan 4 Phase 8a isolated environment; 80.9.0 restores it.
+# This is deliberate COMPATIBILITY DEBT, authorized by the maintainer for this
+# release, NOT a preference for older setuptools: pkg_resources is deprecated and
+# was slated for removal from 2025-11-30. Revisit and move forward as soon as the
+# upstream dependency stops importing it.
+setuptools==80.9.0
 tqdm==4.67.3
 soundfile==0.13.1
 scipy==1.17.1
@@ -25,11 +39,62 @@ audioop-lts==0.2.2 ; python_version >= "3.13"
 # --- Local AI TTS (Kokoro) — only on Python <3.13 (PyPI wheels require it) ---
 kokoro==0.9.4 ; python_version < "3.13"
 
+# --- Local AI voice cloning (Chatterbox Turbo) — OPTIONAL engine ---
+# v0.6.1 Plan 4 Phase 8. Engine package verified against the exact published wheel
+# on 2026-08-15: chatterbox-tts 0.1.7 (2026-03-26, MIT, requires-python >=3.10).
+# The Turbo model is loaded from `chatterbox.tts_turbo.ChatterboxTurboTTS` — the
+# package root does NOT export that symbol, so `from chatterbox import
+# ChatterboxTurboTTS` (which the upstream docs show) fails against this release.
+# Model weights are ResembleAI/chatterbox-turbo, MIT, ~3.86 GiB, downloaded on
+# demand into the existing in-tree HuggingFace cache; nothing is bundled.
+#
+# THIS BLOCK IS NOT ADDITIVE. chatterbox-tts pins its stack exactly, which pulls
+# the shared scientific stack DOWN:
+#     torch         2.13.0 -> 2.6.0      transformers  5.15.0 -> 5.2.0
+#     numpy         2.5.2  -> 1.26.4     safetensors   0.8.0  -> 0.5.3
+# (sympy follows torch to 1.13.1; ~57 further packages arrive transitively,
+# including gradio's web stack, for about +1.15 GB of installed size.)
+# scipy 1.17.1 above declares numpy>=1.26.4,<2.7, so 1.26.4 is the one version in
+# the overlap — which is why it is pinned rather than left to the resolver.
+# Phase 8a proved on that combined stack, in an isolated Python 3.12.10 venv, that
+# Kokoro still works: a real CPU synthesis through tts/kokoro_synth.py produced
+# byte-identical audio, and the full repository suite passed unchanged.
+#
+# No CUDA-specific PyTorch build is pinned here. Device selection (cuda -> mps ->
+# cpu) happens at runtime; this file stays cross-platform and CPU-only.
+# Gated to <3.13 alongside Kokoro: the venv is capped there by Kokoro's wheels and
+# nothing above it was proven. The pins below are the ones chatterbox-tts leaves
+# floating (a range, or no bound at all) plus the four headline downgrades, stated
+# explicitly so the effect is visible here instead of buried in a resolution.
+chatterbox-tts==0.1.7 ; python_version < "3.13"
+torch==2.6.0 ; python_version < "3.13"
+torchaudio==2.6.0 ; python_version < "3.13"
+transformers==5.2.0 ; python_version < "3.13"
+numpy==1.26.4 ; python_version < "3.13"
+safetensors==0.5.3 ; python_version < "3.13"
+resemble-perth==1.0.1 ; python_version < "3.13"
+s3tokenizer==0.3.0 ; python_version < "3.13"
+spacy-pkuseg==1.0.1 ; python_version < "3.13"
+pyloudnorm==0.2.0 ; python_version < "3.13"
+omegaconf==2.3.1 ; python_version < "3.13"
+# The remaining direct dependencies (librosa 0.11.0, diffusers 0.29.0, conformer
+# 0.3.2, pykakasi 2.3.0, gradio 6.8.0) are already exact '==' pins in
+# chatterbox-tts 0.1.7's own metadata, so they are reproducible without repeating
+# them here. Do not "improve" this stack beyond what Phase 8a proved.
+
 # --- Dev / test gate (scripts/verify.py runs the suite in files/tests/) ---
 pytest==9.1.1
 
 # --- MP3 / M4B tools ---
 # mutagen + pillow (pinned above) cover the MP3 Tool, M4B Maker/Converter,
 # Cover Resizer, and the Phase 6 Metadata Editor.
-# Optional HEIC/HEIF cover support for the Cover Resizer (uncomment to enable):
-# pillow-heif==1.3.0
+# HEIC/HEIF cover support (Decision 54A) — officially pinned as of v0.6.1
+# Plan 4 Phase 1, no longer an opt-in comment. Version verified against PyPI on
+# 2026-08-11: 1.5.0 is the current stable release (2026-07-22), requires-python
+# >=3.10, requires pillow>=11.1.0 (satisfied by the 12.2.0 pinned above), and
+# ships cp312 wheels for win_amd64, macosx_11_0_arm64 and manylinux.
+# It stays *optional at runtime*: shared/image_capabilities.py probes decode and
+# encode separately, and the app starts and handles JPG/JPEG/PNG normally when
+# the wheel or its libheif encoder is missing. It is deliberately NOT in
+# bootstrap.REQUIRED_IMPORTS, which is the list of imports a machine must have.
+pillow-heif==1.5.0

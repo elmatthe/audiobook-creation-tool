@@ -35,7 +35,7 @@ name = "Audiobook Creation Tool"
 # Must match scripts/Universal/shared/version.py exactly. The running
 # application always trusts the code; `python scripts/verify.py` fails if the
 # two ever drift apart, which is how a stale value here gets caught.
-version = "0.5.1"
+version = "0.6.1"
 
 # Lowest Python version the code supports, written as "X.Y" or "X.Y.Z".
 # (The setup launcher installs 3.12 specifically, because the Kokoro voice

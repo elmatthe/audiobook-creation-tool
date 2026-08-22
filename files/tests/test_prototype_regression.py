@@ -256,17 +256,12 @@ tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
 from shared import ui_theme  # noqa: E402
+import tk_gate  # noqa: E402
 
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture
@@ -361,6 +356,32 @@ def test_an_aqua_bundle_builds_the_historical_layout(fresh_root):
 # Isolation across a whole launcher build
 # ---------------------------------------------------------------------------
 
+
+def _canonical(value):
+    """A ttk style value, compared by what it *is* rather than how Tcl spelt it.
+
+    ``style.configure("TNotebook")`` answers ``{'tabmargins': '2 2 2 0'}`` while
+    no notebook has ever existed in the interpreter and
+    ``{'tabmargins': [2, 2, 2, 0]}`` once one has — the identical padding,
+    returned as a Tcl string one moment and a converted list the next. Comparing
+    the raw values therefore reports a "leak" the first time any panel uses a
+    widget class the snapshot named, which is a property of Tcl's lazy option
+    conversion and not of anything a panel did.
+
+    Collapsing both spellings to one keeps the guard measuring what it claims to
+    measure: a real change of colour, layout or state map still differs here.
+    """
+    if isinstance(value, dict):
+        return tuple(sorted((str(key), _canonical(item))
+                            for key, item in value.items()))
+    if isinstance(value, (list, tuple)):
+        parts = tuple(_canonical(item) for item in value)
+        if all(isinstance(part, str) for part in parts):
+            return " ".join(parts)
+        return parts
+    return str(value)
+
+
 @windows_only
 def test_building_the_whole_app_leaves_the_generic_styles_untouched(
     fresh_root, monkeypatch
@@ -384,11 +405,11 @@ def test_building_the_whole_app_leaves_the_generic_styles_untouched(
         style.theme_use("vista")
 
     def snapshot():
-        return {n: (style.layout(n), style.configure(n),
-                    style.lookup(n, "background"),
-                    style.lookup(n, "foreground"),
-                    style.lookup(n, "fieldbackground"),
-                    style.map(n)) for n in generic}
+        return {n: _canonical((style.layout(n), style.configure(n),
+                               style.lookup(n, "background"),
+                               style.lookup(n, "foreground"),
+                               style.lookup(n, "fieldbackground"),
+                               style.map(n))) for n in generic}
 
     before = snapshot()
 

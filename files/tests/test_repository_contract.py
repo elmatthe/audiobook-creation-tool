@@ -318,7 +318,9 @@ def test_the_config_gate_fails_malformed_toml(tmp_path):
 def test_the_application_version_is_unchanged():
     from shared.version import VERSION
 
-    assert VERSION == "0.5.1"
+    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # nowhere else. This guard now pins the approved closeout version.
+    assert VERSION == "0.6.1"
 
 
 def test_the_launcher_carries_no_cleanup_behaviour():

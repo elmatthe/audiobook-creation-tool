@@ -33,6 +33,7 @@ from tkinter import ttk  # noqa: E402
 
 from shared import config, maintenance, preferences_ui, ui_theme  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
+import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -65,16 +66,7 @@ LOG_BYTES = 50
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:                       # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    # Finalise the dialogs' Tk variables while the interpreter still owns a
-    # live Tk; collecting one afterwards raises out of ``Variable.__del__``.
-    gc.collect()
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk, before_destroy=gc.collect)
 
 
 @pytest.fixture(autouse=True)
@@ -1024,4 +1016,6 @@ def test_existing_preferences_behaviour_is_unchanged(fresh_root, tmp_path):
 def test_the_application_version_is_still_unchanged():
     from shared.version import VERSION
 
-    assert VERSION == "0.5.1"
+    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # nowhere else. This guard now pins the approved closeout version.
+    assert VERSION == "0.6.1"

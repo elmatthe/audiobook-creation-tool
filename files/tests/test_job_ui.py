@@ -90,6 +90,7 @@ from test_import_coordination import (  # noqa: E402
 )
 from test_import_traversal import snapshot_tree, touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
+import tk_gate  # noqa: E402
 
 #: Every wait in this file is bounded so a deadlock fails rather than hangs. It is
 #: never used to *create* a race.
@@ -110,13 +111,7 @@ GENERIC_STYLES = (
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture

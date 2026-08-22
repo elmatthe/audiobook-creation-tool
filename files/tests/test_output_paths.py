@@ -485,6 +485,32 @@ def test_sanitize_relative_rejects_absolute_and_traversal():
             op.sanitize_relative(bad)
 
 
+@pytest.mark.parametrize("bad", [
+    "C:/Windows",            # drive-qualified, forward slashes
+    "C:\\Windows\\Temp",     # drive-qualified, backslashes
+    "C:Windows",             # drive-relative: still names a drive
+    "//server/share/Books",  # UNC share, forward slashes
+    "\\\\server\\share\\Books",  # UNC share, backslashes
+    "\\\\?\\C:\\Books",         # extended-length device syntax
+    "\\\\.\\pipe\\anything",    # device namespace
+])
+def test_sanitize_relative_rejects_foreign_windows_syntax_on_every_platform(bad):
+    """``C:/Windows`` must never be mirrored as a literal ``C:`` folder on POSIX."""
+    with pytest.raises(op.UnsafePathError):
+        op.sanitize_relative(bad)
+
+
+@pytest.mark.parametrize("good, expected", [
+    ("Series A/Book 1.mp3", ("Series A", "Book 1.mp3")),
+    ("Cover Art/img.heic", ("Cover Art", "img.heic")),
+    # A single letter is a legitimate folder name; only a *drive* is refused.
+    ("C/Book 1.mp3", ("C", "Book 1.mp3")),
+    ("./Series A/Book 1.mp3", ("Series A", "Book 1.mp3")),
+])
+def test_sanitize_relative_still_mirrors_legitimate_relative_names(good, expected):
+    assert op.sanitize_relative(good).parts == expected
+
+
 def test_sanitize_relative_cleans_every_component():
     result = op.sanitize_relative("Series A/CON/Bad<Name>")
     assert result.parts == ("Series A", "_CON", "Bad_Name_")
@@ -1125,7 +1151,9 @@ def test_no_plan_three_importing_behaviour_arrived():
 def test_the_version_is_unchanged():
     from shared.version import VERSION
 
-    assert VERSION == "0.5.1"
+    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # nowhere else. This guard now pins the approved closeout version.
+    assert VERSION == "0.6.1"
 
 
 def test_no_test_here_resolves_the_real_downloads_folder(tmp_path):

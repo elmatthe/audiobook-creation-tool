@@ -69,25 +69,34 @@ SETTINGS_OVERLAY: dict[str, str] = {
 #: Settings keys that are legitimate user state but deliberately have no
 #: configuration counterpart. They are skipped silently instead of being
 #: reported as unrecognised. Do not invent TOML keys for these.
+#: Corrected in the v0.6.1 Plan 4 Phase 12 remediation. The original set was
+#: written with un-namespaced names — ``input_dir``, ``m4b_cover_dir``,
+#: ``tts_output_dir`` and so on — that **no writer in this repository has ever
+#: used**. Every panel namespaces its key by tool (``cover_resizer.input_dir``),
+#: so the allowlist matched nothing and the app warned the user, once per launch,
+#: about the "last folder used" state it had just written itself.
+#:
+#: Each entry below is the exact string a production ``settings.set(...)`` call
+#: passes; ``test_settings_allowlist.py`` re-derives them from the source by AST
+#: so this list cannot drift out of step again. This is deliberately **not** an
+#: "accept anything" rule: a key no writer produces stays unrecognised, and an
+#: arbitrary settings key still cannot override ``config.toml``.
 USER_STATE_SETTINGS: frozenset[str] = frozenset(
     {
+        # launcher.py — which panel was open last
         "last_tool",
-        "input_dir",
-        "output_dir",
-        "cover_dir",
-        "m4b_input_dir",
-        "m4b_output_dir",
-        "m4b_cover_dir",
-        "mp3_input_dir",
-        "mp3_output_dir",
-        "tts_input_dir",
-        "tts_output_dir",
-        "metadata_input_dir",
-        "metadata_output_dir",
-        "metadata_cover_dir",
-        "cover_input_dir",
-        "voice",
-        "bitrate",
+        # mp3_tools/cover_resizer.py
+        "cover_resizer.input_dir",
+        # mp3_tools/m4b_converter.py
+        "m4b_converter.input_dir",
+        # mp3_tools/m4b_maker.py
+        "m4b_maker.input_dir",
+        "m4b_maker.cover_dir",
+        # mp3_tools/m4b_metadata_editor.py
+        "m4b_metadata.input_dir",
+        "m4b_metadata.cover_dir",
+        # mp3_tools/mp3_tool.py
+        "mp3_tool.input_dir",
     }
 )
 

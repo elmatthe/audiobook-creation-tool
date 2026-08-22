@@ -82,7 +82,7 @@ TOOLS: list[ToolSpec] = [
         "tts",
         "TTS Audiobook",
         "tts.epub2tts_gui",
-        "Convert EPUB / PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro AI voices.",
+        "Convert PDF / TXT into a narrated MP3 using Edge TTS or the local Kokoro AI voices.",
     ),
     ToolSpec(
         "m4b_converter",
@@ -132,6 +132,12 @@ class LauncherApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.logger = logging_setup.get_logger()
+        # Armed here, before any tool panel exists and long before a conversion
+        # worker can reach a native engine: a fatal fault inside an extension
+        # module kills the process without unwinding, so the only way to learn
+        # what was running is to have asked for it in advance. Observation only,
+        # and it cannot stop the launcher from opening.
+        logging_setup.enable_fatal_diagnostics()
         ffmpeg_utils.configure_pydub()
 
         self.containers: dict[str, ttk.Frame] = {}

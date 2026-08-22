@@ -31,6 +31,7 @@ from tkinter import ttk  # noqa: E402
 
 from mp3_tools import m4b_metadata_editor as editor  # noqa: E402
 from shared import ui_theme  # noqa: E402
+import tk_gate  # noqa: E402
 
 FIXTURE_PATH = Path(__file__).with_name("manual_windows_ui_prototype.py")
 
@@ -68,13 +69,7 @@ REQUIRED_CALLBACKS = (
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture

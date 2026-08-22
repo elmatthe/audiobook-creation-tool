@@ -24,6 +24,7 @@ tk = pytest.importorskip("tkinter")
 from shared import cleanup_state as state  # noqa: E402
 from shared import config, maintenance, preferences_ui  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
+import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UTC = timezone.utc
@@ -36,14 +37,7 @@ UTC = timezone.utc
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    gc.collect()
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk, before_destroy=gc.collect)
 
 
 @pytest.fixture(autouse=True)

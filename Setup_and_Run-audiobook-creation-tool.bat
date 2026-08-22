@@ -68,6 +68,17 @@ echo.
 "%PYCMD%" "%BOOTSTRAP%"
 set "RC=%errorlevel%"
 
+REM Exit code 2 means the user closed the setup window without starting it.
+REM Declining an optional install is not a failure, so say so plainly and close
+REM cleanly rather than showing the error text and holding the window open.
+REM Anything else non-zero is still treated as a genuine failure.
+if "%RC%"=="2" (
+    echo.
+    echo Setup cancelled. Nothing was installed.
+    echo Run this file again whenever you are ready to set the app up.
+    exit /b 0
+)
+
 if not "%RC%"=="0" (
     echo.
     echo Setup did not complete successfully ^(exit code %RC%^).
