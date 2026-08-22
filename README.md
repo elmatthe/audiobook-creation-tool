@@ -1,8 +1,8 @@
 # Audiobook Creation Tool
 
-**A cross-platform desktop app that turns ebooks and loose audio into finished, tagged audiobooks — with a one-click installer, a single clean GUI, and no terminal required.**
+**A cross-platform desktop app that turns books and loose audio into finished, tagged audiobooks — with a one-click installer, a single clean GUI, and no terminal required.**
 
-The Audiobook Creation Tool bundles a **text-to-speech engine** (PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro‑82M AI voice model) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
+The Audiobook Creation Tool bundles a **text-to-speech engine** (PDF / TXT → MP3, using Microsoft Edge TTS over the network plus two local AI voice engines, Kokoro‑82M and Chatterbox) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
 > **Status:** v0.5.0 (in development) — internal repository restructure to a single cross-platform code tree; **no feature or tool-behaviour changes**. The latest published release is **v0.4.0** (self-healing Kokoro AI-voice install + fully self-contained model cache); the download links below point at v0.4.0 until the v0.5.0 release is published. See [Known Limitations](#known-limitations).
 
@@ -39,7 +39,7 @@ All releases are listed on the [**Releases page**](https://github.com/elmatthe/a
 
 Six tools, one window:
 
-1. **TTS Audiobook** — Convert a **PDF or TXT** into a narrated **MP3** using either Microsoft **Edge TTS** (online, no setup, many natural voices) or the local **Kokoro‑82M** AI model (offline once downloaded). Single‑file mode and a batch‑a‑folder‑of‑PDFs mode, with a live log and a **Cancel** button that cleans up cleanly mid‑run.
+1. **TTS Audiobook** — Convert a **PDF or TXT** — or a whole queue of them — into a narrated **MP3** using Microsoft **Edge TTS** (online, no setup, many natural voices), the local **Kokoro‑82M** AI model (offline once downloaded), or the local **Chatterbox** AI model (optional, ~3.9 GB, off by default). **PDF and TXT are the only supported input types** (EPUB was retired in v0.6.1). Add individual files and whole folders to **one queue** and convert them in a single run: folders keep their subfolder structure in the output so same‑named files in different books never collide, and individual files land flat. A live log, **Pause / Resume**, **Cancel** that cleans up cleanly mid‑run, and **Retry Failed** for just the items that did not finish.
 2. **M4B Converter** — Batch‑convert a folder of **M4B audiobooks → clean MP3s** (libmp3lame VBR), with optional bulk metadata and automatic track numbering.
 3. **MP3 Tool** — **Combine** many MP3s into one (with optional gaps and a timestamp sheet), **time‑edit** tracks (pad or trim seconds), and **bulk‑write ID3 tags** (title / artist / album / track numbers, with a paste‑in chapter‑title list).
 4. **M4B Maker** — Turn a set of MP3s into a single **chaptered .m4b** with embedded **cover art**, full metadata, and **Audiobookshelf series tags** (series name + part).
@@ -114,7 +114,7 @@ The app installs itself on first run. There is nothing to configure by hand.
 
 ## Tools — How to Use Each One
 
-**TTS Audiobook.** Pick a PDF or TXT (or a folder of PDFs/TXTs for batch mode), choose a voice, and click Start. Edge voices need no setup and run over the network; Kokoro voices run locally once the model is downloaded (Python < 3.13 only). The log streams progress; **Cancel** stops at the next chapter/paragraph boundary and removes all temp files.
+**TTS Audiobook.** Add PDFs and TXT files — individually, by folder, or both together in the same queue — choose a voice, and click Start. **Only PDF and TXT are accepted**; EPUB was retired in v0.6.1 and is no longer a supported input. Edge voices need no setup and run over the network; Kokoro and Chatterbox voices run locally once their models are downloaded (Python < 3.13 only), and Chatterbox also needs its reference recordings placed on the machine — without them it says so plainly rather than offering a voice that cannot work. The log streams progress and the run controls offer Pause/Resume, **Cancel** (which stops at the next chapter/paragraph boundary and removes all temp files) and Retry Failed.
 
 **M4B Converter.** Add a folder of `.m4b` files, choose an output folder, optionally set bulk metadata and auto‑track numbering, and convert. Each book is re‑encoded to a clean VBR MP3.
 

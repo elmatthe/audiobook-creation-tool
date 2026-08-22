@@ -21,6 +21,7 @@ tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
 from shared import ui_theme  # noqa: E402
+import tk_gate  # noqa: E402
 
 REQUIRED_KEYS = {"mode", "family", "font_heading", "font_button",
                  "geometry", "min_size", "colors", "metrics"}
@@ -38,13 +39,7 @@ GENERIC_STYLES = (
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture
@@ -622,3 +617,231 @@ def test_classic_branch_other_platform(tk_root, monkeypatch):
     assert theme["geometry"] == "1024x720"
     assert theme["min_size"] == (920, 600)
     assert style.theme_use() == "clam"
+
+
+# ---------------------------------------------------------------------------
+# v0.6.1 Plan 4 Phase 14D — the hover-scoped wheel binding's lifetime
+#
+# enable_mousewheel deliberately takes the shared root's *global* wheel slot
+# while the pointer is inside its region, because the launcher runs every tool
+# in one root. Taking a global slot is only safe if it is always given back,
+# and Phase 14D measured two ways it was not: closing a tool unmaps its region
+# out from under the pointer, and destroying one removes the region outright.
+# Neither path fires <Leave>, so the binding outlived its owner — stealing the
+# wheel from whatever the user switched to, and, once the widget was destroyed,
+# firing a Tcl callback at a command that no longer existed ("invalid command
+# name .!frame.!canvas") on every subsequent wheel tick.
+# ---------------------------------------------------------------------------
+
+def _wheel_owner(root):
+    """The Tcl script currently holding the shared <MouseWheel> slot, or ''."""
+    return root.tk.call("bind", "all", "<MouseWheel>")
+
+
+def _wheel_bound(root) -> bool:
+    return any("MouseWheel" in seq for seq in root.bind_all())
+
+
+def _hover_region(parent):
+    """A wrap/canvas pair wired exactly as all three production panels wire it.
+
+    The wrap is laid out rather than left orphaned because Tk sends <Unmap>
+    only to a widget that was actually mapped, and the tool-switch tests below
+    turn on exactly that event.
+    """
+    wrap = ttk.Frame(parent, width=120, height=80)
+    wrap.pack_propagate(False)
+    wrap.pack()
+    canvas = tk.Canvas(wrap)
+    canvas.pack(fill="both", expand=True)
+    ui_theme.enable_mousewheel(canvas, hover_region=wrap)
+    return wrap, canvas
+
+
+@pytest.fixture
+def quiet_wheel(tk_root):
+    """Each wheel-lifetime test both starts and ends with the slot free.
+
+    The entry assertion is the substance: it reports a predecessor that
+    stranded an owner instead of silently absorbing it, and nothing is unbound
+    here — every test below gives the slot back through the real lifecycle it
+    exercises, never through a teardown broom.
+    """
+    assert not _wheel_bound(tk_root), "a previous test stranded a global wheel owner"
+    yield tk_root
+    assert not _wheel_bound(tk_root), "this test stranded a global wheel owner"
+
+
+@pytest.fixture
+def mapped_root(quiet_wheel):
+    """A briefly on-screen root, left withdrawn again for every later test.
+
+    Tk never delivers <Unmap> to a widget that was never mapped, so the
+    tool-switch tests cannot run against the shared withdrawn root — the very
+    event they are about to rely on would not exist. The strandedness check
+    happens *before* the withdraw, because withdrawing is itself an unmap and
+    would otherwise clean up the leak these tests exist to catch.
+    """
+    quiet_wheel.deiconify()
+    quiet_wheel.update_idletasks()
+    quiet_wheel.update()
+    yield quiet_wheel
+    assert not _wheel_bound(quiet_wheel), "this test stranded a global wheel owner"
+    quiet_wheel.withdraw()
+    quiet_wheel.update_idletasks()
+
+
+def test_entering_the_hover_region_installs_the_wheel_owner(quiet_wheel):
+    wrap, _canvas = _hover_region(quiet_wheel)
+    wrap.event_generate("<Enter>")
+    assert _wheel_bound(quiet_wheel), "hovering the region must claim the wheel"
+    wrap.destroy()
+
+
+def test_leaving_into_a_child_keeps_the_wheel_owner(quiet_wheel):
+    """<Leave detail=NotifyInferior> means the pointer moved onto one of the
+    region's own controls, so the region is still hovered and must keep
+    scrolling."""
+    wrap, _canvas = _hover_region(quiet_wheel)
+    wrap.event_generate("<Enter>")
+    claimed = _wheel_owner(quiet_wheel)
+    wrap.event_generate("<Leave>", detail="NotifyInferior")
+    assert _wheel_owner(quiet_wheel) == claimed
+    wrap.destroy()
+
+
+def test_an_ordinary_leave_releases_the_wheel_owner(quiet_wheel):
+    wrap, _canvas = _hover_region(quiet_wheel)
+    wrap.event_generate("<Enter>")
+    assert _wheel_bound(quiet_wheel)
+    wrap.event_generate("<Leave>", detail="NotifyAncestor")
+    assert not _wheel_bound(quiet_wheel)
+    wrap.destroy()
+
+
+def test_destroying_an_active_region_releases_the_wheel_owner(quiet_wheel):
+    """The measured defect: no <Leave> ever arrives when a region is destroyed."""
+    wrap, _canvas = _hover_region(quiet_wheel)
+    wrap.event_generate("<Enter>")
+    assert _wheel_bound(quiet_wheel)
+    wrap.destroy()
+    quiet_wheel.update_idletasks()
+    assert not _wheel_bound(quiet_wheel), (
+        "a destroyed region left its wheel binding on the shared root")
+
+
+def test_destroying_an_active_region_by_its_ancestor_releases_it(quiet_wheel):
+    """Panels are destroyed as a subtree, never by reaching for the wrap frame."""
+    holder = ttk.Frame(quiet_wheel)
+    wrap, _canvas = _hover_region(holder)
+    wrap.event_generate("<Enter>")
+    assert _wheel_bound(quiet_wheel)
+    holder.destroy()
+    quiet_wheel.update_idletasks()
+    assert not _wheel_bound(quiet_wheel)
+
+
+def test_unmapping_an_active_region_releases_the_wheel_owner(mapped_root):
+    """The launcher's tool switch: select_tool pack_forget()s the outgoing
+    panel's container, unmapping the region under the pointer without a
+    <Leave>. A survivor here would scroll the *hidden* tool while the user
+    turns the wheel over the tool they just opened."""
+    holder = ttk.Frame(mapped_root)
+    holder.pack()
+    wrap, _canvas = _hover_region(holder)
+    mapped_root.update()
+    wrap.event_generate("<Enter>")
+    assert _wheel_bound(mapped_root)
+    holder.pack_forget()
+    mapped_root.update()
+    assert not _wheel_bound(mapped_root)
+    holder.destroy()
+
+
+def test_destroying_an_inactive_region_is_harmless(quiet_wheel):
+    wrap, _canvas = _hover_region(quiet_wheel)
+    wrap.destroy()          # never entered — nothing was ever claimed
+    quiet_wheel.update_idletasks()
+    assert not _wheel_bound(quiet_wheel)
+
+
+def test_releasing_the_same_region_repeatedly_is_harmless(mapped_root):
+    """Leave, then unmap, then destroy — an ordinary close fires all three, so
+    release has to be idempotent rather than merely correct once."""
+    holder = ttk.Frame(mapped_root)
+    holder.pack()
+    wrap, _canvas = _hover_region(holder)
+    mapped_root.update()
+    wrap.event_generate("<Enter>")
+    wrap.event_generate("<Leave>", detail="NotifyAncestor")
+    holder.pack_forget()
+    mapped_root.update()
+    holder.destroy()
+    mapped_root.update()
+    assert not _wheel_bound(mapped_root)
+
+
+def test_a_stale_regions_destruction_leaves_a_newer_owner_alone(quiet_wheel):
+    """Ownership, not a broom.
+
+    Only one Tcl slot exists, so a second region entering *replaces* the first
+    region's handler. If the first region then released unconditionally it
+    would silently kill scrolling for the region the pointer is actually over,
+    which is why release is guarded by whether this region still holds the slot.
+    """
+    older, _c1 = _hover_region(quiet_wheel)
+    newer, _c2 = _hover_region(quiet_wheel)
+    older.event_generate("<Enter>")
+    newer.event_generate("<Enter>")
+    owned_by_newer = _wheel_owner(quiet_wheel)
+
+    older.destroy()
+    quiet_wheel.update_idletasks()
+    assert _wheel_owner(quiet_wheel) == owned_by_newer, (
+        "destroying a stale region stole the wheel from the hovered one")
+
+    newer.destroy()
+    quiet_wheel.update_idletasks()
+    assert not _wheel_bound(quiet_wheel)
+
+
+def test_no_wheel_callback_survives_the_widget_it_scrolls(quiet_wheel):
+    """The stranded binding was not merely stale, it was broken: it named a Tcl
+    command for a destroyed canvas, so every later wheel tick anywhere in the
+    launcher raised TclError('invalid command name ...') through Tkinter's
+    callback reporter."""
+    reported: list[str] = []
+    original = quiet_wheel.report_callback_exception
+    quiet_wheel.report_callback_exception = (
+        lambda exc, val, tb: reported.append(f"{exc.__name__}: {val}"))
+    try:
+        wrap, _canvas = _hover_region(quiet_wheel)
+        wrap.event_generate("<Enter>")
+        wrap.destroy()
+        quiet_wheel.update_idletasks()
+        quiet_wheel.event_generate("<MouseWheel>", delta=-120, x=5, y=5)
+        quiet_wheel.update()
+    finally:
+        quiet_wheel.report_callback_exception = original
+    assert not reported, f"a destroyed wheel callback still fired: {reported}"
+
+
+def test_a_remapped_region_can_claim_the_wheel_again(mapped_root):
+    """Releasing on unmap must not make the binding one-shot — switching back
+    to a tool and hovering its options again has to scroll."""
+    holder = ttk.Frame(mapped_root)
+    holder.pack()
+    wrap, _canvas = _hover_region(holder)
+    mapped_root.update()
+    wrap.event_generate("<Enter>")
+    holder.pack_forget()
+    mapped_root.update()
+    assert not _wheel_bound(mapped_root)
+
+    holder.pack()
+    mapped_root.update()
+    wrap.event_generate("<Enter>")
+    assert _wheel_bound(mapped_root), "the region could never claim the wheel again"
+    wrap.event_generate("<Leave>", detail="NotifyAncestor")
+    holder.destroy()
+    mapped_root.update()

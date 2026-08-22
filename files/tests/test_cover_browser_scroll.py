@@ -29,10 +29,12 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
+from tkinter import ttk
 
 import pytest
 
 from mp3_tools import cover_resizer
+from shared import ui_theme
 
 from test_cover_browser import (  # noqa: F401 - fixtures are used by name
     RecordingRunner,
@@ -280,12 +282,88 @@ def test_wheel_scrolling_up_and_down_are_opposite(
     assert canvas.yview()[0] < scrolled
 
 
-def test_the_wheel_binding_is_local_and_never_global(make_panel, tmp_path, tk_root):
-    """A bind_all would steal the wheel from every other panel in the launcher."""
-    panel, _viewport, _runner = _loaded(make_panel, tmp_path)
-    assert not [b for b in tk_root.bind_all() if "MouseWheel" in b]
-    # Executable code only — the module legitimately *explains* in a comment why
-    # bind_all is refused, and a raw substring search would flag that prose.
+def _global_wheel_owner(root) -> str:
+    """The Tcl script currently holding the shared 'all' <MouseWheel> slot."""
+    return root.tk.call("bind", "all", "<MouseWheel>")
+
+
+def test_the_browser_binds_the_wheel_locally_and_claims_nothing_global(
+        make_panel, tmp_path, tk_root):
+    """The thumbnail viewport owns its wheel on the Canvas, never on the root.
+
+    Phase 14D narrowed what this may assert. The original wording — *no* global
+    <MouseWheel> binding may exist anywhere, ever — was true of the browser but
+    false of the application: ``shared.ui_theme.enable_mousewheel`` deliberately
+    takes the root's single wheel slot for as long as the pointer is inside a
+    scrollable options form, which is how the Cover options column, the TTS
+    options column and the M4B settings column all scroll. Asserting the
+    absolute made this test a tripwire for any *other* panel's legitimate hover
+    state rather than a statement about the browser.
+
+    What actually matters is unchanged and is what is measured here: the
+    browser contributes nothing to that shared slot. Its own binding lives on
+    its Canvas, and building, using and closing it leaves whatever owned the
+    slot beforehand exactly as it found it.
+    """
+    baseline = _global_wheel_owner(tk_root)
+    panel, viewport, _runner = _loaded(make_panel, tmp_path)
+
+    assert "<MouseWheel>" in panel.browser.canvas.bind(), (
+        "the thumbnail canvas lost its own wheel binding")
+    assert _global_wheel_owner(tk_root) == baseline, (
+        "building the browser took the shared global wheel slot")
+
+    panel.browser.set_view(cover_resizer.VIEW_THUMBNAILS)
+    viewport.scroll_to(24)
+    panel.browser.notify_scrolled()
+    assert _global_wheel_owner(tk_root) == baseline, (
+        "scrolling the browser took the shared global wheel slot")
+
+    panel.browser.close()
+    assert _global_wheel_owner(tk_root) == baseline, (
+        "closing the browser disturbed the shared global wheel slot")
+
+
+def test_a_hovered_options_form_does_not_break_the_browsers_locality(
+        make_panel, tmp_path, tk_root):
+    """The browser neither adds to nor steals the shared slot another panel holds.
+
+    A launcher root really can have a global <MouseWheel> installed while the
+    pointer sits in some panel's scrollable options. The browser must be
+    invisible to that: it may not clear the other region's ownership, and it may
+    not sneak a binding of its own in on top of it.
+    """
+    other_wrap = ttk.Frame(tk_root, width=120, height=80)
+    other_wrap.pack_propagate(False)
+    other_wrap.pack()
+    other_canvas = tk.Canvas(other_wrap)
+    other_canvas.pack(fill="both", expand=True)
+    ui_theme.enable_mousewheel(other_canvas, hover_region=other_wrap)
+    other_wrap.event_generate("<Enter>")          # that form is now hovered
+    hovered_owner = _global_wheel_owner(tk_root)
+    assert hovered_owner, "the unrelated form failed to claim the wheel"
+
+    try:
+        panel, _viewport, _runner = _loaded(make_panel, tmp_path)
+        panel.browser.set_view(cover_resizer.VIEW_THUMBNAILS)
+        panel.browser.notify_scrolled()
+        assert "<MouseWheel>" in panel.browser.canvas.bind()
+        assert _global_wheel_owner(tk_root) == hovered_owner, (
+            "the browser disturbed an unrelated panel's hover-scoped wheel")
+        panel.browser.close()
+        assert _global_wheel_owner(tk_root) == hovered_owner
+    finally:
+        # Release through the region's own lifecycle, never a blanket unbind:
+        # a broom here would hide exactly the ownership leak Phase 14D fixed.
+        other_wrap.destroy()
+        tk_root.update()
+    assert not [b for b in tk_root.bind_all() if "MouseWheel" in b], (
+        "the unrelated region did not give the wheel back when it was destroyed")
+
+
+def test_the_browser_module_contains_no_bind_all_path_at_all(make_panel, tmp_path):
+    """Executable code only — the module legitimately *explains* in a comment why
+    bind_all is refused, and a raw substring search would flag that prose."""
     import ast
 
     tree = ast.parse(Path(cover_resizer.__file__).read_text(encoding="utf-8"))

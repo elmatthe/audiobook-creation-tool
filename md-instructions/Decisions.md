@@ -4,6 +4,319 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-22 — Plan 4 closeout: EPUB is retired and archived, Decision 52B is partially superseded, and the licence obligation survives in production
+
+**Decision (v0.6.1 Plan 4, Phase 5, ratified at the Phase 15 closeout).**
+
+**1. EPUB is not a supported input. PDF and TXT are the only ones.** This **partially supersedes
+Decision 52B**, which read *"TTS folder batch remains PDF/TXT only; EPUB remains single-file
+only."* The folder-batch half stands unchanged; **the single-file EPUB half is withdrawn.** There
+is no EPUB mode, no conversion option, no `.epub` dialog filter, and no internal route — stale
+persisted state, a retry and a direct internal dispatch call are all refused exactly as the UI is,
+proven by 101 AST- and metadata-driven guards rather than by review.
+
+**Why:** EPUB was the least-used and most brittle input, and it was the only one dragging three
+parsing dependencies (`ebooklib`, `beautifulsoup4`, `lxml`) into every install. Keeping a
+half-supported path alive through the Plan 4 panel restructure would have meant maintaining and
+re-testing a mode nobody had asked for.
+
+**2. The source is archived, not deleted, and the archive is permanent.**
+`files/archived-code/epub-tts/` holds three extracted source files plus a `README.md` manifest
+giving, per file, the original path, purpose, source SHA, retirement reason, retained production
+counterpart, licence and restoration guidance. Every byte came from `git show`, never from a
+working directory. **It is not a temporary drop and is never deleted with one.** Its inertness is
+proved, not asserted: outside `scripts/`, imported and named by nothing in production, uncollectable
+as tests, no `__init__.py` / `conftest.py` / `setup.py` / `pyproject.toml` / `sitecustomize`, no
+top-level `if` and no top-level call in any archived module, and unreachable by `release.py`, which
+walks `ROOT_FILES` + one launcher + `scripts/` only.
+
+**Why:** deleting working GPL-3.0 upstream-derived code to save four files is a false economy. An
+archive that cannot be imported, collected or packaged costs nothing and makes restoration a
+mechanical act rather than an archaeology exercise.
+
+**3. The module names `epub2tts_edge` and `epub2tts_gui` are deliberately kept.** They are **not**
+evidence of EPUB support. Renaming would have had to move atomically across the launcher module
+path, `bootstrap.LAUNCHER_FALLBACK`, `tts/__init__.py`, nine test modules holding those paths as
+literal strings, `files/Dockerfile` and `README.md` — while Phases 6 and 7 restructured that same
+panel. The boundary is written down in three places instead (the panel docstring, the README
+`scripts/tts` bullet, and a dedicated manifest section), and a guard asserts the manifest says so.
+
+**Why:** the names carry the upstream provenance, and a half-completed rename during a
+simultaneous restructure is exactly the failure the drop warned about. This is disclosure, not
+avoidance.
+
+**4. The GPL-3.0 licence and the upstream attribution are obligations of *production*, not of the
+archive.** The surviving Edge PDF/TXT engine is the same derivation of
+[epub2tts-edge](https://github.com/aedocw/epub2tts-edge) by **Christopher Aedo**, so the README
+License section and the credit stay byte-identical and are now pinned by tests, and
+`generate_metadata` still writes the upstream URL into every M4B. One line was removed — `ebooklib`
+left the "gratefully relying on" list — because that is a dependency acknowledgement, not the
+protected attribution, and the project genuinely no longer relies on it.
+
+**Why:** retiring a feature does not retire a licence. Anyone reading the shipped product must
+still be told what it derives from.
+
+— Ruled by the maintainer for Plan 4 (superseding the EPUB half of Decision 52B); implemented at
+Phase 5 and recorded by Claude Code at the Phase 15 closeout on 2026-08-22.
+
+---
+
+## 2026-08-22 — TTS has one unified PDF/TXT queue; direct files and folders are not two modes
+
+**Decision (v0.6.1 Plan 4, decisions 1A and 2A, ratified at the Phase 15 closeout).**
+
+**Direct files and whole folders coexist in one queue and one run.** There is no Single-File mode,
+no Batch-Folder mode and no mode switch. One run preserves occurrence identity, deliberate
+duplicates, provenance and natural ordering; **folder-derived items are mirrored** into the output
+tree so same-named files from different books cannot collide, and **direct files are placed flat**.
+The frozen snapshot captured at run start is what a Retry Failed re-runs, so a retry reproduces the
+exact original configuration rather than today's UI state.
+
+**Why:** the two old modes differed in almost nothing except which widget the user had touched
+last, and every difference between them was a place for placement rules to diverge. Collapsing
+them removed a whole class of "which mode was I in" bugs, and it is what let TTS adopt the Plan 3
+importer as-is instead of growing a second list. Mixed provenance in one run is the normal case for
+a real audiobook project, not an edge case worth a mode for.
+
+— Ruled by the maintainer on 2026-08-11 (decisions 1A and 2A, "ambiguities remaining: none");
+implemented across Phases 6–7 and recorded by Claude Code at the Phase 15 closeout.
+
+---
+
+## 2026-08-22 — Chatterbox is an authorized Plan 4 scope expansion, on the exact model measured in Phase 8, with its dependency cost stated rather than absorbed
+
+**Decision (v0.6.1 Plan 4, Phases 8–10, ratified at the Phase 15 closeout).**
+
+**1. Chatterbox belongs to Plan 4.** It is a recorded scope expansion, explicitly ruled in by the
+maintainer on 2026-08-11 rather than deferred to a plan of its own. Phases 8–10 were kept
+self-contained so the expansion could be gated, measured and stopped at a hard boundary if the
+evidence had gone the other way.
+
+**Why:** the plan was already rebuilding the TTS panel's queue, dispatch and job control. Adding a
+third backend afterwards would have meant reopening every one of those seams a second time. It was
+scoped in with its own gates precisely so "we are already in here" could not become an excuse for
+an unmeasured integration.
+
+**2. The model is `ResembleAI/chatterbox-turbo`, from the published `chatterbox-tts==0.1.7`
+wheel — and the import path is `chatterbox.tts_turbo.ChatterboxTurboTTS`.** Everything here was
+read off the wheel, not off documentation or upstream master. The package root exports only
+`ChatterboxTTS`, `ChatterboxVC`, `ChatterboxMultilingualTTS` and `SUPPORTED_LANGUAGES`, so the
+documented `from chatterbox import ChatterboxTurboTTS` **fails**. **Nano is not reachable from
+0.1.7** — `from_pretrained` takes `device` only, and the `nano=` parameter exists solely on
+unversioned master. The model is 4,044,167,698 bytes (~3.86 GiB), MIT-licensed; output is float32
+at 24 kHz; Turbo logs a warning and **ignores** `cfg_weight`, `exaggeration` and `min_p`; and the
+upstream PerTh watermark is applied inside `generate` and is mandatory and default.
+
+**Why:** the §5.6 Turbo/Nano discrepancy in the plan was real, and building against the documented
+import would have failed at runtime on a fresh machine. Recording what the wheel actually exposes
+is what makes a future upgrade a diff rather than a rediscovery.
+
+**3. The dependency cost is stated, not absorbed.** Adopting the pin **downgraded**
+`torch` and `torchaudio` to **2.6.0**, `transformers` to **5.2.0**, `safetensors` to **0.5.3**, and
+pinned `numpy` to **1.26.4**, alongside the pins upstream leaves floating (`resemble-perth==1.0.1`,
+`s3tokenizer==0.3.0`, `spacy-pkuseg==1.0.1`, `pyloudnorm==0.2.0`, `omegaconf==2.3.1`). All are
+gated `python_version < "3.13"` alongside Kokoro. **This was proven not to damage Kokoro before it
+was accepted**: on the combined stack in an isolated Python 3.12.10 venv, a real CPU synthesis
+through the production `tts/kokoro_synth.py` produced byte-identical output (33,837 bytes, 8.35 s)
+and the full suite passed unchanged; a clean venv then built from the committed
+`requirements.txt` in one `pip install` with no manual correction. Installed size grew ~1,152 MB
+(111 → 169 packages).
+
+**4. `setuptools` is held at `80.9.0` as declared compatibility debt.** `resemble-perth` imports
+`pkg_resources` while declaring no dependencies at all, and `chatterbox-tts` declares no setuptools
+bound. Under this project's `82.0.1`, which removed `pkg_resources`, the import fails, perth
+swallows it, sets its watermarker class to `None`, and model construction dies with a misleading
+`TypeError: 'NoneType' object is not callable`. The reason lives beside the pin, and the
+instruction is to move forward as soon as upstream stops importing it.
+
+**Why:** a silent four-package downgrade under a working Kokoro stack is exactly the kind of change
+that surfaces months later as "the voices sound different." Writing down each moved pin, and
+proving Kokoro byte-identical across the move, is what makes the downgrade auditable. Pinning
+backwards to keep a third party's undeclared import alive is debt and is labelled as debt.
+
+— Ruled by the maintainer on 2026-08-11 (scope) and 2026-08-15 (gate G, the setuptools pin);
+recorded by Claude Code at the Phase 15 closeout.
+
+---
+
+## 2026-08-22 — Chatterbox was adopted CPU-first on measured evidence; CUDA remains open and unauthorized
+
+**Decision (v0.6.1 Plan 4, decision 7A and the Phase 8b gate E ruling).**
+
+**Discovery was CPU-first and the numbers went to the maintainer before anything was integrated.**
+On HOME-PC the measured aggregate real-time factor was **1.211** (0.826 audio-seconds per
+compute-second) with a **~6,191 MB** peak working set — **slower than real time**, and it must never
+be described as real-time CPU synthesis. That is neither clearly fine nor clearly fatal, and
+calling it "practical" would have meant inventing a threshold. The phase stopped and returned the
+measurements.
+
+**Maintainer ruling (2026-08-15): accepted, for an optional, non-default engine.** Device selection
+resolves `cuda → mps → cpu` behind one testable seam, so a CUDA machine will use it if one is
+present — but **no CUDA-specific launcher, requirements entry, bootstrap step, index URL or
+shared-PyTorch change is authorized**, and none was made. No CUDA build was installed or
+benchmarked. On Apple Silicon the same seam resolves to `mps` and was later proven live in Phase 13
+against the real model.
+
+**Why:** an engine this heavy is a user-visible cost, not an implementation detail, so the decision
+to ship it belonged to the maintainer with the figures attached. Leaving CUDA as an untaken branch
+rather than an unbuilt feature means the acceleration question can be reopened later without
+unpicking anything — and means no one can quietly add a multi-gigabyte CUDA wheel to a
+requirements file that a non-technical user installs by double-clicking.
+
+— Measured at Phase 8a; ruled by the maintainer on 2026-08-15; recorded by Claude Code at the
+Phase 15 closeout.
+
+---
+
+## 2026-08-22 — The Chatterbox voice set is exactly four maintainer-authorized recordings, approved by ear before any registry row existed
+
+**Decision (v0.6.1 Plan 4, Phases 9–10 and the Phase 13 macOS gate).**
+
+**The voice set is fixed at four**, cloned from four maintainer-supplied reference recordings, and
+labelled `Chatterbox - Female 1`, `Chatterbox - Female 2`, `Chatterbox - Male 1`,
+`Chatterbox - Male 2` (ASCII hyphens). The earlier built-in-voice / gender-split design is
+**superseded**.
+
+**Approval preceded registration, deliberately.** Phase 9 was a hard stop: four evaluation outputs
+were produced from the four references and returned to the maintainer with a summary table and
+performance figures, and **no `VoiceEntry` row existed** until they had listened. They approved all
+four on 2026-08-15, and approved all four again on 2026-08-21 after hearing them synthesized on
+real Metal through the production path on macOS. The twelve original rows kept their identity —
+voice IDs, backends, timing presets, ordering and the Steffan default (`VOICES[0]`,
+`en-US-SteffanNeural`, edge) are unchanged.
+
+**Display labels are the one thing that did move**, by explicit maintainer override on 2026-08-21,
+into one consistent `Engine Gender - Name (locale)` form across all sixteen rows. **The override is
+limited to user-facing display labels**; the exact ordered list, each former label proven
+unoffered and unresolvable, and every other column are pinned by 39 tests. **No migration mechanism
+was built, deliberately** — the selected voice is not persisted at all, by any key, so
+compatibility code would have been fiction; two tests pin that absence so a future change which
+starts persisting a voice fails loudly.
+
+**Why:** a cloned voice is a judgement call about how someone sounds, and no automated gate can
+make it. Registering a voice the maintainer had not heard would have put an unapproved identity in
+front of users behind a passing test suite.
+
+— Approved by the maintainer on 2026-08-15 (listening) and 2026-08-21 (macOS + labels); recorded by
+Claude Code at the Phase 15 closeout.
+
+---
+
+## 2026-08-22 — Local Chatterbox assets are a portability boundary: never committed, never packaged, and never made portable without separate authorization
+
+**Decision (v0.6.1 Plan 4, standing rule from Phase 0 through the Phase 15 closeout).**
+
+**The four reference recordings in `files/Chatterbox-Voice-Uploads/`, every derivative made from
+them, and every cached voice-identity conditional are local-only.** They are ignored by a narrow
+rule at `.gitignore:55`, are untracked, were never staged, and exist nowhere in this repository's
+history. Nothing derived from them is committed or packaged: derivatives and conditionals live
+under the ignored `files/runtime-data/chatterbox/`, and production **refuses structurally** to
+write inside the recordings folder and re-verifies each source SHA-256 **on every use**. Their only
+authorized provenance statement is *maintainer-supplied local reference recording, authorized by
+the maintainer for use by this local Chatterbox integration* — no copyright, consent,
+redistribution or licence claim is made, and the speakers are not to be identified.
+
+**Therefore Chatterbox is not portable, and that is the intended state.** A clone of this
+repository on another machine will start, convert, and report every Chatterbox voice as *setup
+required*. **Making Chatterbox work elsewhere requires separate explicit maintainer authorization**
+and their own placement of their own recordings. No packaging step, installer change, download or
+bundling may be added to close that gap on anyone's initiative.
+
+**Why:** these are recordings of real people. The moment one enters Git history it is effectively
+permanent and effectively published, and no later commit removes it. A boundary that depends on
+remembering to be careful is not a boundary — so it is enforced by an ignore rule, by hash
+verification on every use, by a structural write refusal, and by a degraded path that is truthful
+instead of resourceful.
+
+— Standing maintainer rule from Phase 0 (2026-08-11), re-verified at every phase gate including
+Phase 13 on macOS and Phase 15 at closeout; recorded by Claude Code.
+
+---
+
+## 2026-08-22 — A hover-scoped global Tk binding must be released by ownership, on every path that ends the hover; and a missing Tk root is a failure where the desktop is the platform
+
+**Decision (v0.6.1 Plan 4, Phase 14 / 14C / 14D).**
+
+**1. `enable_mousewheel` keeps taking the shared root's single global `<MouseWheel>` slot — and now
+gives it back on every path that ends the hover.** The launcher runs all six tools inside one root,
+so `bind_all` owns exactly one wheel slot that every scrollable options region takes turns holding.
+That design stays. What was wrong was the release side: only `<Leave>` released it, and **two real
+lifecycle paths never fire a `<Leave>`** — the launcher's tool switch `pack_forget()`s the outgoing
+panel out from under the pointer, and closing a panel destroys the region outright. Release is now
+also bound to **`<Unmap>`** and **`<Destroy>`**.
+
+**2. Release is guarded by ownership, never unconditional.** Because there is only one slot, a
+second region entering *replaces* the first region's handler. A departing region therefore
+compares the currently installed Tcl script against the script it installed, and gives the slot
+back **only if it still holds it**. The script Tk installs names the region's own registered
+callback, which makes it a self-describing ownership token needing no extra bookkeeping.
+
+**Why:** an unconditional release would silently kill scrolling for the region the pointer is
+actually over — trading a stale-binding bug for a dead-scroll bug. The measured symptoms of the
+original defect were both real: the wheel scrolled the tool the user had just left, and once the
+widget was destroyed the stranded callback named a Tcl command that no longer existed, so **every**
+later wheel tick anywhere in the launcher raised `TclError: invalid command name …` through
+Tkinter's callback reporter.
+
+**3. The `<Unmap>` binding is kept because `pack_forget()` is the real tool-switch lifecycle**, and
+it was proven to leak. It is not defensive padding.
+
+**4. A test contract may not be corrected by weakening it.** The Cover browser's rule had been
+*"no global `<MouseWheel>` binding may exist anywhere, ever"* — true of the browser, false of the
+application, and therefore a tripwire for any other panel's legitimate hover state. It was replaced
+by what actually matters and is strictly harder to satisfy: the browser's binding lives on its own
+Canvas, and building, scrolling and closing it leaves whatever owned the shared slot **exactly** as
+it found it, including when an unrelated region legitimately holds it.
+
+**5. Where a windowing system is part of the platform, a failed `tk.Tk()` fails the run.** Every
+live-Tk module used to wrap its root in `try/except TclError → pytest.skip`. That is correct on a
+headless POSIX box and wrong on Windows, where an interactive login always owns a window station:
+Phase 14 measured one full-suite invocation that **silently dropped forty-nine Chatterbox
+integration tests and still exited zero**. The classification now lives once, in
+`files/tests/tk_gate.py`, and is made **from the platform, not from the text of the error** —
+Windows fails and carries the original exception; macOS and Linux still skip. Only `TclError` is
+classified; anything else propagates as itself, because labelling a programming error "headless" is
+how the coverage went missing. A structural AST guard forbids any collected module from opening a
+root outside the gate.
+
+**Why (5):** a skip is a claim that an absence is acceptable. On Windows that claim is false, and a
+false skip is worse than a failure because the run still reports success. Deciding from the
+platform rather than from the exception text also means a *new* Tcl failure mode cannot pattern-match
+its way into being tolerated.
+
+— Diagnosed, fixed and proved at Phase 14B/14C/14D; approved by the maintainer on 2026-08-22 in the
+prompt authorizing Phase 15; recorded by Claude Code.
+
+---
+
+## 2026-08-22 — HEIC/HEIF format preservation is confirmed by live evidence; the 2026-08-11 ruling stands unchanged
+
+**Decision (v0.6.1 Plan 4, decisions 3A and 54A — ratification, not a new rule).**
+
+The rule is already recorded in full in the **2026-08-11** ADR below (*"Image-format capability is
+a fifth shared module … with decode and encode kept separate and a missing encoder refusing rather
+than substituting"*). It is repeated here only to record that it survived contact with real
+hardware and is closed:
+
+**HEIC output preserves the input format, and an unavailable encoder refuses truthfully rather than
+silently writing a `.jpg`.** Phase 1 could only prove this through injected probe seams — no real
+HEIC file was involved and none was claimed. **Phase 13 proved it live** on Apple Silicon against a
+genuine maintainer-supplied `.heic` through the production code: real ISO-BMFF `ftyp` brand,
+decode, **HEIC in → HEIC out with no `.jpg` anywhere**, decode and encode capabilities reported
+separately and truthfully, and the output reopened and verified at 1024×1024 HEIF. **The source
+file's SHA-256 was unchanged afterwards.** The `.jpg` fallback for genuinely *unknown* extensions
+such as `.webp` is unchanged, and `REPLACEABLE_SUFFIXES` / `written_suffix()` remain byte-for-byte
+as they were.
+
+**Why record a ratification at all:** the original ADR was written from seam-level evidence and
+said so. Leaving it there would have left a permanent decision resting on a proof it explicitly
+disclaimed. This closes that gap without restating or amending the rule.
+
+— Ruled by the maintainer on 2026-08-11 (decisions 3A / 54A); live evidence obtained at Phase 13 on
+2026-08-20/21 and recorded by Claude Code at the Phase 15 closeout.
+
+---
+
 ## 2026-08-19 — Chatterbox narration timing is frozen for Plan 4, and the MP3 file-size question is closed at the tested default
 
 **Decision (v0.6.1 Plan 4, Phase 12 closeout — the maintainer's ruling after listening to the

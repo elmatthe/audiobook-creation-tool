@@ -25,6 +25,7 @@ tk = pytest.importorskip("tkinter")
 
 from shared import config, output_paths, preferences_ui  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
+import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
@@ -48,13 +49,7 @@ PANEL_SOURCES = {
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture(autouse=True)

@@ -19,6 +19,7 @@ import pytest
 
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
+import tk_gate  # noqa: E402
 
 EXPECTED_TOOLS = ["tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b_metadata"]
 
@@ -37,13 +38,7 @@ windows_only = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture

@@ -26,6 +26,7 @@ from tkinter import ttk  # noqa: E402
 
 from shared import config, output_paths as op  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
+import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -54,13 +55,7 @@ EXPECTED_PARENTS = {
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture
@@ -866,7 +861,9 @@ def test_the_window_constants_are_unchanged():
 def test_the_version_is_unchanged():
     from shared.version import VERSION
 
-    assert VERSION == "0.5.1"
+    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # nowhere else. This guard now pins the approved closeout version.
+    assert VERSION == "0.6.1"
 
 
 # --------------------------------------------------------------------------- #

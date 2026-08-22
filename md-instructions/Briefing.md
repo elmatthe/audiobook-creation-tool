@@ -15,10 +15,10 @@
 
 ## What This Project Does
 
-The Audiobook Creation Tool is a cross-platform (Windows + macOS) desktop app that turns ebooks
+The Audiobook Creation Tool is a cross-platform (Windows + macOS) desktop app that turns books
 and loose audio into finished, tagged audiobooks. It bundles a **text-to-speech engine**
-(EPUB / PDF / TXT → MP3, using Microsoft Edge TTS over the network plus the local Kokoro-82M AI
-model) with a suite of **MP3/M4B utilities** (combine MP3s, batch M4B→MP3, build chaptered M4B
+(**PDF / TXT → MP3** — Microsoft Edge TTS over the network, plus two local AI engines, Kokoro-82M
+and Chatterbox Turbo) with a suite of **MP3/M4B utilities** (combine MP3s, batch M4B→MP3, build chaptered M4B
 files with cover art and series tags, resize cover images, and edit existing M4B metadata). It is
 built for **non-technical users**: they download a zip, double-click one setup file, and get a
 single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows
@@ -36,10 +36,16 @@ flashing during use.
   **tkinter/ttk is the approved toolkit going forward**: the v0.6.0 Drop 1 prototype was
   built, reviewed against screenshot evidence and approved on 2026-08-02, which settled the
   open question of whether ttk could carry a modern dark UI without a toolkit switch.
-- **Key libraries:** edge-tts (network TTS), kokoro + torch (local AI TTS), mutagen (audio
-  metadata), PyMuPDF/fitz (PDF text extraction), pydub + soundfile + numpy/scipy (audio
-  assembly), ebooklib + beautifulsoup4 + lxml (EPUB parsing), nltk (sentence tokenization),
-  pillow (cover images). All pinned to exact versions in `scripts/requirements.txt`.
+- **Key libraries:** edge-tts (network TTS), kokoro + torch (local AI TTS), chatterbox-tts
+  (the second local AI TTS engine, added in v0.6.1), mutagen (audio metadata), PyMuPDF/fitz (PDF
+  text extraction), pydub + soundfile + numpy/scipy (audio assembly), nltk (sentence
+  tokenization), pillow + pillow-heif (cover images, including HEIC/HEIF). All pinned to exact
+  versions in `scripts/requirements.txt`. **`ebooklib`, `beautifulsoup4` and `lxml` were removed
+  in v0.6.1** when EPUB was retired — each had its consumers enumerated and its
+  reverse-dependencies checked first, and the three pins are recorded verbatim in a
+  `requirements.txt` comment so restoration is mechanical. `setuptools` is deliberately held at
+  `80.9.0` (not the newer `82.0.1`) as recorded compatibility debt: `resemble-perth`, which
+  Chatterbox pulls in, imports the `pkg_resources` that `82.0.1` removed.
 - **External binaries:** ffmpeg + ffprobe — installed system-wide by the bootstrap (winget
   `Gyan.FFmpeg` / Homebrew) or dropped as a portable build into `files/bin/`.
 - **Platform:** cross-platform Windows + macOS from a **single code tree**
@@ -92,6 +98,9 @@ flashing during use.
   the classic fallback, plus `style_tk_widget` for classic Tk widgets ttk cannot style, the
   `enable_mousewheel` scroll-on-hover helper and the shared `ProgressIndicator` —
   progressbar + counter/percentage label, main-thread-only API, used by all six tools),
+  `image_capabilities.py` (the one place HEIC/HEIF support is probed, with decode and encode
+  reported separately — see *Image capabilities* below), `espeak_data.py` (the macOS espeak-ng
+  short-data-path seam Kokoro needs — see *Known limitations*),
   `version.py` (single source of truth),
   `release.py` (dev-only zip packager, never imported by the app), `close_terminal.py`
   (macOS Terminal auto-close helper).
@@ -461,12 +470,67 @@ flashing during use.
   release archives** by the packager's explicit `scripts/` scope; its "work" is a timed no-op
   that runs no process and produces no output.
 
+
+### Image capabilities (v0.6.1 Plan 4)
+
+`shared/image_capabilities.py` replaced the bare optional `import pillow_heif` that used to sit at
+the top of `cover_resizer.py`. It imports and registers the plugin exactly once, under a lock, and
+**reports decode and encode independently** — a `libheif` build can genuinely read HEIC and be
+unable to write it. Encode capability is proved by *actually encoding* a 1×1 image to memory,
+because `register_heif_opener()` installs a saver whether or not an encoder exists behind it. The
+probe never raises; every failure becomes a capability carrying a truthful reason, and the import
+dialog's filter follows the probe rather than a hard-coded string.
+
+**HEIC preserves the input format.** `resize_for_audiobook` refuses a `.heic`/`.heif` destination
+it cannot honour, with `UnsupportedImageFormat`, rather than silently writing a `.jpg`. The
+pre-existing `.jpg` fallback for genuinely *unknown* extensions such as `.webp` is unchanged, and
+`REPLACEABLE_SUFFIXES` / `written_suffix()` are byte-for-byte unchanged. `pillow-heif==1.5.0` is
+pinned but deliberately **not** in `bootstrap.REQUIRED_IMPORTS`: that list is what a machine must
+have, and optional HEIC support is not a startup requirement.
+
+### The third TTS engine — Chatterbox (v0.6.1 Plan 4)
+
+`tts/chatterbox_synth.py` mirrors `kokoro_synth.py`: the same module-load `HF_HOME` fallback into
+the **existing** in-tree model cache (there is no second cache), lazy imports so nothing heavy
+loads at import time, a single-first-load allowance for Windows Application Control, and an
+identical worker signature. It drives `chatterbox.tts_turbo.ChatterboxTurboTTS` from the pinned
+`chatterbox-tts==0.1.7` wheel.
+
+- **Device selection resolves `cuda → mps → cpu` behind one testable seam.** The engine was
+  adopted CPU-first on measured evidence and is **optional and non-default**.
+- **Four fixed voices** cloned from four maintainer-supplied reference recordings. Reference audio
+  is verified by SHA-256 **on every use**; short derivatives and cached voice-identity
+  conditionals live under the ignored `files/runtime-data/chatterbox/`, keyed on voice + source
+  hash + engine release + clip spec so a stale entry misses rather than gets reused. A manifest
+  records label → source → source SHA-256 → derivative → parameters, and writes back into the
+  recordings folder are refused structurally.
+- **Text is planned on natural boundaries** — paragraph → sentence → clause → whitespace → hard
+  limit, packed to a 300-character ceiling — and **no structural newline reaches the model**,
+  because the model renders one as a pause of no fixed length. A plan that does not reproduce its
+  source text is refused outright.
+- **Degraded installs are truthful.** Without the package, the application starts and offers the
+  twelve Edge/Kokoro voices. Without the recordings, it starts, converts, and reports the
+  Chatterbox voices as *setup required* — missing recordings are deliberately not a startup
+  requirement, and no broken selection is offered.
+- The upstream PerTh watermark path is untouched.
+
+**Local assets are a portability boundary, not an asset.** The four reference recordings and every
+derivative and cached conditional are ignored, untracked and never packaged. Making Chatterbox
+work on a different machine requires the maintainer to place their own recordings and is a
+separately authorized action — nothing in this repository carries them.
+
 ## Features
 
-- **TTS Audiobook** (`tts/epub2tts_gui.py`) — EPUB/PDF/TXT → MP3; 12 voices (7 Edge network +
-  5 Kokoro local AI); single file or batch folder (PDF / TXT; nested subfolders are mirrored
-  in the output so same-named files in different books never collide); per-chunk retry;
-  Cancel. Edge voices honor all five pause fields in **single-file** conversion; Edge
+- **TTS Audiobook** (`tts/epub2tts_gui.py`) — **PDF/TXT → MP3** (v0.6.1: EPUB retired, see
+  below); **16 voices** (7 Edge network + 5 Kokoro local AI + 4 Chatterbox local AI); **one
+  unified queue** in which direct files and whole folders coexist in a single run — folder-derived
+  items are mirrored into the output so same-named files in different books never collide, direct
+  files are placed flat, and occurrence identity, deliberate duplicates, provenance and natural
+  ordering all survive the run's frozen snapshot and a Retry Failed; Plan 3's shared job controls
+  (Pause/Resume, Cancel, Summary/Details, progress, current-run ETA, Retry Failed); per-chunk
+  retry. **The module name is historical**: `epub2tts_gui` / `epub2tts_edge` keep the upstream
+  GPL-3.0 provenance of the surviving Edge engine and no longer imply EPUB support.
+  Edge voices honor all five pause fields in **single-file** conversion; Edge
   **batch folder** mode honors speaker + rate only — inter-sentence pacing there is
   Edge's natural prosody by deliberate decision (a timing-aware batch rewrite was
   built, measured, and rejected by ear — see Decisions.md 2026-07-19). Kokoro voices
@@ -482,7 +546,18 @@ flashing during use.
   Audiobookshelf-compatible series tags (freeform `----:com.apple.iTunes:SERIES`/`SERIES-PART`
   atoms — what ABS's ffprobe scanner actually reads).
 - **Cover Image Converter** (`mp3_tools/cover_resizer.py`) — pad/crop cover art to square;
-  JPG/PNG/HEIC.
+  JPG/PNG/HEIC (HEIC in → HEIC out; never a silent JPEG substitution). Adopts the shared importer
+  and the shared job controls, and adds a **three-view browser — Details, List and Medium
+  Thumbnails**, defaulting to Details. All three are projections of the one imported-file manager
+  rather than a rival list, so order and selection survive a view switch by construction, and two
+  deliberate duplicates of one path stay two independently selectable items. Click and key
+  handling routes through one pure selection engine, so the three views behave identically, with
+  anchors and ranges in **manager order** rather than widget order. Thumbnail decoding runs on a
+  worker thread producing plain data only, is lazy and visible-only, and is hard-capped at 60
+  items — an unmapped widget honestly answers "all of it" for its own extent, so without the cap a
+  5,000-image import would decode 5,000 previews. A bounded LRU (96 entries, deliberately a count
+  and not a byte budget) is the single owner of a decoded image. Late results are dropped inertly
+  and nothing is lost: the next refresh asks again for whatever is still visible.
 - **M4B Metadata Editor** (`mp3_tools/m4b_metadata_editor.py`) — edit existing M4B tags without
   re-encoding; preserve-by-default (blank = unchanged); series detection across vendor freeform
   + movement atoms; auto-number series parts; per-file chapter-title import; writes copies.
@@ -548,6 +623,10 @@ Audiobook-Creation-Tool/
     ├── test-files/             ← local fixtures incl. copyrighted media (entirely untracked;
     │                             point tests at it via KOKORO_TEST_PDF_FOLDER)
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
+    ├── archived-code/epub-tts/ ← PERMANENT. The retired EPUB source + its manifest (tracked,
+    │                             inert, unpackaged, uncollectable). Not a temporary drop.
+    ├── Chatterbox-Voice-Uploads/ ← the four local reference recordings (entirely untracked and
+    │                             gitignored; never committed, never packaged)
     ├── UI-Current-Screenshots/ ← the v0.5.1 before-state UI reference (8 images, tracked)
     ├── UI-Prototype-Screenshots/v0.6.0-drop1/
     │                           ← the APPROVED v0.6.0 Drop 1 evidence: 10 images, 1920x1080
@@ -560,12 +639,16 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 
 ## Current Version
 
-v0.5.1 (v0.5.0 line plus the Jenny Edge voice; v0.4.0 is the latest
-published GitHub release — remote: [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool))
+**v0.6.1** — set at the v0.6.1 Plan 4 closeout on 2026-08-22. v0.4.0 is still the latest
+*published* GitHub release (remote:
+[elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)).
 
-**v0.6.0 Drops 2 and 3 are approved and closed, and neither changed the version.** `version.py`
-is still `0.5.1`, there is no v0.6.0 heading, tag, release or published archive, and the wider
-v0.6.x initiative is **not** complete — five of the nine plans remain undrafted.
+**This is a version identity, not a release.** `version.py` and `config.toml` read `0.6.1`, and
+that is the whole of it: there is **no `[0.6.1]` changelog heading, no tag, no GitHub release, no
+built archive and no publication**, and the branch `feature/0.6.1-tts-cover-workflows` is **not
+merged** — integration is the maintainer's decision. v0.6.0 Drops 1–3 (Plans 1–3) never carried a
+version of their own and still do not; v0.6.1 is the first bump since v0.5.1. The wider v0.6.x
+initiative is **not** complete — five of the nine plans (5–9) remain undrafted.
 
 ## High-Level State
 
@@ -595,6 +678,72 @@ cleanup and rebuild, and `config.toml` in both release archives. Approved at Pha
 `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 is the documentation/retirement commit, not
 another feature phase.
 
+**v0.6.1 (Plan 4 — TTS and Cover Image workflows) — COMPLETE, APPROVED AND CLOSED, not
+released, not merged.** The first plan to adopt Plans 2 and 3 inside production panels. It
+delivered: the **unified PDF/TXT queue** in TTS Audiobook; the **retirement of EPUB** from every
+production surface with its source preserved in the permanent tracked archive
+`files/archived-code/epub-tts/`; the Cover **Details / List / Medium Thumbnail** browser;
+**HEIC/HEIF capability detection** with decode and encode reported separately and **format
+preserved rather than silently substituted**; the **Chatterbox** engine with its **four
+maintainer-authorized voices** on **CPU-first** device selection and a truthful degraded path;
+shared importer, output-service and job-control adoption in both panels; the one-explicit-encode
+MP3 finalization contract; and the natural-boundary Chatterbox chunk planner. `launcher.TOOLS`
+still holds exactly six tools.
+
+**How Plan 4 was validated.** The **Windows manual matrix is complete and explicitly approved**
+(HOME-PC, 1920×1080 at 100%, closed 2026-08-19). It ran in maintainer-authorized blocks and
+produced five real defects, each root-caused before being fixed rather than patched around: a
+silently truncated Chatterbox long-form synthesis (Kokoro's 3,000-character chunker was ten times
+Turbo's supported input); an existing `.venv` skipping newly pinned requirements; a clipped
+first-run setup dialog; a settings allowlist written with key names no writer in this repository
+uses; and — the largest — **every TTS final MP3 encoded on ffmpeg's defaults at 32 kbps**, which
+made players report exactly half the true duration. An uncontrolled multi-second silence in
+Chatterbox long-form output was then root-caused to seventeen raw newlines reaching the model and
+fixed by the natural-boundary planner, taking the worst interior gap from **8.73 s to 2.90 s**.
+The maintainer listened to and approved the regenerated chapters.
+
+**Live macOS validation was performed — it is a pass, not a deferral.** Phase 13 ran on an Apple
+M4 Pro (`arm64`, macOS 26.5.2, native Python 3.12.13, not Rosetta) from the approved Phase 12
+commit, and the official `.command` launcher built the environment unaided. It caught four
+failures Windows could not: a real case-folding identity defect on case-insensitive APFS (fixed
+with a seam that **asks the volume, never the platform**); `sanitize_relative` letting a
+Windows-shaped path become a literal `C:` folder on POSIX; one shell-aware test defect; and the
+Cover panel's primary action being unreachable under Aqua, fixed by converting one outer stack
+from `pack` to `grid` with measured row weights. **Genuine HEIC passed 12/12** against a real
+maintainer-supplied file — HEIC in, HEIC out, no `.jpg` anywhere, source SHA-256 unchanged. Kokoro
+died with a native abort traced to espeak-ng's fixed 160-byte data-path buffer overflowing this
+venv's 147-character path; the repository-owned `shared/espeak_data.py` seam links a short root at
+the wheel's own data and does nothing at all where the path already fits. **All four Chatterbox
+voices synthesized on real Metal** — every one of the 694,834,668 parameters on `mps:0`, 3.1–3.5 GB
+of live Metal allocation, no CPU model ever built — and the maintainer listened to all four and
+**approved all four on 2026-08-21**.
+
+**Phase 14 (full regression and the approval gate) found and fixed a real production defect.**
+`enable_mousewheel` took the shared root's single global `<MouseWheel>` slot on hover and gave it
+back only on `<Leave>` — but the launcher's tool switch `pack_forget()`s a panel out from under
+the pointer and closing one destroys it, and **neither fires `<Leave>`**. The stranded binding
+scrolled the tool the user had just left and, once its widget was gone, fired at a Tcl command
+that no longer existed on every wheel tick. Release is now also wired to `<Unmap>` and
+`<Destroy>` and is **ownership-guarded**, so a stale region cannot steal the wheel from the region
+the pointer is actually over. Phase 14 also closed a **testing** hole with no production
+component: every live-Tk module turned a failed `tk.Tk()` into a skip, and one full-suite run
+silently dropped forty-nine Chatterbox integration tests while still exiting zero. The
+classification now lives once in `files/tests/tk_gate.py` and is made from the platform rather
+than from the text of the error — **fail** where a windowing system is part of the platform,
+**skip** only where a display is genuinely optional.
+
+**Plan 4's deferrals, recorded as deferrals and not as passes.** The **Windows 125% scaling
+matrix** was not run (it belongs to the later UI-compression phase, Plan 9) and Windows **DPI
+awareness** is still unresolved. A credible **`.DS_Store`-into-release-packaging defect**, exposed
+by the first Mac checkout, was root-caused and a narrow fix prototyped, then **deliberately left
+uncommitted** — packaging is Plan 9's scope — so it **is not fixed**. A general **pronunciation
+override** capability (global and per-voice) is a recorded future requirement and is **not
+implemented**. Chatterbox narration timing is **frozen** for this release with a small amount of
+residual pause accepted by ear. One native `pythonw.exe` / `torch_cpu.dll` `0xC0000005` access
+violation is **historical, characterised from its minidump, and never reproduced in nine
+controlled attempts or any later run — it is not claimed to be fixed**, and diagnostics were added
+so a recurrence is observable.
+
 **v0.6.0 Drop 3 (shared importing and job-control foundation) — approved 2026-08-10, not
 released, not merged.** Plan 3 delivered the four shared modules described under Architecture —
 `importing.py`, `import_coordination.py`, `job_control.py` and `job_ui.py` — plus 1,460 tests and
@@ -621,9 +770,12 @@ the worktree stayed completely clean with no untracked file, `git diff HEAD` was
 tracked file and all 22 approved screenshots remained byte-identical. **Windows 125% scaling and
 live macOS validation were not run for Plan 3 and remain deferred to Plan 9.**
 
-**The next unopened implementation work is Plan 4** (TTS and Cover Image upgrades, the first plan
-that adopts Plans 2 and 3 in a production panel); it has not been drafted or started, and Plan 3's
-feature branch is awaiting integration review.
+**The next action is Plan 4 integration review**, which is the maintainer's decision. Plan 4 is
+complete, approved and closed on `feature/0.6.1-tts-cover-workflows`, pushed and **not merged**;
+Plan 3's feature branch is likewise still awaiting integration review. **Plan 5 (M4B Converter)
+has not been drafted or started** and needs separate explicit approval. *(The sentence this
+replaces described Plan 4 as the next unopened work; that was true until Plan 4 opened on
+2026-08-11 and is kept here only as history.)*
 
 **How Plan 2 was validated, and what was deliberately not validated.** The evidence is a clean
 extraction of the real Windows archive into a disposable root whose path carries a space, an

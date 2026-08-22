@@ -679,10 +679,23 @@ def test_the_lexical_fallback_folds_case_on_a_case_blind_filesystem(monkeypatch)
     assert lower == upper, "a case-blind filesystem must fold these together"
 
 
-def test_the_lexical_fallback_keeps_case_on_a_case_sensitive_filesystem(monkeypatch):
-    """A case-sensitive volume — including a case-sensitive APFS one — has two files."""
+def test_the_lexical_fallback_defers_to_the_path_flavour_before_the_volume(monkeypatch):
+    """Pinning the volume seam to ``False`` isolates which of the two rules decides.
+
+    ``_identity_key`` folds case when *either* the path flavour is Windows *or* the
+    volume reports itself case-blind, and the flavour is tested first. With the
+    volume answer forced to "case-sensitive", a POSIX flavour therefore keeps the two
+    spellings apart — including on a case-sensitive APFS volume, which is the branch
+    this proves — while the Windows flavour folds them anyway, because at that layer
+    case-blindness is a property of the path API rather than of the volume.
+    """
     lower, upper = _case_only_identities(monkeypatch, case_blind=False)
-    assert lower != upper, "a case-sensitive volume keeps two real files apart"
+    assert lower.startswith("path:") and upper.startswith("path:")
+    if WINDOWS:
+        assert lower == upper, (
+            "the Windows path flavour folds case before the volume is consulted")
+    else:
+        assert lower != upper, "a case-sensitive volume keeps two real files apart"
 
 
 def test_the_windows_flavour_folds_case_whatever_the_volume_answers(monkeypatch):

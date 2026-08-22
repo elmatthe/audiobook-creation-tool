@@ -977,8 +977,32 @@ def enable_mousewheel(scroll_target, hover_region=None):
         if getattr(event, "delta", 0):
             scroll_target.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
-    def _on_enter(_event):
+    # The launcher runs every tool in one root, so "all" holds a single
+    # <MouseWheel> slot that all hover regions take turns owning. A region may
+    # therefore only ever give back the binding it still holds: the script Tk
+    # installs names this region's own registered callback, which makes it a
+    # self-describing ownership token. If another region has since been entered
+    # the script no longer matches, and this one leaves the wheel alone.
+    owned_script = None
+
+    def _claim():
+        nonlocal owned_script
         scroll_target.bind_all("<MouseWheel>", _on_mousewheel)
+        owned_script = hover_region.tk.call("bind", "all", "<MouseWheel>")
+
+    def _release():
+        nonlocal owned_script
+        if owned_script is None:
+            return
+        try:
+            if hover_region.tk.call("bind", "all", "<MouseWheel>") == owned_script:
+                hover_region.tk.call("bind", "all", "<MouseWheel>", "")
+        except tk.TclError:
+            pass  # the interpreter is already going away — nothing left to own
+        owned_script = None
+
+    def _on_enter(_event):
+        _claim()
 
     def _on_leave(detail):
         # Tk fires <Leave detail=NotifyInferior> when the pointer merely
@@ -987,9 +1011,16 @@ def enable_mousewheel(scroll_target, hover_region=None):
         # scroll over the form's own controls.
         if detail == "NotifyInferior":
             return
-        scroll_target.unbind_all("<MouseWheel>")
+        _release()
 
     hover_region.bind("<Enter>", _on_enter, add="+")
+    # A region can stop being hovered without ever seeing <Leave>: switching
+    # tools unmaps it out from under the pointer and closing one destroys it
+    # outright. Both used to strand this region's binding on the shared root —
+    # scrolling the tool the user just left, and, once the widget was gone,
+    # firing at a Tcl command that no longer existed on every wheel tick.
+    hover_region.bind("<Unmap>", lambda _event: _release(), add="+")
+    hover_region.bind("<Destroy>", lambda _event: _release(), add="+")
     # tkinter's bind() never substitutes the crossing detail (%d is absent
     # from Misc._subst_format_str, so event.detail does not exist), so the
     # Leave side must be bound at the Tcl level to see NotifyInferior.

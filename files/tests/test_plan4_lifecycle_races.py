@@ -97,6 +97,7 @@ from test_import_coordination import (  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
 from test_tts_importing import _Stubs  # noqa: E402
+import tk_gate  # noqa: E402
 
 #: Every wait in this module is bounded, so a deadlock fails the test instead of
 #: stalling the suite. It never *creates* an ordering — the latches do that.
@@ -110,13 +111,7 @@ WAIT = 5.0
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture(autouse=True)

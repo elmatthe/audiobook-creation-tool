@@ -2,6 +2,29 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
+>
+> **This block is the live state of the repository and supersedes every earlier status sentence in
+> this file.** Nothing below it has been deleted or rewritten: the phase-by-phase record stays
+> exactly as it was written at the time, including sentences that were true then and are stale now.
+> Where an older sentence conflicts with this block, **this block is correct**.
+>
+> - **All sixteen phases (0–15) are complete and separately approved.** In particular, any sentence
+>   below saying *"Phase 14 has NOT started"*, *"Phase 15 closeout is NOT authorized"*, *"Plan 4 —
+>   ACTIVE"*, *"Phases 0–12 are now approved"* or *"`VERSION` stays `0.5.1`"* is **stale and
+>   superseded by this block.** Phase 13 (live macOS) was approved on 2026-08-21; **Phase 14 was
+>   approved by the maintainer on 2026-08-22** in the prompt that authorized Phase 15.
+> - **`VERSION` is `0.6.1`.** The bump from `0.5.1` happened at the Phase 15 closeout and nowhere
+>   else, exactly as decision 6A required.
+> - **It is a version identity, not a release.** No tag, no GitHub release, no packaging, no
+>   publication, no `release.py` run, no merge, no pull request, and **no `[0.6.1]` heading in
+>   `Changelog.md`**.
+> - **The temporary drop `md-instructions/0.6.1-tts-cover-workflows.md` is retired.** The permanent
+>   archive `files/archived-code/epub-tts/` was **not** deleted with it and remains tracked.
+> - **Branch `feature/0.6.1-tts-cover-workflows`, pushed, NOT merged.** The next action is **Plan 4
+>   integration review** — a maintainer decision. **Plan 5 has not been started.**
+
+
 **v0.6.1 Plan 4 (TTS and Cover Image upgrades) — ACTIVE. Phases 0–12 are now approved, and PHASE 12
 IS COMMITTED AND PUSHED.** The Windows manual matrix is **COMPLETE**: every row is maintainer-approved,
 with the deferrals left standing as deferrals rather than converted into passes. The matrix ran in
@@ -4324,6 +4347,254 @@ packaging, no publication, no `release.py` run, no branch deletion. **`VERSION` 
 bump belongs to Phase 15 alone. The drop `md-instructions/0.6.1-tts-cover-workflows.md` is **not**
 retired. No CUDA was used and none is required. **Phase 14 — full regression and the approval gate —
 has NOT started, and Phase 15 closeout is NOT authorized.**
+*(Superseded: both did happen — see the Phase 14 and Phase 15 entries immediately below.)*
+
+---
+
+### Phase 14 — Full regression and the approval gate (2026-08-21/22, HOME-PC) — APPROVED
+
+**Result: Plan 4's implementation is approved. The gate found one real production defect and one
+real hole in the test harness, and neither was closed by weakening anything.** Run in four blocks:
+**14** the regression itself, **14B** the wheel-binding diagnosis and production fix, **14C** the
+Tk fail-loud gate, **14D** the lifecycle proof and the Cover-browser contract correction. The
+maintainer **approved Phase 14 and Phase 14D on 2026-08-22**, in the prompt that authorized
+Phase 15.
+
+#### 14B — the mouse-wheel lifecycle defect (production)
+
+`shared/ui_theme.enable_mousewheel` deliberately takes the shared root's **single** global
+`<MouseWheel>` slot while the pointer is inside a scrollable options region — that is how the Cover
+options column, the TTS options column and the M4B settings column all scroll, and the launcher
+runs all six tools inside one root. Taking a global slot is only safe if it is always given back,
+and it was released **only** on `<Leave>`. Two real lifecycle paths never fire one:
+
+- **the launcher's tool switch** — `select_tool` calls `pack_forget()` on the outgoing panel's
+  container, unmapping the region out from under the pointer;
+- **closing a panel** — the region is destroyed outright.
+
+Both stranded the binding on the shared root. The measured consequences were two, not one: the
+wheel went on scrolling **the tool the user had just left**, and once the widget was destroyed the
+stranded callback named a Tcl command that no longer existed, so **every** later wheel tick
+anywhere in the launcher raised `TclError: invalid command name .!frame.!canvas` through Tkinter's
+callback reporter.
+
+**The fix is narrow and is in one production file** (`scripts/Universal/shared/ui_theme.py`,
++35/−4). Release is now also bound to **`<Unmap>`** and **`<Destroy>`**, and release is
+**ownership-guarded**: the region records the Tcl script Tk installed for its own claim — a
+self-describing token needing no extra bookkeeping — and gives the slot back **only if that script
+is still the one installed**. Because there is only one slot, a second region entering *replaces*
+the first region's handler; an unconditional release would therefore have killed scrolling for the
+region the pointer is actually over, trading a stale-binding bug for a dead-scroll bug.
+
+**The `<Unmap>` cleanup is retained deliberately.** `pack_forget()` **is** the launcher's real
+tool-switch lifecycle, and it was *proven* to leak the binding by a direct test, so this is a
+measured requirement rather than defensive padding.
+
+#### 14C — a missing Tk root is a failure on Windows, not a skip (test harness only)
+
+Phase 14's first full run exposed something worse than any single test: every live-Tk module opened
+its own root inside `try: tk.Tk() except tk.TclError: pytest.skip(...)`. That is right on a headless
+POSIX box and wrong on Windows, where an interactive login always owns a window station. **One
+full-suite invocation silently dropped forty-nine Chatterbox integration tests and still exited
+zero.**
+
+The classification now lives once, in the new **`files/tests/tk_gate.py`**, and is made **from the
+platform, not from the text of the error**: Windows **fails** the run and carries the original
+exception with it; macOS and Linux still **skip**, exactly as before. Only `TclError` is
+classified — anything else propagates as itself, because labelling a programming error "headless"
+is how the coverage went missing in the first place. `tk_root_session()` is the shared fixture body,
+so each module keeps its own fixture name and scope. Twenty-two test modules were converted to it.
+**`files/tests/test_tk_gate.py`** proves the gate itself, including a structural AST guard that no
+collected module may call `tk.Tk()` outside it — so a new module cannot quietly reopen the hole.
+**No production code is involved in 14C.**
+
+#### 14D — the lifecycle proof, and a contract corrected without being weakened
+
+**11 direct lifecycle tests** in `files/tests/test_ui_theme.py` (+237/−6), each measuring the real
+Tcl slot rather than a stand-in: entering claims it; `<Leave detail=NotifyInferior>` (the pointer
+moving onto the region's own controls) keeps it; an ordinary `<Leave>` releases it; **destroying**
+an active region releases it; destroying it **via an ancestor** releases it (panels are destroyed
+as a subtree); **unmapping** it releases it; destroying an *inactive* region is harmless; repeated
+release is idempotent (an ordinary close fires leave *and* unmap *and* destroy); a **stale
+region's destruction leaves a newer owner alone**; **no wheel callback survives the widget it
+scrolls** (asserted through `report_callback_exception`, which is where the original defect
+surfaced); and a **remapped region can claim the wheel again**, so the fix is not one-shot. Two
+fixtures assert the slot is free both on entry and on exit, and **nothing is unbound in teardown** —
+every test gives the slot back through the real lifecycle it exercises, because a teardown broom
+would hide exactly the leak this exists to catch.
+
+**The Cover browser's contract was corrected, and is now strictly harder to satisfy.** Its old
+assertion was *"no global `<MouseWheel>` binding may exist anywhere, ever"* — true of the browser,
+**false of the application**, and therefore a tripwire for any other panel's legitimate hover
+state. It was replaced by what actually matters: the browser's own binding lives on its Canvas, and
+building, scrolling and closing it leaves whatever owned the shared slot **exactly** as it found
+it — including the new case where an unrelated region legitimately holds it. The AST guard proving
+`cover_resizer.py` contains no `bind_all` in executable code is unchanged and was split into its
+own test.
+
+#### Repeated-run evidence
+
+| Run | Result |
+|---|---|
+| `test_cover_browser_scroll.py` × **10 consecutive** | all passed |
+| The race pair (`test_plan4_lifecycle_races.py` + the cover-browser suite) × **5 consecutive** | all passed |
+| Full suite, **twice** | **3901 collected / 3887 passed / 0 failed / 0 errors / 14 skipped / 1 warning** both times |
+| Tk / display skips | **zero** |
+| `python scripts/verify.py` | **RESULT: PASS** |
+| `compileall` / diff checks | clean |
+
+**Approval.** The maintainer **approved Phase 14, on the Phase 14D evidence, on 2026-08-22**, and
+authorized Phase 15 in the same prompt.
+
+---
+
+### Phase 15 — Plan 4 closeout and temporary-drop retirement (2026-08-22, HOME-PC)
+
+**Result: the lasting Plan 4 record is in the permanent documents, `VERSION` is `0.6.1`, the
+temporary drop is retired, the EPUB archive is intact, and every gate was re-run after the deletion
+and is identical. Plan 4 is COMPLETE, APPROVED and CLOSED.** Entry SHA
+`db18cae65abe1f2b667cd649ce8875eb85b6beca`, branch `feature/0.6.1-tts-cover-workflows`, with
+`origin/master` untouched at `809a43e754920fce2f11f08e3c401dcc4c7a5223`.
+
+#### Permanent-record transfer
+
+| Document | What moved into it |
+|---|---|
+| `Briefing.md` | The PDF/TXT-only input contract and the EPUB retirement + archive; the unified queue; the Cover Details/List/Medium-Thumbnail browser with its lazy, capped, LRU-owned thumbnail model; a new *Image capabilities* section (decode/encode reported separately, format preserved); a new *third TTS engine* section (Chatterbox Turbo, CPU-first device seam, hash-verified references, natural-boundary chunking, truthful degraded path, the local-asset portability boundary); the dependency picture after the three EPUB removals and the `setuptools==80.9.0` compatibility debt; `image_capabilities.py` and `espeak_data.py` in the shared-module list; the archive and the recordings folder in the layout map; **Current Version → v0.6.1** with an explicit "identity, not a release" statement; and a full *v0.6.1 Plan 4* state section covering the Windows matrix, the live macOS pass, the Phase 14 hardening and every standing deferral |
+| `Changelog.md` | Six `[Unreleased]` entries: the **breaking** EPUB removal with the archive location, the Plan 4 feature set, the narration/encode changes, the Phase 14 wheel-binding fix, the Tk gate, and the version-identity closeout. **No `[0.6.1]` heading was created** |
+| `README.md` | Capability description only — the tagline, the TTS feature bullet and the TTS how-to now describe **one queue of PDFs and TXT files** rather than single-file-plus-batch-folder modes, and name the third engine. **The licence section and the upstream attribution were not touched**, and the `test_epub_retirement.py` guards on both, plus the pinned capability phrases, still pass |
+| `Decisions.md` | Eight new signed, dated ADRs, newest first (below) |
+| `Handoff.md` | The superseding current-state block at the top of *Current Focus*, the Phase 14 entry above, and this entry |
+| Master index | Plan 4's §5 status row, §7 ownership note, §14 limitations and §15 next action; the nine-plan roadmap is unchanged |
+
+**The eight ADRs added:** the EPUB retirement with its **partial supersession of Decision 52B**,
+the archive contract and the licence/attribution ruling; the unified PDF/TXT queue (1A/2A); the
+Chatterbox scope expansion with **the exact model** (`ResembleAI/chatterbox-turbo` via
+`chatterbox-tts==0.1.7`, imported as `chatterbox.tts_turbo.ChatterboxTurboTTS`, Nano unreachable
+from that wheel) and **its dependency effects** (`torch`/`torchaudio` → 2.6.0, `transformers` →
+5.2.0, `safetensors` → 0.5.3, `numpy` pinned 1.26.4, `setuptools` held at 80.9.0 as declared debt);
+the **CPU-first** decision with CUDA left open and unauthorized; the **four-voice set** and its
+listen-before-registration authorization; the **local-asset portability boundary**; the Phase 14
+wheel-binding ownership protocol and the Tk fail-loud gate; and a ratification recording that the
+**HEIC format-preservation** rule of 2026-08-11 was confirmed by live Phase 13 evidence rather than
+restated.
+
+#### Version bump — this phase only
+
+`scripts/Universal/shared/version.py` `0.5.1` → **`0.6.1`**; `config.toml` `project.version`
+likewise, because `verify.py` fails if the two drift. **Eight** version guard tests were updated in
+the same commit, each keeping its existing name and node id so collection reconciles exactly:
+`test_the_version_is_unchanged` (`test_output_paths.py`, `test_tool_output_integration.py`),
+`test_the_version_did_not_move` (`test_fatal_diagnostics.py`),
+`test_the_application_version_is_still_unchanged` (`test_maintenance.py`,
+`test_preferences_maintenance_ui.py`), `test_the_application_version_is_unchanged`
+(`test_repository_contract.py`), `test_the_version_is_untouched` (`test_plan3_boundaries.py`) and
+`test_the_version_and_tool_count_are_unchanged` (`test_mp3_finalization.py`). Each carries a
+two-line comment recording that the bump happened at the Phase 15 closeout and nowhere else.
+`test_importing.py:61` was **deliberately left** at `"0.5.1"` — it is an arbitrary in-memory
+`EffectiveConfig` fixture value, not a guard on the real version.
+
+#### Temporary-drop retirement
+
+`md-instructions/0.6.1-tts-cover-workflows.md` was deleted, and it is the **only** deletion.
+`git diff --name-status -M -C` shows exactly one `D` and **no `R`** — the drop was not renamed into
+a permanent location. **`files/archived-code/epub-tts/` was confirmed present and intact both
+before and after**: four tracked files (`README.md` manifest, `epub2tts_edge_epub_functions.py`,
+`epub2tts_gui_epub_surfaces.py`, `runner_epub_dispatch.py`), unchanged.
+
+#### Protected assets — re-verified at closeout
+
+All four Chatterbox recordings are byte-identical to their banked Phase 0 SHA-256 values, are
+exactly four files, ignored at `.gitignore:55`, untracked and never staged. They were not read,
+rewritten, regenerated, renamed, moved or copied.
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `Female-1.mp3` | 32,999,135 | `a047d77fe191c1a957d36b1e9f9af8e67756a63672686c55731b30534bb8bde2` |
+| `Female-2.mp3` | 13,405,769 | `4bad0d3845199eae723aceb7a864b419fe553cd9d23799ee6390f54df08d3140` |
+| `Male-1.mp3` | 2,946,239 | `6258dde294a91b0c2e965e8579aafde10e9cff48957c2138432be4c6c80165ae` |
+| `Male-2.mp3` | 12,403,843 | `7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2` |
+
+`git ls-files files/Chatterbox-Voice-Uploads/ files/runtime-data/` → **0**. All 30 tracked
+screenshots are byte-identical (`git status` and `git diff` on both screenshot trees are empty).
+
+#### Gates — before and after the deletion
+
+| Gate | **Pre-deletion** | **Post-deletion** |
+|---|---|---|
+| Collected | 3901 | 3901 |
+| Passed | 3887 | 3887 |
+| Failed | 0 | 0 |
+| Errors | 0 | 0 |
+| Skipped | 14 | 14 |
+| Warnings | 1 | 1 |
+| `verify.py` | **RESULT: PASS** | **RESULT: PASS** |
+| `compileall -q scripts files/tests` | exit 0 | exit 0 |
+| `git diff --check` / `git diff HEAD --check` on code | exit 0 | exit 0 |
+| `VERSION` / `launcher.TOOLS` / `config-template.toml` | 0.6.1 / 6 / absent | 0.6.1 / 6 / absent |
+| `scripts/requirements.txt` | unchanged (zero diff) | unchanged (zero diff) |
+
+**Collection delta: exactly zero.** No test disappeared, and deleting a plan markdown changed no
+production behaviour — nothing collects, imports or reads that file. The figures also match the
+approved Phase 14 baseline (3901 / 3887 / 14 / 1) exactly, so the version bump and the
+documentation transfer moved nothing.
+
+**Skip reconciliation — 14, all pre-existing and environmental, and zero Tk or display skips:**
+
+| Reason | Count |
+|---|---|
+| `[WinError 1314]` — this account cannot create symlinks (`test_import_traversal.py:131` ×6, `test_cover_source_side.py:358`, `test_output_paths.py:783`) | 8 |
+| Case-insensitive filesystem / case-blind Windows path layer (`test_import_manager.py:764,785`, `test_import_traversal.py:582`) | 3 |
+| `JACK_RYAN_M4B_FOLDER` unset (`test_jack_ryan_final_product.py:40,44,64`) | 3 |
+| **Total** | **14** |
+
+**Warning reconciliation — 1, unchanged:** the inherited third-party
+`pydub/utils.py:14 DeprecationWarning: 'audioop' is deprecated`. It does not originate in this
+repository and was not suppressed.
+
+**The known HOME-PC Tcl/Tk transient reappeared once** on the first pre-deletion invocation —
+`invalid command name "tcl_findLibrary"` / `source …/tcl8.6/init.tcl`, 118 errors. It was resolved
+by the **single fresh-process retry** the established Phase 14 procedure permits, and the retry was
+clean. **The Tk gate was not altered to make the result green** — and this is precisely the gate
+working as designed: before Phase 14C that transient would have become a silent block of skips in a
+run that still exited zero, whereas it is now loud and impossible to miss.
+
+#### Recorded observation, deliberately not acted on
+
+`README.md`'s **Status** line still reads *"v0.5.0 (in development)"* and the Download links still
+point at the published v0.4.0 archives. Phase 15's README authority is the **capability
+description** only, and release/download content is explicitly out of scope here — so this was left
+alone rather than quietly edited. It is accurate that v0.4.0 is the latest published release; the
+stale "v0.5.0 (in development)" label belongs to **Plan 9**, which owns documentation, versioning,
+tagging and release.
+
+#### What was NOT done
+
+No merge. No pull request. No tag. No GitHub release. No packaging, archive build or publication.
+`release.py` was not run. `origin/master` was not pushed and is unchanged. No branch was deleted.
+The nine-plan roadmap was not altered and no Plan 10 was invented. **Plan 5 was not started.**
+Staging was **by explicit path only** — `git add .`, `git add -A`, `git reset`, `git clean`,
+`git stash` and `git restore` on intentional work were never used, and the stash list is empty. No
+unrelated defect found during closeout was fixed, and the Phase 14 wheel-binding design, the Tk
+gate, Chatterbox behaviour, the HEIC implementation, `requirements.txt` and EPUB behaviour were all
+left exactly as approved.
+
+#### Standing deferrals at the close of Plan 4 — deferrals, not passes
+
+| Item | Disposition |
+|---|---|
+| **Windows 125% display-scaling matrix** | **Not run.** Belongs to the later UI-compression/no-scroll phase (Plan 9) |
+| **Windows process DPI awareness** | **Unresolved.** Plan 9 or a separately approved plan |
+| **`.DS_Store` leaking into release packaging** | **NOT FIXED.** Root-caused on the Mac and a narrow fix prototyped, then deliberately left uncommitted — packaging is Plan 9's scope. `release.py` and `test_release_packaging.py` are at HEAD |
+| **General pronunciation override** (global + per-voice; and the separate deterministic-override vs generation-consistency distinction) | **Recorded future requirement. NOT implemented** |
+| **Chatterbox residual pause/rhythm** | Narration timing is **frozen for Plan 4** by maintainer ruling after listening; a small amount of pause/lag is accepted for this release. A future observation, not scheduled work |
+| **`pythonw.exe` / `torch_cpu.dll` `0xC0000005`** | **Historical, characterised from its WER minidump, never reproduced** in nine controlled attempts or any later run. **Not claimed to be fixed.** Fatal-fault diagnostics were added so a recurrence is observable |
+| **Chatterbox portability to another machine** | Blocked by design — the reference recordings are local-only. Requires **separate explicit maintainer authorization** |
+| **M4B Converter clipping at `920×600`**, five unconverted Windows panels, ttk Combobox popdown, Windows title bar | Unchanged, all Plan 9 |
+
+**Next action: Plan 4 integration review — a maintainer decision. Do not merge, tag, release or
+begin Plan 5 without separate explicit authorization.**
+
 
 ---
 

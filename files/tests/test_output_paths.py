@@ -1151,7 +1151,9 @@ def test_no_plan_three_importing_behaviour_arrived():
 def test_the_version_is_unchanged():
     from shared.version import VERSION
 
-    assert VERSION == "0.5.1"
+    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # nowhere else. This guard now pins the approved closeout version.
+    assert VERSION == "0.6.1"
 
 
 def test_no_test_here_resolves_the_real_downloads_folder(tmp_path):

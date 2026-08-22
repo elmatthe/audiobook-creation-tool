@@ -29,6 +29,7 @@ from test_cover_browser import (  # noqa: F401 - fixtures are used by name
     make_panel,
     tk_root,
 )
+import tk_gate  # noqa: E402
 
 #: The two window sizes the launcher actually supports: the size it opens at,
 #: and the smallest the user can drag it to.
@@ -69,10 +70,7 @@ def test_resize_covers_is_visible_in_the_real_shell(fake_settings, geometry):
     """The whole point of the tool, inside the visible content area, every shell."""
     import launcher
 
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
+    root = tk_gate.open_tk_root(tk)
     try:
         app = launcher.LauncherApp(root)
         root.geometry(geometry)

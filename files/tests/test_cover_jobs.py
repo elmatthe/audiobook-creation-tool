@@ -57,6 +57,7 @@ from shared.importing import planning_groups  # noqa: E402
 from mp3_tools import cover_resizer as cr  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
+import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PANEL_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py"
@@ -75,13 +76,7 @@ REAL_RESIZE = cr.resize_for_audiobook
 
 @pytest.fixture(scope="module")
 def tk_root():
-    try:
-        root = tk.Tk()
-    except tk.TclError as exc:  # headless box with no display
-        pytest.skip(f"Tk cannot open a display here: {exc}")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 @pytest.fixture(autouse=True)

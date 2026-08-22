@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from shared import bootstrap  # noqa: E402
+import tk_gate  # noqa: E402
 
 SRC = Path(bootstrap.__file__).read_text(encoding="utf-8")
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -99,13 +100,7 @@ def test_the_window_is_not_merely_made_enormous():
 @pytest.fixture
 def tk_root():
     tk = pytest.importorskip("tkinter")
-    try:
-        root = tk.Tk()
-    except Exception as exc:  # headless CI / no display
-        pytest.skip(f"no Tk display available ({exc})")
-    root.withdraw()
-    yield root
-    root.destroy()
+    yield from tk_gate.tk_root_session(tk)
 
 
 def test_a_wrapped_label_reports_a_height_greater_than_one_line(tk_root):

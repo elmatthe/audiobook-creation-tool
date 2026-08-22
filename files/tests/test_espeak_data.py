@@ -265,13 +265,39 @@ def test_the_runtime_configures_after_importing_kokoro_and_before_the_pipeline()
     assert events == ["configure", "pipeline:a"]
 
 
+def _sys_path_insert_argument(source: str) -> str:
+    """The path the preamble's ``sys.path.insert`` really inserts, read as code.
+
+    The preamble is *generated Python*, so the directory is embedded with ``!r`` and
+    its separators arrive escaped on Windows. Parsing the generated source and
+    evaluating the literal proves what the subprocess will actually receive, instead
+    of asserting one platform's spelling of that escaping.
+    """
+    calls = [
+        node for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute) and node.func.attr == "insert"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "path"
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "sys"
+    ]
+    assert len(calls) == 1, "the preamble owns exactly one sys.path.insert"
+    assert len(calls[0].args) == 2, "sys.path.insert(position, entry)"
+    position, inserted = (ast.literal_eval(argument) for argument in calls[0].args)
+    assert position == 0, "the checkout's own scripts directory must come first"
+    assert isinstance(inserted, str), "the inserted entry must be a plain literal path"
+    return inserted
+
+
 def test_setup_and_runtime_share_one_espeak_contract():
     """Not two hacks: the bootstrap subprocesses call the same function."""
     from shared import bootstrap
 
     preamble = bootstrap.KOKORO_SUBPROCESS_PREAMBLE
     assert "from shared import espeak_data" in preamble
-    assert str(bootstrap.SCRIPTS_DIR) in preamble
+    assert _sys_path_insert_argument(preamble) == str(bootstrap.SCRIPTS_DIR), (
+        "the subprocess must put this checkout's own scripts directory on sys.path")
 
     for function in (bootstrap.warmup_kokoro_pipeline, bootstrap.predownload_kokoro):
         source = inspect.getsource(function)
