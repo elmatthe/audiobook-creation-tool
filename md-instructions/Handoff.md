@@ -22,7 +22,7 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-3 are complete and approved-to-date. Phase 4 has NOT started** and needs explicit
+> - **Phases 0-4 are complete and approved-to-date. Phase 5 has NOT started** and needs explicit
 >   maintainer approval. No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -80,6 +80,24 @@
 >     `verify.py` PASS; **+62** delta is exactly the new tests. The first full run hit the **known Tk
 >     transient** — 48 errors in `test_preferences_maintenance_ui.py`, which passes 62/62 in
 >     isolation — and one clean fresh-process retry was green; nothing was weakened or skipped.
+>   - **Phase 4** (2026-08-23): the naming seam, in a **new** Converter-local module
+>     `scripts/Universal/mp3_tools/m4b_naming.py` — `flatten_title()` and `segment_filename()`.
+>     It is a separate module on purpose: `m4b_chapters` is guarded stdlib-only, and naming must
+>     import `shared.output_paths.sanitize_component`, so splitting them kept that purity guard
+>     intact instead of loosening it. **Two stages, and the order is the point**: separators become
+>     visible punctuation *first* (`/` and `\` → `" - "`, NUL dropped, whitespace collapsed), and
+>     only then is a genuine single component handed to the shared sanitiser — which owns every
+>     filename-safety rule and is **consumed byte-unchanged**. Feeding the real title straight to the
+>     sanitiser collapses it to `"Please get off my hearse.mp3"`, losing two thirds of the title and
+>     the order prefix; a test pins that defect alongside the fix. Approved outputs all reproduce
+>     exactly: `01 - 1 — There is no food here - Meg ate all the Swedish Fish - Please get off my
+>     hearse.mp3`, `03 - Chapter 1_ To Goldicia.mp3`, `04 - Chapter 4.mp3` for blank/`"   "`/`..`,
+>     `06 - _CON.mp3`, and a 300-character title capped at 255 with `.mp3` intact. Width is
+>     `max(2, len(str(total)))`; numbering is rendered, never allocated, and holds no cross-item
+>     state. `ChapterSpan` gained no filename or destination. Gate: **4120 collected / 4106 passed /
+>     14 skipped / 1 warning**, `verify.py` PASS, clean on the first attempt with no Tk transient;
+>     the **+65** delta is 64 new tests plus one, because a new production module means
+>     `test_plan3_boundaries` parametrises over it (121 → 122). No Phase 1-3 guard needed changing.
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >
