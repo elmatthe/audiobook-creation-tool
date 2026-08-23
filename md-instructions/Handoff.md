@@ -22,7 +22,7 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-4 are complete and approved-to-date. Phase 5 has NOT started** and needs explicit
+> - **Phases 0-5 are complete and approved-to-date. Phase 6 has NOT started** and needs explicit
 >   maintainer approval. No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -98,6 +98,58 @@
 >     14 skipped / 1 warning**, `verify.py` PASS, clean on the first attempt with no Tk transient;
 >     the **+65** delta is 64 new tests plus one, because a new production module means
 >     `test_plan3_boundaries` parametrises over it (121 → 122). No Phase 1-3 guard needed changing.
+>   - **Phase 5** (2026-08-23): the ffmpeg command shape, **measured before it was pinned**, in a
+>     new Converter-local module `scripts/Universal/mp3_tools/m4b_commands.py` —
+>     `whole_book_argv()` and `segment_argv()`, pure argv builders that execute nothing, probe
+>     nothing and import nothing (stdlib only; the ffmpeg path and decoder args arrive already
+>     resolved). **Selected shape: output-side `-ss` after `-i`, span as an explicit
+>     `-t (end − start)`.**
+>     **Why, and this is the part not to undo.** Four candidates were compared on a deterministic
+>     generated fixture whose decoded content identifies its own source time (a second-identifying
+>     tone plus a 12 ms 6 kHz burst per second; self-calibration 60/60 markers, worst error 1.00 ms)
+>     across a real chapter-start partition `0 → 7.3 → 19.87 → 41.055 → 43.2 → 59.63 → 60`.
+>     **Input-side `-ss` before `-i` is ~100× faster and silently corrupts audio**: on the FFmpeg
+>     nightly it emitted 2.1 ms of hard digital silence at `-ss 0` and attenuated the first 10–20 ms
+>     of five of six segments to as little as a quarter amplitude **while reporting an exactly
+>     correct duration** — so no drift guard at any tolerance could ever detect it; on FFmpeg 9.0
+>     the same shape instead skipped ~21–24 ms outright and ran 3–12 ms short. Both builds lost
+>     source second 0. **The rejected shape's failure mode changed between two ffmpeg versions
+>     while the selected shape's did not move at all**, which is the second reason it is pinned.
+>     Cause: AAC decoder priming — input-side seek starts at a packet boundary with no preceding
+>     frame for the MDCT overlap. Output-side seek tiled `[0, D]` exactly (60/60 seconds, none lost
+>     or duplicated), matched the source at every boundary to 3–4 decimals, and held duration error
+>     ≤ 0.01 ms, **identically on both builds**. `-to` was measured, not assumed: with output-side
+>     seek it is equivalent to `-t`, but combined with input-side seek it is re-read against the
+>     shifted timeline and turned a requested 20 s span of a real audiobook into a 425 MB, 11-hour
+>     file — so the explicit duration wins the tie on failure mode.
+>     **Cost, measured not extrapolated.** Real fixture *Mistborn Book 1* (AAC-LC, 88 703.585 s,
+>     24.64 h, 47 chapters, SHA-256 `471dee68…`, byte-identical before and after). Output-side seek
+>     costs ~**1.55 s per hour of preceding audio** and is linear: 17.12 s at 11.00 h, **35.79 s at
+>     23.16 h (93.99 %)** — the latter well inside the 300 s bound fixed before any candidate ran,
+>     with output duration exactly 20.000000 s and positional agreement **r = 0.99893 at lag 0**
+>     against an independent `-c copy` extraction. Applied to this book's real 47 chapter starts
+>     that is ~14.3 min of seeking on top of the ~6.0 min of encoding that must happen regardless
+>     (encode measured at 244.8× realtime): **accepted** — under 1 % of the book's own playing time,
+>     and the faster shape is not an alternative because it is wrong.
+>     **Interruptibility (research evidence only, not Phase 11):** spawned through
+>     `shared.subprocess_utils.popen`, `poll()` was `None` at t+1/2/3 s, `terminate()` ended it in
+>     **8.2 ms** with no `kill()` fallback, reaped, PID confirmed gone. No lifecycle, polling,
+>     temp→final promotion or partial-file policy was implemented.
+>     **Environment:** the shared `C:\ffmpeg` nightly suffered a **second** Smart App Control
+>     incident mid-phase (policy `{0283ac0f-…}`, CodeIntegrity 3077/3033/3089/3118, this time
+>     blocking `ffmpeg.exe` from loading `avutil-60.dll`, surfacing as `0xC0E90002` with no output).
+>     The maintainer installed the **WinGet Gyan FFmpeg 9.0 full static build** side-by-side and it
+>     runs under the same SAC policy despite also being unsigned; Phase 5 used it via a
+>     **process-local `PATH` prepend only**. No Windows security setting, binary, installer,
+>     bootstrap or requirement was changed, and `C:\ffmpeg` was left untouched. **Whether the
+>     installer should prefer a stable static distribution is unassigned and deliberately deferred.**
+>     Not adopted into `m4b_converter.py` — the builder ships isolated, as the phase preferred; the
+>     converter is byte-unchanged. Phase 6's seam is one typed `output_args` sequence spliced
+>     between `-vn` and `-c:a`, structurally unable to reach the input-option region. Gate:
+>     **4225 collected / 4211 passed / 14 skipped / 1 warning**, `verify.py` PASS; the **+105** delta
+>     is 104 new tests plus one, because a new production module means `test_plan3_boundaries`
+>     parametrises over it (122 → 123). The generated-media regression was **mutation-checked**:
+>     moving `-ss` to the input side makes it fail (ledger loses second 0, −9.4/−16.7 ms drift).
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >
