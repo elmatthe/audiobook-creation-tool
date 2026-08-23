@@ -38,10 +38,42 @@ FFMPEG = "C:/tools/ffmpeg/bin/ffmpeg.exe"
 SOURCE = "C:/books/Some Book.m4b"
 DEST = "C:/out/01 - Chapter 1.mp3"
 
-needs_ffmpeg = pytest.mark.skipif(
-    not ffmpeg_utils.have_ffmpeg(),
-    reason="ffmpeg/ffprobe unavailable — the encode cannot be exercised",
-)
+
+def require_ffmpeg() -> str:
+    """The ffmpeg this regression runs, or a loud verdict on why it cannot.
+
+    **Deliberately not a skip.** ffmpeg is not optional for this tool — the setup
+    launcher installs it and the Converter cannot do anything without it — so its
+    absence is a broken environment, not a fact to tolerate. A ``skipif`` here
+    would let the one test that actually proves the seek ordering vanish from a
+    run that still reported success, which is the same failure ``tk_gate`` exists
+    to prevent: Plan 4 measured a full-suite invocation silently dropping
+    forty-nine tests and still exiting zero.
+
+    The executable is *run*, not merely resolved. Both Smart App Control
+    incidents on this project left the binary present and resolvable while
+    refusing to execute it, which a ``have_ffmpeg()`` path check cannot see.
+    """
+    if not ffmpeg_utils.have_ffmpeg():
+        pytest.fail(
+            "ffmpeg/ffprobe could not be resolved, so the Plan 5 generated-media "
+            "regression cannot run. This is a red gate, not a skip: ffmpeg is a "
+            "required dependency installed by the setup launcher. "
+            f"ffmpeg_path()={ffmpeg_utils.ffmpeg_path()!r} "
+            f"ffprobe_path()={ffmpeg_utils.ffprobe_path()!r}"
+        )
+    command = ffmpeg_utils.ffmpeg_cmd()
+    try:
+        probe = subprocess.run([command, "-version"], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True)
+    except OSError as exc:
+        pytest.fail(f"{command!r} resolved but could not be launched: {exc!r}")
+    if probe.returncode != 0:
+        pytest.fail(
+            f"{command!r} resolved but exited {probe.returncode} on '-version', so "
+            "it cannot be used. Output follows:\n" + (probe.stdout or "<no output>")
+        )
+    return command
 
 
 def base(**kwargs) -> dict:
@@ -576,14 +608,13 @@ def _marker_offsets(samples: list[float]) -> list[float]:
 
 @pytest.fixture(scope="module")
 def generated_m4b(tmp_path_factory) -> Path:
-    if not ffmpeg_utils.have_ffmpeg():
-        pytest.skip("ffmpeg unavailable")
+    ffmpeg = require_ffmpeg()
     folder = tmp_path_factory.mktemp("m4b_commands")
     wav = folder / "signal.wav"
     m4b = folder / "fixture.m4b"
     _write_fixture(wav, 6)
     subprocess.run(
-        [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-v", "error", "-y", "-i", str(wav),
+        [ffmpeg, "-hide_banner", "-v", "error", "-y", "-i", str(wav),
          "-c:a", "aac", "-b:a", "128k", str(m4b)],
         check=True,
     )
@@ -591,7 +622,6 @@ def generated_m4b(tmp_path_factory) -> Path:
     return m4b
 
 
-@needs_ffmpeg
 def test_the_built_command_actually_runs(generated_m4b, tmp_path):
     dest = tmp_path / "whole.mp3"
     argv = whole_book_argv(ffmpeg=ffmpeg_utils.ffmpeg_cmd(), source=generated_m4b,
@@ -601,7 +631,6 @@ def test_the_built_command_actually_runs(generated_m4b, tmp_path):
     assert dest.exists() and dest.stat().st_size > 0
 
 
-@needs_ffmpeg
 def test_adjacent_segments_neither_lose_nor_repeat_audio(generated_m4b, tmp_path):
     """The seam itself, measured — this is what the ordering decision protects.
 
@@ -625,7 +654,6 @@ def test_adjacent_segments_neither_lose_nor_repeat_audio(generated_m4b, tmp_path
     assert len(recovered) == len(set(recovered)), recovered
 
 
-@needs_ffmpeg
 def test_a_fractional_segment_starts_where_it_was_asked_to(generated_m4b, tmp_path):
     """A non-round start is where input-side seek damaged the head worst."""
     dest = tmp_path / "frac.mp3"

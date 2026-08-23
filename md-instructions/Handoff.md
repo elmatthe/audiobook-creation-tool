@@ -150,6 +150,14 @@
 >     is 104 new tests plus one, because a new production module means `test_plan3_boundaries`
 >     parametrises over it (122 → 123). The generated-media regression was **mutation-checked**:
 >     moving `-ss` to the input side makes it fail (ledger loses second 0, −9.4/−16.7 ms drift).
+>     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
+>     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
+>     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in
+>     the `tk_gate.py` style. It **runs** the executable rather than only resolving it, because
+>     both Smart App Control incidents left the binary present and resolvable while refusing to
+>     execute it, which a path check cannot see. Either the regression runs and passes or the gate
+>     is red. Collection and the inherited 14 skips are unchanged; Plan 5 Phases 1–5 now contain
+>     **no `skip`, `skipif`, `importorskip`, `xfail` or environment-gated deselection at all**.
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >
