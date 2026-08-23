@@ -359,19 +359,22 @@ def test_the_validator_does_not_import_shared_foundations():
     assert "shared" not in roots
 
 
-def test_phase_three_partitioning_does_not_exist_yet():
-    """The complete-timeline partition is Phase 3 and its own approval gate."""
-    for name in ("partition", "segment", "SegmentPlan", "bounds", "ItemPlan",
-                 "ConversionPlan", "plan_timeline"):
+def test_phase_four_and_later_responsibilities_do_not_exist_yet():
+    """Phase 3 legitimately added the partition, so ``partition``/``plan_timeline``
+    left this list at that gate. Phase 4's naming seam and everything after it
+    must still be absent."""
+    for name in ("SegmentPlan", "ItemPlan", "ConversionPlan", "flatten_title",
+                 "segment_filename", "sanitize", "destination"):
         assert not any(name.lower() in attr.lower()
                        for attr in dir(m4b_chapters) if not attr.startswith("__")), name
 
 
-def test_the_validator_computes_no_spans():
-    """Structurally valid data is merely accepted *for* later partitioning; the
-    verdict carries no start/end pair of its own."""
+def test_the_validator_itself_computes_no_spans():
+    """The verdict stays a verdict: partitioning is a separate call, so a
+    validation result never carries a timeline of its own."""
     result = validate_chapters(ok_probe(100.0, 0.0, 40.0))
     assert not hasattr(result, "segments")
+    assert not hasattr(result, "spans")
     assert not hasattr(result, "bounds")
 
 

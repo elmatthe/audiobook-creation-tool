@@ -8,17 +8,18 @@ exactly as it is. Putting a chapter model into either would create a shared
 abstraction with one caller, so the model is Converter-local until a second tool
 genuinely needs it (v0.6.2 Plan 5 §11.1).
 
-**What this module is.** The probe result types, and the structural verdict on
-them. Nothing here runs ffprobe, opens a file, imports Tk or reaches the network,
-which is what lets the whole chapter contract be tested without media. Reading a
-real file is a later phase's job; this module fixes the shape of the answer and
-decides whether that answer is usable.
+**What this module is.** The probe result types, the structural verdict on them,
+and the complete-timeline partition computed from a verdict that passed. Nothing
+here runs ffprobe, opens a file, imports Tk or reaches the network, which is what
+lets the whole chapter contract be tested without media. Reading a real file is a
+later phase's job; this module fixes the shape of the answer, decides whether
+that answer is usable, and turns a usable one into spans.
 
-The two halves are kept apart deliberately. The types record what the source
-*said*; :func:`validate_chapters` decides whether what it said can be used.
-Making a malformed map impossible to construct would leave nowhere to represent
-a real, broken file, and the tool has to describe one truthfully in order to
-refuse it.
+The three layers are kept apart deliberately. The types record what the source
+*said*; :func:`validate_chapters` decides whether what it said can be used; and
+:func:`plan_timeline` partitions only what passed. Making a malformed map
+impossible to construct would leave nowhere to represent a real, broken file, and
+the tool has to describe one truthfully in order to refuse it.
 
 **The one distinction this module exists to make.** A source that probes cleanly
 and simply has no chapters is a *success* — :data:`ProbeStatus.OK` with an empty
@@ -303,3 +304,122 @@ def validate_chapters(probe: ChapterProbe) -> ChapterValidation:
         previous = chapter
 
     return ChapterValidation(ChapterUsability.CHAPTERED)
+
+
+# --------------------------------------------------------------------------- #
+# Complete-timeline partition (Decision 46A, §11.3)
+#
+# The planner turns a validated chaptered source into spans that tile the whole
+# source, from exactly 0.0 to exactly the reported duration, with no gap and no
+# overlap. Decision 46A is absolute: no positive source duration may disappear.
+#
+# **The partition is over chapter starts, not chapter regions.** For N chapters
+# with starts s1..sN and duration D:
+#
+#     bounds   = [0.0, s2, s3, ..., sN, D]
+#     segment i = [bounds[i], bounds[i + 1])
+#
+# The first chapter's own s1 is deliberately **not** a boundary. That single
+# choice is what makes the whole thing lossless without a special case:
+#
+#   * pre-roll before chapter 1 falls inside chapter 1's span, so no synthetic
+#     "Opening" output is invented for audio the source never named;
+#   * unchaptered time between chapters falls into the preceding span, because
+#     the next boundary is the next chapter's start and nothing else;
+#   * trailing audio falls into the last span, whose end is D itself.
+#
+# Chapter end times are never consulted — they are not even carried by
+# :class:`SourceChapter` — so no end-time anomaly can move a boundary.
+#
+# **No arithmetic is performed on any boundary.** Every value in ``bounds`` is
+# either the literal ``0.0``, a chapter start copied verbatim, or the duration
+# copied verbatim. Nothing is added, subtracted, rounded or nudged, so floating
+# point cannot drift a boundary and there is no epsilon anywhere in this layer to
+# be mistaken later for permission to trim the beginning or end of a book.
+# --------------------------------------------------------------------------- #
+
+
+class TimelinePlanError(RuntimeError):
+    """A partition was asked for on a source that cannot be split.
+
+    Carries the :class:`ChapterValidation` that refused it, so a caller that
+    reached here by mistake still has the specific reason rather than a bare
+    failure. Raised rather than returned because a validated caller cannot
+    encounter it: the chaptered / chapterless / unusable decision is made once,
+    by :func:`validate_chapters`, before a partition is ever requested.
+    """
+
+    def __init__(self, validation: ChapterValidation):
+        self.validation = validation
+        detail = validation.detail or validation.usability.value
+        super().__init__(f"cannot partition this source: {detail}")
+
+
+@dataclass(frozen=True, slots=True)
+class ChapterSpan:
+    """One span of the source timeline, and the chapter it is named for.
+
+    Pure geometry and identity — deliberately **not** §9's ``SegmentPlan``, which
+    additionally carries a destination path and the final track policy. Those are
+    output decisions and belong to the phase that assembles the conversion plan;
+    keeping them out of here means there is exactly one timeline representation
+    and nothing mutable to fall out of step with it.
+
+    ``order`` is the span's 1-based position in the plan, which is the structural
+    order later phases number by. ``source_index`` is what the source itself
+    called the chapter, kept separate because the two are not the same fact and a
+    source is free to index from anywhere. ``title`` is raw: not flattened, not
+    sanitised, not defaulted. Turning a title into a filename is the naming
+    seam's job.
+    """
+
+    order: int
+    source_index: int
+    start: float
+    end: float
+    title: str
+
+    @property
+    def duration(self) -> float:
+        """Length of this span. Derived, never stored, so it cannot disagree."""
+        return self.end - self.start
+
+
+def plan_timeline(probe: ChapterProbe) -> tuple[ChapterSpan, ...]:
+    """Partition a chaptered source into spans tiling ``[0.0, duration]``.
+
+    Pure and deterministic: no I/O, no ffprobe, no clock, no Tk. The input probe
+    is read and never modified.
+
+    **Validation is not repeated here.** This calls :func:`validate_chapters`,
+    which stays the single authority on whether a probe is usable, and refuses
+    anything that is not :data:`ChapterUsability.CHAPTERED` — including a
+    legitimately chapterless source, which has no chapter partition to compute
+    and whose one-file fallback belongs to the run-plan layer, not to this
+    function. Re-validating rather than trusting the caller means a malformed
+    probe cannot produce spans by any route.
+
+    Raises :class:`TimelinePlanError` when the source cannot be partitioned.
+    """
+    validation = validate_chapters(probe)
+    if validation.usability is not ChapterUsability.CHAPTERED:
+        raise TimelinePlanError(validation)
+
+    chapters = probe.chapters
+    # Every bound is a verbatim value: the literal start of the source, each
+    # chapter start after the first, and the duration itself. Note the deliberate
+    # omission of chapters[0].start — pre-roll belongs to chapter 1.
+    bounds: list[float] = [0.0]
+    bounds.extend(chapter.start for chapter in chapters[1:])
+    bounds.append(probe.duration)  # type: ignore[arg-type]  # validated non-None
+
+    return tuple(
+        ChapterSpan(
+            order=position + 1,
+            source_index=chapter.index,
+            start=bounds[position],
+            end=bounds[position + 1],
+            title=chapter.title,
+        )
+        for position, chapter in enumerate(chapters)
+    )

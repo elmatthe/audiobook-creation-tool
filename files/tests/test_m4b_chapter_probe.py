@@ -250,15 +250,17 @@ def test_the_metadata_chapter_title_helper_is_untouched():
 
 
 def test_no_later_phase_responsibilities_have_leaked_in():
-    """Names owned by Phase 3 and beyond must not exist yet in this module.
+    """Names owned by Phase 4 and beyond must not exist yet in this module.
 
-    ``validate`` was on this list through Phase 1 and was deliberately removed in
-    Phase 2, which owns structural validation; everything below still belongs to
-    a later, separately approved phase.
+    The list shrinks as each phase legitimately claims its own vocabulary, and
+    only then: ``validate`` left it in Phase 2, and ``partition`` / ``segment`` /
+    ``plan_`` left it in Phase 3, which owns the complete-timeline partition.
+    Everything below still belongs to a later, separately approved phase —
+    including ``destination``, so a pure span can never grow an output path.
     """
     later = (
-        "partition", "segment", "SegmentPlan", "ItemPlan",
-        "ConversionPlan", "flatten_title", "segment_filename", "plan_",
+        "SegmentPlan", "ItemPlan", "ConversionPlan", "flatten_title",
+        "segment_filename", "sanitize", "destination",
         "include_subfolders", "ffmpeg_cmd",
     )
     exported = set(dir(m4b_chapters))

@@ -22,8 +22,8 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0, 1 and 2 are complete and approved-to-date. Phase 3 has NOT started** and needs
->   explicit maintainer approval. No tag, no release, no package, no `release.py` run.
+> - **Phases 0-3 are complete and approved-to-date. Phase 4 has NOT started** and needs explicit
+>   maintainer approval. No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
 >     (`VerifiedAndReputableDesktop`, policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`) transiently
@@ -59,6 +59,27 @@
 >     match. Gate: **3993 collected / 3979 passed / 14 skipped / 1 warning**, `verify.py` PASS;
 >     the **+55** delta is exactly the new tests, with no parametrised production-source delta
 >     because the existing module was extended rather than a new one added.
+>   - **Phase 3** (2026-08-23): the complete-timeline partition, same module — `ChapterSpan`
+>     (frozen: `order`, `source_index`, `start`, `end`, `title`, derived `duration`),
+>     `TimelinePlanError`, and `plan_timeline(probe)`. Implements Decision 46A / §11.3 exactly:
+>     `bounds = [0.0, s2, …, sN, D]`, segment *i* = `[bounds[i], bounds[i+1])`, N outputs for N
+>     chapters. **`s1` is deliberately never a boundary** — that one choice puts pre-roll inside
+>     chapter 1 (no synthetic `"Opening"`), keeps unchaptered gaps with the preceding span, and ends
+>     the last span at the real `D`. **No arithmetic touches a boundary**: every bound is the literal
+>     `0.0`, a chapter start copied verbatim, or `D` copied verbatim, so float drift is impossible
+>     and there is no epsilon in this layer to be mistaken later for permission to trim.
+>     `plan_timeline` **delegates to `validate_chapters` and refuses anything not `CHAPTERED`**,
+>     raising `TimelinePlanError` carrying the validation — so Phase 2 stays the single authority and
+>     a malformed or chapterless probe cannot produce spans by any route. The chapterless one-file
+>     fallback remains later work. Titles are carried raw; naming is Phase 4.
+>     **Real-fixture diagnostic (read-only, not committed):** all five local M4Bs
+>     (15/47/50/39/44 chapters) fed through the production planner tile `[0, D]` with
+>     `Σ − D = +0.000000000`; Harry Potter's **0.046 s tail was absorbed into the final span, not
+>     discarded**, and Mistborn's `+0.000011 s` float remainder likewise. **No risk-gate-4
+>     contradiction.** Gate: **4055 collected / 4041 passed / 14 skipped / 1 warning**,
+>     `verify.py` PASS; **+62** delta is exactly the new tests. The first full run hit the **known Tk
+>     transient** — 48 errors in `test_preferences_maintenance_ui.py`, which passes 62/62 in
+>     isolation — and one clean fresh-process retry was green; nothing was weakened or skipped.
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >
