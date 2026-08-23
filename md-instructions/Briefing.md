@@ -678,8 +678,9 @@ cleanup and rebuild, and `config.toml` in both release archives. Approved at Pha
 `0e7ad0c264cb2a46f3c64f968e24f00963cb1987`; Phase 9 is the documentation/retirement commit, not
 another feature phase.
 
-**v0.6.1 (Plan 4 — TTS and Cover Image workflows) — COMPLETE, APPROVED AND CLOSED, not
-released, not merged.** The first plan to adopt Plans 2 and 3 inside production panels. It
+**v0.6.1 (Plan 4 — TTS and Cover Image workflows) — COMPLETE, APPROVED, CLOSED and MERGED
+through pull request #5 (merge `81c9c06`); not released.** The first plan to adopt Plans 2 and 3
+inside production panels. It
 delivered: the **unified PDF/TXT queue** in TTS Audiobook; the **retirement of EPUB** from every
 production surface with its source preserved in the permanent tracked archive
 `files/archived-code/epub-tts/`; the Cover **Details / List / Medium Thumbnail** browser;
@@ -744,8 +745,9 @@ violation is **historical, characterised from its minidump, and never reproduced
 controlled attempts or any later run — it is not claimed to be fixed**, and diagnostics were added
 so a recurrence is observable.
 
-**v0.6.0 Drop 3 (shared importing and job-control foundation) — approved 2026-08-10, not
-released, not merged.** Plan 3 delivered the four shared modules described under Architecture —
+**v0.6.0 Drop 3 (shared importing and job-control foundation) — approved 2026-08-10, MERGED
+through pull request #4 (merge `809a43e`); not released.** Plan 3 delivered the four shared modules
+described under Architecture —
 `importing.py`, `import_coordination.py`, `job_control.py` and `job_ui.py` — plus 1,460 tests and
 a developer-only manual harness. **It is infrastructure, not a feature a user can reach:** no
 production panel or launcher imports any of it, `launcher.TOOLS` still holds exactly six tools,
@@ -770,12 +772,17 @@ the worktree stayed completely clean with no untracked file, `git diff HEAD` was
 tracked file and all 22 approved screenshots remained byte-identical. **Windows 125% scaling and
 live macOS validation were not run for Plan 3 and remain deferred to Plan 9.**
 
-**The next action is Plan 4 integration review**, which is the maintainer's decision. Plan 4 is
-complete, approved and closed on `feature/0.6.1-tts-cover-workflows`, pushed and **not merged**;
-Plan 3's feature branch is likewise still awaiting integration review. **Plan 5 (M4B Converter)
-has not been drafted or started** and needs separate explicit approval. *(The sentence this
-replaces described Plan 4 as the next unopened work; that was true until Plan 4 opened on
-2026-08-11 and is kept here only as history.)*
+**Plans 3 and 4 are now MERGED into `master`** — Plan 3 through pull request #4 (merge `809a43e`)
+and Plan 4 through pull request #5 (merge `81c9c0600ca74a42a22bd09d367a702bee9708fe`, a normal merge
+commit). Both feature branches were retained, not deleted. **v0.6.2 Plan 5 (M4B Converter upgrade)
+is now ACTIVE** on `feature/0.6.2-m4b-converter-upgrade`, branched from that verified `master`, with
+the approved drop `md-instructions/0.6.2-m4b-converter-upgrade.md`; **Phase 0 is complete and Phase 1
+has not started**, and each phase needs separate explicit approval. Code/version identity remains
+**`0.6.1`** until Plan 5's approved closeout, and the **published GitHub release remains `v0.4.0`** —
+no tag, release or package exists for either. *(Superseded, kept as history: this paragraph
+previously said the next action was Plan 4 integration review, that both branches were unmerged, and
+that Plan 5 had not been drafted or started. An earlier sentence still further back described Plan 4
+as the next unopened work, true until Plan 4 opened on 2026-08-11.)*
 
 **How Plan 2 was validated, and what was deliberately not validated.** The evidence is a clean
 extraction of the real Windows archive into a disposable root whose path carries a space, an

@@ -2,7 +2,33 @@
 
 ## Current Focus
 
-> ## ⟢ CURRENT STATE — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
+> ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is ACTIVE; Plans 3 and 4 are MERGED (2026-08-22)
+>
+> **This block is the live state of the repository and supersedes every earlier status sentence in
+> this file, including the Plan 4 block immediately below it.** Nothing below has been deleted or
+> rewritten; the phase-by-phase record stays exactly as written at the time.
+>
+> - **Plan 3 is MERGED** into `master` through **pull request #4** (merge `809a43e`).
+> - **Plan 4 is MERGED** into `master` through **pull request #5** (merge
+>   `81c9c0600ca74a42a22bd09d367a702bee9708fe`). Any sentence below saying Plan 3 or Plan 4 is
+>   *"awaiting integration review"*, *"NOT merged"* or that *"the next action is Plan 4 integration
+>   review"* is **stale and superseded by this block.**
+> - **Plan 4's integration master is `81c9c0600ca74a42a22bd09d367a702bee9708fe`**, and that is the
+>   commit Plan 5 branched from. Both feature branches were **retained**, not deleted.
+> - **Code/version identity is `0.6.1`** and stays there for the whole of Plan 5; the bump to
+>   `0.6.2` happens only at Plan 5's approved closeout. **The published GitHub release remains
+>   `v0.4.0`** — published release and code version identity are deliberately distinct.
+> - **v0.6.2 Plan 5 (M4B Converter upgrade) is ACTIVE** on branch
+>   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
+>   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
+>   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
+> - **Phase 0 is the only Plan 5 phase completed. Phase 1 has NOT started** and needs explicit
+>   maintainer approval. No tag, no release, no package, no `release.py` run.
+
+> ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
+>
+> *(Kept for the record. Correct when written; superseded by the block above, which records that
+> Plan 4 has since been merged through pull request #5.)*
 >
 > **This block is the live state of the repository and supersedes every earlier status sentence in
 > this file.** Nothing below it has been deleted or rewritten: the phase-by-phase record stays
