@@ -22,8 +22,27 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phase 0 is the only Plan 5 phase completed. Phase 1 has NOT started** and needs explicit
+> - **Phases 0 and 1 are complete and approved-to-date. Phase 2 has NOT started** and needs explicit
 >   maintainer approval. No tag, no release, no package, no `release.py` run.
+>   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
+>     Its gate was initially red for an environmental reason only — Smart App Control
+>     (`VerifiedAndReputableDesktop`, policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`) transiently
+>     blocked the unsigned `C:\ffmpeg\bin\ffprobe.exe` with `WinError 4551` / CodeIntegrity 3077 +
+>     3118, failing 25 ffmpeg-dependent tests. **`ffmpeg.exe` was never blocked.** The block cleared
+>     on its own on 2026-08-23 with **no security or repository change**; SAC remains in Enforce and
+>     the binary is byte-identical. Diagnosed and dispositioned by the maintainer; the baseline was
+>     re-proved at **3901 collected / 3887 passed / 14 skipped / 1 warning**, `verify.py` PASS.
+>     Because these binaries are unsigned, a recurrence is possible after an ffmpeg update.
+>   - **Phase 1** (2026-08-23): the Converter-local, pure chapter probe model
+>     `scripts/Universal/mp3_tools/m4b_chapters.py` — `ProbeStatus` (OK / PROBE_FAILED /
+>     NO_DURATION / NO_AUDIO), `SourceChapter` and `ChapterProbe`, all frozen, with `ok` true only
+>     for `OK`. **Model only**: no ffprobe call, no I/O, no Tk, and deliberately **no chapter
+>     validation** — a negative, duplicate, non-monotonic or out-of-range start is representable and
+>     is left for Phase 2. `shared/ffmpeg_utils.py` gained no chapter vocabulary and
+>     `metadata.read_chapter_titles` is untouched, per §11.1. The panel does not import it yet;
+>     production adoption is a later phase. Gate: **3938 collected / 3924 passed / 14 skipped /
+>     1 warning**, `verify.py` PASS. The **+37** collection delta is 36 new tests plus one, because
+>     `test_plan3_boundaries` parametrises over production sources and now guards the new module too.
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >
