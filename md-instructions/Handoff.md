@@ -22,8 +22,8 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0 and 1 are complete and approved-to-date. Phase 2 has NOT started** and needs explicit
->   maintainer approval. No tag, no release, no package, no `release.py` run.
+> - **Phases 0, 1 and 2 are complete and approved-to-date. Phase 3 has NOT started** and needs
+>   explicit maintainer approval. No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
 >     (`VerifiedAndReputableDesktop`, policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`) transiently
@@ -43,6 +43,22 @@
 >     production adoption is a later phase. Gate: **3938 collected / 3924 passed / 14 skipped /
 >     1 warning**, `verify.py` PASS. The **+37** collection delta is 36 new tests plus one, because
 >     `test_plan3_boundaries` parametrises over production sources and now guards the new module too.
+>   - **Phase 2** (2026-08-23): structural validation in the same Converter-local module —
+>     `ChapterUsability` (CHAPTERED / CHAPTERLESS / UNUSABLE), `InvalidReason` (8 members) and the
+>     frozen `ChapterValidation`, produced by the pure `validate_chapters(probe)`. Reads **starts and
+>     duration only**; chapter end times are never consulted. Rejects non-OK statuses, any duration
+>     that cannot bound a real `[0, D]` span (None / non-finite / ≤ 0, reported through the existing
+>     `NO_DURATION` semantic), non-finite starts, starts `< 0`, starts `>= duration`, duplicate
+>     starts and out-of-order starts. **Nothing is repaired** — no sort, clamp, drop, dedup or
+>     rename — and malformed structure never reaches the chapterless path, which stays exactly
+>     `OK` + `()` + usable duration per Decision 18A. Ordering uses **exact** comparison, no epsilon:
+>     ffprobe starts are millisecond-quantised, and inventing a threshold here is what §11.2 warns
+>     could later be mistaken for permission to move a boundary. The one-full-MP3 fallback itself is
+>     **not** implemented; this phase only proves an empty map is not corruption. `math` joined the
+>     module's imports for `isfinite`, and the Phase 1 purity guard was updated deliberately to
+>     match. Gate: **3993 collected / 3979 passed / 14 skipped / 1 warning**, `verify.py` PASS;
+>     the **+55** delta is exactly the new tests, with no parametrised production-source delta
+>     because the existing module was extended rather than a new one added.
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >

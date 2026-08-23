@@ -200,7 +200,11 @@ def _imported_roots() -> set[str]:
 
 
 def test_the_probe_model_imports_only_the_standard_library_it_needs():
-    assert _imported_roots() == {"__future__", "dataclasses", "enum"}
+    # ``math`` joined the set in Phase 2, for isfinite() in the validator: a NaN
+    # start compares false against every range and ordering test, so it has to be
+    # rejected explicitly. It is pure and does no I/O, so the purity contract
+    # below is unaffected.
+    assert _imported_roots() == {"__future__", "dataclasses", "enum", "math"}
 
 
 def test_the_probe_model_has_no_tk_dependency():
@@ -245,10 +249,15 @@ def test_the_metadata_chapter_title_helper_is_untouched():
     assert "m4b_chapters" not in metadata_source
 
 
-def test_phase_one_did_not_implement_later_phase_responsibilities():
-    """Names owned by Phases 2-13 must not exist yet in this module."""
+def test_no_later_phase_responsibilities_have_leaked_in():
+    """Names owned by Phase 3 and beyond must not exist yet in this module.
+
+    ``validate`` was on this list through Phase 1 and was deliberately removed in
+    Phase 2, which owns structural validation; everything below still belongs to
+    a later, separately approved phase.
+    """
     later = (
-        "validate", "partition", "segment", "SegmentPlan", "ItemPlan",
+        "partition", "segment", "SegmentPlan", "ItemPlan",
         "ConversionPlan", "flatten_title", "segment_filename", "plan_",
         "include_subfolders", "ffmpeg_cmd",
     )
