@@ -786,7 +786,9 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: Written as dotted module paths because that is what ``TOOL_MODULES`` holds; the
 #: authoritative list is ``test_plan3_boundaries.ADOPTED``, and the test below
 #: proves the two spellings agree rather than trusting that they do.
-PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui")
+#: v0.6.2 Plan 5 Phase 7B adds the M4B Converter as the third adopter.
+PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
+                  "mp3_tools.m4b_converter")
 
 
 def _tool_path(relative: str) -> Path:
@@ -830,14 +832,13 @@ def test_no_unadopted_tool_reached_for_the_plan3_foundation():
         checked.append(relative)
 
     assert sorted(checked) == [
-        "mp3_tools.m4b_converter",
         "mp3_tools.m4b_maker",
         "mp3_tools.m4b_metadata_editor",
         "mp3_tools.mp3_tool",
     ], checked
 
 
-def test_both_authorized_adopters_really_did_adopt():
+def test_every_authorized_adopter_really_did_adopt():
     """The other half of the narrowing, so the exclusion cannot be free.
 
     Excluding a module from the guard above is only honest if that module has
@@ -913,6 +914,33 @@ class _Q:
                 return out
 
 
+def _occurrences(*paths):
+    """Frozen ImportedFile entries, the way the panel now hands them to the worker.
+
+    v0.6.2 Plan 5 Phase 7B retired the Converter's own ``list[Path]``; the run is
+    frozen from the committed ``ImportedFileManager`` snapshot instead, so the
+    worker receives occurrences and derives its own paths inside the run.
+    """
+    from shared.importing import (
+        IdFactory, ImportedFile, ImportRoot, RootKind, capture_identity,
+    )
+    import os
+
+    ids = IdFactory("occ-")
+    root = ImportRoot("direct-1", None, 0, RootKind.DIRECT_FILES)
+    return tuple(
+        ImportedFile(
+            occurrence_id=ids.next_id("occ"),
+            path=Path(entry),
+            source_root=root,
+            relative_path=None,
+            supported_type_id="m4b",
+            identity=capture_identity(Path(entry), os.lstat(entry)),
+        )
+        for entry in paths
+    )
+
+
 @needs_ffmpeg
 def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path):
     from mp3_tools import m4b_converter
@@ -925,7 +953,8 @@ def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path
     host.progress = type("P", (), {"update": lambda *a: None})()
     params = {
         "quality": 5, "write_tags": True, "title": "", "artist": "", "album_artist": "",
-        "album": "", "do_track": False, "start_num": 1, "files": [source],
+        "album": "", "do_track": False, "start_num": 1,
+        "imported_files": _occurrences(source),
         "planner": reservation.planner(),
     }
     m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)
@@ -947,7 +976,8 @@ def test_the_converter_worker_numbers_duplicate_stems(output_base, tmp_path):
     host.progress = type("P", (), {"update": lambda *a: None})()
     params = {
         "quality": 5, "write_tags": False, "title": "", "artist": "", "album_artist": "",
-        "album": "", "do_track": False, "start_num": 1, "files": [a, b],
+        "album": "", "do_track": False, "start_num": 1,
+        "imported_files": _occurrences(a, b),
         "planner": reservation.planner(),
     }
     m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)

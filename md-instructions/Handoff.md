@@ -22,7 +22,7 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-7A are complete and approved-to-date. Phase 7B has NOT started** and needs explicit
+> - **Phases 0-7B are complete and approved-to-date. Phase 8 has NOT started** and needs explicit
 >   maintainer approval. No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -270,6 +270,64 @@
 >     **4399 collected / 4385 passed / 14 skipped / 1 warning**, `verify.py` PASS; the **+57**
 >     delta is 40 new recursion tests, 13 shared job-UI tests and 2 each in the TTS and Cover
 >     regressions. No new optional skip anywhere in Plan 5 Phases 1-7A.
+>   - **Phase 7B** (2026-08-24): the M4B Converter adopts the shared Plan 3 importer, and its own
+>     second input system is gone. It had owned a `list[Path]`, a `tk.Listbox`, three buttons and a
+>     count label, all mutated **by list index** — the visible rows and the queue were two things
+>     kept in step by hand, and `start_convert` froze the list rather than a committed snapshot.
+>     Removed: `self.files`, `self.listbox`, `count_var`, `btn_add`/`btn_remove`/`btn_clear`,
+>     `add_files()`, `remove_selected()`, `clear_list()`, `update_count()`. **The committed
+>     `ImportedFileManager` snapshot is now the only input authority**, and a structural test walks
+>     the live panel's `vars()` looking for *any* list or set of paths, because a shadow queue that
+>     merely happens to agree today is exactly the failure this phase removed.
+>     **Composed, not copied**: `ImportedFileManager` + `ImportCoordinator` + `ImportAdapter` +
+>     `MainThreadPump`, with `build_catalog()` returning the one-entry Decision 16A catalog
+>     `SupportedType("m4b", "M4B audiobook", (".m4b",))`. An AST guard proves the panel *defines*
+>     none of the shared types, and `self.after(` no longer appears anywhere — the pump owns the one
+>     scheduled chain, with the legacy conversion queue registered as a drain beside the import
+>     poller.
+>     **Decision 16A**: the single type is checked by default; unchecking it leaves none, so Add
+>     Files returns `NO_TYPES_SELECTED` and Add Folder declines **without creating a worker**
+>     (asserted against the thread factory), and re-enabling restores normal importing. No other
+>     audio extension was added — a parametrised test refuses `.mp3`/`.m4a`/`.aac`/`.mp4`/`.flac`/
+>     `.wav`.
+>     **Decision 14A**: the full shared surface — `Add Files…` · `Add Folder…` · `Move Up` ·
+>     `Move Down` · `Remove` · **`Clear All`** — with `extended` selection, identity-preserving
+>     moves, derived edge enablement and selection restored by occurrence id.
+>     **Add Files** keeps dialog order, refuses an unsupported extension even when the dialog
+>     returns one, records `DIRECT_FILES` provenance, and is unaffected by `include_subfolders`.
+>     **The remembered `m4b_converter.input_dir` survived adoption** without any shared change,
+>     because the chooser callback is the panel's own — risk gate #9 was not approached.
+>     **Add Folder** recurses by default, takes only the root when `Include subfolders` is off,
+>     retains `source_root` + root-relative provenance, and honours broad-root and large-result
+>     confirmations (declining either commits nothing and, for broad-root, starts no worker).
+>     Direct files and folder files share **one** ordered queue.
+>     **Start freezes exactly one snapshot.** `start_convert` reads `manager.snapshot()` once on the
+>     main thread and hands the worker `params["imported_files"]` — the **frozen occurrences**, not
+>     a reduced path list, because provenance is already what Phase 8 needs. A test clears the
+>     manager after Start and proves the captured tuple is unchanged; another proves `"files"` never
+>     comes back. The worker derives its own path tuple **inside** the run boundary.
+>     **Two cancellations, kept apart**: `Cancel Import` stops a scan only and never touches
+>     `_cancel_event`; the legacy conversion `Cancel` never touches the importer. Both asserted.
+>     Input locking goes through the shared `set_locked` seam only — no Plan 9 lock matrix.
+>     **920x600 (D1), measured not assumed.** The first layout passed a naive "is it mapped" check
+>     while squeezing **`Convert` from 25 px to 8 px** — on screen and effectively unusable. Fixed
+>     by the smallest available knob, `list_height=10 -> 6`; panel requested height 810 -> 746
+>     (pre-7B was 698). All twelve required controls are now mapped at full height with bottoms
+>     <= 543 of 600, and the guard now requires a >= 16 px click target rather than merely non-zero.
+>     **No fallback was used and risk gate #12 was not reached.**
+>     **Phase 8 boundary held**: provenance is retained but no `planning_groups`/`plan_flat`/
+>     `plan_mirrored`/`plan_multi_root` adoption; the legacy worker keeps its current flat run-folder
+>     behaviour, which is **transitional and not the final Plan 5 output contract**. AST guards also
+>     refuse Phase 9 job control and Phase 10/11 execution vocabulary, and `ACT.` still appears
+>     nowhere.
+>     **Deliberate guard updates**: `ADOPTED` gains `mp3_tools/m4b_converter.py` (third adopter,
+>     with the measured count 2 -> 3), and `PLAN3_ADOPTERS` in `test_tool_output_integration.py` is
+>     kept in step. **`UNCONVERTED_PANELS` is byte-identical** — Plan 3 foundation adoption is not
+>     Plan 1 visual conversion, and this panel stays classic. TTS and Cover production files are
+>     byte-identical and their suites passed unchanged. Gate: **4454 collected / 4440 passed /
+>     14 skipped / 1 warning**, `verify.py` PASS; the **+55** delta is 57 new Converter importer
+>     tests minus 2, because `m4b_converter.py` left the two `UNADOPTED_*` parametrisations.
+>     No new optional skip anywhere in Plan 5 Phases 1-7B.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

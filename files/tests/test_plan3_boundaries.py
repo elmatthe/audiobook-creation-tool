@@ -99,7 +99,8 @@ PANELS = (
 #: name to this tuple is the only way a module can start using the foundation,
 #: and ``test_exactly_these_production_modules_have_adopted_the_foundation``
 #: pins the tuple against the tree so it cannot drift.
-ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py")
+ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
+            "mp3_tools/m4b_converter.py")
 
 
 def relative_name(path: Path) -> str:
@@ -653,18 +654,24 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_two_production_modules_are_authorized_to_adopt():
+def test_exactly_three_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
-    Phase 11 states it as its own assertion rather than leaving it implicit in a
+    Phase 11 stated it as its own assertion rather than leaving it implicit in a
     tuple literal, because every guard below narrows itself by this set. Widening
-    it is how a third adopter would hide, so widening it has to fail a test whose
-    name says what it is protecting.
+    it is how a further adopter would hide, so widening it has to fail a test
+    whose name says what it is protecting.
+
+    v0.6.2 Plan 5 Phase 7B adds the **third** adopter deliberately: the M4B
+    Converter now composes the shared importer, so the shared
+    ``ImportedFileManager`` is its only input authority. That is an adoption of
+    the Plan 3 *foundation* and not a Plan 1 visual conversion — the panel stays
+    classic and appears in ``UNCONVERTED_PANELS`` exactly as before.
     """
-    assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py")
+    assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
+                       "mp3_tools/m4b_converter.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
-        "mp3_tools/m4b_converter.py",
         "mp3_tools/mp3_tool.py",
         "mp3_tools/m4b_maker.py",
         "mp3_tools/m4b_metadata_editor.py",
@@ -720,7 +727,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 2, importers
+    assert len(importers) == 3, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():

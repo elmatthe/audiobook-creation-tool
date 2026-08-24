@@ -10,9 +10,11 @@
 # folders remembered via shared.settings (default = home, no hardcoded
 # ~/Downloads), and tag args built by shared.metadata.
 
+import gc
 import queue
 import sys
 import threading
+import time
 from pathlib import Path
 from subprocess import PIPE, STDOUT
 
@@ -25,13 +27,22 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import config as shared_config
 from shared import ffmpeg_utils
+from shared import job_ui
 from shared import metadata
 from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
 from shared import ui_theme
+from shared.import_coordination import ImportCoordinator
+from shared.importing import (
+    IdFactory,
+    ImportedFileManager,
+    SupportedType,
+    SupportedTypeCatalog,
+)
 
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
@@ -45,6 +56,27 @@ SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 # settings.json keys. Only the input-dialog location is remembered; the output
 # location is not per-tool state — it comes from the effective configuration.
 KEY_INPUT_DIR = "m4b_converter.input_dir"
+
+#: How long ``close()`` waits for the conversion worker before giving up.
+WORKER_JOIN_TIMEOUT = 5.0
+
+
+def build_catalog() -> SupportedTypeCatalog:
+    """The one type this tool converts (Decision 16A).
+
+    Exactly one entry, so the shared options bar renders exactly one
+    ``M4B audiobook`` checkbox — Decision 16A wants individual type
+    checkboxes rather than an exclusive choice, and a one-type catalog is
+    already that.
+
+    Deliberately **not** widened to ``.m4a``/``.mp4``/generic audio. The
+    catalog is the single source of truth for what the file dialog offers
+    *and* for what the shared validator will accept, so widening it here
+    would quietly widen the whole tool.
+    """
+    return SupportedTypeCatalog((
+        SupportedType("m4b", "M4B audiobook", (".m4b",)),
+    ))
 
 
 # ---------- helpers ---------- #
@@ -82,12 +114,36 @@ def quote(p: Path) -> str:
 class M4BConverterUI(ttk.Frame):
     """The M4B → MP3 converter as an embeddable frame."""
 
-    def __init__(self, parent: tk.Misc):
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        clock=None,
+        effective_config=None,
+        id_factory: IdFactory | None = None,
+        scanner=None,
+        thread_factory=None,
+        choose_files=None,
+        choose_folder=None,
+        confirm_broad_root=None,
+        confirm_large_result=None,
+        home=None,
+    ):
+        """Build the panel.
+
+        Every keyword is a seam the tests drive instead of a real dialog,
+        clock or thread — the same injection points the Cover and TTS panels
+        already expose. Production passes none of them.
+        """
         super().__init__(parent)
 
-        self.files: list[Path] = []
-
         # Cancellation / worker plumbing (mirrors the TTS tool's pattern).
+        self._closed = False
+        self._worker: threading.Thread | None = None
+        self._clock = time.monotonic if clock is None else clock
+        self._effective_config = (shared_config.get_effective()
+                                  if effective_config is None
+                                  else effective_config)
         self._busy = threading.Event()
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
@@ -102,30 +158,63 @@ class M4BConverterUI(ttk.Frame):
         output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
         self._last_run_dir: Path | None = None
 
-        # Top buttons
-        top = ttk.Frame(self)
-        top.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 6))
-
-        self.btn_add = ttk.Button(top, text="Import M4B Files", command=self.add_files)
-        self.btn_add.pack(side=tk.LEFT)
-
-        self.btn_remove = ttk.Button(top, text="Remove Selected", command=self.remove_selected)
-        self.btn_remove.pack(side=tk.LEFT, padx=8)
-
-        self.btn_clear = ttk.Button(top, text="Clear List", command=self.clear_list)
-        self.btn_clear.pack(side=tk.LEFT)
-
-        self.count_var = tk.StringVar(value="0 file(s)")
-        ttk.Label(top, textvariable=self.count_var).pack(side=tk.RIGHT)
-
-        # File list
-        list_frame = ttk.Frame(self)
-        list_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10)
-        self.listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, height=12)
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox.configure(yscrollcommand=sb.set)
+        # --- the shared importing foundation --------------------------- #
+        # This panel used to own a second input system: a `list[Path]`, its
+        # own Listbox, its own three buttons and its own count label, all
+        # mutated by list index. That made the visible rows and the queue two
+        # separate things that had to be kept in step by hand. The committed
+        # ImportedFileManager snapshot is now the only authority, and the
+        # shared list is a view of it.
+        #
+        # One pump owns every scheduled callback here: the import poller
+        # rides its `schedule` seam and the conversion worker's queue is
+        # registered as a drain, so there is no second `after` loop.
+        self._pump = job_ui.MainThreadPump(self)
+        self.import_catalog = build_catalog()
+        self._manager = ImportedFileManager(id_factory=id_factory)
+        self._coordinator = ImportCoordinator(
+            self._manager,
+            scanner=scanner,
+            clock=self._clock,
+            id_factory=id_factory,
+            # Handed to the coordinator, not the adapter: it is asked
+            # *before* a thread exists, so declining starts no worker.
+            confirm_broad_root=(self._confirm_broad_root
+                                if confirm_broad_root is None
+                                else confirm_broad_root),
+            thread_factory=thread_factory,
+            **({} if home is None else {"home": home}),
+        )
+        self.importer = job_ui.ImportAdapter(
+            self,
+            catalog=self.import_catalog,
+            effective_config=self._effective_config,
+            pump=self._pump,
+            manager=self._manager,
+            coordinator=self._coordinator,
+            # No theme bundle: this panel stays classic. Converting it to the
+            # namespaced design system is Plan 9's job, and an empty style
+            # name is what ttk means by "draw this the platform's way".
+            theme=None,
+            clock=self._clock,
+            id_factory=id_factory,
+            choose_files=(self._choose_files if choose_files is None
+                          else choose_files),
+            choose_folder=(self._choose_folder if choose_folder is None
+                           else choose_folder),
+            confirm_large_result=(self._confirm_large_result
+                                  if confirm_large_result is None
+                                  else confirm_large_result),
+            # Six rows, not ten: at the supported 920x600 minimum the panel
+            # asks for more height than the host has, and `pack` hands out
+            # requested height in order, so every row added here is taken
+            # from the run area at the bottom. Six keeps the `Convert`
+            # button at its full height there while still showing a useful
+            # list; the list still expands on a larger window.
+            list_height=6,
+        )
+        self.importer.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True,
+                                 padx=10, pady=(10, 0))
 
         # Options area
         options = ttk.LabelFrame(self, text="Conversion & Metadata (applies to all files)")
@@ -243,43 +332,74 @@ class M4BConverterUI(ttk.Frame):
         else:
             self.log_write("FFmpeg detected.\n")
 
-        # Start draining the worker->GUI queue on the main thread.
-        self.after(150, self._pump_queue)
+        # One pump, one scheduled chain: the conversion queue is a drain on
+        # the same pump the import poller rides. No second `after` loop.
+        self._pump.add_drain(self._pump_queue)
+        self._pump.start()
 
     # ------- UI callbacks -------
 
-    def add_files(self):
-        files = filedialog.askopenfilenames(
+    # ------- shared-importer seams (main thread, before any worker) -------
+
+    @property
+    def manager(self) -> ImportedFileManager:
+        """The one authority on what has been imported."""
+        return self._manager
+
+    def imported_files(self) -> list[Path]:
+        """The committed queue, in order. Derived on demand, never stored."""
+        return [entry.path for entry in self._manager.snapshot().files]
+
+    def _choose_files(self):
+        """The Add Files dialog. The dialog's order is the order, and it is kept.
+
+        The remembered input directory survives adoption because this
+        callback is the panel's own: it can read and write
+        ``m4b_converter.input_dir`` without the shared adapter knowing
+        anything about settings.
+        """
+        chosen = tuple(filedialog.askopenfilenames(
+            parent=self,
             title="Select .m4b files",
             initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
             filetypes=[("M4B Audiobooks", "*.m4b"), ("All files", "*.*")],
+        ) or ())
+        if chosen:
+            settings.set(KEY_INPUT_DIR, str(Path(chosen[0]).parent))
+        return chosen
+
+    def _choose_folder(self):
+        """The Add Folder dialog. One root, as the tuple the seam wants."""
+        chosen = filedialog.askdirectory(
+            parent=self,
+            title="Select a folder of .m4b files",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
+            mustexist=True,
         )
-        if not files:
-            return
-        for f in files:
-            p = Path(f)
-            if p.suffix.lower() != ".m4b":
-                continue
-            self.files.append(p)
-            self.listbox.insert(tk.END, str(p))
-        settings.set(KEY_INPUT_DIR, str(Path(files[0]).parent))
-        self.update_count()
+        if not chosen:
+            return ()
+        settings.set(KEY_INPUT_DIR, str(chosen))
+        return (str(chosen),)
 
-    def remove_selected(self):
-        sel = list(self.listbox.curselection())
-        sel.reverse()
-        for idx in sel:
-            self.listbox.delete(idx)
-            del self.files[idx]
-        self.update_count()
+    def _confirm_broad_root(self, roots) -> bool:
+        """Asked before a scan thread exists, so declining starts no worker."""
+        listed = "\n".join(str(entry) for entry in roots)
+        return job_ui.ask_confirm(
+            self,
+            "Scan a very broad folder?",
+            "This covers a whole drive or your home folder:\n\n"
+            f"{listed}\n\nScanning it can take a long time. Continue?",
+        )
 
-    def clear_list(self):
-        self.listbox.delete(0, tk.END)
-        self.files.clear()
-        self.update_count()
-
-    def update_count(self):
-        self.count_var.set(f"{len(self.files)} file(s)")
+    def _confirm_large_result(self, outcome) -> bool:
+        """Answered after the scan and before anything is committed."""
+        return job_ui.ask_confirm(
+            self,
+            "Add a large number of audiobooks?",
+            f"{outcome.proposed_count:,} audiobooks are ready to be added.\n\n"
+            "Adding this many at once can make the list slow to work with. "
+            "Add them?",
+        )
 
     def output_dir(self) -> Path:
         """The last reserved run, or this tool's parent folder before any run."""
@@ -300,7 +420,13 @@ class M4BConverterUI(ttk.Frame):
     def start_convert(self):
         if self._busy.is_set():
             return
-        if not self.files:
+        # Exactly one committed snapshot, read here on the main thread. Its
+        # order is the run's order, and because it is immutable a later
+        # import, removal or reorder cannot reach a conversion already under
+        # way.
+        snapshot = self._manager.snapshot()
+        imported = tuple(snapshot.files)
+        if not imported:
             messagebox.showwarning("No files", "Please import .m4b files first.")
             return
         if not ffmpeg_utils.have_ffmpeg():
@@ -322,7 +448,11 @@ class M4BConverterUI(ttk.Frame):
             "album": self.album_entry.get().strip(),
             "do_track": self.var_auto_num.get(),
             "start_num": int(self.var_start_num.get() or 1),
-            "files": list(self.files),
+            # The frozen occurrences themselves, not a reduced list of paths:
+            # provenance (source root, root-relative path, occurrence id) is
+            # already what Phase 8's output planning needs, and discarding it
+            # here only to re-derive it later is how it goes missing.
+            "imported_files": imported,
         }
 
         # Every input is validated above; only now is a run directory reserved.
@@ -340,13 +470,14 @@ class M4BConverterUI(ttk.Frame):
 
         self._busy.set()
         self._cancel_event.clear()
-        self.progress.update(0, len(params["files"]))
+        self.progress.update(0, len(imported))
         self.disable_inputs(True)
         self.btn_cancel.configure(state=tk.NORMAL)
 
         t = threading.Thread(
             target=self.convert_worker, args=(outdir, params), daemon=True
         )
+        self._worker = t
         t.start()
 
     def cancel(self):
@@ -357,10 +488,12 @@ class M4BConverterUI(ttk.Frame):
         self._log_q.put(("log", "Cancelling… will stop after the current file.\n"))
 
     def disable_inputs(self, state: bool):
+        # The shared components own their own enablement, so they are locked
+        # through the shared seam rather than by poking at their widgets.
+        # This is the narrow importer lock only — Plan 9 owns the full job
+        # lock matrix.
+        self.importer.set_locked(state)
         widgets = [
-            self.btn_add,
-            self.btn_remove,
-            self.btn_clear,
             self.btn_convert,
             self.entry_quality,
             self.chk_no_tags,
@@ -397,7 +530,6 @@ class M4BConverterUI(ttk.Frame):
                         sp.reveal_in_file_manager(payload[1])
         except queue.Empty:
             pass
-        self.after(150, self._pump_queue)
 
     def _finish_idle(self):
         self._busy.clear()
@@ -408,7 +540,12 @@ class M4BConverterUI(ttk.Frame):
     # ------- conversion (worker thread) -------
 
     def convert_worker(self, outdir: Path, params: dict):
-        files = params["files"]
+        # Derived here, inside the run boundary, from the frozen
+        # occurrences. This tuple is a local of one conversion, not panel
+        # state — reviving a `self.files` here would rebuild exactly the
+        # shadow queue Phase 7B removed.
+        imported = params["imported_files"]
+        files = tuple(entry.path for entry in imported)
         planner = params["planner"]
         total = len(files)
         cancelled = False
@@ -533,6 +670,48 @@ class M4BConverterUI(ttk.Frame):
             self._log_q.put(("done", (f"\nCancelled. Output so far: {outdir}\n", outdir)))
         else:
             self._log_q.put(("done", (f"\nAll done. Output: {outdir}\n", outdir)))
+
+
+    # ------- lifecycle -------
+
+    def close(self):
+        """Close the import side and stop the pump. Idempotent, and safe late.
+
+        The conversion worker is asked to stop first, so the bounded join
+        below meets a thread already unwinding rather than one still working
+        through a long book. Closing the adapter cancels any running scan and
+        joins its worker inside the coordinator's own bounded timeout;
+        closing the pump cancels the outstanding callback and forgets every
+        drain. Nothing is left scheduled.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self._busy.is_set():
+            self._cancel_event.set()
+        worker = self._worker
+        if worker is not None and hasattr(worker, "join"):
+            worker.join(WORKER_JOIN_TIMEOUT)
+        self._worker = None
+        importer = getattr(self, "importer", None)
+        if importer is not None:
+            importer.close()
+        pump = getattr(self, "_pump", None)
+        if pump is not None:
+            pump.close()
+
+    def destroy(self):
+        """Tear the panel down and finish the teardown on this thread.
+
+        The explicit collection is the discipline the Cover panel already
+        uses: destroying the shared job widgets leaves Tk variables in
+        reference cycles, and a Tk variable finalized on some other thread
+        raises "main thread is not in main loop" inside whatever unrelated
+        code happened to be running.
+        """
+        self.close()
+        super().destroy()
+        gc.collect()
 
 
 def build_ui(parent: tk.Misc) -> M4BConverterUI:
