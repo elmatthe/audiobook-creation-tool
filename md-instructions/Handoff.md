@@ -22,8 +22,11 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-7B are complete and approved-to-date. Phase 8 has NOT started** and needs explicit
->   maintainer approval. No tag, no release, no package, no `release.py` run.
+> - **Phases 0-7A are complete and maintainer-approved. Phase 7B is IMPLEMENTED at `d66052f`
+>   and independently reviewed, but is NOT yet maintainer-approved. Phase 8 has NOT started.**
+>   Phase 7B's original session did not follow the authorized verification procedure (see its
+>   entry below), so a bounded verification remediation was required before it can be approved.
+>   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
 >     (`VerifiedAndReputableDesktop`, policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`) transiently
@@ -324,10 +327,38 @@
 >     with the measured count 2 -> 3), and `PLAN3_ADOPTERS` in `test_tool_output_integration.py` is
 >     kept in step. **`UNCONVERTED_PANELS` is byte-identical** — Plan 3 foundation adoption is not
 >     Plan 1 visual conversion, and this panel stays classic. TTS and Cover production files are
->     byte-identical and their suites passed unchanged. Gate: **4454 collected / 4440 passed /
->     14 skipped / 1 warning**, `verify.py` PASS; the **+55** delta is 57 new Converter importer
->     tests minus 2, because `m4b_converter.py` left the two `UNADOPTED_*` parametrisations.
->     No new optional skip anywhere in Plan 5 Phases 1-7B.
+>     byte-identical and their suites passed unchanged.
+>     **Gate (corrected 2026-08-24 by the Phase 7B verification remediation): 4455 collected /
+>     4441 passed / 14 skipped / 1 warning / 0 failed / 0 errors.** The figures first recorded
+>     here, 4454 / 4440, were wrong and never matched the implementation report or the commit
+>     message; they are corrected rather than re-explained.
+>     **Delta from Phase 7A (4399 collected / 4385 passed), re-derived mechanically from both
+>     sides rather than copied: +56**, not the +55 first recorded. Reconciliation, each half
+>     counted at `5dc5949` and at `d66052f`:
+>     `test_m4b_converter_importing.py` absent -> 57 (**+57**);
+>     `test_no_production_module_imports_the_plan3_foundation` 41 -> 40 (**-1**);
+>     `test_the_launcher_and_every_panel_still_names_nothing_from_plan3` 5 -> 4 (**-1**), both
+>     because `m4b_converter.py` left the two `UNADOPTED_*` parametrisations on adopting;
+>     and `test_every_key_the_app_writes_is_allowlisted` 12 -> 13 (**+1**), because that test
+>     parametrises over every `settings.set` **call site** and Add Folder is a new one writing
+>     the same already-allowlisted `m4b_converter.input_dir`, mirroring Cover's two. The first
+>     record omitted that `+1`. Skips remain the inherited 14 and no new optional skip exists
+>     anywhere in Plan 5 Phases 1-7B.
+>     **Verification-procedure anomaly, preserved rather than erased.** During the original
+>     Phase 7B implementation session `verify.py` **failed twice, each time reporting exactly
+>     one error**, before a later invocation passed. **The failing identity was never captured**,
+>     and the session exceeded the authorized allowance of a single clean fresh-process retry.
+>     Those two failures therefore remain **unidentified** and are **not** classified as the
+>     known Tk transient: that transient has concrete evidence behind it (48 errors in
+>     `test_preferences_maintenance_ui.py`), and none of it was observed here. An eventual PASS
+>     obtained after repeated invocations is not evidence that a gate is sound, so it was not
+>     accepted as procedural approval.
+>     **Remediation (2026-08-24).** A bounded verification-only pass re-proved the gate on fresh
+>     evidence, changing no production code, no test and no shared contract: focused Phase 7B,
+>     guard, TTS, Cover and shared-importer coverage all green; **exactly one** standalone full
+>     suite (exit 0, the corrected figures above, zero failures and zero errors, no FAILED or
+>     ERROR identity emitted); and **exactly one** invocation of `verify.py`, which passed on
+>     that sole first attempt with no retry. Phase 7B remains **awaiting maintainer approval**.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in
