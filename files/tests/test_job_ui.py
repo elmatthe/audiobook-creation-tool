@@ -870,12 +870,133 @@ def test_hidden_and_duplicate_options_are_captured_as_frozen_values(parent):
 
 def test_locking_the_options_disables_every_control(parent):
     bar = job_ui.ImportOptionsBar(parent, catalog())
+    controls = (*bar.type_buttons.values(), bar.check_hidden, bar.check_duplicates,
+                bar.check_subfolders)
     bar.set_locked(True)
-    for widget in (*bar.type_buttons.values(), bar.check_hidden, bar.check_duplicates):
+    for widget in controls:
         assert not enabled(widget)
     bar.set_locked(False)
-    for widget in (*bar.type_buttons.values(), bar.check_hidden, bar.check_duplicates):
+    for widget in controls:
         assert enabled(widget)
+
+
+# --------------------------------------------------------------------------- #
+# Include subfolders — v0.6.2 Plan 5, Phase 7A (Decision 7A / D7A)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_include_subfolders_control_exists_and_is_labelled(parent):
+    bar = job_ui.ImportOptionsBar(parent, catalog())
+    assert str(bar.check_subfolders.cget("text")) == "Include subfolders"
+
+
+def test_include_subfolders_starts_checked(parent):
+    """Default on, because every existing adopter recurses today."""
+    bar = job_ui.ImportOptionsBar(parent, catalog())
+    assert bar.options().include_subfolders is True
+
+
+def test_include_subfolders_is_captured_as_a_frozen_value(parent):
+    bar = job_ui.ImportOptionsBar(parent, catalog())
+    captured = bar.options()
+    bar.set_include_subfolders(False)
+    assert bar.options().include_subfolders is False
+    assert captured.include_subfolders is True, "a captured request is frozen"
+
+
+def test_the_constructor_can_start_it_unchecked(parent):
+    bar = job_ui.ImportOptionsBar(parent, catalog(), include_subfolders=False)
+    assert bar.options().include_subfolders is False
+
+
+def test_clicking_include_subfolders_reports_the_frozen_value(parent):
+    changes: list[ImportOptions] = []
+    bar = job_ui.ImportOptionsBar(parent, catalog(), on_change=changes.append)
+    bar.check_subfolders.invoke()
+    assert changes and changes[-1].include_subfolders is False
+    bar.check_subfolders.invoke()
+    assert changes[-1].include_subfolders is True
+
+
+def test_include_subfolders_is_independent_of_the_other_options(parent):
+    bar = job_ui.ImportOptionsBar(parent, catalog())
+    bar.set_include_subfolders(False)
+    captured = bar.options()
+    assert captured.include_subfolders is False
+    assert captured.include_hidden_folders is False
+    assert captured.allow_duplicate_files is False
+
+    bar.set_include_hidden(True)
+    assert bar.options().include_subfolders is False, "hidden must not re-enable descent"
+
+
+def test_locking_disables_include_subfolders_specifically(parent):
+    bar = job_ui.ImportOptionsBar(parent, catalog())
+    bar.set_locked(True)
+    assert not enabled(bar.check_subfolders)
+    bar.set_locked(False)
+    assert enabled(bar.check_subfolders)
+
+
+# --------------------------------------------------------------------------- #
+# Clear All — Decision 14A, a wording correction and nothing else
+# --------------------------------------------------------------------------- #
+
+
+def test_the_clear_action_reads_clear_all(parent):
+    listing = job_ui.ImportedFileList(parent, ImportedFileManager())
+    assert str(listing.buttons["clear"].cget("text")) == "Clear All"
+
+
+def test_the_clear_action_key_is_unchanged():
+    """The label moved; the key is API and must not."""
+    keys = [key for key, _label in job_ui.ImportedFileList.ACTIONS]
+    assert "clear" in keys and "clear_all" not in keys
+    assert dict(job_ui.ImportedFileList.ACTIONS)["clear"] == "Clear All"
+
+
+def test_the_clear_method_names_are_unchanged():
+    assert callable(job_ui.ImportedFileList.clear)
+    assert callable(ImportedFileManager.clear)
+    assert not hasattr(job_ui.ImportedFileList, "clear_all")
+    assert not hasattr(ImportedFileManager, "clear_all")
+
+
+def test_clear_all_button_state_still_keys_off_clear(parent, tmp_path):
+    manager = ImportedFileManager()
+    listing = job_ui.ImportedFileList(parent, manager)
+    assert listing.button_states()["clear"] is False
+    assert not enabled(listing.buttons["clear"])
+
+    fill(manager, *book(tmp_path, "a.mp3"))
+    listing.refresh()
+    assert listing.button_states()["clear"] is True
+    assert enabled(listing.buttons["clear"])
+
+
+def test_clear_all_still_delegates_transactionally_to_the_manager(parent, tmp_path):
+    manager = ImportedFileManager()
+    listing = job_ui.ImportedFileList(parent, manager)
+    fill(manager, *book(tmp_path, "a.mp3", "b.mp3"))
+    listing.refresh()
+    assert len(manager.snapshot().occurrence_ids) == 2
+
+    listing.buttons["clear"].invoke()
+    assert manager.snapshot().occurrence_ids == ()
+    assert listing.listbox.size() == 0
+    assert listing.count == 0
+    assert listing.button_states()["clear"] is False
+
+
+def test_locking_still_disables_clear_all(parent, tmp_path):
+    manager = ImportedFileManager()
+    listing = job_ui.ImportedFileList(parent, manager)
+    fill(manager, *book(tmp_path, "a.mp3"))
+    listing.refresh()
+    listing.set_locked(True)
+    assert not enabled(listing.buttons["clear"])
+    listing.set_locked(False)
+    assert enabled(listing.buttons["clear"])
 
 
 # --------------------------------------------------------------------------- #

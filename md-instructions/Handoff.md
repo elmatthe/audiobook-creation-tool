@@ -22,7 +22,7 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-6 are complete and approved-to-date. Phase 7 has NOT started** and needs explicit
+> - **Phases 0-7A are complete and approved-to-date. Phase 7B has NOT started** and needs explicit
 >   maintainer approval. No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -223,6 +223,53 @@
 >     14 skipped / 1 warning**, `verify.py` PASS; the **+100** delta is 99 new tests plus one,
 >     because a new production module means `test_plan3_boundaries` parametrises over it
 >     (123 -> 124). No new optional skip anywhere in Plan 5 Phases 1-6.
+>   - **Phase 7A** (2026-08-24): the shared importer recursion extension and the `Clear All`
+>     label correction — the two changes D7A authorises to the Plan 3 contract, and nothing else.
+>     **`ImportOptions.include_subfolders: bool = True`**, validated by the same `_require_bool`
+>     that guards the other frozen booleans, so `1`/`"yes"` are refused exactly as they already
+>     were. **The default is the whole compatibility story**: TTS and Cover depend on Add Folder
+>     recursing, and a default of `False` would have silently shrunk their imports. The field is
+>     declared **last** so positional construction of the three original fields cannot shift, and
+>     `for_catalog(include_subfolders=True)` carries it.
+>     **Gated at the one existing descent point.** `scan_roots` already emits a directory's
+>     compatible files and then pushes its eligible children onto an explicit stack; shallow mode
+>     withholds exactly that `stack.append` and changes nothing else. Enumeration, the fresh
+>     `lstat`, classification, natural ordering, problem reporting, root order and provenance are
+>     all literally the same lines, so **there is no second scanner** — a test asserts the module
+>     exposes exactly one callable with `scan` in its name. The loop and its cancellation
+>     checkpoint stay in place when shallow, so cancellation keeps its existing cadence.
+>     `descend` is read **once** from the frozen request, never per directory and never from a
+>     widget.
+>     **Shallow proved by instrumentation, not just by absence.** A test patches `os.scandir` and
+>     asserts the child directory is **never opened** — a scanner that walked the subtree and
+>     filtered afterwards would pass a file-list assertion while still paying the cost and still
+>     touching folders the user excluded. A paired test proves the same instrumentation *does* see
+>     the child when recursion is on, so the watch itself is trustworthy. Not descending raises
+>     **no problem record**: shallow means "do not descend", not "every directory is an error".
+>     **Independence held**: `include_hidden_folders` still decides *which* children are eligible,
+>     `include_subfolders` whether any child is entered at all, and hidden=True cannot re-enable
+>     descent. Direct **Add Files never recursed and still does not**, under either value.
+>     **`ScanRequest.options` remains the single authority** — no coordination change was needed,
+>     and tests assert the coordinator holds no recursion attribute and that no module-level flag
+>     exists. False survives the worker boundary through a real coordinated import.
+>     **`ImportOptionsBar` gained one checkbutton**, `Include subfolders`, checked by default,
+>     frozen by `options()` on the main thread, reported through `on_change`, and disabled by
+>     `set_locked`. It is appended below the existing options so **no existing widget's grid
+>     position moved**; adopting panels arrange their own layout.
+>     **TTS and Cover were not edited at all.** Their Add Folder stays recursive purely through
+>     the inherited default — the strongest possible form of the compatibility gate — and their
+>     existing nested-import tests passed unchanged. Focused assertions were added to each proving
+>     the option reads `True` at panel level and that recursion still goes more than one level
+>     deep. **No unexpected shared behavioural difference was found.**
+>     **`Clear All` is a wording change only.** `ImportedFileList.ACTIONS` now renders
+>     `"Clear All"`, while the action key stays `"clear"`, and `ImportedFileList.clear()`,
+>     `ImportedFileManager.clear()`, `button_states()["clear"]` and the handler lookup are all
+>     untouched — tests assert `clear_all` exists on neither class. No existing test asserted the
+>     old label, so this broke nothing.
+>     `m4b_converter.py` is **byte-identical**; no Phase 7B adoption of any kind. Gate:
+>     **4399 collected / 4385 passed / 14 skipped / 1 warning**, `verify.py` PASS; the **+57**
+>     delta is 40 new recursion tests, 13 shared job-UI tests and 2 each in the TTS and Cover
+>     regressions. No new optional skip anywhere in Plan 5 Phases 1-7A.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

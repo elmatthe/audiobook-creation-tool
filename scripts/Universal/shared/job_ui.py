@@ -621,7 +621,11 @@ class ImportedFileList:
         ("move_up", "Move Up"),
         ("move_down", "Move Down"),
         ("remove", "Remove"),
-        ("clear", "Clear"),
+        # Decision 14A corrects the *visible wording* only. The action key stays
+        # "clear", as do ImportedFileList.clear(), ImportedFileManager.clear() and
+        # button_states()["clear"] — every existing caller and test reaches this
+        # control by that key, so a label fix must not become an API rename.
+        ("clear", "Clear All"),
     )
 
     def __init__(
@@ -939,7 +943,7 @@ def _count_text(count: int, selected: int) -> str:
 
 
 class ImportOptionsBar:
-    """Supported-type checkboxes plus the two frozen per-import options.
+    """Supported-type checkboxes plus the three frozen per-import options.
 
     The catalog is supplied by the adopting tool, never invented here: §6.2 is explicit
     that the shared layer contains no universal media list. Every supplied type starts
@@ -952,7 +956,7 @@ class ImportOptionsBar:
     __slots__ = (
         "_guard", "_catalog", "_theme", "_closed", "_locked", "_on_change",
         "frame", "type_vars", "type_buttons", "var_hidden", "var_duplicates",
-        "check_hidden", "check_duplicates",
+        "check_hidden", "check_duplicates", "var_subfolders", "check_subfolders",
     )
 
     def __init__(
@@ -964,6 +968,7 @@ class ImportOptionsBar:
         thread_id: int | None = None,
         include_hidden_folders: bool = False,
         allow_duplicate_files: bool = False,
+        include_subfolders: bool = True,
         on_change: Callable[[ImportOptions], object] | None = None,
     ) -> None:
         if not isinstance(catalog, SupportedTypeCatalog):
@@ -1005,6 +1010,17 @@ class ImportOptionsBar:
         self.check_duplicates.grid(row=2, column=0, columnspan=max(1, len(catalog.types)),
                                    sticky="w")
 
+        # Appended below the existing options rather than inserted among them, so
+        # no existing widget's grid position moves. Adopting panels arrange their
+        # own layout; this bar only guarantees the control exists and freezes.
+        self.var_subfolders = tk.BooleanVar(master=self.frame,
+                                            value=bool(include_subfolders))
+        self.check_subfolders = ttk.Checkbutton(
+            self.frame, text="Include subfolders", variable=self.var_subfolders,
+            command=self._changed, style=style_name(theme, "checkbutton"))
+        self.check_subfolders.grid(row=3, column=0, columnspan=max(1, len(catalog.types)),
+                                   sticky="w")
+
     # -- reading ----------------------------------------------------------- #
 
     @property
@@ -1036,6 +1052,7 @@ class ImportOptionsBar:
             selected_type_ids=self.selected_type_ids(),
             include_hidden_folders=_read_bool(self.var_hidden),
             allow_duplicate_files=_read_bool(self.var_duplicates),
+            include_subfolders=_read_bool(self.var_subfolders),
         )
 
     # -- writing ----------------------------------------------------------- #
@@ -1055,13 +1072,17 @@ class ImportOptionsBar:
         self._guard.require("set_allow_duplicates")
         _write_bool(self.var_duplicates, bool(value))
 
+    def set_include_subfolders(self, value: bool) -> None:
+        self._guard.require("set_include_subfolders")
+        _write_bool(self.var_subfolders, bool(value))
+
     def set_locked(self, locked: bool) -> None:
         self._guard.require("set_locked")
         self._locked = bool(locked)
         if self._closed:
             return
         for button in (*self.type_buttons.values(), self.check_hidden,
-                       self.check_duplicates):
+                       self.check_duplicates, self.check_subfolders):
             _enable(button, not self._locked)
 
     def close(self) -> None:
