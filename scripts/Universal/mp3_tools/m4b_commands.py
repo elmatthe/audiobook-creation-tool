@@ -99,6 +99,29 @@ def _arguments(values: Sequence[str], label: str) -> list[str]:
     return out
 
 
+def _media_args(attached_picture: int | None) -> list[str]:
+    """Which source streams reach the output.
+
+    Default is ``-vn``: audio only, which is what a converted audiobook normally
+    wants and what every command here emitted before artwork existed.
+
+    Given a stream index, the audio and *that one stream* are mapped instead and
+    the picture is stream-copied — never re-encoded. The index is **absolute**
+    rather than ``v:``-relative on purpose: a source can carry an ordinary video
+    track ahead of its cover, and ``-map 0:v:0`` would then select the wrong one.
+    Deciding which stream qualifies is not this module's job; it is handed the
+    answer.
+    """
+    if attached_picture is None:
+        return ["-vn"]
+    return [
+        "-map", "0:a:0",
+        "-map", f"0:{attached_picture}",
+        "-c:v", "copy",
+        "-disposition:v:0", "attached_pic",
+    ]
+
+
 def _core(
     *,
     ffmpeg: str,
@@ -108,6 +131,7 @@ def _core(
     decoder_args: Sequence[str],
     output_args: Sequence[str],
     seek: tuple[str, str] | None,
+    attached_picture: int | None = None,
 ) -> list[str]:
     """The one place the argument order lives, for both shapes."""
     if not isinstance(ffmpeg, str) or not ffmpeg:
@@ -130,7 +154,13 @@ def _core(
     if seek is not None:
         start, duration = seek
         argv += ["-ss", start, "-t", duration]
-    argv += ["-vn"]
+    if attached_picture is not None and not isinstance(attached_picture, int):
+        raise TypeError("attached_picture must be an int stream index or None")
+    if isinstance(attached_picture, bool):
+        raise TypeError("attached_picture must be an int stream index or None")
+    if attached_picture is not None and attached_picture < 0:
+        raise ValueError(f"attached_picture must not be negative, got {attached_picture!r}")
+    argv += _media_args(attached_picture)
     argv += extra
     argv += ["-c:a", _ENCODER, "-q:a", str(quality), "-threads", "0"]
     argv.append(str(destination))
@@ -145,11 +175,17 @@ def whole_book_argv(
     quality: int,
     decoder_args: Sequence[str] = (),
     output_args: Sequence[str] = (),
+    attached_picture: int | None = None,
 ) -> list[str]:
     """One MP3 covering the whole source: today's Converter behaviour, unchanged.
 
     Carries no seek and no duration limiter, so ffmpeg reads the source from
     beginning to end.
+
+    *attached_picture* is an absolute source stream index whose cover should ride
+    along in this same encode; omitting it keeps the original audio-only ``-vn``
+    command exactly as it was. There is no seek here to discard a picture frame,
+    which is why a whole book needs only one pass.
     """
     return _core(
         ffmpeg=ffmpeg,
@@ -159,6 +195,7 @@ def whole_book_argv(
         decoder_args=decoder_args,
         output_args=output_args,
         seek=None,
+        attached_picture=attached_picture,
     )
 
 
@@ -199,3 +236,60 @@ def segment_argv(
         output_args=output_args,
         seek=(begin, span),
     )
+
+
+def attach_artwork_argv(
+    *,
+    ffmpeg: str,
+    audio,
+    artwork_source,
+    artwork_stream: int,
+    destination: str,
+) -> list[str]:
+    """Put a cover onto an already-encoded split segment, without touching it.
+
+    **Why a split segment needs a second command at all.** An embedded cover is a
+    single video frame at timestamp zero. The approved split shape seeks on the
+    output side, which discards everything before the segment start, so the cover
+    is thrown away with the audio that precedes the segment. That was measured
+    across five candidate single-command shapes — a second input, an
+    ``-itsoffset`` cover, ``-copypriorss``, and moving the seek — and every one
+    either lost the picture or produced the wrong audio, including one that
+    silently emitted the entire 24-hour book for a four-second request. Seeking
+    on the input side would keep the cover, but Phase 5 proved it corrupts the
+    audio at every segment boundary.
+
+    So the audio pass stays exactly as Phase 5 pinned it and the cover is added
+    afterwards. Both streams are stream-copied: the audio is *not* re-encoded, so
+    the segment that was measured is bit-for-bit the segment that ships.
+
+    **Metadata provenance.** ``-map_metadata 0`` reads input 0 — the sanitised
+    output of the audio pass, whose tags were already reduced to the approved
+    allowlist. The original book is input 1 and contributes exactly one stream:
+    the picture. It can therefore contribute no tags. ``-map_chapters -1`` is
+    belt-and-braces on top of that, so no chapter map can reach a fragment by any
+    route.
+    """
+    if not isinstance(ffmpeg, str) or not ffmpeg:
+        raise ValueError("ffmpeg must be a non-empty path or command name")
+    if isinstance(artwork_stream, bool) or not isinstance(artwork_stream, int):
+        raise TypeError(
+            f"artwork_stream must be an int, got {type(artwork_stream).__name__}"
+        )
+    if artwork_stream < 0:
+        raise ValueError(f"artwork_stream must not be negative, got {artwork_stream}")
+
+    return [
+        ffmpeg, "-hide_banner", "-y",
+        "-i", str(audio),
+        "-i", str(artwork_source),
+        # Audio from the finished segment; the picture, and only the picture,
+        # from the book.
+        "-map", "0:a:0",
+        "-map", f"1:{artwork_stream}",
+        "-c", "copy",
+        "-disposition:v:0", "attached_pic",
+        "-map_metadata", "0",
+        "-map_chapters", "-1",
+        str(destination),
+    ]

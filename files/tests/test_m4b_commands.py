@@ -476,15 +476,42 @@ def test_the_builder_calls_nothing_that_acts_on_the_world(forbidden):
     assert forbidden not in called()
 
 
-@pytest.mark.parametrize("forbidden", ["ffprobe", "-show_chapters", "-map_chapters"])
-def test_the_module_never_names_a_probe_or_chapter_map(forbidden):
+@pytest.mark.parametrize("forbidden", ["ffprobe", "-show_chapters"])
+def test_the_module_never_probes(forbidden):
+    """Still no probing here — the stream facts arrive already known.
+
+    ``-map_chapters`` left this list in Phase 6: the attach pass must pin it to
+    ``-1`` so no chapter map can reach a fragment. That is structural provenance,
+    not a policy decision, and ``test_no_metadata_policy_is_decided_here`` keeps
+    the policy vocabulary out.
+    """
     assert forbidden not in literals()
 
 
-def test_no_phase_six_metadata_or_artwork_policy_is_present():
-    for forbidden in ("-map_metadata", "-metadata", "-id3v2_version", "-disposition",
-                      "attached_pic", "-map", "Preserve", "Strip", "Replace"):
+def test_no_metadata_policy_is_decided_here():
+    """Phase 6 narrowed this guard deliberately; it did not delete it.
+
+    Phase 5 forbade every metadata and mapping token, because this module then
+    had no business emitting any. Phase 6 gives it two legitimate structural
+    jobs — mapping a cover stream, and fixing the provenance of the attach pass —
+    so ``-map``, ``-map_metadata``, ``-map_chapters``, ``-disposition`` and
+    ``attached_pic`` now appear here by design.
+
+    What must still be absent is *policy*: this module may not know the metadata
+    modes, may not name a metadata field, and may not emit a ``-metadata`` pair.
+    Those decisions belong to ``m4b_metadata`` and reach here only as opaque
+    ``output_args``.
+    """
+    for forbidden in ("-metadata", "-id3v2_version",
+                      "Preserve", "Strip", "Replace", "PRESERVE", "STRIP", "REPLACE",
+                      "MetadataMode", "album_artist", "album", "artist", "track"):
         assert forbidden not in literals(), forbidden
+
+
+def test_the_metadata_module_is_not_imported_here():
+    """The dependency runs one way: policy composes commands, never the reverse."""
+    assert "m4b_metadata" not in imported()
+    assert "shared" not in imported()
 
 
 def test_no_phase_eleven_lifecycle_vocabulary_is_present():
@@ -499,10 +526,11 @@ def test_no_later_phase_planning_type_is_defined():
         assert forbidden not in defined
 
 
-def test_the_public_surface_is_exactly_two_builders():
+def test_the_public_surface_is_exactly_three_builders():
+    """Phase 6 added exactly one builder: the split artwork attach pass."""
     public = {node.name for node in tree().body
               if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
-    assert public == {"whole_book_argv", "segment_argv"}
+    assert public == {"whole_book_argv", "segment_argv", "attach_artwork_argv"}
 
 
 def test_the_tts_bitrate_contract_is_not_borrowed():

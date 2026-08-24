@@ -22,7 +22,7 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-5 are complete and approved-to-date. Phase 6 has NOT started** and needs explicit
+> - **Phases 0-6 are complete and approved-to-date. Phase 7 has NOT started** and needs explicit
 >   maintainer approval. No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -150,6 +150,68 @@
 >     is 104 new tests plus one, because a new production module means `test_plan3_boundaries`
 >     parametrises over it (122 → 123). The generated-media regression was **mutation-checked**:
 >     moving `-ss` to the input side makes it fail (ledger loses second 0, −9.4/−16.7 ms drift).
+>   - **Phase 6** (2026-08-23): metadata modes, D6A chapter retention and artwork, in a new
+>     Converter-local pure policy module `scripts/Universal/mp3_tools/m4b_metadata.py`
+>     (`MetadataMode`, `SourceTags`, `AttachedPicture`, `select_attached_picture`,
+>     `whole_book_tags`, `segment_tags`, `retains_chapters`, `metadata_args`,
+>     `ConversionCommands`, `whole_book_commands`, `segment_commands`) plus the smallest possible
+>     extension to `m4b_commands.py`.
+>     **Whole-book Preserve is an explicit allowlist, and blanket `-map_metadata 0` was measured
+>     and rejected.** Inventory over five real fixtures (15/47/50/39/44 chapters, all byte-identical
+>     before and after) showed blanket copying puts **23 format tags / 25 ID3 frames** into the MP3,
+>     including statements that are simply false about the produced file: `AUDIBLE_DRM_TYPE=Adrm` on
+>     a DRM-free MP3, the MP4 container brands `major_brand`/`minor_version`/`compatible_brands`
+>     stamped onto an MPEG audio file, Audible ACR/ASIN/locale product identifiers, the source
+>     `creation_time`, replaygain computed for the AAC stream, and AAC `Encoding Params`. Twelve of
+>     those frames were `TXXX:` freeform junk. A mutation check confirms the guard bites: reverting
+>     to blanket copying leaks `SRC COMMENT`/`SRC GENRE`/`1999` and the totals `track=3/9`,
+>     `disc=1/2`.
+>     **Out-of-vocabulary but true metadata is deliberately dropped.** The fixtures also carry
+>     narrator, publisher, series/series-part, subtitle, copyright, comment, genre, year, language,
+>     description, grouping and lyrics. These are accurate about the book and are still dropped,
+>     because §15 locks the Converter's encode-time vocabulary to `shared.metadata`'s
+>     `title`/`artist`/`album_artist`/`album` + optional `track`. **Risk gate #2 was reviewed and
+>     not triggered**; `shared/metadata.py` is byte-unchanged and `ffmpeg_metadata_args` is consumed,
+>     never re-implemented, so exactly one friendly-name-to-ffmpeg-key table exists.
+>     **D6A is independently implementable** — measured: `-map_metadata -1 -map_chapters 0` retains
+>     the chapter map while leaking **zero** source metadata, so **risk gate #3 is closed**. The six
+>     cells: Whole Preserve `0` - Whole Replace `0` - Whole Strip `-1` - all three split modes `-1`.
+>     **Risk gate #6 was reached and maintainer-dispositioned (Option A, two passes).** An embedded
+>     cover is one frame at PTS 0 and the locked output-side `-ss` discards everything before the
+>     segment start, so a split segment cannot carry artwork in the audio pass. Five single-command
+>     reconciliations were measured and all failed, one of them silently emitting the whole 88,703 s
+>     book for a 4 s request. **Pass 1 is Phase 5's `segment_argv` byte-for-byte unchanged**
+>     (output-side `-ss`, explicit `-t (end-start)`, xHE decoder args before `-i`, libmp3lame VBR
+>     `-q:a`, `-threads 0`, `-vn`, no artwork). **Pass 2** stream-copies Pass 1's audio plus the one
+>     selected picture: `-i STAGE -i BOOK -map 0:a:0 -map 1:<idx> -c copy -disposition:v:0
+>     attached_pic -map_metadata 0 -map_chapters -1`. `-map_metadata 0` is safe **only** because
+>     input 0 is the already-allowlisted Pass 1 output; the book is input 1 and contributes exactly
+>     one stream, so it can contribute no tags. Whole-book needs **one** pass (no seek to discard the
+>     cover), and a no-art source needs **no** second pass at all.
+>     **Artwork is selected by disposition, never by "first video stream".** `attached_pic == 1` is
+>     required and the **absolute** stream index is used, because a source can carry ordinary video
+>     ahead of its cover. Real formats present: **MJPEG** (Mistborn, Miss Savage Fang, DCC, HP4) and
+>     **PNG** (ToA 4). No real fixture had ordinary non-attached video, so a generated fixture
+>     supplies it; mapping it as `0:v:0` makes ffmpeg hard-fail with *"No mimetype is known for
+>     stream 1, cannot write an attached picture"*, which is why the disposition rule matters.
+>     Real-fixture confirmation, sources byte-identical: MJPEG -> `1 APIC image/jpeg 132,940 B`,
+>     PNG -> `1 APIC image/png 4,183,892 B`, both with 0 chapters, segment title/track (no
+>     whole-book title), and **decoded PCM bit-identical across the attach pass** - the attach
+>     re-encodes nothing.
+>     **Muxer technical tags are not leakage.** ffmpeg stamps its own `encoder`/`TSSE` marker on
+>     everything it muxes; it survives even Strip and is left alone.
+>     **Accepted storage consequence:** ToA 4's PNG cover is ~4.18 MB, so a 44-segment split carries
+>     ~184 MB of duplicated artwork. This is the locked cover-per-segment contract, recorded as
+>     measured evidence, not an open issue.
+>     **Phase 11 must treat Pass 1 + optional Pass 2 as ONE segment transaction**, including
+>     cancellation and cleanup when Pass 1 succeeds and Pass 2 fails. None of that lifecycle is
+>     implemented here. `m4b_converter.py` is byte-unchanged and nothing is wired into the GUI.
+>     Two Phase 5 guards were narrowed deliberately, not deleted: `m4b_commands` may now contain
+>     `-map`/`-map_chapters`/`attached_pic` (structure) but still no metadata *policy* vocabulary,
+>     and its public surface is now exactly three builders. Gate: **4325 collected / 4311 passed /
+>     14 skipped / 1 warning**, `verify.py` PASS; the **+100** delta is 99 new tests plus one,
+>     because a new production module means `test_plan3_boundaries` parametrises over it
+>     (123 -> 124). No new optional skip anywhere in Plan 5 Phases 1-6.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in
