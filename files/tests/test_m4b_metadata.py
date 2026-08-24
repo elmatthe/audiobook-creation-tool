@@ -27,6 +27,7 @@ cannot run, the gate is red.
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import subprocess
 from pathlib import Path
@@ -35,6 +36,7 @@ import pytest
 
 from mp3_tools import m4b_commands, m4b_metadata
 from mp3_tools.m4b_metadata import (
+    ArtworkSelectionError,
     AttachedPicture,
     ConversionCommands,
     MetadataMode,
@@ -152,12 +154,101 @@ def test_a_missing_disposition_is_not_artwork():
                                      "codec_name": "png"}]) is None
 
 
-def test_several_covers_resolve_deterministically_by_stream_order():
-    streams = [{"index": 5, "codec_type": "video", "codec_name": "png",
-                "disposition": {"attached_pic": 1}},
-               {"index": 2, "codec_type": "video", "codec_name": "mjpeg",
-                "disposition": {"attached_pic": 1}}]
-    assert select_attached_picture(streams).stream_index == 2
+def cover(index: int, codec: str = "mjpeg") -> dict:
+    return {"index": index, "codec_type": "video", "codec_name": codec,
+            "disposition": {"attached_pic": 1}}
+
+
+def test_two_covers_fail_closed_rather_than_guessing():
+    """Ambiguity is a refusal, not a preference.
+
+    Picking the lowest index would be an invented product rule: §17 requires
+    artwork to be *positively identified*, and no real fixture inspected in
+    Phase 6 carried more than one attached picture, so there is nothing to derive
+    a rule from. Guessing would quietly put the wrong picture on a book.
+    """
+    with pytest.raises(ArtworkSelectionError):
+        select_attached_picture([AUDIO_STREAM, cover(2), cover(3, "png")])
+
+
+def test_the_two_cover_refusal_does_not_depend_on_stream_order():
+    forward = [AUDIO_STREAM, cover(2, "mjpeg"), cover(5, "png")]
+    reversed_ = [AUDIO_STREAM, cover(5, "png"), cover(2, "mjpeg")]
+    for streams in (forward, reversed_):
+        with pytest.raises(ArtworkSelectionError):
+            select_attached_picture(streams)
+
+
+@pytest.mark.parametrize("first, second", [
+    ("mjpeg", "png"), ("png", "mjpeg"), ("mjpeg", "mjpeg"), ("png", "png")])
+def test_no_codec_becomes_an_implicit_preference(first, second):
+    with pytest.raises(ArtworkSelectionError):
+        select_attached_picture([cover(2, first), cover(3, second)])
+
+
+@pytest.mark.parametrize("indices", [(0, 1), (1, 9), (9, 1), (4, 4)])
+def test_no_index_becomes_an_implicit_preference(indices):
+    low, high = indices
+    with pytest.raises(ArtworkSelectionError):
+        select_attached_picture([cover(low), cover(high)])
+
+
+def test_three_covers_also_fail_closed():
+    with pytest.raises(ArtworkSelectionError):
+        select_attached_picture([cover(2), cover(3), cover(4)])
+
+
+def test_ambiguity_is_not_the_same_state_as_having_no_artwork():
+    """``None`` means no cover exists; the error means one does and is ambiguous."""
+    assert select_attached_picture([AUDIO_STREAM]) is None
+    with pytest.raises(ArtworkSelectionError):
+        select_attached_picture([AUDIO_STREAM, cover(2), cover(3)])
+
+
+def test_the_refusal_reports_every_candidate_in_a_stable_order():
+    """Ordering is for the diagnostic only — nothing selects from it."""
+    with pytest.raises(ArtworkSelectionError) as caught:
+        select_attached_picture([cover(7, "png"), cover(2, "mjpeg")])
+    error = caught.value
+    assert [p.stream_index for p in error.candidates] == [2, 7]
+    assert [p.codec_name for p in error.candidates] == ["mjpeg", "png"]
+
+
+def test_the_refusal_separates_message_from_detail():
+    """Matches the repository's existing ``message``/``detail`` error shape."""
+    with pytest.raises(ArtworkSelectionError) as caught:
+        select_attached_picture([cover(2, "mjpeg"), cover(3, "png")])
+    error = caught.value
+    assert "more than one embedded cover" in error.message
+    assert str(error) == error.message
+    assert "#2 mjpeg" in error.detail and "#3 png" in error.detail
+    # The human-readable half stays free of stream numbers.
+    assert "#2" not in error.message
+
+
+def test_a_refusal_does_not_mutate_the_stream_descriptors():
+    streams = [AUDIO_STREAM, cover(2, "mjpeg"), cover(3, "png")]
+    snapshot = copy.deepcopy(streams)
+    with pytest.raises(ArtworkSelectionError):
+        select_attached_picture(streams)
+    assert streams == snapshot
+
+
+def test_selection_does_not_mutate_the_stream_descriptors():
+    streams = [AUDIO_STREAM, DATA_STREAM, COVER_STREAM]
+    snapshot = copy.deepcopy(streams)
+    assert select_attached_picture(streams) is not None
+    assert streams == snapshot
+
+
+def test_an_ordinary_video_stream_does_not_create_false_ambiguity():
+    """Two video streams, only one of them a cover, is not ambiguous."""
+    assert select_attached_picture([AUDIO_STREAM, MOTION_STREAM, cover(2)]) is not None
+
+
+def test_attached_pictures_lists_candidates_without_choosing():
+    assert m4b_metadata.attached_pictures([AUDIO_STREAM, MOTION_STREAM]) == ()
+    assert len(m4b_metadata.attached_pictures([cover(2), cover(3)])) == 2
 
 
 def test_the_selected_index_is_absolute_not_video_relative():

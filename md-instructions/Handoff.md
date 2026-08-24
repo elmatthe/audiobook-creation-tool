@@ -188,6 +188,17 @@
 >     input 0 is the already-allowlisted Pass 1 output; the book is input 1 and contributes exactly
 >     one stream, so it can contribute no tags. Whole-book needs **one** pass (no seek to discard the
 >     cover), and a no-art source needs **no** second pass at all.
+>     **Artwork selection has three distinct outcomes** (corrected 2026-08-23): **zero**
+>     attached pictures is a valid no-art source and yields `None`; **exactly one** is selected;
+>     **more than one** raises the typed `ArtworkSelectionError` and selects nothing. The first
+>     implementation resolved a tie by lowest stream index — that was an **invented product
+>     rule**, not one §17 settles, and every real fixture inspected carried exactly one cover, so
+>     there was no evidence to derive it from. `None` and ambiguity are deliberately different
+>     states: `None` means no cover exists, ambiguity means one does and the policy cannot say
+>     which. The error follows the repository's `message`/`detail` shape and lists candidates in
+>     stream order **for the diagnostic only** — nothing selects from that ordering. **A product
+>     rule for multi-cover sources remains undecided and is deliberately unwritten.** Phase 10/11
+>     preflight will turn this refusal into an item-level failure; no UI handling exists yet.
 >     **Artwork is selected by disposition, never by "first video stream".** `attached_pic == 1` is
 >     required and the **absolute** stream index is used, because a source can carry ordinary video
 >     ahead of its cover. Real formats present: **MJPEG** (Mistborn, Miss Savage Fang, DCC, HP4) and

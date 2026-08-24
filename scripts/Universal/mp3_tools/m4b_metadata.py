@@ -103,27 +103,86 @@ class AttachedPicture:
     codec_name: str = ""
 
 
-def select_attached_picture(streams: Sequence[Mapping]) -> AttachedPicture | None:
-    """The cover among already-probed streams, or ``None``.
+class ArtworkSelectionError(Exception):
+    """A source carries more than one embedded cover, so the choice is ambiguous.
+
+    Follows the repository's existing error shape: ``message`` is written for a
+    person and ``detail`` keeps the technical remainder for a log or a later
+    preflight Details pane.
+
+    **Why this is not simply ``None``.** ``None`` means *this book has no cover*,
+    which is an ordinary, valid state that Preserve and Replace handle by
+    attaching nothing. Several covers is the opposite situation — artwork exists
+    and something must be kept — and collapsing the two would silently discard a
+    cover the user has. They are different facts and must stay different.
+
+    **Why no cover is picked.** Preferring the lowest index, the first, the
+    largest, or JPEG over PNG would all be inventions: §17 requires artwork to be
+    positively identified, and none of the real fixtures inspected during Phase 6
+    carried more than one attached picture, so there is no evidence to derive a
+    rule from. Guessing here would quietly put the wrong picture on a book. The
+    rule stays unwritten until it is decided as product, and until then this
+    fails closed.
+    """
+
+    def __init__(self, candidates: Sequence[AttachedPicture]):
+        #: Sorted for a stable diagnostic only. This ordering is never a
+        #: preference — nothing selects from it.
+        self.candidates: tuple[AttachedPicture, ...] = tuple(
+            sorted(candidates, key=lambda picture: picture.stream_index)
+        )
+        self.message = (
+            "This file contains more than one embedded cover, so there is no "
+            "single correct one to keep."
+        )
+        self.detail = "attached-picture streams: " + ", ".join(
+            f"#{picture.stream_index} {picture.codec_name or 'unknown'}"
+            for picture in self.candidates
+        )
+        super().__init__(self.message)
+
+
+def attached_pictures(streams: Sequence[Mapping]) -> tuple[AttachedPicture, ...]:
+    """Every stream positively identified as an embedded cover, in stream order.
 
     Selection is by **disposition** — ``attached_pic`` must be truthy. Being a
-    video stream is not enough and neither is being the first one: an ordinary
+    video stream is not enough, and neither is being the first one: an ordinary
     video track is not artwork, and mapping it would put a moving picture where a
-    cover belongs. A source with no cover is perfectly valid and yields ``None``.
+    cover belongs.
 
-    When a source somehow carries more than one attached picture, the lowest
-    stream index wins, which is ffprobe's own order and therefore deterministic.
+    Reads the descriptors and copies out of them; the caller's stream mappings
+    are never modified.
     """
-    best: AttachedPicture | None = None
+    found: list[AttachedPicture] = []
     for stream in streams:
         if stream.get("codec_type") != "video":
             continue
         if not (stream.get("disposition") or {}).get("attached_pic"):
             continue
-        index = int(stream["index"])
-        if best is None or index < best.stream_index:
-            best = AttachedPicture(index, str(stream.get("codec_name") or ""))
-    return best
+        found.append(
+            AttachedPicture(int(stream["index"]), str(stream.get("codec_name") or ""))
+        )
+    return tuple(sorted(found, key=lambda picture: picture.stream_index))
+
+
+def select_attached_picture(streams: Sequence[Mapping]) -> AttachedPicture | None:
+    """The one cover among already-probed streams.
+
+    Three outcomes, and they are deliberately distinct:
+
+    * **no attached picture** → ``None``. A book without a cover is valid and
+      must not fail; Preserve and Replace simply attach nothing.
+    * **exactly one** → that :class:`AttachedPicture`, identified by its absolute
+      ffprobe stream index.
+    * **more than one** → :class:`ArtworkSelectionError`. See that class for why
+      nothing is guessed.
+    """
+    found = attached_pictures(streams)
+    if not found:
+        return None
+    if len(found) > 1:
+        raise ArtworkSelectionError(found)
+    return found[0]
 
 
 def _clean_overrides(values: Mapping | None, allowed: Sequence[str]) -> dict[str, str]:
