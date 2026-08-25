@@ -786,9 +786,13 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: Written as dotted module paths because that is what ``TOOL_MODULES`` holds; the
 #: authoritative list is ``test_plan3_boundaries.ADOPTED``, and the test below
 #: proves the two spellings agree rather than trusting that they do.
-#: v0.6.2 Plan 5 Phase 7B adds the M4B Converter as the third adopter.
+#: v0.6.2 Plan 5 Phase 7B adds the M4B Converter as the third adopter, and
+#: Phase 8 the Converter's own output-planning bridge as the fourth. The bridge
+#: is not a tool panel, so it matches nothing in ``TOOL_MODULES``; it is listed
+#: here only so this spelling of the adopter list stays in step with ``ADOPTED``,
+#: which is what the assertion below protects.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
-                  "mp3_tools.m4b_converter")
+                  "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations")
 
 
 def _tool_path(relative: str) -> Path:
@@ -914,6 +918,33 @@ class _Q:
                 return out
 
 
+def _planned_params(reservation, *paths, **extra):
+    """Params shaped the way ``start_convert`` now shapes them.
+
+    v0.6.2 Plan 5 Phase 8 moved destination planning to Start: the worker no
+    longer plans its own paths, it looks them up by occurrence id. These tests
+    therefore plan through the same Converter-local seam the panel uses, rather
+    than hand-building a path list the worker would have to re-derive.
+    """
+    from mp3_tools.m4b_destinations import plan_outputs
+
+    entries = _occurrences(*paths)
+    planned = plan_outputs(
+        entries,
+        {entry.occurrence_id: (f"{entry.path.stem}.mp3",) for entry in entries},
+        run_root=reservation.run_directory,
+        planner=reservation.planner(),
+    )
+    params = {
+        "quality": 5, "write_tags": False, "title": "", "artist": "",
+        "album_artist": "", "album": "", "do_track": False, "start_num": 1,
+        "imported_files": entries,
+        "destinations": {item.occurrence_id: item.destinations for item in planned},
+    }
+    params.update(extra)
+    return params
+
+
 def _occurrences(*paths):
     """Frozen ImportedFile entries, the way the panel now hands them to the worker.
 
@@ -951,12 +982,7 @@ def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    params = {
-        "quality": 5, "write_tags": True, "title": "", "artist": "", "album_artist": "",
-        "album": "", "do_track": False, "start_num": 1,
-        "imported_files": _occurrences(source),
-        "planner": reservation.planner(),
-    }
+    params = _planned_params(reservation, source, write_tags=True)
     m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)
 
     produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())
@@ -974,12 +1000,7 @@ def test_the_converter_worker_numbers_duplicate_stems(output_base, tmp_path):
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    params = {
-        "quality": 5, "write_tags": False, "title": "", "artist": "", "album_artist": "",
-        "album": "", "do_track": False, "start_num": 1,
-        "imported_files": _occurrences(a, b),
-        "planner": reservation.planner(),
-    }
+    params = _planned_params(reservation, a, b)
     m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)
 
     produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())

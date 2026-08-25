@@ -44,6 +44,8 @@ from shared.importing import (
     SupportedTypeCatalog,
 )
 
+from . import m4b_destinations
+
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
 
@@ -463,9 +465,33 @@ class M4BConverterUI(ttk.Frame):
             self.log_write(f"Output folder unavailable: {exc.message}\n")
             return
         outdir = reservation.run_directory
+
+        # Phase 8: every destination is decided here, on the main thread,
+        # from the provenance Phase 7B retained — before any work starts and
+        # while the queue is still the frozen snapshot. One planner from the
+        # reservation serves the whole run, so a directly chosen book and a
+        # folder-imported one can never plan onto the same path.
+        #
+        # Whole-book mode asks for exactly one name per occurrence. The seam
+        # already accepts many, which is what split mode will need, but this
+        # phase deliberately does not probe chapters to produce them.
+        try:
+            planned = m4b_destinations.plan_outputs(
+                imported,
+                {entry.occurrence_id: (f"{entry.path.stem}.mp3",)
+                 for entry in imported},
+                run_root=outdir,
+                planner=reservation.planner(),
+            )
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
+            self.log_write(f"Output could not be planned: {exc.message}\n")
+            return
+
         self._last_run_dir = outdir
         self.var_outdir.set(str(outdir))
-        params["planner"] = reservation.planner()
+        params["destinations"] = {
+            item.occurrence_id: item.destinations for item in planned}
         self.log_write(f"Output folder: {outdir}\n")
 
         self._busy.set()
@@ -546,19 +572,28 @@ class M4BConverterUI(ttk.Frame):
         # shadow queue Phase 7B removed.
         imported = params["imported_files"]
         files = tuple(entry.path for entry in imported)
-        planner = params["planner"]
+        # Phase 8: destinations were planned at Start from each occurrence's
+        # provenance. The worker looks them up by occurrence id rather than
+        # planning its own, so placement cannot depend on execution order and
+        # a retry cannot land somewhere new.
+        destinations = params["destinations"]
         total = len(files)
         cancelled = False
 
-        for idx, in_file in enumerate(files, start=1):
+        for idx, entry in enumerate(imported, start=1):
+            in_file = entry.path
             if self._cancel_event.is_set():
                 cancelled = True
                 break
             try:
-                # One batch-scoped planner per reservation: duplicate stems
-                # from different folders get -1/-2 instead of overwriting.
-                out_mp3 = planner.plan(f"{in_file.stem}.mp3")
+                out_mp3 = destinations[entry.occurrence_id][0]
+                # Already checked when the run was planned; re-checked here
+                # because this is the last moment before ffmpeg is told to
+                # write, and a source that has since moved must not be hit.
                 output_paths.assert_not_input(out_mp3, files)
+                # A mirrored destination lives under folders that the
+                # reservation did not create.
+                out_mp3.parent.mkdir(parents=True, exist_ok=True)
                 # The written stem, which is what the fallback title uses.
                 stem = out_mp3.stem
 

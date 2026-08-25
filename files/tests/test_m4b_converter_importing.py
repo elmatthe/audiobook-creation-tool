@@ -800,3 +800,107 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
         panel.destroy()
     finally:
         host.destroy()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 8 — the run's destinations are planned from provenance, at Start
+# --------------------------------------------------------------------------- #
+
+
+def planned_of(params, entry):
+    return params["destinations"][entry.occurrence_id]
+
+
+def test_start_plans_a_destination_for_every_occurrence(make_panel, tmp_path, captured_run):
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    params = start_run(panel, tmp_path, captured_run)
+
+    entries = params["imported_files"]
+    assert set(params["destinations"]) == {e.occurrence_id for e in entries}
+    assert all(len(v) == 1 for v in params["destinations"].values()), "whole book: one each"
+
+
+def test_the_worker_no_longer_receives_a_planner_to_plan_with(make_panel, tmp_path, captured_run):
+    """Placement is decided at Start, so it cannot depend on execution order."""
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b"))
+    params = start_run(panel, tmp_path, captured_run)
+    assert "planner" not in params
+    assert "destinations" in params
+
+
+def test_direct_imports_stay_flat_in_the_run_root(make_panel, tmp_path, captured_run):
+    panel = make_panel()
+    entries_in = books(tmp_path / "src", "A.m4b", "B.m4b")
+    add_files(panel, *entries_in)
+    params = start_run(panel, tmp_path, captured_run)
+
+    run_root = tmp_path / "run"
+    for entry in params["imported_files"]:
+        destination = planned_of(params, entry)[0]
+        assert destination.parent == run_root, destination
+
+
+def test_a_folder_import_now_mirrors_its_source_hierarchy(make_panel, tmp_path, captured_run):
+    """The intended Phase 8 behavioural change, proved through the real panel."""
+    root = tmp_path / "Library"
+    books(root, "Top.m4b")
+    books(root / "Series", "Nested.m4b")
+    panel = make_panel()
+    add_folder(panel, root)
+    params = start_run(panel, tmp_path, captured_run)
+
+    run_root = tmp_path / "run"
+    by_name = {e.path.name: planned_of(params, e)[0] for e in params["imported_files"]}
+    assert by_name["Top.m4b"] == run_root / "Top.mp3"
+    assert by_name["Nested.m4b"] == run_root / "Series" / "Nested.mp3"
+
+
+def test_a_mixed_run_shares_one_collision_domain(make_panel, tmp_path, captured_run):
+    """A direct book and a folder book both wanting ``Book.mp3`` must not collide."""
+    root = tmp_path / "Library"
+    books(root, "Book.m4b")
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "picked", "Book.m4b"))
+    add_folder(panel, root)
+    params = start_run(panel, tmp_path, captured_run)
+
+    destinations = [planned_of(params, e)[0] for e in params["imported_files"]]
+    assert len(set(destinations)) == 2, destinations
+    assert sorted(d.name for d in destinations) == ["Book-1.mp3", "Book.mp3"]
+
+
+def test_duplicate_occurrences_receive_distinct_destinations(make_panel, tmp_path, captured_run):
+    panel = make_panel()
+    book, = books(tmp_path / "src", "Book.m4b")
+    panel.importer.options.set_allow_duplicates(True)
+    add_files(panel, book)
+    add_files(panel, book)
+    params = start_run(panel, tmp_path, captured_run)
+
+    entries = params["imported_files"]
+    assert len(entries) == 2
+    first, second = (planned_of(params, e)[0] for e in entries)
+    assert first != second
+    assert sorted((first.name, second.name)) == ["Book-1.mp3", "Book.mp3"]
+
+
+def test_no_destination_equals_an_input(make_panel, tmp_path, captured_run):
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    params = start_run(panel, tmp_path, captured_run)
+    sources = {e.path for e in params["imported_files"]}
+    for entry in params["imported_files"]:
+        for destination in planned_of(params, entry):
+            assert destination not in sources
+
+
+def test_the_panel_defines_no_planning_of_its_own():
+    """Phase 8 planning lives in the Converter-local bridge, not in the panel."""
+    tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
+    defined = {node.name for node in ast.walk(tree)
+               if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
+    for banned in ("plan_outputs", "plan_flat", "plan_mirrored", "plan_multi_root",
+                   "planning_groups", "DestinationPlanner"):
+        assert banned not in defined, banned

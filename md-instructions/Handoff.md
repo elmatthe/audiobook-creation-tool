@@ -22,10 +22,9 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-7A are complete and maintainer-approved. Phase 7B is IMPLEMENTED at `d66052f`
->   and independently reviewed, but is NOT yet maintainer-approved. Phase 8 has NOT started.**
->   Phase 7B's original session did not follow the authorized verification procedure (see its
->   entry below), so a bounded verification remediation was required before it can be approved.
+> - **Phases 0-8 are complete and approved-to-date. Phase 9 has NOT started** and needs
+>   explicit maintainer approval. Phase 7B's implementation `d66052f` **and** its verification
+>   remediation `2837b4a9` were both maintainer-approved before Phase 8 began.
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -359,6 +358,69 @@
 >     suite (exit 0, the corrected figures above, zero failures and zero errors, no FAILED or
 >     ERROR identity emitted); and **exactly one** invocation of `verify.py`, which passed on
 >     that sole first attempt with no retry. Phase 7B remains **awaiting maintainer approval**.
+>   - **Phase 8** (2026-08-24): provenance-aware output planning, adopted. Phase 7B's
+>     implementation `d66052f` and its verification remediation `2837b4a9` were **both
+>     maintainer-approved before this phase began**.
+>     **The Converter now spends the provenance Phase 7B kept.** A new Converter-local pure module
+>     `scripts/Universal/mp3_tools/m4b_destinations.py` (`plan_outputs`, `PlannedOccurrence`) asks
+>     `importing.planning_groups` how the run divides and routes each division to the matching
+>     Plan 2 planner: individually chosen files through **`plan_flat`** (31A), one folder root
+>     through **`plan_mirrored`** (7A), several roots through **`plan_multi_root`** (41A). Nothing
+>     is reimplemented — no sanitisation, no collision numbering, no root-label handling, no
+>     relative-path maths — and shared `importing.py` and `output_paths.py` are **byte-unchanged**.
+>     **The one shaping problem.** The three shared planners map one source to one destination:
+>     they iterate `sources` and call `rename(source)` once per element. A split book needs many
+>     outputs from one source. Rather than change a shared contract for it, each occurrence is
+>     **expanded into one entry per requested filename**, so a source wanting four names simply
+>     appears four times and the planner's own collision numbering separates them. That also puts a
+>     split book's segments wherever *that occurrence's* provenance says the book belongs — flat for
+>     a directly chosen file, mirrored for a folder-imported one — with **no per-book container
+>     invented**, which is Decision 31A followed literally. The renamer re-checks that the source it
+>     is handed is the one it is about to name and refuses the whole plan otherwise, because a
+>     silent misalignment would put one book's chapter names on another book's path.
+>     **Occurrence identity is preserved end to end.** `planning_groups` returns *paths*, and two
+>     deliberate duplicates of one file are two occurrences sharing one path, so nothing may key on
+>     the path. The bucketing walks `ImportedFile` objects using `planning_groups`' own rule and is
+>     then **cross-checked element by element against the shared function**, refusing to plan if the
+>     two ever disagree. Results come back keyed by occurrence id. Two duplicates therefore receive
+>     two independently planned destination sets (`Book.mp3` and `Book-1.mp3`).
+>     **One `DestinationPlanner` serves the whole run**, supplied by the caller rather than created
+>     per group. That is load-bearing and was **mutation-checked**: with a planner per group a
+>     directly chosen `Book.m4b` and a root-level folder `Book.m4b` both plan onto `Book.mp3` — a
+>     real silent overwrite — while the shared tracker yields `Book.mp3` / `Book-1.mp3`.
+>     `assert_not_input` is applied to every planned destination against every source in the run.
+>     **Production adoption.** `start_convert` now plans every destination **at Start, on the main
+>     thread**, from the frozen snapshot, and passes `params["destinations"]` keyed by occurrence id;
+>     the worker looks its path up instead of planning its own, so placement cannot depend on
+>     execution order. `params["planner"]` and the worker's `planner.plan(...)` call are gone. The
+>     worker creates a mirrored destination's parent directories, which the reservation does not.
+>     **The intended behavioural change**: direct imports stay flat, folder imports now land
+>     mirrored, several roots gain named containers, collisions stay safe, sources stay read-only.
+>     **Deliberate guard progressions.** `ADOPTED` gains `mp3_tools/m4b_destinations.py` as a
+>     **fourth** adopter — it is not a panel, but it necessarily reads `ImportedFile` provenance —
+>     with the measured count 3 -> 4 and `PLAN3_ADOPTERS` kept in step. One guard was **narrowed
+>     rather than satisfied dishonestly**: it required every adopter to import all three foundation
+>     modules, which is a statement about *panels*; forcing a pure planning module to import
+>     `job_ui` would have added a dependency it must not have, so the composition half now applies
+>     to the panels and the reimplementation ban still applies to every adopter, with a new
+>     counter-guard pinning that the panel set did not quietly empty.
+>     **Boundaries held**: no chapter probing was introduced to plan paths, and AST guards refuse
+>     `ConversionPlan`/`ItemPlan`/`SegmentPlan` (Phase 10), job control (Phase 9) and subprocess
+>     lifecycle (Phase 11). The seam already accepts many names per occurrence, which is what
+>     Phase 10 will need, but this phase requests exactly one. **Risk gate #9 was not reached** —
+>     the bridge is small and Converter-specific, and no shared contract changed.
+>     Gate: **4500 collected / 4486 passed / 14 skipped / 1 warning / 0 failed / 0 errors**,
+>     `verify.py` PASS. The **+45** delta is 36 new planning tests, 8 new production-adoption tests
+>     in the Converter importer module (57 -> 65), and 1 new counter-guard in
+>     `test_plan3_boundaries` (122 -> 123).
+>     **Tk transient, identified this time.** The first full-suite run reported **49 errors, all in
+>     `test_chatterbox_integration.py`**, which passes 93/93 in isolation. That is the transient
+>     `tk_gate.py` itself documents — its docstring records a run that "silently dropped forty-nine
+>     Chatterbox integration tests" — and the mechanism matches: `tk_gate.open_tk_root` calls
+>     `pytest.fail` when `tk.Tk()` raises, and a failure inside a fixture surfaces as one ERROR per
+>     dependent test. Because the identity concretely matched, the **single** permitted
+>     fresh-process retry was used and was green with zero errors. No second retry, and nothing was
+>     skipped, weakened or deselected to reach it.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

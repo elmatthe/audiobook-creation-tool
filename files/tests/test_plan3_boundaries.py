@@ -100,7 +100,7 @@ PANELS = (
 #: and ``test_exactly_these_production_modules_have_adopted_the_foundation``
 #: pins the tuple against the tree so it cannot drift.
 ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
-            "mp3_tools/m4b_converter.py")
+            "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py")
 
 
 def relative_name(path: Path) -> str:
@@ -654,7 +654,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_three_production_modules_are_authorized_to_adopt():
+def test_exactly_four_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -662,14 +662,21 @@ def test_exactly_three_production_modules_are_authorized_to_adopt():
     it is how a further adopter would hide, so widening it has to fail a test
     whose name says what it is protecting.
 
-    v0.6.2 Plan 5 Phase 7B adds the **third** adopter deliberately: the M4B
+    v0.6.2 Plan 5 Phase 7B added the **third** adopter deliberately: the M4B
     Converter now composes the shared importer, so the shared
     ``ImportedFileManager`` is its only input authority. That is an adoption of
     the Plan 3 *foundation* and not a Plan 1 visual conversion — the panel stays
     classic and appears in ``UNCONVERTED_PANELS`` exactly as before.
+
+    Phase 8 adds the **fourth**, and it is not a panel at all:
+    ``mp3_tools/m4b_destinations.py`` is the Converter's own output-planning
+    bridge, so it necessarily reads ``ImportedFile`` provenance and consults
+    ``planning_groups``. It is listed here for the same reason the panel is —
+    the guard measures the tree, so an adopter that is not declared fails.
     """
     assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
-                       "mp3_tools/m4b_converter.py")
+                       "mp3_tools/m4b_converter.py",
+                       "mp3_tools/m4b_destinations.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/mp3_tool.py",
@@ -727,7 +734,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 3, importers
+    assert len(importers) == 4, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -735,8 +742,19 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
 
     Cover may name the foundation; what it may not do is define its own manager,
     coordinator, poller, adapter or pump beside it. Checked by AST over the
-    panel's own class and function definitions rather than by substring, so a
+    module's own class and function definitions rather than by substring, so a
     comment or a docstring cannot pass or fail it.
+
+    **The two halves apply to different sets, deliberately.** The
+    reimplementation ban applies to *every* adopter — that is the real
+    protection and it was not narrowed. The "composes all three foundation
+    modules" half applies to the adopting **panels**, because it describes what
+    a panel has to wire up. v0.6.2 Plan 5 Phase 8 added an adopter that is not a
+    panel: ``mp3_tools/m4b_destinations.py`` is the Converter's pure
+    output-planning bridge, so it reads ``ImportedFile`` provenance and consults
+    ``planning_groups`` while having no coordinator and no widgets. Requiring it
+    to import ``job_ui`` to satisfy a guard would be backwards — it would force a
+    dependency the module must not have.
     """
     forbidden = {
         "ImportedFileManager", "ImportCoordinator", "ImportPoller",
@@ -752,8 +770,19 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
         assert not (defined & forbidden), (relative, defined & forbidden)
         modules = imported_names(tree)
         assert "shared.importing" in modules, relative
-        assert "shared.import_coordination" in modules, relative
-        assert "shared.job_ui" in modules, relative
+        if relative in set(PANELS):
+            assert "shared.import_coordination" in modules, relative
+            assert "shared.job_ui" in modules, relative
+
+
+def test_every_adopting_panel_is_still_checked_for_the_full_composition():
+    """The narrowing above must not quietly empty the panel half."""
+    panels = [relative for relative in ADOPTED if relative in set(PANELS)]
+    assert sorted(panels) == [
+        "mp3_tools/cover_resizer.py",
+        "mp3_tools/m4b_converter.py",
+        "tts/epub2tts_gui.py",
+    ], panels
 
 
 def test_the_launcher_tool_registry_gained_no_seventh_entry():
