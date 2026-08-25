@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import ast
 import threading
+import unittest.mock as mock
 from pathlib import Path
 
 import pytest
@@ -53,11 +54,18 @@ from shared.import_coordination import OutcomeStatus  # noqa: E402
 from shared.importing import ImportOptions  # noqa: E402
 from shared.job_control import JobAction  # noqa: E402
 
+from shared import output_paths  # noqa: E402
+
 from mp3_tools import m4b_converter  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
+from test_m4b_conversion_plan import (  # noqa: E402
+    StubThread,
+    _reservation,
+    install_conversion_stubs,
+)
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -519,48 +527,36 @@ def test_removing_one_duplicate_leaves_the_other(make_panel, tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-class _StubThread:
-    """Captures the worker's arguments without ever running it."""
-
-    started: list = []
-
-    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
-        self.target, self.args = target, args
-        _StubThread.started.append(self)
-
-    def start(self):
-        pass
-
-    def join(self, timeout=None):
-        pass
-
-
 @pytest.fixture()
 def captured_run(monkeypatch):
-    """Start a conversion but capture the worker instead of running it."""
-    _StubThread.started = []
-    monkeypatch.setattr(m4b_converter.threading, "Thread", _StubThread)
-    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "have_ffmpeg", lambda: True)
-    return _StubThread
+    """Start a conversion but capture the worker instead of running it.
+
+    The stubs come from the Phase 10 module so all three panel test modules
+    drive the production worker through exactly the same seams.
+    """
+    return install_conversion_stubs(monkeypatch, {})
 
 
 def start_run(panel, tmp_path, captured_run):
-    from shared import output_paths
-    reservation_dir = tmp_path / "run"
-    reservation_dir.mkdir(exist_ok=True)
+    """Press Convert; return the params the worker would have been handed."""
+    panel.start_convert()
+    assert StubThread.started, "the worker was never handed a run"
+    return StubThread.started[-1].args[0]
 
-    class _Reservation:
-        run_directory = reservation_dir
 
-        def planner(self):
-            return output_paths.DestinationPlanner(reservation_dir)
+def planned_run(panel, tmp_path, captured_run):
+    """Run the whole production path and return the immutable plan it produced.
 
-    import unittest.mock as mock
+    v0.6.2 Plan 5 Phase 10 moved destination planning off the main thread: the
+    run directory is reserved only after every source has been read, so the
+    destinations exist in the plan rather than in the worker's parameters.
+    """
+    params = start_run(panel, tmp_path, captured_run)
     with mock.patch.object(output_paths, "reserve_run_directory",
-                           return_value=_Reservation()):
-        panel.start_convert()
-    assert captured_run.started, "the worker was never handed a run"
-    return captured_run.started[-1].args[1]
+                           side_effect=_reservation(tmp_path)):
+        panel.convert_worker(params)
+    panel._pump.tick()
+    return panel.run_plan
 
 
 def test_start_freezes_the_manager_order(make_panel, tmp_path, captured_run):
@@ -583,8 +579,9 @@ def test_a_later_manager_change_cannot_alter_a_running_run(make_panel, tmp_path,
     assert [e.path.name for e in captured] == ["A.m4b", "B.m4b", "C.m4b"]
 
 
+
 def test_the_run_carries_occurrences_not_bare_paths(make_panel, tmp_path, captured_run):
-    """Provenance is what Phase 8's output planning will need."""
+    """Provenance is what the plan's destination routing needs."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
     params = start_run(panel, tmp_path, captured_run)
@@ -592,14 +589,13 @@ def test_the_run_carries_occurrences_not_bare_paths(make_panel, tmp_path, captur
     assert hasattr(entry, "occurrence_id") and hasattr(entry, "source_root")
     assert "files" not in params, "the legacy path list must not come back"
 
-
 def test_start_refuses_an_empty_manager(make_panel, tmp_path, captured_run, monkeypatch):
     panel = make_panel()
     warned: list = []
     monkeypatch.setattr(m4b_converter.messagebox, "showwarning",
                         lambda *a, **k: warned.append(a))
     panel.start_convert()
-    assert warned and not captured_run.started
+    assert warned and not StubThread.started
 
 
 # --------------------------------------------------------------------------- #
@@ -741,15 +737,32 @@ def test_phase_nine_job_control_arrived_and_is_the_shared_foundation():
         assert owned_elsewhere not in defined, owned_elsewhere
 
 
-def test_no_phase_ten_or_eleven_execution_arrived():
+
+def test_phase_ten_arrived_and_phase_eleven_did_not():
+    """**A deliberate progression, not a weakening.**
+
+    Through Phase 9 this asserted that no chapter, command or plan vocabulary
+    had reached the panel. Phase 10 is the phase authorized to bring the
+    preflight and the immutable plan in, so the guard now requires them -- while
+    still refusing everything the execution engine owns. The panel delegates:
+    it names the two Converter-local modules and none of the media logic itself.
+    """
     source = PANEL_SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source)
     named = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     named |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-    for banned in ("ConversionPlan", "plan_timeline", "segment_argv",
-                   "whole_book_argv", "attach_artwork_argv", "select_attached_picture"):
+
+    assert "assemble_plan" in named and "probe_source" in named
+    for banned in ("plan_timeline", "validate_chapters", "segment_filename",
+                   "flatten_title", "ChapterProbe", "select_attached_picture",
+                   "segment_argv", "attach_artwork_argv", "segment_commands"):
         assert banned not in named, banned
 
+    defined = {node.name for node in ast.walk(tree)
+               if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
+    for owned_elsewhere in ("ConversionPlan", "ItemPlan", "SegmentPlan",
+                            "assemble_plan", "probe_source"):
+        assert owned_elsewhere not in defined, owned_elsewhere
 
 def test_the_panel_stays_classic_with_no_namespaced_styles():
     source = PANEL_SOURCE.read_text(encoding="utf-8")
@@ -806,7 +819,9 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
             "Allow duplicate files": options.check_duplicates,
             "Cancel Import": panel.importer.status.frame,
             "MP3 Quality": panel.entry_quality,
-            "Do NOT write metadata": panel.chk_no_tags,
+            "Metadata: Preserve": panel.rb_preserve,
+            "Metadata: Replace": panel.rb_replace,
+            "Metadata: Write none": panel.rb_strip,
             "Title": panel.title_entry,
             "Auto-number tracks": panel.chk_auto_num,
             "Start #": panel.entry_start_num,
@@ -860,54 +875,56 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
 # --------------------------------------------------------------------------- #
 
 
-def planned_of(params, entry):
-    return params["destinations"][entry.occurrence_id]
+def planned_of(plan, name):
+    """Every destination the plan gave the book called *name*."""
+    for item in plan.items:
+        if item.source.name == name:
+            return [segment.destination for segment in item.segments]
+    raise AssertionError(f"{name} is not in the plan")
 
 
-def test_start_plans_a_destination_for_every_occurrence(make_panel, tmp_path, captured_run):
+def test_the_plan_holds_a_destination_for_every_usable_occurrence(
+        make_panel, tmp_path, captured_run):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    params = start_run(panel, tmp_path, captured_run)
+    plan = planned_run(panel, tmp_path, captured_run)
 
-    entries = params["imported_files"]
-    assert set(params["destinations"]) == {e.occurrence_id for e in entries}
-    assert all(len(v) == 1 for v in params["destinations"].values()), "whole book: one each"
+    assert {item.occurrence_id for item in plan.items} == set(
+        panel.run_snapshot.item_ids)
+    assert all(len(item.segments) == 1 for item in plan.items), "whole book: one each"
 
 
-def test_the_worker_no_longer_receives_a_planner_to_plan_with(make_panel, tmp_path, captured_run):
-    """Placement is decided at Start, so it cannot depend on execution order."""
+def test_the_worker_receives_no_planner_and_no_destination_map(
+        make_panel, tmp_path, captured_run):
+    """Placement is decided by the plan, so it cannot depend on execution order."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
     params = start_run(panel, tmp_path, captured_run)
     assert "planner" not in params
-    assert "destinations" in params
+    assert "destinations" not in params
+    assert isinstance(params["options"], m4b_converter.PlanOptions)
 
 
 def test_direct_imports_stay_flat_in_the_run_root(make_panel, tmp_path, captured_run):
     panel = make_panel()
-    entries_in = books(tmp_path / "src", "A.m4b", "B.m4b")
-    add_files(panel, *entries_in)
-    params = start_run(panel, tmp_path, captured_run)
-
-    run_root = tmp_path / "run"
-    for entry in params["imported_files"]:
-        destination = planned_of(params, entry)[0]
-        assert destination.parent == run_root, destination
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    plan = planned_run(panel, tmp_path, captured_run)
+    for item in plan.items:
+        assert item.segments[0].destination.parent == plan.run_directory
 
 
-def test_a_folder_import_now_mirrors_its_source_hierarchy(make_panel, tmp_path, captured_run):
-    """The intended Phase 8 behavioural change, proved through the real panel."""
+def test_a_folder_import_mirrors_its_source_hierarchy(make_panel, tmp_path, captured_run):
+    """The Phase 8 behavioural change, still true through the Phase 10 plan."""
     root = tmp_path / "Library"
     books(root, "Top.m4b")
     books(root / "Series", "Nested.m4b")
     panel = make_panel()
     add_folder(panel, root)
-    params = start_run(panel, tmp_path, captured_run)
+    plan = planned_run(panel, tmp_path, captured_run)
 
-    run_root = tmp_path / "run"
-    by_name = {e.path.name: planned_of(params, e)[0] for e in params["imported_files"]}
-    assert by_name["Top.m4b"] == run_root / "Top.mp3"
-    assert by_name["Nested.m4b"] == run_root / "Series" / "Nested.mp3"
+    run = plan.run_directory
+    assert planned_of(plan, "Top.m4b") == [run / "Top.mp3"]
+    assert planned_of(plan, "Nested.m4b") == [run / "Series" / "Nested.mp3"]
 
 
 def test_a_mixed_run_shares_one_collision_domain(make_panel, tmp_path, captured_run):
@@ -917,24 +934,24 @@ def test_a_mixed_run_shares_one_collision_domain(make_panel, tmp_path, captured_
     panel = make_panel()
     add_files(panel, *books(tmp_path / "picked", "Book.m4b"))
     add_folder(panel, root)
-    params = start_run(panel, tmp_path, captured_run)
+    plan = planned_run(panel, tmp_path, captured_run)
 
-    destinations = [planned_of(params, e)[0] for e in params["imported_files"]]
+    destinations = [item.segments[0].destination for item in plan.items]
     assert len(set(destinations)) == 2, destinations
-    assert sorted(d.name for d in destinations) == ["Book-1.mp3", "Book.mp3"]
+    assert sorted(path.name for path in destinations) == ["Book-1.mp3", "Book.mp3"]
 
 
-def test_duplicate_occurrences_receive_distinct_destinations(make_panel, tmp_path, captured_run):
+def test_duplicate_occurrences_receive_distinct_destinations(
+        make_panel, tmp_path, captured_run):
     panel = make_panel()
     book, = books(tmp_path / "src", "Book.m4b")
     panel.importer.options.set_allow_duplicates(True)
     add_files(panel, book)
     add_files(panel, book)
-    params = start_run(panel, tmp_path, captured_run)
+    plan = planned_run(panel, tmp_path, captured_run)
 
-    entries = params["imported_files"]
-    assert len(entries) == 2
-    first, second = (planned_of(params, e)[0] for e in entries)
+    assert len(plan.items) == 2
+    first, second = (item.segments[0].destination for item in plan.items)
     assert first != second
     assert sorted((first.name, second.name)) == ["Book-1.mp3", "Book.mp3"]
 
@@ -942,11 +959,11 @@ def test_duplicate_occurrences_receive_distinct_destinations(make_panel, tmp_pat
 def test_no_destination_equals_an_input(make_panel, tmp_path, captured_run):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    params = start_run(panel, tmp_path, captured_run)
-    sources = {e.path for e in params["imported_files"]}
-    for entry in params["imported_files"]:
-        for destination in planned_of(params, entry):
-            assert destination not in sources
+    plan = planned_run(panel, tmp_path, captured_run)
+    sources = {item.source for item in plan.items}
+    for item in plan.items:
+        for segment in item.segments:
+            assert segment.destination not in sources
 
 
 def test_the_panel_defines_no_planning_of_its_own():

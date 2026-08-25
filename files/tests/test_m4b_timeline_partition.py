@@ -421,7 +421,16 @@ def test_no_second_mutable_timeline_representation_exists():
             assert obj.__dataclass_params__.frozen, f"{name} must be frozen"
 
 
-def test_the_converter_panel_is_still_not_integrated():
+def test_the_converter_panel_still_delegates_this_layer():
+    """The panel **delegates** rather than reimplements, and still must.
+
+    Renamed at Phase 10, which is the phase that adopts this layer in
+    production. The panel still names none of it: preflight lives in
+    ``m4b_probe`` and the immutable plan in ``m4b_plan``, and the panel asks
+    those two. The assertion is unchanged; what it protects is now "the panel
+    owns no chapter logic of its own" rather than "nothing has adopted this
+    yet".
+    """
     source = (MODULE_PATH.parent / "m4b_converter.py").read_text(encoding="utf-8")
     for name in ("m4b_chapters", "plan_timeline", "ChapterSpan"):
         assert name not in source, name

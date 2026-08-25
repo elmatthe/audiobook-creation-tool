@@ -100,7 +100,8 @@ PANELS = (
 #: and ``test_exactly_these_production_modules_have_adopted_the_foundation``
 #: pins the tuple against the tree so it cannot drift.
 ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
-            "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py")
+            "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
+            "mp3_tools/m4b_plan.py")
 
 
 def relative_name(path: Path) -> str:
@@ -654,7 +655,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_four_production_modules_are_authorized_to_adopt():
+def test_exactly_five_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -673,10 +674,17 @@ def test_exactly_four_production_modules_are_authorized_to_adopt():
     bridge, so it necessarily reads ``ImportedFile`` provenance and consults
     ``planning_groups``. It is listed here for the same reason the panel is —
     the guard measures the tree, so an adopter that is not declared fails.
+
+    Phase 10 adds the **fifth**, and it is not a panel either:
+    ``mp3_tools/m4b_plan.py`` assembles the run's immutable conversion plan,
+    so it reads each occurrence's identity, source root and root-relative
+    path to decide where that book's outputs go. It consumes the foundation
+    and defines none of it, which is what the guards below measure.
     """
     assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
                        "mp3_tools/m4b_converter.py",
-                       "mp3_tools/m4b_destinations.py")
+                       "mp3_tools/m4b_destinations.py",
+                       "mp3_tools/m4b_plan.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/mp3_tool.py",
@@ -734,7 +742,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 4, importers
+    assert len(importers) == 5, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -754,7 +762,8 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
     output-planning bridge, so it reads ``ImportedFile`` provenance and consults
     ``planning_groups`` while having no coordinator and no widgets. Requiring it
     to import ``job_ui`` to satisfy a guard would be backwards — it would force a
-    dependency the module must not have.
+    dependency the module must not have. Phase 10's ``mp3_tools/m4b_plan.py``
+    is the same kind of adopter for the same reason.
     """
     forbidden = {
         "ImportedFileManager", "ImportCoordinator", "ImportPoller",

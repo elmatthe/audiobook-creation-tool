@@ -370,7 +370,16 @@ def test_a_span_title_can_be_named_without_touching_the_span():
     assert names[1] == "02 - Chapter 2.mp3"
 
 
-def test_the_converter_panel_is_still_not_integrated():
+def test_the_converter_panel_still_delegates_this_layer():
+    """The panel **delegates** rather than reimplements, and still must.
+
+    Renamed at Phase 10, which is the phase that adopts this layer in
+    production. The panel still names none of it: preflight lives in
+    ``m4b_probe`` and the immutable plan in ``m4b_plan``, and the panel asks
+    those two. The assertion is unchanged; what it protects is now "the panel
+    owns no chapter logic of its own" rather than "nothing has adopted this
+    yet".
+    """
     source = (MODULE_PATH.parent / "m4b_converter.py").read_text(encoding="utf-8")
     for name in ("m4b_naming", "segment_filename", "flatten_title", "m4b_chapters"):
         assert name not in source, name

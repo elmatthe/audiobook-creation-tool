@@ -786,13 +786,15 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: Written as dotted module paths because that is what ``TOOL_MODULES`` holds; the
 #: authoritative list is ``test_plan3_boundaries.ADOPTED``, and the test below
 #: proves the two spellings agree rather than trusting that they do.
-#: v0.6.2 Plan 5 Phase 7B adds the M4B Converter as the third adopter, and
-#: Phase 8 the Converter's own output-planning bridge as the fourth. The bridge
-#: is not a tool panel, so it matches nothing in ``TOOL_MODULES``; it is listed
-#: here only so this spelling of the adopter list stays in step with ``ADOPTED``,
+#: v0.6.2 Plan 5 Phase 7B adds the M4B Converter as the third adopter, Phase 8
+#: the Converter's own output-planning bridge as the fourth, and Phase 10 its
+#: conversion-plan assembler as the fifth. Neither of those two is a tool
+#: panel, so neither matches anything in ``TOOL_MODULES``; they are listed here
+#: only so this spelling of the adopter list stays in step with ``ADOPTED``,
 #: which is what the assertion below protects.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
-                  "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations")
+                  "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
+                  "mp3_tools.m4b_plan")
 
 
 def _tool_path(relative: str) -> Path:
@@ -903,7 +905,12 @@ def _tone(path: Path, seconds: float = 1.0, freq: int = 440, codec=None) -> Path
 
 
 class _Q:
-    """Minimal worker host: a cancel event and a queue, like the real panels."""
+    """Minimal worker host: a cancel event and a queue, like the real panels.
+
+    The worker reaches for exactly these two attributes, which is asserted
+    structurally in ``test_m4b_conversion_plan``; this host is what proves the
+    claim behaviourally against a real ffmpeg.
+    """
 
     def __init__(self):
         self._cancel_event = threading.Event()
@@ -917,30 +924,25 @@ class _Q:
             except Exception:
                 return out
 
+    def plan(self):
+        """The immutable plan the worker sent back, if it produced one."""
+        for kind, payload in self.drain():
+            if kind == "plan":
+                return payload
+        return None
 
-def _planned_params(reservation, *paths, **extra):
+
+def _run_params(*paths, **extra):
     """Params shaped the way ``start_convert`` now shapes them.
 
-    v0.6.2 Plan 5 Phase 8 moved destination planning to Start: the worker no
-    longer plans its own paths, it looks them up by occurrence id. These tests
-    therefore plan through the same Converter-local seam the panel uses, rather
-    than hand-building a path list the worker would have to re-derive.
+    v0.6.2 Plan 5 Phase 10 moved preflight and destination planning into the
+    worker: it is handed the frozen occurrences and one frozen ``PlanOptions``,
+    reads every source itself, and reserves the run folder only once something
+    is usable. So there is no destination map to build here any more.
     """
-    from mp3_tools.m4b_destinations import plan_outputs
+    from mp3_tools.m4b_plan import PlanOptions
 
-    entries = _occurrences(*paths)
-    planned = plan_outputs(
-        entries,
-        {entry.occurrence_id: (f"{entry.path.stem}.mp3",) for entry in entries},
-        run_root=reservation.run_directory,
-        planner=reservation.planner(),
-    )
-    params = {
-        "quality": 5, "write_tags": False, "title": "", "artist": "",
-        "album_artist": "", "album": "", "do_track": False, "start_num": 1,
-        "imported_files": entries,
-        "destinations": {item.occurrence_id: item.destinations for item in planned},
-    }
+    params = {"imported_files": _occurrences(*paths), "options": PlanOptions()}
     params.update(extra)
     return params
 
@@ -974,18 +976,19 @@ def _occurrences(*paths):
 
 @needs_ffmpeg
 def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path):
+    """End to end against a real ffmpeg: probe, plan, reserve, convert."""
     from mp3_tools import m4b_converter
 
     source = _tone(tmp_path / "src" / "Book.m4b", 1.0, 300, codec="aac")
     before = source.read_bytes()
-    reservation = op.reserve_run_directory("m4b_converter")
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    params = _planned_params(reservation, source, write_tags=True)
-    m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)
+    m4b_converter.M4BConverterUI.convert_worker(host, _run_params(source))
 
-    produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())
+    plan = host.plan()
+    assert plan is not None and plan.run_directory is not None, "no plan was produced"
+    produced = sorted(p.name for p in plan.run_directory.iterdir() if p.is_file())
     assert produced == ["Book.mp3"], host.drain()
     assert source.read_bytes() == before, "the source m4b was modified"
 
@@ -996,15 +999,35 @@ def test_the_converter_worker_numbers_duplicate_stems(output_base, tmp_path):
 
     a = _tone(tmp_path / "one" / "Book.m4b", 1.0, 300, codec="aac")
     b = _tone(tmp_path / "two" / "Book.m4b", 1.0, 500, codec="aac")
-    reservation = op.reserve_run_directory("m4b_converter")
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    params = _planned_params(reservation, a, b)
-    m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)
+    m4b_converter.M4BConverterUI.convert_worker(host, _run_params(a, b))
 
-    produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())
+    plan = host.plan()
+    assert plan is not None and plan.run_directory is not None
+    produced = sorted(p.name for p in plan.run_directory.iterdir() if p.is_file())
     assert produced == ["Book-1.mp3", "Book.mp3"], host.drain()
+
+
+@needs_ffmpeg
+def test_an_unreadable_source_reserves_no_run_folder(output_base, tmp_path):
+    """A failed preflight writes nothing and leaves no empty numbered folder."""
+    broken = tmp_path / "src" / "Broken.m4b"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text("this is not an audiobook", encoding="utf-8")
+
+    before = sorted(p.name for p in op.ensure_tool_parent("m4b_converter").iterdir())
+    host = _Q()
+    host.progress = type("P", (), {"update": lambda *a: None})()
+    m4b_converter_module = __import__("mp3_tools.m4b_converter", fromlist=["x"])
+    m4b_converter_module.M4BConverterUI.convert_worker(host, _run_params(broken))
+
+    plan = host.plan()
+    assert plan is not None
+    assert plan.items == () and plan.run_directory is None
+    after = sorted(p.name for p in op.ensure_tool_parent("m4b_converter").iterdir())
+    assert after == before, "a failed preflight reserved a folder anyway"
 
 
 @needs_ffmpeg

@@ -269,9 +269,15 @@ def test_no_later_phase_responsibilities_have_leaked_in():
                        if not attr.startswith("__")), name
 
 
-def test_the_converter_panel_is_unchanged_by_phase_one():
-    """Production adoption belongs to later phases, so the panel must not yet
-    import the model."""
+def test_the_converter_panel_still_names_no_probe_model():
+    """The panel **delegates** rather than reimplements, and still must.
+
+    Through Phase 9 this said production adoption belonged to a later phase.
+    Phase 10 is that phase -- and the panel still does not name any of this,
+    because the preflight lives in ``m4b_probe`` and the plan in ``m4b_plan``.
+    The assertion is unchanged; what it protects is now "the panel owns no
+    chapter logic of its own" rather than "nothing has adopted this yet".
+    """
     panel = MODULE_PATH.parent / "m4b_converter.py"
     source = panel.read_text(encoding="utf-8")
     assert "m4b_chapters" not in source

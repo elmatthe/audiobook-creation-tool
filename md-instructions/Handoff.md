@@ -22,10 +22,10 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-9 are complete and approved-to-date. Phase 10 has NOT started** and needs
+> - **Phases 0-10 are complete and approved-to-date. Phase 11 has NOT started** and needs
 >   explicit maintainer approval. Phase 7B's implementation `d66052f`, its verification
->   remediation `2837b4a9` and Phase 8 `352c7f3a` were all maintainer-approved before the
->   phase that followed them began.
+>   remediation `2837b4a9`, Phase 8 `352c7f3a` and Phase 9 `fac4fdb4` were all
+>   maintainer-approved before the phase that followed them began.
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -520,6 +520,105 @@
 >     left the Tcl command table unchanged, Python objects flat, and a fresh root still opening. Only
 >     then was the **single** permitted fresh-process retry used, and it was green with zero errors.
 >     Nothing was skipped, weakened or deselected to reach it.
+>   - **Phase 10** (2026-08-25): the immutable conversion plan and its worker-side preflight.
+>     Phase 9 `fac4fdb4` was **maintainer-approved before this phase began**.
+>     **The run is now decided completely before anything is written.** Two new
+>     Converter-local modules do it. `m4b_probe.py` is the act of asking: **one**
+>     `ffprobe -print_format json -show_format -show_streams -show_chapters` per source,
+>     returning an immutable `SourceReport` (probe, approved tags, cover, decoder args). One call
+>     rather than three, because three process spawns per book on a queue of hundreds is three
+>     chances for the answers to disagree about one file. `m4b_plan.py` is the deciding:
+>     `SegmentPlan`, `ItemPlan`, `ItemFailure` and `ConversionPlan`, all frozen, assembled by the
+>     pure `assemble_plan`. It runs no process and owns no thread, which is asserted structurally.
+>     **The lifecycle moved, deliberately.** Phase 8/9 reserved the run folder and planned
+>     destinations at Start, on the main thread. The approved order is validate -> reserve ->
+>     plan -> write, so the reservation is now a closure the **plan itself** calls, and only once
+>     it has found something genuinely usable. Consequences, all pinned: a queue whose books are
+>     all unreadable **reserves nothing at all** and leaves no empty numbered folder; one usable
+>     book is enough to reserve, exactly once; a planning error releases the reservation through
+>     the existing `release_if_empty`; and the output folder is shown only after preflight, from
+>     the plan, rather than promised at Start.
+>     **Three answers, and they stay three.** `PROBE_FAILED`, `NO_DURATION` and `NO_AUDIO` each
+>     fail the item under their own reason, and a test feeds a *usable duration* alongside a
+>     failed status precisely to prove the failure is not quietly converted as one file. A
+>     malformed chapter map -- negative, duplicate, non-monotonic, past the end, or NaN -- fails
+>     too, and is never routed to the chapterless fallback. Nothing is sorted, clamped, dropped or
+>     deduplicated anywhere on the path.
+>     **Timeline and naming are consumed, not reimplemented.** `plan_timeline` produces the spans,
+>     `segment_filename` the names. Pre-roll sits inside chapter one with **no synthetic Opening
+>     file**, the tail sits inside the last segment, the spans tile `[0, D]` exactly, and the
+>     mandatory slash-title regression is re-proved through the real plan: the order prefix
+>     survives, meaningful text from all three slash-separated portions survives, no path
+>     hierarchy is created and `.mp3` is intact.
+>     **One derivation had to be made explicit, and it is flagged rather than buried.** The drop
+>     pins the chapterless-split *filename* (the whole-book name, no order prefix) but not its
+>     tags. The answer follows from §16 rather than being invented: the fragment rules exist
+>     because a split output "must never describe the unsplit book", and a chapterless split
+>     output **is** the unsplit book -- one file over `[0, D]`. So `ItemPlan.fragment` is False
+>     for it, and that flag, not the run's mode, is what decides chapter retention and whether a
+>     structural track is written.
+>     **Artwork fails closed in every mode.** Several attached pictures produce a typed
+>     `artwork_ambiguous` failure whatever the metadata mode is. Strip would discard the cover
+>     anyway, so a mode-conditional rule was available -- and would have been a **new product rule
+>     invented here**, which is exactly what the Phase 6 remediation forbade. The conservative
+>     reading ships; narrowing it later is a product decision, not an implementation one.
+>     **Metadata mode became a real control.** The two-state `Do NOT write any metadata` checkbox
+>     could not express the approved three-way contract, so it is replaced by
+>     `Preserve source / Replace with the values below / Write none`, defaulting to Preserve, on
+>     the same single form row. Whole-book Preserve now carries the source's approved fields and
+>     keeps the chapter map (D6A); Replace carries only what was typed and still keeps the map;
+>     Strip writes nothing and maps no cover. `-map_metadata -1` is unconditional, so every cell
+>     is an allowlist. `-id3v2_version 3` is preserved exactly where it was -- only when tags are
+>     written -- so no ID3 version silently changed.
+>     **The denominator is now earned.** Preflight reports **indeterminate** progress with no
+>     total, because until every source has been read there is no honest number of outputs. The
+>     authoritative `ConversionPlan.total_segments` is published **once**, at the stage change to
+>     `convert`. Phase 9's interim one-unit-per-imported-book denominator is retired, and the test
+>     that pinned it is turned around rather than deleted. An unreadable book contributes no fake
+>     unit: three imported books with one unreadable publishes a denominator of two.
+>     **What still belongs to Phase 11, stated rather than implied.** The legacy single-call
+>     executor remains, and it now consumes the plan: it looks up the frozen destination, tags,
+>     chapter-retention and cover decisions and builds its command with the approved
+>     `whole_book_argv`. It executes **single-segment, non-fragment items only** -- which is every
+>     item production can currently produce, because the Whole/Split control is deliberately
+>     **not** added: the plan layer supports splitting in full and is tested that way, but
+>     shipping a control that fails every chaptered book would be worse than not shipping it. A
+>     multi-segment item handed to the worker is refused truthfully, with a test that proves the
+>     plan was still built in full and none of it was written. No `Popen`, no terminate/kill/reap,
+>     no staged temp file, no per-segment drift check, no success-number allocator and no Retry
+>     Failed wiring exist anywhere -- all asserted structurally across the panel and both new
+>     modules.
+>     **Job control is unchanged in authority.** One `JobController`, one pump, two drains, one
+>     `after` chain. Preflight runs on the worker; **no ffprobe call can reach the Tk thread**,
+>     proved both behaviourally and by an AST guard that allows `probe_source` inside
+>     `convert_worker` and nowhere else. The worker still reaches for exactly two attributes on
+>     the panel -- `_cancel_event` and `_log_q`. Pause settles **between two sources**: a real
+>     thread gates the first probe open, asks for the pause while it is running, proves the state
+>     is still `PAUSE_REQUESTED`, releases it and only then sees `PAUSED`, with no further source
+>     read. Resume continues; cancel wakes it; cancelling during preflight probes nothing more,
+>     reserves nothing and produces no plan.
+>     **Geometry re-measured, not assumed.** With the three metadata radios in place of the one
+>     checkbox the panel measures **identically to Phase 9** at 920x600: every control mapped,
+>     wider than 1 px, at least 16 px tall, inside the window, 10 px to spare, and the Summary
+>     keeps a full line. At 1024x720 all three scrollable views stay usable. **Risk gate #12 was
+>     not reached** and no scrolling container was introduced.
+>     **Shared modules are byte-unchanged** -- `job_control.py`, `job_ui.py`, `importing.py`,
+>     `import_coordination.py`, `output_paths.py`, `ffmpeg_utils.py`, `metadata.py`,
+>     `subprocess_utils.py` -- as are TTS, Cover, the other four panels and every Phase 1-6 pure
+>     module. **Risk gate #9 was not reached.**
+>     **Deliberate guard progressions**, each explained in place: `ADOPTED` gains
+>     `mp3_tools/m4b_plan.py` as a **fifth** adopter (4 -> 5) with `PLAN3_ADOPTERS` kept in step;
+>     `test_no_phase_ten_or_eleven_execution_arrived` and `test_no_phase_ten_or_later_module_is_imported`
+>     are **turned around** to require the two new modules while still refusing the execution
+>     engine; the Phase 9 denominator test is restated as the segment-count test; the four
+>     "panel is still not integrated" guards are **renamed and re-documented** without changing a
+>     single assertion, because the panel still names none of the media logic -- it delegates.
+>     `UNCONVERTED_PANELS` did not change.
+>     Gate: **4719 collected / 4705 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **first attempt, no retry**, `verify.py` PASS on its first and only invocation. The **+133**
+>     delta is 131 new tests in `files/tests/test_m4b_conversion_plan.py`, 1 new integration test
+>     proving a failed preflight reserves no folder, and 1 from the boundary guard's
+>     parametrisation picking up `m4b_probe.py` as a new non-adopting production module.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

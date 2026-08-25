@@ -63,6 +63,12 @@ from mp3_tools import m4b_converter  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
 from test_m4b_converter_importing import add_files, books  # noqa: E402
+from test_m4b_conversion_plan import (  # noqa: E402
+    StubThread,
+    _reservation,
+    install_conversion_stubs,
+    report,
+)
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -147,77 +153,25 @@ def make_panel(tk_root, logger):
         panel.destroy()
 
 
-class _StubThread:
-    """Captures the worker's arguments without ever running it."""
-
-    started: list = []
-
-    def __init__(self, target=None, args=(), kwargs=None, daemon=None, name=None):
-        self.target, self.args = target, args
-        _StubThread.started.append(self)
-
-    def start(self):
-        pass
-
-    def join(self, timeout=None):
-        pass
-
-
-class _Proc:
-    def __init__(self, returncode: int = 0, stdout: str = ""):
-        self.returncode = returncode
-        self.stdout = stdout
-
-
 @pytest.fixture()
 def run_env(monkeypatch):
-    """Start a conversion without a thread, an ffmpeg process or any media."""
-    _StubThread.started = []
-    monkeypatch.setattr(m4b_converter.threading, "Thread", _StubThread)
-    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "have_ffmpeg", lambda: True)
-    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "ffmpeg_cmd", lambda: "ffmpeg")
-    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "probe_audio_stream", lambda p: {})
-    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "input_decoder_args", lambda info: ())
-    monkeypatch.setattr(
-        m4b_converter.ffmpeg_utils, "needs_special_aac_decoder", lambda info: False)
-    monkeypatch.setattr(m4b_converter.sp, "reveal_in_file_manager", lambda target: None)
-
-    state = {"fail": (), "commands": []}
-
-    def fake_run(cmd, **kwargs):
-        state["commands"].append([str(part) for part in cmd])
-        target = Path(str(cmd[-1]))
-        if target.name in state["fail"]:
-            return _Proc(1, "ffmpeg said no")
-        return _Proc(0)
-
-    monkeypatch.setattr(m4b_converter.sp, "run", fake_run)
-    state["threads"] = _StubThread
-    return state
+    """The one shared set of media stubs, so all three panel modules agree."""
+    return install_conversion_stubs(monkeypatch, {})
 
 
-def start(panel, tmp_path, run_env):
+def start(panel):
     """Press Convert. Returns the params the worker would have been given."""
-    reservation_dir = tmp_path / "run"
-    reservation_dir.mkdir(exist_ok=True)
-
-    class _Reservation:
-        run_directory = reservation_dir
-
-        def planner(self):
-            return output_paths.DestinationPlanner(reservation_dir)
-
-    with mock.patch.object(output_paths, "reserve_run_directory",
-                           return_value=_Reservation()):
-        panel.start_convert()
-    assert _StubThread.started, "the worker was never handed a run"
-    return _StubThread.started[-1].args
+    panel.start_convert()
+    assert StubThread.started, "the worker was never handed a run"
+    return StubThread.started[-1].args[0]
 
 
 def work(panel, tmp_path, run_env):
-    """Start a run and execute its worker inline, then drain the pump once."""
-    outdir, params = start(panel, tmp_path, run_env)
-    panel.convert_worker(outdir, params)
+    """Start a run, execute its worker inline, then drain the pump once."""
+    params = start(panel)
+    with mock.patch.object(output_paths, "reserve_run_directory",
+                           side_effect=_reservation(tmp_path)):
+        panel.convert_worker(params)
     panel._pump.tick()
     return params
 
@@ -250,9 +204,9 @@ def function(name: str) -> ast.FunctionDef:
 def states(panel) -> list[jc.JobState]:
     """The distinct states the run moved through, in order.
 
-    Consecutive repeats are collapsed on purpose: settling emits both the
-    state change and the ending event, and both truthfully carry the same
-    state. One move, two reports.
+    Consecutive repeats are collapsed on purpose: settling emits both the state
+    change and the ending event, and both truthfully carry the same state. One
+    move, two reports.
     """
     walked: list[jc.JobState] = []
     for entry in panel.jobs.stream.events:
@@ -269,14 +223,14 @@ def states(panel) -> list[jc.JobState]:
 def test_the_run_is_driven_by_the_shared_controller(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     assert isinstance(panel.job_controller, jc.JobController)
 
 
 def test_start_freezes_the_run_through_capture_run(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     frozen = panel.run_snapshot
     assert isinstance(frozen, jc.RunSnapshot)
     assert frozen.count == 2
@@ -288,7 +242,7 @@ def test_the_frozen_run_and_the_planned_queue_are_one_snapshot(
     """One freeze, not two: a second ``snapshot()`` is how one run gets two queues."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    _outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
     assert (panel.run_snapshot.item_ids
             == tuple(entry.occurrence_id for entry in params["imported_files"]))
 
@@ -296,7 +250,7 @@ def test_the_frozen_run_and_the_planned_queue_are_one_snapshot(
 def test_start_moves_the_controller_to_running(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     assert panel.job_controller.state is jc.JobState.RUNNING
 
 
@@ -423,13 +377,13 @@ def test_the_worker_runs_off_the_main_thread_without_touching_tk(
     """A real worker thread, and no Tk call escapes it."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
 
     trouble: list = []
 
     def body():
         try:
-            panel.convert_worker(outdir, params)
+            panel.convert_worker(params)
         except BaseException as exc:  # pragma: no cover - the failure we are hunting
             trouble.append(exc)
 
@@ -480,9 +434,9 @@ def test_close_drops_the_job_drain_and_leaves_nothing_scheduled(make_panel):
 def test_a_late_event_after_close_is_inert(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
     panel.close()
-    panel.convert_worker(outdir, params)   # the worker finishes after teardown
+    panel.convert_worker(params)   # the worker finishes after teardown
     assert panel.jobs.closed is True
 
 
@@ -508,7 +462,7 @@ def test_a_running_run_locks_inputs_and_processing_options(
         make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
 
     applied = panel.jobs.locks.last_applied
@@ -525,7 +479,7 @@ def test_every_imported_file_action_locks(make_panel, tmp_path, run_env):
     """Decision 14A's whole control surface, locked as one unit."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
 
     listing = panel.importer.list
@@ -537,7 +491,7 @@ def test_every_imported_file_action_locks(make_panel, tmp_path, run_env):
 def test_the_import_options_lock_too(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
 
     options = panel.importer.options
@@ -561,7 +515,7 @@ def test_terminal_settlement_unlocks_everything(make_panel, tmp_path, run_env):
 def test_job_controls_and_the_read_only_views_never_lock(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
 
     applied = panel.jobs.locks.last_applied
@@ -576,7 +530,7 @@ def test_the_import_status_bar_stays_usable_during_a_run(make_panel, tmp_path, r
     """A scan already running when a conversion starts can still be cancelled."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
     assert panel.importer.status.closed is False
     assert panel.importer.status.frame.winfo_exists()
@@ -586,7 +540,7 @@ def test_cancel_import_and_the_processing_cancel_stay_isolated(
         make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel.importer.cancel_import()
     assert panel.job_controller.state is jc.JobState.RUNNING
     assert not panel.job_controller.cancel_check()
@@ -595,7 +549,7 @@ def test_cancel_import_and_the_processing_cancel_stay_isolated(
 def test_the_processing_cancel_imports_nothing_away(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel.cancel()
     assert panel.manager.count == 1
 
@@ -616,7 +570,7 @@ def test_the_panel_declares_no_lock_rules_of_its_own():
 def test_pause_reaches_pause_requested_and_stops_there(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel.pause()
     assert panel.job_controller.state is jc.JobState.PAUSE_REQUESTED
     assert panel.job_controller.state is not jc.JobState.PAUSED
@@ -625,7 +579,7 @@ def test_pause_reaches_pause_requested_and_stops_there(make_panel, tmp_path, run
 def test_the_status_line_says_pause_requested_not_paused(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel.pause()
     panel._pump.tick()
     assert jc.state_message(jc.JobState.PAUSE_REQUESTED) == "Pause requested."
@@ -637,7 +591,7 @@ def test_the_pause_button_is_offered_only_while_running(make_panel, tmp_path, ru
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
     assert panel.jobs.controls.availability()[jc.JobAction.PAUSE] is False  # IDLE
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
     # A new run gets a new adapter in the same container, so the bar is read
     # again here rather than held across the rebuild.
@@ -651,7 +605,7 @@ def test_the_worker_acknowledges_a_pause_only_between_books(
     """A real thread, real signals, bounded waits -- and no sleep anywhere."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
 
     entered = threading.Event()
     release = threading.Event()
@@ -668,7 +622,7 @@ def test_the_worker_acknowledges_a_pause_only_between_books(
     m4b_converter.sp.run = gated
     try:
         worker = RealThread(
-            target=panel.convert_worker, args=(outdir, params), name="m4b-pause")
+            target=panel.convert_worker, args=(params,), name="m4b-pause")
         worker.start()
         assert entered.wait(WAIT), "the first conversion never began"
 
@@ -701,7 +655,7 @@ def test_cancel_wakes_a_worker_waiting_at_a_paused_checkpoint(
         make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
 
     entered = threading.Event()
     release = threading.Event()
@@ -718,7 +672,7 @@ def test_cancel_wakes_a_worker_waiting_at_a_paused_checkpoint(
     m4b_converter.sp.run = gated
     try:
         worker = RealThread(
-            target=panel.convert_worker, args=(outdir, params), name="m4b-cancel")
+            target=panel.convert_worker, args=(params,), name="m4b-cancel")
         worker.start()
         assert entered.wait(WAIT), "the first conversion never began"
         panel.pause()
@@ -768,18 +722,19 @@ def test_pause_and_resume_are_no_ops_before_a_run_exists(make_panel):
 def test_a_cancel_request_stops_later_books_starting(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
     panel.cancel()
-    panel.convert_worker(outdir, params)
+    panel.convert_worker(params)
     panel._pump.tick()
 
     assert run_env["commands"] == [], "no book started after the request"
     assert panel.job_controller.state is jc.JobState.CANCELLED
 
 
+
 def test_the_book_already_being_converted_is_not_interrupted(
         make_panel, tmp_path, run_env):
-    """The current Phase 9 limitation, asserted rather than glossed over.
+    """The current limitation, asserted rather than glossed over.
 
     Cancel settles at the next boundary between books. The ffmpeg call already
     running is left to finish, because this phase does not own its process
@@ -787,7 +742,7 @@ def test_the_book_already_being_converted_is_not_interrupted(
     """
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
 
     real_run = m4b_converter.sp.run
 
@@ -798,23 +753,24 @@ def test_the_book_already_being_converted_is_not_interrupted(
 
     m4b_converter.sp.run = cancel_midway
     try:
-        panel.convert_worker(outdir, params)
+        with mock.patch.object(output_paths, "reserve_run_directory",
+                               side_effect=_reservation(tmp_path)):
+            panel.convert_worker(params)
     finally:
         m4b_converter.sp.run = real_run
     panel._pump.tick()
 
     assert len(run_env["commands"]) == 1, "the request stopped the run at a boundary"
-    assert (tmp_path / "run" / "A.mp3").parent.exists()
+    assert panel.run_plan.run_directory.exists()
     assert panel.job_controller.state is jc.JobState.CANCELLED
-
 
 def test_a_cancelled_run_reports_the_books_it_never_reached(
         make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
     panel.cancel()
-    panel.convert_worker(outdir, params)
+    panel.convert_worker(params)
     panel._pump.tick()
 
     result = panel.run_result
@@ -828,7 +784,7 @@ def test_cancellation_is_settled_only_after_a_checkpoint_saw_it(
     """``CANCELLED`` means it stopped, not that somebody pressed Cancel."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel.cancel()
     assert panel.job_controller.state is jc.JobState.CANCEL_REQUESTED
     with pytest.raises(jc.JobContractError):
@@ -838,7 +794,7 @@ def test_cancellation_is_settled_only_after_a_checkpoint_saw_it(
 def test_the_cancel_button_is_the_shared_one(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
     panel.jobs.controls.invoke(jc.JobAction.CANCEL)
     assert panel.job_controller.cancel_check() is True
@@ -878,7 +834,7 @@ def test_the_run_reports_through_one_shared_stream(make_panel, tmp_path, run_env
 def test_an_event_from_another_run_is_rejected(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
 
     stranger = jc.JobReporter("some-other-run", clock=lambda: 1.0)
@@ -891,7 +847,7 @@ def test_an_event_from_another_run_is_rejected(make_panel, tmp_path, run_env):
 def test_an_unknown_occurrence_is_rejected(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
 
     panel._publish(panel._reporter.progress(1, 1, item_id=None))
@@ -988,6 +944,7 @@ def test_the_panel_writes_no_summary_line_of_its_own():
         assert banned not in body, banned
 
 
+
 def test_the_output_location_is_reported_once(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
@@ -995,65 +952,53 @@ def test_the_output_location_is_reported_once(make_panel, tmp_path, run_env):
     locations = [entry for entry in panel.jobs.stream.events
                  if entry.kind is jc.JobEventKind.OUTPUT_LOCATION]
     assert len(locations) == 1
-    assert Path(locations[0].location) == tmp_path / "run"
+    assert Path(locations[0].location) == panel.run_plan.run_directory
 
 
-# --------------------------------------------------------------------------- #
-# Progress — the truthful interim unit
-# --------------------------------------------------------------------------- #
+def test_progress_starts_without_a_denominator_at_all(make_panel, tmp_path, run_env):
+    """**A deliberate progression.** Phase 9 counted imported books here.
 
-
-def test_progress_starts_at_zero_of_the_imported_count(make_panel, tmp_path, run_env):
+    Phase 10 retires that interim unit: until every source has been read there
+    is no honest number of outputs, so preflight is indeterminate and the
+    authoritative total arrives once, later. Counting imported files now would
+    be a guess, and a run holding an unreadable book would over-count.
+    """
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
 
     view = panel.jobs.summary_view.progress
-    assert view.mode is jc.ProgressMode.DETERMINATE
-    assert (view.completed, view.total) == (0, 3)
+    assert view.mode is jc.ProgressMode.INDETERMINATE
+    assert view.total is None
 
 
-def test_one_finished_book_advances_exactly_one_unit(make_panel, tmp_path, run_env):
+def test_one_finished_segment_advances_exactly_one_unit(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
-    panel._pump.tick()
+    work(panel, tmp_path, run_env)
 
-    real_run = m4b_converter.sp.run
-    seen: list = []
-
-    def watched(cmd, **kwargs):
-        seen.append(cmd)
-        return real_run(cmd, **kwargs)
-
-    m4b_converter.sp.run = watched
-    try:
-        panel.convert_worker(outdir, params)
-    finally:
-        m4b_converter.sp.run = real_run
-
-    progress = [(e.completed, e.total) for e in panel.jobs.stream.events
-                if e.kind is jc.JobEventKind.PROGRESS]
-    panel._pump.tick()
-    progress = [(e.completed, e.total) for e in panel.jobs.stream.events
-                if e.kind is jc.JobEventKind.PROGRESS]
-    assert progress == [(0, 3), (1, 3), (2, 3), (3, 3)]
+    counted = [(e.stage, e.completed, e.total) for e in panel.jobs.stream.events
+               if e.kind is jc.JobEventKind.PROGRESS]
+    assert counted[0] == (m4b_converter.STAGE_PREFLIGHT, 0, None)
+    assert counted[1:] == [(m4b_converter.STAGE_CONVERT, done, 3)
+                           for done in (0, 1, 2, 3)]
 
 
 def test_progress_is_never_complete_while_work_remains(make_panel, tmp_path, run_env):
-    """A partial run keeps the count it really reached and no more."""
+    """A cancelled run keeps the count it really reached and no more."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
     panel.cancel()
-    panel.convert_worker(outdir, params)
+    with mock.patch.object(output_paths, "reserve_run_directory",
+                           side_effect=_reservation(tmp_path)):
+        panel.convert_worker(params)
     panel._pump.tick()
 
     view = panel.jobs.summary_view.progress
-    assert (view.completed, view.total) == (0, 3)
-    assert view.fraction == 0.0
-
+    assert view.completed == 0
+    assert view.total is None, "cancelled during preflight: no total was ever earned"
 
 def test_a_successful_run_reaches_its_total(make_panel, tmp_path, run_env):
     panel = make_panel()
@@ -1075,45 +1020,42 @@ def test_a_failed_book_still_advances_its_unit(make_panel, tmp_path, run_env):
     assert panel.run_result.failed_count == 1
 
 
-def test_the_denominator_is_the_imported_count_not_a_segment_count(
-        make_panel, tmp_path, run_env):
-    """The transitional boundary, pinned so it cannot drift into Phase 10.
 
-    The final contract makes the **segment** the unit, with the immutable
-    ``ConversionPlan.total_segments`` as the denominator. That plan does not
-    exist yet, and this phase must not invent it: the denominator here is
-    exactly the number of imported occurrences, and the panel names nothing from
-    the Phase 10 vocabulary.
+def test_the_denominator_is_the_plans_segment_count(make_panel, tmp_path, run_env):
+    """**A deliberate progression, and the whole point of Phase 10.**
+
+    Phase 9 pinned the opposite: an interim denominator of one unit per imported
+    occurrence, explicitly marked transitional. The immutable plan now knows how
+    many outputs the run will actually attempt, so that number is published
+    instead -- and an unreadable book contributes none of them.
     """
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    start(panel, tmp_path, run_env)
-    panel._pump.tick()
-    assert panel.jobs.summary_view.progress.total == panel.manager.count == 3
+    run_env["reports"]["C.m4b"] = report(
+        status=m4b_converter.m4b_probe.ProbeStatus.PROBE_FAILED, duration=None)
+    work(panel, tmp_path, run_env)
 
-    body = named(parse_panel())
-    for banned in ("total_segments", "ConversionPlan", "SegmentPlan", "ItemPlan",
-                   "segments", "plan_timeline"):
-        assert banned not in body, banned
+    plan = panel.run_plan
+    assert panel.manager.count == 3
+    assert plan.total_segments == 2
+    totals = {e.total for e in panel.jobs.stream.events
+              if e.kind is jc.JobEventKind.PROGRESS and e.total is not None}
+    assert totals == {2}
 
 
-def test_the_stage_is_the_only_one_this_phase_has(make_panel, tmp_path, run_env):
+def test_the_run_reports_exactly_two_stages(make_panel, tmp_path, run_env):
+    """Preflight, then conversion. Neither is invented and neither is skipped."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
     work(panel, tmp_path, run_env)
-    stages = {e.stage for e in panel.jobs.stream.events if e.stage}
-    assert stages == {m4b_converter.STAGE_CONVERT}
-
-
-# --------------------------------------------------------------------------- #
-# ETA — the shared estimator, and nothing else
-# --------------------------------------------------------------------------- #
-
+    stages = [e.stage for e in panel.jobs.stream.events
+              if e.kind is jc.JobEventKind.STAGE_CHANGED]
+    assert stages == [m4b_converter.STAGE_PREFLIGHT, m4b_converter.STAGE_CONVERT]
 
 def test_the_estimator_is_the_shared_one(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     assert isinstance(panel.job_estimator, jc.EtaEstimator)
     assert panel.jobs.estimator is panel.job_estimator
 
@@ -1121,7 +1063,7 @@ def test_the_estimator_is_the_shared_one(make_panel, tmp_path, run_env):
 def test_the_eta_starts_calculating(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b", "D.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
     assert panel.jobs.status.eta_text == jc.CALCULATING
 
@@ -1129,7 +1071,7 @@ def test_the_eta_starts_calculating(make_panel, tmp_path, run_env):
 def test_two_samples_are_still_not_enough(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b", "D.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     panel._pump.tick()
     for _ in range(2):
         panel._record_timing(m4b_converter.TimingSample(
@@ -1140,10 +1082,19 @@ def test_two_samples_are_still_not_enough(make_panel, tmp_path, run_env):
     assert panel.jobs.status.eta_text == jc.CALCULATING
 
 
+
 def test_three_samples_produce_an_estimate(make_panel, tmp_path, run_env):
+    """Mid-run, where an estimate is meaningful.
+
+    The denominator only exists once preflight has finished, so the run is put
+    into exactly the state it reaches then -- conversion stage, four outputs
+    planned, none done -- and the samples are recorded against that.
+    """
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b", "D.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
+    panel._publish(panel._reporter.progress(
+        0, 4, stage=m4b_converter.STAGE_CONVERT))
     panel._pump.tick()
     for _ in range(3):
         panel._record_timing(m4b_converter.TimingSample(
@@ -1151,9 +1102,7 @@ def test_three_samples_produce_an_estimate(make_panel, tmp_path, run_env):
             category=m4b_converter.ETA_CATEGORY, duration=2.0))
     panel.jobs.render()
     assert panel.job_estimator.sample_count == 3
-    assert panel.jobs.status.eta_text != jc.CALCULATING
-    assert panel.jobs.status.eta_text == jc.format_duration(8.0)   # 4 books left
-
+    assert panel.jobs.status.eta_text == jc.format_duration(8.0)   # 4 outputs left
 
 def test_the_worker_measures_one_sample_per_finished_book(
         make_panel, tmp_path, run_env):
@@ -1174,7 +1123,7 @@ def test_a_book_that_failed_contributes_no_sample(make_panel, tmp_path, run_env)
 def test_a_sample_from_another_run_is_inert(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     assert panel._record_timing(m4b_converter.TimingSample(
         run_id="some-other-run", attempt=1,
         category=m4b_converter.ETA_CATEGORY, duration=2.0)) is False
@@ -1184,7 +1133,7 @@ def test_a_sample_from_another_run_is_inert(make_panel, tmp_path, run_env):
 def test_a_sample_from_an_earlier_attempt_is_inert(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    start(panel, tmp_path, run_env)
+    start(panel)
     assert panel._record_timing(m4b_converter.TimingSample(
         run_id=panel.run_snapshot.snapshot_id, attempt=0,
         category=m4b_converter.ETA_CATEGORY, duration=2.0)) is False
@@ -1216,7 +1165,7 @@ def test_the_worker_never_holds_the_estimator(make_panel, tmp_path, run_env):
     """It measures a number and sends it; the main thread records it."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    _outdir, params = start(panel, tmp_path, run_env)
+    params = start(panel)
     assert "estimator" not in params
     assert not any(isinstance(value, jc.EtaEstimator) for value in params.values())
 
@@ -1265,8 +1214,9 @@ def test_no_retry_execution_and_no_fabricated_plan_exist():
 # --------------------------------------------------------------------------- #
 
 
-def test_destinations_are_still_planned_at_start_from_provenance(
-        make_panel, tmp_path, run_env):
+
+def test_destinations_still_come_from_provenance(make_panel, tmp_path, run_env):
+    """Phase 8's routing, now consumed by the plan rather than by ``start``."""
     root = tmp_path / "Library"
     books(root, "Top.m4b")
     books(root / "Series", "Nested.m4b")
@@ -1275,20 +1225,24 @@ def test_destinations_are_still_planned_at_start_from_provenance(
     panel.importer.add_folder()
     panel._pump.tick()
 
-    _outdir, params = start(panel, tmp_path, run_env)
-    by_name = {e.path.name: params["destinations"][e.occurrence_id][0]
-               for e in params["imported_files"]}
-    assert by_name["Top.m4b"] == tmp_path / "run" / "Top.mp3"
-    assert by_name["Nested.m4b"] == tmp_path / "run" / "Series" / "Nested.mp3"
+    work(panel, tmp_path, run_env)
+    plan = panel.run_plan
+    run = plan.run_directory
+    by_name = {item.source.name: item.segments[0].destination for item in plan.items}
+    assert by_name["Top.m4b"] == run / "Top.mp3"
+    assert by_name["Nested.m4b"] == run / "Series" / "Nested.mp3"
 
 
-def test_the_worker_still_consumes_the_frozen_destinations(
+def test_the_worker_plans_nothing_of_its_own_after_the_plan_exists(
         make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    _outdir, params = start(panel, tmp_path, run_env)
-    assert "planner" not in params
-    assert set(params["destinations"]) == set(panel.run_snapshot.item_ids)
+    params = work(panel, tmp_path, run_env)
+    assert "planner" not in params and "destinations" not in params
+    plan = panel.run_plan
+    assert {item.occurrence_id for item in plan.items} == set(
+        panel.run_snapshot.item_ids)
+    assert run_env["commands"][0][-1] == str(plan.items[0].segments[0].destination)
 
 
 def test_a_mixed_run_still_shares_one_collision_domain(make_panel, tmp_path, run_env):
@@ -1300,29 +1254,28 @@ def test_a_mixed_run_still_shares_one_collision_domain(make_panel, tmp_path, run
     panel.importer.add_folder()
     panel._pump.tick()
 
-    _outdir, params = start(panel, tmp_path, run_env)
-    planned = [params["destinations"][e.occurrence_id][0]
-               for e in params["imported_files"]]
-    assert sorted(p.name for p in planned) == ["Book-1.mp3", "Book.mp3"]
+    work(panel, tmp_path, run_env)
+    planned = [item.segments[0].destination for item in panel.run_plan.items]
+    assert sorted(path.name for path in planned) == ["Book-1.mp3", "Book.mp3"]
 
 
 def test_nothing_after_start_can_change_where_a_book_lands(
         make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    _outdir, params = start(panel, tmp_path, run_env)
-    frozen = dict(params["destinations"])
+    params = start(panel)
+    frozen = params["options"]
 
     panel.manager.clear()
     panel.var_quality.set(9)
-    assert params["destinations"] == frozen
-    assert params["quality"] != 9, "the run reads its own frozen copy"
+    with mock.patch.object(output_paths, "reserve_run_directory",
+                           side_effect=_reservation(tmp_path)):
+        panel.convert_worker(params)
+    panel._pump.tick()
 
-
-# --------------------------------------------------------------------------- #
-# Protected boundaries: Phase 10 and later have not arrived
-# --------------------------------------------------------------------------- #
-
+    plan = panel.run_plan
+    assert [item.source.name for item in plan.items] == ["A.m4b"]
+    assert plan.quality == frozen.quality != 9
 
 def test_no_chapter_probe_orchestration_arrived():
     body = named(parse_panel())
@@ -1331,18 +1284,32 @@ def test_no_chapter_probe_orchestration_arrived():
         assert banned not in body, banned
 
 
-def test_no_phase_ten_or_later_module_is_imported():
-    tree = parse_panel()
+
+def test_phase_ten_arrived_and_phase_eleven_did_not():
+    """**A deliberate progression.** Phase 10 is the phase that adopts these.
+
+    Through Phase 9 this guard asserted that no Converter-local media module had
+    reached the panel. Phase 10 is authorized to bring in the preflight and the
+    plan, so the guard is turned around rather than deleted: the panel must name
+    them, and it must still name nothing from the execution engine that follows.
+    """
+    tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     modules: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             modules |= {alias.name for alias in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            modules.add(node.module)
-            modules |= {f"{node.module}.{alias.name}" for alias in node.names}
-    for banned in ("m4b_chapters", "m4b_commands", "m4b_metadata", "m4b_naming"):
-        assert not any(banned in entry for entry in modules), banned
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                modules.add(alias.name)
+            if node.module:
+                modules.add(node.module)
+    for required in ("m4b_plan", "m4b_probe", "m4b_metadata", "m4b_commands"):
+        assert required in modules, required
 
+    body = named(tree)
+    for banned in ("segment_argv", "attach_artwork_argv", "segment_commands",
+                   "Popen", "terminate", "kill"):
+        assert banned not in body, banned
 
 def test_the_panel_is_still_classic():
     text = PANEL_SOURCE.read_text(encoding="utf-8")

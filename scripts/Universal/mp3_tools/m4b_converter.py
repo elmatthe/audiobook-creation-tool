@@ -63,7 +63,12 @@ from shared.job_control import (
     capture_run,
 )
 
-from . import m4b_destinations
+from . import m4b_commands
+from . import m4b_metadata
+from . import m4b_plan
+from . import m4b_probe
+from .m4b_metadata import MetadataMode
+from .m4b_plan import ConversionMode, PlanOptions
 
 APP_TITLE = "M4B Converter v1.0 (Bulk -> MP3)"
 DEFAULT_QUALITY = 2  # LAME VBR q scale (0=best, 9=lowest). 2 ~ ~190kbps
@@ -81,18 +86,19 @@ KEY_INPUT_DIR = "m4b_converter.input_dir"
 #: How long ``close()`` waits for the conversion worker before giving up.
 WORKER_JOIN_TIMEOUT = 5.0
 
-#: The one stage this phase's worker reports. Whole-book conversion is a single
-#: stage today; the probe and per-segment stages belong to Phases 10 and 11 and
-#: are deliberately not named here, because a stage nothing enters is a lie the
-#: Summary would have to tell.
+#: The two stages a run passes through. Preflight reads every source before
+#: anything is written; conversion begins only once the whole run is decided.
+#: They are separate stages rather than one because their progress means
+#: different things: the first has no honest denominator until it finishes.
+STAGE_PREFLIGHT = "preflight"
 STAGE_CONVERT = "convert"
 
-#: The ETA's unit of comparable work **at this phase**: one imported book, from
-#: the moment its conversion begins to the moment its output is accepted. When
-#: Phase 10 makes the segment the unit, the category changes with it and the
-#: shared estimator drops the incomparable history by itself — which is exactly
-#: why the unit is named rather than assumed.
-ETA_CATEGORY = "book"
+#: The ETA's unit of comparable work: one planned **segment**. Whole-book mode
+#: yields one segment per usable book, so this is the same measurement Phase 9
+#: took; naming the unit for what the plan actually counts is what lets the
+#: shared estimator drop incomparable history by itself if the unit ever
+#: changes again.
+ETA_CATEGORY = "segment"
 
 #: The run id the shared controls carry before anything has been started, so the
 #: panel has a Pause/Cancel bar, a progress line and a Summary from the moment it
@@ -106,6 +112,13 @@ IDLE_RUN_ID = "m4b-idle"
 #: here duplicates them.
 RESULT_MESSAGE = "result"
 TIMING_MESSAGE = "timing"
+
+#: The queue message that hands the finished, immutable conversion plan back to
+#: the main thread. It travels rather than being assigned from the worker for
+#: the same reason every other result does: the panel's own state belongs to the
+#: thread that owns the widgets. The plan itself is frozen, so what crosses is a
+#: value, not a handle.
+PLAN_MESSAGE = "plan"
 
 
 @dataclass(frozen=True)
@@ -133,32 +146,22 @@ class TimingSample:
     duration: float
 
 
-def freeze_m4b_options(
-    quality: int,
-    write_tags: bool,
-    title: str,
-    artist: str,
-    album_artist: str,
-    album: str,
-    do_track: bool,
-    start_num: int,
-) -> dict:
-    """Every output-affecting Converter setting, as plain immutable scalars.
+def freeze_m4b_options(options: PlanOptions) -> dict:
+    """The approved run configuration, as plain immutable scalars.
 
     Handed to ``capture_run``, which deep-freezes it and refuses a widget, a Tk
-    variable, a callable or anything else live. Reading the widgets happens once,
-    on the main thread, in :meth:`M4BConverterUI.start_convert`; this only shapes
-    what was read.
+    variable, a callable or anything else live. The widgets are read once, on
+    the main thread, in :meth:`M4BConverterUI.read_options`; this only reshapes
+    what that produced so the shared snapshot and the plan can never describe
+    two different runs.
     """
     return {
-        "quality": int(quality),
-        "write_tags": bool(write_tags),
-        "title": str(title),
-        "artist": str(artist),
-        "album_artist": str(album_artist),
-        "album": str(album),
-        "do_track": bool(do_track),
-        "start_num": int(start_num),
+        "mode": options.mode.value,
+        "metadata_mode": options.metadata_mode.value,
+        "replacement": dict(options.replacement),
+        "auto_number": options.auto_number,
+        "start_number": options.start_number,
+        "quality": options.quality,
     }
 
 
@@ -268,6 +271,7 @@ class M4BConverterUI(ttk.Frame):
         self._estimator = None
         self._snapshot = None
         self._result = None
+        self._plan = None
         self._bridge = job_control.LoggerBridge() if bridge is None else bridge
         self._event_q: queue.Queue = queue.Queue()
 
@@ -386,14 +390,33 @@ class M4BConverterUI(ttk.Frame):
         )
         self.entry_quality.grid(row=row, column=1, sticky="w", padx=8, pady=4)
 
+        # Metadata mode (Decision 19A/47A). This replaces the old two-state
+        # "Do NOT write any metadata" checkbox, which could not express the
+        # approved three-way contract: Preserve carries the source's own
+        # compatible fields, Replace carries only what is typed below, and
+        # Strip writes nothing at all. The default is Preserve.
+        #
+        # Three radios on one row, in a plain frame: the same single row the
+        # checkbox occupied, so the form is no taller than it was.
         row += 1
-        self.var_no_tags = tk.BooleanVar(value=False)
-        self.chk_no_tags = ttk.Checkbutton(
-            options,
-            text="Do NOT write any metadata (use filenames only)",
-            variable=self.var_no_tags,
+        ttk.Label(options, text="Metadata:").grid(
+            row=row, column=0, sticky="e", padx=8, pady=(2, 8)
         )
-        self.chk_no_tags.grid(row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 8))
+        modes = ttk.Frame(options)
+        modes.grid(row=row, column=1, columnspan=3, sticky="w", padx=8, pady=(2, 8))
+        self.var_metadata_mode = tk.StringVar(value=MetadataMode.PRESERVE.value)
+        self.rb_preserve = ttk.Radiobutton(
+            modes, text="Preserve source", variable=self.var_metadata_mode,
+            value=MetadataMode.PRESERVE.value)
+        self.rb_replace = ttk.Radiobutton(
+            modes, text="Replace with the values below",
+            variable=self.var_metadata_mode, value=MetadataMode.REPLACE.value)
+        self.rb_strip = ttk.Radiobutton(
+            modes, text="Write none", variable=self.var_metadata_mode,
+            value=MetadataMode.STRIP.value)
+        for column, button in enumerate(
+                (self.rb_preserve, self.rb_replace, self.rb_strip)):
+            button.grid(row=0, column=column, sticky="w", padx=(0 if column == 0 else 12, 0))
 
         # Metadata entries
         row += 1
@@ -593,6 +616,16 @@ class M4BConverterUI(ttk.Frame):
         return self._snapshot
 
     @property
+    def run_plan(self):
+        """The immutable plan preflight produced, or ``None`` before one exists.
+
+        The authority on what this run will write: which books are usable, how
+        many outputs each produces, where every one of them goes, and which
+        books were refused before anything was reserved.
+        """
+        return self._plan
+
+    @property
     def run_result(self):
         """How the most recent run was settled, or ``None`` before the first.
 
@@ -698,6 +731,45 @@ class M4BConverterUI(ttk.Frame):
         """The shared lock matrix's hook onto this panel's own option controls."""
         self.disable_inputs(bool(locked))
 
+    def read_options(self) -> PlanOptions:
+        """Freeze every run-wide choice. **Main thread only, exactly once.**
+
+        This is the whole of Decision 9A's widget half: after this returns, the
+        run holds values and nothing it does can be changed by touching the
+        panel. A worker that read a ``StringVar`` would not merely be unsafe --
+        it would let a checkbox toggled during a long run change what the rest of
+        that run wrote.
+        """
+        try:
+            quality = max(0, min(9, int(self.var_quality.get())))
+        except Exception:
+            quality = DEFAULT_QUALITY
+        try:
+            start_number = max(1, int(self.var_start_num.get() or 1))
+        except Exception:
+            start_number = 1
+        try:
+            metadata_mode = MetadataMode(self.var_metadata_mode.get())
+        except ValueError:
+            metadata_mode = MetadataMode.PRESERVE
+        return PlanOptions(
+            # Whole book is the only shape this phase can execute, so it is the
+            # only one it offers. The plan layer supports splitting in full and
+            # is tested that way; the control appears with the engine that can
+            # honour it.
+            mode=ConversionMode.WHOLE,
+            metadata_mode=metadata_mode,
+            replacement={
+                "title": self.title_entry.get(),
+                "artist": self.artist_entry.get(),
+                "album_artist": self.album_artist_entry.get(),
+                "album": self.album_entry.get(),
+            },
+            auto_number=bool(self.var_auto_num.get()),
+            start_number=start_number,
+            quality=quality,
+        )
+
     def start_convert(self):
         if self._busy.is_set():
             return
@@ -714,72 +786,15 @@ class M4BConverterUI(ttk.Frame):
             messagebox.showerror("FFmpeg not found", "FFmpeg/ffprobe not found.")
             return
 
-        # Read all Tk vars here on the main thread; the worker uses these copies
-        # only (touching Tk from a worker raises "main thread is not in main loop").
-        try:
-            quality = max(0, min(9, int(self.var_quality.get())))
-        except Exception:
-            quality = DEFAULT_QUALITY
-        params = {
-            "quality": quality,
-            "write_tags": not self.var_no_tags.get(),
-            "title": self.title_entry.get().strip(),
-            "artist": self.artist_entry.get().strip(),
-            "album_artist": self.album_artist_entry.get().strip(),
-            "album": self.album_entry.get().strip(),
-            "do_track": self.var_auto_num.get(),
-            "start_num": int(self.var_start_num.get() or 1),
-            # The frozen occurrences themselves, not a reduced list of paths:
-            # provenance (source root, root-relative path, occurrence id) is
-            # already what Phase 8's output planning needs, and discarding it
-            # here only to re-derive it later is how it goes missing.
-            "imported_files": imported,
-        }
-
-        # Every input is validated above; only now is a run directory reserved.
-        try:
-            reservation = output_paths.reserve_run_directory(TOOL_KEY)
-        except output_paths.OutputPathError as exc:
-            messagebox.showerror("Output folder", exc.message)
-            self.log_write(f"Output folder unavailable: {exc.message}\n")
-            return
-        outdir = reservation.run_directory
-
-        # Phase 8: every destination is decided here, on the main thread,
-        # from the provenance Phase 7B retained — before any work starts and
-        # while the queue is still the frozen snapshot. One planner from the
-        # reservation serves the whole run, so a directly chosen book and a
-        # folder-imported one can never plan onto the same path.
-        #
-        # Whole-book mode asks for exactly one name per occurrence. The seam
-        # already accepts many, which is what split mode will need, but this
-        # phase deliberately does not probe chapters to produce them.
-        try:
-            planned = m4b_destinations.plan_outputs(
-                imported,
-                {entry.occurrence_id: (f"{entry.path.stem}.mp3",)
-                 for entry in imported},
-                run_root=outdir,
-                planner=reservation.planner(),
-            )
-        except output_paths.OutputPathError as exc:
-            messagebox.showerror("Output folder", exc.message)
-            self.log_write(f"Output could not be planned: {exc.message}\n")
-            return
-
-        self._last_run_dir = outdir
-        self.var_outdir.set(str(outdir))
-        params["destinations"] = {
-            item.occurrence_id: item.destinations for item in planned}
-        self.log_write(f"Output folder: {outdir}\n")
+        # Every Tk value the run will ever use, read once, here.
+        options = self.read_options()
 
         # Decision 9A, in one call: the imported list, the catalog, the import
         # options, the effective configuration and every output-affecting
-        # setting are copied here, on the main thread, and never consulted
-        # again. The already-committed ``snapshot`` is passed rather than the
-        # manager, so this freezes the *same* queue the destinations above were
-        # planned from -- taking a second snapshot here is how one run would end
-        # up using two configurations.
+        # setting are copied here and never consulted again. The
+        # already-committed ``snapshot`` is passed rather than the manager, so
+        # the shared run snapshot and the conversion plan describe the *same*
+        # queue -- taking a second snapshot is how one run ends up with two.
         self._run_count += 1
         run = capture_run(
             snapshot_id=f"m4b-run-{self._run_count}",
@@ -787,20 +802,12 @@ class M4BConverterUI(ttk.Frame):
             catalog=self.import_catalog,
             import_options=self.importer.options.options(),
             effective_config=self._effective_config,
-            tool_options=freeze_m4b_options(
-                quality,
-                params["write_tags"],
-                params["title"],
-                params["artist"],
-                params["album_artist"],
-                params["album"],
-                params["do_track"],
-                params["start_num"],
-            ),
+            tool_options=freeze_m4b_options(options),
             created_at=float(self._clock()),
         )
         self._snapshot = run
         self._result = None
+        self._plan = None
         self._attempt += 1
         # The shared controller is this run's one state authority. Its listener
         # copies every state it actually reaches into the event stream, so the
@@ -811,7 +818,13 @@ class M4BConverterUI(ttk.Frame):
         self._reporter = job_control.JobReporter.for_run(
             run, clock=self._clock, publish=self._publish)
 
-        params.update({
+        params = {
+            # The frozen occurrences themselves, not a reduced list of paths:
+            # provenance is what the plan's destination routing needs, and
+            # discarding it here only to re-derive it later is how it goes
+            # missing.
+            "imported_files": imported,
+            "options": options,
             "snapshot": run,
             "controller": self._controller,
             "reporter": self._reporter,
@@ -821,22 +834,23 @@ class M4BConverterUI(ttk.Frame):
             "clock": self._clock,
             "run_id": run.snapshot_id,
             "attempt": self._attempt,
-        })
+        }
 
         self._busy.set()
         self._cancel_event.clear()
         self._controller.start()
-        self._reporter.output_location(outdir)
-        # The truthful interim denominator: **one unit per imported
-        # occurrence**, which is exactly what this phase's whole-book worker
-        # knows. Phase 10 replaces it with the immutable plan's
-        # ``total_segments`` once chapters have actually been probed; nothing
-        # here pretends that number exists yet.
-        self._reporter.progress(0, len(imported), stage=STAGE_CONVERT)
+        # **No denominator yet, and that is the point.** Until every source has
+        # been read there is no honest number of outputs, so preflight reports
+        # indeterminate progress and the authoritative
+        # ``ConversionPlan.total_segments`` is published once, later, by the
+        # worker. Nothing here guesses it.
+        self._reporter.stage_changed(
+            STAGE_PREFLIGHT, "Examining the imported audiobooks…")
+        self._reporter.progress(0, None, stage=STAGE_PREFLIGHT)
         self.disable_inputs(True)
 
         t = threading.Thread(
-            target=self.convert_worker, args=(outdir, params), daemon=True
+            target=self.convert_worker, args=(params,), daemon=True
         )
         self._worker = t
         t.start()
@@ -882,7 +896,9 @@ class M4BConverterUI(ttk.Frame):
         widgets = [
             self.btn_convert,
             self.entry_quality,
-            self.chk_no_tags,
+            self.rb_preserve,
+            self.rb_replace,
+            self.rb_strip,
             self.title_entry,
             self.artist_entry,
             self.album_artist_entry,
@@ -918,6 +934,8 @@ class M4BConverterUI(ttk.Frame):
                     # Only a run with no reporter reports this way; a real run's
                     # progress is a shared event and is drawn from the stream.
                     self.progress.update(*payload)
+                elif kind == PLAN_MESSAGE:
+                    self._adopt_plan(payload)
                 elif kind == TIMING_MESSAGE:
                     self._record_timing(payload)
                 elif kind == RESULT_MESSAGE:
@@ -928,6 +946,24 @@ class M4BConverterUI(ttk.Frame):
                     if payload[1] is not None:
                         sp.reveal_in_file_manager(payload[1])
         except queue.Empty:
+            pass
+
+    def _adopt_plan(self, plan) -> None:
+        """Take the finished plan on the main thread. Nothing here decides.
+
+        The run directory is shown from the plan rather than from a reservation
+        made at Start, because there no longer is one: the folder appears only
+        after preflight has proved something is worth writing into it, so a run
+        whose books are all unreadable leaves the display exactly as it was.
+        """
+        self._plan = plan
+        outdir = getattr(plan, "run_directory", None)
+        if outdir is None:
+            return
+        self._last_run_dir = outdir
+        try:
+            self.var_outdir.set(str(outdir))
+        except tk.TclError:  # pragma: no cover - a destroyed panel
             pass
 
     def _record_timing(self, sample) -> bool:
@@ -972,23 +1008,24 @@ class M4BConverterUI(ttk.Frame):
 
     # ------- conversion (worker thread) -------
 
-    def convert_worker(self, outdir: Path, params: dict):
-        # Derived here, inside the run boundary, from the frozen
-        # occurrences. This tuple is a local of one conversion, not panel
-        # state — reviving a `self.files` here would rebuild exactly the
-        # shadow queue Phase 7B removed.
+    def convert_worker(self, params: dict):
+        """Preflight the whole run, plan it, then convert what the plan allows.
+
+        **The order is the contract.** Every source is read first, on this
+        thread -- no ffprobe call may ever run on the thread that owns the
+        widgets, because a forty-seven-chapter book must not freeze the window.
+        Only once every source has been judged is a run directory reserved and
+        every destination planned; only then does anything get written. So a
+        queue whose books are all unreadable reserves nothing at all and leaves
+        no empty numbered folder behind.
+
+        The plan is the single authority from that point on. This body reads no
+        widget, no variable and no manager: it was handed frozen occurrences and
+        one frozen :class:`~mp3_tools.m4b_plan.PlanOptions`, and it consults
+        them and the plan alone.
+        """
         imported = params["imported_files"]
-        files = tuple(entry.path for entry in imported)
-        # Phase 8: destinations were planned at Start from each occurrence's
-        # provenance. The worker looks them up by occurrence id rather than
-        # planning its own, so placement cannot depend on execution order and
-        # a retry cannot land somewhere new.
-        destinations = params["destinations"]
-        # Phase 9: the run's control and reporting arrive as params, and every
-        # one of them is optional so this same body still runs a plain,
-        # unreported batch when it is handed one. Nothing Tk-shaped is here:
-        # what the worker says goes out through the panel's queue and the run's
-        # reporter, and it holds no estimator, no widget and no variable.
+        options = params.get("options") or PlanOptions()
         controller = params.get("controller")
         reporter = params.get("reporter")
         snapshot = params.get("snapshot")
@@ -996,219 +1033,282 @@ class M4BConverterUI(ttk.Frame):
         run_id = params.get("run_id")
         attempt = params.get("attempt", 0)
         timed = clock is not None and run_id is not None
-        total = len(files)
         cancelled = False
         completed: list = []
         failures: list = []
+        reservation = None
 
-        for idx, entry in enumerate(imported, start=1):
-            in_file = entry.path
-            item_id = entry.occurrence_id
-            # The one safe checkpoint this phase honestly has, and it sits
-            # **between books**. A pause asked for while ffmpeg is converting
-            # one is honoured here, not there: that call is indivisible and is
-            # never suspended, frozen or restarted (Decision 38A). Cancel is
-            # settled here too, which is the current limitation -- Phase 11 owns
-            # real mid-file termination and reaping.
-            #
-            # The cancel latch is mirrored *into* the controller rather than
-            # acted on directly, so `checkpoint()` remains the single place that
-            # decides what a request means.
+        def checkpoint() -> None:
+            """The one cooperative boundary, and it sits **between sources**.
+
+            An ffprobe read and an ffmpeg encode are both indivisible at this
+            phase, so a pause asked for during either is honoured here rather
+            than there. The cancel latch is mirrored into the controller instead
+            of being acted on directly, so ``checkpoint()`` remains the single
+            place that decides what a request means.
+            """
             if controller is not None:
                 if self._cancel_event.is_set():
                     controller.request_cancel()
+                controller.checkpoint()
+            elif self._cancel_event.is_set():
+                raise ConversionCancelled("Cancelled.")
+
+        def note(item_id, message, detail, stage):
+            """Record one failure once, in both the typed log and the report."""
+            if snapshot is not None:
+                failures.append(FailureRecord(
+                    item_id=item_id, stage=stage,
+                    display_message=message, technical_detail=detail,
+                    retryable=True, snapshot_id=snapshot.snapshot_id))
+            if reporter is not None:
+                reporter.failure(message, detail, item_id=item_id, stage=stage)
+
+        # ------- preflight: read every source before deciding anything -------
+        reports: dict = {}
+        try:
+            for entry in imported:
+                checkpoint()
+                if reporter is not None:
+                    reporter.current_item(
+                        entry.occurrence_id, f"Examining {entry.path.name}")
+                self._log_q.put(("log", f"  Examining {entry.path.name}…\n"))
+                reports[entry.occurrence_id] = m4b_probe.probe_source(entry.path)
+        except ConversionCancelled:
+            cancelled = True
+
+        plan = None
+        if not cancelled:
+            def _reserve_run():
+                """The run's one reservation seam.
+
+                Called *by the plan*, and only once it has found something
+                genuinely usable -- which is what puts the folder after
+                validation and before any destination is planned.
+                """
+                nonlocal reservation
+                reservation = output_paths.reserve_run_directory(TOOL_KEY)
+                return reservation.run_directory, reservation.planner()
+
+            try:
+                plan = m4b_plan.assemble_plan(
+                    snapshot_id=run_id or "m4b-run",
+                    entries=imported,
+                    reports=reports,
+                    options=options,
+                    reserve=_reserve_run,
+                )
+            except Exception as exc:
+                # Nothing was written, so a directory reserved a moment ago is
+                # still empty and is given back rather than left lying about.
+                if reservation is not None:
+                    output_paths.release_if_empty(reservation)
+                detail = f"{type(exc).__name__}: {exc}"
+                self._log_q.put(("log", f"\n  ✗ The run could not be planned: {exc}\n"))
+                if snapshot is not None:
+                    failures.append(FailureRecord(
+                        item_id=None, stage=STAGE_PREFLIGHT,
+                        display_message="This run could not be planned, so nothing was converted.",
+                        technical_detail=detail, retryable=False,
+                        snapshot_id=snapshot.snapshot_id))
+                if reporter is not None:
+                    reporter.failure(
+                        "This run could not be planned, so nothing was converted.",
+                        detail, stage=STAGE_PREFLIGHT)
+
+        if plan is not None:
+            self._log_q.put((PLAN_MESSAGE, plan))
+            # Every source that will not be converted, reported before any
+            # output exists. A preflight failure is typed, keeps its occurrence
+            # and never becomes an empty success.
+            for failure in plan.unusable:
+                self._log_q.put((
+                    "log", f"\n  ✗ {failure.source.name}: {failure.message}\n"))
+                note(failure.occurrence_id, failure.message, failure.detail,
+                     STAGE_PREFLIGHT)
+
+        total = plan.total_segments if plan is not None else 0
+        outdir = plan.run_directory if plan is not None else None
+        if plan is not None and plan.has_work:
+            if outdir is not None:
+                self._log_q.put(("log", f"\nOutput folder: {outdir}\n"))
+                if reporter is not None:
+                    reporter.output_location(outdir)
+            if reporter is not None:
+                # **The authoritative denominator, published exactly once.** It
+                # is the plan's segment count, not the imported-file count, and
+                # it exists only because every source has now been read.
+                reporter.stage_changed(STAGE_CONVERT, "Converting…")
+                reporter.progress(0, total, stage=STAGE_CONVERT)
+
+        # ------- execution -------
+        done = 0
+        if plan is not None and not cancelled:
+            for index, item in enumerate(plan.items):
                 try:
-                    controller.checkpoint()
+                    checkpoint()
                 except ConversionCancelled:
                     cancelled = True
                     break
-            elif self._cancel_event.is_set():
-                cancelled = True
-                break
 
-            succeeded = False
-            if reporter is not None:
-                reporter.current_item(item_id, f"Converting {in_file.name}")
-            # The measurement brackets this book's own work and nothing else.
-            # Time the message then spends waiting in the queue is outside the
-            # bracket, so a slow drain is never mistaken for a slow book.
-            started = clock() if timed else None
-            try:
-                out_mp3 = destinations[entry.occurrence_id][0]
-                # Already checked when the run was planned; re-checked here
-                # because this is the last moment before ffmpeg is told to
-                # write, and a source that has since moved must not be hit.
-                output_paths.assert_not_input(out_mp3, files)
-                # A mirrored destination lives under folders that the
-                # reservation did not create.
-                out_mp3.parent.mkdir(parents=True, exist_ok=True)
-                # The written stem, which is what the fallback title uses.
-                stem = out_mp3.stem
-
-                # Probe the source so the decode side can be chosen correctly.
-                # xHE-AAC (USAC) m4b sources are mis-decoded by ffmpeg's native
-                # AAC decoder (it drops packets → a shorter, sped-up MP3); on
-                # macOS the Apple AudioToolbox decoder (aac_at) handles them.
-                info = ffmpeg_utils.probe_audio_stream(in_file)
-                dec_args = ffmpeg_utils.input_decoder_args(info)
-                if info:
-                    self._log_q.put(
-                        (
-                            "log",
-                            "  source: {codec}{prof} {sr} Hz, {ch} ch\n".format(
-                                codec=info.get("codec_name") or "?",
-                                prof=(
-                                    f" [{info['profile']}]" if info.get("profile") else ""
-                                ),
-                                sr=info.get("sample_rate") or "?",
-                                ch=info.get("channels") or "?",
-                            ),
-                        )
-                    )
-                if dec_args:
-                    self._log_q.put(
-                        ("log", f"  using {dec_args[1]} decoder (xHE-AAC source)\n")
-                    )
-                elif ffmpeg_utils.needs_special_aac_decoder(info):
-                    self._log_q.put(
-                        (
-                            "log",
-                            "  ⚠ WARNING: source is xHE-AAC and this ffmpeg build has "
-                            "no compatible decoder on this platform — the output may be "
-                            "sped up / choppy.\n",
-                        )
-                    )
-                    if reporter is not None:
-                        # A user-level warning belongs in the Summary; the reason
-                        # it was reached belongs in Details and the session log.
-                        reporter.warning(
-                            f"{in_file.name}: this ffmpeg build has no xHE-AAC "
-                            "decoder on this platform, so the output may be sped "
-                            "up or choppy.",
-                            f"codec={info.get('codec_name')!r} "
-                            f"profile={info.get('profile')!r}; "
-                            "no input decoder argument was available")
-
-                cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-y", *dec_args, "-i", quote(in_file), "-vn"]
-
-                if params["write_tags"]:
-                    tags = {
-                        "title": params["title"] if params["title"] else stem,
-                        "artist": params["artist"],
-                        "album_artist": params["album_artist"],
-                        "album": params["album"],
-                    }
-                    if params["do_track"]:
-                        tags["track"] = params["start_num"] + (idx - 1)
-                    cmd += metadata.ffmpeg_metadata_args(tags)
-                    cmd += ["-id3v2_version", "3"]
-                else:
-                    cmd += ["-map_metadata", "-1"]
-
-                cmd += [
-                    "-c:a",
-                    "libmp3lame",
-                    "-q:a",
-                    str(params["quality"]),
-                    "-threads",
-                    "0",
-                    quote(out_mp3),
-                ]
-
-                self._log_q.put(
-                    ("log", f"\n[{idx}/{total}] Converting:\n  {in_file}\n  -> {out_mp3}\n")
-                )
-                command_line = " ".join(str(c) for c in cmd)
-                self._log_q.put(("log", "  ffmpeg: " + command_line + "\n"))
+                item_id = item.occurrence_id
+                in_file = item.source
                 if reporter is not None:
-                    # Technical detail: Details and the session log read it, and
-                    # the Summary structurally cannot, because a summary line is
-                    # never built from a `detail` field.
-                    reporter.technical(f"[{idx}/{total}] {command_line}")
-                proc = sp.run(cmd, stdout=PIPE, stderr=STDOUT, text=True)
-                if proc.returncode != 0:
-                    self._log_q.put(("log", (proc.stdout or "")[-2000:] + "\n"))
-                    # Drop the partial/failed output so the folder only holds good files.
-                    try:
-                        out_mp3.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-                    raise RuntimeError(f"FFmpeg failed (code {proc.returncode}).")
+                    reporter.current_item(item_id, f"Converting {in_file.name}")
 
-                # Defensive duration guard (all platforms): a source ffmpeg
-                # cannot fully decode — e.g. xHE-AAC on a platform without the
-                # aac_at decoder — silently drops packets, producing an output
-                # much shorter than the source that plays sped up and choppy.
-                # Compare the output length to the source and fail loudly rather
-                # than deliver a corrupt MP3.
-                src_dur = info.get("duration") if info else None
-                out_info = ffmpeg_utils.probe_audio_stream(out_mp3)
-                out_dur = out_info.get("duration") if out_info else None
-                if src_dur and out_dur and src_dur > 1.0:
-                    drift = abs(out_dur - src_dur) / src_dur
-                    if drift > 0.03:
+                if item.fragment or len(item.segments) != 1:
+                    # Chapter-splitting execution is the next phase's: it needs a
+                    # cancellable subprocess, a staged output and a per-segment
+                    # drift check, none of which exist yet. Saying so is the only
+                    # truthful thing to do with a plan this phase cannot run.
+                    message = (f"{in_file.name} was planned as "
+                               f"{len(item.segments)} chapter files, which this "
+                               "version cannot write yet.")
+                    self._log_q.put(("log", f"\n  ✗ {message}\n"))
+                    note(item_id, message,
+                         "split execution arrives with the conversion engine",
+                         STAGE_CONVERT)
+                    done += item.total_segments
+                    if reporter is not None:
+                        reporter.progress(done, total, item_id=item_id,
+                                          stage=STAGE_CONVERT)
+                    continue
+
+                segment = item.segments[0]
+                out_mp3 = segment.destination
+                succeeded = False
+                started = clock() if timed else None
+                try:
+                    # Re-checked here because this is the last moment before
+                    # ffmpeg is told to write, and a source that has since moved
+                    # must not be hit.
+                    output_paths.assert_not_input(
+                        out_mp3, tuple(entry.path for entry in imported))
+                    out_mp3.parent.mkdir(parents=True, exist_ok=True)
+
+                    if plan.split and not item.chaptered:
+                        # Decision 18A: a genuinely chapterless book is a success
+                        # in split mode, written whole and named as a whole book.
+                        note_text = (f"{in_file.name} has no chapters, so it was "
+                                     f"written as one file: {out_mp3.name}")
+                        self._log_q.put(("log", f"  {note_text}\n"))
+                        if reporter is not None:
+                            reporter.warning(note_text, "chapterless source (18A)")
+                    if item.undecodable_xhe:
+                        trouble = (f"{in_file.name} is xHE-AAC and this ffmpeg "
+                                   "build has no decoder for it on this platform, "
+                                   "so the output may be sped up or choppy.")
+                        self._log_q.put(("log", f"  ⚠ WARNING: {trouble}\n"))
+                        if reporter is not None:
+                            reporter.warning(trouble, f"codec={item.codec_hint}")
+
+                    # Every metadata, chapter-map and artwork decision was frozen
+                    # by the plan; nothing here is policy.
+                    number = None
+                    if plan.auto_number:
+                        number = plan.start_number + index
+                    tags = m4b_metadata.whole_book_tags(
+                        plan.metadata_mode,
+                        source=item.tags,
+                        replacement=plan.replacement,
+                        track=number,
+                    )
+                    picture = (item.picture
+                               if m4b_metadata.wants_artwork(plan.metadata_mode)
+                               else None)
+                    output_args = m4b_metadata.metadata_args(
+                        tags,
+                        keep_chapters=m4b_metadata.retains_chapters(
+                            plan.metadata_mode, split=item.fragment),
+                    )
+                    if tags:
+                        # ID3v2.3 rather than ffmpeg's 2.4 default, unchanged from
+                        # this tool's long-standing behaviour: Windows Explorer
+                        # and several players read 2.3 and ignore 2.4.
+                        output_args += ["-id3v2_version", "3"]
+                    cmd = m4b_commands.whole_book_argv(
+                        ffmpeg=ffmpeg_utils.ffmpeg_cmd(),
+                        source=in_file,
+                        destination=str(out_mp3),
+                        quality=plan.quality,
+                        decoder_args=item.decoder_args,
+                        output_args=output_args,
+                        attached_picture=(None if picture is None
+                                          else picture.stream_index),
+                    )
+
+                    command_line = " ".join(str(part) for part in cmd)
+                    self._log_q.put((
+                        "log",
+                        f"\n[{index + 1}/{len(plan.items)}] Converting:\n"
+                        f"  {in_file}\n  -> {out_mp3}\n"))
+                    self._log_q.put(("log", "  ffmpeg: " + command_line + "\n"))
+                    if reporter is not None:
+                        reporter.technical(f"[{index + 1}] {command_line}")
+
+                    proc = sp.run(cmd, stdout=PIPE, stderr=STDOUT, text=True)
+                    if proc.returncode != 0:
+                        self._log_q.put(("log", (proc.stdout or "")[-2000:] + "\n"))
                         try:
                             out_mp3.unlink(missing_ok=True)
                         except OSError:
                             pass
-                        raise RuntimeError(
-                            "output length {:.0f}s != source {:.0f}s ({:.0%} off) — the "
-                            "source could not be decoded correctly (likely xHE-AAC with "
-                            "no compatible decoder on this platform). Output discarded.".format(
-                                out_dur, src_dur, drift
-                            )
-                        )
+                        raise RuntimeError(f"FFmpeg failed (code {proc.returncode}).")
 
-                self._log_q.put(("log", "  ✓ Done\n"))
-                succeeded = True
-                completed.append(item_id)
-            except Exception as e:
-                self._log_q.put(("log", f"  ✗ Error: {e}\n"))
-                trouble = f"{in_file.name} could not be converted."
-                detail = f"{type(e).__name__}: {e}"
-                if snapshot is not None:
-                    failures.append(FailureRecord(
-                        item_id=item_id, stage=STAGE_CONVERT,
-                        display_message=trouble, technical_detail=detail,
-                        retryable=True, snapshot_id=snapshot.snapshot_id))
-                if reporter is not None:
-                    # One item failing is not the run failing: this records, and
-                    # changes no state at all.
-                    reporter.failure(trouble, detail, item_id=item_id,
-                                     stage=STAGE_CONVERT)
-            finally:
-                # Read once, first, so nothing this block does is counted as
-                # work. A book that did not honestly complete is not history and
-                # sends no sample at all.
-                ended = clock() if timed else None
-                if succeeded and started is not None:
-                    self._log_q.put((TIMING_MESSAGE, TimingSample(
-                        run_id=run_id, attempt=attempt, category=ETA_CATEGORY,
-                        duration=float(ended) - float(started))))
-                if reporter is None:
-                    self._log_q.put(("progress", (idx, total)))
-                else:
-                    # The interim unit: one imported book. Phase 10 replaces the
-                    # denominator with the frozen plan's segment count.
-                    reporter.progress(idx, total, item_id=item_id,
-                                      stage=STAGE_CONVERT)
+                    # The duration the plan already measured is compared against
+                    # what was actually produced. The source is **not** re-probed:
+                    # preflight read it once, and asking twice is how two answers
+                    # about one file appear.
+                    src_dur = item.duration
+                    out_info = ffmpeg_utils.probe_audio_stream(out_mp3)
+                    out_dur = out_info.get("duration") if out_info else None
+                    if src_dur and out_dur and src_dur > 1.0:
+                        drift = abs(out_dur - src_dur) / src_dur
+                        if drift > 0.03:
+                            try:
+                                out_mp3.unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                            raise RuntimeError(
+                                "output length {:.0f}s != source {:.0f}s ({:.0%} off) — the "
+                                "source could not be decoded correctly (likely xHE-AAC with "
+                                "no compatible decoder on this platform). Output discarded.".format(
+                                    out_dur, src_dur, drift
+                                )
+                            )
+
+                    self._log_q.put(("log", "  ✓ Done\n"))
+                    succeeded = True
+                    completed.append(item_id)
+                except Exception as e:
+                    self._log_q.put(("log", f"  ✗ Error: {e}\n"))
+                    note(item_id, f"{in_file.name} could not be converted.",
+                         f"{type(e).__name__}: {e}", STAGE_CONVERT)
+                finally:
+                    ended = clock() if timed else None
+                    if succeeded and started is not None:
+                        self._log_q.put((TIMING_MESSAGE, TimingSample(
+                            run_id=run_id, attempt=attempt, category=ETA_CATEGORY,
+                            duration=float(ended) - float(started))))
+                    done += 1
+                    if reporter is None:
+                        self._log_q.put(("progress", (done, total)))
+                    else:
+                        reporter.progress(done, total, item_id=item_id,
+                                          stage=STAGE_CONVERT)
 
         if snapshot is not None:
-            # The shared authority on what succeeded, what failed and what was
-            # never reached. Items the run never got to are NOT_ATTEMPTED, not
-            # failures, and the controller is settled from what this derived --
-            # the panel invents no second verdict.
             log = FailureLog(snapshot_id=snapshot.snapshot_id, records=tuple(failures))
             settled = RunResult.settle(snapshot, log, completed_ids=tuple(completed),
                                        cancelled=cancelled)
             if controller is not None:
                 if cancelled:
-                    # Legal only because a checkpoint actually observed the
-                    # cancellation above: CANCELLED means it has stopped, not
-                    # that someone clicked Cancel.
                     final = controller.finish_cancelled()
                 elif settled.state is JobState.COMPLETED_WITH_FAILURES:
                     final = controller.complete_with_failures()
+                elif settled.state is JobState.FAILED:
+                    final = controller.fail(
+                        "This run could not be planned, so nothing was converted.")
                 else:
                     final = controller.succeed()
                 if reporter is not None:
@@ -1220,6 +1320,10 @@ class M4BConverterUI(ttk.Frame):
 
         if cancelled:
             self._log_q.put(("done", (f"\nCancelled. Output so far: {outdir}\n", outdir)))
+        elif outdir is None:
+            self._log_q.put((
+                "done", ("\nNothing could be converted, so no output folder was "
+                         "created.\n", None)))
         else:
             self._log_q.put(("done", (f"\nAll done. Output: {outdir}\n", outdir)))
 
