@@ -22,10 +22,13 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-10 are complete and approved-to-date. Phase 11 has NOT started** and needs
->   explicit maintainer approval. Phase 7B's implementation `d66052f`, its verification
->   remediation `2837b4a9`, Phase 8 `352c7f3a` and Phase 9 `fac4fdb4` were all
->   maintainer-approved before the phase that followed them began.
+> - **Phases 0-10 are complete and approved-to-date.** Phase 7B's implementation `d66052f`,
+>   its verification remediation `2837b4a9`, Phase 8 `352c7f3a` and Phase 9 `fac4fdb4` were
+>   all maintainer-approved before the phase that followed them began, and **Phase 10
+>   `7009841d` is maintainer-approved.**
+> - **Phase 11 is IMPLEMENTED but UNCOMMITTED, UNAPPROVED and NOT YET RE-GATED.** Its
+>   working tree is restored and dirty; its original full gate stopped correctly under retry
+>   discipline (see the Phase 11 entry below). **Phase 12 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -619,6 +622,62 @@
 >     delta is 131 new tests in `files/tests/test_m4b_conversion_plan.py`, 1 new integration test
 >     proving a failed preflight reserves no folder, and 1 from the boundary guard's
 >     parametrisation picking up `m4b_probe.py` as a new non-adopting production module.
+>   - **Phase 11** (2026-08-25): execution and process lifecycle, **IMPLEMENTED, UNCOMMITTED,
+>     NOT APPROVED, NOT RE-GATED.** Its original full gate **stopped correctly** rather than being
+>     pushed through: run 1 reported one Tk-root ERROR in `test_bootstrap_setup_dialog_fit`, a
+>     diagnostic invocation captured the concrete
+>     `tk_gate.open_tk_root -> tk.Tk() -> TclError` mechanism, and the single permitted retry
+>     cleared that error but produced a **different** failure - an assertion in
+>     `test_cover_layout::test_resize_covers_is_visible_in_the_real_shell[1024x720]`. An assertion
+>     failure is a stop condition and the retry allowance was spent, so nothing was committed.
+>   - **Tk test-lifecycle remediation** (2026-08-25): **test-only**, and it is what that stopped
+>     gate was actually tripping over.
+>     **The fault, reproduced on clean Phase 10 HEAD `7009841d` with Phase 11 stashed.**
+>     `test_cover_layout.py` alone failed **6 of 10** fresh runs. Narrowing it made the cause
+>     exact rather than statistical: running only that module's two fixture-root tests was
+>     **5/5 green**, running only its two throwaway-root tests was **5/5 green**, and running
+>     **one of each** was **5/5 RED**. So the trigger is creating a Tcl interpreter, destroying
+>     it, and creating another **inside a pytest process** - which is deterministic, not flaky.
+>     Outside pytest the same churn is harmless: a bare `tk.Tk()` succeeded **30/30**, and even a
+>     full `LauncherApp` built and destroyed twelve times in one interpreter never failed. The
+>     "missing" `init.tcl` / `scrlbar.tcl` / `ttk/sizegrip.tcl` the failures name are all
+>     physically present and readable. **Phase 11 is not involved**: Cover's production code and
+>     the failing test are byte-unchanged by it, both implicated modules execute *before* any
+>     Phase 11 code in suite order, and the whole reproduction above was done with Phase 11
+>     removed from the tree.
+>     **Why the first correction was not enough, and how far it had to go.** The two implicated
+>     modules were the only two deviations from a convention the other twenty already followed:
+>     `test_cover_layout` opened a *second* interpreter per parameter case, and
+>     `test_bootstrap_setup_dialog_fit` owned a *function-scoped* root. Fixing both took the two
+>     modules to 10/10 - but the required
+>     `bootstrap + cover_layout` matrix still failed at run 7, because `scope="module"` still
+>     destroys one interpreter and creates another at **every module boundary**, and the suite has
+>     twenty-two such boundaries. That is the evidence the drop required before a wider ownership
+>     model was permitted, so the fix moved into `tk_gate` itself: **one Tcl interpreter per
+>     process**, created on first use and destroyed once at exit, with `_reset_root` returning it
+>     to a pristine state around every scope - pending `after` callbacks cancelled, bindings
+>     removed, children destroyed, protocol handler dropped, geometry cleared, window withdrawn.
+>     A scope still gets a clean root; what it no longer gets is a new interpreter. Implementing
+>     it in one file rather than in twenty-two fixtures is what kept it bounded.
+>     **Nothing was weakened, and that is asserted rather than claimed.** `open_tk_root` and
+>     `display_is_required` are **AST-identical** to their approved versions, so Windows Tk
+>     failures stay fail-loud. **No assertion was lost** from either test module (14 -> 14 and
+>     15 -> 15, compared node by node against HEAD), no test was removed, and all twelve node ids
+>     are unchanged. No retry, sleep, backoff, skip, xfail, deselection or swallowed `TclError`
+>     was added anywhere - and two **new** structural guards now forbid exactly those: one proves
+>     `tk_gate` calls nothing that waits and that `open_tk_root` contains no loop, the other that
+>     it still catches only `TclError` and never a bare `Exception`. The four `test_tk_gate`
+>     guards that pinned the old destroy-per-scope contract were **turned around, not deleted**,
+>     and three new ones pin the replacement.
+>     **Stress evidence, each stopping on first failure**: bootstrap alone **10/10**, cover layout
+>     alone **10/10**, the two together **10/10**, cover browser + cover layout **10/10**, the
+>     three-module combination that was 1-in-5 red **10/10**, and **all twenty-two live-Tk modules
+>     together 3/3 at 1212 passed** - which is what proves the shared interpreter leaks no state
+>     between modules.
+>     Gate: **4724 collected / 4710 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **first attempt with no retry**, `verify.py` PASS on its first and only invocation. The
+>     **+5** delta is the new `tk_gate` contract guards. **Zero production files changed**:
+>     `git diff --stat HEAD -- scripts/` is empty.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in
