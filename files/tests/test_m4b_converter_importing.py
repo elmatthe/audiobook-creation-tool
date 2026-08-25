@@ -27,10 +27,12 @@ converts anything or starts a real ffmpeg process.
 
 Scope
 -----
-Phase 7B changes **input** only. The legacy conversion worker, its queue, its
-options and its own Cancel are deliberately left alone, and several tests assert
-that rather than assume it. Nothing here touches Phase 8 output planning or
-Phase 9 job control.
+Phase 7B changed **input** only, and these tests still prove exactly that.
+Two later sections were added deliberately as their phases landed: Phase 8's
+output planning at Start, and -- from Phase 9 -- the two guards below that had
+to move forward when the panel adopted shared job control. The Phase 9 run
+itself is proved in ``test_m4b_converter_jobs.py``; what is asserted here is
+only that the importer half is unchanged by it.
 """
 
 from __future__ import annotations
@@ -49,6 +51,7 @@ import tkinter as tk
 
 from shared.import_coordination import OutcomeStatus  # noqa: E402
 from shared.importing import ImportOptions  # noqa: E402
+from shared.job_control import JobAction  # noqa: E402
 
 from mp3_tools import m4b_converter  # noqa: E402
 
@@ -710,14 +713,32 @@ def test_no_phase_eight_output_planning_arrived():
         assert banned not in called, banned
 
 
-def test_no_phase_nine_job_control_arrived():
+def test_phase_nine_job_control_arrived_and_is_the_shared_foundation():
+    """**A deliberate progression, not a weakening.**
+
+    Through Phase 8 this guard asserted the opposite: that no job-control
+    vocabulary had reached the panel yet. Phase 9 is the phase authorized to
+    bring it in, so the guard is turned around rather than deleted -- it now
+    requires the panel to name the shared foundation, and
+    ``test_m4b_converter_jobs.py`` proves it *composes* rather than
+    reimplements it. The boundary that has not moved is asserted below and in
+    that module: Phases 10 to 13 are still absent.
+    """
     source = PANEL_SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source)
     named = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     named |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-    for banned in ("JobController", "JobReporter", "JobAdapter", "EtaEstimator",
-                   "LockGroup", "capture_run"):
-        assert banned not in named, banned
+    for required in ("JobController", "JobReporter", "JobAdapter", "EtaEstimator",
+                     "capture_run", "RunResult", "checkpoint", "request_pause",
+                     "request_cancel"):
+        assert required in named, required
+
+    defined = {node.name for node in ast.walk(tree)
+               if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
+    for owned_elsewhere in ("JobController", "JobReporter", "JobAdapter",
+                            "EtaEstimator", "LockGroup", "JobEventStream",
+                            "RunResult", "JobState"):
+        assert owned_elsewhere not in defined, owned_elsewhere
 
 
 def test_no_phase_ten_or_eleven_execution_arrived():
@@ -744,12 +765,18 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
     """Actual mapped geometry at 920x600, not a requested-size estimate.
 
     The plan already accepts pre-existing clipping elsewhere and defers broad
-    visual repair to Plan 9. The question Phase 7B has to answer is narrower:
-    are the controls **this phase adds** actually on screen and clickable.
+    visual repair to Plan 9. The question each phase has to answer is
+    narrower: are the controls **it adds** actually on screen and clickable.
 
     ``winfo_ismapped`` plus a real bounding box is the evidence, because a
     widget can be laid out, sized and still never mapped when the geometry
     manager runs out of room.
+
+    **Phase 9 widened this list and did not relax it.** The panel's own
+    ``Cancel`` button was retired into the shared control bar, so the four
+    shared run controls, the progress bar and the three status labels are
+    checked here in its place -- eight controls where there was one. The 16 px
+    floor is unchanged.
     """
     from shared import ui_theme
     assert ui_theme.MIN_SIZE == (920, 600)
@@ -778,8 +805,22 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
             "Include hidden folders": options.check_hidden,
             "Allow duplicate files": options.check_duplicates,
             "Cancel Import": panel.importer.status.frame,
+            "MP3 Quality": panel.entry_quality,
+            "Do NOT write metadata": panel.chk_no_tags,
+            "Title": panel.title_entry,
+            "Auto-number tracks": panel.chk_auto_num,
+            "Start #": panel.entry_start_num,
+            "Output folder": panel.entry_outdir,
             "Convert": panel.btn_convert,
-            "Cancel": panel.btn_cancel,
+            "Open Output Folder": panel.btn_open_out,
+            # Phase 9's own controls, in the shared bar the panel now hosts.
+            "Pause": panel.jobs.controls.buttons[JobAction.PAUSE],
+            "Resume": panel.jobs.controls.buttons[JobAction.RESUME],
+            "Cancel": panel.jobs.controls.buttons[JobAction.CANCEL],
+            "Retry Failed": panel.jobs.controls.buttons[JobAction.RETRY_FAILED],
+            "Progress bar": panel.jobs.status.indicator.bar,
+            "Progress count": panel.jobs.status.indicator.label,
+            "ETA": panel.jobs.status.label_eta,
         }
 
         unreachable = {}
@@ -796,6 +837,18 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
                 unreachable[label] = (mapped, width, height, top, bottom)
 
         assert not unreachable, unreachable
+
+        # The measured trade-off, recorded rather than hidden. At the 920x600
+        # minimum this panel's content genuinely exceeds the window -- it did
+        # before Phase 9 too, which is why the panel's own progress indicator
+        # was never mapped there *or* at the 1024x720 default. Phase 9 makes
+        # the progress bar visible for the first time; what it costs is that
+        # the three scrollable views are squeezed at the minimum. They stay
+        # mapped and scrollable, and every control above is a real target.
+        assert panel.jobs.status.indicator.bar.winfo_ismapped()
+        assert panel.jobs.views.summary_text.winfo_height() >= 16, (
+            "the Summary keeps at least one line at the minimum window")
+
         panel.close()
         panel.destroy()
     finally:

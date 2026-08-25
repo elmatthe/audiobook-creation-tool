@@ -22,9 +22,10 @@
 >   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
 >   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
 >   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
-> - **Phases 0-8 are complete and approved-to-date. Phase 9 has NOT started** and needs
->   explicit maintainer approval. Phase 7B's implementation `d66052f` **and** its verification
->   remediation `2837b4a9` were both maintainer-approved before Phase 8 began.
+> - **Phases 0-9 are complete and approved-to-date. Phase 10 has NOT started** and needs
+>   explicit maintainer approval. Phase 7B's implementation `d66052f`, its verification
+>   remediation `2837b4a9` and Phase 8 `352c7f3a` were all maintainer-approved before the
+>   phase that followed them began.
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -421,6 +422,104 @@
 >     dependent test. Because the identity concretely matched, the **single** permitted
 >     fresh-process retry was used and was green with zero errors. No second retry, and nothing was
 >     skipped, weakened or deselected to reach it.
+>   - **Phase 9** (2026-08-24): shared job control and reporting, adopted. Phase 8 `352c7f3a`
+>     was **maintainer-approved before this phase began**.
+>     **The run itself now belongs to the shared foundation.** `m4b_converter.py` composes one
+>     `JobController` (state), one `JobReporter.for_run` (production), one `JobEventStream`
+>     (validity), one `JobAdapter` (`JobControlBar` + `JobStatusView` + `SummaryDetailsView` +
+>     `LockGroup`) and one `EtaEstimator` per run, with `capture_run` freezing the configuration
+>     and `RunResult.settle` deciding the disposition. **Nothing was reimplemented**: the panel
+>     defines no state enum, no transition table, no lock matrix, no summary formatter and no
+>     estimate arithmetic, and `shared/job_control.py`, `shared/job_ui.py`, `shared/importing.py`,
+>     `shared/import_coordination.py` and `shared/output_paths.py` are all **byte-unchanged** —
+>     **risk gate #9 was not reached**.
+>     **One pump, still.** The job adapter registers its drain on the `MainThreadPump` Phase 7B
+>     installed, so the panel has exactly **two drains** (the worker transcript queue and the shared
+>     event stream) and **one** outstanding `after` callback, before a run, during one, and after
+>     any number of them. No `self.after`, no timer, no second poller. The worker reaches for
+>     exactly two attributes on the panel — `_cancel_event` and `_log_q` — which is asserted
+>     structurally, and draining from another thread raises `MainThreadError`.
+>     **Pause is truthful, and provably so.** `Pause` reaches `PAUSE_REQUESTED` and stops there;
+>     only the worker, arriving at the boundary **between two books**, turns it into `PAUSED`. A
+>     real-thread test gates the first conversion open, asks for the pause while ffmpeg is
+>     "running", proves the state is still `PAUSE_REQUESTED`, releases the book and only then sees
+>     `PAUSED` — with no second book started. Resume wakes it; cancel wakes it too. The panel
+>     **cannot** suspend anything: an AST guard refuses `Popen`, `terminate`, `kill`, `send_signal`,
+>     `SIGSTOP` and `psutil`, so "we never claim ffmpeg was frozen" is a structural fact rather
+>     than a wording choice. Decision 38A, honoured.
+>     **Cancel, and its current limit stated rather than glossed.** A request stops later books
+>     starting and is settled at the next boundary; the book already converting is left to finish,
+>     which is asserted by a test whose name says so. `CANCELLED` is legal only after a checkpoint
+>     actually observed the cancellation — `finish_cancelled()` refuses otherwise, and a test proves
+>     that refusal. Books never reached are `NOT_ATTEMPTED`, never failures. **Phase 11 still owns**
+>     `Popen`, the bounded grace period, kill, reap and temp-to-final.
+>     **Locking is the shared matrix.** The importer registers as `IMPORTED_INPUT` and the panel as
+>     `PROCESSING_OPTION`; all six Decision 14A actions, all four import options, the quality
+>     spinbox, the metadata entries, the track controls and `Convert` lock while the run owns them
+>     and unlock at terminal settlement. Job controls, log views, progress and Open Output never
+>     lock. `Cancel Import` and the processing cancel remain isolated in both directions.
+>     **Progress: the truthful interim unit.** One unit per **imported occurrence**, which is
+>     exactly what this phase's whole-book worker knows. It starts at `0/N`, advances one per
+>     settled book (a failure advances its unit and is still counted a failure), never reaches the
+>     total while work remains, and reaches it exactly on a clean run. **Phase 10 replaces the
+>     denominator with `ConversionPlan.total_segments`**; that boundary is pinned by a test that
+>     also refuses `ConversionPlan`, `SegmentPlan`, `ItemPlan`, `total_segments` and `plan_timeline`
+>     anywhere in the panel. No ffprobe call was added.
+>     **ETA: the shared estimator, fed as data.** The worker measures one duration per finished
+>     book with the injected clock and sends an immutable `TimingSample` through the existing queue;
+>     the main thread is the only place `EtaEstimator.record` is ever called, so the worker holds no
+>     estimator at all. `Calculating…` at zero, one and two samples; a real figure at three. A
+>     sample from another run or an earlier attempt is inert. The panel contains no averaging, no
+>     remaining-time arithmetic and not even the word `Calculating`.
+>     **Retry Failed: rendered, and truthfully unavailable.** The shared bar draws it, and it stays
+>     disabled in every state because the adapter is **never handed the settled result** and there
+>     is **no `on_retry` callback** behind it. A run that really did hold a retryable failure proves
+>     this is a phase boundary rather than an accident: `run_result.has_retryable` is `True` while
+>     `jobs.has_retryable` is `False`. Phase 13 adds `set_result` and the callback together, against
+>     that same real result — no fabricated plan is needed then and none was invented now.
+>     **Layout, measured rather than assumed.** The panel moved from `pack` to `grid` with explicit
+>     row weights, because `pack` clips at the end and the new run area arrives last — under `pack`
+>     Pause and Cancel would be the first things off a short window. **Thirteen weightings were laid
+>     out at 920x600, 1024x720 and 1280x900 and read off the live window**; `4/0/0/2/4` is the only
+>     one where all three scrollable views stay usable at the 1024x720 default (list 53 px, Summary
+>     44 px, log 20 px). At the **920x600 minimum every control is reachable** — 26 of them, each
+>     mapped, wider than 1 px, at least 16 px tall and inside the window, with 10 px to spare — and
+>     the Summary keeps a full line. What is squeezed there are the scrollable views; that window
+>     cannot fit this panel's content whatever the weights are. **Phase 9 nets an improvement at
+>     both sizes**: the baseline was measured first and its own progress indicator was **never
+>     mapped at 920x600 *or* at 1024x720**, so the Converter had no visible progress bar at either
+>     size before this phase and now has one at both. **Risk gate #12 was not reached** and **no
+>     scrolling container was introduced** — the §22 fallback remains an unexercised maintainer
+>     decision. `MIN_SIZE`, `DEFAULT_GEOMETRY` and the classic non-`ACT.*` identity are unchanged,
+>     and the Phase 7B `list_height=6` choice stands.
+>     **Two deliberate retirements.** The panel's own `Cancel` button is gone — two controls for one
+>     cooperative request is the parallel authority this phase removes — and so is its own
+>     `ProgressIndicator`, because `self.progress` is now the shared status view's, so nothing can
+>     draw a second, disagreeing bar. `shared.ui_theme` is consequently no longer imported by the
+>     Converter. The raw run **log is kept**: it is the transcript of what the worker did, while
+>     Summary and Details are the shared projections, and neither is a copy of the other.
+>     **Two deliberate guard progressions**, both in `test_m4b_converter_importing.py` and both
+>     explained in place. `test_no_phase_nine_job_control_arrived` is **turned around** rather than
+>     deleted: it now *requires* the shared vocabulary and *forbids* redefining it. The 920x600
+>     reachability guard **widened from one control to eight** in the retired button's place and
+>     kept its 16 px floor. `UNCONVERTED_PANELS` did not change.
+>     Gate: **4586 collected / 4572 passed / 14 skipped / 1 warning / 0 failed / 0 errors**,
+>     `verify.py` PASS. The **+86** delta is the new `files/tests/test_m4b_converter_jobs.py`.
+>     **The Tk transient, diagnosed rather than retried past.** The first full suite reported **18
+>     errors, all in `test_output_location_refresh.py`**, through the documented mechanism:
+>     `tk_gate.open_tk_root` calls `pytest.fail` when `tk.Tk()` raises, and the `TclError` was
+>     `couldn't read file ".../tcl/tk8.6/ttk/sizegrip.tcl": no such file or directory` — for a file
+>     that **exists and is readable**, which is what makes it a transient rather than a broken
+>     install. Because a **new** test module had just been added, "known transient" was not assumed:
+>     the module was tested against the erroring one (127 passed together, 41 alone), the suite was
+>     run **twice without** it (4486 passed, green both times) and once **with only half** of it. That
+>     last run failed with **69 errors in `test_cover_browser.py`** — a module that executes **before**
+>     the new tests — which rules the new module out as the cause and shows the failure point moving
+>     between runs (`test_output_location_refresh` twice, `test_chatterbox_integration` in Phase 8,
+>     `test_cover_browser` here). A panel-churn probe found no leak either: 150 build/destroy cycles
+>     left the Tcl command table unchanged, Python objects flat, and a fresh root still opening. Only
+>     then was the **single** permitted fresh-process retry used, and it was green with zero errors.
+>     Nothing was skipped, weakened or deselected to reach it.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

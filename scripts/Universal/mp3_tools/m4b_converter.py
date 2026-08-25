@@ -9,12 +9,23 @@
 # Phase 5: Cancel button (cooperative, checked between files), input/output
 # folders remembered via shared.settings (default = home, no hardcoded
 # ~/Downloads), and tag args built by shared.metadata.
+#
+# v0.6.2 Plan 5 Phase 7B: the shared ImportedFileManager became the only
+# input authority. Phase 8: every destination is planned at Start from the
+# provenance that snapshot keeps. Phase 9: the shared job-control foundation
+# became the only authority on run state and the only reporting pipeline --
+# one JobController, one JobReporter, one JobEventStream, one JobAdapter and
+# one EtaEstimator per run, all drained on the panel's single MainThreadPump.
+# Pause and cancel settle between books, because the ffmpeg call converting
+# one is indivisible; the process lifecycle that makes cancel act mid-file is
+# Phase 11's, and nothing here claims to have it.
 
 import gc
 import queue
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from subprocess import PIPE, STDOUT
 
@@ -29,19 +40,27 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import config as shared_config
 from shared import ffmpeg_utils
+from shared import job_control
 from shared import job_ui
 from shared import metadata
 from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
-from shared import ui_theme
+from shared.cancellation import ConversionCancelled
 from shared.import_coordination import ImportCoordinator
 from shared.importing import (
     IdFactory,
     ImportedFileManager,
     SupportedType,
     SupportedTypeCatalog,
+)
+from shared.job_control import (
+    FailureLog,
+    FailureRecord,
+    JobState,
+    RunResult,
+    capture_run,
 )
 
 from . import m4b_destinations
@@ -61,6 +80,86 @@ KEY_INPUT_DIR = "m4b_converter.input_dir"
 
 #: How long ``close()`` waits for the conversion worker before giving up.
 WORKER_JOIN_TIMEOUT = 5.0
+
+#: The one stage this phase's worker reports. Whole-book conversion is a single
+#: stage today; the probe and per-segment stages belong to Phases 10 and 11 and
+#: are deliberately not named here, because a stage nothing enters is a lie the
+#: Summary would have to tell.
+STAGE_CONVERT = "convert"
+
+#: The ETA's unit of comparable work **at this phase**: one imported book, from
+#: the moment its conversion begins to the moment its output is accepted. When
+#: Phase 10 makes the segment the unit, the category changes with it and the
+#: shared estimator drops the incomparable history by itself — which is exactly
+#: why the unit is named rather than assumed.
+ETA_CATEGORY = "book"
+
+#: The run id the shared controls carry before anything has been started, so the
+#: panel has a Pause/Cancel bar, a progress line and a Summary from the moment it
+#: is built. Every real run replaces it with its own frozen snapshot id.
+IDLE_RUN_ID = "m4b-idle"
+
+#: The queue message that hands a settled run back to the main thread, and the one
+#: that carries a finished book's measured duration. Both travel on the panel's
+#: existing worker queue beside "log", "progress" and "done". Neither is a second
+#: event vocabulary: the run's *events* go through the shared stream, and nothing
+#: here duplicates them.
+RESULT_MESSAGE = "result"
+TIMING_MESSAGE = "timing"
+
+
+@dataclass(frozen=True)
+class TimingSample:
+    """How long one finished book actually took, as plain immutable data.
+
+    The estimate itself lives in one :class:`~shared.job_control.EtaEstimator`
+    that the shared job adapter reads, and that object is compound mutable state
+    belonging to the thread that owns the widgets. So the worker does not touch
+    it: it measures a duration with the run's injected clock and sends *this* --
+    four immutable fields and nothing live -- through the queue the main thread
+    already drains.
+
+    ``run_id`` and ``attempt`` are what make a late sample inert. The run id alone
+    is not enough, because a retry re-runs the *same* frozen snapshot and carries
+    the same id; the attempt number tells one attempt's leftovers from the attempt
+    now running. Phase 13 owns Retry Failed, but the field costs nothing now and
+    inventing it later would mean re-auditing every sample that had been recorded
+    without it.
+    """
+
+    run_id: str
+    attempt: int
+    category: str
+    duration: float
+
+
+def freeze_m4b_options(
+    quality: int,
+    write_tags: bool,
+    title: str,
+    artist: str,
+    album_artist: str,
+    album: str,
+    do_track: bool,
+    start_num: int,
+) -> dict:
+    """Every output-affecting Converter setting, as plain immutable scalars.
+
+    Handed to ``capture_run``, which deep-freezes it and refuses a widget, a Tk
+    variable, a callable or anything else live. Reading the widgets happens once,
+    on the main thread, in :meth:`M4BConverterUI.start_convert`; this only shapes
+    what was read.
+    """
+    return {
+        "quality": int(quality),
+        "write_tags": bool(write_tags),
+        "title": str(title),
+        "artist": str(artist),
+        "album_artist": str(album_artist),
+        "album": str(album),
+        "do_track": bool(do_track),
+        "start_num": int(start_num),
+    }
 
 
 def build_catalog() -> SupportedTypeCatalog:
@@ -130,6 +229,7 @@ class M4BConverterUI(ttk.Frame):
         confirm_broad_root=None,
         confirm_large_result=None,
         home=None,
+        bridge=None,
     ):
         """Build the panel.
 
@@ -147,8 +247,29 @@ class M4BConverterUI(ttk.Frame):
                                   if effective_config is None
                                   else effective_config)
         self._busy = threading.Event()
+        # Kept, deliberately. The **shared controller** is the authority on job
+        # state from this phase on -- this is not a second state machine but the
+        # low-level stop latch: `close()` sets it before a controller may exist,
+        # and Phase 11's subprocess loop still needs a primitive it can poll
+        # while an ffmpeg child is running. The worker never *decides* anything
+        # from it while a controller is present; it mirrors it into the
+        # controller and lets `checkpoint()` decide.
         self._cancel_event = threading.Event()
         self._log_q: queue.Queue = queue.Queue()
+
+        # --- the shared job-control foundation ------------------------- #
+        # One run, one controller, one event stream, one estimate. None of them
+        # can be rebound, so a new run gets new ones and the retired adapter is
+        # closed rather than reused.
+        self._run_count = 0
+        self._attempt = 0
+        self._controller = None
+        self._reporter = None
+        self._estimator = None
+        self._snapshot = None
+        self._result = None
+        self._bridge = job_control.LoggerBridge() if bridge is None else bridge
+        self._event_q: queue.Queue = queue.Queue()
 
         # Where the next run will go, shown read-only. The numbered run folder
         # itself is reserved atomically when a validated conversion starts
@@ -215,12 +336,45 @@ class M4BConverterUI(ttk.Frame):
             # list; the list still expands on a larger window.
             list_height=6,
         )
-        self.importer.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True,
-                                 padx=10, pady=(10, 0))
+        # Rows, weights, and why the geometry manager changed here.
+        #
+        # `pack` hands out requested height in declaration order and clips
+        # whatever is left over at the *end*. That was survivable while the run
+        # area was one progress bar; Phase 9 adds the shared control bar, the
+        # status line and Summary/Details below the action, so under `pack` they
+        # would be the first things to fall off a 920x600 window -- Pause and
+        # Cancel included. `grid` with explicit weights puts the shortfall where
+        # it belongs instead: a weight-0 row always gets its requested height,
+        # and the weighted rows give up space in proportion to their weight.
+        #
+        # So the two rows that cannot usefully shrink are pinned -- the options
+        # form, where every entry has to stay reachable, and the `Convert`
+        # action -- and the three that scroll absorb a short window: the
+        # imported list, the run area (whose own Summary/Details row is the
+        # flexible one inside it) and the log.
+        #
+        # This is layout mechanics, not a redesign: no colour, no font, no style
+        # name and no control changed, and the panel stays classic.
+        # The four numbers below were measured, not guessed: seven weightings
+        # were laid out at 920x600, 1024x720 and 1280x900 and the mapped height
+        # of every control and every scrollable view read off the live window.
+        # This one keeps all three views usable at the 1024x720 default
+        # (list 53 px, Summary 44 px, log 20 px) and gives the Summary a real
+        # line at the 920x600 minimum, where the panel's content genuinely
+        # exceeds the window whatever the weights are.
+        self.rowconfigure(0, weight=4)   # imported queue -- scrolls
+        self.rowconfigure(1, weight=0)   # conversion & metadata -- pinned
+        self.rowconfigure(2, weight=0)   # Convert -- pinned
+        self.rowconfigure(3, weight=2)   # shared run controls, progress, Summary
+        self.rowconfigure(4, weight=4)   # run log -- the transcript, not the tool
+        self.columnconfigure(0, weight=1)
+
+        self.importer.frame.grid(row=0, column=0, sticky="nsew",
+                                 padx=10, pady=(10, 6))
 
         # Options area
         options = ttk.LabelFrame(self, text="Conversion & Metadata (applies to all files)")
-        options.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10, ipady=4)
+        options.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 6), ipady=4)
 
         row = 0
         ttk.Label(options, text="MP3 Quality (VBR 0–9, lower is better):").grid(
@@ -297,31 +451,39 @@ class M4BConverterUI(ttk.Frame):
                  "Change the location in Preferences & Data.",
         ).grid(row=row, column=1, columnspan=3, sticky="w", padx=8, pady=(0, 4))
 
-        # Action buttons
+        # Start, and the navigation that is never a processing input.
+        #
+        # The panel's own `Cancel` button is **retired here**, not duplicated:
+        # Pause, Resume, Cancel and Retry Failed belong to the shared control bar
+        # below, which offers each of them exactly when the approved availability
+        # rules say it is meaningful. Two Cancel buttons for one cooperative
+        # request is precisely the parallel authority this phase removes.
+        # :meth:`cancel` survives as the method that bar calls.
         action = ttk.Frame(self)
-        action.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(0, 10))
+        action.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
         self.btn_convert = ttk.Button(action, text="Convert M4Bs → MP3s", command=self.start_convert)
         self.btn_convert.pack(side=tk.LEFT)
-        self.btn_cancel = ttk.Button(
-            action, text="Cancel", command=self.cancel, state=tk.DISABLED
-        )
-        self.btn_cancel.pack(side=tk.LEFT, padx=8)
         self.btn_open_out = ttk.Button(action, text="Open Output Folder", command=self.open_outdir)
         self.btn_open_out.pack(side=tk.LEFT, padx=8)
 
-        # Log area
+        # The shared run controls, the progress bar, the estimate and
+        # Summary/Details all live here. The adapter is rebuilt for each run --
+        # one run, one event stream, one estimate -- so this container is what
+        # holds its place in the layout.
+        self.job_area = ttk.Frame(self)
+        self.job_area.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 6))
+
+        # The panel's own run log, unchanged in kind. It is the raw transcript of
+        # what the worker did -- the ffmpeg command line, the per-file lines, the
+        # error text. Summary and Details above are the shared *projections* of
+        # the run's events, and neither is a copy of the other.
         logf = ttk.LabelFrame(self, text="Log")
-        logf.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-        self.log = tk.Text(logf, height=8, wrap="word")
+        logf.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.log = tk.Text(logf, height=4, wrap="word")
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=sb2.set)
-
-        # Progress (bar + files-done/percentage label; updated only from the
-        # main-thread queue pump)
-        self.progress = ui_theme.ProgressIndicator(self, length=400)
-        self.progress.frame.pack(side=tk.BOTTOM, pady=(0, 10))
 
         for i in range(4):
             options.grid_columnconfigure(i, weight=1)
@@ -335,8 +497,12 @@ class M4BConverterUI(ttk.Frame):
             self.log_write("FFmpeg detected.\n")
 
         # One pump, one scheduled chain: the conversion queue is a drain on
-        # the same pump the import poller rides. No second `after` loop.
+        # the same pump the import poller rides, and so is the shared job
+        # adapter's event drain -- the adapter registers itself on this very
+        # pump rather than scheduling anything of its own. No second `after`
+        # loop, and no timer.
         self._pump.add_drain(self._pump_queue)
+        self._install_jobs(IDLE_RUN_ID, ())
         self._pump.start()
 
     # ------- UI callbacks -------
@@ -419,6 +585,119 @@ class M4BConverterUI(ttk.Frame):
             return
         sp.reveal_in_file_manager(target)
 
+    # ------- the run: what it is, and who is driving it -------
+
+    @property
+    def run_snapshot(self):
+        """The frozen configuration of the current or most recent run, if any."""
+        return self._snapshot
+
+    @property
+    def run_result(self):
+        """How the most recent run was settled, or ``None`` before the first.
+
+        Recorded, and deliberately **not** handed to the shared adapter yet. See
+        :meth:`_settle`: offering Retry Failed before Phase 13 can execute one
+        would be a button that promises work this phase cannot do.
+        """
+        return self._result
+
+    @property
+    def job_controller(self):
+        """The cooperative controller of the current run, or ``None``."""
+        return self._controller
+
+    @property
+    def job_estimator(self):
+        """The current run's rolling estimate, or ``None`` before the first run."""
+        return self._estimator
+
+    def _install_jobs(self, run_id: str, item_ids) -> None:
+        """Point the shared run controls at one run. Main thread only.
+
+        A run owns its event stream and its estimate, and neither can be rebound,
+        so a new run gets a new adapter in the same container. The retired one is
+        closed first, and closing is what drops its drain -- so the one pump keeps
+        exactly one job drain however many runs a session performs.
+
+        ``on_retry`` is deliberately absent. Phase 13 owns Retry Failed; until it
+        exists the control is rendered by the shared bar and stays unavailable,
+        because the adapter is never handed a settled result to make it available
+        and there is no callback behind it either.
+        """
+        previous = getattr(self, "jobs", None)
+        if previous is not None:
+            previous.close()
+            previous.frame.destroy()
+        self._event_q = queue.Queue()
+        self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        self.jobs = job_ui.JobAdapter(
+            self.job_area,
+            run_id=run_id,
+            pump=self._pump,
+            # No theme bundle: this panel stays classic until Plan 9 converts it.
+            theme=None,
+            pull=job_ui.queue_pull(self._event_q),
+            estimator=self._estimator,
+            bridge=self._bridge,
+            item_ids=item_ids,
+            on_pause=self.pause,
+            on_resume=self.resume,
+            on_cancel=self.cancel,
+            details_height=4,
+        )
+        self.jobs.frame.pack(fill=tk.BOTH, expand=True)
+        # One progress model, not two: the panel's indicator *is* the shared
+        # status view's, so nothing can draw a second, disagreeing bar.
+        self.progress = self.jobs.status.indicator
+        self.jobs.register_inputs(self.importer)
+        self.jobs.register_options(self)
+        self.jobs.render()
+
+    def _publish(self, event) -> None:
+        """Hand one produced event to the queue the shared adapter drains.
+
+        Called from whichever thread produced it -- the worker for progress and
+        failures, the main thread for a button press that moved the controller.
+        A queue is the only thing that crosses that boundary; no widget is ever
+        touched from the worker, not even for progress.
+        """
+        self._event_q.put(event)
+
+    def _on_state(self, snapshot) -> None:
+        """The controller's listener: copy its state into the event stream.
+
+        The reporter mints the event *from this snapshot*, so the UI can never
+        show a state the controller did not actually reach -- a ``PAUSED`` no
+        worker acknowledged is not merely avoided here, it is unconstructible.
+        """
+        reporter = self._reporter
+        if reporter is not None:
+            reporter.state_changed(snapshot)
+
+    def pause(self) -> None:
+        """Ask the run to pause at its next safe checkpoint.
+
+        Truthful by construction. This reaches ``PAUSE_REQUESTED`` and stops
+        there, which is what the status line shows; only the worker, arriving
+        between two books, can make it ``PAUSED``. The ffmpeg call converting the
+        current book is indivisible and is **not** suspended, frozen, killed or
+        restarted -- Decision 38A, and nothing here claims otherwise.
+        """
+        controller = self._controller
+        if controller is not None:
+            controller.request_pause()
+
+    def resume(self) -> None:
+        """Return a paused or pausing run to running and wake its worker."""
+        controller = self._controller
+        if controller is not None:
+            controller.resume()
+
+    def set_locked(self, locked: bool) -> None:
+        """The shared lock matrix's hook onto this panel's own option controls."""
+        self.disable_inputs(bool(locked))
+
     def start_convert(self):
         if self._busy.is_set():
             return
@@ -494,11 +773,67 @@ class M4BConverterUI(ttk.Frame):
             item.occurrence_id: item.destinations for item in planned}
         self.log_write(f"Output folder: {outdir}\n")
 
+        # Decision 9A, in one call: the imported list, the catalog, the import
+        # options, the effective configuration and every output-affecting
+        # setting are copied here, on the main thread, and never consulted
+        # again. The already-committed ``snapshot`` is passed rather than the
+        # manager, so this freezes the *same* queue the destinations above were
+        # planned from -- taking a second snapshot here is how one run would end
+        # up using two configurations.
+        self._run_count += 1
+        run = capture_run(
+            snapshot_id=f"m4b-run-{self._run_count}",
+            files=snapshot,
+            catalog=self.import_catalog,
+            import_options=self.importer.options.options(),
+            effective_config=self._effective_config,
+            tool_options=freeze_m4b_options(
+                quality,
+                params["write_tags"],
+                params["title"],
+                params["artist"],
+                params["album_artist"],
+                params["album"],
+                params["do_track"],
+                params["start_num"],
+            ),
+            created_at=float(self._clock()),
+        )
+        self._snapshot = run
+        self._result = None
+        self._attempt += 1
+        # The shared controller is this run's one state authority. Its listener
+        # copies every state it actually reaches into the event stream, so the
+        # panel keeps no rival state machine beside it.
+        self._controller = job_control.JobController(
+            run.snapshot_id, listener=self._on_state)
+        self._install_jobs(run.snapshot_id, run.item_ids)
+        self._reporter = job_control.JobReporter.for_run(
+            run, clock=self._clock, publish=self._publish)
+
+        params.update({
+            "snapshot": run,
+            "controller": self._controller,
+            "reporter": self._reporter,
+            # Timing travels back as data, never as a shared estimator: the
+            # worker is handed the clock and the two labels it needs to stamp a
+            # measurement, and nothing it can mutate.
+            "clock": self._clock,
+            "run_id": run.snapshot_id,
+            "attempt": self._attempt,
+        })
+
         self._busy.set()
         self._cancel_event.clear()
-        self.progress.update(0, len(imported))
+        self._controller.start()
+        self._reporter.output_location(outdir)
+        # The truthful interim denominator: **one unit per imported
+        # occurrence**, which is exactly what this phase's whole-book worker
+        # knows. Phase 10 replaces it with the immutable plan's
+        # ``total_segments`` once chapters have actually been probed; nothing
+        # here pretends that number exists yet.
+        self._reporter.progress(0, len(imported), stage=STAGE_CONVERT)
         self.disable_inputs(True)
-        self.btn_cancel.configure(state=tk.NORMAL)
 
         t = threading.Thread(
             target=self.convert_worker, args=(outdir, params), daemon=True
@@ -507,17 +842,42 @@ class M4BConverterUI(ttk.Frame):
         t.start()
 
     def cancel(self):
+        """Ask the run to stop. Cooperative: nothing is suspended or killed.
+
+        At this phase the request settles at the **next boundary between
+        books**, because the ffmpeg call converting the current one is
+        indivisible and this phase does not own its process lifecycle. Phase 11
+        owns real mid-file termination and reaping; until then the status line
+        says ``Cancelling…`` and means exactly that.
+
+        What it does guarantee now: no later book starts, and a worker already
+        waiting at a paused checkpoint is woken, because cancel outranks pause
+        in the shared model.
+        """
         if not self._busy.is_set() or self._cancel_event.is_set():
             return
         self._cancel_event.set()
-        self.btn_cancel.configure(state=tk.DISABLED)
+        controller = self._controller
+        if controller is not None:
+            controller.request_cancel()
         self._log_q.put(("log", "Cancelling… will stop after the current file.\n"))
 
     def disable_inputs(self, state: bool):
-        # The shared components own their own enablement, so they are locked
-        # through the shared seam rather than by poking at their widgets.
-        # This is the narrow importer lock only — Plan 9 owns the full job
-        # lock matrix.
+        """Lock or unlock this panel's inputs and processing options.
+
+        **Which states lock is not decided here.** The approved shared matrix
+        decided it, and the shared lock group calls this through
+        :meth:`set_locked` whenever the run moves -- so there is no second lock
+        matrix and no per-widget rule about *when*. It stays callable directly
+        because locking is also what stops a **new** import starting mid-run,
+        which is a moment the job state alone does not describe.
+
+        The imported list and the import options lock as one unit through the
+        adapter. The import **status** bar deliberately does not: a scan that
+        was already running when a conversion started can still be cancelled,
+        and that cancellation reaches the coordinator only -- never this panel's
+        processing cancel.
+        """
         self.importer.set_locked(state)
         widgets = [
             self.btn_convert,
@@ -542,13 +902,26 @@ class M4BConverterUI(ttk.Frame):
     # ------- worker -> GUI queue pump (main thread) -------
 
     def _pump_queue(self):
+        """Drain the worker transcript queue. Registered once, on the one pump.
+
+        The run's *events* do not come through here -- they ride the shared
+        stream, which the job adapter drains on this same pump. What travels on
+        this queue is the raw transcript, the settled result and one measured
+        duration per finished book.
+        """
         try:
             while True:
                 kind, payload = self._log_q.get_nowait()
                 if kind == "log":
                     self.log_write(payload)
                 elif kind == "progress":
+                    # Only a run with no reporter reports this way; a real run's
+                    # progress is a shared event and is drawn from the stream.
                     self.progress.update(*payload)
+                elif kind == TIMING_MESSAGE:
+                    self._record_timing(payload)
+                elif kind == RESULT_MESSAGE:
+                    self._settle(payload)
                 elif kind == "done":
                     self.log_write(payload[0])
                     self._finish_idle()
@@ -557,11 +930,45 @@ class M4BConverterUI(ttk.Frame):
         except queue.Empty:
             pass
 
+    def _record_timing(self, sample) -> bool:
+        """Apply one measured duration to this run's estimate. Main thread only.
+
+        Reached only from the drain above, which the one pump calls on the
+        thread that owns the widgets -- so this is the single place any
+        estimator is ever mutated, and the worker never holds one at all.
+
+        A sample is dropped, inertly, if the panel has closed, if it belongs to
+        a run this panel has moved on from, or if it belongs to an earlier
+        attempt of the same run. None of those is an error.
+        """
+        if self._closed:
+            return False
+        estimator = self._estimator
+        if estimator is None:
+            return False
+        if sample.run_id != estimator.run_id or sample.attempt != self._attempt:
+            return False
+        return estimator.record(sample.category, sample.duration) is not None
+
+    def _settle(self, result) -> None:
+        """Record how the run was settled. Main thread only.
+
+        The result is the shared authority on what succeeded, what failed and
+        what was never attempted, and this panel keeps no rival tally beside it.
+
+        **It is deliberately not handed to the shared adapter yet.** Doing so is
+        what makes Retry Failed available, and Phase 13 owns retry execution:
+        an enabled control that cannot re-run anything would be a promise this
+        phase cannot keep. Phase 13 adds the ``set_result`` call and the
+        ``on_retry`` callback together, against this same real result -- no
+        fabricated plan is needed then and none is invented now.
+        """
+        self._result = result
+
     def _finish_idle(self):
         self._busy.clear()
         self._cancel_event.clear()
         self.disable_inputs(False)
-        self.btn_cancel.configure(state=tk.DISABLED)
 
     # ------- conversion (worker thread) -------
 
@@ -577,14 +984,55 @@ class M4BConverterUI(ttk.Frame):
         # planning its own, so placement cannot depend on execution order and
         # a retry cannot land somewhere new.
         destinations = params["destinations"]
+        # Phase 9: the run's control and reporting arrive as params, and every
+        # one of them is optional so this same body still runs a plain,
+        # unreported batch when it is handed one. Nothing Tk-shaped is here:
+        # what the worker says goes out through the panel's queue and the run's
+        # reporter, and it holds no estimator, no widget and no variable.
+        controller = params.get("controller")
+        reporter = params.get("reporter")
+        snapshot = params.get("snapshot")
+        clock = params.get("clock")
+        run_id = params.get("run_id")
+        attempt = params.get("attempt", 0)
+        timed = clock is not None and run_id is not None
         total = len(files)
         cancelled = False
+        completed: list = []
+        failures: list = []
 
         for idx, entry in enumerate(imported, start=1):
             in_file = entry.path
-            if self._cancel_event.is_set():
+            item_id = entry.occurrence_id
+            # The one safe checkpoint this phase honestly has, and it sits
+            # **between books**. A pause asked for while ffmpeg is converting
+            # one is honoured here, not there: that call is indivisible and is
+            # never suspended, frozen or restarted (Decision 38A). Cancel is
+            # settled here too, which is the current limitation -- Phase 11 owns
+            # real mid-file termination and reaping.
+            #
+            # The cancel latch is mirrored *into* the controller rather than
+            # acted on directly, so `checkpoint()` remains the single place that
+            # decides what a request means.
+            if controller is not None:
+                if self._cancel_event.is_set():
+                    controller.request_cancel()
+                try:
+                    controller.checkpoint()
+                except ConversionCancelled:
+                    cancelled = True
+                    break
+            elif self._cancel_event.is_set():
                 cancelled = True
                 break
+
+            succeeded = False
+            if reporter is not None:
+                reporter.current_item(item_id, f"Converting {in_file.name}")
+            # The measurement brackets this book's own work and nothing else.
+            # Time the message then spends waiting in the queue is outside the
+            # bracket, so a slow drain is never mistaken for a slow book.
+            started = clock() if timed else None
             try:
                 out_mp3 = destinations[entry.occurrence_id][0]
                 # Already checked when the run was planned; re-checked here
@@ -630,6 +1078,16 @@ class M4BConverterUI(ttk.Frame):
                             "sped up / choppy.\n",
                         )
                     )
+                    if reporter is not None:
+                        # A user-level warning belongs in the Summary; the reason
+                        # it was reached belongs in Details and the session log.
+                        reporter.warning(
+                            f"{in_file.name}: this ffmpeg build has no xHE-AAC "
+                            "decoder on this platform, so the output may be sped "
+                            "up or choppy.",
+                            f"codec={info.get('codec_name')!r} "
+                            f"profile={info.get('profile')!r}; "
+                            "no input decoder argument was available")
 
                 cmd = [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-y", *dec_args, "-i", quote(in_file), "-vn"]
 
@@ -660,7 +1118,13 @@ class M4BConverterUI(ttk.Frame):
                 self._log_q.put(
                     ("log", f"\n[{idx}/{total}] Converting:\n  {in_file}\n  -> {out_mp3}\n")
                 )
-                self._log_q.put(("log", "  ffmpeg: " + " ".join(str(c) for c in cmd) + "\n"))
+                command_line = " ".join(str(c) for c in cmd)
+                self._log_q.put(("log", "  ffmpeg: " + command_line + "\n"))
+                if reporter is not None:
+                    # Technical detail: Details and the session log read it, and
+                    # the Summary structurally cannot, because a summary line is
+                    # never built from a `detail` field.
+                    reporter.technical(f"[{idx}/{total}] {command_line}")
                 proc = sp.run(cmd, stdout=PIPE, stderr=STDOUT, text=True)
                 if proc.returncode != 0:
                     self._log_q.put(("log", (proc.stdout or "")[-2000:] + "\n"))
@@ -696,10 +1160,63 @@ class M4BConverterUI(ttk.Frame):
                         )
 
                 self._log_q.put(("log", "  ✓ Done\n"))
+                succeeded = True
+                completed.append(item_id)
             except Exception as e:
                 self._log_q.put(("log", f"  ✗ Error: {e}\n"))
+                trouble = f"{in_file.name} could not be converted."
+                detail = f"{type(e).__name__}: {e}"
+                if snapshot is not None:
+                    failures.append(FailureRecord(
+                        item_id=item_id, stage=STAGE_CONVERT,
+                        display_message=trouble, technical_detail=detail,
+                        retryable=True, snapshot_id=snapshot.snapshot_id))
+                if reporter is not None:
+                    # One item failing is not the run failing: this records, and
+                    # changes no state at all.
+                    reporter.failure(trouble, detail, item_id=item_id,
+                                     stage=STAGE_CONVERT)
             finally:
-                self._log_q.put(("progress", (idx, total)))
+                # Read once, first, so nothing this block does is counted as
+                # work. A book that did not honestly complete is not history and
+                # sends no sample at all.
+                ended = clock() if timed else None
+                if succeeded and started is not None:
+                    self._log_q.put((TIMING_MESSAGE, TimingSample(
+                        run_id=run_id, attempt=attempt, category=ETA_CATEGORY,
+                        duration=float(ended) - float(started))))
+                if reporter is None:
+                    self._log_q.put(("progress", (idx, total)))
+                else:
+                    # The interim unit: one imported book. Phase 10 replaces the
+                    # denominator with the frozen plan's segment count.
+                    reporter.progress(idx, total, item_id=item_id,
+                                      stage=STAGE_CONVERT)
+
+        if snapshot is not None:
+            # The shared authority on what succeeded, what failed and what was
+            # never reached. Items the run never got to are NOT_ATTEMPTED, not
+            # failures, and the controller is settled from what this derived --
+            # the panel invents no second verdict.
+            log = FailureLog(snapshot_id=snapshot.snapshot_id, records=tuple(failures))
+            settled = RunResult.settle(snapshot, log, completed_ids=tuple(completed),
+                                       cancelled=cancelled)
+            if controller is not None:
+                if cancelled:
+                    # Legal only because a checkpoint actually observed the
+                    # cancellation above: CANCELLED means it has stopped, not
+                    # that someone clicked Cancel.
+                    final = controller.finish_cancelled()
+                elif settled.state is JobState.COMPLETED_WITH_FAILURES:
+                    final = controller.complete_with_failures()
+                else:
+                    final = controller.succeed()
+                if reporter is not None:
+                    if cancelled:
+                        reporter.cancelled(final)
+                    else:
+                        reporter.completed(final)
+            self._log_q.put((RESULT_MESSAGE, settled))
 
         if cancelled:
             self._log_q.put(("done", (f"\nCancelled. Output so far: {outdir}\n", outdir)))
@@ -724,10 +1241,19 @@ class M4BConverterUI(ttk.Frame):
         self._closed = True
         if self._busy.is_set():
             self._cancel_event.set()
+        controller = self._controller
+        if controller is not None and not controller.is_terminal:
+            # This is also what makes closing a *paused* run safe: the request
+            # wakes a worker waiting at a checkpoint, so the bounded join below
+            # meets a thread already unwinding rather than one nothing will wake.
+            controller.request_cancel()
         worker = self._worker
         if worker is not None and hasattr(worker, "join"):
             worker.join(WORKER_JOIN_TIMEOUT)
         self._worker = None
+        jobs = getattr(self, "jobs", None)
+        if jobs is not None:
+            jobs.close()
         importer = getattr(self, "importer", None)
         if importer is not None:
             importer.close()
