@@ -27,9 +27,10 @@
 >   all maintainer-approved before the phase that followed them began, and **Phase 10
 >   `7009841d` is maintainer-approved.**
 > - **The bounded Tk test-lifecycle remediation `c5129a0` is maintainer-approved**, and
->   **Phase 11 is COMMITTED and complete** on top of it. Its final gate was **first-attempt
->   green with no retry**, which is what the remediation existed to make possible.
->   **Phase 12 has NOT started** and needs explicit maintainer approval.
+>   **Phase 11 `17f577ff` is maintainer-approved** on top of it — its final gate was
+>   **first-attempt green with no retry**, which is what the remediation existed to make
+>   possible. **Phase 12 is COMMITTED and complete**, also first-attempt green.
+>   **Phase 13 has NOT started** and needs explicit maintainer approval.
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -761,6 +762,71 @@
 >     module are byte-unchanged; the only non-panel production edit is the nine-line
 >     `attach_artwork_argv` seam above. No success-number allocator (Phase 12) and no Retry Failed
 >     wiring (Phase 13) exist — both asserted structurally. **Phase 12 NOT STARTED.**
+>   - **Phase 12** (2026-08-26): numbering. Phase 11 `17f577ff` was **maintainer-approved before
+>     this phase began**. The smallest phase in the plan so far — three production files touched,
+>     one of them new — because Decision 5's hard part was keeping three numbers apart, and two of
+>     them were already frozen and correct.
+>     **What actually changed.** Phase 11 numbered a whole book by its **position** in the queue,
+>     `start_number + index`, and said so in a comment marking it transitional. That produces a gap
+>     the moment an earlier book fails: A succeeds as 1, B fails, C comes out **3**. Decision 28A
+>     says gap-free, so the positional form is retired and replaced by a counter that only a
+>     completed success can move. C is now **2**.
+>     **The seam.** `scripts/Universal/mp3_tools/m4b_numbering.py` — `SuccessNumbers` and a frozen
+>     `Tentative` token. Integers in, integers out: an AST purity guard pins that it imports only
+>     `dataclasses` and references no `Tk`, no `Path`, no `open`, no process, no plan type and no
+>     metadata helper.
+>     **Why two calls rather than one.** The number has to exist *before* ffmpeg runs, because it is
+>     written into the file's metadata — but it must not count until the file exists. So `propose()`
+>     reads the next value and **advances nothing** (asking twice gives the same answer), and
+>     `commit(tentative)` is the only thing that moves the counter. It takes the token it issued and
+>     **refuses one already spent**, so "forgot to commit" costs a number nothing and "committed
+>     twice" is an error rather than a silently skipped number. An API where merely asking
+>     incremented would make the failure case unimplementable.
+>     **Where the state lives, and why not in the plan.** The allocator is created once per run
+>     attempt, inside the worker, from the frozen `plan.start_number`. `ConversionPlan` stays
+>     immutable: it is what a retry re-reads, and a success counter is a fact about one attempt's
+>     execution, discovered while it runs. A guard pins that no plan type has a counter or allocator
+>     field and that `m4b_plan.py` never names `SuccessNumbers`.
+>     **The commit point is exactly one line.** `numbers.commit(tentative)` sits immediately after
+>     `completed.append(item_id)` — the single place an item is a complete success. So an ffmpeg
+>     failure, a **drift breach**, an **occupied destination**, a **cancellation** and an item
+>     preflight already refused all consume nothing, and each of those five is tested separately
+>     rather than assumed to follow from the first.
+>     **Eligibility is the run's mode, deliberately not the item's shape.** `plan.auto_number and
+>     not plan.split`. A chapterless book in split mode is planned as **one non-fragment** output,
+>     so an implementation keyed off `item.fragment` would hand it a whole-run sequence number in a
+>     run where auto-numbering does not apply at all. That exact case is tested, together with its
+>     mirror image — a chapterless *whole* item, which does get one — so the first test cannot pass
+>     for the wrong reason. An AST guard reads the eligibility expression and requires
+>     `plan.split` in it and `fragment` absent from it.
+>     **The other two numbers were not touched.** Split filename prefixes and split structural
+>     `track` remain frozen in the Phase 10 plan: 1..N per book, restarting for each book, with
+>     `Start #` and *Auto-number* having **no effect at all** on a split run, and a failure in one
+>     book unable to renumber another book's chapters. Phase 12 is **metadata only** — no output is
+>     renamed by success or failure.
+>     **Metadata modes behave as Phase 6 settled them.** Preserve overrides the source's own track
+>     when Auto-number is on and **leaves it alone when off** (a fixture carrying track 3/9 still
+>     comes out 3); Replace carries the sequential track; Strip is given nothing, because Phase 12
+>     owns the sequential override and not source-tag policy.
+>     **Read back off real MP3s, not off argv.** With ffprobe on generated media: two whole books
+>     produce tracks 1 and 2; `Start #` 7 produces 7 and 8; Auto-number off produces the source's
+>     own 3; Strip produces no track at all; Replace produces 1 and 2; and a run whose middle book
+>     is a file that is not media at all produces **1 and 2 with no output carrying 3**. A real
+>     split of a three-chapter book at `Start #` 7 still produces structural tracks **1, 2, 3**.
+>     **Phase 13 stays out.** Retry Failed is not wired — no `set_result`, no `on_retry`, no retry
+>     execution — and the allocator holds no retry vocabulary. One **pure** test shows the rule
+>     remains expressible (1 · fail · 2 · a later retry takes 3) without connecting it to anything.
+>     **Two deliberate guard progressions**, both turned around rather than deleted and both
+>     explained in place: the guards that asserted no success allocator existed now assert that one
+>     does, that the positional form is gone, that the **executor still knows nothing about it**,
+>     and that the plan stayed immutable. `m4b_execution.py`, `m4b_commands.py`, `m4b_plan.py`,
+>     `m4b_metadata.py`, every shared module, TTS, Cover and the Tk remediation are all
+>     **byte-unchanged**, so risk gate #9 was not reached.
+>     Gate: **4853 collected / 4839 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **FIRST ATTEMPT with NO RETRY**, `verify.py` PASS on its first and only invocation. The
+>     **+50** delta is 49 tests in the new `files/tests/test_m4b_numbering.py` plus 1 from
+>     `test_plan3_boundaries` parametrising over `m4b_numbering.py` as a new non-adopting
+>     production module. **Phase 13 NOT STARTED.**
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

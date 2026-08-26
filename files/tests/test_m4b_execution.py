@@ -1505,14 +1505,25 @@ def test_every_child_goes_through_the_shared_subprocess_seam():
     assert "sp.popen" in text
 
 
-def test_no_success_number_allocator_exists():
-    """Phase 12 owns success-only whole-book numbering."""
-    for path in (PANEL_SOURCE, EXECUTION_SOURCE):
-        text = path.read_text(encoding="utf-8")
-        for forbidden in ("success_number", "allocate_number", "_success_counter",
-                          "consume_number"):
-            assert forbidden not in text, (path.name, forbidden)
+def test_success_only_numbering_arrived_and_stayed_out_of_the_executor():
+    """**A deliberate progression.** Phase 12 is the phase that adds the allocator.
 
+    Through Phase 11 this asserted that no whole-book success allocator existed
+    anywhere, because Phase 11's numbering was still the transitional positional
+    form. It now asserts the two things that actually matter: the allocator
+    exists in the panel that orchestrates a run, and the **executor still knows
+    nothing about it**. Numbering is a layer around one metadata value, not part
+    of the process lifecycle.
+    """
+    panel = PANEL_SOURCE.read_text(encoding="utf-8")
+    execution = EXECUTION_SOURCE.read_text(encoding="utf-8")
+
+    assert "SuccessNumbers" in panel
+    assert "start_number + index" not in panel, "the positional form is retired"
+
+    for absent in ("SuccessNumbers", "m4b_numbering", "auto_number",
+                   "start_number", "propose(", "commit("):
+        assert absent not in execution, absent
 
 def test_retry_failed_is_still_not_wired():
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))

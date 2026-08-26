@@ -1727,12 +1727,24 @@ def test_no_phase_eleven_execution_lifecycle_exists():
             assert forbidden not in text, (path.name, forbidden)
 
 
-def test_no_success_number_allocator_exists():
-    """Phase 12 owns success-only whole-book numbering."""
-    text = PANEL_SOURCE.read_text(encoding="utf-8")
-    for forbidden in ("success_number", "allocate_number", "_success_counter"):
-        assert forbidden not in text, forbidden
+def test_success_only_numbering_arrived_and_the_plan_stayed_immutable():
+    """**A deliberate progression.** Phase 12 is the phase that adds the allocator.
 
+    Through Phase 11 this asserted no success allocator existed. It now asserts
+    that one does, and that its **mutable state stayed out of the immutable
+    plan** -- the plan is what a retry re-reads, and a success counter is a fact
+    about one attempt's execution rather than part of the run's frozen
+    description.
+    """
+    panel = PANEL_SOURCE.read_text(encoding="utf-8")
+    assert "SuccessNumbers" in panel
+    assert "start_number + index" not in panel, "the positional form is retired"
+
+    plan_text = PLAN_SOURCE.read_text(encoding="utf-8")
+    assert "SuccessNumbers" not in plan_text
+    for kind in (ConversionPlan, ItemPlan, SegmentPlan):
+        for field in kind.__dataclass_fields__:
+            assert "counter" not in field and "allocator" not in field, (kind, field)
 
 def test_retry_failed_is_still_not_wired():
     """Structural: the adapter is handed neither a result nor a retry callback."""

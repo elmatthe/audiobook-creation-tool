@@ -64,6 +64,7 @@ from shared.job_control import (
 
 from . import m4b_execution
 from . import m4b_metadata
+from . import m4b_numbering
 from . import m4b_plan
 from . import m4b_probe
 from .m4b_metadata import MetadataMode
@@ -1207,11 +1208,28 @@ class M4BConverterUI(ttk.Frame):
                 if reporter is not None:
                     reporter.technical(line)
 
+            # **Whole-book sequential numbering (Decision 21A/28A).** One
+            # counter for the whole run attempt, started from the frozen
+            # `Start #`, and created at all only when this is a whole-book
+            # run with Auto-number on.
+            #
+            # The eligibility test is the run's **mode**, deliberately not
+            # `item.fragment`. A chapterless book in split mode is planned as
+            # one non-fragment whole-file output, so keying off the item
+            # would hand it a whole-run sequence number in a run where
+            # auto-numbering does not apply at all.
+            numbers = (m4b_numbering.SuccessNumbers(plan.start_number)
+                       if plan.auto_number and not plan.split else None)
+
             for index, item in enumerate(plan.items):
                 item_id = item.occurrence_id
                 in_file = item.source
                 finalised: list = []
                 failure = None
+                # Proposed, not taken. The number has to exist before ffmpeg
+                # runs because it is written into the file; it counts only
+                # once the file actually exists.
+                tentative = None if numbers is None else numbers.propose()
 
                 if reporter is not None:
                     reporter.current_item(item_id, f"Converting {in_file.name}")
@@ -1257,11 +1275,11 @@ class M4BConverterUI(ttk.Frame):
                             replacement=plan.replacement,
                         )
                     else:
-                        # Transitional: positional, exactly as this tool has
-                        # always numbered. Success-only allocation is Phase 12's
-                        # and is deliberately not implemented here.
-                        number = (plan.start_number + index
-                                  if plan.auto_number else None)
+                        # Success-only: this is the number the book *would*
+                        # carry. Nothing has been consumed yet, so a failure
+                        # below leaves it available for the next book and the
+                        # run comes out gap-free.
+                        number = None if tentative is None else tentative.number
                         tags = m4b_metadata.whole_book_tags(
                             plan.metadata_mode,
                             source=item.tags,
@@ -1341,6 +1359,12 @@ class M4BConverterUI(ttk.Frame):
                          failure.detail, STAGE_CONVERT)
                 elif not cancelled:
                     completed.append(item_id)
+                    # **The only place the counter moves.** Reached only when
+                    # every segment of this item converted, validated and was
+                    # finalised -- so a failure, a drift breach, an occupied
+                    # destination or a cancellation all consume nothing.
+                    if tentative is not None:
+                        numbers.commit(tentative)
 
                 if cancelled:
                     # Settled only now: the child is reaped, its temporary file
