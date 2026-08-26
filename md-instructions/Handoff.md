@@ -26,9 +26,10 @@
 >   its verification remediation `2837b4a9`, Phase 8 `352c7f3a` and Phase 9 `fac4fdb4` were
 >   all maintainer-approved before the phase that followed them began, and **Phase 10
 >   `7009841d` is maintainer-approved.**
-> - **Phase 11 is IMPLEMENTED but UNCOMMITTED, UNAPPROVED and NOT YET RE-GATED.** Its
->   working tree is restored and dirty; its original full gate stopped correctly under retry
->   discipline (see the Phase 11 entry below). **Phase 12 has NOT started.**
+> - **The bounded Tk test-lifecycle remediation `c5129a0` is maintainer-approved**, and
+>   **Phase 11 is COMMITTED and complete** on top of it. Its final gate was **first-attempt
+>   green with no retry**, which is what the remediation existed to make possible.
+>   **Phase 12 has NOT started** and needs explicit maintainer approval.
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -678,6 +679,88 @@
 >     **first attempt with no retry**, `verify.py` PASS on its first and only invocation. The
 >     **+5** delta is the new `tk_gate` contract guards. **Zero production files changed**:
 >     `git diff --stat HEAD -- scripts/` is empty.
+>   - **Phase 11 — FINAL GATE PASSED** (2026-08-25): execution and process lifecycle, committed on
+>     top of the approved remediation. The implementation was **not rebuilt** for this gate: the
+>     working tree restored from the pre-remediation stash was reconciled against its SHA-256
+>     manifest and all six paths matched to the byte, with the two untracked modules additionally
+>     compared with `cmp`. No Tk-remediation file was dirty.
+>     **The gate that had stopped is now first-attempt green.** Focused sanity **553 passed** in
+>     one invocation; full suite **4803 collected / 4789 passed / 14 skipped / 1 warning /
+>     0 failed / 0 errors** on the **FIRST ATTEMPT with NO RETRY**; `verify.py` PASS on its first
+>     and only invocation. The **+79** delta is 78 tests in the new
+>     `files/tests/test_m4b_execution.py` plus 1 from `test_plan3_boundaries` parametrising over
+>     `m4b_execution.py` as a new non-adopting production module — the same mechanism Phase 10 saw
+>     with `m4b_probe.py`.
+>     **The executor is a bounded Converter-local module.** `mp3_tools/m4b_execution.py` turns one
+>     `SegmentWork` into a `SegmentOutcome` and owns nothing else: processes, temporary files,
+>     the cancellation ladder, duration verification and finalisation. It is Tk-free and it
+>     **reinterprets no decision** — an AST guard proves it names no probe, no planner, no
+>     validator, no naming seam and no reservation, so the immutable Phase 10 plan remains the
+>     only authority after preflight. The worker still reaches for exactly two attributes on the
+>     panel, `_cancel_event` and `_log_q`.
+>     **The subprocess contract, and why it cannot deadlock.** Every child is spawned through
+>     `shared.subprocess_utils.popen` with stdout/stderr redirected to a **temporary file** rather
+>     than a pipe; the loop polls `proc.poll()` on a 50 ms interval and checks cancellation between
+>     polls. Proved rather than argued: a child writing **4 MB to stderr** — far past any OS pipe
+>     buffer — completes normally, where an undrained `PIPE` would have blocked it forever. Only a
+>     bounded ~2000-character tail is ever read into memory, and the diagnostic file is removed
+>     once the tail is taken.
+>     **Cancellation acts mid-segment, and is settled only when it is true.** `terminate()`, a
+>     bounded grace period, `kill()` if it will not go, and **always** `wait()`. Proved against a
+>     **real child process**: its PID is confirmed alive, cancellation is requested, and the PID is
+>     confirmed gone afterwards. The kill rung — which a Windows `terminate()` can never exercise,
+>     because `TerminateProcess` cannot be ignored — is driven through a controlled stubborn-child
+>     seam, and a child that will not die at all is **reported**, never silently tolerated. Only
+>     after the child is reaped and the partial file is gone does the checkpoint acknowledge, which
+>     is what makes `CANCELLED` mean "it stopped".
+>     **Pause still never lies.** The safe checkpoint moved from between books to **between
+>     segments**, which is what split execution makes possible. No process is suspended: an AST
+>     guard refuses `Popen`, `terminate`, `kill`, `send_signal`, `SIGSTOP` and `psutil` in the
+>     panel, and a real-thread test proves the state is still `PAUSE_REQUESTED` while an encode is
+>     running and only becomes `PAUSED` at the boundary.
+>     **Nothing is written to its final name.** Every pass writes to a `temporary_sibling` in the
+>     destination's own folder — same filesystem, so finalisation is one `atomic_replace` — and the
+>     frozen destination appears only after the process exited cleanly, the artwork pass (if any)
+>     did too, and the measured duration matched. A destination that is unexpectedly **occupied at
+>     finalisation fails rather than overwrites**: the frozen plan stays authoritative and nothing
+>     renumbers during execution.
+>     **The drift guard is now per segment.** `abs(measured - (end - start)) / (end - start)`
+>     against the unchanged **3 %** threshold, measured on the candidate that would actually be
+>     finalised — after the artwork pass when there is one. A split segment is compared with **its
+>     own span**, never the whole book. On breach the candidate is deleted, the item fails, and the
+>     existing xHE-AAC-aware wording is preserved.
+>     **Split artwork is two passes, and one measurement changed a builder.** The cover sits at
+>     timestamp zero and the approved output-side seek discards it, so the audio pass runs
+>     `segment_argv` and the cover is attached afterwards by stream copy — the segment that was
+>     measured is the segment that ships. Measured on produced media: the attach pass re-muxes, so
+>     the mp3 muxer chose the ID3 version again and wrote **2.4**, while the whole book and the
+>     uncovered fragment beside it were **2.3** — one run, two tag versions, and Windows Explorer
+>     reads the older one. `m4b_commands.attach_artwork_argv` therefore gained an **additive,
+>     default-empty `output_args`** seam so the second pass can be told what the first was told.
+>     Every existing caller's argv is byte-identical; re-measured, all three shapes now write 2.3
+>     with the cover intact.
+>     **A partial book never looks whole.** Segments run in frozen order; if one fails, the ones
+>     already finalised **for that item** are taken back, and `remove_outputs` refuses any path
+>     outside the reserved run so another book's finished work can never be touched. A cancellation
+>     mid-book does the same, while books that completed earlier keep their outputs.
+>     **Whole / Split is now user-facing**, batch-wide (44A), defaulting to Whole, on the row the
+>     quality spinbox already occupied so the form gained no height. Frozen into `PlanOptions` at
+>     Start, locked with the other processing options while a run is going, restored afterwards,
+>     and with no per-item mode anywhere. Re-measured at **920x600: every required control mapped,
+>     wider than 1 px, at least 16 px tall, inside the window, 10 px to spare** — identical to
+>     Phases 9 and 10. Risk gate #12 not reached.
+>     **Media evidence, on generated fixtures with a real ffmpeg.** Whole books encode and keep
+>     their chapter map under Preserve; Strip keeps neither chapters nor cover; splits produce one
+>     file per span with the right lengths, tiling the timeline; every fragment of a covered book
+>     carries the cover and is not re-encoded by the attach pass; sources are **SHA-256 identical**
+>     before and after. The Phase 5 **marker ledger** was re-applied to what the *executor*
+>     produced: decoding every segment and mapping each burst back recovers source seconds 0-5
+>     **exactly once**, so no boundary lost or duplicated audio. Pre-roll before a late first
+>     chapter ships inside the first output and the tail ships inside the last.
+>     **Boundaries held.** Shared modules, TTS, Cover, the other panels and every Phase 1-6 pure
+>     module are byte-unchanged; the only non-panel production edit is the nine-line
+>     `attach_artwork_argv` seam above. No success-number allocator (Phase 12) and no Retry Failed
+>     wiring (Phase 13) exist — both asserted structurally. **Phase 12 NOT STARTED.**
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

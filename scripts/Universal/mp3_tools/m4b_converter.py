@@ -27,7 +27,6 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from subprocess import PIPE, STDOUT
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -63,7 +62,7 @@ from shared.job_control import (
     capture_run,
 )
 
-from . import m4b_commands
+from . import m4b_execution
 from . import m4b_metadata
 from . import m4b_plan
 from . import m4b_probe
@@ -144,6 +143,17 @@ class TimingSample:
     attempt: int
     category: str
     duration: float
+
+
+def measured_duration(path):
+    """How long a produced file actually is, or ``None`` if it cannot be read.
+
+    Handed to the executor so the drift guard can be exercised without media,
+    and kept at module level because the worker thread reaches for exactly two
+    attributes on the panel and this is not going to become a third.
+    """
+    info = ffmpeg_utils.probe_audio_stream(path)
+    return info.get("duration") if info else None
 
 
 def freeze_m4b_options(options: PlanOptions) -> dict:
@@ -389,6 +399,30 @@ class M4BConverterUI(ttk.Frame):
             options, from_=0, to=9, textvariable=self.var_quality, width=4
         )
         self.entry_quality.grid(row=row, column=1, sticky="w", padx=8, pady=4)
+
+        # Whole book / Split by chapter (Decision 44A). **One batch-wide
+        # choice**, never per book: a run is planned once, and a per-item mode
+        # would mean two different answers to what the run is.
+        #
+        # It shares the quality row rather than taking one of its own. The
+        # panel already sits 10 px inside the supported 920x600 minimum, and a
+        # new row would spend all of that; columns 2 and 3 of this row were
+        # empty.
+        ttk.Label(options, text="Convert:").grid(
+            row=row, column=2, sticky="e", padx=8, pady=4
+        )
+        shapes = ttk.Frame(options)
+        shapes.grid(row=row, column=3, sticky="w", padx=8, pady=4)
+        self.var_mode = tk.StringVar(value=ConversionMode.WHOLE.value)
+        self.rb_whole = ttk.Radiobutton(
+            shapes, text="Whole book", variable=self.var_mode,
+            value=ConversionMode.WHOLE.value)
+        self.rb_split = ttk.Radiobutton(
+            shapes, text="Split by chapter", variable=self.var_mode,
+            value=ConversionMode.SPLIT.value)
+        for column, button in enumerate((self.rb_whole, self.rb_split)):
+            button.grid(row=0, column=column, sticky="w",
+                        padx=(0 if column == 0 else 12, 0))
 
         # Metadata mode (Decision 19A/47A). This replaces the old two-state
         # "Do NOT write any metadata" checkbox, which could not express the
@@ -752,12 +786,12 @@ class M4BConverterUI(ttk.Frame):
             metadata_mode = MetadataMode(self.var_metadata_mode.get())
         except ValueError:
             metadata_mode = MetadataMode.PRESERVE
+        try:
+            mode = ConversionMode(self.var_mode.get())
+        except ValueError:
+            mode = ConversionMode.WHOLE
         return PlanOptions(
-            # Whole book is the only shape this phase can execute, so it is the
-            # only one it offers. The plan layer supports splitting in full and
-            # is tested that way; the control appears with the engine that can
-            # honour it.
-            mode=ConversionMode.WHOLE,
+            mode=mode,
             metadata_mode=metadata_mode,
             replacement={
                 "title": self.title_entry.get(),
@@ -896,6 +930,8 @@ class M4BConverterUI(ttk.Frame):
         widgets = [
             self.btn_convert,
             self.entry_quality,
+            self.rb_whole,
+            self.rb_split,
             self.rb_preserve,
             self.rb_replace,
             self.rb_strip,
@@ -1142,160 +1178,180 @@ class M4BConverterUI(ttk.Frame):
                 reporter.progress(0, total, stage=STAGE_CONVERT)
 
         # ------- execution -------
+        #
+        # From here on the plan is the only authority. Nothing below re-probes a
+        # source, rebuilds a span, renames a segment, re-plans a destination,
+        # re-selects a cover or reads a widget: every one of those answers was
+        # frozen before the run directory existed, and reinterpreting one now is
+        # how a retry would land somewhere different from the run it repeats.
         done = 0
         if plan is not None and not cancelled:
-            for index, item in enumerate(plan.items):
-                try:
-                    checkpoint()
-                except ConversionCancelled:
-                    cancelled = True
-                    break
 
+            def interrupted() -> bool:
+                """The low-level latch a running child is polled against.
+
+                Both doors into a cancellation are read: this panel's own event,
+                which `close()` also sets, and the controller's request. The
+                controller stays the **state** authority -- this is only the
+                signal that has to reach a process mid-encode, which a
+                checkpoint between segments cannot do on its own.
+                """
+                if self._cancel_event.is_set():
+                    return True
+                return controller is not None and controller.cancel_check()
+
+            def announce(argv) -> None:
+                """One command, into the transcript and the Details pane."""
+                line = " ".join(str(part) for part in argv)
+                self._log_q.put(("log", "  ffmpeg: " + line + "\n"))
+                if reporter is not None:
+                    reporter.technical(line)
+
+            for index, item in enumerate(plan.items):
                 item_id = item.occurrence_id
                 in_file = item.source
+                finalised: list = []
+                failure = None
+
                 if reporter is not None:
                     reporter.current_item(item_id, f"Converting {in_file.name}")
+                self._log_q.put((
+                    "log",
+                    f"\n[{index + 1}/{len(plan.items)}] {in_file.name} "
+                    f"-> {item.total_segments} file(s)\n"))
 
-                if item.fragment or len(item.segments) != 1:
-                    # Chapter-splitting execution is the next phase's: it needs a
-                    # cancellable subprocess, a staged output and a per-segment
-                    # drift check, none of which exist yet. Saying so is the only
-                    # truthful thing to do with a plan this phase cannot run.
-                    message = (f"{in_file.name} was planned as "
-                               f"{len(item.segments)} chapter files, which this "
-                               "version cannot write yet.")
-                    self._log_q.put(("log", f"\n  ✗ {message}\n"))
-                    note(item_id, message,
-                         "split execution arrives with the conversion engine",
-                         STAGE_CONVERT)
-                    done += item.total_segments
+                if plan.split and not item.chaptered:
+                    # Decision 18A: a genuinely chapterless book is a success in
+                    # split mode, written whole and named as a whole book.
+                    note_text = (f"{in_file.name} has no chapters, so it was "
+                                 f"written as one file: "
+                                 f"{item.segments[0].destination.name}")
+                    self._log_q.put(("log", f"  {note_text}\n"))
                     if reporter is not None:
-                        reporter.progress(done, total, item_id=item_id,
-                                          stage=STAGE_CONVERT)
-                    continue
+                        reporter.warning(note_text, "chapterless source (18A)")
+                if item.undecodable_xhe:
+                    trouble = (f"{in_file.name} is xHE-AAC and this ffmpeg "
+                               "build has no decoder for it on this platform, "
+                               "so the output may be sped up or choppy.")
+                    self._log_q.put(("log", f"  \u26a0 WARNING: {trouble}\n"))
+                    if reporter is not None:
+                        reporter.warning(trouble, f"codec={item.codec_hint}")
 
-                segment = item.segments[0]
-                out_mp3 = segment.destination
-                succeeded = False
-                started = clock() if timed else None
-                try:
-                    # Re-checked here because this is the last moment before
-                    # ffmpeg is told to write, and a source that has since moved
-                    # must not be hit.
-                    output_paths.assert_not_input(
-                        out_mp3, tuple(entry.path for entry in imported))
-                    out_mp3.parent.mkdir(parents=True, exist_ok=True)
+                for segment in item.segments:
+                    # **The safe checkpoint, and it now sits between segments.**
+                    # An ffmpeg encode is indivisible, so a pause asked for
+                    # during one is honoured here -- after that segment has been
+                    # measured and finalised, never by suspending the process.
+                    try:
+                        checkpoint()
+                    except ConversionCancelled:
+                        cancelled = True
+                        break
 
-                    if plan.split and not item.chaptered:
-                        # Decision 18A: a genuinely chapterless book is a success
-                        # in split mode, written whole and named as a whole book.
-                        note_text = (f"{in_file.name} has no chapters, so it was "
-                                     f"written as one file: {out_mp3.name}")
-                        self._log_q.put(("log", f"  {note_text}\n"))
-                        if reporter is not None:
-                            reporter.warning(note_text, "chapterless source (18A)")
-                    if item.undecodable_xhe:
-                        trouble = (f"{in_file.name} is xHE-AAC and this ffmpeg "
-                                   "build has no decoder for it on this platform, "
-                                   "so the output may be sped up or choppy.")
-                        self._log_q.put(("log", f"  ⚠ WARNING: {trouble}\n"))
-                        if reporter is not None:
-                            reporter.warning(trouble, f"codec={item.codec_hint}")
+                    if item.fragment:
+                        tags = m4b_metadata.segment_tags(
+                            plan.metadata_mode,
+                            title=segment.title,
+                            order=segment.track or segment.order,
+                            source=item.tags,
+                            replacement=plan.replacement,
+                        )
+                    else:
+                        # Transitional: positional, exactly as this tool has
+                        # always numbered. Success-only allocation is Phase 12's
+                        # and is deliberately not implemented here.
+                        number = (plan.start_number + index
+                                  if plan.auto_number else None)
+                        tags = m4b_metadata.whole_book_tags(
+                            plan.metadata_mode,
+                            source=item.tags,
+                            replacement=plan.replacement,
+                            track=number,
+                        )
 
-                    # Every metadata, chapter-map and artwork decision was frozen
-                    # by the plan; nothing here is policy.
-                    number = None
-                    if plan.auto_number:
-                        number = plan.start_number + index
-                    tags = m4b_metadata.whole_book_tags(
-                        plan.metadata_mode,
-                        source=item.tags,
-                        replacement=plan.replacement,
-                        track=number,
-                    )
-                    picture = (item.picture
-                               if m4b_metadata.wants_artwork(plan.metadata_mode)
-                               else None)
-                    output_args = m4b_metadata.metadata_args(
-                        tags,
-                        keep_chapters=m4b_metadata.retains_chapters(
-                            plan.metadata_mode, split=item.fragment),
-                    )
-                    if tags:
-                        # ID3v2.3 rather than ffmpeg's 2.4 default, unchanged from
-                        # this tool's long-standing behaviour: Windows Explorer
-                        # and several players read 2.3 and ignore 2.4.
-                        output_args += ["-id3v2_version", "3"]
-                    cmd = m4b_commands.whole_book_argv(
-                        ffmpeg=ffmpeg_utils.ffmpeg_cmd(),
+                    work = m4b_execution.SegmentWork(
                         source=in_file,
-                        destination=str(out_mp3),
+                        destination=segment.destination,
+                        expected_duration=segment.duration,
                         quality=plan.quality,
+                        metadata_mode=plan.metadata_mode,
+                        tags=tags,
                         decoder_args=item.decoder_args,
-                        output_args=output_args,
-                        attached_picture=(None if picture is None
-                                          else picture.stream_index),
+                        picture=item.picture,
+                        span=((segment.start, segment.end) if item.fragment
+                              else None),
                     )
 
-                    command_line = " ".join(str(part) for part in cmd)
                     self._log_q.put((
-                        "log",
-                        f"\n[{index + 1}/{len(plan.items)}] Converting:\n"
-                        f"  {in_file}\n  -> {out_mp3}\n"))
-                    self._log_q.put(("log", "  ffmpeg: " + command_line + "\n"))
-                    if reporter is not None:
-                        reporter.technical(f"[{index + 1}] {command_line}")
-
-                    proc = sp.run(cmd, stdout=PIPE, stderr=STDOUT, text=True)
-                    if proc.returncode != 0:
-                        self._log_q.put(("log", (proc.stdout or "")[-2000:] + "\n"))
-                        try:
-                            out_mp3.unlink(missing_ok=True)
-                        except OSError:
-                            pass
-                        raise RuntimeError(f"FFmpeg failed (code {proc.returncode}).")
-
-                    # The duration the plan already measured is compared against
-                    # what was actually produced. The source is **not** re-probed:
-                    # preflight read it once, and asking twice is how two answers
-                    # about one file appear.
-                    src_dur = item.duration
-                    out_info = ffmpeg_utils.probe_audio_stream(out_mp3)
-                    out_dur = out_info.get("duration") if out_info else None
-                    if src_dur and out_dur and src_dur > 1.0:
-                        drift = abs(out_dur - src_dur) / src_dur
-                        if drift > 0.03:
-                            try:
-                                out_mp3.unlink(missing_ok=True)
-                            except OSError:
-                                pass
-                            raise RuntimeError(
-                                "output length {:.0f}s != source {:.0f}s ({:.0%} off) — the "
-                                "source could not be decoded correctly (likely xHE-AAC with "
-                                "no compatible decoder on this platform). Output discarded.".format(
-                                    out_dur, src_dur, drift
-                                )
-                            )
-
-                    self._log_q.put(("log", "  ✓ Done\n"))
-                    succeeded = True
-                    completed.append(item_id)
-                except Exception as e:
-                    self._log_q.put(("log", f"  ✗ Error: {e}\n"))
-                    note(item_id, f"{in_file.name} could not be converted.",
-                         f"{type(e).__name__}: {e}", STAGE_CONVERT)
-                finally:
+                        "log", f"  -> {segment.destination}\n"))
+                    started = clock() if timed else None
+                    outcome = m4b_execution.convert_segment(
+                        work,
+                        ffmpeg=ffmpeg_utils.ffmpeg_cmd(),
+                        cancelled=interrupted,
+                        measure=measured_duration,
+                        sources=tuple(entry.path for entry in imported),
+                        on_command=announce,
+                    )
                     ended = clock() if timed else None
-                    if succeeded and started is not None:
-                        self._log_q.put((TIMING_MESSAGE, TimingSample(
-                            run_id=run_id, attempt=attempt, category=ETA_CATEGORY,
-                            duration=float(ended) - float(started))))
+
+                    if outcome.cancelled:
+                        cancelled = True
+                        break
+                    if not outcome.finalised:
+                        failure = outcome
+                        self._log_q.put(("log", f"  \u2717 {outcome.message}\n"))
+                        done += 1
+                        if reporter is not None:
+                            reporter.progress(done, total, item_id=item_id,
+                                              stage=STAGE_CONVERT)
+                        break
+
+                    finalised.append(outcome.destination)
+                    self._log_q.put(("log", "  \u2713 Done\n"))
                     done += 1
+                    if started is not None:
+                        self._log_q.put((TIMING_MESSAGE, TimingSample(
+                            run_id=run_id, attempt=attempt,
+                            category=ETA_CATEGORY,
+                            duration=float(ended) - float(started))))
                     if reporter is None:
                         self._log_q.put(("progress", (done, total)))
                     else:
                         reporter.progress(done, total, item_id=item_id,
                                           stage=STAGE_CONVERT)
+
+                if cancelled or failure is not None:
+                    # **A partially split book must never look complete.** The
+                    # segments already written for *this* item are taken back;
+                    # every other book's finished work is untouched.
+                    removed = m4b_execution.remove_outputs(
+                        finalised, inside=plan.run_directory)
+                    if removed:
+                        self._log_q.put((
+                            "log",
+                            f"  {len(removed)} incomplete file(s) for "
+                            f"{in_file.name} were removed.\n"))
+
+                if failure is not None:
+                    # Named by book *and* by output: a split run has many
+                    # outputs per book, and "which file" is the first thing
+                    # a person needs to know.
+                    note(item_id, f"{in_file.name}: {failure.message}",
+                         failure.detail, STAGE_CONVERT)
+                elif not cancelled:
+                    completed.append(item_id)
+
+                if cancelled:
+                    # Settled only now: the child is reaped, its temporary file
+                    # is gone and the partial book has been taken back. The
+                    # checkpoint is what records the acknowledgement, without
+                    # which the controller refuses to report CANCELLED at all.
+                    try:
+                        checkpoint()
+                    except ConversionCancelled:
+                        pass
+                    break
 
         if snapshot is not None:
             log = FailureLog(snapshot_id=snapshot.snapshot_id, records=tuple(failures))

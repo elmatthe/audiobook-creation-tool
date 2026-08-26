@@ -245,6 +245,7 @@ def attach_artwork_argv(
     artwork_source,
     artwork_stream: int,
     destination: str,
+    output_args: Sequence[str] = (),
 ) -> list[str]:
     """Put a cover onto an already-encoded split segment, without touching it.
 
@@ -291,5 +292,13 @@ def attach_artwork_argv(
         "-disposition:v:0", "attached_pic",
         "-map_metadata", "0",
         "-map_chapters", "-1",
+        # v0.6.2 Plan 5 Phase 11 added this seam, and one measurement is the
+        # whole reason. This pass re-muxes, so the mp3 muxer decides the ID3
+        # version again -- and its default is 2.4. Measured on produced media:
+        # every other output this tool writes carried ID3v2.3 and a covered
+        # split fragment carried 2.4, so one run produced two tag versions and
+        # Windows Explorer reads only the older one. Additive and defaulted to
+        # empty, so the argv is byte-identical for every existing caller.
+        *_arguments(output_args, "output_args"),
         str(destination),
     ]

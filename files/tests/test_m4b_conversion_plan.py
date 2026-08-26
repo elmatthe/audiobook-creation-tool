@@ -61,7 +61,7 @@ from shared.importing import (
     capture_identity,
 )
 
-from mp3_tools import m4b_converter, m4b_plan, m4b_probe
+from mp3_tools import m4b_converter, m4b_execution, m4b_plan, m4b_probe
 from mp3_tools.m4b_chapters import ChapterProbe, ProbeStatus, SourceChapter
 from mp3_tools.m4b_metadata import AttachedPicture, MetadataMode, SourceTags
 from mp3_tools.m4b_plan import (
@@ -235,8 +235,17 @@ def install_conversion_stubs(monkeypatch, state: dict) -> dict:
     so all three modules drive the production worker through exactly the same
     seams rather than three slightly different imitations of it.
 
-    ``state`` is read on every call, so a test can change ``reports`` or ``fail``
-    after the panel is built and before the worker runs.
+    v0.6.2 Plan 5 Phase 11 moved the stub **down one layer**: the executor is
+    real, so it still builds the pinned commands, creates and discards its
+    temporary files, refuses an occupied destination and installs the finished
+    candidate. Only ``run_argv`` -- the one function that spawns a child -- is
+    replaced. So these tests still assert on real command shapes and real
+    destinations, and the process lifecycle itself is proved separately in
+    ``test_m4b_execution`` against actual child processes.
+
+    ``state["fail"]`` names **sources** rather than outputs, because a split book
+    has many outputs and one source. ``state`` is read on every call, so a test
+    may change it after the panel is built.
     """
     StubThread.started = []
     state.setdefault("fail", ())
@@ -244,12 +253,15 @@ def install_conversion_stubs(monkeypatch, state: dict) -> dict:
     state.setdefault("reports", {})
     state.setdefault("default_report", report())
     state.setdefault("probed", [])
+    state.setdefault("outcome", None)
 
     monkeypatch.setattr(m4b_converter.threading, "Thread", StubThread)
     monkeypatch.setattr(m4b_converter.ffmpeg_utils, "have_ffmpeg", lambda: True)
     monkeypatch.setattr(m4b_converter.ffmpeg_utils, "ffmpeg_cmd", lambda: "ffmpeg")
-    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "probe_audio_stream", lambda p: {})
     monkeypatch.setattr(m4b_converter.sp, "reveal_in_file_manager", lambda target: None)
+    # Nothing real was encoded, so nothing real can be measured. The drift guard
+    # is exercised against actual media in the Phase 11 module instead.
+    monkeypatch.setattr(m4b_converter, "measured_duration", lambda path: None)
 
     def probe(path, **kwargs):
         state["probed"].append(Path(path))
@@ -257,13 +269,22 @@ def install_conversion_stubs(monkeypatch, state: dict) -> dict:
 
     monkeypatch.setattr(m4b_converter.m4b_probe, "probe_source", probe)
 
-    def run(cmd, **kwargs):
-        state["commands"].append([str(part) for part in cmd])
-        if Path(str(cmd[-1])).name in state["fail"]:
-            return _Proc(1, "ffmpeg said no")
-        return _Proc(0)
+    def run_argv(argv, *, cancelled, workspace, **kwargs):
+        joined = [str(part) for part in argv]
+        state["commands"].append(joined)
+        decide = state.get("outcome")
+        if decide is not None:
+            verdict = decide(joined)
+            if verdict is not None:
+                return verdict
+        if cancelled():
+            return m4b_execution.ProcessResult(None, cancelled=True)
+        line = " ".join(joined)
+        if any(name in line for name in state["fail"]):
+            return m4b_execution.ProcessResult(1, detail="ffmpeg said no")
+        return m4b_execution.ProcessResult(0)
 
-    monkeypatch.setattr(m4b_converter.sp, "run", run)
+    monkeypatch.setattr(m4b_execution, "run_argv", run_argv)
     state["threads"] = StubThread
     return state
 
@@ -1247,6 +1268,7 @@ def test_a_run_with_nothing_usable_shows_no_new_folder(make_panel, tmp_path, run
     assert run_env["commands"] == [], "nothing was converted"
 
 
+
 def test_a_usable_run_writes_into_the_reserved_folder(make_panel, tmp_path, run_env):
     panel = make_panel()
     add(panel, book(tmp_path / "src", "A.m4b"))
@@ -1254,8 +1276,10 @@ def test_a_usable_run_writes_into_the_reserved_folder(make_panel, tmp_path, run_
     assert plan.run_directory == tmp_path / "run-1"
     assert panel._last_run_dir == plan.run_directory
     assert str(plan.run_directory) in panel.var_outdir.get()
-    assert run_env["commands"][0][-1].endswith("A.mp3")
-
+    # The executor finalises onto the frozen destination and leaves no
+    # temporary artifact beside it.
+    assert (plan.run_directory / "A.mp3").exists()
+    assert [p.name for p in plan.run_directory.iterdir()] == ["A.mp3"]
 
 def test_an_unusable_book_is_reported_as_a_failure(make_panel, tmp_path, run_env):
     panel = make_panel()
@@ -1725,27 +1749,39 @@ def test_the_panel_stays_classic():
     assert "ACT." not in PANEL_SOURCE.read_text(encoding="utf-8")
 
 
-def test_split_execution_has_not_arrived(make_panel, tmp_path, run_env):
-    """A multi-segment item is refused truthfully rather than half-converted."""
+
+def test_split_execution_arrived(make_panel, tmp_path, run_env):
+    """**A deliberate progression: Phase 11 is the phase that executes a split.**
+
+    Through Phase 10 a multi-segment item was refused truthfully because nothing
+    could write it. It is now written: every planned segment is produced, in the
+    frozen order, at the frozen destinations.
+    """
     panel = make_panel()
     add(panel, book(tmp_path / "src", "A.m4b"))
-    params = start(panel)
-    params["options"] = PlanOptions(mode=ConversionMode.SPLIT)
+    panel.var_mode.set(ConversionMode.SPLIT.value)
     run_env["default_report"] = report(duration=600.0,
                                        chapter_list=chapters(0.0, 200.0, 400.0))
-    with mock.patch.object(output_paths, "reserve_run_directory",
-                           side_effect=_reservation(tmp_path)):
-        panel.convert_worker(params)
-    panel._pump.tick()
+    plan = convert(panel, tmp_path, run_env)
 
-    assert panel.run_plan.total_segments == 3, "it was planned in full"
-    assert run_env["commands"] == [], "and none of it was written"
-    assert panel.run_result.failed_count == 1
-    assert "cannot write yet" in "\n".join(panel.jobs.views.summary)
+    assert plan.mode is ConversionMode.SPLIT
+    assert plan.total_segments == 3
+    produced = sorted(p.name for p in plan.run_directory.iterdir())
+    assert produced == ["01 - Chapter 1.mp3", "02 - Chapter 2.mp3",
+                        "03 - Chapter 3.mp3"]
+    assert panel.run_result.succeeded_count == 1
+    assert panel.run_result.failed_count == 0
 
 
-def test_the_panel_offers_only_the_mode_it_can_execute(make_panel):
-    """The Split control arrives with the engine that can honour it."""
+def test_the_panel_now_offers_the_mode_it_can_execute(make_panel):
+    """**A deliberate progression.** Phase 10 withheld the control on purpose.
+
+    It is exposed now, in the same phase that implements the engine behind it,
+    which is the rule Phase 10 stated when it declined to add it: no control
+    advertises work the tool cannot do.
+    """
     panel = make_panel()
-    assert not hasattr(panel, "var_mode")
+    assert panel.var_mode.get() == ConversionMode.WHOLE.value
     assert panel.read_options().mode is ConversionMode.WHOLE
+    panel.var_mode.set(ConversionMode.SPLIT.value)
+    assert panel.read_options().mode is ConversionMode.SPLIT

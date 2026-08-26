@@ -58,7 +58,7 @@ from shared import job_control as jc  # noqa: E402
 from shared import job_ui  # noqa: E402
 from shared import output_paths  # noqa: E402
 
-from mp3_tools import m4b_converter  # noqa: E402
+from mp3_tools import m4b_converter, m4b_execution  # noqa: E402
 
 from test_import_coordination import RecordingThreads  # noqa: E402
 from test_importing import make_config  # noqa: E402
@@ -266,7 +266,7 @@ def test_a_clean_run_settles_succeeded(make_panel, tmp_path, run_env):
 def test_a_failed_book_settles_completed_with_failures(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    run_env["fail"] = ("B.mp3",)
+    run_env["fail"] = ("B.m4b",)
     work(panel, tmp_path, run_env)
     assert panel.job_controller.state is jc.JobState.COMPLETED_WITH_FAILURES
     assert panel.run_result.failed_count == 1
@@ -277,7 +277,7 @@ def test_a_failed_book_does_not_stop_the_others(make_panel, tmp_path, run_env):
     """Per-item isolation: one book failing never cancels the run."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    run_env["fail"] = ("A.mp3",)
+    run_env["fail"] = ("A.m4b",)
     work(panel, tmp_path, run_env)
     assert panel.run_result.succeeded_count == 2
     assert not panel.run_result.cancelled
@@ -600,53 +600,52 @@ def test_the_pause_button_is_offered_only_while_running(make_panel, tmp_path, ru
     assert controls.availability()[jc.JobAction.RESUME] is False
 
 
-def test_the_worker_acknowledges_a_pause_only_between_books(
+
+def test_the_worker_acknowledges_a_pause_only_between_segments(
         make_panel, tmp_path, run_env):
-    """A real thread, real signals, bounded waits -- and no sleep anywhere."""
+    """A real thread. The encode in hand is never interrupted by a pause."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
     params = start(panel)
 
-    entered = threading.Event()
-    release = threading.Event()
-    real_run = m4b_converter.sp.run
+    entered, release = threading.Event(), threading.Event()
     seen: list = []
+    real = m4b_execution.run_argv
 
-    def gated(cmd, **kwargs):
-        seen.append(cmd)
+    def gated(argv, **kwargs):
+        seen.append(list(argv))
         if len(seen) == 1:
             entered.set()
-            assert release.wait(WAIT), "the first book was never released"
-        return real_run(cmd, **kwargs)
+            assert release.wait(WAIT), "the first encode was never released"
+        return real(argv, **kwargs)
 
-    m4b_converter.sp.run = gated
-    try:
-        worker = RealThread(
-            target=panel.convert_worker, args=(params,), name="m4b-pause")
+    with mock.patch.object(m4b_execution, "run_argv", gated), \
+            mock.patch.object(output_paths, "reserve_run_directory",
+                              side_effect=_reservation(tmp_path)):
+        worker = RealThread(target=panel.convert_worker, args=(params,),
+                            name="m4b-pause")
         worker.start()
-        assert entered.wait(WAIT), "the first conversion never began"
+        assert entered.wait(WAIT), "the first encode never began"
 
-        # Pause is asked for while the first book is being converted. Its stage
-        # is indivisible, so the controller must still be *requesting*.
+        # Pause is asked for while the first segment is encoding. That call is
+        # indivisible, so the controller must still be *requesting*.
         panel.pause()
         assert panel.job_controller.state is jc.JobState.PAUSE_REQUESTED
 
         release.set()
-        # The worker now reaches the boundary and acknowledges there.
-        deadline = threading.Event()
+        waiter = threading.Event()
         for _ in range(int(WAIT * 200)):
             if panel.job_controller.state is jc.JobState.PAUSED:
                 break
-            deadline.wait(0.005)
+            waiter.wait(0.005)
         assert panel.job_controller.state is jc.JobState.PAUSED
-        assert len(seen) == 1, "no later book started while paused"
+        assert len(seen) == 1, "no later segment started while paused"
 
         panel.resume()
         worker.join(WAIT)
         assert not worker.is_alive()
         assert len(seen) == 2, "resume did not wake the worker"
-    finally:
-        m4b_converter.sp.run = real_run
+
     panel._pump.tick()
     assert panel.job_controller.state is jc.JobState.SUCCEEDED
 
@@ -657,24 +656,24 @@ def test_cancel_wakes_a_worker_waiting_at_a_paused_checkpoint(
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
     params = start(panel)
 
-    entered = threading.Event()
-    release = threading.Event()
-    real_run = m4b_converter.sp.run
+    entered, release = threading.Event(), threading.Event()
     seen: list = []
+    real = m4b_execution.run_argv
 
-    def gated(cmd, **kwargs):
-        seen.append(cmd)
+    def gated(argv, **kwargs):
+        seen.append(list(argv))
         if len(seen) == 1:
             entered.set()
-            assert release.wait(WAIT), "the first book was never released"
-        return real_run(cmd, **kwargs)
+            assert release.wait(WAIT), "the first encode was never released"
+        return real(argv, **kwargs)
 
-    m4b_converter.sp.run = gated
-    try:
-        worker = RealThread(
-            target=panel.convert_worker, args=(params,), name="m4b-cancel")
+    with mock.patch.object(m4b_execution, "run_argv", gated), \
+            mock.patch.object(output_paths, "reserve_run_directory",
+                              side_effect=_reservation(tmp_path)):
+        worker = RealThread(target=panel.convert_worker, args=(params,),
+                            name="m4b-cancel")
         worker.start()
-        assert entered.wait(WAIT), "the first conversion never began"
+        assert entered.wait(WAIT), "the first encode never began"
         panel.pause()
         release.set()
 
@@ -688,12 +687,9 @@ def test_cancel_wakes_a_worker_waiting_at_a_paused_checkpoint(
         panel.cancel()
         worker.join(WAIT)
         assert not worker.is_alive(), "cancel did not wake the paused worker"
-    finally:
-        m4b_converter.sp.run = real_run
 
     assert panel.job_controller.state is jc.JobState.CANCELLED
-    assert len(seen) == 1, "no book started after the cancellation"
-
+    assert len(seen) == 1, "no encode started after the cancellation"
 
 def test_nothing_in_this_panel_can_suspend_or_kill_a_process():
     """The strongest form of "we never claim ffmpeg was frozen": we cannot."""
@@ -732,37 +728,37 @@ def test_a_cancel_request_stops_later_books_starting(make_panel, tmp_path, run_e
 
 
 
-def test_the_book_already_being_converted_is_not_interrupted(
-        make_panel, tmp_path, run_env):
-    """The current limitation, asserted rather than glossed over.
 
-    Cancel settles at the next boundary between books. The ffmpeg call already
-    running is left to finish, because this phase does not own its process
-    lifecycle -- Phase 11 does.
+def test_cancel_now_stops_the_book_being_converted(make_panel, tmp_path, run_env):
+    """**A deliberate progression: the Phase 9/10 limitation is gone.**
+
+    Through Phase 10 this asserted the opposite -- that the ffmpeg call already
+    running was left to finish, because nothing owned its lifecycle. Phase 11
+    owns it, so a cancellation now reaches the child mid-encode, and the
+    half-written output is taken back rather than finalised.
     """
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
     params = start(panel)
 
-    real_run = m4b_converter.sp.run
+    real = m4b_execution.run_argv
 
-    def cancel_midway(cmd, **kwargs):
-        result = real_run(cmd, **kwargs)
-        panel.cancel()          # asked for while this book is converting
-        return result
+    def cancel_midway(argv, **kwargs):
+        panel.cancel()                      # asked for while this child runs
+        return real(argv, **kwargs)
 
-    m4b_converter.sp.run = cancel_midway
-    try:
-        with mock.patch.object(output_paths, "reserve_run_directory",
-                               side_effect=_reservation(tmp_path)):
-            panel.convert_worker(params)
-    finally:
-        m4b_converter.sp.run = real_run
+    run_env["outcome"] = lambda joined: None
+    with mock.patch.object(m4b_execution, "run_argv", cancel_midway), \
+            mock.patch.object(output_paths, "reserve_run_directory",
+                              side_effect=_reservation(tmp_path)):
+        panel.convert_worker(params)
     panel._pump.tick()
 
-    assert len(run_env["commands"]) == 1, "the request stopped the run at a boundary"
-    assert panel.run_plan.run_directory.exists()
     assert panel.job_controller.state is jc.JobState.CANCELLED
+    plan = panel.run_plan
+    assert not plan.items[0].segments[0].destination.exists(), (
+        "the interrupted output must not be finalised")
+    assert list(plan.run_directory.iterdir()) == [], "and nothing is left behind"
 
 def test_a_cancelled_run_reports_the_books_it_never_reached(
         make_panel, tmp_path, run_env):
@@ -904,21 +900,24 @@ def test_a_failure_reaches_both_but_says_different_things(
         make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    run_env["fail"] = ("A.mp3",)
+    run_env["fail"] = ("A.m4b",)
     work(panel, tmp_path, run_env)
 
     summary = "\n".join(panel.jobs.views.summary)
     details = "\n".join(panel.jobs.views.details)
-    assert "A.m4b could not be converted." in summary
-    assert "RuntimeError" in details
-    assert "RuntimeError" not in summary, "a traceback type is not a Summary line"
+    # The book **and** the specific output: a split run has many outputs per
+    # book, so "which file" is the first thing a person needs to know.
+    assert "A.m4b: A.mp3 could not be written." in summary
+    assert "ffmpeg exited 1" in details
+    assert "ffmpeg exited" not in summary, "an exit code is not a Summary line"
+    assert "ffmpeg said no" in details, "the bounded diagnostic tail reaches Details"
 
 
 def test_the_logger_bridge_receives_the_technical_events(
         make_panel, tmp_path, run_env, logger):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
-    run_env["fail"] = ("A.mp3",)
+    run_env["fail"] = ("A.m4b",)
     work(panel, tmp_path, run_env)
 
     levels = {level for level, _text in logger.records}
@@ -1013,7 +1012,7 @@ def test_a_failed_book_still_advances_its_unit(make_panel, tmp_path, run_env):
     """The unit is a book the run *settled*, not a book that succeeded."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    run_env["fail"] = ("A.mp3",)
+    run_env["fail"] = ("A.m4b",)
     work(panel, tmp_path, run_env)
     view = panel.jobs.summary_view.progress
     assert (view.completed, view.total) == (2, 2)
@@ -1115,7 +1114,7 @@ def test_the_worker_measures_one_sample_per_finished_book(
 def test_a_book_that_failed_contributes_no_sample(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b", "C.m4b"))
-    run_env["fail"] = ("B.mp3",)
+    run_env["fail"] = ("B.m4b",)
     work(panel, tmp_path, run_env)
     assert panel.job_estimator.sample_count == 2
 
@@ -1178,7 +1177,7 @@ def test_the_worker_never_holds_the_estimator(make_panel, tmp_path, run_env):
 def test_retry_failed_is_rendered_but_never_available(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    run_env["fail"] = ("B.mp3",)
+    run_env["fail"] = ("B.m4b",)
     work(panel, tmp_path, run_env)
 
     controls = panel.jobs.controls
@@ -1191,7 +1190,7 @@ def test_the_run_really_did_hold_something_retryable(make_panel, tmp_path, run_e
     """So the control's unavailability is a phase boundary, not an accident."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
-    run_env["fail"] = ("B.mp3",)
+    run_env["fail"] = ("B.m4b",)
     work(panel, tmp_path, run_env)
     assert panel.run_result.has_retryable is True
     assert panel.jobs.has_retryable is False, "the adapter was never handed it"
@@ -1233,6 +1232,7 @@ def test_destinations_still_come_from_provenance(make_panel, tmp_path, run_env):
     assert by_name["Nested.m4b"] == run / "Series" / "Nested.mp3"
 
 
+
 def test_the_worker_plans_nothing_of_its_own_after_the_plan_exists(
         make_panel, tmp_path, run_env):
     panel = make_panel()
@@ -1242,8 +1242,11 @@ def test_the_worker_plans_nothing_of_its_own_after_the_plan_exists(
     plan = panel.run_plan
     assert {item.occurrence_id for item in plan.items} == set(
         panel.run_snapshot.item_ids)
-    assert run_env["commands"][0][-1] == str(plan.items[0].segments[0].destination)
-
+    # The file exists at exactly the path the plan froze -- nothing renamed it,
+    # and nothing chose a new one during execution.
+    planned = plan.items[0].segments[0].destination
+    assert planned.exists()
+    assert planned.parent == plan.run_directory
 
 def test_a_mixed_run_still_shares_one_collision_domain(make_panel, tmp_path, run_env):
     root = tmp_path / "Library"
@@ -1285,13 +1288,15 @@ def test_no_chapter_probe_orchestration_arrived():
 
 
 
-def test_phase_ten_arrived_and_phase_eleven_did_not():
-    """**A deliberate progression.** Phase 10 is the phase that adopts these.
 
-    Through Phase 9 this guard asserted that no Converter-local media module had
-    reached the panel. Phase 10 is authorized to bring in the preflight and the
-    plan, so the guard is turned around rather than deleted: the panel must name
-    them, and it must still name nothing from the execution engine that follows.
+def test_phase_eleven_arrived_and_phase_twelve_did_not():
+    """**A deliberate progression.** Phase 11 is the phase that executes.
+
+    Through Phase 10 this required the panel to name the preflight and the plan
+    while refusing everything the execution engine owns. Phase 11 brings that
+    engine in -- as its own module, so the panel names ``m4b_execution`` and
+    still names no process primitive itself. What must remain absent is the
+    numbering allocator and Retry Failed.
     """
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     modules: set[str] = set()
@@ -1303,12 +1308,12 @@ def test_phase_ten_arrived_and_phase_eleven_did_not():
                 modules.add(alias.name)
             if node.module:
                 modules.add(node.module)
-    for required in ("m4b_plan", "m4b_probe", "m4b_metadata", "m4b_commands"):
+    for required in ("m4b_plan", "m4b_probe", "m4b_metadata", "m4b_execution"):
         assert required in modules, required
 
     body = named(tree)
-    for banned in ("segment_argv", "attach_artwork_argv", "segment_commands",
-                   "Popen", "terminate", "kill"):
+    for banned in ("Popen", "popen", "terminate", "kill", "temporary_sibling",
+                   "atomic_replace", "segment_argv", "attach_artwork_argv"):
         assert banned not in body, banned
 
 def test_the_panel_is_still_classic():
