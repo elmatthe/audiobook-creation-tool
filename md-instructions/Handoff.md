@@ -29,10 +29,11 @@
 > - **The bounded Tk test-lifecycle remediation `c5129a0` is maintainer-approved**, and
 >   **Phase 11 `17f577ff` is maintainer-approved** on top of it — its final gate was
 >   **first-attempt green with no retry**, which is what the remediation existed to make
->   possible. **Phase 12 `dc814b11` is maintainer-approved**, and **Phase 13 is COMMITTED
->   and complete** on top of it — also first-attempt green, and it carries an explicit
->   **maintainer correction to the active drop's retry contract** (see the Phase 13 entry).
->   **Phase 14 has NOT started** and needs explicit maintainer approval.
+>   possible. **Phase 13 `b68b425f` is maintainer-approved** — it carries an explicit
+>   **maintainer correction to the active drop's retry contract** (see the Phase 13 entry) —
+>   and **Phase 14 is COMMITTED and complete** on top of it, also first-attempt green.
+>   **Phase 15 (the Windows manual matrix) has NOT started** and needs explicit maintainer
+>   approval.
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -930,6 +931,76 @@
 >     execute it, which a path check cannot see. Either the regression runs and passes or the gate
 >     is red. Collection and the inherited 14 skips are unchanged; Plan 5 Phases 1–5 now contain
 >     **no `skip`, `skipif`, `importorskip`, `xfail` or environment-gated deselection at all**.
+>   - **Phase 14** (2026-08-28): structural and regression hardening. A proof phase, so the
+>     first work was an **audit of Phases 1-13 rather than new tests**: the importer control
+>     surface, Decision 16A, the recursion contract, occurrence identity, the Plan 3 boundary and
+>     the whole Plan 4 regression surface were already covered, and duplicating them would have
+>     bought nothing. What is new is the remainder — the seams those phases left standing on a
+>     caller's good behaviour rather than on a mechanism. One production file changed.
+>     **The `retried_ids` disposition (drop Observation A): made load-bearing.** At `b68b425f`
+>     `merge_attempt` accepted the attempt's boundary and never read it; it was correct only
+>     because its one caller happened to hand it a matching subset, which is a property of the
+>     caller and not of the seam. Both halves of what an attempt reports are now restricted to
+>     `retried_ids`, so an occurrence the attempt was not asked to repeat is settled from the
+>     prior result alone whatever the attempt says about it. **Deliberately silent rather than
+>     raising**: this seam produces the run's one terminal disposition, so refusing here would
+>     leave a finished run with no result at all and a panel still reporting itself busy — worse,
+>     for the person waiting, than declining to believe a claim about a book that never ran. The
+>     shared layer keeps `JobContractError` for values it can reject *before* any work happened.
+>     **Proved, not asserted.** The five adversarial tests were run against the Phase 13 body with
+>     the two filter lines swapped back, and all five **failed**; the file was restored
+>     byte-identical afterwards. Two of them are the interesting ones: a stray completion for an
+>     unretried failed book used to clear its failure, and a record naming an id outside the
+>     snapshot entirely used to **raise `JobContractError` out of the worker thread** — because
+>     `RunResult.__post_init__` already refuses a foreign id. That is the useful discovery: the
+>     shared layer polices "outside the *snapshot*"; nothing policed "outside this *attempt*",
+>     which is what the merge seam owns and now enforces.
+>     **The scratch tree was preserved, not removed.** `files/runtime-data/phase14/tree-phase12/`
+>     was inspected read-only: ignored by `.gitignore:29` (`files/runtime-data/`), untracked,
+>     **not** a worktree or repository (no `.git` anywhere inside, and `.git/worktrees` lists only
+>     `act-phase12-degraded`), dated 2026-08-21. It sits beside genuine Plan 4 Phase 12/13/14
+>     evidence — `full-suite-run1.log`, `nodes-phase12.txt`, `nodes-phase13.txt`,
+>     `degraded_report.json`, the degraded probes and a `no-chatterbox-venv` — and the whole
+>     `phase14/` folder is 2.2 GB across 49,294 files. It is a *copy* of the tree at Plan 4 Phase
+>     12, which is why root-level pytest sees 83 duplicate basenames. **Left in place**: it is
+>     historical evidence nobody has retired, the canonical gate already scopes itself correctly
+>     to `files/tests`, and destroying evidence to make a non-canonical command convenient is the
+>     wrong trade. No broad pytest configuration was added and `verify.py` was not touched.
+>     **Findings on the seven structural targets.** *No second authoritative queue* — still true;
+>     added the retry half of it, which nothing had covered: `retry_failed` names no manager,
+>     importer, catalog or list, and a retry run **after `manager.clear()`** still executes the
+>     frozen book. *Decision 14A* — all six controls present; added multi-row remove and multi-row
+>     move (identity and selection survive both), transactional `Clear All` with no stale
+>     selection, and **locking through a retry**, which was real behaviour that nothing asserted.
+>     *Decision 16A* — one type; added that disabling it **declines new imports without emptying
+>     the queue**, that it cannot reach a run already frozen, and a structural guard that `".m4b"`
+>     appears **exactly once**, inside `build_catalog`. *Recursion* — added that two consecutive
+>     imports on one live panel may disagree about it, and that a shallow import mirrors only what
+>     entered the snapshot (no `Series/` in the output tree). *Occurrence identity* — added
+>     `refresh()` restoring by id, and duplicates staying distinct **in the settled result**, which
+>     is where a path-keyed collapse would have shown. *`ADOPTED`* — needed **no change**: Phases
+>     7B/8/10 already added the three Converter modules and the guard measures the tuple against
+>     the tree in both directions. Pinned instead that `ADOPTED` and `UNCONVERTED_PANELS`
+>     **disagree about `m4b_converter.py` on purpose** — Plan 3 adoption is not Plan 1 visual
+>     conversion — because the instinct on finding one name in two opposite-looking lists is to
+>     delete it from one. `UNCONVERTED_PANELS` is byte-unchanged. *Plan 4* — no regression, and
+>     no new tests: TTS PDF/TXT-only, the EPUB retirement, TTS/Cover recursion defaults and
+>     multi-level folder imports, Cover browser/jobs, `ui_theme`, Chatterbox boundaries and
+>     `tk_gate` are all already covered, so the proof is 627 passed / 1 skipped across them.
+>     Gate: **4962 collected / 4948 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **FIRST ATTEMPT with NO RETRY**, `verify.py` PASS on its first and only invocation. The
+>     **+33** delta is exactly the new `files/tests/test_m4b_hardening.py`; every skip is
+>     pre-existing and no skip, xfail or deselection was added. `compileall` clean, `pip check`
+>     clean, `git diff --check -- scripts/ files/` exit 0. Bare `git diff --check` still reports
+>     every added `Handoff.md` line as trailing whitespace: that is this file's **inherited
+>     CRLF** under `* text=auto`, it is expected, and it is not normalized. Every shared module,
+>     TTS, Cover, `m4b_execution.py`,
+>     `m4b_numbering.py`, `m4b_probe.py`, `m4b_commands.py`, `m4b_metadata.py`,
+>     `m4b_destinations.py`, `m4b_plan.py`, `m4b_chapters.py`, the Tk remediation, the launcher,
+>     `verify.py` and `config.toml` are **byte-unchanged**; version stays `0.6.1`.
+>     *Note:* Python sources in this worktree are **CRLF** (`* text=auto`). A new test file must
+>     match its siblings, or it lands as pure LF and reappears as modified after the next
+>     checkout. **Phase 15 NOT STARTED.**
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >

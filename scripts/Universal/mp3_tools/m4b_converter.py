@@ -176,13 +176,35 @@ def merge_attempt(prior, snapshot, *, retried_ids, completed, records, cancelled
     Ordering is the frozen snapshot's, so the same run always settles the same
     way however many attempts it took and in whatever order things failed.
 
+    ``retried_ids`` is the attempt's boundary and is enforced, not assumed: an
+    occurrence this attempt was not asked to repeat is settled from *prior*
+    alone, whatever the attempt reports about it. So a caller that supplied a
+    stray completion or a stray failure record for an untouched book could not
+    change that book's cumulative disposition even by accident.
+
     Pure, and built only from the public immutable shared values: no shared
     contract is extended, and no result is mutated -- ``RunResult.settle`` derives
     the state from the merged facts exactly as it does for a first attempt.
     """
+    #: **The attempt boundary, enforced here rather than merely assumed.**
+    #: ``retried_ids`` is what this attempt was asked to repeat, and it is the
+    #: only thing the attempt is allowed to speak about: both halves of what it
+    #: reports are restricted to it, so an occurrence outside the attempt is
+    #: settled from *prior* alone no matter what a caller supplies for it. That
+    #: is what makes one retry structurally incapable of turning an untouched
+    #: book's success into a failure, or an unretried failure into a success.
+    #:
+    #: Deliberately silent rather than raising. This seam produces the run's one
+    #: terminal disposition, so refusing here would leave a finished run with no
+    #: result at all and a panel still reporting itself busy -- strictly worse,
+    #: for the person waiting, than declining to believe a claim about a book
+    #: this attempt never ran. The shared layer keeps its own contract errors for
+    #: values it can reject *before* any work has happened; this is after.
+    attempted = frozenset(retried_ids)
     position = {item_id: index for index, item_id in enumerate(snapshot.item_ids)}
-    fresh = {entry.item_id: entry for entry in records if entry.item_id is not None}
-    succeeded_now = set(completed)
+    fresh = {entry.item_id: entry for entry in records
+             if entry.item_id is not None and entry.item_id in attempted}
+    succeeded_now = {item_id for item_id in completed if item_id in attempted}
 
     kept: dict = {}
     for entry in prior.failures.records:
