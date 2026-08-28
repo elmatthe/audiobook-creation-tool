@@ -135,15 +135,78 @@ class TimingSample:
     ``run_id`` and ``attempt`` are what make a late sample inert. The run id alone
     is not enough, because a retry re-runs the *same* frozen snapshot and carries
     the same id; the attempt number tells one attempt's leftovers from the attempt
-    now running. Phase 13 owns Retry Failed, but the field costs nothing now and
-    inventing it later would mean re-auditing every sample that had been recorded
-    without it.
+    now running. Phase 13 is where that stops being anticipation: a retry really
+    does raise the attempt number, and a sample from the attempt before it is
+    dropped rather than folded into the new estimate.
     """
 
     run_id: str
     attempt: int
     category: str
     duration: float
+
+
+#: What the panel says when a retryable failure turns out to have no executable
+#: plan entry behind it. This is an internal invariant violation, not something a
+#: person can cause or fix, so it is refused rather than repaired: re-probing the
+#: source or planning it a destination now would silently turn Retry Failed into a
+#: second, late planner, which is the one thing the frozen-plan contract forbids.
+RETRY_INVARIANT_MESSAGE = (
+    "Retry Failed could not run: part of this run has no plan to repeat. "
+    "Please start a new run for the books that did not convert.")
+
+
+def merge_attempt(prior, snapshot, *, retried_ids, completed, records, cancelled):
+    """One cumulative disposition for a frozen run, across all of its attempts.
+
+    A retry re-executes a **subset** of one run, so settling it from that subset
+    alone would report the books it did not touch as ``NOT_ATTEMPTED`` -- turning
+    an earlier success into an absence. This folds the attempt into what the run
+    already knew:
+
+    * a book that succeeded before still has succeeded;
+    * a failure that was **not** retried keeps the record it already had;
+    * a retried failure that succeeded loses its record and joins the completed;
+    * a retried failure that failed again has its record **replaced** by the new
+      attempt's, so Details describes what just happened rather than what used to;
+    * a retried book the attempt never reached -- a cancellation partway down the
+      list -- keeps its previous failure, because that is still the true and only
+      known reason it was a retry candidate. Nothing is invented for it.
+
+    Ordering is the frozen snapshot's, so the same run always settles the same
+    way however many attempts it took and in whatever order things failed.
+
+    Pure, and built only from the public immutable shared values: no shared
+    contract is extended, and no result is mutated -- ``RunResult.settle`` derives
+    the state from the merged facts exactly as it does for a first attempt.
+    """
+    position = {item_id: index for index, item_id in enumerate(snapshot.item_ids)}
+    fresh = {entry.item_id: entry for entry in records if entry.item_id is not None}
+    succeeded_now = set(completed)
+
+    kept: dict = {}
+    for entry in prior.failures.records:
+        if entry.item_id is None:
+            continue  # job-level; carried separately below, never re-attributed
+        if entry.item_id in succeeded_now:
+            continue  # retried and earned its way out of the log
+        kept[entry.item_id] = fresh.get(entry.item_id, entry)
+    for item_id, entry in fresh.items():
+        kept.setdefault(item_id, entry)
+
+    fatal = tuple(e for e in prior.failures.records if e.item_id is None)
+    fatal += tuple(e for e in records if e.item_id is None)
+    ordered = tuple(
+        kept[item_id] for item_id in
+        sorted(kept, key=lambda value: position.get(value, len(position))))
+
+    earlier = set(prior.completed_ids)
+    merged_completed = tuple(
+        item_id for item_id in snapshot.item_ids
+        if item_id in earlier or item_id in succeeded_now)
+    log = FailureLog(snapshot_id=snapshot.snapshot_id, records=fatal + ordered)
+    return RunResult.settle(
+        snapshot, log, completed_ids=merged_completed, cancelled=cancelled)
 
 
 def measured_duration(path):
@@ -662,11 +725,11 @@ class M4BConverterUI(ttk.Frame):
 
     @property
     def run_result(self):
-        """How the most recent run was settled, or ``None`` before the first.
+        """How this run stands, cumulatively, across every attempt it has had.
 
-        Recorded, and deliberately **not** handed to the shared adapter yet. See
-        :meth:`_settle`: offering Retry Failed before Phase 13 can execute one
-        would be a button that promises work this phase cannot do.
+        Not "the last attempt": a retry re-runs a *subset* of one frozen run, so
+        settling it with only that subset's outcome would forget the books that
+        already succeeded. See :func:`merge_attempt`.
         """
         return self._result
 
@@ -688,10 +751,12 @@ class M4BConverterUI(ttk.Frame):
         closed first, and closing is what drops its drain -- so the one pump keeps
         exactly one job drain however many runs a session performs.
 
-        ``on_retry`` is deliberately absent. Phase 13 owns Retry Failed; until it
-        exists the control is rendered by the shared bar and stays unavailable,
-        because the adapter is never handed a settled result to make it available
-        and there is no callback behind it either.
+        ``on_retry`` is wired here (Phase 13), and its availability is still not
+        this panel's to decide: the shared bar offers Retry Failed only when the
+        adapter has been handed a settled result that reports a retryable failure
+        *and* the run reached ``COMPLETED_WITH_FAILURES``. A fresh adapter holds
+        no result, which is why the control is unavailable before a run, during
+        one, and for the whole of a retry attempt -- no state is set by hand.
         """
         previous = getattr(self, "jobs", None)
         if previous is not None:
@@ -712,6 +777,7 @@ class M4BConverterUI(ttk.Frame):
             on_pause=self.pause,
             on_resume=self.resume,
             on_cancel=self.cancel,
+            on_retry=self.retry_failed,
             details_height=4,
         )
         self.jobs.frame.pack(fill=tk.BOTH, expand=True)
@@ -869,6 +935,12 @@ class M4BConverterUI(ttk.Frame):
             "clock": self._clock,
             "run_id": run.snapshot_id,
             "attempt": self._attempt,
+            # A first attempt has nothing to fold into and no subset to run: it
+            # preflights every source and converts everything the plan allows.
+            # Both keys are what :meth:`retry_failed` fills in.
+            "plan": None,
+            "retry_ids": None,
+            "prior_result": None,
         }
 
         self._busy.set()
@@ -887,6 +959,106 @@ class M4BConverterUI(ttk.Frame):
         t = threading.Thread(
             target=self.convert_worker, args=(params,), daemon=True
         )
+        self._worker = t
+        t.start()
+
+    def retry_failed(self):
+        """Re-run the failed books of the frozen run. Main thread only.
+
+        **A new attempt at the same run, not a new run.** The snapshot is the
+        original object, the plan is the original object, the destinations are the
+        ones planned at the original Start and the run directory is the one that
+        was reserved then. Nothing here reads a widget, the imported-file manager,
+        the catalog or the configuration: the user may have reordered the list,
+        removed a book, switched Whole to Split and changed every option since,
+        and none of it reaches what this executes.
+
+        What *is* new is the attempt: a retired adapter cannot be reused, so the
+        controller, the reporter, the event stream and the estimate are all fresh
+        and the attempt number rises -- which is what makes the previous attempt's
+        late timing samples inert rather than merged into the new estimate.
+        """
+        if self._busy.is_set():
+            return
+        result = self._result
+        plan = self._plan
+        run = self._snapshot
+        if result is None or plan is None or run is None:
+            return
+        if not result.has_retryable:
+            return
+
+        # The shared model decides *what* is retried, from the failures the run
+        # actually recorded and the snapshot it was accepted with. This asks it,
+        # rather than filtering a list of its own.
+        request = result.retry()
+
+        # Defensive, and it should never fire: classification already guarantees
+        # that only an execution failure -- which by definition has an executable
+        # plan entry -- is ever retryable. If a future change breaks that, the
+        # honest move is to refuse, because every way of "fixing" it here (probe
+        # it again, plan it a destination, quietly drop it) is forbidden.
+        missing = tuple(
+            item_id for item_id in request.item_ids if plan.item_for(item_id) is None)
+        if missing:
+            shown = ", ".join(missing[:3])
+            if len(missing) > 3:
+                shown += f", and {len(missing) - 3} more"
+            self._log_q.put((
+                "log",
+                "\n  \u2717 " + RETRY_INVARIANT_MESSAGE + "\n"
+                + f"      no plan entry for: {shown}\n"))
+            messagebox.showerror("Retry Failed", RETRY_INVARIANT_MESSAGE)
+            return
+
+        # Frozen order, not failure order: the retried books run in the order the
+        # plan holds them, which is the order the run was given them.
+        wanted = set(request.item_ids)
+        items = tuple(
+            item for item in plan.items if item.occurrence_id in wanted)
+
+        self._attempt += 1
+        self._controller = job_control.JobController(
+            run.snapshot_id, listener=self._on_state)
+        # The retired adapter is closed inside here, which drops its drain: one
+        # pump, one job drain and one scheduled callback however many attempts a
+        # run takes. The new adapter holds no result, so Retry Failed is
+        # unavailable for the whole of this attempt without anything setting it.
+        self._install_jobs(run.snapshot_id, run.item_ids)
+        self._reporter = job_control.JobReporter.for_run(
+            run, clock=self._clock, publish=self._publish)
+
+        params = {
+            # The frozen occurrences of the original run, taken from the snapshot
+            # itself rather than from the manager as it stands now.
+            "imported_files": tuple(run.files.files),
+            "options": None,
+            "snapshot": run,
+            "controller": self._controller,
+            "reporter": self._reporter,
+            "clock": self._clock,
+            "run_id": run.snapshot_id,
+            "attempt": self._attempt,
+            "plan": plan,
+            "retry_ids": tuple(request.item_ids),
+            "prior_result": result,
+        }
+
+        self._busy.set()
+        self._cancel_event.clear()
+        self._controller.start()
+        # The stage is announced here and the **denominator is not**, which is
+        # the same division of labour a first attempt uses: the main thread says
+        # what is starting, and the worker publishes the authoritative count of
+        # what is actually going to be written.
+        self._reporter.stage_changed(
+            STAGE_CONVERT, "Retrying the books that failed…")
+        self.disable_inputs(True)
+        self._log_q.put((
+            "log", f"\nRetrying {len(items)} book(s) that failed.\n"))
+
+        t = threading.Thread(
+            target=self.convert_worker, args=(params,), daemon=True)
         self._worker = t
         t.start()
 
@@ -1029,14 +1201,16 @@ class M4BConverterUI(ttk.Frame):
         The result is the shared authority on what succeeded, what failed and
         what was never attempted, and this panel keeps no rival tally beside it.
 
-        **It is deliberately not handed to the shared adapter yet.** Doing so is
-        what makes Retry Failed available, and Phase 13 owns retry execution:
-        an enabled control that cannot re-run anything would be a promise this
-        phase cannot keep. Phase 13 adds the ``set_result`` call and the
-        ``on_retry`` callback together, against this same real result -- no
-        fabricated plan is needed then and none is invented now.
+        It is handed to the shared adapter too, which is what makes Retry Failed
+        available -- and the two arrived together, in this phase, so the control
+        has never been offered without something behind it. The result given here
+        is the **cumulative** one the worker settled, so the summary describes the
+        whole frozen run rather than whichever subset the last attempt ran.
         """
         self._result = result
+        jobs = getattr(self, "jobs", None)
+        if jobs is not None and not self._closed:
+            jobs.set_result(result)
 
     def _finish_idle(self):
         self._busy.clear()
@@ -1060,6 +1234,15 @@ class M4BConverterUI(ttk.Frame):
         widget, no variable and no manager: it was handed frozen occurrences and
         one frozen :class:`~mp3_tools.m4b_plan.PlanOptions`, and it consults
         them and the plan alone.
+
+        **A retry enters below the preflight.** When ``retry_ids`` is present the
+        plan already exists and arrived with the call, so nothing here probes a
+        source, validates a chapter map, partitions a timeline, selects a cover,
+        reserves a directory or plans a destination -- every one of those answers
+        was frozen before the first attempt wrote anything, and re-deriving one
+        now is exactly how a retry would land somewhere other than the run it is
+        repeating. It converts the selected books, at their original names, and
+        folds the outcome into what the run already knew.
         """
         imported = params["imported_files"]
         options = params.get("options") or PlanOptions()
@@ -1069,6 +1252,12 @@ class M4BConverterUI(ttk.Frame):
         clock = params.get("clock")
         run_id = params.get("run_id")
         attempt = params.get("attempt", 0)
+        # A retry arrives with the frozen plan, the ordered subset to re-execute
+        # and the run's cumulative disposition so far. All three are ``None`` on
+        # a first attempt, and that is the only thing that tells the two apart.
+        retry_ids = params.get("retry_ids")
+        prior = params.get("prior_result")
+        retrying = retry_ids is not None
         timed = clock is not None and run_id is not None
         cancelled = False
         completed: list = []
@@ -1091,20 +1280,31 @@ class M4BConverterUI(ttk.Frame):
             elif self._cancel_event.is_set():
                 raise ConversionCancelled("Cancelled.")
 
-        def note(item_id, message, detail, stage):
-            """Record one failure once, in both the typed log and the report."""
+        def note(item_id, message, detail, stage, *, retryable):
+            """Record one failure once, in both the typed log and the report.
+
+            ``retryable`` has **no default on purpose.** The two callers below sit
+            at genuinely different stages -- one refuses a source that never got a
+            plan entry, the other loses a book that had one -- and a helper that
+            stamped the same answer on both is precisely how a preflight failure
+            came to be offered a retry it could not possibly execute.
+            """
             if snapshot is not None:
                 failures.append(FailureRecord(
                     item_id=item_id, stage=stage,
                     display_message=message, technical_detail=detail,
-                    retryable=True, snapshot_id=snapshot.snapshot_id))
+                    retryable=retryable, snapshot_id=snapshot.snapshot_id))
             if reporter is not None:
                 reporter.failure(message, detail, item_id=item_id, stage=stage)
 
         # ------- preflight: read every source before deciding anything -------
+        #
+        # **Empty on a retry**, which is what skips it: the plan this produces
+        # already exists and arrived with the call, and running it again would
+        # re-open every question that plan has already answered.
         reports: dict = {}
         try:
-            for entry in imported:
+            for entry in (() if retrying else imported):
                 checkpoint()
                 if reporter is not None:
                     reporter.current_item(
@@ -1114,8 +1314,8 @@ class M4BConverterUI(ttk.Frame):
         except ConversionCancelled:
             cancelled = True
 
-        plan = None
-        if not cancelled:
+        plan = params.get("plan")
+        if not cancelled and not retrying:
             def _reserve_run():
                 """The run's one reservation seam.
 
@@ -1153,7 +1353,7 @@ class M4BConverterUI(ttk.Frame):
                         "This run could not be planned, so nothing was converted.",
                         detail, stage=STAGE_PREFLIGHT)
 
-        if plan is not None:
+        if plan is not None and not retrying:
             self._log_q.put((PLAN_MESSAGE, plan))
             # Every source that will not be converted, reported before any
             # output exists. A preflight failure is typed, keeps its occurrence
@@ -1161,21 +1361,44 @@ class M4BConverterUI(ttk.Frame):
             for failure in plan.unusable:
                 self._log_q.put((
                     "log", f"\n  ✗ {failure.source.name}: {failure.message}\n"))
+                # Typed, non-fatal, nothing written -- and **not** a Retry Failed
+                # candidate, which is the classification itself and not an
+                # afterthought: this occurrence has no ``ItemPlan`` and no frozen
+                # destination, so there is nothing for an in-place retry to
+                # re-execute. A corrected source comes back through a new run.
                 note(failure.occurrence_id, failure.message, failure.detail,
-                     STAGE_PREFLIGHT)
+                     STAGE_PREFLIGHT, retryable=failure.retryable)
 
-        total = plan.total_segments if plan is not None else 0
+        # **What this attempt runs**, and the only place the two shapes differ:
+        # everything the plan found usable, or the frozen subset a retry selected.
+        # Either way these are plan entries, in the plan's own order.
+        if plan is None:
+            run_items: tuple = ()
+        elif retrying:
+            wanted = set(retry_ids)
+            run_items = tuple(
+                item for item in plan.items if item.occurrence_id in wanted)
+        else:
+            run_items = tuple(plan.items)
+        # The denominator describes the work about to be done, not the whole run:
+        # a retry that converts everything it was asked to must fill the bar.
+        total = sum(item.total_segments for item in run_items)
         outdir = plan.run_directory if plan is not None else None
-        if plan is not None and plan.has_work:
+        if plan is not None and run_items:
             if outdir is not None:
                 self._log_q.put(("log", f"\nOutput folder: {outdir}\n"))
                 if reporter is not None:
                     reporter.output_location(outdir)
             if reporter is not None:
-                # **The authoritative denominator, published exactly once.** It
-                # is the plan's segment count, not the imported-file count, and
-                # it exists only because every source has now been read.
-                reporter.stage_changed(STAGE_CONVERT, "Converting…")
+                # **The authoritative denominator, published exactly once per
+                # attempt.** It is the segment count of the work this attempt
+                # will do, not the imported-file count -- so a first attempt
+                # publishes the plan's total and a retry publishes only what it
+                # was asked to re-run, and either one fills the bar when it
+                # converts everything it set out to.
+                reporter.stage_changed(
+                    STAGE_CONVERT,
+                    "Retrying…" if retrying else "Converting…")
                 reporter.progress(0, total, stage=STAGE_CONVERT)
 
         # ------- execution -------
@@ -1186,7 +1409,7 @@ class M4BConverterUI(ttk.Frame):
         # frozen before the run directory existed, and reinterpreting one now is
         # how a retry would land somewhere different from the run it repeats.
         done = 0
-        if plan is not None and not cancelled:
+        if run_items and not cancelled:
 
             def interrupted() -> bool:
                 """The low-level latch a running child is polled against.
@@ -1218,10 +1441,21 @@ class M4BConverterUI(ttk.Frame):
             # one non-fragment whole-file output, so keying off the item
             # would hand it a whole-run sequence number in a run where
             # auto-numbering does not apply at all.
-            numbers = (m4b_numbering.SuccessNumbers(plan.start_number)
+            #
+            # **A retry continues the sequence; it does not restart it.** The
+            # counter is per attempt, so a retry gets a new one -- but the run is
+            # the same run, and the books that already succeeded already carry
+            # their numbers. It therefore starts where the run has actually got
+            # to: the frozen ``Start #`` plus however many books this run has
+            # successfully written so far, taken from the cumulative result and
+            # never from a filename, an output tag or a directory listing.
+            first = plan.start_number
+            if retrying and prior is not None:
+                first += len(prior.completed_ids)
+            numbers = (m4b_numbering.SuccessNumbers(first)
                        if plan.auto_number and not plan.split else None)
 
-            for index, item in enumerate(plan.items):
+            for index, item in enumerate(run_items):
                 item_id = item.occurrence_id
                 in_file = item.source
                 finalised: list = []
@@ -1235,7 +1469,7 @@ class M4BConverterUI(ttk.Frame):
                     reporter.current_item(item_id, f"Converting {in_file.name}")
                 self._log_q.put((
                     "log",
-                    f"\n[{index + 1}/{len(plan.items)}] {in_file.name} "
+                    f"\n[{index + 1}/{len(run_items)}] {in_file.name} "
                     f"-> {item.total_segments} file(s)\n"))
 
                 if plan.split and not item.chaptered:
@@ -1355,8 +1589,12 @@ class M4BConverterUI(ttk.Frame):
                     # Named by book *and* by output: a split run has many
                     # outputs per book, and "which file" is the first thing
                     # a person needs to know.
+                    # An execution failure **is** retryable: this book has an
+                    # executable plan entry and frozen destinations, so repeating
+                    # it needs nothing re-decided and lands exactly where the
+                    # first attempt was going to put it.
                     note(item_id, f"{in_file.name}: {failure.message}",
-                         failure.detail, STAGE_CONVERT)
+                         failure.detail, STAGE_CONVERT, retryable=True)
                 elif not cancelled:
                     completed.append(item_id)
                     # **The only place the counter moves.** Reached only when
@@ -1378,9 +1616,21 @@ class M4BConverterUI(ttk.Frame):
                     break
 
         if snapshot is not None:
-            log = FailureLog(snapshot_id=snapshot.snapshot_id, records=tuple(failures))
-            settled = RunResult.settle(snapshot, log, completed_ids=tuple(completed),
-                                       cancelled=cancelled)
+            if retrying and prior is not None:
+                # **The run, not the attempt.** A retry re-ran a subset, so
+                # settling it from that subset alone would report every book it
+                # did not touch as never attempted -- turning an earlier success
+                # into an absence.
+                settled = merge_attempt(
+                    prior, snapshot, retried_ids=retry_ids,
+                    completed=tuple(completed), records=tuple(failures),
+                    cancelled=cancelled)
+            else:
+                log = FailureLog(
+                    snapshot_id=snapshot.snapshot_id, records=tuple(failures))
+                settled = RunResult.settle(
+                    snapshot, log, completed_ids=tuple(completed),
+                    cancelled=cancelled)
             if controller is not None:
                 if cancelled:
                     final = controller.finish_cancelled()

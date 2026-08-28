@@ -813,15 +813,23 @@ def test_the_allocator_is_only_created_for_a_whole_run():
 
 
 
-def test_retry_failed_is_still_not_wired():
-    """Structural on both files: the panel wires nothing, the allocator calls nothing."""
+def test_the_allocator_still_knows_nothing_about_retry():
+    """**Half a Phase 13 progression: the panel is wired, the allocator is not.**
+
+    Phase 12 asserted that neither the panel nor the allocator knew what a retry
+    was. The panel now does -- proved in ``test_m4b_retry.py`` -- but the
+    allocator deliberately still does not. It is handed a starting number and
+    counts successes; *which* number a retry attempt starts from is the worker's
+    question to answer from the run's cumulative result, and answering it in here
+    would put multi-attempt state inside the one pure module that has none.
+    """
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     called = {node.func.attr for node in ast.walk(tree)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
-    assert "set_result" not in called
+    assert "set_result" in called
     keywords = {keyword.arg for node in ast.walk(tree)
                 if isinstance(node, ast.Call) for keyword in node.keywords}
-    assert "on_retry" not in keywords
+    assert "on_retry" in keywords
 
     numbering = ast.parse(NUMBERING_SOURCE.read_text(encoding="utf-8"))
     defined = {node.name for node in ast.walk(numbering)

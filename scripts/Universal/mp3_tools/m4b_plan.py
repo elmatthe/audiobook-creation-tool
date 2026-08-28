@@ -180,7 +180,17 @@ class ItemFailure:
     reason: str
     message: str
     detail: str = ""
-    retryable: bool = True
+    #: **Not** a Retry Failed candidate, and the default says so (Phase 13).
+    #:
+    #: A preflight-unusable occurrence never obtains an executable ``ItemPlan``,
+    #: so it has no frozen ``SegmentPlan``, no frozen destination, and -- once
+    #: Start-time planning is over -- no retained collision planner either.
+    #: Re-running it in place would therefore mean re-probing it, rebuilding the
+    #: plan, or planning a destination after Start, and the frozen-plan retry
+    #: contract forbids all three. The failure stays typed, stays visible and
+    #: stays non-fatal; a corrected source is submitted through a **new run**,
+    #: which probes and plans it normally.
+    retryable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,12 +242,20 @@ class ConversionPlan:
 
 
 def _failure(entry, reason: str, message: str, detail: str = "") -> ItemFailure:
+    """The one place a source is classified unusable -- and it is not retryable.
+
+    Stated here rather than left to a default, because this is the classification
+    point: every caller of this helper is refusing a source *before* a plan entry
+    or a destination exists for it, and that is exactly the condition that makes
+    an in-place retry impossible.
+    """
     return ItemFailure(
         occurrence_id=entry.occurrence_id,
         source=Path(entry.path),
         reason=reason,
         message=message,
         detail=detail,
+        retryable=False,
     )
 
 

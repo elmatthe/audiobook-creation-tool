@@ -518,7 +518,18 @@ def test_a_typed_failure_keeps_its_occurrence_and_its_two_messages(tmp_path):
     assert failure.source == entries[0].path
     assert failure.message and "not converted" in failure.message
     assert "ffprobe exploded" in failure.detail
-    assert failure.retryable is True
+    # **A deliberate Phase 13 contract correction, turned around rather than
+    # deleted.** This asserted ``is True`` under the drop's earlier wording,
+    # which called a preflight failure "typed, retryable, nothing written". That
+    # was ambiguous and, read as Retry Failed eligibility, unimplementable: this
+    # occurrence has no ``ItemPlan``, no frozen ``SegmentPlan`` and no frozen
+    # destination, and the run's collision planner is gone once Start-time
+    # planning ends -- so an in-place retry could only proceed by re-probing,
+    # rebuilding the plan or planning a destination after Start, all forbidden.
+    # The maintainer corrected the contract: preflight-unusable failures stay
+    # typed, visible and non-fatal, and a corrected source comes back through a
+    # **new run**.
+    assert failure.retryable is False
 
 
 # --------------------------------------------------------------------------- #
@@ -1746,15 +1757,25 @@ def test_success_only_numbering_arrived_and_the_plan_stayed_immutable():
         for field in kind.__dataclass_fields__:
             assert "counter" not in field and "allocator" not in field, (kind, field)
 
-def test_retry_failed_is_still_not_wired():
-    """Structural: the adapter is handed neither a result nor a retry callback."""
+def test_retry_failed_is_wired_to_the_panel_and_to_a_real_result():
+    """**A deliberate Phase 13 progression, not a deleted guard.**
+
+    Through Phase 12 this asserted the opposite: no ``on_retry`` keyword and no
+    ``set_result`` call anywhere in the panel, because offering Retry Failed
+    before anything could execute one would have been a button promising work
+    the phase could not do. Phase 13 is that work, so the same two facts are now
+    asserted the other way round -- and they still have to arrive **together**,
+    which is what the pairing below pins: a callback with no result behind it
+    would leave the control permanently unavailable, and a result with no
+    callback would make it available and inert.
+    """
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     called = {node.func.attr for node in ast.walk(tree)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
-    assert "set_result" not in called
+    assert "set_result" in called
     keywords = {keyword.arg for node in ast.walk(tree)
                 if isinstance(node, ast.Call) for keyword in node.keywords}
-    assert "on_retry" not in keywords
+    assert "on_retry" in keywords
 
 
 def test_the_panel_stays_classic():

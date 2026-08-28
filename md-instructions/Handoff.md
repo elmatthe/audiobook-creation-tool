@@ -29,8 +29,10 @@
 > - **The bounded Tk test-lifecycle remediation `c5129a0` is maintainer-approved**, and
 >   **Phase 11 `17f577ff` is maintainer-approved** on top of it — its final gate was
 >   **first-attempt green with no retry**, which is what the remediation existed to make
->   possible. **Phase 12 is COMMITTED and complete**, also first-attempt green.
->   **Phase 13 has NOT started** and needs explicit maintainer approval.
+>   possible. **Phase 12 `dc814b11` is maintainer-approved**, and **Phase 13 is COMMITTED
+>   and complete** on top of it — also first-attempt green, and it carries an explicit
+>   **maintainer correction to the active drop's retry contract** (see the Phase 13 entry).
+>   **Phase 14 has NOT started** and needs explicit maintainer approval.
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -827,6 +829,99 @@
 >     **+50** delta is 49 tests in the new `files/tests/test_m4b_numbering.py` plus 1 from
 >     `test_plan3_boundaries` parametrising over `m4b_numbering.py` as a new non-adopting
 >     production module. **Phase 13 NOT STARTED.**
+>   - **Phase 13** (2026-08-27): Retry Failed. The phase **stopped before editing anything**
+>     and came back with a contract gate, which is the part worth reading first.
+>     **The audit, and why it was mandatory.** §3 of the authorization required reconciling
+>     §11.2 against §21 before touching production. §11.2 called a preflight-unusable item
+>     "typed, **retryable**, nothing written"; §21 said Retry Failed "re-executes the frozen
+>     `ConversionPlan` for failed items only, **reusing the destinations planned at the original
+>     Start**". Those cannot both hold. The real production worker was driven over A (succeeds) /
+>     B (execution failure) / C (`PROBE_FAILED`) and the shapes were read off the settled run:
+>     both B and C came back `retryable=True`, both entered `RetryRequest` — and **C had no
+>     `ItemPlan`, no `SegmentPlan` and no destination**, because `assemble_plan` plans outputs for
+>     usable entries only. `ConversionPlan` holds no planner or reservation field either, so the
+>     original collision domain is gone the moment the run's worker returns. Retrying C could only
+>     proceed by re-probing it, rebuilding the plan, planning it a destination after Start, or
+>     retaining mutable planning state — every one of which §7/§8 forbid. Reported, **no edits**,
+>     worktree clean.
+>     **Maintainer disposition: Option A**, the only one needing no forbidden operation.
+>     Preflight/structural failures stay typed, stay visible in Summary and Details, stay
+>     **non-fatal** and write nothing — and are **`retryable=False`**. A corrected source is
+>     submitted through a **new run**, which probes and plans it normally. Execution failures,
+>     which do have an executable plan entry and frozen destinations, stay retryable. The active
+>     drop's §11.2 and §21 were corrected in place to say so before any production edit.
+>     **The classification is explicit at the point of classification.** `ItemFailure.retryable`
+>     now defaults to `False` and `_failure()` states it anyway, because that helper *is* the
+>     preflight refusal. In the worker, `note()` gained a **keyword-only `retryable` with no
+>     default** — the two callers sit at genuinely different stages, and a helper that guessed
+>     between them is exactly how this went wrong. Nothing infers retryability from message text.
+>     **One invariant carries the phase**: `retryable_ids ⊆ {item.occurrence_id for item in
+>     plan.items}`, pinned mechanically over a mixed run. The retry seam re-checks it anyway and
+>     **refuses truthfully** with a bounded diagnostic if it is ever violated, rather than
+>     re-probing, re-planning, reserving, or quietly dropping the id.
+>     **A retry is a new attempt at the same frozen run.** Same `RunSnapshot` **object**, same
+>     `snapshot_id`, same `ConversionPlan` **object**, same run directory, same destinations, same
+>     options. `retry_failed` asks `result.retry()` rather than filtering a list of its own; the
+>     worker enters **below the preflight** — no probe, no validation, no partition, no cover
+>     selection, no reservation, no `DestinationPlanner`. Fresh per attempt: controller, reporter,
+>     stream, adapter, estimator, and the attempt number. Still **one pump, one job drain, one
+>     `after` chain**, and a late `TimingSample` from the previous attempt is inert.
+>     **Destinations stay frozen, suffixes included.** A book that reserved `Same.mp3` and failed
+>     keeps it; the survivor stays `Same-1.mp3`. Compacting names would leave the retry with
+>     nowhere to return to, so §35's observation is now load-bearing rather than merely accepted.
+>     **The cumulative result was expressible in the shared API as it stands**, so risk gate #9
+>     was not reached and **no shared module changed**. `merge_attempt` — pure, Converter-local,
+>     AST-guarded against paths, files, Tk and `self` — folds one attempt into the run: prior
+>     successes keep succeeding, an unretried failure keeps its record, a retried success loses
+>     its record and joins the completed, a retried re-failure has its record **replaced**, and a
+>     retried book a cancellation never reached **keeps its previous failure** rather than being
+>     given an invented one. Ordering is the frozen snapshot's. The result is built with the
+>     public `FailureLog` + `RunResult.settle` and nothing else.
+>     **The mixed case, end to end.** A✓ B✗(execution) C✗(preflight) D✓ → Retry Failed offers
+>     **B alone**; B succeeds → A✓ B✓ C✗ D✓, still `COMPLETED_WITH_FAILURES` because C is still
+>     failed, but `has_retryable is False` and the control goes unavailable. Non-retryable does not
+>     mean hidden, ignored, or magically successful.
+>     **Numbering continues rather than restarting.** The allocator is still per attempt and still
+>     `propose`/`commit`, but a retry starts from `plan.start_number + len(prior.completed_ids)` —
+>     derived from the cumulative result, never from a filename, an output tag or a directory
+>     listing (guarded). So 1 · fail · 2 → retry **3**; `Start #` 7 → 7, 8 → retry **9**; and a
+>     retry that fails again consumes nothing, so the next one still gets 3.
+>     **Split retry is item-level.** A failed segment fails its **book**; Phase 11 has already
+>     taken back the finalised segments, so nothing partial survives, and the retry re-runs **every**
+>     frozen segment in frozen order at its exact original name with its structural track unchanged.
+>     **An unknown occupant is left alone.** There is no ownership token proving a file at a frozen
+>     name is a stale partial of ours, so a retry that finds one **fails safely** — occupant
+>     byte-identical, not overwritten, source untouched, failure still retryable. Phase 11's
+>     no-overwrite contract is not weakened and no deletion path was added.
+>     **The live panel is irrelevant.** After the run, the imported list is cleared and refilled,
+>     Whole becomes Split, Preserve becomes Strip, quality, Auto-number, `Start #`, the replacement
+>     fields and *Include subfolders* are all changed — and the retry still runs the frozen book at
+>     the frozen name with the frozen options. The worker still reaches for exactly two attributes
+>     on the panel, `_cancel_event` and `_log_q`.
+>     **Real threads for the races.** Cancel mid-retry stops it, leaves earlier outputs alone and
+>     fabricates no failure for what it never reached; Pause reaches `PAUSE_REQUESTED` while an
+>     encode is running and only `PAUSED` at the segment boundary; closing during a retry cancels,
+>     joins within the existing bounded timeout and leaves nothing scheduled.
+>     **Generated media, real ffmpeg.** A✓1 / B✗ / C✓2 then a retried B really written as **3**;
+>     `Start #` 7 → 7, 8 → 9; fail, fail, succeed → 3; a covered split book fully rebuilt with every
+>     segment carrying its cover through the unchanged two-pass path; every original destination
+>     verified; survivors and **all sources SHA-256 identical** before and after every attempt.
+>     **Five guard progressions, all turned around rather than deleted and all explained in place**:
+>     the four "Retry Failed is still not wired" guards now assert that `on_retry` and `set_result`
+>     both exist *and arrived together*, and the approved Phase 10 test that pinned
+>     `failure.retryable is True` for `PROBE_FAILED` now pins `is False` with the correction written
+>     beside it. The allocator's half of the Phase 12 guard deliberately still asserts the allocator
+>     knows nothing about retry.
+>     Gate: **4929 collected / 4915 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **FIRST ATTEMPT with NO RETRY**, `verify.py` PASS on its first and only invocation. The
+>     **+76** delta is exactly the new `files/tests/test_m4b_retry.py`; `test_plan3_boundaries` is
+>     unchanged because no new production module was added. `m4b_execution.py`, `m4b_numbering.py`,
+>     `m4b_probe.py`, `m4b_commands.py`, `m4b_metadata.py`, `m4b_destinations.py`, every shared
+>     module, TTS, Cover and the Tk remediation are all **byte-unchanged**. **Phase 14 NOT STARTED.**
+>     *Note for the next full-suite run:* invoke it as `python -m pytest files/tests -q`. A
+>     root-level `python -m pytest` collects nothing at all, because the gitignored scratch tree at
+>     `files/runtime-data/phase14/tree-phase12/` (left over from Plan 4, 2026-08-21) duplicates every
+>     test basename and pytest refuses the collision. `verify.py` already invokes it correctly.
 >     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
 >     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
 >     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in

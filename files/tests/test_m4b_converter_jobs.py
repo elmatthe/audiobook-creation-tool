@@ -1174,7 +1174,16 @@ def test_the_worker_never_holds_the_estimator(make_panel, tmp_path, run_env):
 # --------------------------------------------------------------------------- #
 
 
-def test_retry_failed_is_rendered_but_never_available(make_panel, tmp_path, run_env):
+def test_retry_failed_is_rendered_and_now_becomes_available(
+        make_panel, tmp_path, run_env):
+    """**A deliberate Phase 13 progression.**
+
+    Through Phase 12 this asserted the control was rendered and *never* became
+    available, because nothing behind it could execute a retry. It can now, so
+    the same run is asserted the other way -- and the availability still comes
+    from the shared bar reading a settled result, not from anything here or in
+    the panel setting a button state.
+    """
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
     run_env["fail"] = ("B.m4b",)
@@ -1182,30 +1191,36 @@ def test_retry_failed_is_rendered_but_never_available(make_panel, tmp_path, run_
 
     controls = panel.jobs.controls
     assert jc.JobAction.RETRY_FAILED in controls.buttons
-    assert controls.availability()[jc.JobAction.RETRY_FAILED] is False
-    assert str(controls.buttons[jc.JobAction.RETRY_FAILED].cget("state")) == "disabled"
+    assert controls.availability()[jc.JobAction.RETRY_FAILED] is True
+    assert str(controls.buttons[jc.JobAction.RETRY_FAILED].cget("state")) == "normal"
 
 
-def test_the_run_really_did_hold_something_retryable(make_panel, tmp_path, run_env):
-    """So the control's unavailability is a phase boundary, not an accident."""
+def test_the_adapter_is_handed_the_run_that_holds_it(make_panel, tmp_path, run_env):
+    """So availability is derived from a real result, not asserted by the panel."""
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
     run_env["fail"] = ("B.m4b",)
     work(panel, tmp_path, run_env)
     assert panel.run_result.has_retryable is True
-    assert panel.jobs.has_retryable is False, "the adapter was never handed it"
+    assert panel.jobs.has_retryable is True
 
 
-def test_no_retry_callback_is_wired(make_panel):
+def test_the_retry_callback_is_the_panel_method(make_panel):
     panel = make_panel()
-    assert panel.jobs.controls._callbacks[jc.JobAction.RETRY_FAILED] is None
-    assert panel.jobs.controls.invoke(jc.JobAction.RETRY_FAILED) is False
+    assert (panel.jobs.controls._callbacks[jc.JobAction.RETRY_FAILED]
+            == panel.retry_failed)
 
 
-def test_no_retry_execution_and_no_fabricated_plan_exist():
+def test_retry_execution_exists_and_still_fabricates_no_plan():
+    """The callback arrived; a second planner did not.
+
+    Phase 12 banned the whole retry vocabulary from the panel. Phase 13 is where
+    it belongs -- but only the vocabulary that *reads* frozen answers. Nothing
+    that would produce new ones may appear.
+    """
     body = named(parse_panel())
-    for banned in ("retry", "retry_failed", "RetryRequest", "set_result"):
-        assert banned not in body, banned
+    for expected in ("retry", "retry_failed", "set_result"):
+        assert expected in body, expected
 
 
 # --------------------------------------------------------------------------- #

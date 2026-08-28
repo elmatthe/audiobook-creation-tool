@@ -1525,14 +1525,25 @@ def test_success_only_numbering_arrived_and_stayed_out_of_the_executor():
                    "start_number", "propose(", "commit("):
         assert absent not in execution, absent
 
-def test_retry_failed_is_still_not_wired():
+def test_retry_failed_is_wired_to_the_panel_and_to_a_real_result():
+    """**A deliberate Phase 13 progression, not a deleted guard.**
+
+    Through Phase 12 this asserted the opposite: no ``on_retry`` keyword and no
+    ``set_result`` call anywhere in the panel, because offering Retry Failed
+    before anything could execute one would have been a button promising work
+    the phase could not do. Phase 13 is that work, so the same two facts are now
+    asserted the other way round -- and they still have to arrive **together**,
+    which is what the pairing below pins: a callback with no result behind it
+    would leave the control permanently unavailable, and a result with no
+    callback would make it available and inert.
+    """
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     called = {node.func.attr for node in ast.walk(tree)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
-    assert "set_result" not in called
+    assert "set_result" in called
     keywords = {keyword.arg for node in ast.walk(tree)
                 if isinstance(node, ast.Call) for keyword in node.keywords}
-    assert "on_retry" not in keywords
+    assert "on_retry" in keywords
 
 
 def test_the_executor_re_plans_nothing():
