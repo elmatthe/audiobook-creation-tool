@@ -29,16 +29,18 @@
 > - **The bounded Tk test-lifecycle remediation `c5129a0` is maintainer-approved**, and
 >   **Phase 11 `17f577ff` is maintainer-approved** on top of it — its final gate was
 >   **first-attempt green with no retry**, which is what the remediation existed to make
->   possible. **Phase 14 `27732d77` is maintainer-approved.** **Phase 15 has STARTED and is
->   INCOMPLETE**: manual items 1–4 passed, item 5 was **BLOCKED** by a Windows Smart App
->   Control refusal of the selected ffprobe, and the maintainer approved a bounded shared
->   remediation under risk gate #9. That remediation is **COMMITTED**, the **clean-install
->   acceptance checkpoint PASSED**, and **three** Phase 15 blockers have now been diagnosed,
->   fixed and committed: FFmpeg provisioning, Whole-book artwork truncation, and the Windows
->   **xHE-AAC decode gap**. The manual matrix itself is **not resumed and not complete**:
->   AAC-LC Whole passed, the xHE book awaits the maintainer's retest, and items 6+ have not
->   run. A **true no-Python clean environment** proof is still outstanding for release.
->   **Phase 16 has NOT started.**
+>   possible. **Phase 14 `27732d77` is maintainer-approved.** **Phase 15 is COMPLETE BY EXPLICIT
+>   MAINTAINER ACCEPTANCE (2026-08-29)** — see the Phase 15 acceptance record below. Four Windows
+>   blockers were diagnosed, fixed and committed during it (FFmpeg provisioning, Whole-book
+>   artwork truncation, the Windows **xHE-AAC decode gap**, and the ffprobe cp1252 Unicode
+>   refusal), and the clean-install acceptance checkpoint PASSED. The substantial real-world
+>   Windows validation that was performed passed; the maintainer **explicitly waived** the
+>   remaining unperformed synthetic/manual §26 rows as prerequisites. **Those waived rows are
+>   recorded as waived, not as PASS** — do not read "Phase 15 complete" as "all of §26 passed".
+>   Any sentence below saying Phase 15 is *"INCOMPLETE"*, that *"items 6+ have not run"* as a
+>   blocker, or that a retest *"awaits the maintainer"* is **stale and superseded by this block**.
+>   A **true no-Python + no-FFmpeg fresh-machine** proof is still outstanding **for release**, not
+>   for Phase 15. **Phase 16 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
@@ -1420,6 +1422,106 @@
 >     the **audible 06→07 boundary check awaits the maintainer**, and items 6+ have not run. A
 >     true no-Python clean-environment proof is still outstanding for release.
 >     **Phase 16 NOT STARTED.**
+>   - **Phase 15 — Windows validation ACCEPTED and CLOSED** (2026-08-29). **COMPLETE BY EXPLICIT
+>     MAINTAINER ACCEPTANCE.** The maintainer accepted the real-world Windows validation already
+>     performed and explicitly waived the remaining unperformed synthetic/manual §26 rows:
+>     *"I'm not going to test all of that since it would take too long and i don't have time …
+>     i tested enough with the other files and I am happy with how it's performing, if in the
+>     future i encounter an error i will come back to the chat and we can work on it but for now
+>     let's move on."* That disposition supersedes the earlier reconciliation verdict of
+>     *Phase 15 INCOMPLETE*, which was correct under the requirements in force before the waiver.
+>     **What actually PASSED, on real sources through the real `Setup_and_Run` launcher**, Windows
+>     11, 1920x1080 at 100%:
+>     · **Bootstrap/provisioning** — coherent Gyan **FFmpeg 9.0.1** pair discovered, proven by
+>     execution and pinned; the stale blocked `C:\ffmpeg` no longer wins discovery; **zero**
+>     CodeIntegrity events and no security popup across accepted flows; the **clean-install
+>     acceptance** checkpoint proved automatic provisioning end to end on an FFmpeg-less host, and
+>     the fast path was verified afterwards.
+>     · **AAC-LC Whole** — *Book 1: Dungeon Crawler Carl* (`4f55710e…76c17`), Whole + Preserve
+>     PASS after the artwork remediation: full duration, **50 chapters**, mjpeg cover, approved
+>     metadata, source hash unchanged. The truncation defect it exposed was root-caused to the
+>     attached picture and fixed by the **second-input artwork invariant** — input 0 carries audio
+>     and chapters, input 1 is the same file opened only for the stream-copied cover. That
+>     invariant is an accepted Plan-5 decision and must not be "simplified" away.
+>     · **xHE-AAC Whole** — *Reincarnated as a Sword* (`b9a24a88…f8d4`) through the Windows Media
+>     Foundation route: **35,199.77941 s** against a 35,199.624717 s source = **100.0004 %**, drift
+>     0.0004 %, emphatically not the old ~26,783 s truncated ffmpeg result; 15 chapters matching
+>     the frozen plan, cover present, all five approved fields, source unchanged, and ~9:46:40 read
+>     independently in iTunes.
+>     · **xHE-AAC Split** — run `M4B-Converter-22`: **exactly 15** order-prefixed MP3s totalling
+>     **35,199.627 s** against 35,199.625 planned, worst per-file deviation **0.0007 s**, no
+>     missing middle or tail, cover and per-file chapter title on each, tracks 1-15, **no `.act`
+>     residue**, source unchanged.
+>     · **Audible boundary listen** — `06 - Chapter 3_ Meeting at Nocta.mp3` to `07 - … Part 2.mp3`:
+>     *"Boundary PASS — 06 to 07 continues naturally with no missing audio, duplication, or
+>     abnormal gap."* This satisfies §26's listen-across-at-least-one-boundary requirement.
+>     · **Unicode / cp1252** — *ToA 4 - The Tyrant's Tomb* (`4fb6b7f5…397e`). The
+>     `'charmap' codec can't decode byte 0x9d` preflight refusal was fixed in `eda2e489`; post-fix
+>     the book probes `ProbeStatus.OK`, 48,123.239909 s, **44 chapters**, PNG cover, five tags,
+>     Unicode chapter text exact with no replacement characters and no mojibake, source unchanged.
+>     GUI: Whole + **Preserve** PASS, Whole + **Replace** PASS, Whole + **Strip/Write none** PASS,
+>     and the Unicode **Split** path exercised successfully before a deliberate cancellation, with
+>     em dash and curly quotes intact in filenames and logs.
+>     · **Metadata/artwork modes proven** — Whole Preserve, Whole Replace, Whole Strip, and Split
+>     Preserve (the completed 15-output run). JPEG/mjpeg and PNG source covers both exercised;
+>     Preserve retains artwork, Strip omits it.
+>     · **Pause / Resume / Cancel** — all three confirmed by hand. Run 31 logs *"Cancelling… will
+>     stop after the current file."* and the removal of incomplete products; mechanical inspection
+>     afterwards found **no `.act` and no temporary residue**.
+>     · **Source immutability** — all three real books re-hashed identical before and after every
+>     probe, conversion and diagnostic.
+>     **The MP3 playback-timer concern is CLOSED, not outstanding.** A read-only cross-tool
+>     investigation measured chapter 06 at planned/decoded ~2551.862 s, ffprobe gapless
+>     2551.861995 s and raw Xing / last packet / Media Foundation 2551.90204 s — a **~40 ms spread
+>     exactly equal to LAME encoder delay plus padding**, with the player-facing duration never
+>     *shorter* than the decoded audio. The artwork remux was proven timing-neutral. Current
+>     Converter, MP3 Tool and TTS output are all structurally correct; the remembered symptom
+>     reproduces only in **stale TTS files written before the 2026-08-19 finalisation fix**.
+>     Classification **A (normal display rounding) + F (historical-only other-tool issue)**. No
+>     production remediation owed.
+>     **EXPLICITLY WAIVED — NOT PASS.** The following §26 rows were **not manually exercised**;
+>     they are **waived by the maintainer on 2026-08-29** and **non-blocking for Phase-15
+>     completion**. They must not be reclassified as PASS because implementation exists, because
+>     automated tests cover them, because synthetic fixtures were prepared, or because the product
+>     is performing well:
+>     *Fixture breadth* — chapterless · first-chapter-after-zero · trailing-audio · slash-title
+>     final-artifact confirmation · duplicate-title · minimal-metadata.
+>     *Conversion breadth* — Split + Replace · Split + Strip · artwork presence/absence for those
+>     two Split modes · progress and ETA observation · Retry Failed with the success-only numbering
+>     sequence · deliberate direct-file output collision · mirrored folder output.
+>     *Import/control breadth without a durable itemized manual record* — Include subfolders ON/OFF
+>     on one folder · nested-only-when-ON · root-level-in-both · repeated toggle / per-import frozen
+>     state · Clear All · Add Files · Add Folder · Move Up · Move Down · Remove · Ctrl-click ·
+>     Shift-click · deliberate duplicate occurrence add/remove · M4B supported type enabled and
+>     disabled. (Earlier records say "manual items 1-4 passed" but never enumerate them, so no
+>     individual row above can be mapped to that claim.)
+>     **First-chapter-after-zero, specifically.** Not practically representable as a valid M4B on
+>     this fixture path: ffmpeg's MOV/M4B muxer **normalises the first chapter start to 0**, proven
+>     against the default, `+disable_chpl` and `-disable_chpl` forms (the same metadata keeps
+>     `2.000000` in Matroska), and **all five real books on hand also begin at 0.000000**. The
+>     planner behaviour is independently covered by `test_m4b_timeline_partition.py`, which drives a
+>     logical chapter list whose first start is 41.062 and proves the pre-roll lands in chapter 1.
+>     No invalid M4B was fabricated for the row.
+>     **Synthetic fixtures — clarification.** The disposable fixtures prepared for the abandoned
+>     session, including `Retry-B.m4b`, were created under `C:\act-phase15-final-manual-matrix\` and
+>     then relocated by the containment policy to
+>     `files/dev-work/phase15/final-manual-matrix/` — which is why the maintainer could not find
+>     them. They are gitignored local developer evidence, **not** repository fixtures, **not**
+>     private audiobooks and **not** cross-platform assets. Their absence from the expected place is
+>     **not a product defect**. They are retained, not regenerated and not committed.
+>     **Gate at the accepted HEAD** (`58172cc`, unchanged by this documentation checkpoint): bare
+>     `python -m pytest` and `python scripts/verify.py` each report **5164 passed / 14 skipped /
+>     0 failed / 2 warnings**, `verify.py` **RESULT: PASS**.
+>     **Still open, and deliberately not closed here:** the true **no-Python + no-FFmpeg fresh
+>     Windows machine/VM** proof remains a **release** acceptance gap, not a Phase-15 one; and the
+>     Phase-17 observations recorded above and below stand (whole-book chapter titles under the
+>     `-map_metadata -1` allowlist, pytest-state leakage into the real setup log, additive
+>     player-duration structural coverage for Converter/MP3-Tool output, stale pre-fix TTS user
+>     outputs which are **not** to be deleted, and the retained
+>     `files/runtime-data/phase14/tree-phase12/` snapshot now safely excluded by `pytest.ini`).
+>     **Plan 5 remains ACTIVE. Phase 16 NOT STARTED. Phase 17 NOT STARTED. Phase 18 NOT STARTED.**
+>     Version stays `0.6.1`; no tag, release, package, `release.py` run, merge or PR; the Plan-5
+>     drop is **not** retired.
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >

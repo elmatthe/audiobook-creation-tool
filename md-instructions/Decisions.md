@@ -4,6 +4,53 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-29 — Phase 15 closes on maintainer acceptance, with the untested rows recorded as waived
+
+**Decision (v0.6.2 Plan 5, Phase 15; maintainer disposition, and it overrides the plan's own §26
+completion requirement for this phase only).**
+
+Phase 15 Windows validation is **COMPLETE BY EXPLICIT MAINTAINER ACCEPTANCE**. The maintainer
+accepted the real-world Windows validation already performed and explicitly waived the remaining
+unperformed synthetic/manual §26 rows as prerequisites: *"I'm not going to test all of that since it
+would take too long and i don't have time … i tested enough with the other files and I am happy with
+how it's performing, if in the future i encounter an error i will come back to the chat and we can
+work on it but for now let's move on."*
+
+**The waived rows are recorded as waived, never as passed.** They are enumerated in `Handoff.md` and
+summarised in the plan's §26, under the wording *not manually exercised; explicitly waived by
+maintainer on 2026-08-29; non-blocking for Phase-15 completion*. Nothing may reclassify them as PASS
+on the grounds that the implementation exists, that automated tests cover the behaviour, that
+synthetic fixtures were prepared for them, or that the product is performing well. "Phase 15
+complete" does not mean "all of §26 passed", and any future summary that says so is wrong.
+
+**Why this is a legitimate close rather than a shortcut.** What was validated is the part that
+carries the risk, and it was validated on real 9-to-13-hour audiobooks through the real launcher
+rather than on fixtures: FFmpeg provisioning and clean-install acceptance; AAC-LC Whole; the Windows
+Media Foundation xHE-AAC route Whole at 100.0004 % and Split at 15/15; a human listen across a split
+boundary; the cp1252 Unicode regression with all three Whole metadata modes; Pause, Resume and
+Cancel with verified cleanup; and source immutability by hash on three real books. Four genuine
+Windows blockers were found and fixed along the way — FFmpeg provisioning, whole-book artwork
+truncation, the xHE-AAC decode gap, and the ffprobe code-page refusal — which is the real return
+this phase produced. The waived rows are breadth over synthetic fixtures, and the maintainer judged
+that breadth not worth further time. That is their call to make, and the honest record of it is this
+entry rather than a matrix quietly filled in.
+
+**One row could not have been tested anyway.** *First chapter starting after zero* is not
+representable as a valid M4B here: ffmpeg's MOV/M4B muxer normalises the first chapter start to `0`
+(verified against the default, `+disable_chpl` and `-disable_chpl`; the same metadata keeps
+`2.000000` in Matroska), and all five real books on hand also begin at `0.000000`. No invalid file
+was fabricated to satisfy the row. `test_m4b_timeline_partition.py` covers the planner behaviour it
+was meant to exercise.
+
+**What this does not close.** The true no-Python + no-FFmpeg fresh-machine proof stays outstanding
+as a *release* gate, not a Phase-15 one. The waived rows may be revisited if a real defect appears,
+or folded into the Phase 17 bug hunt. Plan 5 stays ACTIVE, Phase 16 is not started, `VERSION`
+remains `0.6.1`, and nothing was tagged, released, packaged or merged.
+
+*Maintainer disposition 2026-08-29; recorded by Claude Code.*
+
+---
+
 ## 2026-08-29 — Project work lives in the repository; external workspaces need permission
 
 **Decision (repository-wide standing policy, maintainer-directed; not tied to one plan or phase).**
