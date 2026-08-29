@@ -29,11 +29,12 @@
 > - **The bounded Tk test-lifecycle remediation `c5129a0` is maintainer-approved**, and
 >   **Phase 11 `17f577ff` is maintainer-approved** on top of it — its final gate was
 >   **first-attempt green with no retry**, which is what the remediation existed to make
->   possible. **Phase 13 `b68b425f` is maintainer-approved** — it carries an explicit
->   **maintainer correction to the active drop's retry contract** (see the Phase 13 entry) —
->   and **Phase 14 is COMMITTED and complete** on top of it, also first-attempt green.
->   **Phase 15 (the Windows manual matrix) has NOT started** and needs explicit maintainer
->   approval.
+>   possible. **Phase 14 `27732d77` is maintainer-approved.** **Phase 15 has STARTED and is
+>   INCOMPLETE**: manual items 1–4 passed, item 5 was **BLOCKED** by a Windows Smart App
+>   Control refusal of the selected ffprobe, and the maintainer approved a bounded shared
+>   remediation under risk gate #9. That remediation is **COMMITTED**; the manual matrix
+>   itself is **not resumed and not complete**, and items 5+ still need the maintainer to
+>   retest. **Phase 16 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -1001,6 +1002,100 @@
 >     *Note:* Python sources in this worktree are **CRLF** (`* text=auto`). A new test file must
 >     match its siblings, or it lands as pure LF and reappears as modified after the next
 >     checkout. **Phase 15 NOT STARTED.**
+>   - **Phase 15 — blocker diagnosis and FFmpeg health remediation** (2026-08-28): the manual
+>     matrix stopped at item 5. **Diagnosis first, no edits.** The GUI reported *"FFmpeg
+>     detected."* and then `Book 1_ Dungeon Crawler Carl.m4b: This file could not be read`, with
+>     `probe status probe_failed: OSError: [WinError 4551] An Application Control policy has
+>     blocked this file` and a Windows Security toast. **The audiobook was never the problem** —
+>     probed through a working binary it is `ProbeStatus.OK`, 48693.06 s, 50 chapters, AAC-LC,
+>     one attached `mjpeg` picture, and its SHA-256
+>     `4f55710e…76c17` is unchanged before and after every probe in this phase.
+>     **Root cause, in four links.** `files/bin` was absent, so `ffmpeg_utils._find` took the first
+>     PATH hit — and the **User** PATH lists `C:\ffmpeg\bin` (position 17) before the WinGet
+>     `Gyan.FFmpeg` directory (position 22). `have_ffmpeg()` was `ffmpeg_path() is not None and
+>     ffprobe_path() is not None`: **existence, never execution**. `bootstrap.ensure_ffmpeg()`
+>     returned `True` on `shutil.which("ffmpeg")` alone — it never looked at ffprobe on that path
+>     and executed nothing. And the `--launch-only` fast path reconciled *requirements* and
+>     *Kokoro* and never mentioned ffmpeg, so nothing revalidated. The first thing that ever **ran**
+>     ffprobe was the preflight of a real conversion, in front of the user. `ProbeStatus.PROBE_FAILED`
+>     was **correct**; the defect was upstream of it.
+>     **Windows evidence, authoritative.** `Microsoft-Windows-CodeIntegrity/Operational` 3033/3077
+>     (Error) + 3089 + 3118, `PolicyName VerifiedAndReputableDesktop`, `PolicyID 27555.1000.240208`,
+>     GUID `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` — **the same policy as the Phase 0 incident**.
+>     `Requested Signing Level 2` vs `Validated Signing Level 1`, `Status 0xc0e90002`, and the
+>     event's `SHA256 Flat Hash` matches `C:\ffmpeg\bin\ffprobe.exe` exactly. 3089 records
+>     `TotalSignatureCount 0`, `PublisherName Unknown`, `KnownRoot 0`; 3118 records
+>     `DefenderMadeCloudCall true`, `IsUnfriendlyFile false`, **no threat name**. So it is
+>     **reputation + signing level**, not malware, not AppLocker (both logs empty), and **not
+>     WatchGuard — no WatchGuard or Panda service or install directory exists on this machine**.
+>     A first hypothesis of Mark-of-the-Web was **wrong** and was corrected from the event data:
+>     MotW is present on the blocked pair and absent on the working one, but it is correlation.
+>     Both builds are unsigned; only one has cloud reputation.
+>     **Maintainer disposition: Option A** — approve the durable shared remediation, risk gate #9
+>     cleared for this bounded scope only.
+>     **The new contract.** *FFmpeg capability exists only through one coherent ffmpeg + ffprobe
+>     pair that setup or repair has established as usable.* New `shared/ffmpeg_health.py` owns it:
+>     pairs are discovered as **siblings of one directory** (half an installation is not a
+>     candidate, so ffmpeg from one build and ffprobe from another is now impossible), proven by
+>     running `-version` on **both** halves through the shared no-window wrappers with a bounded
+>     timeout, and the winner is pinned in `files/runtime-data/ffmpeg-state.json`. Rejected
+>     candidates are recorded and **never executed again**, because attempting a blocked binary is
+>     itself what raises the notification. See the 2026-08-28 ADR for why the pair is pinned where
+>     it lives rather than copied into `files/bin` (~444 MB duplicated, a stale copy would become
+>     an unbeatable first candidate — the very defect being removed — and GPL redistribution is
+>     Plan 9's question).
+>     **`have_ffmpeg()` now means a coherent pair is available**, still not that it runs; the strong
+>     claim is the new `verified_ffmpeg()`, and `status_line()` is the one place the difference is
+>     worded. The panel's *"FFmpeg detected."* is gone.
+>     **Two defects found while building it, both real.** (1) bootstrap first imported
+>     `ffmpeg_health` off `SHARED_DIR`, creating a **second module object** with its own state and
+>     caches — setup and the app could have disagreed about which FFmpeg was in use while both
+>     looked correct. It leaked a test's state into the real `files/runtime-data/` file, which is
+>     how it was caught; now imported as `shared.ffmpeg_health`, pinned by a test asserting the two
+>     are literally the same module. (2) `_install_ffmpeg`'s winget branch was gated on
+>     `_ffmpeg_on_path()`, which **cannot** be true in the process that just ran the installer —
+>     so successful installs were abandoned in favour of downloading a second, worse copy.
+>     **The BtbN nightly fallback is kept but demoted and documented.** Its bytes change on every
+>     upstream commit, so under reputation-based enforcement it is *structurally* more likely to be
+>     refused than the stable WinGet package. It now runs only when winget is absent or failed, and
+>     whatever it produces is proven like any other candidate rather than trusted for being ours.
+>     **Live Stage 1 proof, on the real machine, both installations left in place.**
+>     `C:\ffmpeg` still present and still first (`where.exe ffprobe` confirms). Repair took 2.52 s:
+>     probed `C:\ffmpeg\bin` → `WinError 4551` → rejected; probed the Gyan build → verified; pinned
+>     it, with SHA-256s matching the recorded known-good values exactly. A **fresh** process with
+>     **no PATH prepend** then resolved both halves to the Gyan directory, `verified_ffmpeg() is
+>     True`, `status_line()` = *"FFmpeg verified and ready."*, and `m4b_probe.probe_source()`
+>     returned `ProbeStatus.OK` on the real audiobook with the source byte-identical.
+>     **Notification count is the acceptance measure: exactly one, during repair** (3077 + 3118 at
+>     17:54:55 for the blocked ffprobe), and **zero** during normal runtime and across three
+>     simulated launches at ~60 ms each. Incidentally, `C:\ffmpeg\bin\ffmpeg.exe` passed
+>     `-version` during repair having failed it earlier with `0xC0E90002` — the DLL-load block is
+>     intermittent while the ffprobe block is deterministic, which is precisely why **both** halves
+>     must be proven rather than one taken as evidence for the other.
+>     **One suite failure, root-caused rather than rerun.** `test_mp3_concat_paths.py` failed 8/8
+>     media tests with `WinError 4551`: it resolved its binaries with `shutil.which("ffmpeg")` —
+>     the exact bypass this phase removes from production — and had only ever passed because a
+>     developer prepended a working directory to PATH for the run. Pointed at
+>     `ffmpeg_utils.ffmpeg_cmd()`; green. **No production module outside bootstrap does this**,
+>     verified by grep. Its pre-existing `skipif` condition changed from raw PATH to
+>     `have_ffmpeg()`; it did not skip.
+>     Gates (all **without** any PATH prepend, which is itself part of the proof):
+>     **5021 collected / 5007 passed / 14 skipped / 1 warning / 0 failed**, `verify.py` PASS on its
+>     first and only invocation, `compileall` clean, `pip check` clean,
+>     `git diff --check -- scripts/ files/` exit 0. Delta **+59** = **+58** new
+>     `files/tests/test_ffmpeg_health.py` **+1** `test_no_production_module_imports_the_plan3_
+>     foundation[shared/ffmpeg_health.py]`, the new shared module auto-enrolling in the Plan 3
+>     boundary guard and passing. **No new skip, xfail or deselection.** `job_control.py`,
+>     `job_ui.py`, `output_paths.py`, `importing.py`, `subprocess_utils.py`, `metadata.py`,
+>     `paths.py`, TTS, Cover, every other `mp3_tools` module, the launcher, `verify.py`,
+>     `config.toml`, `requirements.txt`, the `.bat` and the Tk remediation are all
+>     **byte-unchanged**; version stays `0.6.1`.
+>     **Still open, deliberately.** The manual matrix is **not resumed** — items 5+ need the
+>     maintainer to retest. The **clean-install acceptance test** (remove every FFmpeg, let setup
+>     provision from zero) has **NOT** been performed and needs separate authorisation; nothing was
+>     uninstalled or deleted in this phase. And an unsigned FFmpeg under an arbitrary enterprise
+>     WDAC policy remains unfixable from inside the app — signing and distribution stay Plan 9.
+>     **Phase 16 NOT STARTED.**
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >

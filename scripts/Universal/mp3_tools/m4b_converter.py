@@ -632,12 +632,17 @@ class M4BConverterUI(ttk.Frame):
             options.grid_columnconfigure(i, weight=1)
 
         # Initial checks (log instead of a modal so switching tools is quiet)
+        # v0.6.2 Plan 5 Phase 15: this used to say "FFmpeg detected." whenever a
+        # path resolved, which is what told the maintainer everything was fine
+        # about an installation Windows was refusing to execute. The wording now
+        # comes from ``status_line`` so "found" and "verified" cannot be confused
+        # again, and so the distinction is stated in exactly one place.
         if not ffmpeg_utils.have_ffmpeg():
             self.log_write(
                 "WARNING: ffmpeg/ffprobe not found. Run the setup launcher to install it.\n"
             )
         else:
-            self.log_write("FFmpeg detected.\n")
+            self.log_write(ffmpeg_utils.status_line() + "\n")
 
         # One pump, one scheduled chain: the conversion queue is a drain on
         # the same pump the import poller rides, and so is the shared job

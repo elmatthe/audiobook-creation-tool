@@ -4,6 +4,57 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-28 — The proven FFmpeg pair is *pinned where it lives*, never copied into `files/bin/`
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; maintainer cleared risk gate #9 for this
+bounded shared change).**
+
+FFmpeg capability now exists only through **one coherent ffmpeg + ffprobe pair that setup or repair
+has actually executed**. `shared/ffmpeg_health.py` discovers candidate pairs, proves them by running
+`-version` on both halves, and records the winner — **by absolute path** — in
+`files/runtime-data/ffmpeg-state.json`. `shared/ffmpeg_utils.py` consumes that record. The pair is
+**not** copied into `files/bin/`.
+
+**Why a pinned external pair rather than a normalized local copy.** Copying was the obvious
+alternative and it loses on every axis that matters here. The proven Windows build is a 222 MB
+static ffmpeg plus a 222 MB static ffprobe, so a copy costs ~444 MB of duplicated bytes for no new
+capability. A copy also goes **stale silently**: `files/bin` is checked first, so a copy left behind
+by a `winget upgrade` would become an unbeatable candidate — which is a rebuild of the exact defect
+this phase removed, where a bad candidate won because it happened to be looked at first. And
+copying a GPL third-party binary into the repository tree edges toward redistribution, which is
+Plan 9's question, not this phase's. Pinning keeps **one** source of truth, keeps the installation
+owned by the package manager that installed it, and makes an upgrade *detectable* — the recorded
+size/mtime stop matching, the pin is invalidated, and the pair is re-proven.
+
+**Why identity is path + size + mtime, with SHA-256 as evidence rather than as the check.** Hashing
+444 MB on every launch is a visible cost for no extra safety against accidental change. The hash is
+computed once at proof time and kept as durable evidence, and re-derived on repair.
+
+**What identity deliberately cannot see, and what covers it.** Nothing about the bytes changes when
+a *policy* changes: a pair that ran yesterday and is refused today is byte-identical. So
+`ensure_ready()` re-proves the **pinned pair only** on every launch — two bounded `-version` calls,
+~60 ms measured — and never sweeps PATH. That distinction is load-bearing: **executing a blocked
+binary is itself what raises the Windows Security notification**, so probing strangers on a normal
+launch would manufacture the very popup this phase exists to remove. Candidates already proven
+unusable are recorded and skipped without being executed again.
+
+**Why `have_ffmpeg()` did not simply become "verified".** It now means *a coherent pair is
+available* — still not a claim that either half runs — because a machine that has never run setup
+must still be able to use the tools rather than be told it has no FFmpeg at all. The strong claim
+lives in the new `verified_ffmpeg()`, and `status_line()` is the single place the difference is
+worded, so "found" can never again be printed as "detected" and read as "ready".
+
+**Security boundary, explicitly.** Nothing here disables, weakens, excludes from, or works around
+Smart App Control, Defender, WDAC or any endpoint policy, and nothing suppresses a Windows
+notification while still using a blocked binary. When no candidate runs, the app says so at the
+setup/repair boundary and points at an administrator allowlisting FFmpeg. An organisation's policy
+that refuses every legitimate build is a limit the application accepts, not one it routes around.
+Getting an unsigned FFmpeg trusted by reputation or signature is release work and stays in Plan 9.
+
+— Claude Code, at the maintainer's direction
+
+---
+
 ## 2026-08-22 — Plan 4 closeout: EPUB is retired and archived, Decision 52B is partially superseded, and the licence obligation survives in production
 
 **Decision (v0.6.1 Plan 4, Phase 5, ratified at the Phase 15 closeout).**

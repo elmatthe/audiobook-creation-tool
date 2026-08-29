@@ -19,19 +19,26 @@ real ffmpeg binary, so the rule is never re-derived from a single lucky fixture.
 from __future__ import annotations
 
 import ast
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from shared import ffmpeg_utils
 from mp3_tools import mp3_tool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-FFMPEG = shutil.which("ffmpeg")
-FFPROBE = shutil.which("ffprobe")
-needs_ffmpeg = pytest.mark.skipif(not (FFMPEG and FFPROBE),
-                                  reason="ffmpeg/ffprobe not on PATH")
+
+# v0.6.2 Plan 5 Phase 15: these were ``shutil.which("ffmpeg")``, which is the
+# one thing the application itself is no longer allowed to do. On the machine
+# that blocked the Phase 15 matrix that resolved an installation Windows refuses
+# to execute, and these tests only passed because a developer had prepended a
+# working directory to PATH for the run. They now use the same proven pair the
+# app does, so this module tests the shipped resolution instead of PATH order.
+FFMPEG = ffmpeg_utils.ffmpeg_cmd()
+FFPROBE = ffmpeg_utils.ffprobe_cmd()
+needs_ffmpeg = pytest.mark.skipif(not ffmpeg_utils.have_ffmpeg(),
+                                  reason="ffmpeg/ffprobe not available")
 
 # Names that have to survive: plain, spaces, one quote, several quotes, Unicode,
 # and everything at once. Windows forbids most other punctuation in a filename.
