@@ -40,6 +40,46 @@
 >   run. A **true no-Python clean environment** proof is still outstanding for release.
 >   **Phase 16 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
+>   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
+>     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
+>     clean-room environments, generated media, temporary evidence, logs and agent working
+>     directories **stay inside the repository**, under the gitignored **`files/dev-work/`**.
+>     External project workspaces need **explicit permission first**, with the reason `files/`
+>     cannot serve, the exact path, what will be created and the cleanup plan. Installed
+>     Python/FFmpeg, WinGet locations, dependency-created OS temp and the user's chosen output
+>     folder remain legitimate externals. See the 2026-08-29 ADR in `Decisions.md` and
+>     § *Repository-Local Artifact Containment* in `AI-WORKSPACE.md` (that file is itself
+>     gitignored by long-standing design, so the ADR is the tracked copy of the rule).
+>     **Everything already scattered was migrated** — 61,695 files / 5,026,849,462 bytes, by atomic same-volume
+>     rename, every tree verified file-count- and byte-identical before the source was released:
+>
+>     | historical path | current local-only location |
+>     |---|---|
+>     | `C:\act-phase15-cleanroom` | `files/dev-work/phase15/cleanroom/` |
+>     | `C:\act-phase15-ffmpeg-backup` | `files/dev-work/phase15/ffmpeg-backup/` |
+>     | `C:\act-phase15-final-manual-matrix` | `files/dev-work/phase15/final-manual-matrix/` |
+>     | `C:\act-phase15-whole-diag` | `files/dev-work/phase15/whole-diag/` |
+>     | `C:\act-phase15-xhe-diag` | `files/dev-work/phase15/xhe-diag/` |
+>     | `%TEMP%\act-phase11-preserve-20260825` | `files/dev-work/phase11/preserve-20260825/` |
+>     | `%TEMP%\act-phase12-degraded` | `files/dev-work/phase12/degraded/` |
+>
+>     `act-phase12-degraded` is a **registered git worktree** (detached `82042f7`) and was moved
+>     with `git worktree move`, so its registration is intact rather than orphaned. Nine empty
+>     `%TEMP%\act-*` husks left by earlier harness runs were removed. **No `C:\act-*` and no
+>     `%TEMP%\act-*` path remains.** Historical reports naming the old paths stay true as written;
+>     this table is the current map.
+>     **Untouched on purpose:** `Downloads\Audiobook-Creation-Tool-Outputs\` (the user's own
+>     output location, including every Phase-15 `M4B-Converter-*` run), the active WinGet Gyan
+>     FFmpeg 9.0.1 installation, the Python installation, and the in-repo `.venv`.
+>     **One accepted consequence:** the relocated clean-room carries a second `files/tests/`, so a
+>     bare `pytest` from the repo root now reports 164 basename collisions. The authoritative gate
+>     is unaffected — `scripts/verify.py` runs `pytest files/tests/` explicitly and still collects
+>     **5160**. Use `python scripts/verify.py`, not bare `pytest`. Narrowing collection or
+>     archiving the clean-room is an open follow-up, deliberately not decided here.
+>     (A later bare-`pytest` probe wrote bytecode caches into two of the trees; clearing them
+>     also took 31 pre-existing `.pyc` files, 1,029,190 bytes, out of the clean-room. Sources,
+>     logs and its `.venv` are intact; only regenerable bytecode was lost.)
+>     No production, test or dependency change; version stays `0.6.1`.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
 >     (`VerifiedAndReputableDesktop`, policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`) transiently

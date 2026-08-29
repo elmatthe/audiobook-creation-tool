@@ -4,6 +4,53 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-29 — Project work lives in the repository; external workspaces need permission
+
+**Decision (repository-wide standing policy, maintainer-directed; not tied to one plan or phase).**
+
+All project-related work created while working inside this repository stays **inside** it —
+scratch files, synthetic fixtures, diagnostics, backups, clean-room environments, generated test
+media, temporary evidence, logs and agent working directories. The repo-local home is
+**`files/dev-work/`**, gitignored in full and organised by phase or purpose. Creating a project
+workspace elsewhere on the machine — `C:\act-*`, a Desktop scratch tree, an arbitrary
+`%TEMP%` project folder — is not permitted for convenience.
+
+External paths remain legitimate only where the operating system or the thing under test requires
+them: installed Python and FFmpeg, WinGet and other system package locations, OS-managed caches
+and temp directories the dependencies create themselves at runtime, and the user-selected
+application output location. A test whose purpose *is* to prove out-of-repository behaviour is an
+exception — and before creating such a workspace the agent must **stop and ask**, stating why
+`files/` cannot serve, the exact path proposed, what will be created, and the cleanup plan.
+
+Committable content is application source, tests, required scripts, documentation, and fixtures
+deliberately meant to survive a `git pull` on another machine. Everything local-only stays
+ignored. Sitting inside the repository does not make temporary evidence GitHub content: no broad
+`git add files/`, no force-add of ignored material, and no promotion into `files/test-files/`
+merely because something now lives in-tree.
+
+**Why.** By Phase 15 the project had scattered roughly **5 GB** across five `C:\act-phase15-*`
+folders and eleven `%TEMP%\act-*` directories — a clean-room checkout with its own `.venv`, an
+inactive FFmpeg backup, two diagnostic sets, a synthetic fixture workspace and a registered git
+worktree. None of it was discoverable from the repository, none was covered by `.gitignore`, and
+a fresh clone gave no hint that any of it existed. Keeping the material in-tree and ignored makes
+it visible to whoever is working, disposable in one delete, and impossible to commit by accident,
+while the checkout stays usable as the project's clean development and release source.
+
+**Consequence, accepted knowingly.** The relocated clean-room carries a second copy of
+`files/tests/`, so a bare `pytest` invoked from the repository root now hits 164 basename
+collisions. The authoritative gate is unaffected and was re-measured: `scripts/verify.py` runs
+`pytest files/tests/` explicitly and still collects **5160**. Use `python scripts/verify.py` (or
+`pytest files/tests`), not bare `pytest`. Narrowing collection, or archiving the clean-room, is
+recorded as an open follow-up rather than decided here.
+
+**Historical evidence keeps its original paths.** Reports that say evidence was collected at
+`C:\act-phase15-xhe-diag` remain true as written; `Handoff.md` carries the current location map.
+Relocation does not invalidate the evidence.
+
+*Maintainer-directed, 2026-08-29; recorded by Claude Code.*
+
+---
+
 ## 2026-08-29 — ffprobe's JSON is read as bytes; the host code page never decodes it
 
 **Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; narrow, one production line).**

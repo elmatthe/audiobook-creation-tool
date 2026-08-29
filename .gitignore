@@ -79,3 +79,10 @@ desktop.ini
 
 # Windows Batch Files
 Map-Repo-Structure.bat
+
+# Local developer workspace (v0.6.2 Plan 5, 2026-08-29 maintainer policy).
+# All agent/developer scratch, diagnostics, synthetic fixtures, generated media,
+# backups, clean-room copies and temporary evidence live here instead of in
+# external folders. Do not create project workspaces outside the repository.
+# Deliberate cross-platform fixtures stay in their approved tracked paths.
+files/dev-work/
