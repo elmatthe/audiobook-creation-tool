@@ -635,11 +635,19 @@ def test_no_later_phase_planning_type_is_defined():
         assert forbidden not in defined
 
 
-def test_the_public_surface_is_exactly_three_builders():
-    """Phase 6 added exactly one builder: the split artwork attach pass."""
+def test_the_public_surface_is_exactly_four_builders():
+    """Phase 6 added the split artwork attach pass; Phase 15 added the PCM one.
+
+    v0.6.2 Plan 5 Phase 15: ffmpeg's native decoder silently loses 23.91% of a
+    real xHE-AAC audiobook, so on Windows that codec is decoded by Media
+    Foundation and the samples arrive here on stdin. It is a fourth *builder*,
+    not a second conversion system -- same encoder, same quality, same
+    allowlist, same ID3 version -- and this guard keeps the count honest.
+    """
     public = {node.name for node in tree().body
               if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
-    assert public == {"whole_book_argv", "segment_argv", "attach_artwork_argv"}
+    assert public == {"whole_book_argv", "segment_argv", "attach_artwork_argv",
+                      "pcm_argv"}
 
 
 def test_the_tts_bitrate_contract_is_not_borrowed():

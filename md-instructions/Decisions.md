@@ -4,6 +4,59 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-29 — Windows decodes xHE-AAC through Media Foundation; ordinary AAC stays on ffmpeg
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; maintainer-approved, no new dependency).**
+
+A source the probe marks `undecodable_xhe` has its audio decoded by **Windows Media Foundation**
+and piped into the unchanged MP3 encode. Everything else — all 54 AAC-LC books in the real
+corpus — keeps the existing ffmpeg path untouched. Where Windows cannot decode it either, the run
+**fails closed at preflight** rather than producing a shortened audiobook.
+
+**Why ffmpeg is not enough today.** Measured against the real 9.78-hour xHE-AAC book: ffmpeg 9.0.1
+refuses **362,465 of 1,515,928 frames** with *"Not yet implemented in FFmpeg, patches welcome"* —
+**23.91 %** of the audio — concatenates the rest into 26,783 s against a planned 35,200 s, and
+**exits 0**. Split is no better: every chapter span comes back at ~76 %. The audio is not merely
+short, it carries ~362,000 excisions. Only the drift guard stopped it shipping. Upstream added the
+USAC frequency-domain path in FFmpeg 8.0 and still returns *patches welcome* for eSBR, uniDrc and
+time-warped MDCT; since 23.91 % of frames fail rather than all of them, the gap is a **per-frame**
+tool. Naming it exactly needs an instrumented build and does not change this decision.
+
+**Why Media Foundation and not FDK-AAC.** FDK v2 does decode xHE-AAC. But `--enable-libfdk-aac`
+requires `--enable-nonfree`, which combined with `--gpl` yields a binary that **may not be
+redistributed**; this project is GPL-3.0, and no reputable pre-built ffmpeg ships it. Windows 11's
+decoder is already installed, needs no download, raises no Smart App Control question, and is
+driven from `ctypes` — **stdlib**. It delivered **35,199.78 s of that book: 100.0004 %**.
+
+**Why `IMFSourceReader` and not `MediaTranscoder`.** MediaTranscoder also decodes this book
+correctly, but only into a file, and the decoded book is **6.2 GB**. Chunking it was measured and
+rejected: `[600,1200)` yields 26,452,025 frames while `[600,900) + [900,1200)` yields 26,443,970 —
+every seek discards **8,055 frames (0.183 s)** to decoder priming. The reader is a *pull* interface:
+strictly sequential, so nothing is primed away, handing back **4 KB** at a time so the 6.2 GB flows
+through a pipe and is never stored.
+
+**Why a split book decodes once.** Because seeking is lossy, `PcmTimeline` runs the decoder once
+per item and cuts the PCM at frozen chapter boundaries in the order the segments already run in.
+Measured on the real book: opening, early, middle and **final tail** spans all at **100.00 %**.
+A short read is reported, never padded — silence in place of missing audio would defeat the guard.
+
+**Capability is probed, never inferred from a version.** Windows N/KN editions ship without the
+media feature pack and components can be removed by policy, so the question asked is whether the
+libraries load and `MFStartup` succeeds.
+
+**What did not change.** The >3 % drift guard, the encoder, the quality, the metadata allowlist,
+ID3v2.3, destinations, numbering, retry, cancellation, and macOS — which keeps `aac_at`, and
+therefore reports such sources *decodable* and never reaches this path at all.
+
+**One bug this decision cost, recorded so it is not repeated.** The first live run produced a
+complete 100.0004 % audiobook with **zero chapters**: `pcm_argv` emitted `-map_chapters 1` and the
+shared `output_args` emitted `-map_chapters 0`, and argument order settled it in favour of the PCM
+pipe, which has no chapters. The chapter map is now owned by exactly one place on this route.
+
+— Claude Code, at the maintainer's direction
+
+---
+
 ## 2026-08-28 — A whole book with a cover opens its source twice, and the picture comes from input 1
 
 **Decision (v0.6.2 Plan 5, Phase 15 blocker remediation).**

@@ -62,6 +62,11 @@ _EXTENSION = ".mp3"
 #: :class:`~mp3_tools.m4b_chapters.InvalidReason`: nothing is wrong with the
 #: *chapter* map, so borrowing that vocabulary would misdescribe the defect.
 ARTWORK_AMBIGUOUS = "artwork_ambiguous"
+#: The source is xHE-AAC, ffmpeg cannot decode it completely, and this
+#: machine has no decoder that can. v0.6.2 Plan 5 Phase 15: refusing here is
+#: the whole point -- ffmpeg would exit 0 having silently dropped 23.91% of
+#: the audio, and the person would wait out a full encode to be told so.
+UNDECODABLE_SOURCE = "undecodable_source"
 
 #: The reason recorded when an occurrence never produced a report at all. A
 #: defensive route: preflight probes every frozen occurrence, so reaching this
@@ -160,6 +165,11 @@ class ItemPlan:
     undecodable_xhe: bool
     codec_hint: str
     segments: tuple[SegmentPlan, ...]
+    #: Decode this one through Windows Media Foundation rather than ffmpeg.
+    #: Decided once, at preflight, from the probe and the machine's actual
+    #: capability -- never from a filename, never re-derived after Start, and
+    #: never true for a source ffmpeg decodes correctly.
+    windows_decode: bool = False
 
     @property
     def total_segments(self) -> int:
@@ -292,6 +302,7 @@ def assemble_plan(
     reports: Mapping[str, SourceReport],
     options: PlanOptions,
     reserve,
+    windows_decoder=None,
 ) -> ConversionPlan:
     """Turn one frozen queue plus its probe reports into one immutable plan.
 
@@ -305,8 +316,17 @@ def assemble_plan(
     three are done. A run whose every item is unusable reserves nothing at all,
     so a failed preflight leaves no empty numbered folder behind.
 
+    *windows_decoder* answers "can this machine decode what ffmpeg cannot?".
+    It is a seam so both answers are testable and so this module still runs no
+    process of its own; production passes
+    :func:`mp3_tools.m4b_winaudio.available`.
+
     Runs no process, reads no file, creates no directory and touches no widget.
     """
+    if windows_decoder is None:
+        from . import m4b_winaudio
+
+        windows_decoder = m4b_winaudio.available
     entries = tuple(entries)
     usable: list[tuple] = []
     failures: list[ItemFailure] = []
@@ -338,7 +358,25 @@ def assemble_plan(
                 report.artwork.message, report.artwork.detail))
             continue
 
-        usable.append((entry, report, validation.usability is ChapterUsability.CHAPTERED))
+        # xHE-AAC that ffmpeg cannot decode completely. On Windows the
+        # built-in Media Foundation decoder handles it; with no such capability
+        # the honest answer is to refuse now, before a run directory is
+        # reserved, rather than hand back a 76%-complete audiobook.
+        route = False
+        if report.undecodable_xhe:
+            if not windows_decoder():
+                failures.append(_failure(
+                    entry, UNDECODABLE_SOURCE,
+                    "This audiobook uses xHE-AAC audio that this computer "
+                    "cannot decode completely. No output was created.",
+                    "ffmpeg's decoder drops a large fraction of xHE-AAC "
+                    "(MPEG-D USAC) frames, and no Media Foundation decoder is "
+                    "available here; the source was left unchanged"))
+                continue
+            route = True
+
+        usable.append((entry, report, validation.usability is ChapterUsability.CHAPTERED,
+                       route))
 
     if not usable:
         return ConversionPlan(
@@ -356,12 +394,12 @@ def assemble_plan(
 
     shapes = {
         entry.occurrence_id: _spans(entry, report, chaptered, options.split)
-        for entry, report, chaptered in usable
+        for entry, report, chaptered, _route in usable
     }
 
     run_directory, planner = reserve()
     planned = m4b_destinations.plan_outputs(
-        [entry for entry, _report, _chaptered in usable],
+        [entry for entry, _report, _chaptered, _route in usable],
         {occurrence: tuple(shape[4] for shape in shapes[occurrence])
          for occurrence in shapes},
         run_root=Path(run_directory),
@@ -370,7 +408,7 @@ def assemble_plan(
     destinations = {item.occurrence_id: item.destinations for item in planned}
 
     items: list[ItemPlan] = []
-    for entry, report, chaptered in usable:
+    for entry, report, chaptered, route in usable:
         shape = shapes[entry.occurrence_id]
         paths = destinations[entry.occurrence_id]
         if len(paths) != len(shape):
@@ -390,6 +428,7 @@ def assemble_plan(
             decoder_args=tuple(report.decoder_args),
             undecodable_xhe=bool(report.undecodable_xhe),
             codec_hint=str(report.codec_name),
+            windows_decode=bool(route),
             segments=tuple(
                 SegmentPlan(
                     order=order,

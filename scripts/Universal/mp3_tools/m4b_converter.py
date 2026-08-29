@@ -67,6 +67,7 @@ from . import m4b_metadata
 from . import m4b_numbering
 from . import m4b_plan
 from . import m4b_probe
+from . import m4b_winaudio
 from .m4b_metadata import MetadataMode
 from .m4b_plan import ConversionMode, PlanOptions
 
@@ -1508,13 +1509,37 @@ class M4BConverterUI(ttk.Frame):
                     self._log_q.put(("log", f"  {note_text}\n"))
                     if reporter is not None:
                         reporter.warning(note_text, "chapterless source (18A)")
-                if item.undecodable_xhe:
+                if item.undecodable_xhe and item.windows_decode:
+                    # v0.6.2 Plan 5 Phase 15: ffmpeg drops 23.91% of a real
+                    # xHE-AAC book's frames, so Windows decodes this one.
+                    note_text = (f"{in_file.name} is xHE-AAC, so its audio is "
+                                 "decoded by Windows rather than by ffmpeg.")
+                    self._log_q.put(("log", f"  {note_text}\n"))
+                    if reporter is not None:
+                        reporter.warning(note_text, f"codec={item.codec_hint}")
+                elif item.undecodable_xhe:
                     trouble = (f"{in_file.name} is xHE-AAC and this ffmpeg "
                                "build has no decoder for it on this platform, "
                                "so the output may be sped up or choppy.")
                     self._log_q.put(("log", f"  \u26a0 WARNING: {trouble}\n"))
                     if reporter is not None:
                         reporter.warning(trouble, f"codec={item.codec_hint}")
+
+                # One decode serves every output of this item. Seeking a USAC
+                # decoder costs 0.183s of primed audio per jump -- measured --
+                # so a split book is cut in the PCM stream instead, in the
+                # frozen order the segments already run in.
+                timeline = None
+                if item.windows_decode:
+                    try:
+                        timeline = m4b_winaudio.PcmTimeline(
+                            in_file, cancelled=interrupted)
+                    except Exception as exc:  # noqa: BLE001
+                        note(item_id,
+                             f"{in_file.name}: its audio could not be decoded.",
+                             f"{type(exc).__name__}: {exc}",
+                             STAGE_CONVERT, retryable=True)
+                        continue
 
                 for segment in item.segments:
                     # **The safe checkpoint, and it now sits between segments.**
@@ -1563,11 +1588,22 @@ class M4BConverterUI(ttk.Frame):
                         # decided this, and it is the only thing that entitles a
                         # duration mismatch to name a cause.
                         undecodable_xhe=item.undecodable_xhe,
+                        windows_decode=item.windows_decode,
+                        pcm_args=(() if timeline is None
+                                  else tuple(timeline.format.ffmpeg_input_args())),
                     )
 
                     self._log_q.put((
                         "log", f"  -> {segment.destination}\n"))
                     started = clock() if timed else None
+                    feed = None
+                    if timeline is not None:
+                        wanted = (timeline.bytes_for(segment.end - segment.start)
+                                  if item.fragment else None)
+
+                        def feed(write, _wanted=wanted):
+                            timeline.feed(write, _wanted)
+
                     outcome = m4b_execution.convert_segment(
                         work,
                         ffmpeg=ffmpeg_utils.ffmpeg_cmd(),
@@ -1575,6 +1611,7 @@ class M4BConverterUI(ttk.Frame):
                         measure=measured_duration,
                         sources=tuple(entry.path for entry in imported),
                         on_command=announce,
+                        feed=feed,
                     )
                     ended = clock() if timed else None
 
@@ -1634,6 +1671,11 @@ class M4BConverterUI(ttk.Frame):
                     # destination or a cancellation all consume nothing.
                     if tentative is not None:
                         numbers.commit(tentative)
+
+                if timeline is not None:
+                    # Released on every route out of this item, including a
+                    # failure or a cancel: a live decoder is a held file handle.
+                    timeline.close()
 
                 if cancelled:
                     # Settled only now: the child is reaped, its temporary file

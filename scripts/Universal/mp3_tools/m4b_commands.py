@@ -339,3 +339,89 @@ def attach_artwork_argv(
         *_arguments(output_args, "output_args"),
         str(destination),
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Decoded-PCM input — v0.6.2 Plan 5 Phase 15, the Windows xHE-AAC route
+# --------------------------------------------------------------------------- #
+
+
+def pcm_argv(
+    *,
+    ffmpeg: str,
+    pcm_args: Sequence[str],
+    destination: str,
+    quality: int,
+    output_args: Sequence[str] = (),
+    metadata_source=None,
+    attached_picture: int | None = None,
+    keep_chapters: bool = False,
+) -> list[str]:
+    """Encode already-decoded PCM arriving on stdin.
+
+    **Why this exists.** ffmpeg's native decoder silently loses 23.91 % of a real
+    xHE-AAC audiobook (see :mod:`mp3_tools.m4b_winaudio`), so on Windows that one
+    codec is decoded by Media Foundation instead and the samples are piped here.
+    Everything downstream of the decoder is unchanged: same encoder, same
+    quality, same allowlisted metadata, same ID3 version, same transactional
+    destination.
+
+    **The audio is input 0 and it is a pipe.** *pcm_args* describes it -- sample
+    format, rate, channels -- and comes from the decoder's *negotiated* format
+    rather than from an assumption, because the whole point of this path is that
+    what arrived is what gets encoded.
+
+    **The book is input 1, and only when it is needed.** PCM carries no chapters,
+    no cover and no tags, so anything the output must retain has to come from the
+    original file. It is opened only when *keep_chapters* or *attached_picture*
+    actually needs it -- a stripped output opens nothing and takes the audio
+    alone. Note ``-map_chapters 1``: the chapter map's input index moves because
+    the audio now occupies input 0.
+
+    There is **no seek here, ever**. A split segment is cut in the PCM stream at
+    frozen sample boundaries before it reaches this command, because seeking a
+    USAC decoder costs 0.183 s of primed audio at every jump -- measured. That
+    also means this one builder serves whole books and fragments alike: by the
+    time ffmpeg sees the audio, the span question has already been answered.
+    """
+    if not isinstance(ffmpeg, str) or not ffmpeg:
+        raise ValueError("ffmpeg must be a non-empty path or command name")
+    if isinstance(quality, bool) or not isinstance(quality, int):
+        raise TypeError(f"quality must be an int, got {type(quality).__name__}")
+    if quality not in _QUALITY_RANGE:
+        raise ValueError(f"quality must be 0-9, got {quality}")
+    if isinstance(attached_picture, bool):
+        raise TypeError("attached_picture must be an int stream index or None")
+    if attached_picture is not None and not isinstance(attached_picture, int):
+        raise TypeError("attached_picture must be an int stream index or None")
+    if attached_picture is not None and attached_picture < 0:
+        raise ValueError(
+            f"attached_picture must not be negative, got {attached_picture!r}")
+
+    needs_book = keep_chapters or attached_picture is not None
+    if needs_book and not metadata_source:
+        raise ValueError(
+            "metadata_source is required to retain chapters or artwork")
+
+    argv = [ffmpeg, "-hide_banner", "-y"]
+    argv += _arguments(pcm_args, "pcm_args")
+    argv += ["-i", "pipe:0"]
+    if needs_book:
+        argv += ["-i", str(metadata_source)]
+
+    argv += ["-map", "0:a:0"]
+    if attached_picture is not None:
+        argv += ["-map", f"1:{attached_picture}",
+                 "-c:v", "copy", "-disposition:v:0", "attached_pic"]
+    else:
+        argv += ["-vn"]
+
+    # ``-map_metadata`` is **not** emitted here: ``metadata_args`` supplies the
+    # allowlist unconditionally and stays the single authority for it. The
+    # chapter map *is* owned here, because its input index is the one thing
+    # this shape changes -- the book is input 1 now that the audio is a pipe.
+    argv += ["-map_chapters", "1" if keep_chapters else "-1"]
+    argv += _arguments(output_args, "output_args")
+    argv += ["-c:a", _ENCODER, "-q:a", str(quality), "-threads", "0"]
+    argv.append(str(destination))
+    return argv

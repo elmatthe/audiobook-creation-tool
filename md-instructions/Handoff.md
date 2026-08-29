@@ -33,11 +33,12 @@
 >   INCOMPLETE**: manual items 1–4 passed, item 5 was **BLOCKED** by a Windows Smart App
 >   Control refusal of the selected ffprobe, and the maintainer approved a bounded shared
 >   remediation under risk gate #9. That remediation is **COMMITTED**, the **clean-install
->   acceptance checkpoint PASSED**, and a **second, unrelated Phase 15 blocker** — Whole-book
->   outputs truncating to a fraction of a second — has been diagnosed, fixed and committed.
->   The manual matrix itself is **not resumed and not complete**: item 5 awaits the
->   maintainer's Whole-book retest and items 6+ have not run. A **true no-Python clean
->   environment** proof is still outstanding for release. **Phase 16 has NOT started.**
+>   acceptance checkpoint PASSED**, and **three** Phase 15 blockers have now been diagnosed,
+>   fixed and committed: FFmpeg provisioning, Whole-book artwork truncation, and the Windows
+>   **xHE-AAC decode gap**. The manual matrix itself is **not resumed and not complete**:
+>   AAC-LC Whole passed, the xHE book awaits the maintainer's retest, and items 6+ have not
+>   run. A **true no-Python clean environment** proof is still outstanding for release.
+>   **Phase 16 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -1250,6 +1251,50 @@
 >     **Phase 15 manual matrix still incomplete**: 1–4 PASS, **item 5 awaits the maintainer's
 >     Whole-book retest through the normal Setup_and_Run path**, 6+ not run. Diagnostics retained at
 >     `C:\act-phase15-whole-diag\` and `C:\act-phase15-ffmpeg-backup\`. **Phase 16 NOT STARTED.**
+>   - **Phase 15 — Windows xHE-AAC decode** (2026-08-29): the matrix's third blocker. The
+>     AAC-LC book converted correctly after the artwork fix; *Reincarnated as a Sword* did not.
+>     **The measurement.** ffmpeg 9.0.1 refuses **362,465 of 1,515,928 frames** with *"Not yet
+>     implemented in FFmpeg, patches welcome"* — **23.91%** — and exits **0**. 362,465/1,515,928
+>     retained × 35,199.62 s = **26,783 s**, exactly what the maintainer saw. Real PCM slices
+>     across the whole book deliver 75.3–76.4% uniformly (AAC-LC controls: 100%), so the output is
+>     not short at one end but carries ~362,000 excisions. Split is identical: every chapter span
+>     ~76%. **`time=` lied** — decode-to-null reached the file's end because PTS advances over
+>     dropped frames, which is why every measurement here is delivered *samples*.
+>     **Corpus scope.** All 55 real M4Bs were classified: **54 AAC-LC (1,662 h), exactly one
+>     xHE-AAC (9.78 h)**. The gap affects 1.8% of the library — worth fixing, not worth disturbing
+>     the other 54 books for.
+>     **Two candidates rejected on evidence.** Gyan 9.0.1 has only `aac`, `aac_fixed`, `aac_latm`
+>     — asked mechanically, not inferred; `aac_fixed` produces no valid output at all, and
+>     `--enable-mediafoundation` supplies the `aac_mf` *encoder* only. FDK-AAC decodes xHE but
+>     `--enable-libfdk-aac` needs `--enable-nonfree`, which with `--gpl` is **not redistributable**
+>     under this project's GPL-3.0 licence.
+>     **What was chosen, and proved.** Windows 11's own decoder, through `IMFSourceReader` driven
+>     by stdlib `ctypes` — nothing downloaded, installed or redistributed, and no security question.
+>     Full sequential decode of the real book: **1,515,929 samples, 35,199.78 s = 100.0004%**, peak
+>     buffer **4,096 bytes**, 91 s wall clock. See the 2026-08-29 ADR for why the reader rather than
+>     `MediaTranscoder` (6.2 GB), and why a split book decodes **once** (every seek discards 8,055
+>     frames = 0.183 s, measured).
+>     **Live production proof.** Whole + Preserve through the real plan and executor:
+>     **finalised**, 35,199.7794 s against a 35,199.62 s source = **100.0004%** (drift 0.0004%), 565,986,987 bytes, **all 15 chapters**, all five approved tags, one command, 178 s. Split through the production builder and `PcmTimeline`: opening, early, middle and
+>     **final tail** spans all **100.00%**, from one decode. Source SHA-256 `b9a24a88…f8d4`
+>     unchanged throughout. AAC-LC controls — Dungeon Crawler Carl, a 74-hour Supreme Magus, a
+>     461-chapter Shadow Slave — all still route to **ffmpeg** and deliver **100%**.
+>     **One bug found by the live run, and it is worth remembering.** The first attempt produced a
+>     complete 100.0004% audiobook with **zero chapters**: `pcm_argv` emitted `-map_chapters 1`
+>     while the shared `output_args` emitted `-map_chapters 0`, and argument order settled it in
+>     favour of the PCM pipe. Two authorities for one flag is the whole lesson; the chapter map is
+>     now owned by exactly one place on this route.
+>     **Windows 10 and N/KN editions fail closed** at preflight with a typed, **non-retryable**
+>     `undecodable_source` failure (Phase 13 Option A), before a run directory is reserved — rather
+>     than spending minutes to hand back 76% of a book. The message names nothing to disable or
+>     download, because there is nothing honest to name. **macOS is untouched**: `aac_at` already
+>     decodes xHE, so those sources report *decodable* and never reach this path.
+>     Gates: **5124 collected / 5110 passed / 14 skipped / 0 failed**, delta **+55, exactly the new tests — **+54** in `test_m4b_winaudio` and **+1** from the new production module auto-enrolling in the Plan 3 boundary guard**.
+>     `verify.py` PASS; `compileall`, `pip check` and `git diff --check -- scripts/ files/` clean.
+>     No new dependency; `requirements.txt` untouched. Shared Plan 2/3 contracts, TTS, Cover, the
+>     launchers, `ffmpeg_health` and `bootstrap` are **byte-unchanged**; version stays `0.6.1`.
+>     **Phase 15 manual matrix still incomplete**: 1–4 PASS, AAC-LC Whole PASS, **xHE Whole and
+>     Split await the maintainer's retest**, 6+ not run. **Phase 16 NOT STARTED.**
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >

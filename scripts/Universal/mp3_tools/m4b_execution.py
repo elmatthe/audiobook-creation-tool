@@ -91,10 +91,16 @@ class ProcessResult:
     #: True when even ``wait()`` did not return in time. Always reported, never
     #: swallowed: it is the one outcome that could leave something behind.
     unreaped: bool = False
+    #: True when the thing feeding stdin raised. Separate from ``returncode``
+    #: because ffmpeg can exit 0 on the audio it *did* receive: a decoder that
+    #: stopped early would otherwise look like success, which is precisely the
+    #: failure mode v0.6.2 Plan 5 Phase 15 exists to remove.
+    producer_failed: bool = False
 
     @property
     def ok(self) -> bool:
-        return self.returncode == 0 and not self.cancelled
+        return (self.returncode == 0 and not self.cancelled
+                and not self.producer_failed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +127,15 @@ class SegmentWork:
     #: one whose own probe recorded plain AAC-LC and a perfectly decodable
     #: source. Defaults to ``False`` so an unstated source is never accused.
     undecodable_xhe: bool = False
+    #: Also frozen at preflight: this output's audio is decoded by Windows Media
+    #: Foundation and piped in, because ffmpeg cannot decode this source
+    #: completely. Defaults to ``False``, so every ordinary AAC-LC book takes the
+    #: untouched ffmpeg path and nothing has to opt out of the new route.
+    windows_decode: bool = False
+    #: How ffmpeg should read that pipe, from the decoder's *negotiated* format
+    #: rather than an assumption -- the sample maths that proves a complete
+    #: decode has to be done against what actually arrived.
+    pcm_args: tuple[str, ...] = ()
 
     @property
     def fragment(self) -> bool:
@@ -256,7 +271,110 @@ def run_argv(
         output_paths.discard_temporary(diagnostics)
 
 
-def _output_args(work: SegmentWork) -> list[str]:
+def run_argv_streaming(
+    argv: Sequence[str],
+    *,
+    feed: Callable[[Callable[[bytes], None]], None],
+    cancelled: Callable[[], bool],
+    workspace: Path,
+    poll_seconds: float = DEFAULT_POLL_SECONDS,
+    grace_seconds: float = DEFAULT_GRACE_SECONDS,
+    popen=None,
+    monotonic=time.monotonic,
+    wait=time.sleep,
+    spawn_thread=None,
+) -> ProcessResult:
+    """Run one child that is *fed* on stdin, and always reap it.
+
+    The same contract as :func:`run_argv` -- diagnostics to a file rather than a
+    pipe, cancellation polled between polls, the child collected on every route
+    out -- with one addition: a producer thread pushes bytes into stdin while
+    the main thread watches the process.
+
+    **Backpressure is the pipe itself.** *feed* is handed a ``write`` callable
+    and blocks inside it whenever the encoder is behind, so a ten-hour decode
+    never runs ahead of the encoder and nothing accumulates in memory. That is
+    the whole reason this streams rather than staging PCM: the one real source
+    this was built for is 6.2 GB decoded.
+
+    **Cancellation unblocks a blocked producer.** Stopping the child closes the
+    read end, so a ``write`` waiting on a full pipe raises and the producer
+    unwinds instead of hanging. Both are joined before this returns; a producer
+    that outlives its child would be exactly the leak §18.2 exists to prevent.
+    """
+    launch = sp.popen if popen is None else popen
+    start_thread = spawn_thread
+    if start_thread is None:  # imported lazily: the module stays Tk- and thread-free
+        import threading      # noqa: PLC0415 - see docstring
+
+        def start_thread(target):  # type: ignore[misc]
+            thread = threading.Thread(target=target, name="m4b-pcm-producer",
+                                      daemon=True)
+            thread.start()
+            return thread
+
+    diagnostics = output_paths.temporary_sibling(
+        Path(workspace) / "ffmpeg", suffix=".log")
+    failure: list[str] = []
+    try:
+        try:
+            with open(diagnostics, "wb") as sink:
+                proc = launch(argv, stdin=subprocess.PIPE, stdout=sink,
+                              stderr=subprocess.STDOUT)
+        except OSError as exc:
+            raise ProcessLaunchError(f"{type(exc).__name__}: {exc}") from exc
+
+        def pump() -> None:
+            try:
+                feed(proc.stdin.write)
+            except (BrokenPipeError, OSError, ValueError):
+                # The consumer went away -- its returncode is the real story.
+                pass
+            except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+                failure.append(f"{type(exc).__name__}: {exc}")
+            finally:
+                try:
+                    proc.stdin.close()
+                except (OSError, ValueError):
+                    pass
+
+        producer = start_thread(pump)
+
+        killed = False
+        stopped = False
+        try:
+            while True:
+                code = proc.poll()
+                if code is not None:
+                    break
+                if cancelled():
+                    killed = _stop(proc, grace_seconds=grace_seconds,
+                                   poll_seconds=poll_seconds,
+                                   monotonic=monotonic, wait=wait)
+                    stopped = True
+                    break
+                wait(poll_seconds)
+        finally:
+            reaped = _reap(proc, timeout=grace_seconds)
+            if producer is not None and hasattr(producer, "join"):
+                producer.join(timeout=grace_seconds)
+
+        detail = tail_of(diagnostics)
+        if failure:
+            detail = (detail + "\n" if detail else "") + failure[0]
+        return ProcessResult(
+            returncode=proc.returncode,
+            cancelled=stopped,
+            detail=detail,
+            killed=killed,
+            unreaped=not reaped,
+            producer_failed=bool(failure),
+        )
+    finally:
+        output_paths.discard_temporary(diagnostics)
+
+
+def _output_args(work: SegmentWork, *, chapters: bool = True) -> list[str]:
     """The output-side arguments carrying this segment's already-decided tags.
 
     No policy is chosen here. ``metadata_args`` makes every mode an allowlist by
@@ -278,7 +396,17 @@ def _output_args(work: SegmentWork) -> list[str]:
     )
     if work.tags:
         args = list(args) + ["-id3v2_version", "3"]
-    return list(args)
+    args = list(args)
+    if not chapters:
+        # The PCM route owns the chapter map, because the book moves to input 1
+        # once the audio is a pipe. Leaving this pair in as well would put two
+        # ``-map_chapters`` on one command line and let argument order settle it
+        # -- which mapped chapters from the pipe, and cost a real xHE-AAC book
+        # all fifteen of them in the first live run.
+        while "-map_chapters" in args:
+            at = args.index("-map_chapters")
+            del args[at:at + 2]
+    return args
 
 
 def _passes(work: SegmentWork, *, ffmpeg: str, staged_final: Path,
@@ -291,8 +419,24 @@ def _passes(work: SegmentWork, *, ffmpeg: str, staged_final: Path,
     argument order in both was measured in Phase 5 and lives in
     ``m4b_commands``, where a "simplification" has to fail a test.
     """
-    output_args = _output_args(work)
+    output_args = _output_args(work, chapters=not work.windows_decode)
     keep = work.picture if m4b_metadata.wants_artwork(work.metadata_mode) else None
+
+    if work.windows_decode:
+        # The audio arrives already decoded, on stdin, so there is no seek and
+        # no span left to express: the timeline was cut before ffmpeg saw it.
+        # One command covers a whole book and a fragment alike.
+        return (tuple(m4b_commands.pcm_argv(
+            ffmpeg=ffmpeg,
+            pcm_args=work.pcm_args,
+            destination=str(staged_final),
+            quality=work.quality,
+            output_args=output_args,
+            metadata_source=work.source,
+            attached_picture=None if keep is None else keep.stream_index,
+            keep_chapters=m4b_metadata.retains_chapters(
+                work.metadata_mode, split=work.fragment),
+        )),)
 
     if not work.fragment:
         # One pass: there is no seek to discard a cover frame, so artwork rides
@@ -403,6 +547,7 @@ def convert_segment(
     monotonic=time.monotonic,
     wait=time.sleep,
     on_command: Callable[[Sequence[str]], None] | None = None,
+    feed: Callable[[Callable[[bytes], None]], None] | None = None,
 ) -> SegmentOutcome:
     """Produce one planned output, or explain truthfully why it does not exist.
 
@@ -452,12 +597,30 @@ def convert_segment(
             if on_command is not None:
                 on_command(argv)
             try:
-                result = run_argv(
-                    argv, cancelled=cancelled, workspace=destination.parent,
-                    poll_seconds=poll_seconds, grace_seconds=grace_seconds,
-                    popen=popen, monotonic=monotonic, wait=wait)
+                if work.windows_decode:
+                    if feed is None:
+                        return refuse(
+                            f"{destination.name} could not be started.",
+                            "the plan asked for the Windows decoder but no "
+                            "decoded audio was supplied")
+                    result = run_argv_streaming(
+                        argv, feed=feed, cancelled=cancelled,
+                        workspace=destination.parent,
+                        poll_seconds=poll_seconds, grace_seconds=grace_seconds,
+                        popen=popen, monotonic=monotonic, wait=wait)
+                else:
+                    result = run_argv(
+                        argv, cancelled=cancelled, workspace=destination.parent,
+                        poll_seconds=poll_seconds, grace_seconds=grace_seconds,
+                        popen=popen, monotonic=monotonic, wait=wait)
             except ProcessLaunchError as exc:
                 return refuse(f"{destination.name} could not be started.", str(exc))
+
+            if result.producer_failed:
+                # ffmpeg can exit 0 on the audio it did receive, so a decoder
+                # that stopped early would otherwise look like success.
+                return refuse(f"{destination.name} could not be decoded.",
+                              result.detail)
 
             if result.cancelled:
                 return SegmentOutcome(destination=destination, cancelled=True,
