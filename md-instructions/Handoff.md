@@ -32,9 +32,11 @@
 >   possible. **Phase 14 `27732d77` is maintainer-approved.** **Phase 15 has STARTED and is
 >   INCOMPLETE**: manual items 1–4 passed, item 5 was **BLOCKED** by a Windows Smart App
 >   Control refusal of the selected ffprobe, and the maintainer approved a bounded shared
->   remediation under risk gate #9. That remediation is **COMMITTED**; the manual matrix
->   itself is **not resumed and not complete**, and items 5+ still need the maintainer to
->   retest. **Phase 16 has NOT started.**
+>   remediation under risk gate #9. That remediation is **COMMITTED**, and the
+>   **clean-install acceptance checkpoint has PASSED** on a fresh tree with no FFmpeg on
+>   the host. The manual matrix itself is **not resumed and not complete**: items 5+ still
+>   need the maintainer to retest. A **true no-Python clean environment** proof is still
+>   outstanding for release. **Phase 16 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -1096,6 +1098,93 @@
 >     uninstalled or deleted in this phase. And an unsigned FFmpeg under an arbitrary enterprise
 >     WDAC policy remains unfixable from inside the app — signing and distribution stay Plan 9.
 >     **Phase 16 NOT STARTED.**
+>   - **Phase 15 — clean-install acceptance checkpoint** (2026-08-28): the first-run contract
+>     proved end to end on a genuinely FFmpeg-less host. **PASS.**
+>     **Why it was needed.** The Phase 15 blocker fix made a *broken* FFmpeg impossible to
+>     mistake for a working one. It did not prove the other half of the promise — that a machine
+>     with **no** FFmpeg gets one automatically — and nothing in the suite pinned the first-run
+>     chain at all. A person must not need Python or FFmpeg before downloading this tool.
+>     **Mechanical proof first (no host changes).** All three chains verified from source and
+>     now pinned by 26 tests in `files/tests/test_first_run_contract.py`. *No Python:* the `.bat`
+>     gates its fast path on `.venv\Scripts\pythonw.exe`, tries `py` then `python`, installs
+>     `Python.Python.3.12` via winget, then checks
+>     `%LOCALAPPDATA%\Programs\Python\Python312\python.exe` **directly** because a running
+>     shell's PATH does not refresh, and on total failure prints a truthful message, opens
+>     python.org and exits 1 **before** reaching the bootstrap call. *No FFmpeg:* setup installs,
+>     proves both halves, pins. *Blocked FFmpeg present:* a blocked candidate is never "ready",
+>     setup **continues to installation** rather than giving up because something called ffmpeg
+>     exists, and the new pair wins despite the blocked one being earlier on PATH. **No
+>     implementation defect was found** — the tests document behaviour that was already correct.
+>     **Host prepared, reversibly.** `C:\act-phase15-ffmpeg-backup\inventory-before.json` holds
+>     223 SHA-256 hashes of the whole `C:\ffmpeg` tree plus the Gyan binaries and the full PATH.
+>     `C:\ffmpeg` was **moved, not deleted**, to `C:\act-phase15-ffmpeg-backup\ffmpeg`; the
+>     WinGet package was removed with `winget uninstall --id Gyan.FFmpeg`; the dev tree's
+>     `ffmpeg-state.json` was backed up and removed. Verified afterwards: `where.exe` finds
+>     neither binary, no WinGet package remains, and the app's own `discover_pairs()` returns
+>     `[]`. The stale `C:\ffmpeg\bin` entry was deliberately **left in the User PATH** as a
+>     dangling-entry test.
+>     **Disposable tree.** `git archive 395443362d7107300b1f63e5c6c5a44c4327c632 | tar -x` into
+>     `C:\act-phase15-cleanroom\` — no `.git`, no `.venv`, no `runtime-data`, no `files/bin`,
+>     7.1 MB. It differs from a real extraction only by carrying `md-instructions/` and the two
+>     git dotfiles.
+>     **One aborted run, disclosed.** The first launch inherited this session's `VIRTUAL_ENV`,
+>     so `py.exe` ran bootstrap under the *development* interpreter — not what a user
+>     double-clicking from Explorer gets. It was killed, the cleanroom rebuilt pristine, and
+>     relaunched with `VIRTUAL_ENV`/`PYTHONHOME`/`PYTHONPATH` cleared and PATH rebuilt from
+>     Machine + User only. Its log is kept at
+>     `C:\act-phase15-ffmpeg-backup\aborted-contaminated-run-setup.log`.
+>     **The accepted run.** Maintainer pressed **Begin Setup**; nothing else was done by hand and
+>     **no FFmpeg was downloaded manually**. The log reads, in order: `Found GUI-capable Python
+>     3.12: py -3.12` (the `.bat` had launched under 3.13; `find_suitable_python` correctly
+>     preferred 3.12 for Kokoro) → preflight `[XX] ffmpeg + ffprobe found (nowhere yet)` — note
+>     **"found", not "ready"**, the Phase 15 wording — → venv on **Python 3.12.10** → packages
+>     installed and import-verified → **`No usable ffmpeg/ffprobe pair found — installing one.`**
+>     → `Installing ffmpeg via winget (Gyan.FFmpeg)…` → `ffmpeg installed via winget.` →
+>     `Checking …\ffmpeg-9.0.1-full_build\bin…` → `Verified: ffmpeg version 9.0.1-full_build`
+>     → `FFmpeg verified after install` → GUI launched. `files/bin` was **never created**, so the
+>     BtbN nightly fallback was not used.
+>     **The version glob earned itself immediately.** The uninstalled package was `9.0`; winget
+>     installed **9.0.1**, whose directory is `ffmpeg-9.0.1-full_build` — a *different* name. A
+>     hard-coded `ffmpeg-9.0-full_build` would have found nothing. This was luck, not design
+>     foresight, and it is exactly the failure the glob was written against.
+>     **Security evidence.** Across the entire window (19:03 setup start → 20:01 second launch)
+>     the CodeIntegrity log holds **zero** events naming ffmpeg or ffprobe, **zero** 3077, and
+>     **zero** 3118. The only four 3033 entries are Google Chrome's own `vk_swiftshader.dll` and
+>     `vulkan-1.dll`, unrelated to this application. Maintainer observed **no** Windows Security
+>     popup. Nothing was disabled, excluded or unblocked.
+>     **PATH-independence, proved directly.** A cleanroom process run with
+>     `PATH=C:\WINDOWS\system32;C:\WINDOWS` — nothing else — still resolved both halves and
+>     reported `verified_ffmpeg() True` / *"FFmpeg verified and ready."*, while `shutil.which`
+>     returned `None` for both. That also explains a benign `pydub` import-time
+>     `Couldn't find ffmpeg` warning in the launch log: the GUI was started by a bootstrap
+>     process whose environment predated winget's PATH update, and the application was correct
+>     anyway because it reads the pin. `configure_pydub()` then points pydub at the pinned pair.
+>     **The real audiobook.** Through the cleanroom venv, normal runtime, no prepend:
+>     `ProbeStatus.OK`, `48693.061678` s, **50 chapters**, `aac`, `AttachedPicture(index=2,
+>     mjpeg)`, no artwork problem, title read; source SHA-256 `4f55710e…76c17` identical before
+>     and after. The exact file that blocked item 5 now probes cleanly.
+>     **Fast path.** Second `Setup_and_Run` produced no console and no setup dialog; the log is
+>     three lines — `FFmpeg health-check: verified …\ffmpeg-9.0.1-full_build\bin`,
+>     `Kokoro health-check: ok`, `Launching launcher.py`. No reinstall (winget still 9.0.1),
+>     `ffmpeg-state.json` **byte-identical** (same SHA-256), no requirements reconciliation, and
+>     **zero** CodeIntegrity events.
+>     *Minor observation, unresolved:* the setup log shows the Kokoro weights **were**
+>     pre-downloaded, although the maintainer reported unchecking that box. It does not affect
+>     this acceptance and was not investigated; worth a glance if it recurs.
+>     Gates: **5047 collected / 5033 passed / 14 skipped / 1 warning / 0 failed**, delta **+26** =
+>     exactly the new module; `verify.py` PASS; `compileall`, `pip check` and
+>     `git diff --check -- scripts/ files/` clean. **No production code changed.** No new skip,
+>     xfail or deselection.
+>     **Host left as follows:** Gyan.FFmpeg **9.0.1** installed and pinned — the dependency the
+>     app wants — and the dev tree re-pinned to it. The blocked `C:\ffmpeg` stays **backed up
+>     and inactive** at `C:\act-phase15-ffmpeg-backup\ffmpeg`, not deleted, not restored. Its
+>     stale PATH entry remains and is harmless.
+>     **Still outstanding for release:** Python was already installed on this machine, so the
+>     **true no-Python + no-FFmpeg clean Windows environment** proof — fresh extraction, driven
+>     from `Setup_and_Run` — has **NOT** been performed and remains a first-run acceptance
+>     requirement, not polish. Windows Sandbox/Hyper-V were **not** enabled for this checkpoint.
+>     **Phase 15 manual matrix still incomplete** (1–4 PASS, 5 awaiting the maintainer's
+>     whole-book retest, 6+ not run). **Phase 16 NOT STARTED.**
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >
