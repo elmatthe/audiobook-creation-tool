@@ -190,12 +190,32 @@ def _failed(detail: str) -> SourceReport:
         probe=ChapterProbe(status=ProbeStatus.PROBE_FAILED, duration=None, detail=detail))
 
 
-def probe_source(path, *, runner: Callable[[list[str]], str] | None = None) -> SourceReport:
+def probe_source(path, *, runner: Callable[[list[str]], str | bytes] | None = None
+                 ) -> SourceReport:
     """Read one source and report what it actually contains.
 
     *runner* is the seam the tests drive: it receives the finished argument list
-    and returns ffprobe's stdout. Production passes nothing and the call goes
-    through ``shared.subprocess_utils`` so no console window flashes on Windows.
+    and returns ffprobe's stdout, as ``bytes`` or ``str``. Production passes
+    nothing and the call goes through ``shared.subprocess_utils`` so no console
+    window flashes on Windows.
+
+    **Bytes, not text, and the reason matters.** ffprobe writes its JSON as
+    UTF-8. Asking ``check_output`` for ``text=True`` without naming an encoding
+    made Python decode it with ``locale.getpreferredencoding(False)`` -- cp1252
+    on a stock English Windows install -- and a real audiobook whose chapter
+    titles hold typographic quotes was refused at preflight with *'charmap'
+    codec can't decode byte 0x9d*. The book was valid and ffprobe had exited 0;
+    the failure was this line. Worse, cp1252 *maps* most of the bytes it should
+    not touch, so a book that avoided the few unmapped ones converted with
+    mojibake in every chapter name instead of failing loudly.
+
+    ``json.loads`` accepts bytes and decodes JSON's own way (UTF-8/16/32), so
+    the payload is read as the JSON it is rather than as text in whatever code
+    page the user happens to run. ``shared.metadata.read_chapter_titles``
+    already did exactly this. Output that is genuinely not valid JSON -- or not
+    valid UTF-8 -- still fails closed below, unrepaired: no ``errors=`` mode is
+    used anywhere here, because silently substituting characters in a chapter
+    title is a corruption, not a recovery.
 
     Never raises. Every failure route -- the process, the payload, the duration,
     the audio stream -- produces its own :class:`~mp3_tools.m4b_chapters.
@@ -204,7 +224,7 @@ def probe_source(path, *, runner: Callable[[list[str]], str] | None = None) -> S
     """
     argv = [ffmpeg_utils.ffprobe_cmd(), *_ARGS, str(path)]
     try:
-        raw = runner(argv) if runner is not None else sp.check_output(argv, text=True)
+        raw = runner(argv) if runner is not None else sp.check_output(argv)
     except Exception as exc:
         return _failed(f"{type(exc).__name__}: {exc}")
 

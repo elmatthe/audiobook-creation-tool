@@ -4,6 +4,55 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-29 — ffprobe's JSON is read as bytes; the host code page never decodes it
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; narrow, one production line).**
+
+`m4b_probe.probe_source` asks `check_output` for **bytes** and hands them to `json.loads`, which
+decodes JSON's own way (UTF-8/16/32, per RFC 4627). It never asks for `text=True`, an `encoding=`
+or an `errors=` mode. A payload that is not valid JSON — or not valid UTF-8 — still fails closed
+through the existing typed `ProbeStatus.PROBE_FAILED`, unrepaired.
+
+**Why.** A maintainer imported the real `ToA 4 - The Tyrant's Tomb.m4b` and the Converter refused
+it: *`probe status probe_failed: UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in
+position 6528`*. The book is an ordinary valid AAC-LC audiobook — 48,123.24 s, 44 chapters, one
+PNG cover, five readable tags — and ffprobe read it perfectly: **exit 0, empty stderr, 22,545
+bytes of valid UTF-8 that `json.loads` parses straight from bytes**. The failure was ours.
+`text=True` with no encoding makes Python decode with `locale.getpreferredencoding(False)`, which
+is **cp1252** on a stock English Windows install. Byte 6528 is the third byte of
+`b"\xe2\x80\x9d"` — U+201D RIGHT DOUBLE QUOTATION MARK — inside chapter 4's title *A simple “no”
+works*. The typed failure was truthful about what it saw; what it saw was a defect one layer up.
+
+**Crashing was the loud half.** cp1252 *maps* most of the bytes it should not touch: U+2014
+arrives as `â€”`, U+2019 as `â€™`, U+00E9 as `Ã©`. A book whose titles avoided the handful of
+unmapped bytes would have converted successfully with mojibake baked into every chapter name and
+tag. So the fix is measured by exact round-trip, not by the absence of an exception — which is
+also why `errors="ignore"` and `errors="replace"` are rejected outright: both turn a refusal into
+a silent corruption of the user's chapter titles.
+
+**Why not decode UTF-8 explicitly.** It would work — ffprobe does emit UTF-8 — but it makes this
+module a second authority on an encoding `json` already determines correctly, including the
+BOM/UTF-16 cases. `shared.metadata.read_chapter_titles` has passed ffprobe's bytes straight to
+`json.loads` since it was written; the Converter's probe was the one place that did not, and this
+makes them agree rather than inventing a third way.
+
+**Scope, decided on evidence rather than tidiness.** The sweep found one other locale-decoded
+ffprobe call reachable from the Converter: `ffmpeg_utils.probe_audio_stream`, used by
+`measured_duration` for the drift guard. It is **not** the same contract — `-of
+default=noprint_wrappers=1` over six fixed entries — and its output on the very book that broke
+the probe is **pure ASCII** (`codec_name/profile/sample_rate/channels/channel_layout/duration`),
+which cannot carry a title or a tag. It was left alone. `-decoders` likewise. Nothing in TTS,
+Cover, the M4B Maker or the Metadata Editor was touched.
+
+**Why the suite was green while a real audiobook was being refused.** Every generated probe
+fixture titles its chapters `Ch One`. A pure-ASCII book cannot fail this way. The regression now
+builds a book whose titles carry the same characters, and asserts the payload really is
+cp1252-undecodable so the guard cannot quietly stop guarding.
+
+— Diagnosed and implemented by Claude Code from the maintainer's real-book report, 2026-08-29
+
+---
+
 ## 2026-08-29 — Windows decodes xHE-AAC through Media Foundation; ordinary AAC stays on ffmpeg
 
 **Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; maintainer-approved, no new dependency).**

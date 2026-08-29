@@ -1295,6 +1295,88 @@
 >     launchers, `ffmpeg_health` and `bootstrap` are **byte-unchanged**; version stays `0.6.1`.
 >     **Phase 15 manual matrix still incomplete**: 1–4 PASS, AAC-LC Whole PASS, **xHE Whole and
 >     Split await the maintainer's retest**, 6+ not run. **Phase 16 NOT STARTED.**
+>   - **Phase 15 — xHE GUI evidence banked, and the ffprobe Unicode blocker** (2026-08-29):
+>     the maintainer ran the xHE retests through the real `Setup_and_Run` path and then hit a
+>     **fourth** blocker on a different real book. Both are recorded here; only the second
+>     needed code.
+>     **The xHE retests PASSED, measured rather than eyeballed.** *Whole* (run `M4B-Converter-23`,
+>     `Reincarnated as a Sword.mp3`, 565,986,987 bytes): **35,199.77941 s** against a
+>     35,199.624717 s source = **100.0004 %**, drift **0.0004 %** — not the old 26,783 s — with
+>     **15 chapters** whose start times match the frozen plan to **0.000000 s**, the `mjpeg`
+>     cover attached, and all five approved tags. The maintainer independently read ~**9:46:40**
+>     in iTunes, which agrees. *Split* (run `M4B-Converter-22`): **exactly 15** order-prefixed
+>     MP3s, every span matched against the frozen timeline — worst per-file deviation
+>     **0.0007 s**, total **35,199.627 s** vs 35,199.625 planned = **100.00000 %**, no missing
+>     middle or tail — each carrying the cover, its own chapter title as `title`, and sequential
+>     tracks 1–15. **No `.act` temp residue** in either run directory. Source SHA-256
+>     `b9a24a88…f8d4` unchanged. Run 23 also converted six other real books; **only ToA 4 was
+>     rejected**, at preflight.
+>     **The audible 06→07 boundary check is still OUTSTANDING.** No durable evidence records the
+>     maintainer performing it, and sample counts are not a substitute for listening.
+>     **The new blocker.** `ToA 4 - The Tyrant's Tomb.m4b` failed preflight with *`probe status
+>     probe_failed: UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position
+>     6528`*. **The book was never the problem**: ffprobe exited **0** with empty stderr and
+>     22,545 bytes of valid UTF-8 JSON that `json.loads` parses straight from bytes, describing
+>     an ordinary AAC-LC audiobook — **48,123.239909 s (13.37 h), 44 chapters, one PNG cover at
+>     stream 2**, `track 4/5`, Rick Riordan. Source SHA-256
+>     `4fb6b7f569d801d517011de5c548184e6530d4a0024acaa469748bde7b1f397e`, unchanged throughout.
+>     **Root cause, proven not guessed.** `probe_source` asked `check_output` for `text=True`
+>     without naming an encoding, so Python decoded with `locale.getpreferredencoding(False)` =
+>     **cp1252** on this host (`sys.flags.utf8_mode 0`). Byte 6528 is the third byte of
+>     `b"\xe2\x80\x9d"` — U+201D — inside chapter 4's title *A simple “no” works*. The same bytes
+>     decode strictly as UTF-8 and parse as JSON; only the code page failed. `PROBE_FAILED` was a
+>     truthful report of a defect one layer above it.
+>     **Crashing was the loud half.** cp1252 *maps* most of what it should not touch — U+2014 →
+>     `â€”`, U+2019 → `â€™`, U+00E9 → `Ã©` — so a book that avoided the few unmapped bytes would
+>     have converted with mojibake in every chapter name. That is why the fix is measured by exact
+>     round-trip and why `errors="ignore"`/`"replace"` were rejected: they convert a refusal into
+>     a silent corruption. See the 2026-08-29 ADR.
+>     **The fix is one production line.** `sp.check_output(argv, text=True)` → `sp.check_output(argv)`;
+>     the bytes go to `json.loads`, which decodes JSON's own way. The `runner` seam still accepts
+>     **both** `str` and `bytes` (its type hint now says so) and no test needed migrating.
+>     `shared.metadata.read_chapter_titles` has always done exactly this — the Converter's probe
+>     was the one that did not.
+>     **Scope held on evidence.** The sweep found one other locale-decoded ffprobe call reachable
+>     from the Converter — `ffmpeg_utils.probe_audio_stream`, behind `measured_duration` — but it
+>     is a different contract (`-of default=noprint_wrappers=1`, six fixed entries) and its output
+>     **on this very book is pure ASCII**, so it cannot carry a title. Left alone, as was
+>     `-decoders`. TTS, Cover, M4B Maker and the Metadata Editor untouched.
+>     **Real post-fix proof.** ToA 4 now probes `ProbeStatus.OK`: 48,123.239909 s, 44 chapters,
+>     PNG cover, five tags, `undecodable_xhe=False`, **CHAPTERED**, and its 44 planned spans tile
+>     `[0, D]` with `Σ − D = +0.000000000`. Titles return **exactly** — `'4 — Ukulele song? / No
+>     need to remove my guts / A simple “no” works'` — with no `?`, no `�` and no `â€`.
+>     Whole and Split are both viable.
+>     **Why the suite missed it.** Every generated probe fixture titles its chapters `Ch One`; a
+>     pure-ASCII book cannot fail this way. The new `files/tests/test_m4b_probe_encoding.py`
+>     builds a real book whose titles carry the same characters, **asserts the payload really is
+>     cp1252-undecodable** so the guard cannot quietly stop guarding, and pins exact round-trip
+>     rather than the absence of an exception. **Verified to fail against the pre-fix code**: 4 of
+>     its 36 tests fail before the change (the AST `text=` guard, the behavioural
+>     `check_output` stand-in, and the two real-media reads) — the unit payloads pass either way
+>     because they drive the injected seam, which was never the defect.
+>     Gates: **5146 passed / 14 skipped / 0 failed / 2 warnings** on the **FIRST ATTEMPT with NO
+>     RETRY** (both warnings are pydub's, from site-packages, and pre-date this change);
+>     `verify.py` **PASS** on its first and only invocation; `compileall` exit 0, `pip check`
+>     clean, `git diff --check -- scripts/ files/` exit 0. Delta **+36**, exactly the new test
+>     module — a new *test* file adds no Plan 3 boundary-guard row. **No new skip, xfail or
+>     deselection.** `m4b_winaudio.py`, `m4b_commands.py`, `m4b_execution.py`, `m4b_plan.py`,
+>     `m4b_converter.py`, `ffmpeg_health.py`, `ffmpeg_utils.py`, `bootstrap.py`, every shared
+>     Plan 2/3 contract, TTS, Cover, both launchers, `verify.py`, `config.toml` and
+>     `requirements.txt` are **byte-unchanged**; version stays `0.6.1`.
+>     **Observation, recorded and NOT fixed here** (needs its own disposition): a whole-book
+>     output's chapters carry correct start times but **no titles** — ffmpeg's mp3 muxer writes
+>     `CHAP` frames with a `TIT2` sub-frame only under `-map_metadata 0`, and the approved
+>     allowlist shape is `-map_metadata -1` plus explicit `-metadata`. Measured directly on a
+>     three-chapter fixture. This satisfies §16 as written (D6A promises the chapter **map**, and
+>     navigation works) and every pinned test, and it is **not** a regression from any Phase 15
+>     work — it is inherent to the approved Phase 6 design. Flagged for maintainer disposition,
+>     Phase 17. The earlier pytest-wrote-a-temp-FFmpeg-pair-into-the-real-setup-log observation
+>     also remains an untouched follow-up.
+>     **Phase 15 manual matrix still incomplete**: 1–4 PASS, AAC-LC Whole PASS, **xHE Whole and
+>     Split now PASS on measured GUI evidence**, **ToA 4 Whole awaits the maintainer's retest**,
+>     the **audible 06→07 boundary check awaits the maintainer**, and items 6+ have not run. A
+>     true no-Python clean-environment proof is still outstanding for release.
+>     **Phase 16 NOT STARTED.**
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >
