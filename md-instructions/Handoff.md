@@ -74,8 +74,11 @@
 >     **One accepted consequence:** the relocated clean-room carries a second `files/tests/`, so a
 >     bare `pytest` from the repo root now reports 164 basename collisions. The authoritative gate
 >     is unaffected — `scripts/verify.py` runs `pytest files/tests/` explicitly and still collects
->     **5160**. Use `python scripts/verify.py`, not bare `pytest`. Narrowing collection or
->     archiving the clean-room is an open follow-up, deliberately not decided here.
+>     **5160**. **Resolved the same day** by a tracked root `pytest.ini`: `testpaths =
+>     files/tests` plus `dev-work` and `runtime-data` in `norecursedirs`, so bare `pytest`,
+>     `pytest .` and `verify.py` all collect one tree. `files/runtime-data/phase14/
+>     tree-phase12/` turned out to carry a second `files/tests/` too, since 2026-08-22 — the
+>     defect was never unique to `dev-work`. Guarded by `files/tests/test_dev_work_isolation.py`.
 >     (A later bare-`pytest` probe wrote bytecode caches into two of the trees; clearing them
 >     also took 31 pre-existing `.pyc` files, 1,029,190 bytes, out of the clean-room. Sources,
 >     logs and its `.venv` are intact; only regenerable bytecode was lost.)

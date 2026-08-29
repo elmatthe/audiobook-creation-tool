@@ -40,8 +40,15 @@ while the checkout stays usable as the project's clean development and release s
 `files/tests/`, so a bare `pytest` invoked from the repository root now hits 164 basename
 collisions. The authoritative gate is unaffected and was re-measured: `scripts/verify.py` runs
 `pytest files/tests/` explicitly and still collects **5160**. Use `python scripts/verify.py` (or
-`pytest files/tests`), not bare `pytest`. Narrowing collection, or archiving the clean-room, is
-recorded as an open follow-up rather than decided here.
+`pytest files/tests`), not bare `pytest`.
+
+*Resolved 2026-08-29 by the follow-up checkpoint, and the rule it establishes belongs with this
+one: repository-contained is not the same as active project source, so a local workspace is
+excluded from test and source discovery as well as from Git.* A tracked root `pytest.ini` pins
+`testpaths = files/tests` and adds `dev-work` and `runtime-data` to `norecursedirs`. Bare
+`pytest` now collects the same tree as `verify.py`. The sweep also found the defect was never
+unique to `dev-work`: `files/runtime-data/phase14/tree-phase12/` has carried a second copy of
+`files/tests/` since 2026-08-22, so `pytest .` was already broken before the migration.
 
 **Historical evidence keeps its original paths.** Reports that say evidence was collected at
 `C:\act-phase15-xhe-diag` remain true as written; `Handoff.md` carries the current location map.
