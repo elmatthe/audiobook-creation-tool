@@ -115,6 +115,12 @@ class SegmentWork:
     decoder_args: tuple[str, ...] = ()
     picture: AttachedPicture | None = None
     span: tuple[float, float] | None = None
+    #: Copied from the frozen ``ItemPlan``, never re-derived here. It exists so
+    #: a duration mismatch can say *why* only when the plan already knows why:
+    #: before v0.6.2 Plan 5 Phase 15 every drift blamed xHE-AAC, including the
+    #: one whose own probe recorded plain AAC-LC and a perfectly decodable
+    #: source. Defaults to ``False`` so an unstated source is never accused.
+    undecodable_xhe: bool = False
 
     @property
     def fragment(self) -> bool:
@@ -359,20 +365,29 @@ def drift_of(measured: float | None, expected: float) -> float | None:
 
 
 def drift_message(measured: float, expected: float, drift: float,
-                  *, fragment: bool) -> str:
+                  *, fragment: bool, undecodable_xhe: bool = False) -> str:
     """The user-facing reason a produced file was thrown away.
 
-    Keeps the xHE-AAC-aware wording this tool has always used, because that is
-    still overwhelmingly the cause: a source ffmpeg cannot fully decode silently
-    drops packets and produces something far shorter than asked for.
+    **The measurement is the finding; the cause is not.** This used to assert
+    xHE-AAC on every drift, and v0.6.2 Plan 5 Phase 15 caught it telling a
+    maintainer that a plain AAC-LC audiobook "could not be decoded correctly
+    (likely xHE-AAC)" while the same file's own frozen probe recorded
+    ``undecodable_xhe=False``. The real cause was a command shape that made
+    ffmpeg stop early and report success. An hour was spent on the wrong
+    suspect, which is what a confident guess costs.
+
+    So a cause is named only when the plan already established it. Everything
+    else reports exactly what was observed — how long the output is, how long it
+    was meant to be, and that it was discarded — and attributes nothing.
     """
     what = "segment" if fragment else "output"
-    return (
-        "{what} length {measured:.0f}s != planned {expected:.0f}s ({drift:.0%} off) — the "
-        "source could not be decoded correctly (likely xHE-AAC with no compatible "
-        "decoder on this platform). Output discarded.".format(
-            what=what, measured=measured, expected=expected, drift=drift)
-    )
+    head = (f"{what} length {measured:.0f}s != planned {expected:.0f}s "
+            f"({drift:.0%} off)")
+    if undecodable_xhe:
+        return (f"{head} — the source could not be decoded correctly (xHE-AAC "
+                "with no compatible decoder on this platform). Output discarded.")
+    return (f"{head} — ffmpeg reported success but produced an output of an "
+            "unexpected length. Output discarded.")
 
 
 def convert_segment(
@@ -462,7 +477,8 @@ def convert_segment(
         if drift is not None and drift > DRIFT_TOLERANCE:
             return refuse(
                 drift_message(float(measured), float(work.expected_duration),
-                              drift, fragment=work.fragment),
+                              drift, fragment=work.fragment,
+                              undecodable_xhe=work.undecodable_xhe),
                 f"measured {measured!r}s against a planned "
                 f"{work.expected_duration!r}s span")
 

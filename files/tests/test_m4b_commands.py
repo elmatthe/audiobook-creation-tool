@@ -110,6 +110,115 @@ def test_whole_book_shape_is_exact():
     ]
 
 
+# --------------------------------------------------------------------------- #
+# Whole book with a cover — v0.6.2 Plan 5 Phase 15
+#
+# The book is opened twice and the picture comes from input 1. Phase 15
+# measured what happens otherwise: reading the cover out of the same input
+# whose audio is being decoded makes ffmpeg exit 0 after a handful of audio
+# frames, on any source longer than about fifty minutes. The observed
+# artifact was a 600 KB file holding 0.32 seconds of a 13.5-hour audiobook,
+# reported as success. These guards exist so that shape cannot come back.
+# --------------------------------------------------------------------------- #
+
+
+def test_whole_book_with_a_cover_shape_is_exact():
+    assert whole_book_argv(**base(attached_picture=2)) == [
+        FFMPEG, "-hide_banner", "-y",
+        "-i", SOURCE,
+        "-i", SOURCE,
+        "-map", "0:a:0",
+        "-map", "1:2",
+        "-c:v", "copy",
+        "-disposition:v:0", "attached_pic",
+        "-c:a", "libmp3lame", "-q:a", "4", "-threads", "0",
+        DEST,
+    ]
+
+
+def test_a_cover_opens_the_same_book_a_second_time():
+    argv = whole_book_argv(**base(attached_picture=2))
+    inputs = [argv[i + 1] for i, token in enumerate(argv) if token == "-i"]
+    assert inputs == [SOURCE, SOURCE], inputs
+
+
+def test_the_audio_is_taken_from_the_first_input():
+    """Input 0 is the one being decoded, so the audio must come from it."""
+    argv = whole_book_argv(**base(attached_picture=7))
+    maps = [argv[i + 1] for i, token in enumerate(argv) if token == "-map"]
+    assert maps[0] == "0:a:0"
+
+
+def test_the_cover_is_taken_from_the_second_input():
+    argv = whole_book_argv(**base(attached_picture=7))
+    maps = [argv[i + 1] for i, token in enumerate(argv) if token == "-map"]
+    assert maps[1] == "1:7", maps
+    assert "0:7" not in maps, "the cover must not come from the decoded input"
+
+
+def test_the_cover_stream_index_stays_absolute():
+    """A source may carry a real video track ahead of its cover."""
+    for index in (1, 2, 5, 11):
+        argv = whole_book_argv(**base(attached_picture=index))
+        maps = [argv[i + 1] for i, token in enumerate(argv) if token == "-map"]
+        assert maps[1] == f"1:{index}"
+        assert "1:v:0" not in maps
+
+
+def test_the_cover_is_copied_never_re_encoded():
+    argv = whole_book_argv(**base(attached_picture=2))
+    assert argv[argv.index("-c:v") + 1] == "copy"
+    assert argv[argv.index("-disposition:v:0") + 1] == "attached_pic"
+
+
+def test_a_cover_does_not_add_a_second_encode():
+    """One command, one audio encode. Whole book never becomes two passes."""
+    argv = whole_book_argv(**base(attached_picture=2))
+    assert argv.count("-c:a") == 1
+    assert argv.count("libmp3lame") == 1
+    assert argv[-1] == DEST
+
+
+def test_decoder_args_stay_in_front_of_the_audio_input_only():
+    """They select how input 0 is *decoded*; input 1 is only stream-copied."""
+    argv = whole_book_argv(
+        **base(attached_picture=2, decoder_args=["-c:a", "aac_at"]))
+    first = argv.index("-i")
+    second = argv.index("-i", first + 1)
+    assert argv.index("aac_at") < first
+    assert argv[first + 1 : second] == [SOURCE], (
+        "nothing may sit between the two inputs")
+
+
+def test_output_args_still_follow_the_mapping():
+    argv = whole_book_argv(
+        **base(attached_picture=2, output_args=["-map_chapters", "0"]))
+    assert index(argv, "-map_chapters") > index(argv, "-disposition:v:0")
+    assert argv[index(argv, "-map_chapters") + 1] == "0"
+
+
+def test_chapters_still_come_from_the_decoded_input():
+    """``-map_chapters 0`` is input 0 — the book, not the cover's copy."""
+    argv = whole_book_argv(
+        **base(attached_picture=2, output_args=["-map_chapters", "0"]))
+    assert argv[index(argv, "-map_chapters") + 1] == "0"
+
+
+def test_a_whole_book_without_a_cover_opens_the_source_once():
+    """The no-artwork command is byte-identical to its pre-Phase-15 shape."""
+    argv = whole_book_argv(**base())
+    assert argv.count("-i") == 1
+    assert "-vn" in argv
+    assert "attached_pic" not in argv
+
+
+def test_a_segment_never_opens_a_second_input():
+    """Split keeps its measured single-input seek shape untouched."""
+    argv = segment_argv(**base(start=1.0, end=2.0))
+    assert argv.count("-i") == 1
+    assert "-vn" in argv
+
+
 def test_whole_book_places_decoder_args_before_the_input():
     argv = whole_book_argv(**base(decoder_args=["-c:a", "aac_at"]))
     assert argv.index("aac_at") < index(argv, "-i")

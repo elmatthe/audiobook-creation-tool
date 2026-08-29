@@ -111,12 +111,19 @@ def _media_args(attached_picture: int | None) -> list[str]:
     track ahead of its cover, and ``-map 0:v:0`` would then select the wrong one.
     Deciding which stream qualifies is not this module's job; it is handed the
     answer.
+
+    **The picture is mapped from input 1, and that is not an accident.** The
+    book is opened twice — once for audio and chapters, once purely as the
+    cover's source — and reading the picture out of the *same* input being
+    decoded is what v0.6.2 Plan 5 Phase 15 measured as catastrophic. See
+    :func:`_core` for the evidence. ``0:{index}`` here would restore the defect,
+    so this file's tests pin ``1:{index}`` explicitly.
     """
     if attached_picture is None:
         return ["-vn"]
     return [
         "-map", "0:a:0",
-        "-map", f"0:{attached_picture}",
+        "-map", f"1:{attached_picture}",
         "-c:v", "copy",
         "-disposition:v:0", "attached_pic",
     ]
@@ -133,13 +140,40 @@ def _core(
     seek: tuple[str, str] | None,
     attached_picture: int | None = None,
 ) -> list[str]:
-    """The one place the argument order lives, for both shapes."""
+    """The one place the argument order lives, for both shapes.
+
+    **Why a cover means the book is opened twice.** v0.6.2 Plan 5 Phase 15
+    measured this against the real 13.5-hour source: mapping the attached picture
+    out of the *same* input whose audio is being decoded makes ffmpeg exit **0**
+    after encoding a handful of audio frames. The observed artifact was a 600 KB
+    "audiobook" holding 0.32 seconds of audio and the cover, reported as success.
+    A controlled matrix isolated it exactly — audio alone passed, audio plus
+    chapters passed, and *only* the same-input picture truncated — and the
+    boundary is source length: below roughly 50 minutes nothing goes wrong, at 55
+    minutes and beyond it always does. That is why the suite's six-second fixture
+    never saw it.
+
+    Opening the same file a second time purely as the cover's source fixes it,
+    and was proven on the full book: 743 MB, duration exact to the source, all 50
+    chapters and the cover intact, audio encoded once. It stays **one** command,
+    so a whole book is still a single pass.
+
+    This is deliberately *not* recorded as an ffmpeg 9.0.1 regression: no
+    evidence establishes when the behaviour began, and the coverage gap alone
+    explains why it was never seen. Do not "simplify" the second input away.
+    """
     if not isinstance(ffmpeg, str) or not ffmpeg:
         raise ValueError("ffmpeg must be a non-empty path or command name")
     if isinstance(quality, bool) or not isinstance(quality, int):
         raise TypeError(f"quality must be an int, got {type(quality).__name__}")
     if quality not in _QUALITY_RANGE:
         raise ValueError(f"quality must be 0-9, got {quality}")
+    if isinstance(attached_picture, bool):
+        raise TypeError("attached_picture must be an int stream index or None")
+    if attached_picture is not None and not isinstance(attached_picture, int):
+        raise TypeError("attached_picture must be an int stream index or None")
+    if attached_picture is not None and attached_picture < 0:
+        raise ValueError(f"attached_picture must not be negative, got {attached_picture!r}")
 
     decoder = _arguments(decoder_args, "decoder_args")
     extra = _arguments(output_args, "output_args")
@@ -150,16 +184,15 @@ def _core(
     # the Phase 6 seam below deliberately cannot reach this region.
     argv += decoder
     argv += ["-i", str(source)]
+    if attached_picture is not None:
+        # The cover's own input. No decoder options precede it on purpose: this
+        # input is never decoded, only stream-copied, and the audio decoder
+        # selection above must keep applying to input 0 alone.
+        argv += ["-i", str(source)]
     # Output options, from here to the destination.
     if seek is not None:
         start, duration = seek
         argv += ["-ss", start, "-t", duration]
-    if attached_picture is not None and not isinstance(attached_picture, int):
-        raise TypeError("attached_picture must be an int stream index or None")
-    if isinstance(attached_picture, bool):
-        raise TypeError("attached_picture must be an int stream index or None")
-    if attached_picture is not None and attached_picture < 0:
-        raise ValueError(f"attached_picture must not be negative, got {attached_picture!r}")
     argv += _media_args(attached_picture)
     argv += extra
     argv += ["-c:a", _ENCODER, "-q:a", str(quality), "-threads", "0"]
@@ -186,6 +219,10 @@ def whole_book_argv(
     along in this same encode; omitting it keeps the original audio-only ``-vn``
     command exactly as it was. There is no seek here to discard a picture frame,
     which is why a whole book needs only one pass.
+
+    When a cover **is** requested the book is opened twice — audio and chapters
+    from input 0, the picture from input 1 — for the reason :func:`_core`
+    records. Still one command, still one encode.
     """
     return _core(
         ffmpeg=ffmpeg,

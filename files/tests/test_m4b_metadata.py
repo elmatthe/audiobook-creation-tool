@@ -515,10 +515,21 @@ def test_a_whole_book_is_always_one_pass():
 
 
 def test_whole_preserve_maps_the_cover_into_the_single_pass():
+    """Still one pass, and the cover still rides along -- from input 1.
+
+    v0.6.2 Plan 5 Phase 15: this asserted ``0:2``, the cover taken from the very
+    input being decoded. That shape makes ffmpeg exit 0 after a fraction of a
+    second of audio on any source longer than about fifty minutes, so the book is
+    now opened a second time purely as the cover's source. The property under
+    test is unchanged -- one pass, cover mapped, no ``-vn`` -- only the input it
+    comes from has moved.
+    """
     cmds = whole_book_commands(MetadataMode.PRESERVE, tags={},
                                picture=AttachedPicture(2, "mjpeg"), **BASE)
-    assert "-map" in cmds.audio and "0:2" in cmds.audio
+    assert "-map" in cmds.audio and "1:2" in cmds.audio
+    assert "0:2" not in cmds.audio, "the cover must not come from the decoded input"
     assert "-vn" not in cmds.audio
+    assert list(cmds.audio).count("-i") == 2
 
 
 def test_whole_strip_never_maps_a_cover_even_when_one_exists():

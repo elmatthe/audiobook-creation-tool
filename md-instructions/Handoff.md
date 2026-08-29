@@ -32,11 +32,12 @@
 >   possible. **Phase 14 `27732d77` is maintainer-approved.** **Phase 15 has STARTED and is
 >   INCOMPLETE**: manual items 1–4 passed, item 5 was **BLOCKED** by a Windows Smart App
 >   Control refusal of the selected ffprobe, and the maintainer approved a bounded shared
->   remediation under risk gate #9. That remediation is **COMMITTED**, and the
->   **clean-install acceptance checkpoint has PASSED** on a fresh tree with no FFmpeg on
->   the host. The manual matrix itself is **not resumed and not complete**: items 5+ still
->   need the maintainer to retest. A **true no-Python clean environment** proof is still
->   outstanding for release. **Phase 16 has NOT started.**
+>   remediation under risk gate #9. That remediation is **COMMITTED**, the **clean-install
+>   acceptance checkpoint PASSED**, and a **second, unrelated Phase 15 blocker** — Whole-book
+>   outputs truncating to a fraction of a second — has been diagnosed, fixed and committed.
+>   The manual matrix itself is **not resumed and not complete**: item 5 awaits the
+>   maintainer's Whole-book retest and items 6+ have not run. A **true no-Python clean
+>   environment** proof is still outstanding for release. **Phase 16 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
 >   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
 >     Its gate was initially red for an environmental reason only — Smart App Control
@@ -1185,6 +1186,70 @@
 >     requirement, not polish. Windows Sandbox/Hyper-V were **not** enabled for this checkpoint.
 >     **Phase 15 manual matrix still incomplete** (1–4 PASS, 5 awaiting the maintainer's
 >     whole-book retest, 6+ not run). **Phase 16 NOT STARTED.**
+>   - **Phase 15 — Whole-book artwork truncation** (2026-08-28): the manual matrix's second
+>     blocker, found immediately after the FFmpeg provisioning fix unblocked item 5.
+>     **The symptom.** Whole book + Preserve on the real *Dungeon Crawler Carl* source produced
+>     `output length 0s != planned 48693s (100% off) — the source could not be decoded correctly
+>     (likely xHE-AAC …)`. That explanation was **false**: the source is AAC-LC and its own frozen
+>     probe records `undecodable_xhe=False`, and Split converted all 50 chapters of the same file
+>     with the same binary minutes earlier.
+>     **Not a measurement defect.** Reproducing the exact production command outside the
+>     transaction gave rc **0**, 0.9 s elapsed, a 600 KB file — `video:583KiB audio:2KiB`,
+>     `time=00:00:00.32`. The app's probe, ffprobe stream duration, ffprobe format duration,
+>     mutagen and an actual `-f null -` decode **all agreed** on ~0.33 s. The file genuinely held a
+>     third of a second of a 13.5-hour book. The drift guard was correct and had saved the user
+>     from a 600 KB "audiobook"; it is unchanged.
+>     **Root cause, isolated.** A matrix over the real source, holding `-t 60` constant and varying
+>     one flag: audio alone ✅, audio **+ chapters** ✅ — so the chapter map was innocent — audio +
+>     **artwork** ❌ 0.325 s, artwork + chapters ❌ 0.325 s. Mapping the attached picture out of the
+>     *same input whose audio is being decoded* makes ffmpeg stop after a handful of frames and
+>     **exit 0**. Cover size is irrelevant (a 247-byte cover fails like a 597 KB one). The trigger
+>     is **source length**: ≤50 min fine, ≥55 min always truncates.
+>     **Two hypotheses were tested and discarded**, and both are worth recording. A 2³² timestamp
+>     overflow looked compelling — the book's picture stream has `duration_ts 4,382,375,551` — but 6
+>     hours truncates while sitting *below* 2³². And a 6-hour fixture built by `-stream_loop` had to
+>     be re-tested against a directly-encoded one before the duration threshold could be trusted at
+>     all; construction turned out not to matter.
+>     **The fix.** `m4b_commands._core` opens the source a **second time** when a cover is wanted,
+>     and `_media_args` maps the picture from `1:<abs index>` instead of `0:<abs index>`. Audio and
+>     chapters still come from input 0; decoder args still precede input 0 only, so decoding
+>     semantics are untouched; `-c:v copy`, the attached-picture disposition, the metadata
+>     allowlist, ID3v2.3, quality and `-threads 0` are unchanged. **Still one command and one audio
+>     encode** — Split's two-pass shape also works but would write ~750 MB twice for nothing. See
+>     the 2026-08-28 ADR.
+>     **No second 13.5-hour encode was needed.** The production builder's argv was compared
+>     token-for-token against the command already validated on the full book during diagnosis and is
+>     **byte-identical**; that run gave rc 0, 230.5 s, 743,413,985 bytes, duration exactly
+>     48693.061678, 50 chapters, cover attached, all five approved tags.
+>     **The drift message no longer guesses.** It accused xHE-AAC on *every* mismatch. `SegmentWork`
+>     now carries `undecodable_xhe`, copied from the frozen `ItemPlan` — no re-probe, no string
+>     sniffing, no shared contract touched — and a cause is named only when the plan established
+>     one. Otherwise it reports measured vs planned and that the output was discarded, and
+>     attributes nothing. An AST guard pins that the execution layer never re-probes.
+>     **Why the suite missed it.** `test_a_whole_book_carries_its_cover_in_one_pass` uses a
+>     **six-second** fixture — two orders of magnitude below the boundary — so it passed against the
+>     defect and always would have. A new module-scoped **~60-minute** generated fixture (silent AAC
+>     at 32 kbps, chapters, embedded cover, built in seconds under `tmp_path`) now exercises the
+>     production path. It was **verified to fail against the pre-fix shape**: 3 of its 5 tests fail
+>     when the two production lines are reverted, and the 2 that pass are the fixture sanity check
+>     and the no-cover control, which was never affected. The six-second test is kept — it guards a
+>     different property.
+>     **Five guard progressions, all turned around rather than deleted**, each explained in place:
+>     `0:2` → `1:2` in `test_m4b_metadata`, `test_m4b_execution` and `test_m4b_conversion_plan`,
+>     plus the two xHE wording assertions. Every one still guards what it always guarded.
+>     Gates: **5069 collected / 5055 passed / 14 skipped / 1 warning / 0 failed**, first attempt;
+>     delta **+22**, exactly the new tests — **+12** command-shape guards in
+>     `test_m4b_commands` and **+10** in `test_m4b_execution` (five long-timeline, five drift
+>     taxonomy). The five progressed guards changed assertions, not counts. `verify.py` PASS,
+>     `compileall`, `pip check` and `git diff --check -- scripts/ files/` exit 0 (a bare
+>     `--check` still flags every added `md-instructions` line, which is those files'
+>     inherited CRLF and is not normalized). Source SHA-256
+>     `4f55710e…76c17` unchanged throughout. `ffmpeg_health.py`, `ffmpeg_utils.py`, `bootstrap.py`,
+>     both launchers, TTS, Cover and every shared Plan 2/3 contract **byte-unchanged**; version
+>     stays `0.6.1`.
+>     **Phase 15 manual matrix still incomplete**: 1–4 PASS, **item 5 awaits the maintainer's
+>     Whole-book retest through the normal Setup_and_Run path**, 6+ not run. Diagnostics retained at
+>     `C:\act-phase15-whole-diag\` and `C:\act-phase15-ffmpeg-backup\`. **Phase 16 NOT STARTED.**
 
 > ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
 >

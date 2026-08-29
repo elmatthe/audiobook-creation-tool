@@ -66,6 +66,7 @@ from mp3_tools.m4b_execution import (
     SegmentOutcome,
     SegmentWork,
     convert_segment,
+    drift_message,
     drift_of,
     needs_artwork_pass,
     remove_outputs,
@@ -497,7 +498,12 @@ def test_drift_beyond_the_threshold_discards_the_candidate(tmp_path):
     work = whole_work(tmp_path, expected_duration=600.0)
     outcome = stub_convert(work, measure=lambda p: 300.0)
     assert outcome.failed
-    assert "xHE-AAC" in outcome.message, "the existing diagnostic is preserved"
+    # Phase 15: the guard is unchanged and still discards. What changed is that
+    # it no longer names a cause the plan never established -- this work item
+    # says nothing about xHE-AAC, so neither may the message.
+    assert "300s" in outcome.message and "600s" in outcome.message
+    assert "Output discarded" in outcome.message
+    assert "xHE" not in outcome.message
     assert not work.destination.exists()
     assert list(work.destination.parent.iterdir()) == []
 
@@ -615,13 +621,20 @@ def test_a_stripped_fragment_runs_one_pass_even_with_a_cover(tmp_path):
 
 
 def test_a_whole_book_with_a_cover_still_runs_one_pass(tmp_path):
-    """No seek, so there is nothing to discard the cover frame."""
+    """No seek, so there is nothing to discard the cover frame.
+
+    Phase 15 moved the cover onto a second input of the same file; it did **not**
+    make a whole book two passes. Both halves of that are asserted, because the
+    obvious reaction to the truncation would have been to copy Split's two-pass
+    shape -- which encodes nothing twice but is still a change nobody asked for.
+    """
     book(tmp_path / "src", "Book.m4b")
     work = whole_work(tmp_path, picture=AttachedPicture(2, "mjpeg"))
     record: list = []
     stub_convert(work, record=record)
-    assert len(record) == 1
-    assert "0:2" in record[0]
+    assert len(record) == 1, "one command, still"
+    assert "1:2" in record[0]
+    assert "0:2" not in record[0]
 
 
 def test_the_id3_version_this_tool_has_always_written_survives(tmp_path):
@@ -1198,6 +1211,174 @@ def test_a_whole_book_carries_its_cover_in_one_pass(media, tmp_path):
     assert len(_covers(destination)) == 1
 
 
+# --------------------------------------------------------------------------- #
+# The long-timeline regression — v0.6.2 Plan 5 Phase 15
+#
+# The six-second fixtures above cannot fail against the defect this section
+# exists for. Mapping a cover out of the same input whose audio is being decoded
+# truncates the encode to a fraction of a second, ffmpeg exits 0, and it only
+# happens once the source passes roughly fifty minutes. Every media test in this
+# module sat two orders of magnitude below that line, which is exactly why a real
+# 13.5-hour audiobook reached a maintainer as a 600 KB file reporting success.
+#
+# So this builds a book on the far side of the boundary. Silence at a low bitrate
+# keeps it cheap -- a few seconds to generate, a few more to convert -- and none
+# of the properties under test care what the audio contains.
+# --------------------------------------------------------------------------- #
+
+#: Comfortably past the ~50 minute boundary the diagnosis measured, without
+#: making the fixture expensive. 55 minutes already failed; 60 leaves margin.
+LONG_SECONDS = 3600.0
+
+
+@pytest.fixture(scope="module")
+def long_media(tmp_path_factory) -> dict:
+    """One long chaptered book with an embedded cover, generated on the fly."""
+    require_ffmpeg()
+    w = tmp_path_factory.mktemp("m4b_long_media")
+    total_ms = int(LONG_SECONDS * 1000)
+    (w / "meta.txt").write_text(
+        ";FFMETADATA1\n"
+        f"[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND={total_ms // 2}\ntitle=One\n"
+        f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={total_ms // 2}\nEND={total_ms}\ntitle=Two\n",
+        encoding="utf-8")
+
+    _ff("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        "-t", str(LONG_SECONDS), "-c:a", "aac", "-b:a", "32k", str(w / "a.m4a"))
+    _ff("-f", "lavfi", "-i", "color=c=red:s=600x600:d=1", "-frames:v", "1",
+        str(w / "c.jpg"))
+
+    book_path = w / "LongWithCover.m4b"
+    _ff("-i", str(w / "a.m4a"), "-i", str(w / "c.jpg"), "-i", str(w / "meta.txt"),
+        "-map", "0:a", "-map", "1:v", "-map_metadata", "2", "-map_chapters", "2",
+        "-c:a", "copy", "-c:v", "copy", "-disposition:v:0", "attached_pic",
+        str(book_path))
+    streams = _probe(book_path, "-show_streams")["streams"]
+    index = next(s["index"] for s in streams
+                 if s.get("disposition", {}).get("attached_pic"))
+    return {"book": book_path, "picture": index}
+
+
+def test_the_long_fixture_really_is_past_the_boundary(long_media):
+    """A fixture that cannot reproduce the defect would guard nothing."""
+    assert _duration(long_media["book"]) > 3000.0
+    assert _chapter_count(long_media["book"]) == 2
+    assert long_media["picture"] is not None
+
+
+def test_a_long_covered_book_is_not_truncated_by_its_own_cover(long_media, tmp_path):
+    """The regression, through the **production** command path.
+
+    Before the fix this produced roughly a third of a second of audio and a
+    cover, and ffmpeg returned 0 while doing it. The drift guard would then
+    discard it, so the visible symptom was a whole book that simply refused to
+    convert.
+    """
+    destination = tmp_path / "run" / "Long.mp3"
+    outcome = execute(SegmentWork(
+        source=long_media["book"], destination=destination,
+        expected_duration=LONG_SECONDS, quality=9,
+        metadata_mode=MetadataMode.PRESERVE,
+        tags={"album": "Long Album", "title": "Long Book"},
+        picture=AttachedPicture(long_media["picture"], "mjpeg")))
+
+    assert outcome.finalised, outcome.message or outcome.detail
+    assert destination.exists()
+    measured = _duration(destination)
+    assert measured > 60.0, (
+        f"truncated to {measured}s -- the same-input cover shape is back")
+    assert abs(measured - LONG_SECONDS) < LONG_SECONDS * DRIFT_TOLERANCE
+
+
+def test_a_long_covered_book_keeps_its_chapters_and_cover(long_media, tmp_path):
+    destination = tmp_path / "run" / "LongKept.mp3"
+    assert execute(SegmentWork(
+        source=long_media["book"], destination=destination,
+        expected_duration=LONG_SECONDS, quality=9,
+        metadata_mode=MetadataMode.PRESERVE,
+        tags={"album": "Long Album"},
+        picture=AttachedPicture(long_media["picture"], "mjpeg"))).finalised
+
+    assert _chapter_count(destination) == 2, "whole Preserve retains chapters"
+    assert len(_covers(destination)) == 1, "the cover survived"
+    assert _probe(destination, "-show_streams")["streams"], "an audio stream exists"
+    assert _tags(destination).get("album") == "Long Album"
+
+
+def test_a_long_covered_book_is_still_one_command(long_media, tmp_path):
+    """The fix must not have quietly turned Whole into Split's two-pass shape."""
+    destination = tmp_path / "run" / "LongOnce.mp3"
+    outcome = execute(SegmentWork(
+        source=long_media["book"], destination=destination,
+        expected_duration=LONG_SECONDS, quality=9,
+        metadata_mode=MetadataMode.PRESERVE, tags={"album": "A"},
+        picture=AttachedPicture(long_media["picture"], "mjpeg")))
+    assert outcome.finalised
+    assert len(outcome.commands) == 1, outcome.commands
+    argv = list(outcome.commands[0])
+    assert argv.count("-i") == 2, "the cover comes from a second input"
+    assert argv.count("libmp3lame") == 1, "audio is encoded exactly once"
+
+
+def test_a_long_book_without_a_cover_was_never_affected(long_media, tmp_path):
+    """Isolates the cause: length alone never truncated anything."""
+    destination = tmp_path / "run" / "LongPlain.mp3"
+    outcome = execute(SegmentWork(
+        source=long_media["book"], destination=destination,
+        expected_duration=LONG_SECONDS, quality=9,
+        metadata_mode=MetadataMode.PRESERVE, tags={"album": "A"}))
+    assert outcome.finalised
+    assert abs(_duration(destination) - LONG_SECONDS) < LONG_SECONDS * DRIFT_TOLERANCE
+    assert list(outcome.commands[0]).count("-i") == 1
+
+
+# --------------------------------------------------------------------------- #
+# Truthful drift reporting — v0.6.2 Plan 5 Phase 15
+# --------------------------------------------------------------------------- #
+
+
+def test_a_drift_names_no_cause_the_plan_did_not_establish():
+    message = drift_message(0.3, 48693.0, 0.99, fragment=False)
+    assert "xHE" not in message and "decoder" not in message
+    assert "0s" in message and "48693s" in message
+    assert "Output discarded" in message
+
+
+def test_a_genuine_xhe_source_still_gets_the_specific_explanation():
+    message = drift_message(120.0, 3600.0, 0.97, fragment=False,
+                            undecodable_xhe=True)
+    assert "xHE-AAC" in message
+    assert "no compatible decoder" in message
+    assert "Output discarded" in message
+
+
+def test_the_fragment_wording_stays_truthful_either_way():
+    assert drift_message(1.0, 10.0, 0.9, fragment=True).startswith("segment")
+    assert drift_message(1.0, 10.0, 0.9, fragment=False).startswith("output")
+    assert drift_message(1.0, 10.0, 0.9, fragment=True,
+                         undecodable_xhe=True).startswith("segment")
+
+
+def test_the_default_is_the_non_accusing_wording():
+    """An unstated source must never be blamed."""
+    assert SegmentWork(source=Path("a.m4b"), destination=Path("b.mp3"),
+                       expected_duration=1.0, quality=4,
+                       metadata_mode=MetadataMode.PRESERVE).undecodable_xhe is False
+
+
+def test_the_execution_layer_reads_the_frozen_truth_and_never_guesses():
+    """**Structural.** No re-probe, and no string sniffing for "xhe"."""
+    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools"
+              / "m4b_execution.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    body = next(node for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == "drift_message")
+    names = {n.id for n in ast.walk(body) if isinstance(n, ast.Name)}
+    assert "undecodable_xhe" in names
+    for banned in ("probe_source", "probe_audio_stream", "is_xhe_aac"):
+        assert banned not in source, banned
+
+
 def test_a_source_is_never_modified(media, tmp_path):
     before = hashlib.sha256(media["cover"].read_bytes()).hexdigest()
     destination = tmp_path / "run" / "Book.mp3"
@@ -1448,7 +1629,10 @@ def test_a_real_drift_breach_is_not_finalised(media, tmp_path):
         span=(0.0, 2.0))                  # ...but the command produces two seconds
     outcome = execute(work)
     assert outcome.failed, "a 2 s output against a 6 s plan must not pass"
-    assert "xHE-AAC" in outcome.message
+    # The generated fixture is plain AAC-LC, so accusing xHE-AAC here was simply
+    # false. It reports what it measured instead.
+    assert "2s" in outcome.message and "6s" in outcome.message
+    assert "xHE" not in outcome.message
     assert not work.destination.exists()
     assert list(run.iterdir()) == [], "and the candidate was cleaned up"
 

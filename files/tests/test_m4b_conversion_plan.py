@@ -1314,7 +1314,14 @@ def test_the_command_comes_from_the_frozen_plan(make_panel, tmp_path, run_env):
     argv = run_env["commands"][0]
     assert argv[argv.index("-map_metadata") + 1] == "-1", "always an allowlist"
     assert argv[argv.index("-map_chapters") + 1] == "0", "whole Preserve keeps them"
-    assert "-map" in argv and "0:2" in argv, "the cover rides along by absolute index"
+    # v0.6.2 Plan 5 Phase 15: still by **absolute** index, still riding along in
+    # this one command -- but from input 1. Mapping the cover out of the input
+    # being decoded truncated a 13.5-hour book to 0.32 seconds while ffmpeg
+    # reported success, so the book is now opened a second time for the cover
+    # alone. See ``m4b_commands._core``.
+    assert "-map" in argv and "1:2" in argv, "the cover rides along by absolute index"
+    assert "0:2" not in argv, "the cover must not come from the decoded input"
+    assert argv.count("-i") == 2, "the second input is the cover's source"
     assert argv[argv.index("-q:a") + 1] == "2"
     assert "libmp3lame" in argv
 

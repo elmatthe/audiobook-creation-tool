@@ -1559,6 +1559,10 @@ class M4BConverterUI(ttk.Frame):
                         picture=item.picture,
                         span=((segment.start, segment.end) if item.fragment
                               else None),
+                        # Carried, never re-derived: the preflight already
+                        # decided this, and it is the only thing that entitles a
+                        # duration mismatch to name a cause.
+                        undecodable_xhe=item.undecodable_xhe,
                     )
 
                     self._log_q.put((

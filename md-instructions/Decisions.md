@@ -4,6 +4,49 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-28 — A whole book with a cover opens its source twice, and the picture comes from input 1
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation).**
+
+When a Whole output retains artwork, the command opens the same audiobook **twice**: input 0 is
+decoded for audio and supplies the chapter map, input 1 exists solely so the attached picture can be
+stream-copied out of it.
+
+```
+ffmpeg … -i BOOK.m4b -i BOOK.m4b -map 0:a:0 -map 1:<abs index> -c:v copy
+         -disposition:v:0 attached_pic … -map_chapters 0 … -c:a libmp3lame …
+```
+
+**Why, and it is not obvious.** Mapping the cover out of the *same* input whose audio is being
+decoded makes ffmpeg **exit 0** after encoding a handful of audio frames. The artifact that started
+this was a 600 KB "audiobook" holding **0.32 seconds** of a 13.5-hour book, alongside its cover,
+reported as success. A controlled matrix on the real source isolated it exactly: audio alone passed,
+audio **plus chapters** passed, and only the same-input picture truncated — so the chapter map, the
+obvious suspect, was innocent. Cover size is irrelevant; a 247-byte cover truncates like a 597 KB
+one. The trigger is **source length**: everything up to 50 minutes is fine, 55 minutes and beyond
+always truncates. Opening the file a second time for the cover alone fixes it, proven on the full
+book — 743 MB, duration exact, all 50 chapters, cover intact, audio encoded once.
+
+**Why not two passes.** Split already attaches artwork in a second stream-copy pass, and copying that
+shape here would also have worked. It was rejected: for a book this size it means writing ~750 MB
+twice for no benefit the one-command form does not already give. A Whole book remains **one ffmpeg
+invocation and one audio encode**, which is what the plan always said it was.
+
+**What this is explicitly not.** It is **not** recorded as an ffmpeg 9.0.1 regression. No evidence
+establishes when the behaviour began: every previous Whole output on this machine is a 0-byte
+placeholder, and the automated suite's real-media Whole+cover test is six seconds long — two orders
+of magnitude below the boundary — so it would have passed against the defect at any version. The
+coverage gap alone explains why this survived to a manual matrix. A `~60`-minute generated fixture
+now closes it, and it was verified to fail against the pre-fix shape before being trusted.
+
+**Do not simplify the second input away.** `m4b_commands._core` and `_media_args` carry the reasoning,
+and five separate guards — in `test_m4b_commands`, `test_m4b_metadata`, `test_m4b_execution` and
+`test_m4b_conversion_plan` — pin `1:<index>` and refuse `0:<index>`.
+
+— Claude Code, at the maintainer's direction
+
+---
+
 ## 2026-08-28 — The proven FFmpeg pair is *pinned where it lives*, never copied into `files/bin/`
 
 **Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; maintainer cleared risk gate #9 for this
