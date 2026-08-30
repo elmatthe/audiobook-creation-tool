@@ -115,6 +115,40 @@
 >       remaining automated red is (2), the `test_first_run_contract.py` Windows path-suffix
 >       contract, deliberately untouched: 1 failed, 5134 passed, 46 skipped. The macOS suite is
 >       still NOT green, and `verify.py` was not run as a gate.**
+>     - **Checkpoint A3 — first-run contract portability, and the authoritative macOS baseline
+>       (this commit).** Red (2) above is now **fixed, and it was a test-host artifact, not a
+>       product defect.** `test_the_bootstrap_probes_the_winget_user_scope_python_location` forces
+>       `bootstrap.IS_WINDOWS = True` on purpose, so the Windows contract stays protected from any
+>       host rather than being skipped. But forcing that flag selects the Windows *branch* without
+>       turning `pathlib.Path` into `WindowsPath`, so on macOS the branch joined with `/` and
+>       produced `C:\Users\someone\AppData\Local/Programs/Python/Python312/python.exe`, which a raw
+>       `str.endswith(r"Programs\Python\Python312\python.exe")` rejected. **Proved equivalent:**
+>       that string and the all-backslash one Windows itself builds have identical
+>       `PureWindowsPath.parts` — `('C:\\', 'Users', 'someone', 'AppData', 'Local', 'Programs',
+>       'Python', 'Python312', 'python.exe')` — so **real Windows production behaviour was never
+>       wrong** and `bootstrap.py` is **byte-identical**. Fixed test-only (option A) by comparing
+>       under `PureWindowsPath` semantics instead of the host's separators; the assertion is
+>       stronger than before, pinning the whole `LOCALAPPDATA → Programs → Python → Python312 →
+>       python.exe` chain rather than only a tail, and it still rejects a wrong version. Not
+>       skipped, not xfailed, not weakened.
+>       **The macOS automated baseline is now GREEN and authoritative:** bare `pytest` with the
+>       tracked `pytest.ini` and the explicit `pytest files/tests` both report **5135 passed, 46
+>       skipped, 0 failed, 0 errors, 6 warnings**, from **5181 collected nodes all under
+>       `files/tests/`** (no `dev-work`/`runtime-data` snapshot collected). `scripts/verify.py`
+>       **PASS** on all five checks (pytest · deps `==`-pinned · docs · docnames · config 0.6.1);
+>       `compileall` clean; `pip check` clean. All 46 skips are truthful and none hides a macOS
+>       Plan-5 failure: 32 ACT/Windows-shell (`win32`-only), 11 Windows-only filesystem
+>       primitives, 2 case-insensitive-filesystem, 2 dev-work/runtime-data isolation guards with
+>       no colliding basename, and **3 in `test_jack_ryan_final_product.py`, which is gated on the
+>       `JACK_RYAN_M4B_FOLDER` environment variable**. That gate is the project's existing,
+>       sanctioned way to point the suite at real local M4Bs whose fixtures are gitignored and
+>       copyrighted — the right mechanism for the Phase-16 media gate, needing no home-directory
+>       searching.
+>       **Media state is unchanged and remains an evidence gap, not a failure or a deferral:**
+>       *No suitable real xHE-AAC proof source established during Checkpoint A*, and **no real M4B
+>       source media of any class has yet been established on this Mac** for the §26/§31 manual
+>       matrix. Nothing manual has been run. The maintainer must name the Mac audiobook location
+>       before that gate can begin.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working

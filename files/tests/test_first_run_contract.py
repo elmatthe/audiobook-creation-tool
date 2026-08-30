@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -135,8 +135,21 @@ def test_the_bootstrap_probes_the_winget_user_scope_python_location(monkeypatch)
     monkeypatch.setattr(bootstrap, "IS_WINDOWS", True)
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\someone\AppData\Local")
     candidates = bootstrap._candidate_interpreters()
-    assert any(c.endswith(r"Programs\Python\Python312\python.exe")
-               for c in candidates)
+
+    # Compared under *Windows* path semantics rather than the host's. Forcing
+    # ``IS_WINDOWS`` picks the Windows branch but cannot turn ``pathlib.Path``
+    # into ``WindowsPath``, so off Windows that branch joins with ``/`` and
+    # yields ``C:\Users\...\Local/Programs/Python/Python312/python.exe``. That is
+    # the *same path* Windows itself builds with backslashes — identical
+    # ``PureWindowsPath.parts`` — so the old raw ``str.endswith`` was really
+    # asserting which host ran the suite. On Windows this compares exactly the
+    # value it always did; the contract itself is unchanged and no weaker.
+    user_scope = [PureWindowsPath(c) for c in candidates
+                  if PureWindowsPath(c).parts[-4:]
+                  == ("Programs", "Python", "Python312", "python.exe")]
+    assert user_scope, candidates
+    assert user_scope[0] == PureWindowsPath(
+        r"C:\Users\someone\AppData\Local\Programs\Python\Python312\python.exe")
     assert "py -3.12" in candidates
 
 
