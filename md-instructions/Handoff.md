@@ -294,6 +294,46 @@
 >       **Still open:** the new Split folder layout has **not** yet been seen by the maintainer in a
 >       real run; and xHE-AAC, PNG artwork, artwork-free, chapterless and slash-title real sources,
 >       plus the Pause/Resume/Cancel, Retry Failed and import-control manual matrices, remain gaps.
+>     - **Checkpoint C5 — the new Split layout confirmed on real media (this commit; C4 accepted at
+>       `3617a39`).** This closes the one gap C4 opened. The maintainer relaunched the real app,
+>       **again confirmed the fresh-panel defaults** (Whole, Preserve, Quality 2, **Auto-number
+>       unchecked**, Start # 1), and used **macOS Command-click in one Add Files chooser action** to
+>       import exactly two real books — *Arazan's Wolves* and *Secrets of the Silent Witch, Vol. 01*.
+>       Split + Preserve + Auto-number OFF finished **24/24**, Manual Tests 1–12 PASS, and Finder
+>       showed the two book folders with their chapters inside.
+>       **Mechanically audited, and clean on every point.** Both sources **byte-identical** (SHA-256,
+>       size and mtime all match the Checkpoint-B/C4 record). The run root of `M4B-Converter-5`
+>       holds **exactly two directories and zero loose MP3s** — `Arazan's Wolves/` and `Secrets of
+>       the Silent Witch, Vol. 01/` — with **no `.act-tmp-*` residue** and no third output. Counts
+>       are **7 + 17 = 24**, matching the Checkpoint-B chapter counts exactly, with nothing missing
+>       or extra. Every one of the 24: structural track equal to its position **1..N, restarting at
+>       1 in the second book**; filename `NN -` prefix matching that track; embedded title equal to
+>       its **source chapter title**; inherited artist/album/album_artist correct; **zero CHAP
+>       maps**; exactly **one APIC** whose codec and 2400×2400 dimensions match the source cover;
+>       **no unexpected or leaked ID3 frames**; mp3 44.1 kHz stereo; no zero-byte file. Timelines
+>       tile to **+0.0007 %** and **+0.0026 %** — far inside the 3 % guard. The ☕ (U+2615) and
+>       ’ (U+2019) titles survive in **both** the embedded title and the filename, with `:`
+>       correctly sanitised to `_` in the filename only.
+>       The session log (`session_2026-08-30_173722.log`) corroborates it: exactly **two** sources,
+>       reservation `M4B-Converter-5`, **24** segment encodes (7 + 17) all at `-q:a 2`, 24 artwork
+>       attach passes, every fragment carrying `-map_metadata -1 -map_chapters -1`, and **only
+>       DEBUG lines — no ERROR, WARNING, CRITICAL, Traceback, retry, cancellation or drift**. The
+>       `track=1..17` values in it are **split structural numbers, not Auto-number**; those are
+>       separate contracts and Auto-number OFF does not suppress structural split numbering. The log
+>       emits no explicit completion sentence, so completion rests on the GUI's 24/24 plus the 24
+>       produced files.
+>       **Before/after, same two books:** in the flat `M4B-Converter-3` they shared one root with
+>       eleven other books; in `M4B-Converter-5` they are separated. Counts, tracks, titles,
+>       artist/album/album_artist, APIC and CHAP counts are **identical**, and total durations match
+>       to **0.0 ms per segment** — only the destination hierarchy changed. (Neither of these two
+>       books needed a collision suffix in run 3; the 53 suffixes there came from other books.)
+>       **Command-click multi-file import = MANUAL PASS.** No log can prove which modifier key was
+>       pressed; what the log does prove is that exactly those two occurrences entered the run and
+>       no accidental third source did.
+>       **The new Split destination contract is now proved both automatically and on real media.**
+>       No production change was needed and none was made; the C4 gate (**5199 collected / 5153
+>       passed / 46 skipped**, `verify.py` PASS) remains authoritative for this commit, with a
+>       targeted 17-test layout/retry subset re-run green at HEAD.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working
