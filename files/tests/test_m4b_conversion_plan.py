@@ -1825,3 +1825,40 @@ def test_the_panel_now_offers_the_mode_it_can_execute(make_panel):
     assert panel.read_options().mode is ConversionMode.WHOLE
     panel.var_mode.set(ConversionMode.SPLIT.value)
     assert panel.read_options().mode is ConversionMode.SPLIT
+
+
+def test_a_fresh_panel_opens_on_the_approved_defaults(make_panel):
+    """What the user sees before touching anything.
+
+    ``auto_number`` is **off** (maintainer decision, Phase 16): numbering a
+    library is opt-in, so a default must not quietly stamp a track on every
+    book. ``Start #`` still reads 1, so ticking the box is all that is needed.
+    """
+    panel = make_panel()
+    assert panel.var_mode.get() == ConversionMode.WHOLE.value
+    assert panel.var_metadata_mode.get() == MetadataMode.PRESERVE.value
+    assert panel.var_auto_num.get() is False
+    assert panel.var_start_num.get() == 1
+
+    options = panel.read_options()
+    assert options.mode is ConversionMode.WHOLE
+    assert options.metadata_mode is MetadataMode.PRESERVE
+    assert options.auto_number is False
+    assert options.start_number == 1
+
+
+def test_the_numbering_option_is_still_available_when_asked_for(make_panel):
+    """Off by default is not the same as gone: ticking it still freezes True."""
+    panel = make_panel()
+    panel.var_auto_num.set(True)
+    assert panel.read_options().auto_number is True
+
+    panel.var_start_num.set(7)
+    assert panel.read_options().start_number == 7
+
+    # And the control itself is a real, reachable, enabled target.
+    assert str(panel.chk_auto_num.cget("state")) != "disabled"
+    assert panel.entry_start_num.winfo_exists()
+
+    panel.var_auto_num.set(False)
+    assert panel.read_options().auto_number is False

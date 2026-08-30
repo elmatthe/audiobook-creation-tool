@@ -568,7 +568,12 @@ class M4BConverterUI(ttk.Frame):
 
         # Auto-number checkbox + start
         row += 1
-        self.var_auto_num = tk.BooleanVar(value=True)
+        # Off on a fresh panel (maintainer decision, v0.6.2 Plan 5 Phase 16).
+        # Renumbering somebody's library is an opt-in, not something a default
+        # does to every book on the way past; ``Start #`` keeps its 1 so the
+        # option is ready the moment it is ticked. Nothing else about the
+        # success-only sequence changes -- see ``m4b_numbering``.
+        self.var_auto_num = tk.BooleanVar(value=False)
         self.chk_auto_num = ttk.Checkbutton(
             options, text="Auto-number tracks", variable=self.var_auto_num
         )

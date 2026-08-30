@@ -215,6 +215,40 @@
 >       **Still open:** Auto-number still defaults ON and its default-OFF correction is not done;
 >       the checked-checkbox/no-track discrepancy is uninvestigated; and the xHE-AAC, PNG-artwork,
 >       artwork-free, chapterless and slash-title rows remain evidence gaps.
+>     - **Checkpoint C3 — Auto-number diagnosed, and defaulted OFF (this commit).** C2 was accepted
+>       at `61d1eb3`. **No numbering defect exists.** The full path was traced mechanically:
+>       `var_auto_num` → `read_options()` → frozen `PlanOptions.auto_number` →
+>       `SuccessNumbers(start)` built once per attempt when `auto_number and not split` →
+>       `propose()` **before** ffmpeg runs, because the number is written *into* the encode →
+>       `whole_book_tags(track=…)` → `-metadata track=N`. `commit()` runs only once the output
+>       actually exists, which is what makes the sequence success-only and gap-free without any
+>       post-encode remux: a failed book's proposed number is simply never consumed and the next
+>       success re-proposes it. A retry continues the same run's sequence from
+>       `start_number + len(prior.completed_ids)` — derived from the result, never from a filename
+>       or a directory listing.
+>       Reproduced through the real worker and real executor (only the process spawn stubbed):
+>       OFF + 1 success → **no track**; ON + 1 success → **`track=1`**; ON + `Start #`=7 + 3
+>       successes → **7, 8, 9**; ON with a failure between → proposed **1, 2, 2** so the two
+>       successes are **1 and 2 with no gap**. Existing coverage already proves the same contract
+>       against **real produced files** and across retries.
+>       **C1 classification — stated as deduction, not observation.** Because Whole + `auto_number`
+>       True always emits `-metadata track=N`, the C1 run's frozen snapshot **must have carried
+>       `auto_number = False`**. **The historical UI state at the instant Start was pressed cannot
+>       be reconstructed**: the screenshot records the checkbox when the screenshot was taken, not
+>       the value `read_options()` froze, and no record of that run's frozen `PlanOptions`
+>       survives. That C1 run therefore remains **neither an Auto-number ON nor an OFF proof**, and
+>       no narrative is offered to reconcile the screenshot.
+>       **Requested change applied:** a fresh panel now opens with **Auto-number tracks unchecked**
+>       (`tk.BooleanVar(value=False)`), `Start #` still **1**, mode Whole, metadata Preserve.
+>       Ticking the box still freezes `auto_number=True` and numbering works exactly as before —
+>       nothing about the success-only sequence, Split structural numbering, retry semantics or
+>       the frozen run changed, and the existing post-Start immutability test still passes
+>       unmodified. Every numbering and retry helper already set the option explicitly, so no test
+>       silently depended on the old default. Gate: **5189 collected / 5143 passed / 46 skipped /
+>       0 failed**, `verify.py` PASS, compileall clean, `pip check` clean.
+>       **Still outstanding:** the post-C2 chapter-title fix has **not** yet been proved on a real
+>       audiobook at full length — only on the generated fixture — and the xHE-AAC, PNG-artwork,
+>       artwork-free, chapterless and slash-title rows remain evidence gaps.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working
