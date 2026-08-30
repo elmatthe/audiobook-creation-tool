@@ -44,6 +44,7 @@ decoded, encoded, probed or revealed in a file manager.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import queue
 import threading
 import unittest.mock as mock
@@ -54,6 +55,7 @@ import pytest
 # Imported outright rather than through ``importorskip``: Plan 5 is fail-loud.
 import tkinter as tk
 
+from shared import config  # noqa: E402
 from shared import job_control as jc  # noqa: E402
 from shared import job_ui  # noqa: E402
 from shared import output_paths  # noqa: E402
@@ -128,8 +130,41 @@ def logger():
     return RecordingLogger()
 
 
+@pytest.fixture(autouse=True)
+def output_base(tmp_path, monkeypatch):
+    """Point the *process* output base at ``tmp_path`` for every test here.
+
+    ``convert_worker`` reserves through ``output_paths.reserve_run_directory``
+    with no snapshot argument, so the reservation resolves whatever
+    ``config.get_effective()`` reports — the process configuration, whose
+    default base is the developer's real
+    ``~/Downloads/Audiobook-Creation-Tool-Outputs``. The panel's injected
+    ``effective_config`` does not reach that call, and ``home=`` reaches only the
+    import coordinator, so neither isolates it.
+
+    Tests that run through :func:`work` patch the reservation itself and were
+    always safe. The ones that drive ``convert_worker`` directly — the real
+    worker thread and the pause/cancel races — do not, and on macOS they
+    materialised a genuine ``M4B-Converter-1`` run directory, with outputs, in
+    the maintainer's Downloads folder. That contradicts this module's own Safety
+    contract, so the base is isolated once, here, for the whole module.
+
+    This is deliberately **not** a stub of the reservation: numbering, the
+    ``mkdir``-without-``exist_ok`` race boundary and every collision rule stay
+    completely real. Only the root they operate under moves into pytest's
+    temporary directory.
+    """
+    base = tmp_path / "OutputBase"
+    snapshot = dataclasses.replace(
+        make_config(),
+        output=config.OutputConfig(base_directory=base, is_default=False),
+    )
+    monkeypatch.setattr(config, "get_effective", lambda: snapshot)
+    return base
+
+
 @pytest.fixture()
-def make_panel(tk_root, logger):
+def make_panel(tk_root, logger, output_base):
     """A real ``M4BConverterUI`` with deterministic seams, closed afterwards."""
     made: list[m4b_converter.M4BConverterUI] = []
 
@@ -394,6 +429,39 @@ def test_the_worker_runs_off_the_main_thread_without_touching_tk(
     assert not trouble, trouble
     panel._pump.tick()
     assert panel.job_controller.state is jc.JobState.SUCCEEDED
+
+
+def test_a_real_reservation_lands_in_pytest_storage_not_the_users_downloads(
+        make_panel, tmp_path, run_env, output_base):
+    """The ``output_base`` fixture is load-bearing, and this is what it is for.
+
+    Driving ``convert_worker`` without :func:`work`'s reservation patch — the
+    shape the real-thread and pause/cancel tests use — is exactly what
+    materialised a run directory in the maintainer's own Downloads folder during
+    the Phase 16 macOS preflight. The reservation here is entirely real; only its
+    root is pytest's. The proof is structural: the user's real base is
+    *computed* for comparison and never written to, so this test can never be
+    the thing that creates what it is checking for.
+    """
+    assert output_paths.resolve_output_base() == output_base
+
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    panel.convert_worker(start(panel))
+    panel._pump.tick()
+
+    reserved = panel._last_run_dir
+    assert reserved is not None, "the run reserved nothing, so nothing was proved"
+    assert output_base in reserved.parents, reserved
+    assert tmp_path in reserved.parents, reserved
+
+    # ``default_output_base`` is documented as computed, never created.
+    assert config.default_output_base() not in reserved.parents, reserved
+
+    # Materialisation follows the reservation: every destination is under it.
+    for item in panel.run_plan.items:
+        for segment in item.segments:
+            assert output_base in segment.destination.parents, segment.destination
 
 
 def test_what_crosses_the_thread_boundary_is_immutable(make_panel, tmp_path, run_env):

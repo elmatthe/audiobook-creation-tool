@@ -42,6 +42,51 @@
 >   A **true no-Python + no-FFmpeg fresh-machine** proof is still outstanding **for release**, not
 >   for Phase 15. **Phase 16 has NOT started.**
 >   No tag, no release, no package, no `release.py` run.
+>   - **Phase 16 macOS validation is UNDERWAY in bounded checkpoints** (2026-08-30), which
+>     supersedes *"Phase 16 has NOT started"* immediately above. **Phase 16 is NOT complete** and no
+>     part of the §26/§31 manual matrix has been run.
+>     - **Checkpoint A — preflight (evidence only, no tracked change).** The Mac was on the Plan 4
+>       branch and was fast-forwarded onto `feature/0.6.2-m4b-converter-upgrade` at `5726bb2`
+>       (`db18cae` was a direct ancestor; no reset, rebase or stash). Apple M4 Pro `Mac16,8`,
+>       macOS 26.6.2 arm64, 557 GiB free; Python 3.12.13 arm64 with `pip check` clean and
+>       `bootstrap.py --self-test` OK including functional Tk; Homebrew **FFmpeg 8.0** at
+>       `/opt/homebrew/Cellar/ffmpeg/8.0/bin`, a coherent arm64 ffmpeg/ffprobe pair proved by
+>       `ffmpeg_health.prove_pair()`, with no `ffmpeg-state.json` pin yet. **The macOS `aac_at`
+>       route the 2026-08-29 xHE ADR depends on is present and selected** (`--enable-audiotoolbox`;
+>       `input_decoder_args(xHE)` → `["-c:a","aac_at"]`), so §27 gate 10 is not triggered.
+>       Discovery is contained: bare `pytest` and `pytest .` both collect **5178**, all under
+>       `files/tests/`. **No M4B source media of any class exists on this Mac** — no
+>       `files/test-files/`, no tracked media, no recorded source path — so *"No suitable real
+>       xHE-AAC proof source established during Checkpoint A"* is recorded as an **evidence gap
+>       only**, neither pass, fail nor deferral, and the manual matrix is media-blocked.
+>     - **Checkpoint A1 — test output isolation (this commit).** Checkpoint A proved
+>       `test_m4b_converter_jobs.py::test_the_worker_runs_off_the_main_thread_without_touching_tk`
+>       reserved a **real** run directory in the maintainer's `~/Downloads/Audiobook-Creation-Tool-Outputs/`
+>       and wrote two zero-byte outputs into it. Root cause, proved by traceback: `convert_worker`
+>       reserves via `m4b_plan.assemble_plan` → `output_paths.reserve_run_directory(TOOL_KEY)` with
+>       **no snapshot argument**, so the base resolves the *process* `config.get_effective()`. The
+>       panel's injected `effective_config` never reaches that call and `home=` reaches only the
+>       import coordinator; the tests that go through the module's `work()` helper patch the
+>       reservation and were always safe, but the ones driving `convert_worker` directly are not.
+>       Fixed **test-only** by an autouse `output_base` fixture pointing the process snapshot at
+>       `tmp_path`, following the existing `test_cover_jobs.py` precedent — the reservation, its
+>       numbering and its collision safety stay completely real, only their root moves into
+>       pytest storage. Guarded by a new structural regression that asserts the reserved run lands
+>       under `tmp_path` and not under the computed real base; it fails immediately when the
+>       fixture is removed. **No production file changed.** A full-suite sweep under a sandboxed
+>       `HOME` confirmed **no remaining leak anywhere** in the suite, and the maintainer's existing
+>       `~/Downloads` artifacts were left untouched and verified byte-identical.
+>     - **Two macOS reds remain open and are deliberately NOT fixed here.** (1)
+>       `test_m4b_converter_importing.py::test_every_new_control_is_reachable_at_the_minimum_window`
+>       — its *primary* assertion passes, so all 33 Plan 5 controls are real targets at 920×600 and
+>       §27 gate 12 is **not** triggered; what fails is the secondary trade-off assertion, because
+>       under the aqua theme the notebook is squeezed to 49 px (req 119) and `summary_text`
+>       collapses to 1 px (req 60). This looks like the **pre-existing 920×600 clipping already
+>       deferred to Plan 9 by §33**, surfacing on macOS as a red test. (2)
+>       `test_first_run_contract.py::test_the_bootstrap_probes_the_winget_user_scope_python_location`
+>       — a Windows contract forced onto the Windows branch that compares a `\`-separated suffix,
+>       which cannot match a path joined on POSIX. Both are pre-existing and unrelated to this
+>       commit. **The macOS suite is NOT green.**
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working
