@@ -790,6 +790,7 @@ class M4BConverterUI(ttk.Frame):
         if previous is not None:
             previous.close()
             previous.frame.destroy()
+            self.rowconfigure(3, minsize=0)
         self._event_q = queue.Queue()
         self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
         self.jobs = job_ui.JobAdapter(
@@ -809,12 +810,51 @@ class M4BConverterUI(ttk.Frame):
             details_height=4,
         )
         self.jobs.frame.pack(fill=tk.BOTH, expand=True)
+        self._hold_job_area_open()
         # One progress model, not two: the panel's indicator *is* the shared
         # status view's, so nothing can draw a second, disagreeing bar.
         self.progress = self.jobs.status.indicator
         self.jobs.register_inputs(self.importer)
         self.jobs.register_options(self)
         self.jobs.render()
+
+    def _hold_job_area_open(self) -> None:
+        """Stop ``grid`` shrinking row 3 past the point where Summary shows text.
+
+        This panel asks for ~898 px of content and the supported minimum window
+        is 600, so ``grid`` shrinks every weighted row. Row 3 is not freely
+        elastic the way the queue (row 0) and the log (row 4) are: below the job
+        area's own floor the notebook is handed less than the theme's tab chrome
+        and Summary collapses to one pixel — mapped, full width, and showing
+        nothing. Row 0 and row 4 scroll, so they are the right rows to absorb the
+        shortfall; this only stops row 3 absorbing more than it can afford.
+
+        The floor is measured by the shared adapter, never hard-coded, and the
+        row's own bottom pad is added because ``grid`` counts padding inside
+        ``minsize``. It is re-applied on every adapter rebuild and cleared first,
+        so a stale floor from a previous run cannot accumulate.
+
+        This is deliberately *not* the §22 scrolling fallback: every required
+        control is already reachable at 920x600 and stays so. The panel's broader
+        compression remains Plan 9's.
+        """
+        floor = self.jobs.minimum_height()
+        if floor <= 0:
+            # A freshly built adapter has no requested sizes yet, and this panel
+            # may not schedule its own callback -- the one pump owns scheduling,
+            # and ``test_the_panel_schedules_nothing_of_its_own`` enforces it. So
+            # the pending geometry is settled synchronously here instead, and the
+            # floor is measured from the result.
+            try:
+                self.job_area.update_idletasks()
+            except tk.TclError:                # pragma: no cover - torn down
+                return
+            floor = self.jobs.minimum_height()
+        if floor <= 0:
+            return
+        pady = self.job_area.grid_info().get("pady", 0)
+        bottom = pady[1] if isinstance(pady, (tuple, list)) else int(pady or 0)
+        self.rowconfigure(3, minsize=floor + int(bottom))
 
     def _publish(self, event) -> None:
         """Hand one produced event to the queue the shared adapter drains.

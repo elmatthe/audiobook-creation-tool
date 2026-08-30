@@ -87,6 +87,34 @@
 >       — a Windows contract forced onto the Windows branch that compares a `\`-separated suffix,
 >       which cannot match a path joined on POSIX. Both are pre-existing and unrelated to this
 >       commit. **The macOS suite is NOT green.**
+>     - **Checkpoint A2 — macOS minimum-layout remediation (this commit).** Red (1) above is now
+>       **fixed**; the maintainer ruled that the new Plan-5 Summary must keep a usable line at the
+>       supported minimum, rather than being folded into Plan 9's clipping debt. **Root cause, and
+>       it was not the panel:** `aqua` gives every `TNotebook` a padding of **`18 8 18 17`** — the
+>       inset a full-window document tab set wants. That is 25 vertical pixels, and it made the
+>       notebook's chrome **59 px** while `grid` was allocating the whole notebook only **49 px**,
+>       so the page got 1 px. Windows survived the identical layout only because no other ttk theme
+>       pads a notebook at all (measured chrome: `clam` 30, `alt` 27, `default` 25, `classic` 29).
+>       **Fix, in two small parts.** `shared/job_ui.py` builds the notebook with `padding=0` — a
+>       *widget* option, so `cget("style")` is untouched and both the Windows `ACT.*` branch and
+>       the native empty-style branch keep their contracts; measured aqua chrome 59 → 34 px and an
+>       exact no-op on every other theme. `SummaryDetailsView.minimum_height()` and
+>       `JobAdapter.minimum_height()` then report, from the live widgets and the live font, how far
+>       the pane may be squeezed before it shows nothing, and `m4b_converter.py` pins row 3's
+>       `minsize` to that floor so `grid` takes the shortfall from the genuinely scrollable queue
+>       and log instead. **No hard-coded pixel constant, no `MIN_SIZE` change, no scrolling
+>       fallback, no theme change, no `ui_theme.py` change, and no business logic touched.**
+>       Result at 920×600: `summary_text` **1 px → 21 px**, notebook 49 → 55, row 3 pinned at 165
+>       (floor 159 + the row's own 6 px pad), and **all 33 required controls still ≥16 px and
+>       inside the window**; at 1024×720 Summary is 30 px and nothing regressed. Three real
+>       contract tests caught earlier attempts and were **obeyed, not weakened** — the panel may
+>       not call `after`/`after_idle` (so the floor settles geometry synchronously), the Windows
+>       branch must use `ACT.*` styles only, and the native branch must ask for no style at all;
+>       a fourth required the new methods to open with `self._guard.require(...)`, which they now
+>       do. Two narrow regressions were added in `test_job_ui.py` at the shared source. **The one
+>       remaining automated red is (2), the `test_first_run_contract.py` Windows path-suffix
+>       contract, deliberately untouched: 1 failed, 5134 passed, 46 skipped. The macOS suite is
+>       still NOT green, and `verify.py` was not run as a gate.**
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working

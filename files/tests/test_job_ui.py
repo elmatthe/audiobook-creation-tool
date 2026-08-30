@@ -39,6 +39,7 @@ from pathlib import Path
 import pytest
 
 tk = pytest.importorskip("tkinter")
+from tkinter import font as tkfont  # noqa: E402
 from tkinter import ttk  # noqa: E402
 
 from shared import job_ui, ui_theme  # noqa: E402
@@ -2029,6 +2030,47 @@ def test_the_native_branch_asks_for_no_style_at_all(parent, pump, tmp_path):
     assert job_ui.style_name(None, "button") == ""
     assert job_ui.style_name({"mode": "aqua"}, "button") == ""
     assert job_ui.style_name({"styles": {"button": 7}}, "button") == ""
+
+
+def test_the_views_keep_one_readable_line_however_hard_they_are_squeezed(
+        parent, pump):
+    """The floor the M4B Converter pins its job row to, proved at the source.
+
+    ``aqua`` pads a ``TNotebook`` by ``18 8 18 17``. At the supported 920x600
+    minimum that inset alone was larger than the height this pane was allocated,
+    so Summary rendered a one-pixel-high widget: mapped, full width, showing
+    nothing. The padding is now overridden per widget, and the adapter can say
+    how far it may be squeezed before that happens again.
+    """
+    job = job_adapter(parent, pump, Publisher(), details_height=4)
+    job.frame.update_idletasks()
+
+    floor = job.views.minimum_height()
+    natural = job.views.frame.winfo_reqheight()
+    line = tkfont.Font(font=job.views.summary_text.cget("font")).metrics("linespace")
+
+    # A floor, not the natural size: three of the four lines may still go.
+    assert 0 < floor < natural
+    assert floor == natural - 3 * line
+
+    # Whatever the theme's chrome costs, one line is left over inside it.
+    chrome = natural - job.views.summary_frame.winfo_reqheight()
+    assert floor - chrome >= line
+
+    # The whole job area adds only its two fixed rows and their two 8px gaps.
+    assert job.minimum_height() == (
+        job.controls.frame.winfo_reqheight() + 8
+        + job.status.frame.winfo_reqheight() + 8 + floor)
+
+
+def test_the_views_notebook_drops_the_padding_without_touching_its_style(
+        parent, pump):
+    """The inset is a widget option, so neither style branch is disturbed."""
+    job = job_adapter(parent, pump, Publisher())
+    assert str(job.views.frame.cget("style")) == ""
+    padding = job.views.frame.cget("padding")
+    values = padding if isinstance(padding, (tuple, list)) else (padding,)
+    assert all(int(str(v)) == 0 for v in values), padding
 
 
 def test_building_the_adapters_leaks_into_no_generic_style(

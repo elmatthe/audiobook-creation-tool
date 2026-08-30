@@ -75,6 +75,7 @@ import tkinter as tk
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
+from tkinter import font as tkfont
 from tkinter import ttk
 
 from shared import ui_theme
@@ -1808,7 +1809,7 @@ class SummaryDetailsView:
 
     __slots__ = ("_guard", "_theme", "_closed", "_summary", "_details",
                  "frame", "summary_text", "details_text",
-                 "summary_frame", "details_frame")
+                 "summary_frame", "details_frame", "_height")
 
     def __init__(
         self,
@@ -1825,11 +1826,47 @@ class SummaryDetailsView:
         self._summary: tuple[str, ...] = ()
         self._details: tuple[str, ...] = ()
 
-        self.frame = ttk.Notebook(parent, style=style_name(theme, "notebook"))
+        self._height = max(1, int(height))
+
+        # ``padding=0`` is a widget option, not a style: the style stays exactly
+        # what ``style_name`` chose, so the Windows ``ACT.*`` branch and the
+        # native empty-style branch are both untouched.
+        #
+        # Why it is needed at all: ``aqua`` gives every ``TNotebook`` a padding
+        # of ``18 8 18 17`` -- the inset a full-window document tab set wants,
+        # and 25 vertical pixels that a status pane inside an already-padded
+        # panel does not. At the supported 920x600 minimum that inset was larger
+        # than the space this pane is allocated, so the text collapsed to a
+        # single pixel while every surrounding control stayed reachable: the
+        # view existed and showed nothing. Measured chrome, two tabs, one Text:
+        # aqua 59 -> 34 px; ``clam`` 30, ``alt`` 27, ``default`` 25 and
+        # ``classic`` 29 are unchanged, because none of them pads a notebook.
+        # The *tab* padding is deliberately left alone -- overriding that made
+        # those same themes 4 px worse.
+        self.frame = ttk.Notebook(parent, style=style_name(theme, "notebook"),
+                                  padding=0)
         self.summary_frame, self.summary_text = self._page(theme, height, width)
         self.details_frame, self.details_text = self._page(theme, height, width)
         self.frame.add(self.summary_frame, text="Summary")
         self.frame.add(self.details_frame, text="Details")
+
+    def minimum_height(self) -> int:
+        """Pixels this notebook needs to keep **one** readable line of text.
+
+        The natural request covers ``height`` lines; give up all but one and the
+        remainder is the theme's own chrome — tab strip, border and padding —
+        plus a single line and the text widget's own insets. Measured from the
+        live widgets rather than assumed, so it is correct under any theme,
+        font or scaling rather than being a pixel count that happens to suit one
+        machine.
+        """
+        self._guard.require("minimum_height")
+        try:
+            line = tkfont.Font(font=self.summary_text.cget("font")).metrics("linespace")
+            natural = self.frame.winfo_reqheight()
+        except Exception:                      # pragma: no cover - no display
+            return 0
+        return max(0, natural - (self._height - 1) * int(line))
 
     @property
     def guard(self) -> MainThreadGuard:
@@ -2030,6 +2067,32 @@ class JobAdapter:
 
         pump.add_drain(self.drain)
         self.render()
+
+    def minimum_height(self) -> int:
+        """Pixels this whole job area needs to stay functional.
+
+        The control bar and the status view are fixed-height rows; only the
+        Summary/Details notebook is elastic, and :meth:`SummaryDetailsView.
+        minimum_height` says how far it may give way. A consumer whose window is
+        over-subscribed can hand this to ``rowconfigure(..., minsize=...)`` so
+        ``grid`` shrinks its genuinely scrollable regions instead of shrinking
+        this one past the point where it shows anything.
+
+        Measured from the live widgets, so it needs no per-platform pixel
+        constant. Returns 0 if geometry cannot be read, which leaves the caller
+        exactly as it was rather than imposing a wrong floor.
+        """
+        self._guard.require("minimum_height")
+        try:
+            controls = self.controls.frame.winfo_reqheight()
+            status = self.status.frame.winfo_reqheight()
+        except Exception:                      # pragma: no cover - no display
+            return 0
+        views = self.views.minimum_height()
+        if not views:
+            return 0
+        # The two 8 px gaps are the ones this method's own grid calls set above.
+        return controls + 8 + status + 8 + views
 
     # -- reading ----------------------------------------------------------- #
 
