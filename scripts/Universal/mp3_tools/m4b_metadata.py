@@ -273,16 +273,46 @@ def wants_artwork(mode: MetadataMode) -> bool:
     return mode is not MetadataMode.STRIP
 
 
-def metadata_args(tags: Mapping, *, keep_chapters: bool) -> list[str]:
+def metadata_args(tags: Mapping, *, keep_chapters: bool,
+                  chapter_titles: Sequence[str] = ()) -> list[str]:
     """Output-side arguments carrying a decided tag set.
 
     ``-map_metadata -1`` is unconditional and is what makes every cell an
     allowlist: nothing reaches the output unless it was named above. The
     ``-metadata`` pairs come from ``shared.metadata.ffmpeg_metadata_args`` so the
     friendly-name-to-ffmpeg-key mapping exists in exactly one place.
+
+    **Chapter titles have to be named too, and that is not obvious.**
+    ``-map_metadata -1`` silences *chapter* metadata as well as global metadata,
+    so ``-map_chapters 0`` on its own copies the boundaries and drops every
+    title: v0.6.2 Plan 5 Phase 16 measured a real 7.3-hour Whole+Preserve output
+    that kept all 17 timing spans to the millisecond and carried **zero** TIT2
+    subframes, so a reader showed seventeen anonymous points. Removing the
+    ``-map_metadata -1`` firewall does restore the titles, and was rejected: the
+    same measurement showed it also leaking ``comment`` and ``genre`` past the
+    §16 allowlist. So each retained title is written back explicitly, per output
+    chapter, which keeps the firewall absolute and still lands the text.
+
+    The titles arrive already frozen in the plan -- this asks the source nothing
+    and re-probes nothing -- and an untitled source chapter is passed over rather
+    than being given an invented name. ``-metadata:c:N`` names the *output*
+    chapter, so it is independent of which input supplied the map; the Windows
+    xHE route can strip ``-map_chapters`` from these args and still keep every
+    title.
     """
     args = ["-map_metadata", "-1", "-map_chapters", "0" if keep_chapters else "-1"]
-    return args + ffmpeg_metadata_args(dict(tags))
+    args += ffmpeg_metadata_args(dict(tags))
+    if keep_chapters:
+        for index, title in enumerate(chapter_titles):
+            # Built through the same shared mapping as every other tag and then
+            # re-aimed at one chapter, rather than spelling ``title=`` again
+            # here: this module deliberately holds no second friendly-name to
+            # ffmpeg-key table, and ``test_the_shared_mapping_is_consumed_not_
+            # reimplemented`` fails if one appears.
+            pair = ffmpeg_metadata_args({"title": title})
+            if pair:
+                args += [f"-metadata:c:{index}", pair[1]]
+    return args
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,10 +352,15 @@ def whole_book_commands(
     tags: Mapping,
     decoder_args: Sequence[str] = (),
     picture: AttachedPicture | None = None,
+    chapter_titles: Sequence[str] = (),
 ) -> ConversionCommands:
     """One whole-book output. Always a single pass.
 
     Artwork rides along in the same encode here — there is no seek to discard it.
+
+    *chapter_titles* are the source's own, already frozen by the plan; they are
+    written back explicitly because ``-map_metadata -1`` would otherwise strip
+    them off the copied map. See :func:`metadata_args`.
     """
     keep = picture if wants_artwork(mode) else None
     argv = m4b_commands.whole_book_argv(
@@ -334,7 +369,9 @@ def whole_book_commands(
         destination=destination,
         quality=quality,
         decoder_args=decoder_args,
-        output_args=metadata_args(tags, keep_chapters=retains_chapters(mode, split=False)),
+        output_args=metadata_args(tags,
+                                  keep_chapters=retains_chapters(mode, split=False),
+                                  chapter_titles=chapter_titles),
         attached_picture=None if keep is None else keep.stream_index,
     )
     return ConversionCommands(tuple(argv))

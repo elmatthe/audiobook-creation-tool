@@ -170,6 +170,13 @@ class ItemPlan:
     #: capability -- never from a filename, never re-derived after Start, and
     #: never true for a source ffmpeg decodes correctly.
     windows_decode: bool = False
+    #: The source's own chapter titles, in source order, frozen here at preflight
+    #: from the same probe every other field came from. They exist because
+    #: ``-map_metadata -1`` strips the titles off a chapter map that
+    #: ``-map_chapters 0`` copied, so a whole-book output has to name them again
+    #: explicitly -- and execution must not re-open the source to find out what
+    #: they were. Empty for a split run, whose outputs drop the map entirely.
+    chapter_titles: tuple[str, ...] = ()
 
     @property
     def total_segments(self) -> int:
@@ -429,6 +436,11 @@ def assemble_plan(
             undecodable_xhe=bool(report.undecodable_xhe),
             codec_hint=str(report.codec_name),
             windows_decode=bool(route),
+            # Frozen from the probe that is already in hand. A whole-book output
+            # keeps the map and therefore needs these; a split run drops the map,
+            # so they are deliberately not carried into one.
+            chapter_titles=(() if (options.split and chaptered) else
+                            tuple(chapter.title for chapter in report.probe.chapters)),
             segments=tuple(
                 SegmentPlan(
                     order=order,

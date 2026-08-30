@@ -149,6 +149,72 @@
 >       source media of any class has yet been established on this Mac** for the §26/§31 manual
 >       matrix. Nothing manual has been run. The maintainer must name the Mac audiobook location
 >       before that gate can begin.
+>     - **Checkpoint B — real-media inventory (2026-08-30, evidence only, no tracked change).**
+>       The maintainer supplied 12 real audiobooks under the gitignored
+>       `files/dev-work/phase16/macos-preflight/M4B-test-files-to-use` (4.75 GiB, no symlinks,
+>       nothing tracked). All 12 probe **AAC-LC**, all **CHAPTERED** (7–59 chapters), all tile
+>       `[0, D]` exactly, and the production probe agrees with raw ffprobe on every one. All 12
+>       carry exactly one **mjpeg** attached picture. Durations 4:29:01–12:55:56.
+>       **No xHE-AAC, no PNG cover, no artwork-free source, no chapterless source, no slash or
+>       backslash chapter title, no duplicate titles** — those §26 rows stay uncoverable here.
+>       Notable finds: *Reincarnated as a Dragon Hatchling, Vol. 2* starts its first chapter at
+>       **0.047891 s**, the genuine *first-chapter-after-zero* case Phase 15 recorded as impossible
+>       to build on Windows; *Secrets of the Silent Witch, Vol. 01* has the richest metadata (23
+>       tag keys) and **☕ U+2615** plus **U+2019** in its chapter titles.
+>       **`JACK_RYAN_M4B_FOLDER` was deliberately NOT set:** that gate expects finished products of
+>       this tool's own pipeline sharing **one** series, and this corpus is third-party retail audio
+>       spanning **8** distinct series, so `test_series_is_consistent_across_the_set` would fail and
+>       the claim would be untruthful. Nothing was changed to accommodate it.
+>     - **Checkpoint C1 — first real Whole+Preserve gate: maintainer PASS, plus a defect.**
+>       The maintainer ran the real `Setup_and_Run…command` launcher on *Secrets of the Silent
+>       Witch, Vol. 01* — 1 file, Quality 2, Whole book, Preserve — and reported the conversion
+>       completed, the output played, and **the listening quality was excellent (human audio PASS)**.
+>       Mechanical verification confirmed: source SHA-256 **unchanged**; output duration
+>       **26383.812789 s vs 26383.812789 s — 0.0 ms delta, 100.000000 %**, far inside the 3 % guard;
+>       one mp3 stream 44.1 kHz stereo; **all 17 chapter spans identical to the millisecond**;
+>       one **mjpeg 2400×2400** `attached_pic` retained; the four approved global tags exactly
+>       right; and **none of the 19 out-of-vocabulary source keys leaked** (`description`,
+>       `synopsis`, `audible_asin`, `publisher`, `series`, `comment`, `copyright`, `composer` all
+>       absent). No temp residue. That run wrote **no track tag at all** — the source had none and
+>       none was generated — so it is **neither an Auto-number ON nor an Auto-number OFF proof**.
+>       **But all 17 chapter titles were missing.** Direct ID3 parsing found 17 `CHAP` frames and
+>       **zero `TIT2` subframes**; `ch0…ch16` are ffmpeg's element ids, not names. C1 correctly
+>       stopped at its stop gate without remediating.
+>     - **Checkpoint C2 — whole-book chapter titles restored (this commit).** **Maintainer ruling,
+>       and it supersedes any earlier note treating timing-only chapter retention as sufficient or
+>       deferring titles to Phase 17: retaining the chapter map means retaining its titles as well
+>       as its timing.** Anonymous timing points are not enough.
+>       **Root cause:** `-map_metadata -1` — the §16 allowlist firewall — silences *chapter*
+>       metadata as well as global metadata, so `-map_chapters 0` copied boundaries and dropped
+>       every title. Proven on a 3-chapter generated fixture: the production shape yields
+>       `TIT2` = none; dropping the firewall restores the titles **but leaks `comment` and `genre`**,
+>       so that was rejected. `-map_metadata:c:N 0:c:N` was also rejected — ffmpeg refuses it with
+>       *"Invalid chapter index 0"*.
+>       **Selected mechanism:** keep the firewall absolute and name each retained title explicitly
+>       with **`-metadata:c:N`**, built through the shared `ffmpeg_metadata_args` mapping so this
+>       module still holds no second name→key table. Titles are **frozen at preflight** on
+>       `ItemPlan.chapter_titles` from the probe already in hand and carried to
+>       `SegmentWork.chapter_titles`; **execution re-probes nothing** and no second chapter model
+>       exists. Because `-metadata:c:N` names an *output* chapter it is independent of which input
+>       supplied the map, so the **Windows xHE PCM route keeps its single `-map_chapters` authority**
+>       — that route still strips the mapping pair and now deliberately keeps the titles.
+>       Split runs carry no titles at all, because a fragment drops the map.
+>       **Proved against produced bytes, not argv:** Preserve keeps spans *and* all three titles
+>       including ☕ and ’ with zero allowlist leakage; Replace keeps source spans and titles while
+>       replacing the book text; Strip keeps no chapters, no titles and no inherited metadata; an
+>       untitled source chapter stays untitled. One test deliberately records that the old
+>       argv-only assertion still passes on an output whose chapters are all anonymous — which is
+>       exactly how this shipped. Gate: **5187 collected / 5141 passed / 46 skipped / 0 failed**,
+>       `verify.py` PASS, compileall clean, `pip check` clean. The real 392 MB C1 output was left
+>       **untouched as defect evidence** and the 7-hour book was **not** re-run.
+>       **Windows Phase 15 scope, stated precisely and not rewritten:** its duration, audio,
+>       artwork and chapter-**count** evidence stands. It never mechanically verified `TIT2`
+>       chapter titles, and the defect lived in the shared Whole metadata path, so those outputs
+>       most likely carried anonymous chapters too. **That is not retroactively marked PASS**, and
+>       no new live Windows title proof has been performed.
+>       **Still open:** Auto-number still defaults ON and its default-OFF correction is not done;
+>       the checked-checkbox/no-track discrepancy is uninvestigated; and the xHE-AAC, PNG-artwork,
+>       artwork-free, chapterless and slash-title rows remain evidence gaps.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working

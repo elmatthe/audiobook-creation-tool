@@ -136,6 +136,10 @@ class SegmentWork:
     #: rather than an assumption -- the sample maths that proves a complete
     #: decode has to be done against what actually arrived.
     pcm_args: tuple[str, ...] = ()
+    #: The source's chapter titles, copied from the frozen ``ItemPlan``. Written
+    #: back explicitly because ``-map_metadata -1`` strips the titles off the map
+    #: ``-map_chapters`` copied; execution never re-reads the source to get them.
+    chapter_titles: tuple[str, ...] = ()
 
     @property
     def fragment(self) -> bool:
@@ -393,6 +397,7 @@ def _output_args(work: SegmentWork, *, chapters: bool = True) -> list[str]:
         work.tags,
         keep_chapters=m4b_metadata.retains_chapters(
             work.metadata_mode, split=work.fragment),
+        chapter_titles=work.chapter_titles,
     )
     if work.tags:
         args = list(args) + ["-id3v2_version", "3"]
@@ -403,6 +408,11 @@ def _output_args(work: SegmentWork, *, chapters: bool = True) -> list[str]:
         # ``-map_chapters`` on one command line and let argument order settle it
         # -- which mapped chapters from the pipe, and cost a real xHE-AAC book
         # all fifteen of them in the first live run.
+        #
+        # Only the mapping pair goes. The ``-metadata:c:N`` titles stay: they
+        # name *output* chapters, so they are indifferent to which input the map
+        # came from, and stripping them would give the Windows xHE route the
+        # anonymous-chapter defect this file's ``metadata_args`` exists to fix.
         while "-map_chapters" in args:
             at = args.index("-map_chapters")
             del args[at:at + 2]

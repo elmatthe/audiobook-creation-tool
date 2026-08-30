@@ -1631,6 +1631,10 @@ class M4BConverterUI(ttk.Frame):
                         windows_decode=item.windows_decode,
                         pcm_args=(() if timeline is None
                                   else tuple(timeline.format.ffmpeg_input_args())),
+                        # Frozen at preflight with everything else, so the worker
+                        # never re-opens the book to recover what its chapters
+                        # were called.
+                        chapter_titles=item.chapter_titles,
                     )
 
                     self._log_q.put((

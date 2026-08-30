@@ -720,6 +720,24 @@ _META = (
 )
 
 
+#: A second source whose chapter titles are the ones a real audiobook actually
+#: had. v0.6.2 Plan 5 Phase 16 measured a 7.3-hour Whole+Preserve output that
+#: kept all 17 chapter *spans* to the millisecond and carried no titles at all,
+#: so the emoji and the curly apostrophe are here on purpose: the bug was
+#: invisible to every ASCII-only argv assertion in this file.
+_META_UNICODE = (
+    ";FFMETADATA1\ntitle=SRC TITLE\nartist=SRC ARTIST\nalbum=SRC ALBUM\n"
+    "album_artist=SRC ALBUM ARTIST\ncomment=SRC COMMENT\ngenre=SRC GENRE\n"
+    "publisher=SRC PUBLISHER\ncopyright=SRC COPYRIGHT\nAUDIBLE_ASIN=B0G1VBF1V7\n"
+    "\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=2000\ntitle=Opening ☕\n"
+    "\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=2000\nEND=4000\ntitle=The Prince’s Secret\n"
+    "\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=4000\nEND=6000\ntitle=Ending\n"
+)
+
+#: What that source's chapters are called, in order.
+_UNICODE_TITLES = ("Opening ☕", "The Prince’s Secret", "Ending")
+
+
 def _ff(*args):
     out = subprocess.run([ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-v", "error", "-y", *args],
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -779,7 +797,46 @@ def books(tmp_path_factory) -> dict[str, Path]:
         "-map", "0:a", "-map", "1:v", "-map_metadata", "2", "-map_chapters", "2",
         "-c:a", "copy", "-c:v", "copy", str(dest))
     out["motion"] = dest
+
+    umeta = w / "meta-unicode.txt"
+    umeta.write_text(_META_UNICODE, encoding="utf-8")
+    dest = w / "unicode.m4b"
+    _ff("-i", str(w / "a.m4a"), "-i", str(w / "c.jpg"), "-i", str(umeta),
+        "-map", "0:a", "-map", "1:v", "-map_metadata", "2", "-map_chapters", "2",
+        "-c:a", "copy", "-c:v", "copy", "-disposition:v:0", "attached_pic", str(dest))
+    out["unicode"] = dest
     return out
+
+
+def _chapter_titles(path) -> list[str | None]:
+    """Every output chapter's ID3 ``TIT2``, read from the file's own bytes.
+
+    ``ffprobe`` reports a CHAP frame's *element id* (``ch0``, ``ch1``…) as its
+    "title", so it says a chapter is named even when the frame carries no title
+    at all — which is exactly how the Phase 16 defect survived review. This
+    reads the real subframe instead, and ``None`` means genuinely untitled.
+    """
+    from mutagen.id3 import ID3
+    try:
+        tag = ID3(str(path))
+    except Exception:
+        return []
+    out: list[str | None] = []
+    for chapter in tag.getall("CHAP"):
+        titles = chapter.sub_frames.getall("TIT2")
+        out.append(str(titles[0]) if titles else None)
+    return out
+
+
+def _chapter_spans(path) -> list[tuple[float, float]]:
+    return [(float(c["start_time"]), float(c["end_time"]))
+            for c in _probe(path, "-show_chapters")["chapters"]]
+
+
+def _source_titles(path) -> tuple[str, ...]:
+    """The frozen titles a plan would carry, taken from the production probe."""
+    from mp3_tools import m4b_probe
+    return tuple(c.title for c in m4b_probe.probe_source(path).probe.chapters)
 
 
 def _picture(book: Path) -> AttachedPicture | None:
@@ -964,3 +1021,112 @@ def test_the_attach_pass_leaves_the_segment_audio_bit_identical(books, tmp_path)
     before, after = pcm(staged), pcm(dest)
     assert before == after, (len(before), len(after))
     assert _probe(dest, "-show_streams")["streams"][0]["codec_name"] == "mp3"
+
+
+# --------------------------------------------------------------------------- #
+# Whole-book chapter titles, proved against the produced bytes
+#
+# v0.6.2 Plan 5 Phase 16. Every earlier assertion about chapter retention read
+# the *argv* -- "is `-map_chapters 0` in the command" -- and all of them passed
+# while a real 7.3-hour Whole+Preserve output shipped 17 anonymous chapters. The
+# argv was right; the output was not. These tests read the produced MP3.
+# --------------------------------------------------------------------------- #
+
+
+def _whole(book, dest, mode, *, tags, titles):
+    cmds = whole_book_commands(
+        mode, ffmpeg=ffmpeg_utils.ffmpeg_cmd(), source=book, destination=str(dest),
+        quality=6, tags=tags, picture=_picture(book), chapter_titles=titles)
+    _run(cmds)
+    return dest
+
+
+def test_the_frozen_titles_are_exactly_what_the_probe_read(books):
+    """The plan's chapter titles come from the probe, not from a second reader."""
+    assert _source_titles(books["unicode"]) == _UNICODE_TITLES
+
+
+def test_whole_preserve_keeps_every_chapter_title_in_the_output(books, tmp_path):
+    """Preserve: spans *and* titles, with the global allowlist still absolute."""
+    book = books["unicode"]
+    dest = _whole(book, tmp_path / "preserve.mp3", MetadataMode.PRESERVE,
+                  tags=whole_book_tags(MetadataMode.PRESERVE, source=SOURCE),
+                  titles=_source_titles(book))
+
+    assert _chapter_spans(dest) == _chapter_spans(book), "timing must not move"
+    assert _chapter_titles(dest) == list(_UNICODE_TITLES)
+
+    # The two characters an ASCII-only assertion would have missed.
+    assert "☕" in _chapter_titles(dest)[0]
+    assert "’" in _chapter_titles(dest)[1]
+
+    got = _tags(dest)
+    assert got.get("title") == SOURCE.title
+    assert got.get("artist") == SOURCE.artist
+    assert got.get("album") == SOURCE.album
+    for banned in ("comment", "genre", "publisher", "copyright", "AUDIBLE_ASIN"):
+        assert banned not in got, f"{banned} leaked past the allowlist"
+
+
+def test_whole_replace_keeps_source_titles_while_replacing_the_book_text(books, tmp_path):
+    """Replace rewrites the book's own text; navigation is not the book's text."""
+    book = books["unicode"]
+    replacement = {"title": "NEW TITLE", "artist": "NEW ARTIST",
+                   "album": "NEW ALBUM", "album_artist": "NEW ALBUM ARTIST"}
+    dest = _whole(book, tmp_path / "replace.mp3", MetadataMode.REPLACE,
+                  tags=whole_book_tags(MetadataMode.REPLACE, source=SOURCE,
+                                       replacement=replacement),
+                  titles=_source_titles(book))
+
+    assert _chapter_spans(dest) == _chapter_spans(book)
+    assert _chapter_titles(dest) == list(_UNICODE_TITLES)
+
+    got = _tags(dest)
+    assert got.get("title") == "NEW TITLE"
+    assert got.get("artist") == "NEW ARTIST"
+    assert got.get("album") == "NEW ALBUM"
+    for banned in ("comment", "genre", "publisher", "copyright", "AUDIBLE_ASIN"):
+        assert banned not in got
+
+
+def test_whole_strip_keeps_no_chapters_and_no_titles(books, tmp_path):
+    """Strip is empty, and handing it titles does not smuggle a map back in."""
+    book = books["unicode"]
+    dest = _whole(book, tmp_path / "strip.mp3", MetadataMode.STRIP,
+                  tags=whole_book_tags(MetadataMode.STRIP, source=SOURCE),
+                  titles=_source_titles(book))
+
+    assert _chapters(dest) == 0, "Strip drops the map"
+    assert _chapter_titles(dest) == []
+    got = _tags(dest)
+    for field in ("title", "artist", "album", "album_artist",
+                  "comment", "genre", "publisher", "copyright"):
+        assert field not in got, f"Strip leaked {field}"
+
+
+def test_an_untitled_source_chapter_is_left_untitled(books, tmp_path):
+    """No invented Whole-book naming policy: a blank title stays blank."""
+    book = books["unicode"]
+    dest = _whole(book, tmp_path / "partial.mp3", MetadataMode.PRESERVE,
+                  tags=whole_book_tags(MetadataMode.PRESERVE, source=SOURCE),
+                  titles=("Kept", "", "Also kept"))
+    assert _chapter_titles(dest) == ["Kept", None, "Also kept"]
+
+
+def test_the_old_argv_only_assertion_would_not_have_caught_this(books, tmp_path):
+    """Why these tests exist: the command shape alone proves nothing.
+
+    Built without the frozen titles, the argv still carries ``-map_chapters 0``
+    and the output still has the right number of chapters at the right times --
+    and every one of them is anonymous. That is precisely the shape that shipped.
+    """
+    book = books["unicode"]
+    dest = _whole(book, tmp_path / "noTitles.mp3", MetadataMode.PRESERVE,
+                  tags=whole_book_tags(MetadataMode.PRESERVE, source=SOURCE),
+                  titles=())
+    argv = whole_book_commands(
+        MetadataMode.PRESERVE, ffmpeg="FF", source=book, destination="D",
+        quality=6, tags=whole_book_tags(MetadataMode.PRESERVE, source=SOURCE)).audio
+    assert argv[argv.index("-map_chapters") + 1] == "0", "the old assertion passes"
+    assert _chapter_spans(dest) == _chapter_spans(book), "and the spans are right"
+    assert _chapter_titles(dest) == [None, None, None], "yet nothing is named"
