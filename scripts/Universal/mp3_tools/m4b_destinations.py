@@ -165,12 +165,76 @@ def _renamer(pairs: Sequence[tuple[ImportedFile, str]]):
     return rename
 
 
+def _plan_containers(direct, grouped, run_root: Path,
+                     planner: DestinationPlanner) -> dict[str, Path]:
+    """One book folder per split occurrence, at that occurrence's own location.
+
+    The folder is planned **through the same three planners the outputs
+    themselves use**, with the source's stem standing in for a filename. That is
+    the whole trick, and it is what keeps this from becoming a second
+    destination authority: ``plan_flat`` puts a directly chosen book's folder in
+    the run root, ``plan_mirrored`` puts a folder-imported book's folder under
+    its mirrored parent, ``plan_multi_root`` adds the root container first — so
+    provenance, containment and the run-wide collision domain are all still
+    decided in exactly one place.
+
+    Because the folder is reserved *once per occurrence*, two occurrences that
+    would land on the same name are separated here (``Book``, ``Book-1``) and
+    every segment of one book then shares one container. Numbering each
+    segment's parent independently would scatter a single book across several
+    folders, which is the failure this ordering exists to prevent.
+    """
+    containers: dict[str, Path] = {}
+
+    def absorb(bucket, plan) -> None:
+        for entry, item in zip(bucket, plan.items):
+            containers[entry.occurrence_id] = item.destination
+
+    def named(bucket):
+        """One (entry, folder name) pair per occurrence: the source's stem.
+
+        The stem, not the filename: ``Arazan's Wolves.m4b`` is a book called
+        *Arazan's Wolves*, and only the final extension is dropped before the
+        shared sanitiser sees it. Not the metadata title either — a Replace run
+        would then rename the folder out from under the user, and the file name
+        is the identity they already recognise.
+        """
+        return [(entry, Path(entry.path).stem) for entry in bucket]
+
+    if direct:
+        pairs = named(direct)
+        absorb(direct, plan_flat(
+            run_root, [entry.path for entry, _name in pairs],
+            planner=planner, rename=_renamer(pairs)))
+
+    if len(grouped) == 1:
+        source_root, bucket = grouped[0]
+        pairs = named(bucket)
+        absorb(bucket, plan_mirrored(
+            run_root, [entry.path for entry, _name in pairs], source_root,
+            planner=planner, rename=_renamer(pairs)))
+    elif len(grouped) > 1:
+        expanded: list[tuple[Path, list[Path]]] = []
+        order: list[ImportedFile] = []
+        pairs = []
+        for source_root, bucket in grouped:
+            bucket_pairs = named(bucket)
+            expanded.append((source_root, [entry.path for entry, _name in bucket_pairs]))
+            pairs.extend(bucket_pairs)
+            order.extend(bucket)
+        absorb(order, plan_multi_root(
+            run_root, expanded, planner=planner, rename=_renamer(pairs)))
+
+    return containers
+
+
 def plan_outputs(
     entries: Sequence[ImportedFile],
     requested: Mapping[str, Sequence[str]],
     *,
     run_root: Path,
     planner: DestinationPlanner,
+    split: bool = False,
 ) -> tuple[PlannedOccurrence, ...]:
     """Plan every output of one run, in the frozen queue's own order.
 
@@ -195,6 +259,38 @@ def plan_outputs(
     _cross_check(direct, grouped, entries)
 
     planned: dict[str, list[Path]] = {entry.occurrence_id: [] for entry in entries}
+
+    if split:
+        # **Phase 16 maintainer supersession of the split half of D3/31A.** A real
+        # 12-book split run put 353 chapter MP3s in one flat run folder, from
+        # `01 - Chapter 1.mp3` to `01 - Chapter 1-3.mp3`, interleaved by book and
+        # separated only by collision suffixes; 53 of the 353 needed a suffix.
+        # The maintainer ruled that unusable. Every split occurrence now gets one
+        # book folder at its own planned location, and its segments go inside.
+        # Whole mode is untouched and still lands beside the run root.
+        containers = _plan_containers(direct, grouped, run_root, planner)
+        for entry in entries:
+            container = containers.get(entry.occurrence_id)
+            if container is None:  # pragma: no cover - defensive
+                raise UnsafePathError(
+                    "a split occurrence was planned no book folder",
+                    f"{entry.occurrence_id} has no container",
+                )
+            subdir = container.relative_to(run_root)
+            for name in _expand([entry], requested):
+                planned[entry.occurrence_id].append(
+                    planner.plan(name[1], subdir=subdir))
+        sources = tuple(entry.path for entry in entries)
+        for destination in (p for paths in planned.values() for p in paths):
+            assert_not_input(destination, sources)
+        return tuple(
+            PlannedOccurrence(
+                occurrence_id=entry.occurrence_id,
+                source=entry.path,
+                destinations=tuple(planned[entry.occurrence_id]),
+            )
+            for entry in entries
+        )
 
     def absorb(pairs, plan) -> None:
         if len(plan.items) != len(pairs):

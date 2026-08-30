@@ -3,8 +3,11 @@
 Phase 7B kept every occurrence's provenance; this is where it is spent. The
 placement contract under test is the approved one:
 
-* individually chosen files land **flat** in the run directory (31A) — in both
-  conversion modes, with no per-book container invented for a split;
+* individually chosen **whole-book** files land **flat** in the run directory (31A);
+* a **split** occurrence gets one book folder named for its source's stem, at the
+  place its own provenance puts it — the **Phase 16 maintainer supersession** of
+  the split half of D3/31A, after a real 12-book split run put 353 chapter MP3s
+  flat in one folder, interleaved by book, 53 of them needing a collision suffix;
 * one folder root **mirrors** its relative hierarchy (7A);
 * several folder roots get **collision-safe named containers** (41A);
 * every split segment lands wherever *its own* occurrence belongs.
@@ -86,6 +89,13 @@ def plan(entries, requested, run_root: Path, planner=None):
     return plan_outputs(entries, requested, run_root=run_root, planner=tracker)
 
 
+def split_plan(entries, requested, run_root: Path, planner=None):
+    """Plan a **split** run, which is what puts each book in its own folder."""
+    tracker = planner if planner is not None else DestinationPlanner(run_root)
+    return plan_outputs(entries, requested, run_root=run_root, planner=tracker,
+                        split=True)
+
+
 def whole(entries) -> dict[str, tuple[str, ...]]:
     """One whole-book output name per occurrence."""
     return {e.occurrence_id: (f"{e.path.stem}.mp3",) for e in entries}
@@ -120,13 +130,77 @@ def test_several_direct_files_all_land_in_the_run_root(tmp_path, run_root):
     assert [rel(run_root, p)[0] for p in planned] == ["A.mp3", "B.mp3", "C.mp3"]
 
 
-def test_a_direct_split_stays_flat_and_invents_no_per_book_folder(tmp_path, run_root):
-    """Decision 31A is followed literally, in split mode too."""
+def test_a_direct_split_gets_one_folder_named_for_its_source(tmp_path, run_root):
+    """Phase 16 supersession. Was ``..._stays_flat_and_invents_no_per_book_folder``.
+
+    The folder is the source's **stem**: ``Book.m4b`` is a book called *Book*,
+    so only the final extension is dropped before the shared sanitiser sees it.
+    """
     entry = occurrence(touch(tmp_path / "src" / "Book.m4b"), direct_root())
     names = ("01 - Intro.mp3", "02 - Chapter One.mp3", "03 - Chapter Two.mp3")
-    planned = plan([entry], {entry.occurrence_id: names}, run_root)
-    assert rel(run_root, planned[0]) == list(names)
-    assert all(d.parent == run_root for d in planned[0].destinations)
+    planned = split_plan([entry], {entry.occurrence_id: names}, run_root)
+    assert rel(run_root, planned[0]) == [f"Book/{n}" for n in names]
+    assert {d.parent for d in planned[0].destinations} == {run_root / "Book"}
+
+
+def test_a_whole_run_is_untouched_by_the_split_container_rule(tmp_path, run_root):
+    """The half of D3/31A the maintainer kept: whole books stay flat."""
+    entries = [occurrence(touch(tmp_path / "src" / n), direct_root())
+               for n in ("A.m4b", "B.m4b")]
+    planned = plan(entries, whole(entries), run_root)
+    assert [rel(run_root, p)[0] for p in planned] == ["A.mp3", "B.mp3"]
+    assert all(d.parent == run_root for p in planned for d in p.destinations)
+
+
+def test_a_chapterless_split_item_still_gets_its_book_folder(tmp_path, run_root):
+    """One output, but a split run, so it belongs with the others."""
+    entry = occurrence(touch(tmp_path / "src" / "Whole Book.m4b"), direct_root())
+    planned = split_plan([entry], {entry.occurrence_id: ("Whole Book.mp3",)}, run_root)
+    assert rel(run_root, planned[0]) == ["Whole Book/Whole Book.mp3"]
+
+
+def test_two_different_sources_with_the_same_stem_get_separate_folders(tmp_path, run_root):
+    a = occurrence(touch(tmp_path / "one" / "Book.m4b"), direct_root())
+    b = occurrence(touch(tmp_path / "two" / "Book.m4b"), direct_root())
+    names = ("01 - Intro.mp3", "02 - Two.mp3")
+    planned = split_plan([a, b], {a.occurrence_id: names, b.occurrence_id: names},
+                         run_root)
+    assert rel(run_root, planned[0]) == [f"Book/{n}" for n in names]
+    assert rel(run_root, planned[1]) == [f"Book-1/{n}" for n in names]
+
+
+def test_two_duplicate_occurrences_of_one_file_get_separate_folders(tmp_path, run_root):
+    """Occurrence identity, not path: one file added twice is two books here."""
+    source = touch(tmp_path / "src" / "Book.m4b")
+    a = occurrence(source, direct_root())
+    b = occurrence(source, direct_root())
+    assert a.occurrence_id != b.occurrence_id
+    names = ("01 - Intro.mp3",)
+    planned = split_plan([a, b], {a.occurrence_id: names, b.occurrence_id: names},
+                         run_root)
+    assert rel(run_root, planned[0]) == ["Book/01 - Intro.mp3"]
+    assert rel(run_root, planned[1]) == ["Book-1/01 - Intro.mp3"]
+
+
+def test_stems_that_sanitise_onto_each_other_still_get_separate_folders(tmp_path, run_root):
+    """Two names the sanitiser cannot tell apart must not share one folder."""
+    a = occurrence(touch(tmp_path / "one" / "Book?.m4b"), direct_root())
+    b = occurrence(touch(tmp_path / "two" / "Book_.m4b"), direct_root())
+    names = ("01 - Intro.mp3",)
+    planned = split_plan([a, b], {a.occurrence_id: names, b.occurrence_id: names},
+                         run_root)
+    first = planned[0].destinations[0].parent
+    second = planned[1].destinations[0].parent
+    assert first != second, (first, second)
+
+
+def test_a_segment_name_collision_cannot_escape_its_book_folder(tmp_path, run_root):
+    """Two segments of one book asking for one name stay inside that book."""
+    entry = occurrence(touch(tmp_path / "src" / "Book.m4b"), direct_root())
+    names = ("01 - Same.mp3", "01 - Same.mp3", "02 - Other.mp3")
+    planned = split_plan([entry], {entry.occurrence_id: names}, run_root)
+    assert {d.parent for d in planned[0].destinations} == {run_root / "Book"}
+    assert len({d for d in planned[0].destinations}) == 3, "each got its own path"
 
 
 def test_two_direct_books_with_identical_segment_names_collide_safely(tmp_path, run_root):
@@ -179,21 +253,35 @@ def test_a_root_level_source_lands_directly_at_the_run_root(library, run_root):
 
 
 def test_every_split_segment_shares_its_owning_source_location(library, run_root):
-    """Segments belong where the *item* belongs — no new container."""
+    """Segments belong where the *item* belongs — now inside that book's folder.
+
+    Phase 16 supersession: mirroring decides the parent, then the book folder
+    goes inside it, then the segments go inside that.
+    """
     _root, entries = library
     nested = entries[1]
     names = ("01 - A.mp3", "02 - B.mp3", "03 - C.mp3")
-    planned = plan([nested], {nested.occurrence_id: names}, run_root)
-    assert rel(run_root, planned[0]) == [f"Series/{n}" for n in names]
-    assert {d.parent for d in planned[0].destinations} == {run_root / "Series"}
+    planned = split_plan([nested], {nested.occurrence_id: names}, run_root)
+    assert rel(run_root, planned[0]) == [f"Series/Nested/{n}" for n in names]
+    assert {d.parent for d in planned[0].destinations} == {
+        run_root / "Series" / "Nested"}
 
 
-def test_a_mirrored_split_invents_no_per_book_directory(library, run_root):
+def test_a_mirrored_split_puts_the_book_folder_under_its_mirrored_parent(library, run_root):
+    """Was ``..._invents_no_per_book_directory``. Phase 16 supersession."""
     _root, entries = library
     deep = entries[2]
-    planned = plan([deep], {deep.occurrence_id: ("01 - A.mp3",)}, run_root)
-    assert planned[0].destination.parent == run_root / "Series" / "Part A"
-    assert "Deep" not in str(planned[0].destination.parent)
+    planned = split_plan([deep], {deep.occurrence_id: ("01 - A.mp3",)}, run_root)
+    assert planned[0].destination.parent == run_root / "Series" / "Part A" / "Deep"
+
+
+def test_a_root_level_split_source_gets_its_folder_at_the_run_root(library, run_root):
+    """A book directly inside the chosen folder: ``run/Top/…``, not ``run/…``."""
+    _root, entries = library
+    top = entries[0]
+    planned = split_plan([top], {top.occurrence_id: ("01 - A.mp3", "02 - B.mp3")},
+                         run_root)
+    assert rel(run_root, planned[0]) == ["Top/01 - A.mp3", "Top/02 - B.mp3"]
 
 
 # --------------------------------------------------------------------------- #
@@ -228,12 +316,17 @@ def test_multi_root_keeps_nested_hierarchy_under_its_container(two_roots, run_ro
 
 
 def test_multi_root_split_segments_stay_with_their_owning_root(two_roots, run_root):
+    """Root container, then mirrored parent, then the book folder, then segments.
+
+    Phase 16 supersession: the multi-root collision containers (41A) are decided
+    first and unchanged; the book folder is added at the item's mirrored place.
+    """
     entries, = two_roots
     names = ("01 - A.mp3", "02 - B.mp3")
-    planned = plan(entries, {entries[0].occurrence_id: names,
-                             entries[1].occurrence_id: names}, run_root)
-    assert rel(run_root, planned[0]) == [f"Books/{n}" for n in names]
-    assert rel(run_root, planned[1]) == [f"Books-1/Deep/{n}" for n in names]
+    planned = split_plan(entries, {entries[0].occurrence_id: names,
+                                   entries[1].occurrence_id: names}, run_root)
+    assert rel(run_root, planned[0]) == [f"Books/One/{n}" for n in names]
+    assert rel(run_root, planned[1]) == [f"Books-1/Deep/Two/{n}" for n in names]
 
 
 def test_root_order_follows_the_user_not_the_alphabet(tmp_path, run_root):

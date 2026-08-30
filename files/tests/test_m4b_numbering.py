@@ -543,19 +543,27 @@ def test_split_filenames_keep_their_structural_prefix(make_panel, tmp_path,
                                                       run_env):
     """Phase 12 is metadata only: no output is renamed by success or failure.
 
-    The surviving book's names carry a ``-1`` because the failed book's names
-    were planned first in the run's one shared collision domain -- that is
-    Phase 8 behaviour and it is deliberately left alone. What matters here is
-    that the **structural order prefix** is untouched: 01, 02, 03, in order.
+    **Phase 16 supersession changed the surrounding shape, and improved this.**
+    The surviving book's names used to carry a ``-1``, because the failed book's
+    identical chapter names were planned first in the run's one shared collision
+    domain. Now each book has its own folder, so ``B`` gets the plain names and
+    the suffix is gone -- the cross-book interference that made a real 12-book
+    run need 53 suffixes. What this test has always been about is unchanged: the
+    **structural order prefix** is untouched, 01, 02, 03, in order.
+
+    The failed book keeps its (now empty) container. Its reservation is not
+    released and compacted around, so a Retry Failed lands on the same paths.
     """
     panel = split_panel(make_panel, tmp_path, run_env, "A.m4b", "B.m4b")
     fail_sources(run_env, "A.m4b")
     plan = convert(panel, tmp_path)
 
-    produced = sorted(p.name for p in plan.run_directory.iterdir())
+    produced = sorted(p.name for p in plan.run_directory.rglob("*.mp3"))
     assert len(produced) == 3
     assert [name[:2] for name in produced] == ["01", "02", "03"]
     assert all("Chapter" in name for name in produced), produced
+    assert all("-1" not in name for name in produced), (
+        "separate book folders removed the cross-book collision suffix")
 
 def test_whole_filenames_are_never_prefixed_with_the_success_number(
         make_panel, tmp_path, run_env):
@@ -766,9 +774,11 @@ def test_real_split_fragments_carry_structural_tracks(media, tmp_path, make_pane
     panel = real_panel(make_panel, monkeypatch, tmp_path, media["cover"],
                        split=True, start_number=7)
     plan = convert(panel, tmp_path)
-    produced = sorted(plan.run_directory.iterdir())
+    # Phase 16: inside the book's own folder.
+    produced = sorted(plan.run_directory.rglob("*.mp3"))
     assert [p.name for p in produced] == [
         "01 - Ch One.mp3", "02 - Ch Two.mp3", "03 - Ch Three.mp3"]
+    assert {p.parent for p in produced} == {plan.run_directory / "WithCover"}
     assert [track_of(p) for p in produced] == [1, 2, 3], (
         "Start # 7 must not reach a split book's chapters")
 
@@ -843,3 +853,64 @@ def test_phase_twelve_touched_no_execution_contract():
     assert "SuccessNumbers" not in execution
     assert "m4b_numbering" not in execution
     assert "auto_number" not in execution and "start_number" not in execution
+
+
+# --------------------------------------------------------------------------- #
+# Phase 16 — the split run's shape on disk, proved against real produced files
+#
+# The maintainer superseded the split half of D3/31A after a real 12-book run
+# put 353 chapter MP3s flat in one folder, interleaved by book, 53 of them
+# needing a collision suffix. Whole mode was left alone. Both halves are proved
+# here against files that actually exist, because the planning-level assertions
+# alone would not have shown a book's segments scattering across folders.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_real_split_run_puts_each_book_in_its_own_folder(
+        media, tmp_path, make_panel, monkeypatch):
+    panel = real_panel(make_panel, monkeypatch, tmp_path,
+                       media["plain"], media["cover"], split=True, auto=False)
+    plan = convert(panel, tmp_path)
+    run = plan.run_directory
+
+    # Nothing loose at the run root: only the two book folders.
+    assert sorted(p.name for p in run.iterdir()) == ["NoCover", "WithCover"]
+    assert all(p.is_dir() for p in run.iterdir())
+
+    for book in ("NoCover", "WithCover"):
+        segments = sorted((run / book).glob("*.mp3"))
+        assert segments, f"{book} produced nothing"
+        # Every segment of this book is inside this book's folder.
+        assert {s.parent for s in segments} == {run / book}
+        # Real MP3s, in structural order, numbered from 1 within their own book.
+        assert [track_of(s) for s in segments] == list(range(1, len(segments) + 1))
+        for s in segments:
+            assert _probe(s, "-show_streams")["streams"][0]["codec_name"] == "mp3"
+
+    # The cover book's fragments keep their artwork; the plain one has none.
+    from mutagen.id3 import ID3
+    covered = sorted((run / "WithCover").glob("*.mp3"))
+    assert all(ID3(str(s)).getall("APIC") for s in covered)
+    plain = sorted((run / "NoCover").glob("*.mp3"))
+    assert not any(ID3(str(s)).getall("APIC") for s in plain)
+
+    # A fragment never carries the whole book's chapter map.
+    assert not any(ID3(str(s)).getall("CHAP") for s in covered + plain)
+
+    # And the sources are exactly as they were.
+    for source in (media["plain"], media["cover"]):
+        assert source.exists() and source.stat().st_size > 0
+
+
+def test_a_real_whole_run_still_writes_flat_with_no_book_folders(
+        media, tmp_path, make_panel, monkeypatch):
+    """The control. Whole mode was deliberately not changed."""
+    panel = real_panel(make_panel, monkeypatch, tmp_path,
+                       media["plain"], media["cover"], auto=False)
+    plan = convert(panel, tmp_path)
+    run = plan.run_directory
+
+    produced = sorted(run.iterdir())
+    assert [p.name for p in produced] == ["NoCover.mp3", "WithCover.mp3"]
+    assert all(p.is_file() for p in produced)
+    assert not [p for p in run.iterdir() if p.is_dir()], "no per-book folder"

@@ -1728,3 +1728,34 @@ def test_real_retry_writes_nothing_outside_the_original_run_directory(
     assert sorted(p.name for p in directory.iterdir()) == sorted(
         item.segments[0].destination.name for item in panel.run_plan.items)
     assert [p.name for p in tmp_path.iterdir() if p.is_dir()] == ["run-1"]
+
+
+def test_a_retried_split_book_reuses_its_frozen_book_folder(
+        make_panel, tmp_path, run_env):
+    """Phase 16: the container is frozen with the rest of the plan.
+
+    A failed split book keeps its folder reservation rather than releasing it,
+    so the retry writes to the identical paths it was planned for. Releasing and
+    re-planning would let the retry drift into a ``-1`` folder beside the empty
+    original, which is exactly the scattering the per-book container exists to
+    prevent.
+    """
+    panel = make_panel()
+    whole(panel, *books(tmp_path / "src", "A.m4b"), split=True)
+    run_env["default_report"] = report(duration=600.0,
+                                       chapter_list=chapters(0.0, 200.0, 400.0))
+    run_env["fail"] = ("A.m4b",)
+    work(panel, tmp_path, run_env)
+    run = panel.run_plan.run_directory
+    planned = [s.destination for s in panel.run_plan.items[0].segments]
+    assert {d.parent for d in planned} == {run / "A"}, planned
+
+    run_env["fail"] = ()
+    run_env["commands"].clear()
+    retry(panel)
+    again = [s.destination for s in panel.run_plan.items[0].segments]
+    assert again == planned, "the retry used the frozen paths, folder and all"
+
+    produced = sorted(run.rglob("*.mp3"))
+    assert {d.parent for d in produced} == {run / "A"}
+    assert len(produced) == len(planned)

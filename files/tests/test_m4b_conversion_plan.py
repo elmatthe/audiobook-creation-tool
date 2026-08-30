@@ -679,7 +679,17 @@ def test_split_names_carry_the_structural_order_and_the_title(tmp_path):
 
 
 def test_the_slash_title_regression_survives_the_whole_pipeline(tmp_path):
-    """The mandatory §14 regression, asserted through the real plan."""
+    """The mandatory §14 regression, asserted through the real plan.
+
+    **Phase 16 maintainer supersession of the split half of D3/31A.** A real
+    12-book split run put 353 chapter MP3s flat in one run folder, interleaved
+    by book, 53 of them needing a collision suffix. The maintainer ruled that
+    unusable, so every split occurrence now gets one book folder named for the
+    source's stem at its own planned location. Whole mode is unchanged.
+
+    The slash rule itself is unchanged: the *title* still becomes one filename
+    with visible separators, and it does not gain a directory of its own.
+    """
     title = ("1 — There is no food here / Meg ate all the Swedish Fish / "
              "Please get off my hearse")
     entries = direct(book(tmp_path / "src", "A.m4b"))
@@ -688,7 +698,8 @@ def test_the_slash_title_regression_survives_the_whole_pipeline(tmp_path):
         tmp_path / "run", mode=ConversionMode.SPLIT)
     destination = plan.items[0].segments[0].destination
 
-    assert destination.parent == tmp_path / "run", "no path hierarchy was created"
+    assert destination.parent == tmp_path / "run" / "A", "the book's own folder"
+    assert destination.parent.parent == tmp_path / "run", "and nothing deeper"
     assert destination.name.startswith("01 - ")
     assert destination.suffix == ".mp3"
     for fragment in ("There is no food here", "Meg ate all the Swedish Fish",
@@ -767,15 +778,24 @@ def test_direct_whole_outputs_are_flat_in_the_run(tmp_path):
         run / "A.mp3", run / "B.mp3"]
 
 
-def test_direct_split_outputs_are_flat_with_no_per_book_container(tmp_path):
-    """Decision 31A, literally: no source-stem folder is invented."""
+def test_direct_split_outputs_get_one_per_book_container(tmp_path):
+    """The old name was ``..._are_flat_with_no_per_book_container``.
+
+    **Phase 16 maintainer supersession of the split half of D3/31A.** A real
+    12-book split run put 353 chapter MP3s flat in one run folder, interleaved
+    by book, 53 of them needing a collision suffix. The maintainer ruled that
+    unusable, so every split occurrence now gets one book folder named for the
+    source's stem at its own planned location. Whole mode is unchanged.
+    """
     entries = direct(book(tmp_path / "src", "A.m4b"))
     run = tmp_path / "run"
     plan = plan_for(entries, {entries[0].occurrence_id: report(
         duration=600.0, chapter_list=chapters(0.0, 300.0))},
         run, mode=ConversionMode.SPLIT)
     for segment in plan.items[0].segments:
-        assert segment.destination.parent == run
+        assert segment.destination.parent == run / "A"
+    # One container for the whole book, not one per segment.
+    assert len({s.destination.parent for s in plan.items[0].segments}) == 1
 
 
 def test_one_folder_root_mirrors_its_hierarchy(tmp_path):
@@ -790,7 +810,15 @@ def test_one_folder_root_mirrors_its_hierarchy(tmp_path):
     assert by_name["Nested.m4b"] == run / "Series" / "Nested.mp3"
 
 
-def test_split_segments_land_at_the_mirrored_location(tmp_path):
+def test_split_segments_land_in_their_book_folder_at_the_mirrored_location(tmp_path):
+    """Mirroring first, then the book folder inside it.
+
+    **Phase 16 maintainer supersession of the split half of D3/31A.** A real
+    12-book split run put 353 chapter MP3s flat in one run folder, interleaved
+    by book, 53 of them needing a collision suffix. The maintainer ruled that
+    unusable, so every split occurrence now gets one book folder named for the
+    source's stem at its own planned location. Whole mode is unchanged.
+    """
     root = tmp_path / "Library"
     nested = book(root / "Series", "Nested.m4b")
     entries = under(root, nested)
@@ -799,7 +827,7 @@ def test_split_segments_land_at_the_mirrored_location(tmp_path):
         duration=600.0, chapter_list=chapters(0.0, 300.0))},
         run, mode=ConversionMode.SPLIT)
     for segment in plan.items[0].segments:
-        assert segment.destination.parent == run / "Series"
+        assert segment.destination.parent == run / "Series" / "Nested"
 
 
 def test_several_roots_get_collision_safe_containers(tmp_path):
@@ -1806,7 +1834,10 @@ def test_split_execution_arrived(make_panel, tmp_path, run_env):
 
     assert plan.mode is ConversionMode.SPLIT
     assert plan.total_segments == 3
-    produced = sorted(p.name for p in plan.run_directory.iterdir())
+    # Phase 16: the run folder now holds one book folder, and the segments are
+    # inside it. Nothing is left loose at the run root.
+    assert sorted(p.name for p in plan.run_directory.iterdir()) == ["A"]
+    produced = sorted(p.name for p in (plan.run_directory / "A").iterdir())
     assert produced == ["01 - Chapter 1.mp3", "02 - Chapter 2.mp3",
                         "03 - Chapter 3.mp3"]
     assert panel.run_result.succeeded_count == 1

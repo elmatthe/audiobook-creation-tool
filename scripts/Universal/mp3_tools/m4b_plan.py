@@ -411,6 +411,10 @@ def assemble_plan(
          for occurrence in shapes},
         run_root=Path(run_directory),
         planner=planner,
+        # The batch-wide mode, not a per-item shape: a chapterless book in a
+        # split run produces one output and still belongs in its own book
+        # folder alongside the books that produced many.
+        split=bool(options.split),
     )
     destinations = {item.occurrence_id: item.destinations for item in planned}
 

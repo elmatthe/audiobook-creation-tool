@@ -758,13 +758,33 @@ def split_panel(make_panel, tmp_path, run_env, *names, starts=(0.0, 200.0, 400.0
     return panel
 
 
+def produced_files(run_directory) -> list:
+    """Every output file in a run, wherever the run's shape put it.
+
+    **Phase 16 maintainer supersession of the split half of D3/31A.** A split
+    book's segments now live in a folder named for the source's stem, so a test
+    that listed the run root directly would see one directory rather than the
+    files. Whole mode is unchanged and still writes into the run root, which
+    this finds too.
+    """
+    return sorted(p for p in run_directory.rglob("*.mp3") if p.is_file())
+
+
+def produced_names(run_directory) -> list[str]:
+    return [p.name for p in produced_files(run_directory)]
+
+
 def test_a_split_book_produces_every_planned_segment(make_panel, tmp_path, run_env):
     panel = split_panel(make_panel, tmp_path, run_env, "A.m4b")
     plan = convert(panel, tmp_path)
-    produced = sorted(p.name for p in plan.run_directory.iterdir())
+    produced = produced_names(plan.run_directory)
     assert produced == [segment.destination.name
                         for segment in plan.items[0].segments]
     assert len(produced) == 3
+    # All three inside this book's own folder, and nothing loose at the root.
+    assert {p.parent for p in produced_files(plan.run_directory)} == {
+        plan.run_directory / "A"}
+    assert not list(plan.run_directory.glob("*.mp3"))
 
 
 def test_a_failed_segment_takes_back_the_whole_book(make_panel, tmp_path, run_env):
@@ -779,7 +799,7 @@ def test_a_failed_segment_takes_back_the_whole_book(make_panel, tmp_path, run_en
     run_env["outcome"] = outcome
     plan = convert(panel, tmp_path)
 
-    assert list(plan.run_directory.iterdir()) == [], (
+    assert produced_files(plan.run_directory) == [], (
         "chapter one was written first and had to be taken back")
     assert panel.run_result.failed_count == 1
     assert panel.run_result.succeeded_count == 0
@@ -797,8 +817,10 @@ def test_one_books_failure_does_not_touch_another_books_outputs(
     run_env["outcome"] = outcome
     plan = convert(panel, tmp_path)
 
-    survived = sorted(p.name for p in plan.run_directory.iterdir())
-    assert len(survived) == 3, survived
+    survived = produced_files(plan.run_directory)
+    assert len(survived) == 3, [p.name for p in survived]
+    # The surviving book keeps its own folder; the failed one took back its own.
+    assert {p.parent.name for p in survived} == {"B"}
     assert panel.run_result.succeeded_count == 1
     assert panel.run_result.failed_count == 1
 
@@ -816,7 +838,7 @@ def test_a_cancellation_mid_book_takes_back_that_books_segments(
     run_env["outcome"] = outcome
     plan = convert(panel, tmp_path)
 
-    assert list(plan.run_directory.iterdir()) == []
+    assert produced_files(plan.run_directory) == []
     assert panel.job_controller.state is jc.JobState.CANCELLED
     assert panel.run_result.failed_count == 0, "a cancellation is not a failure"
 
@@ -834,8 +856,9 @@ def test_a_cancellation_keeps_books_that_already_finished(
     run_env["outcome"] = outcome
     plan = convert(panel, tmp_path)
 
-    survived = sorted(p.name for p in plan.run_directory.iterdir())
+    survived = produced_files(plan.run_directory)
     assert len(survived) == 3, "the completed book keeps its outputs"
+    assert {p.parent.name for p in survived} == {"A"}
     assert panel.job_controller.state is jc.JobState.CANCELLED
 
 
@@ -1657,12 +1680,14 @@ def test_a_real_run_through_the_panel_produces_real_files(media, tmp_path,
     plan = convert(panel, tmp_path)
 
     assert plan.total_segments == 3
-    produced = sorted(p.name for p in plan.run_directory.iterdir())
-    assert produced == ["01 - Ch One.mp3", "02 - Ch Two.mp3", "03 - Ch Three.mp3"]
-    for name in produced:
-        path = plan.run_directory / name
-        assert len(_covers(path)) == 1, name
-        assert _chapter_count(path) == 0, name
+    # Phase 16: the segments are inside the book's own folder now.
+    produced = produced_files(plan.run_directory)
+    assert [p.name for p in produced] == [
+        "01 - Ch One.mp3", "02 - Ch Two.mp3", "03 - Ch Three.mp3"]
+    assert {p.parent for p in produced} == {plan.run_directory / "WithCover"}
+    for path in produced:
+        assert len(_covers(path)) == 1, path.name
+        assert _chapter_count(path) == 0, path.name
     assert panel.run_result.succeeded_count == 1
     assert panel.run_result.failed_count == 0
 

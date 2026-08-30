@@ -4,6 +4,56 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-30 — A split run groups every book in its own folder; whole books stay flat
+
+**Decision (v0.6.2 Plan 5, Phase 16; maintainer disposition after real macOS multi-book validation).
+This supersedes the *split* half of D3 / Decision 31A. The whole-book half is unchanged and stays
+exactly as approved.**
+
+A **split** occurrence now gets **one container directory named for its source filename's stem**, at
+the place its own provenance already puts it, and all of that occurrence's segments go inside it.
+`Arazan's Wolves.m4b` becomes `Arazan's Wolves/` — only the final extension is removed before the
+shared sanitiser sees the name. A **whole-book** output is untouched: directly selected books stay
+flat in the run folder, folder-imported books still mirror, and no per-book container is ever
+invented for them.
+
+**Why, and it took a real corpus to see it.** 31A was a reasonable rule and the implementation
+followed it literally. Then Phase 16 ran **12 real audiobooks through Split in one run**: 353 chapter
+MP3s landed flat in a single folder, interleaved by book — `01 - Arazan's Wolves-Part01.mp3` next to
+`01 - Opening Credits.mp3` next to `02 - Prologue.mp3` — and **53 of the 353 carried a collision
+suffix** for no reason except that different books name their chapters alike. Collision-safe planning
+was working perfectly; the *organisation* was the problem, and it is only visible at corpus scale.
+The maintainer judged the result unusable and superseded the rule. **The previous behaviour was not a
+defect and is not recorded as one.**
+
+**The folder is the source stem, never the metadata title.** A Replace run rewrites the book's
+textual metadata, and naming the folder from that would rename it out from under the user
+mid-decision. The filename is the identity people already recognise.
+
+**One authority, not two.** The container is planned through the *same* three shared planners the
+outputs themselves use, with the stem standing in for a filename: `plan_flat` for a directly chosen
+book, `plan_mirrored` under its mirrored parent, `plan_multi_root` inside its root container. So
+provenance, `assert_contained`, `assert_not_input` and the single run-wide collision domain are all
+still decided in one place, and no shared contract changed — `DestinationPlanner.plan` already
+accepted a sanitised `subdir`.
+
+**Reserved once per occurrence, deliberately.** Two occurrences that would take the same folder are
+separated at the *folder* level (`Book`, `Book-1`), and every segment of one book then shares that
+one container. Numbering each segment's parent independently would scatter a single book across
+several folders — the failure this ordering exists to prevent. Two deliberate duplicates of one file
+remain two occurrences with two containers. A failed split book **keeps** its reservation rather than
+releasing it, so Retry Failed writes to the identical frozen paths.
+
+**A chapterless source in a split run keeps its folder too** — one output, but it belongs with the
+books beside it rather than loose at the run root.
+
+One incidental improvement, measured: because each book now owns its folder, the cross-book chapter
+name collisions disappear. The suffixes that 53 of those 353 files carried are simply not generated.
+
+*Maintainer disposition 2026-08-30; implemented and recorded by Claude Code.*
+
+---
+
 ## 2026-08-29 — Phase 15 closes on maintainer acceptance, with the untested rows recorded as waived
 
 **Decision (v0.6.2 Plan 5, Phase 15; maintainer disposition, and it overrides the plan's own §26

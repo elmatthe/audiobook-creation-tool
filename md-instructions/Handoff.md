@@ -249,6 +249,51 @@
 >       **Still outstanding:** the post-C2 chapter-title fix has **not** yet been proved on a real
 >       audiobook at full length — only on the generated fixture — and the xHE-AAC, PNG-artwork,
 >       artwork-free, chapterless and slash-title rows remain evidence gaps.
+>     - **Checkpoint C4 — full-corpus real validation, and the Split per-book folder supersession
+>       (this commit).** The maintainer relaunched the real app and **visually confirmed the C3
+>       fresh-panel defaults** — Whole, Preserve, Quality 2, **Auto-number unchecked**, Start # 1 —
+>       so the default-OFF change has now passed a real fresh-process GUI check. They then ran the
+>       **entire 12-book corpus through both modes**: Split → `M4B-Converter-3`, finished **353/353**;
+>       Whole → `M4B-Converter-4`, finished **12/12**. They listened to randomly chosen outputs
+>       (**human audio PASS**) and confirmed split tags and cover art in a real macOS tag editor.
+>       **All 12 sources are byte-identical** — every SHA-256 recomputed, all four Checkpoint-B
+>       values matched, size and mtime unchanged.
+>       **Concurrency is mechanically supported.** Two separate app processes: the Split log runs
+>       **15:29:14 → 16:34:11** and the Whole log **15:46:16 → 16:07:49**, so the Whole run sits
+>       **entirely inside** the Split window. Two distinct reservations (`-3`, `-4`), no collision,
+>       no cross-run output, and **zero ERROR / WARNING / CRITICAL / Traceback / retry / cancel
+>       lines in either log**. Both logs reference the identical 12 sources.
+>       **C2 is now proved at real audiobook scale.** Across all 12 Whole outputs: **353 chapter
+>       frames checked, 353 TIT2 titles matched, 0 mismatches**, 22 of them carrying non-ASCII
+>       (☕ U+2615, ’ U+2019) — all exact. Worst chapter-start delta **0.497 ms**; delivered ratios
+>       99.999657 %–100.000075 %; one audio stream each; artwork 1→1 on every book; **no
+>       out-of-vocabulary metadata leaked anywhere**; no `.act-tmp-*` residue. The live command in
+>       the log shows the fix working: `-metadata:c:0 title=Intro - Opening Credits ☕ …`.
+>       **The Split run audited clean too**: 353 expected from the 12 probes = **353 produced**,
+>       per-book counts all exact, every output carrying exactly one APIC, **zero** whole-book CHAP
+>       maps, structural tracks 1..N per book, filename `NN -` prefix matching track on all 353, no
+>       unexpected ID3 frames, no residue. Segments tile each source timeline to within **0.013 %**.
+>       **But 53 of the 353 files carried a collision suffix** and everything sat flat in one folder,
+>       interleaved by book.
+>       **The maintainer superseded the split half of D3/31A on that evidence** — see the
+>       2026-08-30 ADR. **Whole placement is unchanged.** A split occurrence now gets one folder
+>       named for its **source stem** at its own provenance-planned location, with all its segments
+>       inside; a chapterless book in a split run gets one too. The container is planned **once per
+>       occurrence through the same three shared planners**, so provenance, containment and the one
+>       run-wide collision domain stay in a single place and **no shared contract changed** —
+>       `DestinationPlanner.plan` already took a sanitised `subdir`. Duplicate occurrences get
+>       separate containers (`Book`, `Book-1`); a failed book keeps its reservation so Retry Failed
+>       reuses the identical frozen paths. **The previous flat behaviour was not a defect** — it
+>       followed 31A literally, and is not recorded as one.
+>       Proved on real produced files, not only on plans: a two-book Split run writes
+>       `run/NoCover/…` and `run/WithCover/…` with nothing loose at the root, and a two-book Whole
+>       control still writes `run/A.mp3`, `run/B.mp3` with **no** folders. Gate: **5199 collected /
+>       5153 passed / 46 skipped / 0 failed**, `verify.py` PASS, compileall clean, `pip check` clean.
+>       The flat `M4B-Converter-3`, the 12 `M4B-Converter-4` outputs and the pre-C2
+>       `M4B-Converter-2` defect output are all **left untouched as before/after evidence**.
+>       **Still open:** the new Split folder layout has **not** yet been seen by the maintainer in a
+>       real run; and xHE-AAC, PNG artwork, artwork-free, chapterless and slash-title real sources,
+>       plus the Pause/Resume/Cancel, Retry Failed and import-control manual matrices, remain gaps.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working
