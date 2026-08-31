@@ -334,6 +334,68 @@
 >       No production change was needed and none was made; the C4 gate (**5199 collected / 5153
 >       passed / 46 skipped**, `verify.py` PASS) remains authoritative for this commit, with a
 >       targeted 17-test layout/retry subset re-run green at HEAD.
+>     - ## ⟢ **PHASE 16 macOS VALIDATION IS COMPLETE BY EXPLICIT MAINTAINER ACCEPTANCE (2026-08-30)**
+>       **This supersedes every "Phase 16 NOT complete" sentence above it.** As with Phase 15,
+>       **"Phase 16 complete" does NOT mean every §26/§31 row passed** — the waived rows below are
+>       recorded as waived and must never be reclassified as PASS. **Phase 17 has NOT started and
+>       Phase 18 has NOT started.** `VERSION` stays `0.6.1`; nothing was tagged, released, packaged
+>       or merged, and the drop is not retired.
+>       **The maintainer's disposition:** *"for the remaining tests, just have claude code perform
+>       them, I don't want to do much manual testing just the bare minimum to see how it feels
+>       overall, all passed"* — explicit authorisation to stop extending the manual matrix and to
+>       complete the remainder mechanically.
+>       **REAL / MANUAL PASS (real launcher, real audiobooks).** Setup_and_Run bootstrap · coherent
+>       arm64 FFmpeg/ffprobe · fresh-panel defaults incl. Auto-number OFF (confirmed in three
+>       separate relaunches) · Add Files · **Command-click multi-file import** · **Whole Preserve**
+>       (12/12 corpus) · **Whole Replace** · **Split Preserve** (353/353 corpus, and 24/24
+>       folderized) · **chapter-title retention 353/353 TIT2 across all 12 books** · per-book Split
+>       folders · metadata allowlist with zero leakage · MJPEG artwork retained · **source
+>       immutability by SHA-256 on all 12** · Unicode (☕ U+2615, ’ U+2019) in tags and filenames ·
+>       complete timelines (≤0.013 %) · **first-chapter-after-zero real source** (Dragon Hatchling,
+>       s₁=0.047891, 59/59 titles) · **two concurrent app processes** with separate reservations ·
+>       human listening spot checks.
+>       **C6 Whole Replace, audited mechanically (`M4B-Converter-6`):** one MP3, no residue, source
+>       hash unchanged, 99.999657 % delivered, **all 7 chapter spans and all 7 TIT2 titles
+>       retained** (D6A proved on real media — Replace rewrites the book's text, not its
+>       navigation), the four replacement fields exactly as entered, **zero leaked keys**, one
+>       MJPEG cover retained, no track (Replace inherits none and Auto-number was OFF).
+>       **AGENT / MECHANICAL PASS.** Pause/Resume 6 tests — including
+>       `test_the_status_line_says_pause_requested_not_paused`, so nothing claims a running ffmpeg
+>       was suspended, and the worker acknowledges only between segments. Cancel 9 tests — including
+>       `test_a_real_child_is_started_terminated_and_reaped`, terminate→grace→reap on an actual
+>       child, no partial file, prior books kept, no zombie on panel close. Retry Failed 77 tests
+>       incl. real-file retries and frozen per-book folders. Import controls 469 tests through the
+>       real Tk panel — Add Files/Folder, recursion ON (nested appear) and OFF (root only, nested
+>       absent), repeated toggling frozen per import, Move Up/Down, Remove, Clear All, duplicates
+>       on and off, supported-type toggle, manager as sole authority, queue frozen at Start.
+>       920×600 A2 regression green at HEAD.
+>       **SYNTHETIC ACTUAL-OUTPUT PASS** (tiny generated M4Bs through the real panel, executor and
+>       ffmpeg; produced MP3s read back): **PNG artwork** retained as PNG by Preserve, removed by
+>       Strip, present on every split fragment · **artwork-free source** converts and Preserve
+>       invents no cover · **chapterless source** probes OK (not a failure), warns, yields one
+>       full-timeline MP3 **inside its book folder** in a split run · **slash/backslash titles**
+>       become visible punctuation with **no accidental hierarchy**, staying in the book folder with
+>       correct structural prefixes and source text intact in the tag.
+>       **WAIVED — NOT PASS.** (1) **xHE-AAC real macOS proof** — no suitable real source exists in
+>       the authorised corpus (all 12 are AAC-LC) and none can be produced locally: FFmpeg 8.0's
+>       native `aac` encoder is LC-only, `aac_at` exposes no USAC profile, and `libfdk-aac` is
+>       absent from this GPL build exactly as the 2026-08-29 ADR predicted. **Evidence gap, not a
+>       failure.** The decoder route itself is separately **PASS**: `aac_at` is present and
+>       production selection is covered by 19 automated tests. (2) **Real-source PNG, artwork-free,
+>       chapterless and slash/backslash rows** — those classes are absent from the corpus; the
+>       synthetic actual-output proofs above stand in their place. (3) **Human visual inspection at
+>       exactly 920×600** and further manual breadth — waived under the maintainer's explicit
+>       disposition after substantial real-world acceptance. (4) **Whole Strip real-GUI run** — the
+>       maintainer reports it PASSED, and that is accepted as manual evidence, but **no Strip run
+>       is mechanically discoverable on this machine**: no output folder and no Strip-shaped command
+>       (`-map_chapters -1` with no `-metadata`) in any session log. It is therefore recorded as
+>       **maintainer-reported PASS without mechanical corroboration**, backed by produced-bytes
+>       Strip proofs (no chapter map, no titles, no artwork, no inherited metadata) and 40 passing
+>       Strip tests.
+>       **Gate at acceptance:** 5199 collected / **5153 passed** / 46 skipped / 0 failed / 0 errors,
+>       all under `files/tests`; `verify.py` **PASS**; compileall clean; `pip check` clean; and the
+>       real Downloads tree byte-identical before and after the sweep — no test leaked output.
+>       **No production code changed in this checkpoint.**
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working
