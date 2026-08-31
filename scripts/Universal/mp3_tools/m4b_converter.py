@@ -1293,6 +1293,68 @@ class M4BConverterUI(ttk.Frame):
     # ------- conversion (worker thread) -------
 
     def convert_worker(self, params: dict):
+        """Run the conversion, and **never let anything escape this thread**.
+
+        The body below is the run. This wrapper exists because the body is not
+        the last word on whether the window unlocks: ``done`` is, and ``done`` is
+        sent from inside the body. An exception thrown anywhere in the execution
+        loop -- the final move meeting a full disk, an ejected volume, or a file
+        an antivirus scanner still holds open -- therefore ended the worker
+        thread with ``_busy`` still set, the controller still ``RUNNING`` and
+        ``Convert`` disabled for the rest of the session, with nothing said to
+        the user. A daemon thread dying silently is the one failure a person
+        cannot work around.
+
+        So the shape ``JobController`` prescribes for a worker, and that the TTS
+        and Cover panels already use, is applied here: settle the run, say so,
+        and send ``done`` regardless. The settlement is guarded too, because a
+        fault raised while reporting a fault must not be the thing that strands
+        the window.
+        """
+        try:
+            self._run_conversion(params)
+        except ConversionCancelled:
+            # The body handles its own cancellation and sends ``done``. Reaching
+            # here means one escaped a path that does not, so settle it as a
+            # cancellation rather than as a fault.
+            self._settle_unexpected(params, None)
+        except BaseException as exc:  # noqa: BLE001 - deliberately everything
+            self._settle_unexpected(params, exc)
+
+    def _settle_unexpected(self, params: dict, exc: BaseException | None) -> None:
+        """Close out a run whose worker did not finish, and free the window.
+
+        Every step is independently guarded: a failure while reporting a failure
+        must not strand the panel. ``done`` is sent last and unconditionally,
+        because that is the message ``_finish_idle`` listens for.
+        """
+        detail = "" if exc is None else f"{type(exc).__name__}: {exc}"
+        message = ("The run stopped unexpectedly and was not completed."
+                   if exc is not None else "Cancelled.")
+        try:
+            self._log_q.put(("log", f"\n  ✗ {message}\n"
+                                    + (f"     {detail}\n" if detail else "")))
+        except Exception:  # pragma: no cover - a queue that will not take a line
+            pass
+        controller = params.get("controller")
+        reporter = params.get("reporter")
+        try:
+            if controller is not None and exc is not None:
+                final = controller.fail(message, detail)
+                if reporter is not None:
+                    reporter.completed(final)
+            elif controller is not None:
+                final = controller.finish_cancelled()
+                if reporter is not None:
+                    reporter.cancelled(final)
+        except Exception:  # pragma: no cover - already failing; do not mask it
+            pass
+        try:
+            self._log_q.put(("done", ("\nThe run did not complete.\n", None)))
+        except Exception:  # pragma: no cover
+            pass
+
+    def _run_conversion(self, params: dict):
         """Preflight the whole run, plan it, then convert what the plan allows.
 
         **The order is the contract.** Every source is read first, on this

@@ -907,9 +907,14 @@ def _tone(path: Path, seconds: float = 1.0, freq: int = 440, codec=None) -> Path
 class _Q:
     """Minimal worker host: a cancel event and a queue, like the real panels.
 
-    The worker reaches for exactly these two attributes, which is asserted
+    The worker body reaches for exactly these two attributes, which is asserted
     structurally in ``test_m4b_conversion_plan``; this host is what proves the
     claim behaviourally against a real ffmpeg.
+
+    These drive ``_run_conversion`` — the body — rather than ``convert_worker``,
+    which since Phase 17 is the guard that wraps it so a fault cannot end the
+    worker thread with the window still locked. Driving the body keeps this
+    host minimal, which is the whole point of it.
     """
 
     def __init__(self):
@@ -984,7 +989,7 @@ def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    m4b_converter.M4BConverterUI.convert_worker(host, _run_params(source))
+    m4b_converter.M4BConverterUI._run_conversion(host, _run_params(source))
 
     plan = host.plan()
     assert plan is not None and plan.run_directory is not None, "no plan was produced"
@@ -1002,7 +1007,7 @@ def test_the_converter_worker_numbers_duplicate_stems(output_base, tmp_path):
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    m4b_converter.M4BConverterUI.convert_worker(host, _run_params(a, b))
+    m4b_converter.M4BConverterUI._run_conversion(host, _run_params(a, b))
 
     plan = host.plan()
     assert plan is not None and plan.run_directory is not None
@@ -1021,7 +1026,7 @@ def test_an_unreadable_source_reserves_no_run_folder(output_base, tmp_path):
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
     m4b_converter_module = __import__("mp3_tools.m4b_converter", fromlist=["x"])
-    m4b_converter_module.M4BConverterUI.convert_worker(host, _run_params(broken))
+    m4b_converter_module.M4BConverterUI._run_conversion(host, _run_params(broken))
 
     plan = host.plan()
     assert plan is not None

@@ -42,6 +42,7 @@ from pathlib import Path
 from shared.importing import ImportedFile, planning_groups
 from shared.output_paths import (
     DestinationPlanner,
+    sanitize_component,
     UnsafePathError,
     assert_not_input,
     plan_flat,
@@ -198,8 +199,29 @@ def _plan_containers(direct, grouped, run_root: Path,
         shared sanitiser sees it. Not the metadata title either — a Replace run
         would then rename the folder out from under the user, and the file name
         is the identity they already recognise.
+
+        **The stem is settled to a fixed point first, and that is load-bearing.**
+        The reserved container path is handed straight back to the planner as a
+        ``subdir``, where ``sanitize_relative`` sanitises every component a
+        *second* time — so the whole scheme depends on sanitising being
+        idempotent, and for one input class it is not: ``sanitize_component``
+        strips ASCII ``" ."`` before it strips Unicode whitespace, so a trailing
+        no-break space hides a dot on the first pass that the second pass then
+        removes. ``Book.\\xa0`` reserved ``Book.`` and its segments were written
+        into ``Book`` — the folder belonging to a *different* occurrence,
+        separated only by the ``-1`` suffixes the per-book container exists to
+        eliminate. Settling here makes the reserved name a value the second pass
+        cannot alter, so two occurrences that collide are separated at the folder
+        level as intended.
         """
-        return [(entry, Path(entry.path).stem) for entry in bucket]
+        def settled(stem: str) -> str:
+            once = sanitize_component(stem)
+            twice = sanitize_component(once)
+            while twice != once:
+                once, twice = twice, sanitize_component(twice)
+            return once
+
+        return [(entry, settled(Path(entry.path).stem)) for entry in bucket]
 
     if direct:
         pairs = named(direct)

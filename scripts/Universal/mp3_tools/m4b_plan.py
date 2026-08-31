@@ -94,7 +94,10 @@ class PlanOptions:
     mode: ConversionMode = ConversionMode.WHOLE
     metadata_mode: MetadataMode = MetadataMode.PRESERVE
     replacement: Mapping[str, str] = field(default_factory=dict)
-    auto_number: bool = True
+    #: Off, matching the panel's own fresh default (Phase 16 maintainer ruling).
+    #: A bare ``PlanOptions()`` is a fallback, and a fallback that silently
+    #: renumbers a library is the wrong way to be wrong.
+    auto_number: bool = False
     start_number: int = 1
     quality: int = 2
 

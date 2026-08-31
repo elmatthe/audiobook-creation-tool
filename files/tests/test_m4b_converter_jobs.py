@@ -402,9 +402,21 @@ def test_the_worker_names_no_widget_and_holds_no_estimator():
     Only ``self.X`` accesses are read, so ``reporter.progress(...)`` -- an
     event, not a widget -- is not confused with ``self.progress``, which is
     one.
+
+    Phase 17 split the run out of ``convert_worker`` into ``_run_conversion`` so
+    an exception in the execution loop can no longer kill the thread with the
+    window still locked. The rule is unchanged and is asserted where the work
+    actually happens; the wrapper and its settlement helper are held to the same
+    rule, so the guard cannot become a way in for a widget.
     """
-    body = self_attributes(function("convert_worker"))
+    body = self_attributes(function("_run_conversion"))
     assert body == {"_cancel_event", "_log_q"}, body
+
+    wrapper = self_attributes(function("convert_worker"))
+    assert wrapper == {"_run_conversion", "_settle_unexpected"}, wrapper
+
+    settle = self_attributes(function("_settle_unexpected"))
+    assert settle == {"_log_q"}, settle
 
 
 def test_the_worker_runs_off_the_main_thread_without_touching_tk(
@@ -1402,3 +1414,65 @@ def test_phase_eleven_arrived_and_phase_twelve_did_not():
 def test_the_panel_is_still_classic():
     text = PANEL_SOURCE.read_text(encoding="utf-8")
     assert "ACT." not in text
+
+
+# --------------------------------------------------------------------------- #
+# Phase 17 — nothing may escape the worker thread
+#
+# An exception anywhere in the execution loop used to kill the daemon worker
+# with ``_busy`` still set, the controller still RUNNING and ``Convert``
+# disabled for the rest of the session, saying nothing. ``done`` is what
+# ``_finish_idle`` listens for, and ``done`` was sent from inside the body that
+# had just died. Reachable without any mock: ``atomic_replace`` meets a full
+# disk, an ejected volume, or a file an antivirus scanner still holds open.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("victim", ["atomic_replace", "temporary_sibling"])
+def test_a_failure_inside_the_execution_loop_still_releases_the_panel(
+        make_panel, tmp_path, run_env, monkeypatch, victim):
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b", "B.m4b"))
+    params = start(panel)
+
+    real = getattr(output_paths, victim)
+    seen = {"n": 0}
+
+    def boom(*a, **k):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            raise OSError(28, "No space left on device")
+        return real(*a, **k)
+
+    monkeypatch.setattr(output_paths, victim, boom)
+
+    with mock.patch.object(output_paths, "reserve_run_directory",
+                           side_effect=_reservation(tmp_path)):
+        panel.convert_worker(params)          # must not raise
+    panel._pump.tick()
+
+    assert not panel._busy.is_set(), "the window would never unlock again"
+    assert panel.job_controller.state in jc.TERMINAL_STATES, panel.job_controller.state
+    assert str(panel.btn_convert["state"]) != "disabled"
+    text = panel.log.get("1.0", "end")
+    assert "did not complete" in text or "stopped unexpectedly" in text, text[-300:]
+
+
+def test_a_settlement_failure_still_releases_the_panel(
+        make_panel, tmp_path, run_env, monkeypatch):
+    """A fault while *reporting* a fault must not strand the window either."""
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b"))
+    params = start(panel)
+
+    def explode(self):
+        raise RuntimeError("settlement broke")
+    monkeypatch.setattr(jc.JobController, "succeed", explode)
+
+    with mock.patch.object(output_paths, "reserve_run_directory",
+                           side_effect=_reservation(tmp_path)):
+        panel.convert_worker(params)
+    panel._pump.tick()
+
+    assert not panel._busy.is_set()
+    assert str(panel.btn_convert["state"]) != "disabled"

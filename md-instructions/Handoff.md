@@ -396,6 +396,74 @@
 >       all under `files/tests`; `verify.py` **PASS**; compileall clean; `pip check` clean; and the
 >       real Downloads tree byte-identical before and after the sweep — no test leaked output.
 >       **No production code changed in this checkpoint.**
+>   - ## ⟢ **PHASE 17 — SYSTEMATIC BUG HUNT / INDEPENDENT REVIEW: COMPLETE (2026-08-31)**
+>     **Phase 18 has NOT started.** No closeout, no permanent-record transfer, no version bump, no
+>     drop retirement. `VERSION` stays `0.6.1`.
+>     **Method.** Three independent reviewer contexts that took no part in the implementation, given
+>     the plan, the combined `origin/master..HEAD` diff (34 commits, ~26,800 insertions) and the
+>     accepted Phase-15/16 boundaries, each scoped separately — (A) media pipeline, chapters,
+>     metadata, artwork, xHE routing; (B) destinations, imports, occurrence identity, bootstrap and
+>     FFmpeg health; (C) job control, threading, process lifecycle, GUI surface and **test quality**.
+>     None was told what to look for. In parallel the main agent ran its own static/pattern audit and
+>     six adversarial mutations. **Every reviewer claim was reproduced mechanically before it was
+>     accepted; nothing was taken on assertion.**
+>     **Five confirmed defects, all fixed.**
+>     1. **BLOCKER — an exception anywhere in the execution loop wedged the panel permanently.**
+>        `convert_worker` was the thread target with no guard, and `done` — the message
+>        `_finish_idle` listens for — is sent from inside the body that had just died. Reproduced:
+>        an `OSError` from the final move left `_busy` set, the controller stuck `RUNNING`, `Convert`
+>        disabled and nothing said, until the app was restarted. Reachable with no mock at all: a
+>        full disk, an ejected volume, or a file an antivirus scanner still holds open. Fixed by
+>        applying the shape `JobController` already prescribes and TTS/Cover already use — the body
+>        moved to `_run_conversion`, and `convert_worker` settles the run, says so, and sends `done`
+>        regardless, with the settlement itself guarded.
+>     2. **HIGH — a chaptered book with no text tags shipped ID3v2.4 while its neighbours shipped
+>        2.3.** The `-id3v2_version 3` pin was gated on `work.tags`, which stopped being a proxy for
+>        "this output carries ID3" the moment the chapter-title remediation began writing
+>        `CTOC`/`CHAP`/`TIT2`. Reachable via a source with none of the four approved fields, or a
+>        Replace run with all four boxes left blank. Proved on produced bytes, then fixed by gating
+>        on the retained chapter map as well. Strip still writes nothing and still gets no pin.
+>     3. **HIGH — two split occurrences collapsed into one book folder.** The reserved container is
+>        handed back to the planner as a `subdir`, where `sanitize_relative` sanitises every
+>        component a *second* time — so the scheme depends on `sanitize_component` being idempotent,
+>        and it is not: ASCII `" ."` is stripped before Unicode whitespace, so a trailing no-break
+>        space hides a dot that the second pass then removes. Reproduced: `Book.\xa0.m4b` reserved
+>        `Book.` and wrote its segments into `Book/` — a **different occurrence's** folder —
+>        separated only by the `-1` suffixes the C4 supersession exists to eliminate. Fixed
+>        Converter-locally by settling the stem to a fixed point before reserving, so the second
+>        pass cannot alter it. **The shared `sanitize_component` non-idempotency is left as a
+>        reported finding for maintainer disposition** — it is a shared primitive with five other
+>        consumers and changing it is a shared-contract decision, not a bug-hunt one.
+>     4. **MEDIUM — every drift failure on the Windows xHE route blamed the platform.**
+>        `drift_message` named "xHE-AAC with no compatible decoder on this platform" whenever
+>        `undecodable_xhe` was set — but on a routed machine there *is* a decoder, which is the only
+>        reason the run got that far. That is the exact mistake the function's own docstring was
+>        written to prevent. Fixed by consulting `windows_decode` too; the unrouted message is
+>        unchanged.
+>     5. **LOW/MEDIUM — `PlanOptions.auto_number` still defaulted to `True`,** contradicting the C3
+>        ruling and the panel's own `False`. Only reachable through `convert_worker`'s bare-fallback
+>        construction, but a fallback that silently renumbers a library is the wrong way to be wrong.
+>     **Test quality.** Six adversarial mutations confirmed the C2/C3/C4 and A1 remediations are all
+>     backed by tests that genuinely fail when the fix is removed. Every new regression here was
+>     mutation-checked the same way. Nine structural tests that pinned `convert_worker` by name were
+>     **repointed at `_run_conversion` and strengthened** — the wrapper and its settlement helper are
+>     now held to their own narrow attribute sets, so the guard cannot become a way in for a widget —
+>     rather than relaxed. One guard tripped on a docstring that merely *mentioned* a forbidden
+>     symbol; the docstring was reworded rather than the guard weakened.
+>     **Reported, not fixed — for maintainer disposition.** The shared `sanitize_component`
+>     non-idempotency (above); the run reservation resolving the *live* process config rather than
+>     the run's frozen snapshot (a real production divergence that the A1 test-only fix left
+>     standing); `ensure_ready` re-executing a just-failed pinned pair once more in the same call,
+>     which can raise a second Windows Security toast; `PcmTimeline.feed`'s short-read return being
+>     discarded by its only caller; one `JobReporter` being driven by two threads on a narrow window;
+>     a failed split book leaving an empty book folder; total path length now that split adds a
+>     component; four `assert … or True` dead assertions in the suite; and the `.bat` lacking the
+>     `.command`'s launch-failure guards. **None is a Plan-5 blocker; several are Windows-only and
+>     unverifiable here.**
+>     **Gate after the fixes:** **5214 collected / 5168 passed / 46 skipped / 0 failed / 0 errors**,
+>     all under `files/tests`; `verify.py` **PASS**; compileall clean; `pip check` clean; the real
+>     Downloads tree byte-identical before and after; all six real run folders and both real source
+>     books untouched.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working

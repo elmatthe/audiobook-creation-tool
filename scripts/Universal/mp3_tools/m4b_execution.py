@@ -393,13 +393,22 @@ def _output_args(work: SegmentWork, *, chapters: bool = True) -> list[str]:
     composition would have silently changed the tag version of every MP3 the
     Converter produces.
     """
+    keep = m4b_metadata.retains_chapters(work.metadata_mode, split=work.fragment)
     args = m4b_metadata.metadata_args(
         work.tags,
-        keep_chapters=m4b_metadata.retains_chapters(
-            work.metadata_mode, split=work.fragment),
+        keep_chapters=keep,
         chapter_titles=work.chapter_titles,
     )
-    if work.tags:
+    # The pin follows *anything* that lands in an ID3 tag, which since the
+    # chapter-title remediation is no longer only the text fields. A retained
+    # chapter map writes ``CTOC`` and ``CHAP``/``TIT2`` frames, so an output can
+    # carry navigation while ``tags`` is empty -- a source with none of the four
+    # approved fields, or a Replace run with all four boxes left blank. Gating on
+    # ``work.tags`` alone let those outputs fall back to ffmpeg's ID3v2.4 default
+    # while every other output in the same run was 2.3, which is exactly the
+    # split-version defect this pin exists to prevent, and Windows Explorer reads
+    # 2.3. Strip still writes nothing and still gets no pin.
+    if work.tags or keep:
         args = list(args) + ["-id3v2_version", "3"]
     args = list(args)
     if not chapters:
@@ -519,7 +528,8 @@ def drift_of(measured: float | None, expected: float) -> float | None:
 
 
 def drift_message(measured: float, expected: float, drift: float,
-                  *, fragment: bool, undecodable_xhe: bool = False) -> str:
+                  *, fragment: bool, undecodable_xhe: bool = False,
+                  windows_decode: bool = False) -> str:
     """The user-facing reason a produced file was thrown away.
 
     **The measurement is the finding; the cause is not.** This used to assert
@@ -537,7 +547,13 @@ def drift_message(measured: float, expected: float, drift: float,
     what = "segment" if fragment else "output"
     head = (f"{what} length {measured:.0f}s != planned {expected:.0f}s "
             f"({drift:.0%} off)")
-    if undecodable_xhe:
+    # ``undecodable_xhe`` means *ffmpeg* cannot decode it. On a machine that
+    # routed the book to Media Foundation there **is** a compatible decoder --
+    # that routing is why the run got this far at all -- so saying otherwise
+    # names a cause the plan explicitly disproved, which is the mistake the
+    # paragraph above exists to prevent. A short read on that route is real and
+    # worth reporting; blaming the platform for it is not.
+    if undecodable_xhe and not windows_decode:
         return (f"{head} — the source could not be decoded correctly (xHE-AAC "
                 "with no compatible decoder on this platform). Output discarded.")
     return (f"{head} — ffmpeg reported success but produced an output of an "
@@ -651,7 +667,8 @@ def convert_segment(
             return refuse(
                 drift_message(float(measured), float(work.expected_duration),
                               drift, fragment=work.fragment,
-                              undecodable_xhe=work.undecodable_xhe),
+                              undecodable_xhe=work.undecodable_xhe,
+                              windows_decode=work.windows_decode),
                 f"measured {measured!r}s against a planned "
                 f"{work.expected_duration!r}s span")
 

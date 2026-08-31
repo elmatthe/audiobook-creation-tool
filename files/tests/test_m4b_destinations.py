@@ -596,3 +596,64 @@ def test_the_module_is_media_free_and_tk_free():
     assert imported <= {"__future__", "collections", "dataclasses", "pathlib", "shared"}
     for banned in ("tkinter", "subprocess", "threading", "os"):
         assert banned not in imported, banned
+
+
+# --------------------------------------------------------------------------- #
+# Phase 17 — a book container must survive being sanitised a second time
+#
+# The reserved container path is handed back to the planner as a ``subdir``,
+# where ``sanitize_relative`` sanitises every component again. That makes the
+# whole scheme depend on sanitising being idempotent, and for one input class it
+# is not: ASCII `" ."` is stripped before Unicode whitespace, so a trailing
+# no-break space hides a dot on the first pass that the second pass removes.
+# `Book.\xa0` reserved `Book.` and then wrote its segments into `Book` — another
+# occurrence's folder — separated only by the `-1` suffixes the per-book
+# container exists to remove.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("space", ["\xa0", "　", " ", " "])
+def test_two_stems_differing_only_by_hidden_whitespace_get_two_containers(
+        tmp_path, run_root, space):
+    a = occurrence(touch(tmp_path / "src" / "Book.m4b"), direct_root())
+    b = occurrence(touch(tmp_path / "src" / f"Book.{space}.m4b"), direct_root())
+    assert a.occurrence_id != b.occurrence_id
+
+    names = ("01 - A.mp3", "02 - B.mp3")
+    planned = split_plan([a, b], {a.occurrence_id: names, b.occurrence_id: names},
+                         run_root)
+
+    first = {d.parent for d in planned[0].destinations}
+    second = {d.parent for d in planned[1].destinations}
+    assert len(first) == 1 and len(second) == 1, (first, second)
+    assert not (first & second), (
+        f"two occurrences shared one container: {first & second}")
+
+
+def test_every_split_occurrence_owns_exactly_one_container_no_one_else_uses(
+        tmp_path, run_root):
+    """The invariant itself, stated once and checked over an awkward set."""
+    stems = ["Book", "Book.\xa0", "Book. ", "Book.", "Book　", "book"]
+    entries = [occurrence(touch(tmp_path / f"src{i}" / f"{s}.m4b"), direct_root())
+               for i, s in enumerate(stems)]
+    names = ("01 - A.mp3",)
+    planned = split_plan(entries, {e.occurrence_id: names for e in entries}, run_root)
+
+    parents = []
+    for p in planned:
+        own = {d.parent for d in p.destinations}
+        assert len(own) == 1, f"{p.source.name} scattered across {own}"
+        parents.append(own.pop())
+    assert len(set(parents)) == len(entries), (
+        f"{len(entries)} occurrences collapsed into {len(set(parents))} containers: "
+        f"{[str(x) for x in parents]}")
+
+
+def test_a_container_name_is_a_fixed_point_of_the_shared_sanitiser(tmp_path, run_root):
+    """The planned parent is a name the second sanitising pass cannot change."""
+    from shared.output_paths import sanitize_component
+    entry = occurrence(touch(tmp_path / "src" / "Book.\xa0.m4b"), direct_root())
+    planned = split_plan([entry], {entry.occurrence_id: ("01 - A.mp3",)}, run_root)
+    folder = planned[0].destinations[0].parent.name
+    assert sanitize_component(folder) == folder, (
+        f"{folder!r} still changes when sanitised again")

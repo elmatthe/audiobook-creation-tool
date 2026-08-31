@@ -1223,16 +1223,21 @@ def test_no_probe_runs_before_the_worker_starts(make_panel, tmp_path, run_env):
 
 
 def test_the_panel_never_probes_on_the_tk_thread():
-    """Structural: neither the probe seam nor ffprobe is named outside the worker."""
+    """Structural: neither the probe seam nor ffprobe is named outside the worker.
+
+    The worker body is ``_run_conversion`` since Phase 17; ``convert_worker`` is
+    the guard that wraps it.
+    """
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     worker = next(node for node in ast.walk(tree)
-                  if isinstance(node, ast.FunctionDef) and node.name == "convert_worker")
+                  if isinstance(node, ast.FunctionDef) and node.name == "_run_conversion")
     worker_calls = {node.func.attr for node in ast.walk(worker)
                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
     assert "probe_source" in worker_calls
 
+    inside_worker = {id(n) for n in ast.walk(worker)}
     others = [node for node in ast.walk(tree)
-              if isinstance(node, ast.FunctionDef) and node.name != "convert_worker"]
+              if isinstance(node, ast.FunctionDef) and id(node) not in inside_worker]
     for node in others:
         for call in ast.walk(node):
             if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute):
@@ -1241,14 +1246,26 @@ def test_the_panel_never_probes_on_the_tk_thread():
 
 
 def test_the_worker_reads_no_widget():
-    """It was handed frozen values; it may not go back for live ones."""
+    """It was handed frozen values; it may not go back for live ones.
+
+    Phase 17 moved the run body into ``_run_conversion`` so a fault in the
+    execution loop can no longer end the worker thread with the window still
+    locked. The rule follows the body; the wrapper gets its own narrow set.
+    """
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     worker = next(node for node in ast.walk(tree)
-                  if isinstance(node, ast.FunctionDef) and node.name == "convert_worker")
+                  if isinstance(node, ast.FunctionDef) and node.name == "_run_conversion")
     reached = {node.attr for node in ast.walk(worker)
                if isinstance(node, ast.Attribute)
                and isinstance(node.value, ast.Name) and node.value.id == "self"}
     assert reached == {"_cancel_event", "_log_q"}, reached
+
+    wrapper = next(node for node in ast.walk(tree)
+                   if isinstance(node, ast.FunctionDef) and node.name == "convert_worker")
+    outer = {node.attr for node in ast.walk(wrapper)
+             if isinstance(node, ast.Attribute)
+             and isinstance(node.value, ast.Name) and node.value.id == "self"}
+    assert outer == {"_run_conversion", "_settle_unexpected"}, outer
 
 
 def test_the_options_are_read_once_on_the_main_thread(make_panel, tmp_path, run_env):
@@ -1893,3 +1910,15 @@ def test_the_numbering_option_is_still_available_when_asked_for(make_panel):
 
     panel.var_auto_num.set(False)
     assert panel.read_options().auto_number is False
+
+def test_the_plan_options_default_matches_the_panel_default():
+    """Phase 17. The dataclass default contradicted the C3 maintainer ruling.
+
+    ``convert_worker`` falls back to a bare ``PlanOptions()`` when none arrives.
+    That fallback defaulting to ``auto_number=True`` meant any future caller who
+    reached it would silently renumber a library the user never asked to number.
+    """
+    assert PlanOptions().auto_number is False
+    assert PlanOptions().start_number == 1
+    assert PlanOptions().mode is ConversionMode.WHOLE
+    assert PlanOptions().metadata_mode is MetadataMode.PRESERVE

@@ -361,7 +361,11 @@ def test_the_note_helper_has_no_retryable_default():
     A default here is precisely how a preflight failure came to be stamped with
     the execution stage's answer, so the parameter is keyword-only and required.
     """
-    worker = function("convert_worker")
+    # Phase 17 split the run body out of ``convert_worker`` into
+    # ``_run_conversion`` so an exception can no longer kill the worker
+    # thread with the window still locked. These structural rules follow
+    # the body, which is where the work is.
+    worker = function("_run_conversion")
     note = next(node for node in ast.walk(worker)
                 if isinstance(node, ast.FunctionDef) and node.name == "note")
     assert [arg.arg for arg in note.args.kwonlyargs] == ["retryable"]
@@ -370,7 +374,7 @@ def test_the_note_helper_has_no_retryable_default():
 
 def test_no_retryability_is_inferred_from_error_text():
     """Nothing decides retryability by reading a message after the fact."""
-    worker = function("convert_worker")
+    worker = function("_run_conversion")
     for node in ast.walk(worker):
         if isinstance(node, ast.Compare) and any(
                 isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
@@ -1298,12 +1302,23 @@ def test_everything_the_user_changed_afterwards_is_ignored(
 
 
 def test_the_retry_worker_reads_no_widget():
-    """**Structural.** The same two attributes the run worker was allowed."""
-    worker = function("convert_worker")
+    """**Structural.** The same two attributes the run worker was allowed.
+
+    Phase 17 moved the body to ``_run_conversion``; the rule is unchanged and is
+    asserted where the work happens. The wrapper is held to its own narrow set so
+    the guard cannot become a way in for a widget.
+    """
+    worker = function("_run_conversion")
     reached = {node.attr for node in ast.walk(worker)
                if isinstance(node, ast.Attribute)
                and isinstance(node.value, ast.Name) and node.value.id == "self"}
     assert reached <= {"_cancel_event", "_log_q"}, sorted(reached)
+
+    wrapper = function("convert_worker")
+    outer = {node.attr for node in ast.walk(wrapper)
+             if isinstance(node, ast.Attribute)
+             and isinstance(node.value, ast.Name) and node.value.id == "self"}
+    assert outer <= {"_run_conversion", "_settle_unexpected"}, sorted(outer)
 
 
 # --------------------------------------------------------------------------- #
@@ -1507,7 +1522,7 @@ def test_the_retry_path_contains_no_planning_vocabulary():
     source = PANEL_SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source)
     worker = next(node for node in ast.walk(tree)
-                  if isinstance(node, ast.FunctionDef) and node.name == "convert_worker")
+                  if isinstance(node, ast.FunctionDef) and node.name == "_run_conversion")
     # The worker still plans -- for a *first* attempt. What matters is that the
     # planning it does is behind the "not retrying" guard, which the retry tests
     # above prove dynamically. Here we pin that the retry callback itself is clean.

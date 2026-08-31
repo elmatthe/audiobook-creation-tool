@@ -1766,3 +1766,90 @@ def test_the_executor_re_plans_nothing():
 
 def test_the_panel_stays_classic():
     assert "ACT." not in PANEL_SOURCE.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Phase 17 — the ID3 version pin follows the chapter map, not only the tags
+# --------------------------------------------------------------------------- #
+
+
+def _id3_version(path: Path) -> str:
+    head = path.read_bytes()[:5]
+    return f"2.{head[3]}" if head[:3] == b"ID3" else "none"
+
+
+@pytest.mark.parametrize("tags", [{}, {"title": "Has One"}])
+def test_a_retained_chapter_map_pins_id3v23_even_with_no_text_tags(tags):
+    """One run must not emit two tag versions.
+
+    Since the chapter-title remediation an output can carry ``CTOC``/``CHAP``/
+    ``TIT2`` navigation while carrying none of the four approved text fields --
+    a source with no such tags, or a Replace run with all four boxes blank.
+    Gating the pin on ``work.tags`` alone let exactly those outputs fall back to
+    ffmpeg's ID3v2.4 default while their neighbours were 2.3.
+    """
+    work = SegmentWork(
+        source=Path("A.m4b"), destination=Path("A.mp3"), expected_duration=6.0,
+        quality=2, metadata_mode=MetadataMode.PRESERVE, tags=tags,
+        chapter_titles=("Ch One", "Ch Two"))
+    args = m4b_execution._output_args(work)
+    assert "-id3v2_version" in args, args
+    assert args[args.index("-id3v2_version") + 1] == "3"
+
+
+def test_strip_still_writes_no_id3_version_because_it_writes_nothing():
+    work = SegmentWork(
+        source=Path("A.m4b"), destination=Path("A.mp3"), expected_duration=6.0,
+        quality=2, metadata_mode=MetadataMode.STRIP, tags={},
+        chapter_titles=("Ch One",))
+    assert "-id3v2_version" not in m4b_execution._output_args(work)
+
+
+def test_a_tagless_chaptered_book_really_produces_id3v23(media, tmp_path):
+    """Proved on produced bytes, because the argv assertion above is not enough."""
+    src = tmp_path / "Tagless.m4b"
+    meta = tmp_path / "m.txt"
+    meta.write_text(
+        ";FFMETADATA1\n"
+        "\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=3000\ntitle=Ch One\n"
+        "\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=3000\nEND=6000\ntitle=Ch Two\n",
+        encoding="utf-8")
+    _ff("-i", str(media["plain"]), "-i", str(meta), "-map", "0:a",
+        "-map_metadata", "1", "-map_chapters", "1", "-c:a", "copy", str(src))
+
+    from mp3_tools import m4b_probe
+    rep = m4b_probe.probe_source(src)
+    assert rep.tags.title == "" and rep.tags.artist == "", "the fixture must be tagless"
+
+    work = SegmentWork(
+        source=src, destination=tmp_path / "out.mp3", expected_duration=6.0,
+        quality=6, metadata_mode=MetadataMode.PRESERVE, tags={},
+        chapter_titles=tuple(c.title for c in rep.probe.chapters))
+    _ff("-i", str(src), "-vn", *[str(a) for a in m4b_execution._output_args(work)],
+        "-c:a", "libmp3lame", "-q:a", "6", str(work.destination))
+
+    assert _id3_version(work.destination) == "2.3", "the run's one tag version"
+    from mutagen.id3 import ID3
+    tag = ID3(str(work.destination))
+    assert len(tag.getall("CHAP")) == 2
+    assert [str(c.sub_frames.getall("TIT2")[0]) for c in tag.getall("CHAP")] == [
+        "Ch One", "Ch Two"]
+
+
+def test_a_routed_xhe_book_is_not_told_its_platform_has_no_decoder():
+    """Phase 17. The routing decision disproves the cause the message named.
+
+    ``undecodable_xhe`` means *ffmpeg* cannot decode it. On a machine that routed
+    the book to Media Foundation there **is** a compatible decoder — that routing
+    is the only reason the run got as far as producing an output — so blaming the
+    platform restates the exact mistake this function's docstring was written to
+    prevent. A short read on that route is real and must still be reported.
+    """
+    routed = drift_message(30000.0, 35200.0, 0.1477, fragment=False,
+                           undecodable_xhe=True, windows_decode=True)
+    assert "no compatible decoder" not in routed, routed
+    assert "unexpected length" in routed and "discarded" in routed.lower()
+
+    unrouted = drift_message(30000.0, 35200.0, 0.1477, fragment=False,
+                             undecodable_xhe=True)
+    assert "no compatible decoder" in unrouted, "the unrouted case is unchanged"
