@@ -657,6 +657,17 @@ def test_duplicate_occurrences_stay_distinct_in_the_settled_result(
 
     A result keyed on the path could report only one of these, and whichever it
     chose would be wrong for the other. This is the collapse Phase 14 refuses.
+
+    **Why the failure is selected by a full prefix and not by a substring.**
+    This test used to fail whichever command merely *contained* ``"Twice-1"``.
+    Each encode writes to ``.act-tmp-<stem>-<token>``, and ``mkstemp`` draws that
+    token from ``abcdefghijklmnopqrstuvwxyz0123456789_`` — so roughly one run in
+    thirty-seven the *first* occurrence's own temporary file was called
+    ``.act-tmp-Twice-1a2b3c4d.mp3``, matched too, and was failed as well. The
+    test then reported both occurrences FAILED and looked like a duplicate-
+    identity defect; production was correct every time. ``-`` is not in that
+    alphabet, so requiring the trailing separator names the second occurrence's
+    output and nothing else.
     """
     source, = books(tmp_path / "src", "Twice.m4b")
     panel = make_panel()
@@ -665,8 +676,10 @@ def test_duplicate_occurrences_stay_distinct_in_the_settled_result(
     add_files(panel, source)
     assert panel.manager.count == 2
 
+    second_output = ".act-tmp-Twice-1-"
+
     def outcome(joined):
-        if any("Twice-1" in part for part in joined):
+        if any(Path(part).name.startswith(second_output) for part in joined):
             return m4b_converter.m4b_execution.ProcessResult(
                 1, detail="ffmpeg said no")
         return None
@@ -675,12 +688,29 @@ def test_duplicate_occurrences_stay_distinct_in_the_settled_result(
     work(panel, tmp_path, run_env)
 
     first, second = panel.run_plan.items
-    assert first.source == second.source, "the same physical book"
-    assert first.occurrence_id != second.occurrence_id
     status = status_of(panel.run_result)
-    assert status[first.occurrence_id] is jc.ItemStatus.SUCCEEDED
-    assert status[second.occurrence_id] is jc.ItemStatus.FAILED
-    assert len(status) == 2
+
+    # The invariant: one physical book, two identities, two destinations, two
+    # separately settled outcomes. None of this depends on which occurrence the
+    # collision suffix lands on.
+    assert first.source == second.source, "the same physical book"
+    assert first.occurrence_id != second.occurrence_id, "the identities collapsed"
+    assert len(status) == 2, "a result keyed on the path would report one"
+    assert set(status) == {first.occurrence_id, second.occurrence_id}
+
+    places = {i.occurrence_id: [s.destination for s in i.segments]
+              for i in panel.run_plan.items}
+    every = [d for paths in places.values() for d in paths]
+    assert len(set(every)) == len(every), f"two occurrences shared a path: {every}"
+    assert {d.name for d in every} == {"Twice.mp3", "Twice-1.mp3"}
+
+    # Exactly one of them failed, and it is the one whose output was refused.
+    failed = [occ for occ, state in status.items() if state is jc.ItemStatus.FAILED]
+    succeeded = [occ for occ, state in status.items()
+                 if state is jc.ItemStatus.SUCCEEDED]
+    assert len(failed) == 1 and len(succeeded) == 1, status
+    assert places[failed[0]][0].name == "Twice-1.mp3"
+    assert places[succeeded[0]][0].name == "Twice.mp3"
 
 
 # --------------------------------------------------------------------------- #

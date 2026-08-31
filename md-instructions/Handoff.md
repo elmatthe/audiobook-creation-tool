@@ -528,6 +528,45 @@
 >       *Windows-only observation with current accepted evidence*. **None is an undispositioned
 >       Plan-5 BLOCKER/HIGH/MEDIUM defect.**
 >       **Phase 17 is now genuinely ready for final maintainer approval and Phase 18 closeout.**
+>     - **Phase 17 final cleanup + test-stability gate (2026-08-31).** The frozen-reservation fix
+>       `e915996` is accepted, and the two items it flagged are both closed.
+>       **1. The accidental Downloads debris is gone.** With explicit maintainer authorisation,
+>       and only after proving identity — exact authorised path, a real directory and not a
+>       symlink, sitting *beside* `M4B-Converter-Outputs/` rather than inside it, 467 files / 59
+>       directories / 1.8 MB created 2026-08-31 16:39:12, contents entirely synthetic
+>       `A.mp3` / `B.mp3` / `NN - Chapter N.mp3` fixture names with **zero** real corpus book names
+>       — `~/Downloads/Audiobook-Creation-Tool-Outputs/run-1/` was deleted. Its parent was not
+>       touched. All six real run folders remain exactly as before (**2 / 1 / 353 / 12 / 24 / 1**),
+>       and the output base is back to its 396-file baseline.
+>       **2. The flaky test was a test defect, and the earlier hypothesis about it was wrong.** The
+>       Phase-17 report guessed that which duplicate occurrence received the `-1` suffix was
+>       unstable. Capturing the state of a failing run disproved that: the suffix assignment is
+>       **deterministic and correct** every time (`Twice.mp3` and `Twice-1.mp3`, distinct paths,
+>       distinct ids, two settled results). What actually varied was that the **first** occurrence
+>       was *also* marked FAILED. Root cause: each encode writes to `.act-tmp-<stem>-<token>` and
+>       `mkstemp` draws that token from `abcdefghijklmnopqrstuvwxyz0123456789_`, so about **1 run in
+>       37 (2.70 %)** the first occurrence's own temporary file was named
+>       `.act-tmp-Twice-1a2b3c4d.mp3` — which the test's loose `"Twice-1"` *substring* selector
+>       matched, failing the wrong book. **Production was correct on every single run**, including
+>       the failing ones: no collapse, no aliasing, no overwrite, no lost occurrence.
+>       **Test-only fix.** The selector now requires the full prefix `.act-tmp-Twice-1-`; `-` is not
+>       in `mkstemp`'s alphabet, so that names the second occurrence's output and nothing else. The
+>       assertions were **strengthened, not loosened**, to state the invariant the phase actually
+>       protects — one physical book, two identities, two distinct destinations whose basenames are
+>       exactly `{Twice.mp3, Twice-1.mp3}`, two separately settled outcomes, exactly one failed, and
+>       the failed one is the occurrence whose output was refused — none of which depends on suffix
+>       ordering. **No production file changed.**
+>       **Proved rather than asserted.** Two mutations — collapsing both occurrences onto one
+>       destination, and settling them under one identity — each make the revised test fail, so it
+>       still catches the defect class it exists for; both were restored immediately and neither was
+>       committed. Stability: **100/100** consecutive isolated runs of the target and **10/10** clean
+>       whole-module runs, against the ~5 % failure rate measured before.
+>       **Final gate:** 5217 collected / **5171 passed** / 46 skipped / 0 failed / 0 errors, all
+>       under `files/tests`; `verify.py` PASS; compileall clean; `pip check` clean; the Downloads
+>       tree byte-identical across the full suite, with **no** recreated `run-1/`, no generic
+>       `run-N` directory, no seventh `M4B-Converter` run and no change to the six real ones.
+>       **Phase 17 is complete and approval-ready. Phase 18 has NOT started**; `VERSION` remains
+>       `0.6.1`, the Plan-5 drop is not retired and no permanent record has been transferred.
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working
