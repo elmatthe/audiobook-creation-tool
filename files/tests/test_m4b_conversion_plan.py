@@ -356,9 +356,20 @@ def convert(panel, tmp_path, run_env):
 
 
 def _reservation(tmp_path):
+    """Stand in for ``reserve_run_directory`` without touching a real base.
+
+    ``base=`` and ``effective=`` are accepted and **ignored**: the real function
+    has always taken them, and the Converter now supplies the base its run was
+    accepted with, so a stub that refused the keyword would fail for a reason
+    production does not have. Ignoring them is deliberate — this stub exists to
+    keep every run inside ``tmp_path``, and honouring a base would send these
+    tests wherever the ambient configuration points. The frozen-base contract is
+    proved against the *real* ``reserve_run_directory`` in
+    ``test_m4b_converter_jobs.py``, not here.
+    """
     counter = {"n": 0}
 
-    def reserve(tool_key):
+    def reserve(tool_key, *, base=None, effective=None, **kwargs):
         counter["n"] += 1
         directory = tmp_path / f"run-{counter['n']}"
         directory.mkdir(parents=True, exist_ok=True)

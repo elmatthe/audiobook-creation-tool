@@ -1476,3 +1476,117 @@ def test_a_settlement_failure_still_releases_the_panel(
 
     assert not panel._busy.is_set()
     assert str(panel.btn_convert["state"]) != "disabled"
+
+
+# --------------------------------------------------------------------------- #
+# Phase 17 residual — an accepted run owns its output base
+#
+# Preflight runs on the worker and can take minutes; the reservation happens at
+# the end of it. Resolving the base there meant reading whatever Preferences
+# held by then, so a base saved after Start silently moved a run that had
+# already been accepted — while the run still reported itself against the
+# configuration it was frozen with. Decision 9A says a run captures its
+# configuration once; this is that rule applied to the one value that had
+# escaped it.
+# --------------------------------------------------------------------------- #
+
+
+def _base_config(base):
+    return dataclasses.replace(
+        make_config(),
+        output=config.OutputConfig(base_directory=base, is_default=False))
+
+
+def _flip_config_during_preflight(monkeypatch, panel, to_base):
+    """Save new Preferences after Start, before the worker reserves.
+
+    Deterministic: the probe seam runs between those two points, so this needs
+    no sleep and races nothing.
+    """
+    original = m4b_converter.m4b_probe.probe_source
+    flipped = {"done": False}
+
+    def probe_then_flip(path, **kwargs):
+        if not flipped["done"]:
+            monkeypatch.setattr(config, "get_effective", lambda: _base_config(to_base))
+            flipped["done"] = True
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(m4b_converter.m4b_probe, "probe_source", probe_then_flip)
+
+
+def test_an_accepted_run_keeps_the_output_base_it_started_with(
+        make_panel, tmp_path, run_env, monkeypatch):
+    """A. Preferences saved mid-run must not move a run already under way."""
+    base_a, base_b = tmp_path / "Base-A", tmp_path / "Base-B"
+    base_a.mkdir(); base_b.mkdir()
+    monkeypatch.setattr(config, "get_effective", lambda: _base_config(base_a))
+
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b"))
+    params = start(panel)
+    _flip_config_during_preflight(monkeypatch, panel, base_b)
+
+    panel.convert_worker(params)          # the real reservation runs
+    panel._pump.tick()
+
+    run_dir = panel.run_plan.run_directory
+    assert base_a in run_dir.parents, run_dir
+    assert base_b not in run_dir.parents, (
+        "the accepted run followed live Preferences instead of its own")
+
+
+def test_the_next_run_picks_up_the_new_output_base(
+        make_panel, tmp_path, run_env, monkeypatch):
+    """B. The freeze must not become a permanently stale cache."""
+    base_a, base_b = tmp_path / "Base-A", tmp_path / "Base-B"
+    base_a.mkdir(); base_b.mkdir()
+    monkeypatch.setattr(config, "get_effective", lambda: _base_config(base_a))
+
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b"))
+    first = start(panel)
+    panel.convert_worker(first)
+    panel._pump.tick()
+    assert base_a in panel.run_plan.run_directory.parents
+
+    # The user saves a new location between runs, the ordinary case.
+    monkeypatch.setattr(config, "get_effective", lambda: _base_config(base_b))
+    add_files(panel, *books(tmp_path / "src2", "B.m4b"))
+    second = start(panel)
+    panel.convert_worker(second)
+    panel._pump.tick()
+
+    later = panel.run_plan.run_directory
+    assert base_b in later.parents, (
+        f"a later run must use the current base, got {later}")
+
+
+def test_a_retry_reserves_nothing_and_stays_in_the_original_run(
+        make_panel, tmp_path, run_env, monkeypatch):
+    """C. Retry repeats frozen destinations; a new base cannot relocate it."""
+    base_a, base_b = tmp_path / "Base-A", tmp_path / "Base-B"
+    base_a.mkdir(); base_b.mkdir()
+    monkeypatch.setattr(config, "get_effective", lambda: _base_config(base_a))
+
+    panel = make_panel()
+    add_files(panel, *books(tmp_path / "src", "A.m4b"))
+    run_env["fail"] = ("A.m4b",)
+    params = start(panel)
+    panel.convert_worker(params)
+    panel._pump.tick()
+    first_run = panel.run_plan.run_directory
+    frozen = [s.destination for i in panel.run_plan.items for s in i.segments]
+    assert base_a in first_run.parents
+
+    monkeypatch.setattr(config, "get_effective", lambda: _base_config(base_b))
+    run_env["fail"] = ()
+    panel.retry_failed()
+    retry_params = StubThread.started[-1].args[0]
+    panel.convert_worker(retry_params)
+    panel._pump.tick()
+
+    assert panel.run_plan.run_directory == first_run, "the retry moved the run"
+    again = [s.destination for i in panel.run_plan.items for s in i.segments]
+    assert again == frozen, "the retry re-planned its destinations"
+    assert base_b not in first_run.parents

@@ -464,6 +464,70 @@
 >     all under `files/tests`; `verify.py` **PASS**; compileall clean; `pip check` clean; the real
 >     Downloads tree byte-identical before and after; all six real run folders and both real source
 >     books untouched.
+>     - **Phase 17 residual — an accepted run now owns its output base (2026-08-31).** Maintainer
+>       approval of `30c94b9` was held pending this one finding, which the Phase-17 report itself
+>       raised as the most substantive open production gap. **It is a CONFIRMED Plan-5 defect and it
+>       is fixed.**
+>       **Reproduced, deterministically, with no sleeps.** Live configuration set to Base-A, panel
+>       built, Start pressed — the run froze Base-A into its snapshot. The live configuration was
+>       then switched to Base-B from inside the probe seam, which the worker calls *after* Start and
+>       *before* the planner reserves. The real `reserve_run_directory` then reserved under
+>       **Base-B**. One accepted run no longer represented one immutable configuration, and it still
+>       reported itself against the configuration it was frozen with. This is not a narrow race:
+>       preflight ffprobes every source on the worker and takes minutes on a large queue, and the
+>       reservation happens at the end of it — a Preferences save anywhere in that window moved the
+>       run. Decision 9A says a run captures its configuration once; the output base was the one
+>       value that had escaped that rule.
+>       **The fix is Converter-local and uses a seam that already existed.**
+>       `reserve_run_directory` has always accepted `effective=`; the M4B call simply never supplied
+>       it. `start_convert` now captures `shared_config.get_effective()` once, on the main thread, at
+>       the moment the run is accepted, carries it through `params["run_config"]`, and the
+>       reservation resolves *that*. **`shared/output_paths.py` is untouched** and still owns what a
+>       base means — the panel only records which configuration to ask. Retry carries the same value
+>       forward and reserves nothing at all, since its destinations were frozen on the first attempt.
+>       A first attempt resolving the base itself was rejected: `test_no_panel_recomputes_the_output_
+>       base_itself` correctly forbids a panel calling `resolve_output_base(`, and that guard was
+>       obeyed rather than relaxed.
+>       **Proved on all four axes, each mutation-checked:** an accepted run keeps Base-A even when
+>       Preferences change mid-run (fails on `30c94b9`); a **later** run picks up Base-B normally, so
+>       the freeze is not a stale cache; a retry stays in the original run directory with byte-equal
+>       frozen destinations; and the A1 output-isolation regression is still green.
+>       Five structural tests asserted the *literal text* `reserve_run_directory(TOOL_KEY)` or
+>       `resolve_output_base(`; four were rewritten to check the **call** by AST instead of its
+>       formatting, and one shared reservation stub now accepts `base=`/`effective=` and deliberately
+>       ignores them, so tests stay inside `tmp_path`. None was weakened.
+>       **Gate:** 5217 collected / **5171 passed** / 46 skipped / 0 failed; `verify.py` PASS;
+>       compileall clean; `pip check` clean.
+>       **Two things found along the way that are NOT this fix, recorded rather than folded in.**
+>       (1) **A pre-existing flaky test**, `test_m4b_hardening.py::test_duplicate_occurrences_stay_
+>       distinct_in_the_settled_result`, fails about **1 run in 20 in complete isolation** — measured
+>       at the *same* rate with this checkpoint's changes and with them stashed, so it predates them.
+>       Which of two duplicate occurrences receives the `-1` collision suffix is not stable; the
+>       contract the phase cares about holds either way, so this reads as a test asserting more than
+>       the contract guarantees. Not investigated further and not fixed, because folding it in would
+>       be the silent broadening this checkpoint forbids. It does mean earlier phases' "0 failed"
+>       gates were real runs but did not prove this test deterministic.
+>       (2) **Test output was written into the real Downloads tree during this checkpoint**, by an
+>       intermediate iteration of the fix that passed a resolved base to a stub that honoured it.
+>       Both halves are gone and the final code was re-verified to create **no** new user output
+>       (863 files before and after a full suite run, identical). The debris —
+>       `~/Downloads/Audiobook-Creation-Tool-Outputs/run-1/`, 467 files, 1.8 MB, created
+>       2026-08-31 16:39, sitting *beside* `M4B-Converter-Outputs/` — **was left in place because
+>       deletion from the maintainer's Downloads is not authorised.** All six real run folders are
+>       intact and unmodified (2 / 1 / 353 / 12 / 24 / 1 outputs).
+>       **The other eight Phase-17 residuals, classified:** shared `sanitize_component`
+>       non-idempotency — *known shared-contract risk, worked around Converter-locally*;
+>       `ensure_ready` re-executing a just-failed pin — *Windows-only observation, one extra
+>       security toast, no data risk*; `PcmTimeline.feed`'s discarded short-read — *Windows-only,
+>       guarded downstream by the 3 % drift check, unverifiable without a Windows host*; one
+>       `JobReporter` driven by two threads — *LOW non-blocking, mechanism proved only in isolation,
+>       never observed in a real run*; empty folder left by a failed split book — *LOW cosmetic, and
+>       the reservation is deliberately kept for Retry*; total path length after adding the book
+>       container — *known future/Windows risk, no macOS impact*; four `assert … or True` dead
+>       assertions — *test-quality cleanup*; `.bat` missing the `.command`'s launch guards —
+>       *Windows-only observation with current accepted evidence*. **None is an undispositioned
+>       Plan-5 BLOCKER/HIGH/MEDIUM defect.**
+>       **Phase 17 is now genuinely ready for final maintainer approval and Phase 18 closeout.**
 >   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
 >     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
 >     clean-room environments, generated media, temporary evidence, logs and agent working

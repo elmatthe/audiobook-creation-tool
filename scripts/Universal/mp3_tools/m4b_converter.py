@@ -346,6 +346,10 @@ class M4BConverterUI(ttk.Frame):
         self._effective_config = (shared_config.get_effective()
                                   if effective_config is None
                                   else effective_config)
+        #: The effective configuration this run was accepted with, captured at
+        #: Start. Resolution of it stays in ``output_paths``; this only records
+        #: *which* configuration the accepted run belongs to.
+        self._run_config = None
         self._busy = threading.Event()
         # Kept, deliberately. The **shared controller** is the authority on job
         # state from this phase on -- this is not a second state machine but the
@@ -992,6 +996,9 @@ class M4BConverterUI(ttk.Frame):
         self._reporter = job_control.JobReporter.for_run(
             run, clock=self._clock, publish=self._publish)
 
+        # Captured once, on the main thread, at the moment the run is accepted.
+        self._run_config = shared_config.get_effective()
+
         params = {
             # The frozen occurrences themselves, not a reduced list of paths:
             # provenance is what the plan's destination routing needs, and
@@ -1000,6 +1007,19 @@ class M4BConverterUI(ttk.Frame):
             "imported_files": imported,
             "options": options,
             "snapshot": run,
+            # **Which configuration this run belongs to, decided here and not
+            # again.** Preflight runs on the worker and can take minutes on a
+            # large queue; the reservation happens at the end of it. Leaving the
+            # reservation to read the *live* configuration there meant a base
+            # saved after Start silently moved a run that had already been
+            # accepted -- while the run still reported itself against the
+            # configuration it was frozen with. Capturing it once, here, on the
+            # main thread, is the rule the rest of the snapshot already follows.
+            # ``output_paths`` still owns what a base *means*; this only says
+            # which configuration to ask. A later run captures again at its own
+            # Start, so changing Preferences still takes effect normally -- it
+            # just cannot reach backwards into a run already under way.
+            "run_config": self._run_config,
             "controller": self._controller,
             "reporter": self._reporter,
             # Timing travels back as data, never as a shared estimator: the
@@ -1112,6 +1132,10 @@ class M4BConverterUI(ttk.Frame):
             "clock": self._clock,
             "run_id": run.snapshot_id,
             "attempt": self._attempt,
+            # The retry repeats an attempt whose destinations are already
+            # frozen, so it reserves nothing; the configuration is carried only
+            # so both attempts describe the same run.
+            "run_config": self._run_config,
             "plan": plan,
             "retry_ids": tuple(request.item_ids),
             "prior_result": result,
@@ -1459,7 +1483,8 @@ class M4BConverterUI(ttk.Frame):
                 validation and before any destination is planned.
                 """
                 nonlocal reservation
-                reservation = output_paths.reserve_run_directory(TOOL_KEY)
+                reservation = output_paths.reserve_run_directory(
+                    TOOL_KEY, effective=params.get("run_config"))
                 return reservation.run_directory, reservation.planner()
 
             try:

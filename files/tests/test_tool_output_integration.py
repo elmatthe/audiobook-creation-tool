@@ -265,11 +265,25 @@ def test_converter_respects_an_existing_destination(output_base):
 
 
 def test_converter_module_reserves_only_at_start(output_base):
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py").read_text(
-        encoding="utf-8"
-    )
-    assert "reserve_run_directory(TOOL_KEY)" in source
-    before, after = source.split("def start_convert", 1)
+    """One reservation seam, and it is not reached at build time.
+
+    Phase 17 gave the call the base its run was accepted with, so the exact
+    call text changed; what this test is about — that there is exactly one
+    reservation and nothing reserves while the panel is being constructed — is
+    unchanged and is now asserted structurally rather than by substring.
+    """
+    path = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py"
+    source = path.read_text(encoding="utf-8")
+
+    tree = ast.parse(source)
+    calls = [node for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr == "reserve_run_directory"]
+    assert len(calls) == 1, f"{len(calls)} reservation calls; there must be exactly one"
+    assert any(isinstance(a, ast.Name) and a.id == "TOOL_KEY" for a in calls[0].args), \
+        "the reservation must name this tool"
+
+    before, _after = source.split("def start_convert", 1)
     assert "reserve_run_directory" not in before, "reservation must not happen at build time"
 
 
