@@ -523,12 +523,29 @@ separately authorized action — nothing in this repository carries them.
 ### The M4B Converter (v0.6.2 Plan 5)
 
 The Converter is the first tool rebuilt on the Drop-3 foundation, and the shape of that adoption is
-the point: `mp3_tools/m4b_converter.py` is a panel that owns no policy. It is decomposed into
-`m4b_probe.py` (ffprobe inspection), `m4b_plan.py` (what a run will do), `m4b_destinations.py`
-(where every output goes), `m4b_metadata.py` (what may be written), `m4b_execution.py` (how one
-segment is produced) and `m4b_artwork.py`, none of which imports Tk. The panel imports the shared
-importer, the shared job controls, the shared destination planner and the shared output reservation
-rather than growing private copies, and the whole run is decided before ffmpeg is invoked once.
+the point: `mp3_tools/m4b_converter.py` is the panel, and it owns no policy — it is the only one of
+these modules that imports Tk. The policy is decomposed into ten helper modules beside it, none of
+which imports `tkinter` at all:
+
+| Module | Responsibility |
+|---|---|
+| `m4b_chapters.py` | The chapter vocabulary: the probe result types, the structural verdict on them, and the complete-timeline partition computed from a verdict that passed. Stdlib-only and pure — no I/O, no ffprobe, no clock. |
+| `m4b_probe.py` | The one ffprobe call per source. A single `-print_format json` read yields format tags, streams and chapters together, plus the source's compatible metadata and its embedded cover. Runs a subprocess, so it belongs on a worker thread. |
+| `m4b_naming.py` | Turning one source chapter title into one safe split-output filename, in two stages so that a title containing `/` or `\` is not silently reduced to its last element by `shared.output_paths.sanitize_component`. Strings in, strings out. |
+| `m4b_numbering.py` | The one number a run has to earn — the optional sequential `track` a **whole book** carries, proposed before ffmpeg runs and committed only on success, so a failure consumes nothing and the sequence stays gap-free. The two *structural* numbers do not live here. |
+| `m4b_metadata.py` | What metadata and artwork each of the six cells (Preserve / Replace / Strip × whole / segment) writes — decided, never executed. Owns the strict five-field allowlist, chapter retention, the artwork policy and the output-side ffmpeg metadata arguments. |
+| `m4b_destinations.py` | Where each imported occurrence's outputs go, decided once per run. Spends the importer's provenance through the shared Plan-2 planners and returns answers keyed by occurrence id, expanding a split book into one planner entry per requested filename. |
+| `m4b_commands.py` | The ffmpeg argument vectors the run will execute — built here, never run. Owns the measured **output-side** `-ss` ordering, which must not be "optimised" to input-side seek. |
+| `m4b_plan.py` | Where every other layer meets and becomes one immutable answer to "what is this run going to do?" — the frozen `ConversionPlan`. No widget, no variable, no thread, no queue, no process: values only. |
+| `m4b_execution.py` | Running one already-planned segment and being able to stop it. Handed a `SegmentWork` carrying a frozen span, tag set, cover and destination; reinterprets no decision. Owns the child process and the temp-file diagnostics drain. |
+| `m4b_winaudio.py` | Decoding an xHE-AAC (MPEG-D USAC) source through Windows Media Foundation via `ctypes` when ffmpeg's native AAC decoder cannot, measured at 100.0004% of a source ffmpeg silently truncated by 23.91%. |
+
+Artwork selection and policy are **not** a separate module: they live with the metadata contract in
+`m4b_metadata.py` (`wants_artwork`, and the `attached_pic` stream identification fed to it from
+`m4b_probe`), which is where the Preserve/Replace/Strip decision that governs them already lives.
+The panel imports the shared importer, the shared job controls, the shared destination planner and
+the shared output reservation rather than growing private copies, and the whole run is decided
+before ffmpeg is invoked once.
 
 - **A run is frozen, and the freeze is total.** Pressing Convert calls `job_control.capture_run`,
   and the worker reads only that snapshot — the queue, the mode, the metadata choice, the numbering
@@ -590,8 +607,12 @@ rather than growing private copies, and the whole run is decided before ffmpeg i
   *Write none* removes it. Embedded cover art is copied (never re-encoded) by Preserve and Replace
   and removed by Write none, on whole books and on every fragment of a split. A split is a complete
   partition of the book — the head before the first chapter and the tail after the last are
-  included — each fragment carrying its own title and position, and each book's fragments landing in
-  **their own folder**. Optional whole-book track numbering is **off by default** and numbers only
+  included — and each book's fragments land in **their own folder**. What a split fragment carries
+  depends on the mode, and the two cases are genuinely different: under **Preserve** and
+  **Replace** a fragment inherits only the book-level identity (`artist`, `album_artist`, `album`)
+  and **regenerates its own `title` and its structural `track`**, which always win; under **Write
+  none / Strip** a fragment gets **no metadata at all** — nothing is regenerated, not even a title
+  or a track number. Optional whole-book track numbering is **off by default** and numbers only
   successes, so a failure leaves no gap. Progress with an ETA, **Pause/Resume/Cancel** and **Retry
   Failed** come from the shared job controls; sources are never modified and nothing is overwritten.
 - **MP3 Tool** (`mp3_tools/mp3_tool.py`) — combine MP3s into one, time-edit track ends, bulk

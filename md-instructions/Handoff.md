@@ -2,6 +2,73 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — post-closeout integration-readiness review returned NOT READY (2026-09-01)
+>
+> **This block is the live state of the repository. It supersedes the integration-review status in
+> the 2026-08-31 closeout block below — which remains accurate in every other respect and is not
+> rewritten — and every earlier status sentence in this file. The phase-by-phase historical record
+> below is untouched.**
+>
+> - **The first post-closeout integration-readiness review HAS now happened.** It was conducted
+>   **READ-ONLY** — it changed nothing, ran no merge, opened no pull request. Any sentence below
+>   saying that integration-readiness review is *"outstanding"* or *"has not been performed"* was
+>   correct at Phase-18 closeout and is **superseded by this block**.
+> - **Its verdict was NOT READY — and the blocker was documentation only.** The review's verdict on
+>   the **implementation** was **sound**: the code, the tests and the Plan-5 gates were **not** the
+>   blocker, and nothing in the implementation was asked to change. What blocked integration was a
+>   set of current-state documentation contradictions:
+>   - the Master Implementation Plan Index §15 still said, in unmarked current voice, that the next
+>     action was Plan 5 Phase 1, that Plan 5 was ACTIVE with Phase 0 complete and Phase 1 not
+>     started, that `md-instructions/0.6.2-m4b-converter-upgrade.md` was the active drop, and that
+>     identity remained `0.6.1`;
+>   - `Briefing.md` named a Converter module `m4b_artwork.py` that does not exist in the tree;
+>   - the permanent **D4** / Briefing split-metadata wording implied that **every** Split fragment
+>     regenerates a title and structural track, when **Strip / Write none regenerates nothing at
+>     all**;
+>   - the §5 program sequencing rule still governed *"Plans 5–9"* after Plan 5 had closed;
+>   - `README.md` still advertised *"v0.5.0 (in development)"* beside v0.6.2 capability wording.
+> - **A bounded documentation-only remediation was performed on 2026-09-01** and corrected exactly
+>   those records: Master Index §15 and the sequencing rule, the Briefing architecture section and
+>   its Split wording, one additive corrective ADR in `Decisions.md`, the README status line, and
+>   this block. **No production Python, test, requirement, `config.toml`, `version.py`, launcher,
+>   bootstrap, ffmpeg or `release.py` change was made, and no behaviour changed.** Identity remains
+>   **`0.6.2`**.
+> - **The NEXT action is an independent READ-ONLY integration-readiness RECHECK.** It has **not**
+>   been performed. **READY is NOT assumed** merely because this remediation happened — the recheck
+>   must actually return READY first.
+> - **Nothing downstream is authorized yet.** No pull request, no merge, no tag, no GitHub release,
+>   no package, no `release.py` run. `origin/master` is untouched at
+>   `81c9c0600ca74a42a22bd09d367a702bee9708fe`, the published GitHub release remains **`v0.4.0`**,
+>   and `feature/0.6.2-m4b-converter-upgrade` is still an unmerged feature branch.
+> - **Plan 6 has not begun and must not begin.** Plans 6–9 remain undrafted; each needs separate
+>   explicit maintainer approval.
+
+> ## ⟢ CARRY-FORWARD — `Setup_and_Run` cannot self-heal a missing FFmpeg (confirmed, NOT fixed)
+>
+> **Separate from Plan 5 and separate from the integration review above. Nothing here was
+> implemented in the 2026-09-01 documentation remediation — this is a record, not a fix.**
+>
+> - **The defect.** An installation with an existing `.venv` but a later-missing or broken FFmpeg
+>   takes the fast route: `Setup_and_Run-audiobook-creation-tool.bat` sees `.venv\Scripts\pythonw.exe`
+>   and launches `bootstrap.py --launch-only`, which routes to `_launch_with_kokoro_healthcheck()`
+>   and calls `ensure_ffmpeg_ready_for_launch()`. That path **detects** the missing dependency
+>   correctly — but it **cannot provision** one: it never reaches `ensure_ffmpeg()` /
+>   `_install_ffmpeg()`. The warning it shows comes from `ffmpeg_health.describe_failure()`, which
+>   tells the user to *"Run Setup_and_Run again to install a known-good copy"* — and doing so takes
+>   the same `--launch-only` route again. **The user can therefore repeat Setup_and_Run
+>   indefinitely and get the same failure every time.**
+> - **macOS needs the equivalent coverage.** `Setup_and_Run-audiobook-creation-tool.command` has the
+>   same shape (`if [ -x ".venv/bin/python" ]` → `--launch-only`); the analogous
+>   existing-venv/missing-FFmpeg control flow on real macOS has **not** been exercised.
+> - **Adjacent bootstrap concerns already identified**, to be considered in the same bounded pass:
+>   full-feature Python compatibility selection; paths containing spaces; requirements-state
+>   stamping that should happen only **after** successful import validation, not before; and a
+>   reviewed, checksummed portable-FFmpeg fallback.
+> - **Disposition.** This is **NOT** a reopened Plan-5 implementation item and does not affect the
+>   Plan-5 verdict. It should receive its **own bounded pre-Plan-6 bootstrap / self-healing
+>   remediation** before substantial Plan-6 work begins. Fresh-Windows and real-macOS setup testing
+>   remain **release-hardening** work, owned by Plan 9, not by this note.
+
 > ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is COMPLETE, APPROVED and CLOSED (2026-08-31)
 >
 > **This block is the live state of the repository and supersedes every earlier status sentence in

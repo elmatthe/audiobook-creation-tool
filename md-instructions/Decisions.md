@@ -4,6 +4,34 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-01 — D4 clarified: Strip writes no split-fragment metadata at all
+
+**Decision (post-closeout documentation remediation).** The split-fragment metadata rule recorded as
+**D4** in the 2026-08-31 closeout entry below is **incomplete as written**, and this entry supersedes
+that wording. D4 says a fragment "inherits only `artist`, `album_artist` and `album`; it regenerates
+its own `title` and its structural `track`". That is true of **Preserve** and **Replace** only.
+
+**The complete rule, in both directions:**
+
+- **Split — Preserve / Replace:** the fragment inherits the book-level identity and **regenerates a
+  generated structural title and track**, which always win over any book-level title a Replace run
+  supplies.
+- **Split — Strip / Write none:** **no metadata is written at all.** Nothing is regenerated — not a
+  title, not a track number, not an inherited field. Strip is not "the other two minus the inherited
+  fields"; it is empty by design, and reading D4's regeneration clause as universal would describe a
+  behaviour the tool does not have.
+
+**Why this is a documentation correction and nothing more.** The production invariant is already
+embodied by `mp3_tools/m4b_metadata.segment_tags()`, whose Strip branch returns an empty mapping
+before any inheritance or regeneration is considered, and it is covered by the existing Plan-5
+tests. **No behaviour changed, no code changed, and no approved product decision was reopened** —
+D4's substance stands exactly as approved; only its statement here was too narrow. The 2026-08-31
+entry below is left intact as written, per this log's append-only rule.
+
+*Recorded 2026-09-01 by Claude Code, during the bounded post-closeout documentation remediation.*
+
+---
+
 ## 2026-08-31 — Plan 5 closeout: the M4B Converter's approved product contract
 
 **Decision (v0.6.2 Plan 5, Phase 18 closeout).** The Converter upgrade is complete, and these are

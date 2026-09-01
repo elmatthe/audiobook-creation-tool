@@ -4,7 +4,7 @@
 
 The Audiobook Creation Tool bundles a **text-to-speech engine** (PDF / TXT → MP3, using Microsoft Edge TTS over the network plus two local AI voice engines, Kokoro‑82M and Chatterbox) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
 
-> **Status:** v0.5.0 (in development) — internal repository restructure to a single cross-platform code tree; **no feature or tool-behaviour changes**. The latest published release is **v0.4.0** (self-healing Kokoro AI-voice install + fully self-contained model cache); the download links below point at v0.4.0 until the v0.5.0 release is published. See [Known Limitations](#known-limitations).
+> **Status:** the current development version is **v0.6.2**, and it is **unreleased** — still in development, with no published build. The latest **published** release remains **v0.4.0** (self-healing Kokoro AI-voice install + fully self-contained model cache), so the download links below deliberately point at v0.4.0 and will continue to until a newer release is actually published. Features described here as v0.5.x/v0.6.x are in the development tree and are not in the v0.4.0 download. See [Known Limitations](#known-limitations).
 
 ---
 

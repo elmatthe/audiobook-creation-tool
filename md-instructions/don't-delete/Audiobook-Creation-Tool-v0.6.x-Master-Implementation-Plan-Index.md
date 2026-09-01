@@ -5,7 +5,8 @@
 **Intended repository path:** `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`  
 **Repository:** `elmatthe/audiobook-creation-tool`  
 **Default branch:** `master` — do not substitute `main`  
-**Current release version:** `0.5.1`; the v0.6.x work remains unreleased  
+**Current version identity:** `0.6.2` — development identity only, **unreleased**  
+**Latest published GitHub release:** `v0.4.0`  
 **Decision authority:** Confirmed Decisions 1–55 and the approved nine-plan series map
 
 > This file is permanent. It is not an active instruction drop and must never be deleted during a drop closeout. It coordinates the complete v0.6.x program while each implementation drop supplies the detailed, phase-by-phase execution contract for one bounded plan.
@@ -121,9 +122,11 @@ The observed `master` SHA is orientation evidence, not permission to overwrite a
 | 8 | v0.6.4 | `0.6.4-mp3-and-m4b-metadata-workflows.md` | Planned; not drafted | Plans 1–3 and 6; Plan 7 validates the shared model first |
 | 9 | v0.6.5 | `0.6.5-ui-parity-hardening-release.md` | Planned; not drafted | Plans 1–8 |
 
-Do not draft or implement Plans 5–9 while an earlier plan is active. A later plan may be drafted only after the current plan is implemented, verified, manually approved, documented, merged through the established workflow, and closed.
+Do not draft or implement Plans 6–9 while an earlier plan is active. A later plan may be drafted only after the current plan is implemented, verified, manually approved, documented, merged through the established workflow, and closed.
 
-*Superseded (kept for the record): this line previously read “Do not draft or implement Plans 4–9 while Plan 3 is active.” Plan 3 and Plan 4 are both complete, approved and closed; Plan 5 is the next unopened plan and has not been drafted or started.*
+*Superseded (kept for the record): this line previously read “Do not draft or implement Plans 5–9 while an earlier plan is active,” and before that “Do not draft or implement Plans 4–9 while Plan 3 is active.” Plans 3, 4 and 5 are all complete, approved and closed; Plan 6 is the next unopened plan and has not been drafted or started.*
+
+**Status note (2026-09-01, post-closeout documentation remediation).** The first **integration-readiness review has now been performed** — READ-ONLY — and it returned **NOT READY** on documentation-only grounds; its verdict on the implementation itself was **sound**. This supersedes, in the Plan-5 row above and in the 2026-08-31 note below, only the statement that *integration review is outstanding*: what is outstanding now is a separate **READ-ONLY integration-readiness recheck**, and READY is not assumed until that recheck returns it. Everything else in both remains accurate — still **no pull request, merge, tag, release, package or `release.py` run**, identity is still **`0.6.2`** and unreleased, and the published GitHub release remains **`v0.4.0`**. See §15 for the current next action.
 
 **Status note (2026-08-31, updated at Plan 5 Phase 18 closeout).** **`v0.6.2` Plan 5 — M4B Converter upgrade is COMPLETE, maintainer-approved and CLOSED.** Its temporary implementation drop `md-instructions/0.6.2-m4b-converter-upgrade.md` has been **retired**, so **there is once again no active temporary implementation drop**. `VERSION` and `config.toml` now read **`0.6.2`** — a version identity, not a release: there is **no `[0.6.2]` changelog heading, no date, no tag, no package and no publication**, `release.py` has not been run, and the **published GitHub release remains `v0.4.0`**. Branch `feature/0.6.2-m4b-converter-upgrade` is **NOT merged**; integration-readiness review, pull request, merge, tag and release are outstanding and are the maintainer's decision, and Plan 9 still owns release. **Plans 6–9 have not been drafted or started**, and each needs separate explicit maintainer approval before it opens. The permanent trees `md-instructions/don't-delete/` and `files/archived-code/epub-tts/` were untouched by this closeout.
 
@@ -361,6 +364,51 @@ Do not absorb these into an unrelated plan:
 | Open Issue #2: CLI-only `kokoro_synth.py` cp1252 `UnicodeEncodeError` | Separate issue; do not fold into Plan 2 |
 
 ## 15. Immediate next action
+
+**Updated 2026-09-01 at the post-closeout documentation remediation. This block is the current
+next-action record for the whole v0.6.x program and supersedes every earlier paragraph in this
+section, all of which are retained below as history.**
+
+- **v0.6.2 Plan 5 — M4B Converter is COMPLETE, maintainer-approved and CLOSED** (2026-08-31; all
+  nineteen phases 0–18 separately approved). It is **not** active, and no phase of it is
+  outstanding.
+- **Its temporary implementation drop `md-instructions/0.6.2-m4b-converter-upgrade.md` is RETIRED
+  and stays deleted.** It must not be recreated. There is **no active temporary implementation
+  drop**, and the permanent trees `md-instructions/don't-delete/` and
+  `files/archived-code/epub-tts/` are untouched.
+- **Code/version identity is `0.6.2`, and it is UNRELEASED.** `scripts/Universal/shared/version.py`
+  and `config.toml` both read `0.6.2` as a **version identity, not a release**: there is no
+  `[0.6.2]` changelog heading, no date, no tag, no GitHub release, no package and no publication,
+  and `release.py` has not been run. **The published GitHub release remains `v0.4.0`.**
+- **The first post-closeout integration-readiness review has been completed, READ-ONLY, and it
+  returned NOT READY.** Its verdict on the implementation itself was **sound**; the blocker was
+  **documentation-only**. The contradictions it found were: this section still reading, in current
+  voice, that Plan 5 was ACTIVE with Phase 1 not started, an active drop and identity `0.6.1`;
+  `Briefing.md` naming a Converter module `m4b_artwork.py` that does not exist in the tree; the
+  permanent D4 / Briefing split-metadata wording implying that **every** Split fragment regenerates
+  a title and structural track, when Strip deliberately writes nothing at all; the §5 program rule
+  still governing “Plans 5–9” after Plan 5 had closed; `README.md` still advertising
+  “v0.5.0 (in development)”; and `Handoff.md` still recording the integration-readiness review as
+  outstanding.
+- **This bounded documentation remediation (2026-09-01) has corrected those records**, and it is
+  **documentation-only**: no production Python, test, requirement, launcher, bootstrap, ffmpeg,
+  `config.toml` or `version.py` change, and no behaviour change of any kind.
+- **The NEXT action is a separate READ-ONLY integration-readiness recheck**, performed
+  independently of this remediation. **No pull request and no merge is authorized merely by this
+  remediation**, and **READY must not be assumed** until that recheck actually returns READY.
+- **Plan 6 must not begin.** Plans 6–9 remain undrafted and unstarted, and each needs separate
+  explicit maintainer approval before it opens. Do not merge, tag, publish, package, run
+  `release.py`, delete a branch, bump beyond `0.6.2`, or reopen Decisions 1–55.
+- A separately confirmed **`Setup_and_Run` self-healing carry-forward defect** is recorded in
+  `Handoff.md`. It is **not** a reopened Plan-5 implementation item, it is **not** fixed here, and
+  it should receive its own bounded pre-Plan-6 bootstrap remediation before substantial Plan-6 work.
+
+*(SUPERSEDED, kept for the record — the two paragraphs immediately below were this section's
+current text from 2026-08-22 until the 2026-09-01 remediation above. They describe Plan 5 as ACTIVE
+with Phase 0 complete and Phase 1 not started, an active drop
+`md-instructions/0.6.2-m4b-converter-upgrade.md`, and identity `0.6.1`. **Every one of those
+statements is false today** — Plan 5 is closed, the drop is retired, and identity is `0.6.2`. They
+are history and must not be read as the current instruction.)*
 
 **Updated 2026-08-22 at Plan 5 Phase 0.** Plans 1–4 are all closed and **merged** — pull requests #2, #3, #4 and #5, the last being merge `81c9c0600ca74a42a22bd09d367a702bee9708fe`. Each retired its own temporary implementation document at its own closeout.
 
