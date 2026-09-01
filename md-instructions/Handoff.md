@@ -2,7 +2,69 @@
 
 ## Current Focus
 
-> ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is ACTIVE; Plans 3 and 4 are MERGED (2026-08-22)
+> ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is COMPLETE, APPROVED and CLOSED (2026-08-31)
+>
+> **This block is the live state of the repository and supersedes every earlier status sentence in
+> this file, including the Plan-5 ACTIVE block immediately below it and every phase record under
+> it.** Nothing below has been deleted or rewritten; the phase-by-phase record stays exactly as
+> written at the time.
+>
+> - **v0.6.2 Plan 5 (M4B Converter upgrade) is COMPLETE, APPROVED and CLOSED.** Phases 0–18 are all
+>   maintainer-approved. Any sentence below saying Plan 5 is *"ACTIVE"*, that a phase *"has NOT
+>   started"*, that *"Phase 18 has NOT started"*, or that a closeout is pending is **stale and
+>   superseded by this block.**
+> - **Code/version identity is now `0.6.2`.** `version.py` and `config.toml` were bumped together at
+>   this closeout, and the eight version-guard tests were updated in the same commit. Any sentence
+>   below saying identity *"stays at `0.6.1` for the whole of Plan 5"* was true until this closeout
+>   and is now superseded.
+> - **This is a version identity, not a release.** There is **no `[0.6.2]` changelog heading, no
+>   date, no tag, no GitHub release, no built archive and no publication**, and `release.py` has not
+>   been run. **The published GitHub release remains `v0.4.0`.**
+> - **The branch `feature/0.6.2-m4b-converter-upgrade` is NOT merged.** It branched from
+>   `master` at `81c9c0600ca74a42a22bd09d367a702bee9708fe` (Plan 4's integration master) and is
+>   still a feature branch. **Integration-readiness review, pull request, merge, tag, release and
+>   packaging are all outstanding and are the maintainer's decision** — none of them is part of this
+>   closeout, and none has been performed.
+> - **The temporary Plan-5 implementation drop has been RETIRED.**
+>   `md-instructions/0.6.2-m4b-converter-upgrade.md` was deleted at this closeout after its lasting
+>   content was transferred. Any sentence below referring to it as the live plan document, or saying
+>   *"there is an active temporary implementation drop"*, is stale. **The permanent trees
+>   `md-instructions/don't-delete/` and `files/archived-code/epub-tts/` are untouched** — they are
+>   not implementation drops and are never retired.
+> - **Where Plan 5's lasting record now lives:** `Briefing.md` (architecture, features, version,
+>   high-level state), `Changelog.md` (`[Unreleased]` only), `Decisions.md` (the consolidated
+>   closeout ADR alongside the per-phase Plan-5 ADRs), this block, and the Plan-5 row of
+>   `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`.
+> - **What Plan 5 shipped**, in one paragraph: the M4B Converter now converts a book **whole or
+>   split by chapter** over a **complete timeline** (nothing before the first chapter or after the
+>   last is dropped); three metadata modes over one strict five-field allowlist; whole-book chapter
+>   maps retained **with their titles** under Preserve and Replace; artwork copied rather than
+>   re-encoded, on whole books and every fragment; **per-book folders** for split output; shared
+>   importer, job-control, destination-planning and output-reservation adoption; occurrence-identity
+>   duplicates; a fully frozen run *including its configuration*; Pause/Resume/Cancel and Retry
+>   Failed; success-only optional track numbering, **off by default**; coherent FFmpeg provisioning;
+>   and a Windows Media Foundation route for xHE-AAC. Sources are never modified and nothing is
+>   overwritten. `launcher.TOOLS` still holds exactly six tools.
+> - **What Plan 5 did NOT prove, recorded as waivers and evidence gaps, never as PASS.** No real
+>   **xHE-AAC (USAC)** source was available on either platform, so neither the Windows Media
+>   Foundation route nor the macOS `aac_at` route has a live end-to-end decode behind it. Real-source
+>   **PNG cover, artwork-free, chapterless and slash/backslash-titled** rows were absent from the
+>   authorized corpus and stand on synthetic produced-bytes proofs. The **Whole Strip** real-GUI run
+>   is maintainer-reported PASS **without mechanical corroboration** — no Strip-shaped run is
+>   discoverable in any log on this machine. Human visual inspection at exactly **920×600** and
+>   further manual breadth were waived by explicit maintainer disposition. **Windows 125% scaling**
+>   remains deferred to Plan 9. A **true no-Python + no-FFmpeg fresh-machine install** remains
+>   outstanding **for release**, not for Plan 5.
+> - **Still open, reported and deliberately not fixed in Plan 5** (Phase 17's maintainer-disposition
+>   list, none of them a Plan-5 blocker): `ensure_ready` re-executing a just-failed pinned pair once
+>   more in the same call; `PcmTimeline.feed`'s short-read return discarded by its only caller; one
+>   `JobReporter` driven by two threads on a narrow window; a failed split book leaving an empty book
+>   folder; total path length now that split adds a component; four `assert … or True` dead
+>   assertions in the suite; and the `.bat` lacking the `.command`'s launch-failure guards.
+> - **The wider v0.6.x initiative is not complete** — Plans 6–9 remain undrafted, and each future
+>   plan and phase still needs separate explicit maintainer approval before it begins.
+
+> ## ⟢ SUPERSEDED (kept as history) — CURRENT STATE — v0.6.2 Plan 5 is ACTIVE; Plans 3 and 4 are MERGED (2026-08-22)
 >
 > **This block is the live state of the repository and supersedes every earlier status sentence in
 > this file, including the Plan 4 block immediately below it.** Nothing below has been deleted or

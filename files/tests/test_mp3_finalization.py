@@ -549,7 +549,7 @@ def test_the_version_and_tool_count_are_unchanged():
     import launcher
     from shared import version
 
-    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # v0.6.2 Plan 5 Phase 18 closeout: the bump from 0.6.1 happened here and
     # nowhere else. This guard now pins the approved closeout version.
-    assert version.VERSION == "0.6.1"
+    assert version.VERSION == "0.6.2"
     assert len(launcher.TOOLS) == 6

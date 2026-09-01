@@ -4,6 +4,62 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-08-31 — Plan 5 closeout: the M4B Converter's approved product contract
+
+**Decision (v0.6.2 Plan 5, Phase 18 closeout).** The Converter upgrade is complete, and these are
+the product rules that outlive the implementation drop. They are recorded here because the drop that
+carried them is deleted at this closeout; each was approved during the plan and is implemented.
+
+**One entry, not six, and deliberately so.** The split-placement decision already has its own entry
+(2026-08-30), as do the Windows xHE-AAC routing decision, the whole-book cover-from-a-second-input
+finding and the FFmpeg-pair pinning rule (2026-08-28/29). Those are not repeated. What follows is the
+remainder, which is a single coherent contract rather than six independent architectural choices.
+
+**Layout (D1).** The Converter keeps `MIN_SIZE == (920, 600)`, the `1024x720` default and its
+classic, non-`ACT.*` visual identity. Plan 5 added its controls within that window rather than
+redesigning the panel; broad visual conversion stays Plan 9's. The sanctioned local scrolling
+fallback was **never needed** — every Plan-5 control is a real target at the supported minimum.
+
+**Artwork (D2).** Preserve and Replace keep the source cover; Strip removes it. Only a stream
+positively identified by `disposition.attached_pic` is copied, by absolute stream index, so ordinary
+video ahead of a cover can never be mistaken for one. A source with no artwork is valid. Two attached
+pictures is an ambiguity and **fails closed** rather than guessing. Covers are stream-copied, never
+re-encoded, and Plan 5 ships **no** replacement-image picker — that is Plan 8's.
+
+**Split-fragment metadata (D4).** A fragment is not the book. It inherits only `artist`,
+`album_artist` and `album`; it regenerates its own `title` and its structural `track`; and it never
+carries the whole book's chapter map or title. The regenerated pair always wins, so a Replace run's
+book title cannot become a chapter's title.
+
+**Numbering (D5).** Three concepts that never mix: a split output's **structural** track is its
+position within its own book and restarts per book; a whole book's **sequential** track is optional,
+allocated **only on success** so a failure consumes nothing and the sequence stays gap-free, and it
+is derived from the run's own result rather than from any filename or directory listing; and the
+filename order prefix is rendered, never allocated. The whole-book option defaults **off** — numbering
+a library is something a user asks for, not something a default does on the way past.
+
+**Whole-book chapter retention (D6A).** A whole output *is* the whole book, so Preserve **and**
+Replace both keep the source chapter map — replacing a book's text does not invalidate its
+navigation. Strip removes it with everything else. Retention means the titles as well as the
+boundaries: a map of anonymous timing points is not the map the source had.
+
+**Shared recursion (D7A).** `ImportOptions.include_subfolders` is a shared importing field, default
+`True`, honoured at the single existing descent point, and frozen per import so toggling it changes
+only the next import. It was extended in shared code rather than forked into the Converter.
+
+**The metadata vocabulary did not grow.** `title`, `artist`, `album_artist`, `album` and an optional
+`track` — the same set `shared/metadata.py` already supported. Everything reaching an output is named
+explicitly; nothing is inherited because ffmpeg could inherit it.
+
+**What deliberately did *not* become a decision record.** ffmpeg argument shapes, the ID3 version
+pin, the worker's exception boundary, the frozen-reservation correction and the Phase-17 bug fixes
+are implementation mechanics or enforcement of rules already approved — the plan's own closeout
+instruction forbids standalone ADRs for them, and they live in `Handoff.md` instead.
+
+*Approved across Plan 5 and recorded at closeout by Claude Code.*
+
+---
+
 ## 2026-08-30 — A split run groups every book in its own folder; whole books stay flat
 
 **Decision (v0.6.2 Plan 5, Phase 16; maintainer disposition after real macOS multi-book validation).

@@ -395,10 +395,11 @@ flashing during use.
   even while it sits directly beside `config.toml`.
 
 - **Shared importing and job-control foundation (v0.6.0 Drop 3).** Four modules under
-  `scripts/Universal/shared/` that **no production panel uses yet**. They exist so the tool
-  plans that follow can adopt one importer and one set of run controls instead of six
-  divergent ones; adoption itself belongs to Plans 4–8, and until then nothing a user can
-  reach behaves differently.
+  `scripts/Universal/shared/`, built with **no production consumer at the time**. They exist so the
+  tool plans that follow can adopt one importer and one set of run controls instead of six
+  divergent ones; adoption belongs to Plans 4–8 and is now under way — **TTS Audiobook and Cover
+  Image Converter adopted them in v0.6.1 (Plan 4) and the M4B Converter in v0.6.2 (Plan 5)** — while
+  the remaining three panels still use their own importing and run handling.
 
   - **`importing.py`** — the immutable vocabulary plus the traversal core and the list owner.
     An adopting tool supplies its own `SupportedTypeCatalog`; there is no universal media list
@@ -519,6 +520,48 @@ derivative and cached conditional are ignored, untracked and never packaged. Mak
 work on a different machine requires the maintainer to place their own recordings and is a
 separately authorized action — nothing in this repository carries them.
 
+### The M4B Converter (v0.6.2 Plan 5)
+
+The Converter is the first tool rebuilt on the Drop-3 foundation, and the shape of that adoption is
+the point: `mp3_tools/m4b_converter.py` is a panel that owns no policy. It is decomposed into
+`m4b_probe.py` (ffprobe inspection), `m4b_plan.py` (what a run will do), `m4b_destinations.py`
+(where every output goes), `m4b_metadata.py` (what may be written), `m4b_execution.py` (how one
+segment is produced) and `m4b_artwork.py`, none of which imports Tk. The panel imports the shared
+importer, the shared job controls, the shared destination planner and the shared output reservation
+rather than growing private copies, and the whole run is decided before ffmpeg is invoked once.
+
+- **A run is frozen, and the freeze is total.** Pressing Convert calls `job_control.capture_run`,
+  and the worker reads only that snapshot — the queue, the mode, the metadata choice, the numbering
+  choice **and the configuration the run started under**. The output directory is reserved through
+  `output_paths.reserve_run_directory(TOOL_KEY, effective=<the run's frozen config>)`, so a
+  Preferences change mid-run cannot move a conversion already in flight, and Retry Failed rebuilds
+  from that same snapshot to the same planned paths rather than from current widgets.
+- **Splitting is a partition, not a chapter loop.** `m4b_plan` builds a **complete timeline**: every
+  second of the source belongs to exactly one segment, including a pre-first-chapter head and a
+  post-last-chapter tail, and the segments are proved contiguous and exhaustive rather than assumed
+  to be. Segments are cut with output-side `-ss`/`-t`, which is why a long book with an attached
+  cover no longer produces a fraction of a second of audio.
+- **Metadata is an allowlist enforced at the ffmpeg boundary.** Every output starts from
+  `-map_metadata -1` and receives only the five permitted fields through the one shared mapping in
+  `m4b_metadata.py`. Chapter retention is a separate axis (`-map_chapters 0` or `-1`) and whole-book
+  retention re-attaches the source's chapter **titles** through `-metadata:c:N`, which the allowlist
+  firewall would otherwise strip. Outputs that carry chapters or tags are written `-id3v2_version 3`,
+  because that is the version Windows Explorer reads.
+- **Destinations are planned centrally and collision-safe.** `m4b_destinations` plans direct files,
+  grouped folders and — for Split — one **container folder per occurrence** through the same shared
+  planners, so two books named alike, or the same book imported twice, each get their own folder.
+  Every component is sanitized to a fixed point, every planned path is asserted contained under the
+  reserved run root, and every path is asserted not to be an input. Nothing is ever overwritten and
+  no source is ever modified.
+- **Duplicates are occurrences, never paths.** Outcomes, retries and destinations are keyed on the
+  importer's occurrence ID, so importing one book twice is a supported deliberate act rather than a
+  collapsed pair.
+- **Decoding is routed, and a route that cannot be trusted stops the run.** On Windows an xHE-AAC
+  (USAC) source is decoded through Windows Media Foundation into a PCM timeline instead of ffmpeg's
+  native AAC decoder; macOS uses Apple's `aac_at`. When neither route can decode a source, the run
+  reports it rather than writing a short book, and the drift check does not blame the platform on a
+  path it deliberately routed around.
+
 ## Features
 
 - **TTS Audiobook** (`tts/epub2tts_gui.py`) — **PDF/TXT → MP3** (v0.6.1: EPUB retired, see
@@ -538,8 +581,19 @@ separately authorized action — nothing in this repository carries them.
   pause — sentence/title/chapter parity is deliberately deferred (see Decisions.md). Dev/QA helper
   `tts/generate_voice_samples.py` writes one short sample per voice to
   `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
-- **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → clean MP3 (libmp3lame VBR),
-  optional bulk metadata + auto track numbers.
+- **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → MP3 (libmp3lame VBR), **whole
+  book or split by chapter** (v0.6.2 Plan 5). Import files or a folder with an **Include
+  subfolders** option; reorder, remove, clear, and import the same book twice deliberately.
+  Metadata is *Preserve*, *Replace* or *Write none*, restricted throughout to title, artist, album
+  artist, album and an optional track number — nothing else from the source travels with it. A
+  whole book keeps the source's chapter map **and its chapter titles** under Preserve and Replace;
+  *Write none* removes it. Embedded cover art is copied (never re-encoded) by Preserve and Replace
+  and removed by Write none, on whole books and on every fragment of a split. A split is a complete
+  partition of the book — the head before the first chapter and the tail after the last are
+  included — each fragment carrying its own title and position, and each book's fragments landing in
+  **their own folder**. Optional whole-book track numbering is **off by default** and numbers only
+  successes, so a failure leaves no gap. Progress with an ETA, **Pause/Resume/Cancel** and **Retry
+  Failed** come from the shared job controls; sources are never modified and nothing is overwritten.
 - **MP3 Tool** (`mp3_tools/mp3_tool.py`) — combine MP3s into one, time-edit track ends, bulk
   ID3 tagging with chapter-title paste.
 - **M4B Maker** (`mp3_tools/m4b_maker.py`) — MP3s → chaptered M4B with cover art, metadata, and
@@ -639,16 +693,17 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 
 ## Current Version
 
-**v0.6.1** — set at the v0.6.1 Plan 4 closeout on 2026-08-22. v0.4.0 is still the latest
+**v0.6.2** — set at the v0.6.2 Plan 5 closeout on 2026-08-31. v0.4.0 is still the latest
 *published* GitHub release (remote:
 [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)).
 
-**This is a version identity, not a release.** `version.py` and `config.toml` read `0.6.1`, and
-that is the whole of it: there is **no `[0.6.1]` changelog heading, no tag, no GitHub release, no
-built archive and no publication**, and the branch `feature/0.6.1-tts-cover-workflows` is **not
+**This is a version identity, not a release.** `version.py` and `config.toml` read `0.6.2`, and
+that is the whole of it: there is **no `[0.6.2]` changelog heading, no tag, no GitHub release, no
+built archive and no publication**, and the branch `feature/0.6.2-m4b-converter-upgrade` is **not
 merged** — integration is the maintainer's decision. v0.6.0 Drops 1–3 (Plans 1–3) never carried a
-version of their own and still do not; v0.6.1 is the first bump since v0.5.1. The wider v0.6.x
-initiative is **not** complete — five of the nine plans (5–9) remain undrafted.
+version of their own and still do not; v0.6.1 was the first bump since v0.5.1 and v0.6.2 the
+second. The wider v0.6.x initiative is **not** complete — four of the nine plans (6–9) remain
+undrafted.
 
 ## High-Level State
 
@@ -659,6 +714,31 @@ GitHub Releases v0.1.0–v0.4.0.
 v0.4.0 added Kokoro self-heal on every launch, the in-tree HF model cache, and the 5-voice
 verification harness. v0.5.0 is a multi-drop line: Drop 1 (this restructure — no tool behaviour
 changes), then metadata, TTS, script hardening, and UI drops.
+
+**v0.6.2 (Plan 5 — M4B Converter upgrade) — COMPLETE, APPROVED and CLOSED on 2026-08-31; not
+merged and not released.** The Converter became a full audiobook-conversion tool: whole-book or
+**split-by-chapter** output over a **complete timeline** (nothing before the first chapter or after
+the last is dropped), three metadata modes over one strict five-field allowlist, whole-book chapter
+maps **with their titles** retained under Preserve and Replace, artwork copied rather than
+re-encoded, **per-book folders** for split output, shared importer / job-control / destination /
+reservation adoption, occurrence-identity duplicates, a fully frozen run including its
+configuration, Pause/Resume/Cancel and Retry Failed, and success-only optional track numbering that
+is **off by default**. Sources are never modified. `launcher.TOOLS` still holds exactly six tools.
+
+**How Plan 5 was validated, and what it deliberately did not prove.** Phase 15 completed the
+**Windows** manual matrix and Phase 16 the **macOS** one, both on the maintainer's real audiobook
+corpus — twelve real M4Bs converted whole and split, with the resulting outputs mechanically
+audited (durations, chapter maps, chapter titles, tag frames, artwork bytes, placement) rather than
+eyeballed. Phase 16 accepted a small number of rows as **WAIVED / EVIDENCE GAP, not as PASS**: a
+real xHE-AAC (USAC) source was not available on either platform, so neither the Windows Media
+Foundation route nor the macOS `aac_at` route has a live end-to-end xHE decode behind it; the code
+paths are covered by tests and by the refusal-rather-than-truncate contract only. Phase 17 was an
+independent bug hunt using three fresh reviewer contexts that had not participated in the
+implementation, with every reported finding mechanically confirmed before it was accepted and every
+resulting regression proved load-bearing by mutation; it found and fixed six defects, including a
+whole-book truncation that reported success, lost chapter titles, an ID3 version that Explorer
+would not read, two occurrences collapsing into one folder, a panel permanently wedged by any
+worker exception, and a run that followed live Preferences instead of its own frozen configuration.
 
 **v0.6.0 Drop 1 (Windows UI prototype) — approved 2026-08-02, not released.** The Windows
 design system, the converted launcher shell and the converted M4B Metadata Editor passed the
@@ -775,14 +855,18 @@ live macOS validation were not run for Plan 3 and remain deferred to Plan 9.**
 **Plans 3 and 4 are now MERGED into `master`** — Plan 3 through pull request #4 (merge `809a43e`)
 and Plan 4 through pull request #5 (merge `81c9c0600ca74a42a22bd09d367a702bee9708fe`, a normal merge
 commit). Both feature branches were retained, not deleted. **v0.6.2 Plan 5 (M4B Converter upgrade)
-is now ACTIVE** on `feature/0.6.2-m4b-converter-upgrade`, branched from that verified `master`, with
-the approved drop `md-instructions/0.6.2-m4b-converter-upgrade.md`; **Phase 0 is complete and Phase 1
-has not started**, and each phase needs separate explicit approval. Code/version identity remains
-**`0.6.1`** until Plan 5's approved closeout, and the **published GitHub release remains `v0.4.0`** —
-no tag, release or package exists for either. *(Superseded, kept as history: this paragraph
-previously said the next action was Plan 4 integration review, that both branches were unmerged, and
-that Plan 5 had not been drafted or started. An earlier sentence still further back described Plan 4
-as the next unopened work, true until Plan 4 opened on 2026-08-11.)*
+is COMPLETE, APPROVED and CLOSED** as of 2026-08-31 on `feature/0.6.2-m4b-converter-upgrade`,
+branched from that verified `master`; its temporary implementation drop has been retired, and its
+lasting record lives here, in `Changelog.md`, `Decisions.md`, `Handoff.md` and the Master
+Implementation Plan Index. That branch is **not merged**: integration review, pull request, merge,
+tag, release and packaging are all still to be decided by the maintainer, and none of them has
+happened. Code/version identity is now **`0.6.2`**, and the **published GitHub release remains
+`v0.4.0`** — no tag, release or package exists for any of these plans. *(Superseded, kept as
+history: this paragraph previously said Plan 5 was ACTIVE with Phase 0 complete and Phase 1 not
+started and identity still at `0.6.1`; before that, that the next action was Plan 4 integration
+review, that both branches were unmerged, and that Plan 5 had not been drafted or started. An
+earlier sentence still further back described Plan 4 as the next unopened work, true until Plan 4
+opened on 2026-08-11.)*
 
 **How Plan 2 was validated, and what was deliberately not validated.** The evidence is a clean
 extraction of the real Windows archive into a disposable root whose path carries a space, an
@@ -869,11 +953,14 @@ the exact five-step smoke test is written out in `Handoff.md`.
 - **The Windows `ttk.Combobox` popdown is unthemed** (Tk draws it as a native list ttk
   cannot restyle), and the **window title bar stays light** above the dark app (Tk would need
   a Win32 `DwmSetWindowAttribute` call). Both are Plan 9 items.
-- **Windows xHE-AAC decode** — ffmpeg's native AAC decoder can't decode xHE-AAC (USAC) M4Bs;
-  macOS routes decoding through Apple's `aac_at` decoder, which supports xHE-AAC. Confirmed
-  Windows limitation since v0.3.2. The macOS `aac_at` path is live-verified on standard
-  AAC-LC M4Bs, but an actual xHE-AAC/USAC decode on macOS is still unverified — no USAC
-  sample on hand (2026-07-08).
+- **xHE-AAC decode is routed but unproven on real media.** ffmpeg's native AAC decoder cannot
+  decode xHE-AAC (USAC) M4Bs. Since v0.6.2 the M4B Converter routes such a source through
+  **Windows Media Foundation** on Windows, and macOS uses Apple's `aac_at`; where neither route
+  can decode, the run reports it rather than writing a truncated book. Both routes remain
+  **unverified end to end** — no real USAC audiobook has been available on either platform
+  (macOS 2026-07-08, Windows and macOS again through Plan 5's Phases 15–16, 2026-08-31) — so this
+  is an evidence gap, recorded as a waiver and never as a pass. The other five tools still use
+  ffmpeg's native decoder and are unchanged.
 - **Fresh one-click clean-machine install** (winget Python 3.12 + multi-GB torch + 300 MB
   model) is verified in pieces, not yet end-to-end on a virgin box.
 - The `.bat` entry point briefly flashes its own cmd window on launch (the GUI itself never
