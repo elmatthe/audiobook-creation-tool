@@ -720,8 +720,10 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 
 **This is a version identity, not a release.** `version.py` and `config.toml` read `0.6.2`, and
 that is the whole of it: there is **no `[0.6.2]` changelog heading, no tag, no GitHub release, no
-built archive and no publication**, and the branch `feature/0.6.2-m4b-converter-upgrade` is **not
-merged** — integration is the maintainer's decision. v0.6.0 Drops 1–3 (Plans 1–3) never carried a
+built archive and no publication**. Plan 5 **is** integrated — it merged into `master` through
+**pull request #6** on 2026-09-02 as merge commit `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`,
+with `feature/0.6.2-m4b-converter-upgrade` retained at `393a5625` — but merging published nothing,
+and release remains Plan 9's. v0.6.0 Drops 1–3 (Plans 1–3) never carried a
 version of their own and still do not; v0.6.1 was the first bump since v0.5.1 and v0.6.2 the
 second. The wider v0.6.x initiative is **not** complete — four of the nine plans (6–9) remain
 undrafted.
@@ -879,10 +881,16 @@ commit). Both feature branches were retained, not deleted. **v0.6.2 Plan 5 (M4B 
 is COMPLETE, APPROVED and CLOSED** as of 2026-08-31 on `feature/0.6.2-m4b-converter-upgrade`,
 branched from that verified `master`; its temporary implementation drop has been retired, and its
 lasting record lives here, in `Changelog.md`, `Decisions.md`, `Handoff.md` and the Master
-Implementation Plan Index. That branch is **not merged**: integration review, pull request, merge,
-tag, release and packaging are all still to be decided by the maintainer, and none of them has
-happened. Code/version identity is now **`0.6.2`**, and the **published GitHub release remains
-`v0.4.0`** — no tag, release or package exists for any of these plans. *(Superseded, kept as
+Implementation Plan Index. **Plan 5 is now also MERGED**, through **pull request #6** on
+2026-09-02 (merge `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`, a normal two-parent merge commit;
+parent 1 `81c9c060`, parent 2 the approved feature head `393a5625`); the feature branch was
+**retained**, not deleted. It reached integration through a first review that returned NOT READY
+on documentation grounds, a documentation remediation, a recheck that returned NOT READY on one
+test-only Windows portability defect, that defect's correction, a final recheck that returned
+READY, and an independent PR review that returned READY TO MERGE. **Merging published nothing:**
+tag, release and packaging remain undone and belong to Plan 9. Code/version identity is now
+**`0.6.2`**, and the **published GitHub release remains `v0.4.0`** — no tag, release or package
+exists for any of these plans. *(Superseded, kept as
 history: this paragraph previously said Plan 5 was ACTIVE with Phase 0 complete and Phase 1 not
 started and identity still at `0.6.1`; before that, that the next action was Plan 4 integration
 review, that both branches were unmerged, and that Plan 5 had not been drafted or started. An
