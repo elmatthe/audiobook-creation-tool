@@ -39,7 +39,8 @@ from shared.importing import (
     capture_identity,
     planning_groups,
 )
-from shared.output_paths import DestinationPlanner, UnsafePathError
+from shared.output_paths import (DestinationPlanner, UnsafePathError,
+                                 sanitize_component)
 
 from mp3_tools import m4b_destinations
 from mp3_tools.m4b_destinations import PlannedOccurrence, plan_outputs
@@ -183,9 +184,42 @@ def test_two_duplicate_occurrences_of_one_file_get_separate_folders(tmp_path, ru
 
 
 def test_stems_that_sanitise_onto_each_other_still_get_separate_folders(tmp_path, run_root):
-    """Two names the sanitiser cannot tell apart must not share one folder."""
-    a = occurrence(touch(tmp_path / "one" / "Book?.m4b"), direct_root())
-    b = occurrence(touch(tmp_path / "two" / "Book_.m4b"), direct_root())
+    """Two names the sanitiser cannot tell apart must not share one folder.
+
+    **The fixture has to be creatable on every platform this ships to.** This
+    pair was ``Book?.m4b`` against ``Book_.m4b`` until the v0.6.2 integration
+    recheck. It collided through the sanitiser exactly as intended, but it could
+    never run on Windows at all: ``?`` is forbidden by the Win32 API, so
+    ``touch`` raised ``OSError: [Errno 22]`` before any planning code was
+    reached. The invariant therefore went unproven on the one platform whose
+    filename rules make it matter most, and the failure was invisible because
+    the phase that introduced it was validated on macOS, where ``?`` is legal.
+
+    A trailing space in the *stem* collides the same way and is legal on NTFS,
+    APFS and ext4 alike: ``Book .m4b`` and ``Book.m4b`` are two different files
+    whose stems ``"Book "`` and ``"Book"`` both sanitise to ``Book``. The
+    trailing space sits before the extension, so the filename itself does not
+    end in one and Windows stores it verbatim.
+
+    The collision is **asserted from the shared sanitiser** rather than assumed.
+    A future change to ``sanitize_component`` that stopped folding these two
+    together would fail loudly here instead of quietly leaving a test that
+    proves two names which never collided still get separate folders.
+    """
+    a_path = touch(tmp_path / "one" / "Book .m4b")
+    b_path = touch(tmp_path / "two" / "Book.m4b")
+
+    # Preconditions: two real, distinct sources whose stems genuinely collapse
+    # onto one container candidate through the production sanitiser.
+    assert a_path.exists() and b_path.exists(), "both fixtures must be real files"
+    assert a_path != b_path
+    assert a_path.stem != b_path.stem, (a_path.stem, b_path.stem)
+    assert sanitize_component(a_path.stem) == sanitize_component(b_path.stem), (
+        "fixture no longer collides through the sanitiser, so this test would "
+        "prove nothing", a_path.stem, b_path.stem)
+
+    a = occurrence(a_path, direct_root())
+    b = occurrence(b_path, direct_root())
     names = ("01 - Intro.mp3",)
     planned = split_plan([a, b], {a.occurrence_id: names, b.occurrence_id: names},
                          run_root)

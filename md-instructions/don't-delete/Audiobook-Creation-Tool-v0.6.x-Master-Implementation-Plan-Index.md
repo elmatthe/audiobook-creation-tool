@@ -365,6 +365,35 @@ Do not absorb these into an unrelated plan:
 
 ## 15. Immediate next action
 
+**Updated 2026-09-01 at the post-closeout integration-blocker remediation. This block is the current
+next-action record and supersedes the "next action" wording of the block below it, which named the
+post-remediation recheck as not yet performed. It has now been performed. That block is otherwise
+accurate and is retained as the record of the first review and the documentation remediation.**
+
+- **The independent post-remediation integration-readiness recheck HAS been performed** — READ-ONLY,
+  over the complete 41-commit integration delta at `3fc58bf`.
+- **It returned NOT READY, with exactly one HIGH blocker, and that blocker was test-only.** All
+  eight prior documentation blockers were independently confirmed **RESOLVED** against the live
+  source tree, and the **Plan-5 production implementation was judged SOUND** — no production defect
+  and no integration-scope contamination.
+- **The blocker:** `test_stems_that_sanitise_onto_each_other_still_get_separate_folders` in
+  `files/tests/test_m4b_destinations.py` created its fixture as `Book?.m4b`; `?` is forbidden by the
+  Win32 API, so the test failed deterministically on Windows before any planning code ran,
+  independently of FFmpeg. It entered at `3617a39` (Phase 16, validated on macOS), and the Phase-17
+  gate was also a macOS run — so the branch had never had a green suite on Windows.
+- **This bounded checkpoint corrected only that test-portability defect and these live coordination
+  records.** The fixture is now `Book .m4b` against `Book.m4b`, legal on every target platform, with
+  the collision asserted from the shared `sanitize_component` so the test cannot go trivial.
+  **No product behaviour changed and no production file was touched.** This is **not Phase 19**;
+  **Plan 5 remains COMPLETE / APPROVED / CLOSED** and is not reopened.
+- **Identity is still `0.6.2`, unreleased**; the published GitHub release remains **`v0.4.0`**.
+- **READY must still NOT be assumed.** **The NEXT action is ONE new independent READ-ONLY
+  integration-readiness recheck**, not yet performed. **No pull request, merge, tag, release or
+  package is authorized**, and **Plan 6 must not begin**.
+
+*(Superseded only on the point above — the block that follows named this recheck as the next action;
+it has since happened and is described here. Everything else in it stands.)*
+
 **Updated 2026-09-01 at the post-closeout documentation remediation. This block is the current
 next-action record for the whole v0.6.x program and supersedes every earlier paragraph in this
 section, all of which are retained below as history.**

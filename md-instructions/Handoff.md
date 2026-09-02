@@ -2,6 +2,51 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — post-remediation recheck ran, found ONE test-portability blocker, now fixed (2026-09-01)
+>
+> **This block is the live state of the repository and supersedes the "next action" wording in the
+> block below it, which said the post-remediation recheck had not been performed. It has. Nothing
+> below is deleted or rewritten — the earlier block stays accurate as the record of the first
+> review and the documentation remediation.**
+>
+> - **The independent post-remediation integration-readiness recheck WAS performed** — READ-ONLY,
+>   over the complete 41-commit `origin/master..feature/0.6.2-m4b-converter-upgrade` delta at
+>   `3fc58bf`. Any sentence saying that recheck *"has not been performed"* or is *"the next action"*
+>   is **superseded by this block**.
+> - **It returned NOT READY**, with **exactly one HIGH blocker**, and that blocker was **test-only**.
+> - **All eight prior documentation blockers were independently confirmed RESOLVED**, verified
+>   against the live source tree rather than the prose — including executing
+>   `m4b_metadata.segment_tags()` to confirm Strip returns `{}`, and scanning imports to confirm the
+>   ten M4B helpers are tkinter-free.
+> - **The Plan-5 production implementation was judged SOUND.** No production defect, no data-loss or
+>   source-overwrite hazard, and no integration-scope contamination was found.
+> - **The one HIGH blocker:**
+>   `files/tests/test_m4b_destinations.py::test_stems_that_sanitise_onto_each_other_still_get_separate_folders`
+>   built its fixture as `Book?.m4b`. `?` is forbidden by the Win32 API, so `touch` raised
+>   `OSError: [Errno 22]` **before any planning code ran** — deterministic on Windows, independent of
+>   FFmpeg. It entered at `3617a39` (Phase 16), which was validated on **macOS**, where `?` is legal;
+>   the authoritative Phase-17 gate (5217 collected / 5171 passed / 46 skipped / 0 failed) was also a
+>   macOS run, so **this branch had never had a green suite on Windows**.
+> - **This bounded checkpoint fixed exactly that**, and nothing else. The fixture is now
+>   `Book .m4b` against `Book.m4b` — both legal on NTFS, APFS and ext4, two distinct real files whose
+>   stems `"Book "` and `"Book"` both sanitise to `Book`. The collision is now **asserted from the
+>   shared `sanitize_component`** instead of assumed, so the test cannot silently go trivial. Verified
+>   on Windows: the planner still separates them into `Book` and `Book-1`.
+> - **No product behaviour changed. No production file was touched.** Only the one test module and
+>   these live coordination records. Identity remains **`0.6.2`**, unreleased. **Plan 5 remains
+>   COMPLETE / APPROVED / CLOSED** — this is not Phase 19 and does not reopen the implementation.
+> - **READY is still NOT to be assumed.** Fixing the blocker is not the same as being re-cleared.
+>   **The next action is ONE new independent READ-ONLY integration-readiness recheck**, which has not
+>   been performed.
+> - **Nothing downstream is authorized:** no pull request, merge, tag, GitHub release, package or
+>   `release.py` run. `origin/master` is untouched at `81c9c06`; the published release remains
+>   **`v0.4.0`**. **Plan 6 has not begun.**
+> - **Known local-only failure, deliberately NOT fixed here:** `test_plan3_boundaries.py` asserts the
+>   contents of `md-instructions/don't-delete/` with strict set equality, so the maintainer's
+>   preserved **untracked** `Codex-Investigation-Report-batch-launcher.md` fails it on this machine.
+>   That file is not branch content and will not exist in a clean checkout, so the finding is
+>   **NONBLOCKING** and was left alone by explicit instruction.
+
 > ## ⟢ CURRENT STATE — post-closeout integration-readiness review returned NOT READY (2026-09-01)
 >
 > **This block is the live state of the repository. It supersedes the integration-review status in
