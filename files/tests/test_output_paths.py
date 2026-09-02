@@ -11,6 +11,8 @@ the scope guards at the foot of this file hold that line.
 
 from __future__ import annotations
 
+import ast
+
 import os
 import sys
 import threading
@@ -1055,7 +1057,18 @@ def test_every_tool_panel_consumes_the_shared_service():
     for relative in tool_modules:
         source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
         assert "output_paths" in source, relative
-        assert "reserve_run_directory(TOOL_KEY)" in source, relative
+        # Structural rather than a substring: the Converter's call now also
+        # names the configuration its run was accepted with, so the exact call
+        # text differs between tools. What matters is unchanged -- every panel
+        # reserves through the shared service, with its own TOOL_KEY.
+        calls = [node for node in ast.walk(ast.parse(source))
+                 if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute)
+                 and node.func.attr == "reserve_run_directory"]
+        assert calls, relative
+        assert any(
+            any(isinstance(a, ast.Name) and a.id == "TOOL_KEY" for a in call.args)
+            for call in calls), relative
 
 
 def test_the_launcher_still_does_not_reserve_output():
@@ -1151,9 +1164,9 @@ def test_no_plan_three_importing_behaviour_arrived():
 def test_the_version_is_unchanged():
     from shared.version import VERSION
 
-    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # v0.6.2 Plan 5 Phase 18 closeout: the bump from 0.6.1 happened here and
     # nowhere else. This guard now pins the approved closeout version.
-    assert VERSION == "0.6.1"
+    assert VERSION == "0.6.2"
 
 
 def test_no_test_here_resolves_the_real_downloads_folder(tmp_path):

@@ -65,18 +65,62 @@ def _settled(root, times: int = 6) -> None:
         root.update()
 
 
-@pytest.mark.parametrize("geometry", SUPPORTED_GEOMETRIES)
-def test_resize_covers_is_visible_in_the_real_shell(fake_settings, geometry):
-    """The whole point of the tool, inside the visible content area, every shell."""
+def _fresh_shell(root, geometry):
+    """A launcher built on the module's own root, at *geometry*, ready to read.
+
+    The window is deiconified because the assertions below are about what is
+    genuinely **on screen**: ``winfo_ismapped`` on a withdrawn toplevel tells
+    you nothing.
+    """
     import launcher
 
-    root = tk_gate.open_tk_root(tk)
+    root.deiconify()
+    app = launcher.LauncherApp(root)
+    root.geometry(geometry)
+    _settled(root)
+    app.select_tool("cover")
+    _settled(root)
+    return app
+
+
+def _tear_down_shell(root, existing):
+    """Remove everything the shell built, leaving the root as it was found.
+
+    *existing* is the set of children the root had beforehand, so this can
+    never destroy a widget belonging to something else. The window manager
+    protocol handler is dropped too: it belongs to an app that is going away,
+    and the root outlives it.
+    """
+    for child in list(root.winfo_children()):
+        if child not in existing:
+            child.destroy()
     try:
-        app = launcher.LauncherApp(root)
-        root.geometry(geometry)
-        _settled(root)
-        app.select_tool("cover")
-        _settled(root)
+        root.protocol("WM_DELETE_WINDOW", "")
+    except tk.TclError:  # pragma: no cover - no handler was installed
+        pass
+    _settled(root)
+    root.withdraw()
+
+
+@pytest.mark.parametrize("geometry", SUPPORTED_GEOMETRIES)
+def test_resize_covers_is_visible_in_the_real_shell(fake_settings, tk_root,
+                                                   geometry):
+    """The whole point of the tool, inside the visible content area, every shell.
+
+    **Runs on the module's own root rather than opening another one.** Opening
+    a second Tcl interpreter inside a pytest process is what made this gate
+    flaky: create a root, destroy it, create another, and the second fails --
+    measured 5/5 at Phase 10 HEAD, deterministically. Every other live-Tk
+    module in this suite already owns exactly one module-scoped root; this
+    test was the only place that did not.
+
+    Each parameter case still gets a **completely fresh launcher**, built and
+    torn down beneath that one root, so nothing from the 1024x720 case can
+    make the 920x600 case pass. Not one assertion below is relaxed.
+    """
+    existing = set(tk_root.winfo_children())
+    try:
+        app = _fresh_shell(tk_root, geometry)
 
         panel = app.containers["cover"].winfo_children()[0]
         button = panel.btn_convert
@@ -97,7 +141,7 @@ def test_resize_covers_is_visible_in_the_real_shell(fake_settings, geometry):
             f"area {host_top}..{host_bottom} at {geometry}")
         assert button.winfo_height() >= 20, "clipped to a sliver is not visible"
     finally:
-        root.destroy()
+        _tear_down_shell(tk_root, existing)
 
 
 def test_the_action_row_is_pinned_and_the_flexible_rows_absorb_the_shortfall(

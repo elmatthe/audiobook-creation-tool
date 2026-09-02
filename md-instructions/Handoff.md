@@ -2,7 +2,2230 @@
 
 ## Current Focus
 
-> ## ⟢ CURRENT STATE — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
+> ## ⟢ CURRENT STATE — post-remediation recheck ran, found ONE test-portability blocker, now fixed (2026-09-01)
+>
+> **This block is the live state of the repository and supersedes the "next action" wording in the
+> block below it, which said the post-remediation recheck had not been performed. It has. Nothing
+> below is deleted or rewritten — the earlier block stays accurate as the record of the first
+> review and the documentation remediation.**
+>
+> - **The independent post-remediation integration-readiness recheck WAS performed** — READ-ONLY,
+>   over the complete 41-commit `origin/master..feature/0.6.2-m4b-converter-upgrade` delta at
+>   `3fc58bf`. Any sentence saying that recheck *"has not been performed"* or is *"the next action"*
+>   is **superseded by this block**.
+> - **It returned NOT READY**, with **exactly one HIGH blocker**, and that blocker was **test-only**.
+> - **All eight prior documentation blockers were independently confirmed RESOLVED**, verified
+>   against the live source tree rather than the prose — including executing
+>   `m4b_metadata.segment_tags()` to confirm Strip returns `{}`, and scanning imports to confirm the
+>   ten M4B helpers are tkinter-free.
+> - **The Plan-5 production implementation was judged SOUND.** No production defect, no data-loss or
+>   source-overwrite hazard, and no integration-scope contamination was found.
+> - **The one HIGH blocker:**
+>   `files/tests/test_m4b_destinations.py::test_stems_that_sanitise_onto_each_other_still_get_separate_folders`
+>   built its fixture as `Book?.m4b`. `?` is forbidden by the Win32 API, so `touch` raised
+>   `OSError: [Errno 22]` **before any planning code ran** — deterministic on Windows, independent of
+>   FFmpeg. It entered at `3617a39` (Phase 16), which was validated on **macOS**, where `?` is legal;
+>   the authoritative Phase-17 gate (5217 collected / 5171 passed / 46 skipped / 0 failed) was also a
+>   macOS run, so **this branch had never had a green suite on Windows**.
+> - **This bounded checkpoint fixed exactly that**, and nothing else. The fixture is now
+>   `Book .m4b` against `Book.m4b` — both legal on NTFS, APFS and ext4, two distinct real files whose
+>   stems `"Book "` and `"Book"` both sanitise to `Book`. The collision is now **asserted from the
+>   shared `sanitize_component`** instead of assumed, so the test cannot silently go trivial. Verified
+>   on Windows: the planner still separates them into `Book` and `Book-1`.
+> - **No product behaviour changed. No production file was touched.** Only the one test module and
+>   these live coordination records. Identity remains **`0.6.2`**, unreleased. **Plan 5 remains
+>   COMPLETE / APPROVED / CLOSED** — this is not Phase 19 and does not reopen the implementation.
+> - **READY is still NOT to be assumed.** Fixing the blocker is not the same as being re-cleared.
+>   **The next action is ONE new independent READ-ONLY integration-readiness recheck**, which has not
+>   been performed.
+> - **Nothing downstream is authorized:** no pull request, merge, tag, GitHub release, package or
+>   `release.py` run. `origin/master` is untouched at `81c9c06`; the published release remains
+>   **`v0.4.0`**. **Plan 6 has not begun.**
+> - **Known local-only failure, deliberately NOT fixed here:** `test_plan3_boundaries.py` asserts the
+>   contents of `md-instructions/don't-delete/` with strict set equality, so the maintainer's
+>   preserved **untracked** `Codex-Investigation-Report-batch-launcher.md` fails it on this machine.
+>   That file is not branch content and will not exist in a clean checkout, so the finding is
+>   **NONBLOCKING** and was left alone by explicit instruction.
+
+> ## ⟢ CURRENT STATE — post-closeout integration-readiness review returned NOT READY (2026-09-01)
+>
+> **This block is the live state of the repository. It supersedes the integration-review status in
+> the 2026-08-31 closeout block below — which remains accurate in every other respect and is not
+> rewritten — and every earlier status sentence in this file. The phase-by-phase historical record
+> below is untouched.**
+>
+> - **The first post-closeout integration-readiness review HAS now happened.** It was conducted
+>   **READ-ONLY** — it changed nothing, ran no merge, opened no pull request. Any sentence below
+>   saying that integration-readiness review is *"outstanding"* or *"has not been performed"* was
+>   correct at Phase-18 closeout and is **superseded by this block**.
+> - **Its verdict was NOT READY — and the blocker was documentation only.** The review's verdict on
+>   the **implementation** was **sound**: the code, the tests and the Plan-5 gates were **not** the
+>   blocker, and nothing in the implementation was asked to change. What blocked integration was a
+>   set of current-state documentation contradictions:
+>   - the Master Implementation Plan Index §15 still said, in unmarked current voice, that the next
+>     action was Plan 5 Phase 1, that Plan 5 was ACTIVE with Phase 0 complete and Phase 1 not
+>     started, that `md-instructions/0.6.2-m4b-converter-upgrade.md` was the active drop, and that
+>     identity remained `0.6.1`;
+>   - `Briefing.md` named a Converter module `m4b_artwork.py` that does not exist in the tree;
+>   - the permanent **D4** / Briefing split-metadata wording implied that **every** Split fragment
+>     regenerates a title and structural track, when **Strip / Write none regenerates nothing at
+>     all**;
+>   - the §5 program sequencing rule still governed *"Plans 5–9"* after Plan 5 had closed;
+>   - `README.md` still advertised *"v0.5.0 (in development)"* beside v0.6.2 capability wording.
+> - **A bounded documentation-only remediation was performed on 2026-09-01** and corrected exactly
+>   those records: Master Index §15 and the sequencing rule, the Briefing architecture section and
+>   its Split wording, one additive corrective ADR in `Decisions.md`, the README status line, and
+>   this block. **No production Python, test, requirement, `config.toml`, `version.py`, launcher,
+>   bootstrap, ffmpeg or `release.py` change was made, and no behaviour changed.** Identity remains
+>   **`0.6.2`**.
+> - **The NEXT action is an independent READ-ONLY integration-readiness RECHECK.** It has **not**
+>   been performed. **READY is NOT assumed** merely because this remediation happened — the recheck
+>   must actually return READY first.
+> - **Nothing downstream is authorized yet.** No pull request, no merge, no tag, no GitHub release,
+>   no package, no `release.py` run. `origin/master` is untouched at
+>   `81c9c0600ca74a42a22bd09d367a702bee9708fe`, the published GitHub release remains **`v0.4.0`**,
+>   and `feature/0.6.2-m4b-converter-upgrade` is still an unmerged feature branch.
+> - **Plan 6 has not begun and must not begin.** Plans 6–9 remain undrafted; each needs separate
+>   explicit maintainer approval.
+
+> ## ⟢ CARRY-FORWARD — `Setup_and_Run` cannot self-heal a missing FFmpeg (confirmed, NOT fixed)
+>
+> **Separate from Plan 5 and separate from the integration review above. Nothing here was
+> implemented in the 2026-09-01 documentation remediation — this is a record, not a fix.**
+>
+> - **The defect.** An installation with an existing `.venv` but a later-missing or broken FFmpeg
+>   takes the fast route: `Setup_and_Run-audiobook-creation-tool.bat` sees `.venv\Scripts\pythonw.exe`
+>   and launches `bootstrap.py --launch-only`, which routes to `_launch_with_kokoro_healthcheck()`
+>   and calls `ensure_ffmpeg_ready_for_launch()`. That path **detects** the missing dependency
+>   correctly — but it **cannot provision** one: it never reaches `ensure_ffmpeg()` /
+>   `_install_ffmpeg()`. The warning it shows comes from `ffmpeg_health.describe_failure()`, which
+>   tells the user to *"Run Setup_and_Run again to install a known-good copy"* — and doing so takes
+>   the same `--launch-only` route again. **The user can therefore repeat Setup_and_Run
+>   indefinitely and get the same failure every time.**
+> - **macOS needs the equivalent coverage.** `Setup_and_Run-audiobook-creation-tool.command` has the
+>   same shape (`if [ -x ".venv/bin/python" ]` → `--launch-only`); the analogous
+>   existing-venv/missing-FFmpeg control flow on real macOS has **not** been exercised.
+> - **Adjacent bootstrap concerns already identified**, to be considered in the same bounded pass:
+>   full-feature Python compatibility selection; paths containing spaces; requirements-state
+>   stamping that should happen only **after** successful import validation, not before; and a
+>   reviewed, checksummed portable-FFmpeg fallback.
+> - **Disposition.** This is **NOT** a reopened Plan-5 implementation item and does not affect the
+>   Plan-5 verdict. It should receive its **own bounded pre-Plan-6 bootstrap / self-healing
+>   remediation** before substantial Plan-6 work begins. Fresh-Windows and real-macOS setup testing
+>   remain **release-hardening** work, owned by Plan 9, not by this note.
+
+> ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is COMPLETE, APPROVED and CLOSED (2026-08-31)
+>
+> **This block is the live state of the repository and supersedes every earlier status sentence in
+> this file, including the Plan-5 ACTIVE block immediately below it and every phase record under
+> it.** Nothing below has been deleted or rewritten; the phase-by-phase record stays exactly as
+> written at the time.
+>
+> - **v0.6.2 Plan 5 (M4B Converter upgrade) is COMPLETE, APPROVED and CLOSED.** Phases 0–18 are all
+>   maintainer-approved. Any sentence below saying Plan 5 is *"ACTIVE"*, that a phase *"has NOT
+>   started"*, that *"Phase 18 has NOT started"*, or that a closeout is pending is **stale and
+>   superseded by this block.**
+> - **Code/version identity is now `0.6.2`.** `version.py` and `config.toml` were bumped together at
+>   this closeout, and the eight version-guard tests were updated in the same commit. Any sentence
+>   below saying identity *"stays at `0.6.1` for the whole of Plan 5"* was true until this closeout
+>   and is now superseded.
+> - **This is a version identity, not a release.** There is **no `[0.6.2]` changelog heading, no
+>   date, no tag, no GitHub release, no built archive and no publication**, and `release.py` has not
+>   been run. **The published GitHub release remains `v0.4.0`.**
+> - **The branch `feature/0.6.2-m4b-converter-upgrade` is NOT merged.** It branched from
+>   `master` at `81c9c0600ca74a42a22bd09d367a702bee9708fe` (Plan 4's integration master) and is
+>   still a feature branch. **Integration-readiness review, pull request, merge, tag, release and
+>   packaging are all outstanding and are the maintainer's decision** — none of them is part of this
+>   closeout, and none has been performed.
+> - **The temporary Plan-5 implementation drop has been RETIRED.**
+>   `md-instructions/0.6.2-m4b-converter-upgrade.md` was deleted at this closeout after its lasting
+>   content was transferred. Any sentence below referring to it as the live plan document, or saying
+>   *"there is an active temporary implementation drop"*, is stale. **The permanent trees
+>   `md-instructions/don't-delete/` and `files/archived-code/epub-tts/` are untouched** — they are
+>   not implementation drops and are never retired.
+> - **Where Plan 5's lasting record now lives:** `Briefing.md` (architecture, features, version,
+>   high-level state), `Changelog.md` (`[Unreleased]` only), `Decisions.md` (the consolidated
+>   closeout ADR alongside the per-phase Plan-5 ADRs), this block, and the Plan-5 row of
+>   `md-instructions/don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md`.
+> - **What Plan 5 shipped**, in one paragraph: the M4B Converter now converts a book **whole or
+>   split by chapter** over a **complete timeline** (nothing before the first chapter or after the
+>   last is dropped); three metadata modes over one strict five-field allowlist; whole-book chapter
+>   maps retained **with their titles** under Preserve and Replace; artwork copied rather than
+>   re-encoded, on whole books and every fragment; **per-book folders** for split output; shared
+>   importer, job-control, destination-planning and output-reservation adoption; occurrence-identity
+>   duplicates; a fully frozen run *including its configuration*; Pause/Resume/Cancel and Retry
+>   Failed; success-only optional track numbering, **off by default**; coherent FFmpeg provisioning;
+>   and a Windows Media Foundation route for xHE-AAC. Sources are never modified and nothing is
+>   overwritten. `launcher.TOOLS` still holds exactly six tools.
+> - **What Plan 5 did NOT prove, recorded as waivers and evidence gaps, never as PASS.** No real
+>   **xHE-AAC (USAC)** source was available on either platform, so neither the Windows Media
+>   Foundation route nor the macOS `aac_at` route has a live end-to-end decode behind it. Real-source
+>   **PNG cover, artwork-free, chapterless and slash/backslash-titled** rows were absent from the
+>   authorized corpus and stand on synthetic produced-bytes proofs. The **Whole Strip** real-GUI run
+>   is maintainer-reported PASS **without mechanical corroboration** — no Strip-shaped run is
+>   discoverable in any log on this machine. Human visual inspection at exactly **920×600** and
+>   further manual breadth were waived by explicit maintainer disposition. **Windows 125% scaling**
+>   remains deferred to Plan 9. A **true no-Python + no-FFmpeg fresh-machine install** remains
+>   outstanding **for release**, not for Plan 5.
+> - **Still open, reported and deliberately not fixed in Plan 5** (Phase 17's maintainer-disposition
+>   list, none of them a Plan-5 blocker): `ensure_ready` re-executing a just-failed pinned pair once
+>   more in the same call; `PcmTimeline.feed`'s short-read return discarded by its only caller; one
+>   `JobReporter` driven by two threads on a narrow window; a failed split book leaving an empty book
+>   folder; total path length now that split adds a component; four `assert … or True` dead
+>   assertions in the suite; and the `.bat` lacking the `.command`'s launch-failure guards.
+> - **The wider v0.6.x initiative is not complete** — Plans 6–9 remain undrafted, and each future
+>   plan and phase still needs separate explicit maintainer approval before it begins.
+
+> ## ⟢ SUPERSEDED (kept as history) — CURRENT STATE — v0.6.2 Plan 5 is ACTIVE; Plans 3 and 4 are MERGED (2026-08-22)
+>
+> **This block is the live state of the repository and supersedes every earlier status sentence in
+> this file, including the Plan 4 block immediately below it.** Nothing below has been deleted or
+> rewritten; the phase-by-phase record stays exactly as written at the time.
+>
+> - **Plan 3 is MERGED** into `master` through **pull request #4** (merge `809a43e`).
+> - **Plan 4 is MERGED** into `master` through **pull request #5** (merge
+>   `81c9c0600ca74a42a22bd09d367a702bee9708fe`). Any sentence below saying Plan 3 or Plan 4 is
+>   *"awaiting integration review"*, *"NOT merged"* or that *"the next action is Plan 4 integration
+>   review"* is **stale and superseded by this block.**
+> - **Plan 4's integration master is `81c9c0600ca74a42a22bd09d367a702bee9708fe`**, and that is the
+>   commit Plan 5 branched from. Both feature branches were **retained**, not deleted.
+> - **Code/version identity is `0.6.1`** and stays there for the whole of Plan 5; the bump to
+>   `0.6.2` happens only at Plan 5's approved closeout. **The published GitHub release remains
+>   `v0.4.0`** — published release and code version identity are deliberately distinct.
+> - **v0.6.2 Plan 5 (M4B Converter upgrade) is ACTIVE** on branch
+>   `feature/0.6.2-m4b-converter-upgrade`, with the approved temporary drop
+>   `md-instructions/0.6.2-m4b-converter-upgrade.md`. Any sentence below saying *"there is no active
+>   temporary implementation drop"* or *"Plan 5 has not been drafted or started"* is stale.
+> - **Phases 0-10 are complete and approved-to-date.** Phase 7B's implementation `d66052f`,
+>   its verification remediation `2837b4a9`, Phase 8 `352c7f3a` and Phase 9 `fac4fdb4` were
+>   all maintainer-approved before the phase that followed them began, and **Phase 10
+>   `7009841d` is maintainer-approved.**
+> - **The bounded Tk test-lifecycle remediation `c5129a0` is maintainer-approved**, and
+>   **Phase 11 `17f577ff` is maintainer-approved** on top of it — its final gate was
+>   **first-attempt green with no retry**, which is what the remediation existed to make
+>   possible. **Phase 14 `27732d77` is maintainer-approved.** **Phase 15 is COMPLETE BY EXPLICIT
+>   MAINTAINER ACCEPTANCE (2026-08-29)** — see the Phase 15 acceptance record below. Four Windows
+>   blockers were diagnosed, fixed and committed during it (FFmpeg provisioning, Whole-book
+>   artwork truncation, the Windows **xHE-AAC decode gap**, and the ffprobe cp1252 Unicode
+>   refusal), and the clean-install acceptance checkpoint PASSED. The substantial real-world
+>   Windows validation that was performed passed; the maintainer **explicitly waived** the
+>   remaining unperformed synthetic/manual §26 rows as prerequisites. **Those waived rows are
+>   recorded as waived, not as PASS** — do not read "Phase 15 complete" as "all of §26 passed".
+>   Any sentence below saying Phase 15 is *"INCOMPLETE"*, that *"items 6+ have not run"* as a
+>   blocker, or that a retest *"awaits the maintainer"* is **stale and superseded by this block**.
+>   A **true no-Python + no-FFmpeg fresh-machine** proof is still outstanding **for release**, not
+>   for Phase 15. **Phase 16 has NOT started.**
+>   No tag, no release, no package, no `release.py` run.
+>   - **Phase 16 macOS validation is UNDERWAY in bounded checkpoints** (2026-08-30), which
+>     supersedes *"Phase 16 has NOT started"* immediately above. **Phase 16 is NOT complete** and no
+>     part of the §26/§31 manual matrix has been run.
+>     - **Checkpoint A — preflight (evidence only, no tracked change).** The Mac was on the Plan 4
+>       branch and was fast-forwarded onto `feature/0.6.2-m4b-converter-upgrade` at `5726bb2`
+>       (`db18cae` was a direct ancestor; no reset, rebase or stash). Apple M4 Pro `Mac16,8`,
+>       macOS 26.6.2 arm64, 557 GiB free; Python 3.12.13 arm64 with `pip check` clean and
+>       `bootstrap.py --self-test` OK including functional Tk; Homebrew **FFmpeg 8.0** at
+>       `/opt/homebrew/Cellar/ffmpeg/8.0/bin`, a coherent arm64 ffmpeg/ffprobe pair proved by
+>       `ffmpeg_health.prove_pair()`, with no `ffmpeg-state.json` pin yet. **The macOS `aac_at`
+>       route the 2026-08-29 xHE ADR depends on is present and selected** (`--enable-audiotoolbox`;
+>       `input_decoder_args(xHE)` → `["-c:a","aac_at"]`), so §27 gate 10 is not triggered.
+>       Discovery is contained: bare `pytest` and `pytest .` both collect **5178**, all under
+>       `files/tests/`. **No M4B source media of any class exists on this Mac** — no
+>       `files/test-files/`, no tracked media, no recorded source path — so *"No suitable real
+>       xHE-AAC proof source established during Checkpoint A"* is recorded as an **evidence gap
+>       only**, neither pass, fail nor deferral, and the manual matrix is media-blocked.
+>     - **Checkpoint A1 — test output isolation (this commit).** Checkpoint A proved
+>       `test_m4b_converter_jobs.py::test_the_worker_runs_off_the_main_thread_without_touching_tk`
+>       reserved a **real** run directory in the maintainer's `~/Downloads/Audiobook-Creation-Tool-Outputs/`
+>       and wrote two zero-byte outputs into it. Root cause, proved by traceback: `convert_worker`
+>       reserves via `m4b_plan.assemble_plan` → `output_paths.reserve_run_directory(TOOL_KEY)` with
+>       **no snapshot argument**, so the base resolves the *process* `config.get_effective()`. The
+>       panel's injected `effective_config` never reaches that call and `home=` reaches only the
+>       import coordinator; the tests that go through the module's `work()` helper patch the
+>       reservation and were always safe, but the ones driving `convert_worker` directly are not.
+>       Fixed **test-only** by an autouse `output_base` fixture pointing the process snapshot at
+>       `tmp_path`, following the existing `test_cover_jobs.py` precedent — the reservation, its
+>       numbering and its collision safety stay completely real, only their root moves into
+>       pytest storage. Guarded by a new structural regression that asserts the reserved run lands
+>       under `tmp_path` and not under the computed real base; it fails immediately when the
+>       fixture is removed. **No production file changed.** A full-suite sweep under a sandboxed
+>       `HOME` confirmed **no remaining leak anywhere** in the suite, and the maintainer's existing
+>       `~/Downloads` artifacts were left untouched and verified byte-identical.
+>     - **Two macOS reds remain open and are deliberately NOT fixed here.** (1)
+>       `test_m4b_converter_importing.py::test_every_new_control_is_reachable_at_the_minimum_window`
+>       — its *primary* assertion passes, so all 33 Plan 5 controls are real targets at 920×600 and
+>       §27 gate 12 is **not** triggered; what fails is the secondary trade-off assertion, because
+>       under the aqua theme the notebook is squeezed to 49 px (req 119) and `summary_text`
+>       collapses to 1 px (req 60). This looks like the **pre-existing 920×600 clipping already
+>       deferred to Plan 9 by §33**, surfacing on macOS as a red test. (2)
+>       `test_first_run_contract.py::test_the_bootstrap_probes_the_winget_user_scope_python_location`
+>       — a Windows contract forced onto the Windows branch that compares a `\`-separated suffix,
+>       which cannot match a path joined on POSIX. Both are pre-existing and unrelated to this
+>       commit. **The macOS suite is NOT green.**
+>     - **Checkpoint A2 — macOS minimum-layout remediation (this commit).** Red (1) above is now
+>       **fixed**; the maintainer ruled that the new Plan-5 Summary must keep a usable line at the
+>       supported minimum, rather than being folded into Plan 9's clipping debt. **Root cause, and
+>       it was not the panel:** `aqua` gives every `TNotebook` a padding of **`18 8 18 17`** — the
+>       inset a full-window document tab set wants. That is 25 vertical pixels, and it made the
+>       notebook's chrome **59 px** while `grid` was allocating the whole notebook only **49 px**,
+>       so the page got 1 px. Windows survived the identical layout only because no other ttk theme
+>       pads a notebook at all (measured chrome: `clam` 30, `alt` 27, `default` 25, `classic` 29).
+>       **Fix, in two small parts.** `shared/job_ui.py` builds the notebook with `padding=0` — a
+>       *widget* option, so `cget("style")` is untouched and both the Windows `ACT.*` branch and
+>       the native empty-style branch keep their contracts; measured aqua chrome 59 → 34 px and an
+>       exact no-op on every other theme. `SummaryDetailsView.minimum_height()` and
+>       `JobAdapter.minimum_height()` then report, from the live widgets and the live font, how far
+>       the pane may be squeezed before it shows nothing, and `m4b_converter.py` pins row 3's
+>       `minsize` to that floor so `grid` takes the shortfall from the genuinely scrollable queue
+>       and log instead. **No hard-coded pixel constant, no `MIN_SIZE` change, no scrolling
+>       fallback, no theme change, no `ui_theme.py` change, and no business logic touched.**
+>       Result at 920×600: `summary_text` **1 px → 21 px**, notebook 49 → 55, row 3 pinned at 165
+>       (floor 159 + the row's own 6 px pad), and **all 33 required controls still ≥16 px and
+>       inside the window**; at 1024×720 Summary is 30 px and nothing regressed. Three real
+>       contract tests caught earlier attempts and were **obeyed, not weakened** — the panel may
+>       not call `after`/`after_idle` (so the floor settles geometry synchronously), the Windows
+>       branch must use `ACT.*` styles only, and the native branch must ask for no style at all;
+>       a fourth required the new methods to open with `self._guard.require(...)`, which they now
+>       do. Two narrow regressions were added in `test_job_ui.py` at the shared source. **The one
+>       remaining automated red is (2), the `test_first_run_contract.py` Windows path-suffix
+>       contract, deliberately untouched: 1 failed, 5134 passed, 46 skipped. The macOS suite is
+>       still NOT green, and `verify.py` was not run as a gate.**
+>     - **Checkpoint A3 — first-run contract portability, and the authoritative macOS baseline
+>       (this commit).** Red (2) above is now **fixed, and it was a test-host artifact, not a
+>       product defect.** `test_the_bootstrap_probes_the_winget_user_scope_python_location` forces
+>       `bootstrap.IS_WINDOWS = True` on purpose, so the Windows contract stays protected from any
+>       host rather than being skipped. But forcing that flag selects the Windows *branch* without
+>       turning `pathlib.Path` into `WindowsPath`, so on macOS the branch joined with `/` and
+>       produced `C:\Users\someone\AppData\Local/Programs/Python/Python312/python.exe`, which a raw
+>       `str.endswith(r"Programs\Python\Python312\python.exe")` rejected. **Proved equivalent:**
+>       that string and the all-backslash one Windows itself builds have identical
+>       `PureWindowsPath.parts` — `('C:\\', 'Users', 'someone', 'AppData', 'Local', 'Programs',
+>       'Python', 'Python312', 'python.exe')` — so **real Windows production behaviour was never
+>       wrong** and `bootstrap.py` is **byte-identical**. Fixed test-only (option A) by comparing
+>       under `PureWindowsPath` semantics instead of the host's separators; the assertion is
+>       stronger than before, pinning the whole `LOCALAPPDATA → Programs → Python → Python312 →
+>       python.exe` chain rather than only a tail, and it still rejects a wrong version. Not
+>       skipped, not xfailed, not weakened.
+>       **The macOS automated baseline is now GREEN and authoritative:** bare `pytest` with the
+>       tracked `pytest.ini` and the explicit `pytest files/tests` both report **5135 passed, 46
+>       skipped, 0 failed, 0 errors, 6 warnings**, from **5181 collected nodes all under
+>       `files/tests/`** (no `dev-work`/`runtime-data` snapshot collected). `scripts/verify.py`
+>       **PASS** on all five checks (pytest · deps `==`-pinned · docs · docnames · config 0.6.1);
+>       `compileall` clean; `pip check` clean. All 46 skips are truthful and none hides a macOS
+>       Plan-5 failure: 32 ACT/Windows-shell (`win32`-only), 11 Windows-only filesystem
+>       primitives, 2 case-insensitive-filesystem, 2 dev-work/runtime-data isolation guards with
+>       no colliding basename, and **3 in `test_jack_ryan_final_product.py`, which is gated on the
+>       `JACK_RYAN_M4B_FOLDER` environment variable**. That gate is the project's existing,
+>       sanctioned way to point the suite at real local M4Bs whose fixtures are gitignored and
+>       copyrighted — the right mechanism for the Phase-16 media gate, needing no home-directory
+>       searching.
+>       **Media state is unchanged and remains an evidence gap, not a failure or a deferral:**
+>       *No suitable real xHE-AAC proof source established during Checkpoint A*, and **no real M4B
+>       source media of any class has yet been established on this Mac** for the §26/§31 manual
+>       matrix. Nothing manual has been run. The maintainer must name the Mac audiobook location
+>       before that gate can begin.
+>     - **Checkpoint B — real-media inventory (2026-08-30, evidence only, no tracked change).**
+>       The maintainer supplied 12 real audiobooks under the gitignored
+>       `files/dev-work/phase16/macos-preflight/M4B-test-files-to-use` (4.75 GiB, no symlinks,
+>       nothing tracked). All 12 probe **AAC-LC**, all **CHAPTERED** (7–59 chapters), all tile
+>       `[0, D]` exactly, and the production probe agrees with raw ffprobe on every one. All 12
+>       carry exactly one **mjpeg** attached picture. Durations 4:29:01–12:55:56.
+>       **No xHE-AAC, no PNG cover, no artwork-free source, no chapterless source, no slash or
+>       backslash chapter title, no duplicate titles** — those §26 rows stay uncoverable here.
+>       Notable finds: *Reincarnated as a Dragon Hatchling, Vol. 2* starts its first chapter at
+>       **0.047891 s**, the genuine *first-chapter-after-zero* case Phase 15 recorded as impossible
+>       to build on Windows; *Secrets of the Silent Witch, Vol. 01* has the richest metadata (23
+>       tag keys) and **☕ U+2615** plus **U+2019** in its chapter titles.
+>       **`JACK_RYAN_M4B_FOLDER` was deliberately NOT set:** that gate expects finished products of
+>       this tool's own pipeline sharing **one** series, and this corpus is third-party retail audio
+>       spanning **8** distinct series, so `test_series_is_consistent_across_the_set` would fail and
+>       the claim would be untruthful. Nothing was changed to accommodate it.
+>     - **Checkpoint C1 — first real Whole+Preserve gate: maintainer PASS, plus a defect.**
+>       The maintainer ran the real `Setup_and_Run…command` launcher on *Secrets of the Silent
+>       Witch, Vol. 01* — 1 file, Quality 2, Whole book, Preserve — and reported the conversion
+>       completed, the output played, and **the listening quality was excellent (human audio PASS)**.
+>       Mechanical verification confirmed: source SHA-256 **unchanged**; output duration
+>       **26383.812789 s vs 26383.812789 s — 0.0 ms delta, 100.000000 %**, far inside the 3 % guard;
+>       one mp3 stream 44.1 kHz stereo; **all 17 chapter spans identical to the millisecond**;
+>       one **mjpeg 2400×2400** `attached_pic` retained; the four approved global tags exactly
+>       right; and **none of the 19 out-of-vocabulary source keys leaked** (`description`,
+>       `synopsis`, `audible_asin`, `publisher`, `series`, `comment`, `copyright`, `composer` all
+>       absent). No temp residue. That run wrote **no track tag at all** — the source had none and
+>       none was generated — so it is **neither an Auto-number ON nor an Auto-number OFF proof**.
+>       **But all 17 chapter titles were missing.** Direct ID3 parsing found 17 `CHAP` frames and
+>       **zero `TIT2` subframes**; `ch0…ch16` are ffmpeg's element ids, not names. C1 correctly
+>       stopped at its stop gate without remediating.
+>     - **Checkpoint C2 — whole-book chapter titles restored (this commit).** **Maintainer ruling,
+>       and it supersedes any earlier note treating timing-only chapter retention as sufficient or
+>       deferring titles to Phase 17: retaining the chapter map means retaining its titles as well
+>       as its timing.** Anonymous timing points are not enough.
+>       **Root cause:** `-map_metadata -1` — the §16 allowlist firewall — silences *chapter*
+>       metadata as well as global metadata, so `-map_chapters 0` copied boundaries and dropped
+>       every title. Proven on a 3-chapter generated fixture: the production shape yields
+>       `TIT2` = none; dropping the firewall restores the titles **but leaks `comment` and `genre`**,
+>       so that was rejected. `-map_metadata:c:N 0:c:N` was also rejected — ffmpeg refuses it with
+>       *"Invalid chapter index 0"*.
+>       **Selected mechanism:** keep the firewall absolute and name each retained title explicitly
+>       with **`-metadata:c:N`**, built through the shared `ffmpeg_metadata_args` mapping so this
+>       module still holds no second name→key table. Titles are **frozen at preflight** on
+>       `ItemPlan.chapter_titles` from the probe already in hand and carried to
+>       `SegmentWork.chapter_titles`; **execution re-probes nothing** and no second chapter model
+>       exists. Because `-metadata:c:N` names an *output* chapter it is independent of which input
+>       supplied the map, so the **Windows xHE PCM route keeps its single `-map_chapters` authority**
+>       — that route still strips the mapping pair and now deliberately keeps the titles.
+>       Split runs carry no titles at all, because a fragment drops the map.
+>       **Proved against produced bytes, not argv:** Preserve keeps spans *and* all three titles
+>       including ☕ and ’ with zero allowlist leakage; Replace keeps source spans and titles while
+>       replacing the book text; Strip keeps no chapters, no titles and no inherited metadata; an
+>       untitled source chapter stays untitled. One test deliberately records that the old
+>       argv-only assertion still passes on an output whose chapters are all anonymous — which is
+>       exactly how this shipped. Gate: **5187 collected / 5141 passed / 46 skipped / 0 failed**,
+>       `verify.py` PASS, compileall clean, `pip check` clean. The real 392 MB C1 output was left
+>       **untouched as defect evidence** and the 7-hour book was **not** re-run.
+>       **Windows Phase 15 scope, stated precisely and not rewritten:** its duration, audio,
+>       artwork and chapter-**count** evidence stands. It never mechanically verified `TIT2`
+>       chapter titles, and the defect lived in the shared Whole metadata path, so those outputs
+>       most likely carried anonymous chapters too. **That is not retroactively marked PASS**, and
+>       no new live Windows title proof has been performed.
+>       **Still open:** Auto-number still defaults ON and its default-OFF correction is not done;
+>       the checked-checkbox/no-track discrepancy is uninvestigated; and the xHE-AAC, PNG-artwork,
+>       artwork-free, chapterless and slash-title rows remain evidence gaps.
+>     - **Checkpoint C3 — Auto-number diagnosed, and defaulted OFF (this commit).** C2 was accepted
+>       at `61d1eb3`. **No numbering defect exists.** The full path was traced mechanically:
+>       `var_auto_num` → `read_options()` → frozen `PlanOptions.auto_number` →
+>       `SuccessNumbers(start)` built once per attempt when `auto_number and not split` →
+>       `propose()` **before** ffmpeg runs, because the number is written *into* the encode →
+>       `whole_book_tags(track=…)` → `-metadata track=N`. `commit()` runs only once the output
+>       actually exists, which is what makes the sequence success-only and gap-free without any
+>       post-encode remux: a failed book's proposed number is simply never consumed and the next
+>       success re-proposes it. A retry continues the same run's sequence from
+>       `start_number + len(prior.completed_ids)` — derived from the result, never from a filename
+>       or a directory listing.
+>       Reproduced through the real worker and real executor (only the process spawn stubbed):
+>       OFF + 1 success → **no track**; ON + 1 success → **`track=1`**; ON + `Start #`=7 + 3
+>       successes → **7, 8, 9**; ON with a failure between → proposed **1, 2, 2** so the two
+>       successes are **1 and 2 with no gap**. Existing coverage already proves the same contract
+>       against **real produced files** and across retries.
+>       **C1 classification — stated as deduction, not observation.** Because Whole + `auto_number`
+>       True always emits `-metadata track=N`, the C1 run's frozen snapshot **must have carried
+>       `auto_number = False`**. **The historical UI state at the instant Start was pressed cannot
+>       be reconstructed**: the screenshot records the checkbox when the screenshot was taken, not
+>       the value `read_options()` froze, and no record of that run's frozen `PlanOptions`
+>       survives. That C1 run therefore remains **neither an Auto-number ON nor an OFF proof**, and
+>       no narrative is offered to reconcile the screenshot.
+>       **Requested change applied:** a fresh panel now opens with **Auto-number tracks unchecked**
+>       (`tk.BooleanVar(value=False)`), `Start #` still **1**, mode Whole, metadata Preserve.
+>       Ticking the box still freezes `auto_number=True` and numbering works exactly as before —
+>       nothing about the success-only sequence, Split structural numbering, retry semantics or
+>       the frozen run changed, and the existing post-Start immutability test still passes
+>       unmodified. Every numbering and retry helper already set the option explicitly, so no test
+>       silently depended on the old default. Gate: **5189 collected / 5143 passed / 46 skipped /
+>       0 failed**, `verify.py` PASS, compileall clean, `pip check` clean.
+>       **Still outstanding:** the post-C2 chapter-title fix has **not** yet been proved on a real
+>       audiobook at full length — only on the generated fixture — and the xHE-AAC, PNG-artwork,
+>       artwork-free, chapterless and slash-title rows remain evidence gaps.
+>     - **Checkpoint C4 — full-corpus real validation, and the Split per-book folder supersession
+>       (this commit).** The maintainer relaunched the real app and **visually confirmed the C3
+>       fresh-panel defaults** — Whole, Preserve, Quality 2, **Auto-number unchecked**, Start # 1 —
+>       so the default-OFF change has now passed a real fresh-process GUI check. They then ran the
+>       **entire 12-book corpus through both modes**: Split → `M4B-Converter-3`, finished **353/353**;
+>       Whole → `M4B-Converter-4`, finished **12/12**. They listened to randomly chosen outputs
+>       (**human audio PASS**) and confirmed split tags and cover art in a real macOS tag editor.
+>       **All 12 sources are byte-identical** — every SHA-256 recomputed, all four Checkpoint-B
+>       values matched, size and mtime unchanged.
+>       **Concurrency is mechanically supported.** Two separate app processes: the Split log runs
+>       **15:29:14 → 16:34:11** and the Whole log **15:46:16 → 16:07:49**, so the Whole run sits
+>       **entirely inside** the Split window. Two distinct reservations (`-3`, `-4`), no collision,
+>       no cross-run output, and **zero ERROR / WARNING / CRITICAL / Traceback / retry / cancel
+>       lines in either log**. Both logs reference the identical 12 sources.
+>       **C2 is now proved at real audiobook scale.** Across all 12 Whole outputs: **353 chapter
+>       frames checked, 353 TIT2 titles matched, 0 mismatches**, 22 of them carrying non-ASCII
+>       (☕ U+2615, ’ U+2019) — all exact. Worst chapter-start delta **0.497 ms**; delivered ratios
+>       99.999657 %–100.000075 %; one audio stream each; artwork 1→1 on every book; **no
+>       out-of-vocabulary metadata leaked anywhere**; no `.act-tmp-*` residue. The live command in
+>       the log shows the fix working: `-metadata:c:0 title=Intro - Opening Credits ☕ …`.
+>       **The Split run audited clean too**: 353 expected from the 12 probes = **353 produced**,
+>       per-book counts all exact, every output carrying exactly one APIC, **zero** whole-book CHAP
+>       maps, structural tracks 1..N per book, filename `NN -` prefix matching track on all 353, no
+>       unexpected ID3 frames, no residue. Segments tile each source timeline to within **0.013 %**.
+>       **But 53 of the 353 files carried a collision suffix** and everything sat flat in one folder,
+>       interleaved by book.
+>       **The maintainer superseded the split half of D3/31A on that evidence** — see the
+>       2026-08-30 ADR. **Whole placement is unchanged.** A split occurrence now gets one folder
+>       named for its **source stem** at its own provenance-planned location, with all its segments
+>       inside; a chapterless book in a split run gets one too. The container is planned **once per
+>       occurrence through the same three shared planners**, so provenance, containment and the one
+>       run-wide collision domain stay in a single place and **no shared contract changed** —
+>       `DestinationPlanner.plan` already took a sanitised `subdir`. Duplicate occurrences get
+>       separate containers (`Book`, `Book-1`); a failed book keeps its reservation so Retry Failed
+>       reuses the identical frozen paths. **The previous flat behaviour was not a defect** — it
+>       followed 31A literally, and is not recorded as one.
+>       Proved on real produced files, not only on plans: a two-book Split run writes
+>       `run/NoCover/…` and `run/WithCover/…` with nothing loose at the root, and a two-book Whole
+>       control still writes `run/A.mp3`, `run/B.mp3` with **no** folders. Gate: **5199 collected /
+>       5153 passed / 46 skipped / 0 failed**, `verify.py` PASS, compileall clean, `pip check` clean.
+>       The flat `M4B-Converter-3`, the 12 `M4B-Converter-4` outputs and the pre-C2
+>       `M4B-Converter-2` defect output are all **left untouched as before/after evidence**.
+>       **Still open:** the new Split folder layout has **not** yet been seen by the maintainer in a
+>       real run; and xHE-AAC, PNG artwork, artwork-free, chapterless and slash-title real sources,
+>       plus the Pause/Resume/Cancel, Retry Failed and import-control manual matrices, remain gaps.
+>     - **Checkpoint C5 — the new Split layout confirmed on real media (this commit; C4 accepted at
+>       `3617a39`).** This closes the one gap C4 opened. The maintainer relaunched the real app,
+>       **again confirmed the fresh-panel defaults** (Whole, Preserve, Quality 2, **Auto-number
+>       unchecked**, Start # 1), and used **macOS Command-click in one Add Files chooser action** to
+>       import exactly two real books — *Arazan's Wolves* and *Secrets of the Silent Witch, Vol. 01*.
+>       Split + Preserve + Auto-number OFF finished **24/24**, Manual Tests 1–12 PASS, and Finder
+>       showed the two book folders with their chapters inside.
+>       **Mechanically audited, and clean on every point.** Both sources **byte-identical** (SHA-256,
+>       size and mtime all match the Checkpoint-B/C4 record). The run root of `M4B-Converter-5`
+>       holds **exactly two directories and zero loose MP3s** — `Arazan's Wolves/` and `Secrets of
+>       the Silent Witch, Vol. 01/` — with **no `.act-tmp-*` residue** and no third output. Counts
+>       are **7 + 17 = 24**, matching the Checkpoint-B chapter counts exactly, with nothing missing
+>       or extra. Every one of the 24: structural track equal to its position **1..N, restarting at
+>       1 in the second book**; filename `NN -` prefix matching that track; embedded title equal to
+>       its **source chapter title**; inherited artist/album/album_artist correct; **zero CHAP
+>       maps**; exactly **one APIC** whose codec and 2400×2400 dimensions match the source cover;
+>       **no unexpected or leaked ID3 frames**; mp3 44.1 kHz stereo; no zero-byte file. Timelines
+>       tile to **+0.0007 %** and **+0.0026 %** — far inside the 3 % guard. The ☕ (U+2615) and
+>       ’ (U+2019) titles survive in **both** the embedded title and the filename, with `:`
+>       correctly sanitised to `_` in the filename only.
+>       The session log (`session_2026-08-30_173722.log`) corroborates it: exactly **two** sources,
+>       reservation `M4B-Converter-5`, **24** segment encodes (7 + 17) all at `-q:a 2`, 24 artwork
+>       attach passes, every fragment carrying `-map_metadata -1 -map_chapters -1`, and **only
+>       DEBUG lines — no ERROR, WARNING, CRITICAL, Traceback, retry, cancellation or drift**. The
+>       `track=1..17` values in it are **split structural numbers, not Auto-number**; those are
+>       separate contracts and Auto-number OFF does not suppress structural split numbering. The log
+>       emits no explicit completion sentence, so completion rests on the GUI's 24/24 plus the 24
+>       produced files.
+>       **Before/after, same two books:** in the flat `M4B-Converter-3` they shared one root with
+>       eleven other books; in `M4B-Converter-5` they are separated. Counts, tracks, titles,
+>       artist/album/album_artist, APIC and CHAP counts are **identical**, and total durations match
+>       to **0.0 ms per segment** — only the destination hierarchy changed. (Neither of these two
+>       books needed a collision suffix in run 3; the 53 suffixes there came from other books.)
+>       **Command-click multi-file import = MANUAL PASS.** No log can prove which modifier key was
+>       pressed; what the log does prove is that exactly those two occurrences entered the run and
+>       no accidental third source did.
+>       **The new Split destination contract is now proved both automatically and on real media.**
+>       No production change was needed and none was made; the C4 gate (**5199 collected / 5153
+>       passed / 46 skipped**, `verify.py` PASS) remains authoritative for this commit, with a
+>       targeted 17-test layout/retry subset re-run green at HEAD.
+>     - ## ⟢ **PHASE 16 macOS VALIDATION IS COMPLETE BY EXPLICIT MAINTAINER ACCEPTANCE (2026-08-30)**
+>       **This supersedes every "Phase 16 NOT complete" sentence above it.** As with Phase 15,
+>       **"Phase 16 complete" does NOT mean every §26/§31 row passed** — the waived rows below are
+>       recorded as waived and must never be reclassified as PASS. **Phase 17 has NOT started and
+>       Phase 18 has NOT started.** `VERSION` stays `0.6.1`; nothing was tagged, released, packaged
+>       or merged, and the drop is not retired.
+>       **The maintainer's disposition:** *"for the remaining tests, just have claude code perform
+>       them, I don't want to do much manual testing just the bare minimum to see how it feels
+>       overall, all passed"* — explicit authorisation to stop extending the manual matrix and to
+>       complete the remainder mechanically.
+>       **REAL / MANUAL PASS (real launcher, real audiobooks).** Setup_and_Run bootstrap · coherent
+>       arm64 FFmpeg/ffprobe · fresh-panel defaults incl. Auto-number OFF (confirmed in three
+>       separate relaunches) · Add Files · **Command-click multi-file import** · **Whole Preserve**
+>       (12/12 corpus) · **Whole Replace** · **Split Preserve** (353/353 corpus, and 24/24
+>       folderized) · **chapter-title retention 353/353 TIT2 across all 12 books** · per-book Split
+>       folders · metadata allowlist with zero leakage · MJPEG artwork retained · **source
+>       immutability by SHA-256 on all 12** · Unicode (☕ U+2615, ’ U+2019) in tags and filenames ·
+>       complete timelines (≤0.013 %) · **first-chapter-after-zero real source** (Dragon Hatchling,
+>       s₁=0.047891, 59/59 titles) · **two concurrent app processes** with separate reservations ·
+>       human listening spot checks.
+>       **C6 Whole Replace, audited mechanically (`M4B-Converter-6`):** one MP3, no residue, source
+>       hash unchanged, 99.999657 % delivered, **all 7 chapter spans and all 7 TIT2 titles
+>       retained** (D6A proved on real media — Replace rewrites the book's text, not its
+>       navigation), the four replacement fields exactly as entered, **zero leaked keys**, one
+>       MJPEG cover retained, no track (Replace inherits none and Auto-number was OFF).
+>       **AGENT / MECHANICAL PASS.** Pause/Resume 6 tests — including
+>       `test_the_status_line_says_pause_requested_not_paused`, so nothing claims a running ffmpeg
+>       was suspended, and the worker acknowledges only between segments. Cancel 9 tests — including
+>       `test_a_real_child_is_started_terminated_and_reaped`, terminate→grace→reap on an actual
+>       child, no partial file, prior books kept, no zombie on panel close. Retry Failed 77 tests
+>       incl. real-file retries and frozen per-book folders. Import controls 469 tests through the
+>       real Tk panel — Add Files/Folder, recursion ON (nested appear) and OFF (root only, nested
+>       absent), repeated toggling frozen per import, Move Up/Down, Remove, Clear All, duplicates
+>       on and off, supported-type toggle, manager as sole authority, queue frozen at Start.
+>       920×600 A2 regression green at HEAD.
+>       **SYNTHETIC ACTUAL-OUTPUT PASS** (tiny generated M4Bs through the real panel, executor and
+>       ffmpeg; produced MP3s read back): **PNG artwork** retained as PNG by Preserve, removed by
+>       Strip, present on every split fragment · **artwork-free source** converts and Preserve
+>       invents no cover · **chapterless source** probes OK (not a failure), warns, yields one
+>       full-timeline MP3 **inside its book folder** in a split run · **slash/backslash titles**
+>       become visible punctuation with **no accidental hierarchy**, staying in the book folder with
+>       correct structural prefixes and source text intact in the tag.
+>       **WAIVED — NOT PASS.** (1) **xHE-AAC real macOS proof** — no suitable real source exists in
+>       the authorised corpus (all 12 are AAC-LC) and none can be produced locally: FFmpeg 8.0's
+>       native `aac` encoder is LC-only, `aac_at` exposes no USAC profile, and `libfdk-aac` is
+>       absent from this GPL build exactly as the 2026-08-29 ADR predicted. **Evidence gap, not a
+>       failure.** The decoder route itself is separately **PASS**: `aac_at` is present and
+>       production selection is covered by 19 automated tests. (2) **Real-source PNG, artwork-free,
+>       chapterless and slash/backslash rows** — those classes are absent from the corpus; the
+>       synthetic actual-output proofs above stand in their place. (3) **Human visual inspection at
+>       exactly 920×600** and further manual breadth — waived under the maintainer's explicit
+>       disposition after substantial real-world acceptance. (4) **Whole Strip real-GUI run** — the
+>       maintainer reports it PASSED, and that is accepted as manual evidence, but **no Strip run
+>       is mechanically discoverable on this machine**: no output folder and no Strip-shaped command
+>       (`-map_chapters -1` with no `-metadata`) in any session log. It is therefore recorded as
+>       **maintainer-reported PASS without mechanical corroboration**, backed by produced-bytes
+>       Strip proofs (no chapter map, no titles, no artwork, no inherited metadata) and 40 passing
+>       Strip tests.
+>       **Gate at acceptance:** 5199 collected / **5153 passed** / 46 skipped / 0 failed / 0 errors,
+>       all under `files/tests`; `verify.py` **PASS**; compileall clean; `pip check` clean; and the
+>       real Downloads tree byte-identical before and after the sweep — no test leaked output.
+>       **No production code changed in this checkpoint.**
+>   - ## ⟢ **PHASE 17 — SYSTEMATIC BUG HUNT / INDEPENDENT REVIEW: COMPLETE (2026-08-31)**
+>     **Phase 18 has NOT started.** No closeout, no permanent-record transfer, no version bump, no
+>     drop retirement. `VERSION` stays `0.6.1`.
+>     **Method.** Three independent reviewer contexts that took no part in the implementation, given
+>     the plan, the combined `origin/master..HEAD` diff (34 commits, ~26,800 insertions) and the
+>     accepted Phase-15/16 boundaries, each scoped separately — (A) media pipeline, chapters,
+>     metadata, artwork, xHE routing; (B) destinations, imports, occurrence identity, bootstrap and
+>     FFmpeg health; (C) job control, threading, process lifecycle, GUI surface and **test quality**.
+>     None was told what to look for. In parallel the main agent ran its own static/pattern audit and
+>     six adversarial mutations. **Every reviewer claim was reproduced mechanically before it was
+>     accepted; nothing was taken on assertion.**
+>     **Five confirmed defects, all fixed.**
+>     1. **BLOCKER — an exception anywhere in the execution loop wedged the panel permanently.**
+>        `convert_worker` was the thread target with no guard, and `done` — the message
+>        `_finish_idle` listens for — is sent from inside the body that had just died. Reproduced:
+>        an `OSError` from the final move left `_busy` set, the controller stuck `RUNNING`, `Convert`
+>        disabled and nothing said, until the app was restarted. Reachable with no mock at all: a
+>        full disk, an ejected volume, or a file an antivirus scanner still holds open. Fixed by
+>        applying the shape `JobController` already prescribes and TTS/Cover already use — the body
+>        moved to `_run_conversion`, and `convert_worker` settles the run, says so, and sends `done`
+>        regardless, with the settlement itself guarded.
+>     2. **HIGH — a chaptered book with no text tags shipped ID3v2.4 while its neighbours shipped
+>        2.3.** The `-id3v2_version 3` pin was gated on `work.tags`, which stopped being a proxy for
+>        "this output carries ID3" the moment the chapter-title remediation began writing
+>        `CTOC`/`CHAP`/`TIT2`. Reachable via a source with none of the four approved fields, or a
+>        Replace run with all four boxes left blank. Proved on produced bytes, then fixed by gating
+>        on the retained chapter map as well. Strip still writes nothing and still gets no pin.
+>     3. **HIGH — two split occurrences collapsed into one book folder.** The reserved container is
+>        handed back to the planner as a `subdir`, where `sanitize_relative` sanitises every
+>        component a *second* time — so the scheme depends on `sanitize_component` being idempotent,
+>        and it is not: ASCII `" ."` is stripped before Unicode whitespace, so a trailing no-break
+>        space hides a dot that the second pass then removes. Reproduced: `Book.\xa0.m4b` reserved
+>        `Book.` and wrote its segments into `Book/` — a **different occurrence's** folder —
+>        separated only by the `-1` suffixes the C4 supersession exists to eliminate. Fixed
+>        Converter-locally by settling the stem to a fixed point before reserving, so the second
+>        pass cannot alter it. **The shared `sanitize_component` non-idempotency is left as a
+>        reported finding for maintainer disposition** — it is a shared primitive with five other
+>        consumers and changing it is a shared-contract decision, not a bug-hunt one.
+>     4. **MEDIUM — every drift failure on the Windows xHE route blamed the platform.**
+>        `drift_message` named "xHE-AAC with no compatible decoder on this platform" whenever
+>        `undecodable_xhe` was set — but on a routed machine there *is* a decoder, which is the only
+>        reason the run got that far. That is the exact mistake the function's own docstring was
+>        written to prevent. Fixed by consulting `windows_decode` too; the unrouted message is
+>        unchanged.
+>     5. **LOW/MEDIUM — `PlanOptions.auto_number` still defaulted to `True`,** contradicting the C3
+>        ruling and the panel's own `False`. Only reachable through `convert_worker`'s bare-fallback
+>        construction, but a fallback that silently renumbers a library is the wrong way to be wrong.
+>     **Test quality.** Six adversarial mutations confirmed the C2/C3/C4 and A1 remediations are all
+>     backed by tests that genuinely fail when the fix is removed. Every new regression here was
+>     mutation-checked the same way. Nine structural tests that pinned `convert_worker` by name were
+>     **repointed at `_run_conversion` and strengthened** — the wrapper and its settlement helper are
+>     now held to their own narrow attribute sets, so the guard cannot become a way in for a widget —
+>     rather than relaxed. One guard tripped on a docstring that merely *mentioned* a forbidden
+>     symbol; the docstring was reworded rather than the guard weakened.
+>     **Reported, not fixed — for maintainer disposition.** The shared `sanitize_component`
+>     non-idempotency (above); the run reservation resolving the *live* process config rather than
+>     the run's frozen snapshot (a real production divergence that the A1 test-only fix left
+>     standing); `ensure_ready` re-executing a just-failed pinned pair once more in the same call,
+>     which can raise a second Windows Security toast; `PcmTimeline.feed`'s short-read return being
+>     discarded by its only caller; one `JobReporter` being driven by two threads on a narrow window;
+>     a failed split book leaving an empty book folder; total path length now that split adds a
+>     component; four `assert … or True` dead assertions in the suite; and the `.bat` lacking the
+>     `.command`'s launch-failure guards. **None is a Plan-5 blocker; several are Windows-only and
+>     unverifiable here.**
+>     **Gate after the fixes:** **5214 collected / 5168 passed / 46 skipped / 0 failed / 0 errors**,
+>     all under `files/tests`; `verify.py` **PASS**; compileall clean; `pip check` clean; the real
+>     Downloads tree byte-identical before and after; all six real run folders and both real source
+>     books untouched.
+>     - **Phase 17 residual — an accepted run now owns its output base (2026-08-31).** Maintainer
+>       approval of `30c94b9` was held pending this one finding, which the Phase-17 report itself
+>       raised as the most substantive open production gap. **It is a CONFIRMED Plan-5 defect and it
+>       is fixed.**
+>       **Reproduced, deterministically, with no sleeps.** Live configuration set to Base-A, panel
+>       built, Start pressed — the run froze Base-A into its snapshot. The live configuration was
+>       then switched to Base-B from inside the probe seam, which the worker calls *after* Start and
+>       *before* the planner reserves. The real `reserve_run_directory` then reserved under
+>       **Base-B**. One accepted run no longer represented one immutable configuration, and it still
+>       reported itself against the configuration it was frozen with. This is not a narrow race:
+>       preflight ffprobes every source on the worker and takes minutes on a large queue, and the
+>       reservation happens at the end of it — a Preferences save anywhere in that window moved the
+>       run. Decision 9A says a run captures its configuration once; the output base was the one
+>       value that had escaped that rule.
+>       **The fix is Converter-local and uses a seam that already existed.**
+>       `reserve_run_directory` has always accepted `effective=`; the M4B call simply never supplied
+>       it. `start_convert` now captures `shared_config.get_effective()` once, on the main thread, at
+>       the moment the run is accepted, carries it through `params["run_config"]`, and the
+>       reservation resolves *that*. **`shared/output_paths.py` is untouched** and still owns what a
+>       base means — the panel only records which configuration to ask. Retry carries the same value
+>       forward and reserves nothing at all, since its destinations were frozen on the first attempt.
+>       A first attempt resolving the base itself was rejected: `test_no_panel_recomputes_the_output_
+>       base_itself` correctly forbids a panel calling `resolve_output_base(`, and that guard was
+>       obeyed rather than relaxed.
+>       **Proved on all four axes, each mutation-checked:** an accepted run keeps Base-A even when
+>       Preferences change mid-run (fails on `30c94b9`); a **later** run picks up Base-B normally, so
+>       the freeze is not a stale cache; a retry stays in the original run directory with byte-equal
+>       frozen destinations; and the A1 output-isolation regression is still green.
+>       Five structural tests asserted the *literal text* `reserve_run_directory(TOOL_KEY)` or
+>       `resolve_output_base(`; four were rewritten to check the **call** by AST instead of its
+>       formatting, and one shared reservation stub now accepts `base=`/`effective=` and deliberately
+>       ignores them, so tests stay inside `tmp_path`. None was weakened.
+>       **Gate:** 5217 collected / **5171 passed** / 46 skipped / 0 failed; `verify.py` PASS;
+>       compileall clean; `pip check` clean.
+>       **Two things found along the way that are NOT this fix, recorded rather than folded in.**
+>       (1) **A pre-existing flaky test**, `test_m4b_hardening.py::test_duplicate_occurrences_stay_
+>       distinct_in_the_settled_result`, fails about **1 run in 20 in complete isolation** — measured
+>       at the *same* rate with this checkpoint's changes and with them stashed, so it predates them.
+>       Which of two duplicate occurrences receives the `-1` collision suffix is not stable; the
+>       contract the phase cares about holds either way, so this reads as a test asserting more than
+>       the contract guarantees. Not investigated further and not fixed, because folding it in would
+>       be the silent broadening this checkpoint forbids. It does mean earlier phases' "0 failed"
+>       gates were real runs but did not prove this test deterministic.
+>       (2) **Test output was written into the real Downloads tree during this checkpoint**, by an
+>       intermediate iteration of the fix that passed a resolved base to a stub that honoured it.
+>       Both halves are gone and the final code was re-verified to create **no** new user output
+>       (863 files before and after a full suite run, identical). The debris —
+>       `~/Downloads/Audiobook-Creation-Tool-Outputs/run-1/`, 467 files, 1.8 MB, created
+>       2026-08-31 16:39, sitting *beside* `M4B-Converter-Outputs/` — **was left in place because
+>       deletion from the maintainer's Downloads is not authorised.** All six real run folders are
+>       intact and unmodified (2 / 1 / 353 / 12 / 24 / 1 outputs).
+>       **The other eight Phase-17 residuals, classified:** shared `sanitize_component`
+>       non-idempotency — *known shared-contract risk, worked around Converter-locally*;
+>       `ensure_ready` re-executing a just-failed pin — *Windows-only observation, one extra
+>       security toast, no data risk*; `PcmTimeline.feed`'s discarded short-read — *Windows-only,
+>       guarded downstream by the 3 % drift check, unverifiable without a Windows host*; one
+>       `JobReporter` driven by two threads — *LOW non-blocking, mechanism proved only in isolation,
+>       never observed in a real run*; empty folder left by a failed split book — *LOW cosmetic, and
+>       the reservation is deliberately kept for Retry*; total path length after adding the book
+>       container — *known future/Windows risk, no macOS impact*; four `assert … or True` dead
+>       assertions — *test-quality cleanup*; `.bat` missing the `.command`'s launch guards —
+>       *Windows-only observation with current accepted evidence*. **None is an undispositioned
+>       Plan-5 BLOCKER/HIGH/MEDIUM defect.**
+>       **Phase 17 is now genuinely ready for final maintainer approval and Phase 18 closeout.**
+>     - **Phase 17 final cleanup + test-stability gate (2026-08-31).** The frozen-reservation fix
+>       `e915996` is accepted, and the two items it flagged are both closed.
+>       **1. The accidental Downloads debris is gone.** With explicit maintainer authorisation,
+>       and only after proving identity — exact authorised path, a real directory and not a
+>       symlink, sitting *beside* `M4B-Converter-Outputs/` rather than inside it, 467 files / 59
+>       directories / 1.8 MB created 2026-08-31 16:39:12, contents entirely synthetic
+>       `A.mp3` / `B.mp3` / `NN - Chapter N.mp3` fixture names with **zero** real corpus book names
+>       — `~/Downloads/Audiobook-Creation-Tool-Outputs/run-1/` was deleted. Its parent was not
+>       touched. All six real run folders remain exactly as before (**2 / 1 / 353 / 12 / 24 / 1**),
+>       and the output base is back to its 396-file baseline.
+>       **2. The flaky test was a test defect, and the earlier hypothesis about it was wrong.** The
+>       Phase-17 report guessed that which duplicate occurrence received the `-1` suffix was
+>       unstable. Capturing the state of a failing run disproved that: the suffix assignment is
+>       **deterministic and correct** every time (`Twice.mp3` and `Twice-1.mp3`, distinct paths,
+>       distinct ids, two settled results). What actually varied was that the **first** occurrence
+>       was *also* marked FAILED. Root cause: each encode writes to `.act-tmp-<stem>-<token>` and
+>       `mkstemp` draws that token from `abcdefghijklmnopqrstuvwxyz0123456789_`, so about **1 run in
+>       37 (2.70 %)** the first occurrence's own temporary file was named
+>       `.act-tmp-Twice-1a2b3c4d.mp3` — which the test's loose `"Twice-1"` *substring* selector
+>       matched, failing the wrong book. **Production was correct on every single run**, including
+>       the failing ones: no collapse, no aliasing, no overwrite, no lost occurrence.
+>       **Test-only fix.** The selector now requires the full prefix `.act-tmp-Twice-1-`; `-` is not
+>       in `mkstemp`'s alphabet, so that names the second occurrence's output and nothing else. The
+>       assertions were **strengthened, not loosened**, to state the invariant the phase actually
+>       protects — one physical book, two identities, two distinct destinations whose basenames are
+>       exactly `{Twice.mp3, Twice-1.mp3}`, two separately settled outcomes, exactly one failed, and
+>       the failed one is the occurrence whose output was refused — none of which depends on suffix
+>       ordering. **No production file changed.**
+>       **Proved rather than asserted.** Two mutations — collapsing both occurrences onto one
+>       destination, and settling them under one identity — each make the revised test fail, so it
+>       still catches the defect class it exists for; both were restored immediately and neither was
+>       committed. Stability: **100/100** consecutive isolated runs of the target and **10/10** clean
+>       whole-module runs, against the ~5 % failure rate measured before.
+>       **Final gate:** 5217 collected / **5171 passed** / 46 skipped / 0 failed / 0 errors, all
+>       under `files/tests`; `verify.py` PASS; compileall clean; `pip check` clean; the Downloads
+>       tree byte-identical across the full suite, with **no** recreated `run-1/`, no generic
+>       `run-N` directory, no seventh `M4B-Converter` run and no change to the six real ones.
+>       **Phase 17 is complete and approval-ready. Phase 18 has NOT started**; `VERSION` remains
+>       `0.6.1`, the Plan-5 drop is not retired and no permanent record has been transferred.
+>   - **Repository-local artifact containment** (2026-08-29, maintainer-directed; not a Plan 5
+>     phase). A standing repository-wide policy: project scratch, fixtures, diagnostics, backups,
+>     clean-room environments, generated media, temporary evidence, logs and agent working
+>     directories **stay inside the repository**, under the gitignored **`files/dev-work/`**.
+>     External project workspaces need **explicit permission first**, with the reason `files/`
+>     cannot serve, the exact path, what will be created and the cleanup plan. Installed
+>     Python/FFmpeg, WinGet locations, dependency-created OS temp and the user's chosen output
+>     folder remain legitimate externals. See the 2026-08-29 ADR in `Decisions.md` and
+>     § *Repository-Local Artifact Containment* in `AI-WORKSPACE.md` (that file is itself
+>     gitignored by long-standing design, so the ADR is the tracked copy of the rule).
+>     **Everything already scattered was migrated** — 61,695 files / 5,026,849,462 bytes, by atomic same-volume
+>     rename, every tree verified file-count- and byte-identical before the source was released:
+>
+>     | historical path | current local-only location |
+>     |---|---|
+>     | `C:\act-phase15-cleanroom` | `files/dev-work/phase15/cleanroom/` |
+>     | `C:\act-phase15-ffmpeg-backup` | `files/dev-work/phase15/ffmpeg-backup/` |
+>     | `C:\act-phase15-final-manual-matrix` | `files/dev-work/phase15/final-manual-matrix/` |
+>     | `C:\act-phase15-whole-diag` | `files/dev-work/phase15/whole-diag/` |
+>     | `C:\act-phase15-xhe-diag` | `files/dev-work/phase15/xhe-diag/` |
+>     | `%TEMP%\act-phase11-preserve-20260825` | `files/dev-work/phase11/preserve-20260825/` |
+>     | `%TEMP%\act-phase12-degraded` | `files/dev-work/phase12/degraded/` |
+>
+>     `act-phase12-degraded` is a **registered git worktree** (detached `82042f7`) and was moved
+>     with `git worktree move`, so its registration is intact rather than orphaned. Nine empty
+>     `%TEMP%\act-*` husks left by earlier harness runs were removed. **No `C:\act-*` and no
+>     `%TEMP%\act-*` path remains.** Historical reports naming the old paths stay true as written;
+>     this table is the current map.
+>     **Untouched on purpose:** `Downloads\Audiobook-Creation-Tool-Outputs\` (the user's own
+>     output location, including every Phase-15 `M4B-Converter-*` run), the active WinGet Gyan
+>     FFmpeg 9.0.1 installation, the Python installation, and the in-repo `.venv`.
+>     **One accepted consequence:** the relocated clean-room carries a second `files/tests/`, so a
+>     bare `pytest` from the repo root now reports 164 basename collisions. The authoritative gate
+>     is unaffected — `scripts/verify.py` runs `pytest files/tests/` explicitly and still collects
+>     **5160**. **Resolved the same day** by a tracked root `pytest.ini`: `testpaths =
+>     files/tests` plus `dev-work` and `runtime-data` in `norecursedirs`, so bare `pytest`,
+>     `pytest .` and `verify.py` all collect one tree. `files/runtime-data/phase14/
+>     tree-phase12/` turned out to carry a second `files/tests/` too, since 2026-08-22 — the
+>     defect was never unique to `dev-work`. Guarded by `files/tests/test_dev_work_isolation.py`.
+>     (A later bare-`pytest` probe wrote bytecode caches into two of the trees; clearing them
+>     also took 31 pre-existing `.pyc` files, 1,029,190 bytes, out of the clean-room. Sources,
+>     logs and its `.venv` are intact; only regenerable bytecode was lost.)
+>     No production, test or dependency change; version stays `0.6.1`.
+>   - **Phase 0** (2026-08-22, `be4a8e8`): branch, approved drop, source audit, transition records.
+>     Its gate was initially red for an environmental reason only — Smart App Control
+>     (`VerifiedAndReputableDesktop`, policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`) transiently
+>     blocked the unsigned `C:\ffmpeg\bin\ffprobe.exe` with `WinError 4551` / CodeIntegrity 3077 +
+>     3118, failing 25 ffmpeg-dependent tests. **`ffmpeg.exe` was never blocked.** The block cleared
+>     on its own on 2026-08-23 with **no security or repository change**; SAC remains in Enforce and
+>     the binary is byte-identical. Diagnosed and dispositioned by the maintainer; the baseline was
+>     re-proved at **3901 collected / 3887 passed / 14 skipped / 1 warning**, `verify.py` PASS.
+>     Because these binaries are unsigned, a recurrence is possible after an ffmpeg update.
+>   - **Phase 1** (2026-08-23): the Converter-local, pure chapter probe model
+>     `scripts/Universal/mp3_tools/m4b_chapters.py` — `ProbeStatus` (OK / PROBE_FAILED /
+>     NO_DURATION / NO_AUDIO), `SourceChapter` and `ChapterProbe`, all frozen, with `ok` true only
+>     for `OK`. **Model only**: no ffprobe call, no I/O, no Tk, and deliberately **no chapter
+>     validation** — a negative, duplicate, non-monotonic or out-of-range start is representable and
+>     is left for Phase 2. `shared/ffmpeg_utils.py` gained no chapter vocabulary and
+>     `metadata.read_chapter_titles` is untouched, per §11.1. The panel does not import it yet;
+>     production adoption is a later phase. Gate: **3938 collected / 3924 passed / 14 skipped /
+>     1 warning**, `verify.py` PASS. The **+37** collection delta is 36 new tests plus one, because
+>     `test_plan3_boundaries` parametrises over production sources and now guards the new module too.
+>   - **Phase 2** (2026-08-23): structural validation in the same Converter-local module —
+>     `ChapterUsability` (CHAPTERED / CHAPTERLESS / UNUSABLE), `InvalidReason` (8 members) and the
+>     frozen `ChapterValidation`, produced by the pure `validate_chapters(probe)`. Reads **starts and
+>     duration only**; chapter end times are never consulted. Rejects non-OK statuses, any duration
+>     that cannot bound a real `[0, D]` span (None / non-finite / ≤ 0, reported through the existing
+>     `NO_DURATION` semantic), non-finite starts, starts `< 0`, starts `>= duration`, duplicate
+>     starts and out-of-order starts. **Nothing is repaired** — no sort, clamp, drop, dedup or
+>     rename — and malformed structure never reaches the chapterless path, which stays exactly
+>     `OK` + `()` + usable duration per Decision 18A. Ordering uses **exact** comparison, no epsilon:
+>     ffprobe starts are millisecond-quantised, and inventing a threshold here is what §11.2 warns
+>     could later be mistaken for permission to move a boundary. The one-full-MP3 fallback itself is
+>     **not** implemented; this phase only proves an empty map is not corruption. `math` joined the
+>     module's imports for `isfinite`, and the Phase 1 purity guard was updated deliberately to
+>     match. Gate: **3993 collected / 3979 passed / 14 skipped / 1 warning**, `verify.py` PASS;
+>     the **+55** delta is exactly the new tests, with no parametrised production-source delta
+>     because the existing module was extended rather than a new one added.
+>   - **Phase 3** (2026-08-23): the complete-timeline partition, same module — `ChapterSpan`
+>     (frozen: `order`, `source_index`, `start`, `end`, `title`, derived `duration`),
+>     `TimelinePlanError`, and `plan_timeline(probe)`. Implements Decision 46A / §11.3 exactly:
+>     `bounds = [0.0, s2, …, sN, D]`, segment *i* = `[bounds[i], bounds[i+1])`, N outputs for N
+>     chapters. **`s1` is deliberately never a boundary** — that one choice puts pre-roll inside
+>     chapter 1 (no synthetic `"Opening"`), keeps unchaptered gaps with the preceding span, and ends
+>     the last span at the real `D`. **No arithmetic touches a boundary**: every bound is the literal
+>     `0.0`, a chapter start copied verbatim, or `D` copied verbatim, so float drift is impossible
+>     and there is no epsilon in this layer to be mistaken later for permission to trim.
+>     `plan_timeline` **delegates to `validate_chapters` and refuses anything not `CHAPTERED`**,
+>     raising `TimelinePlanError` carrying the validation — so Phase 2 stays the single authority and
+>     a malformed or chapterless probe cannot produce spans by any route. The chapterless one-file
+>     fallback remains later work. Titles are carried raw; naming is Phase 4.
+>     **Real-fixture diagnostic (read-only, not committed):** all five local M4Bs
+>     (15/47/50/39/44 chapters) fed through the production planner tile `[0, D]` with
+>     `Σ − D = +0.000000000`; Harry Potter's **0.046 s tail was absorbed into the final span, not
+>     discarded**, and Mistborn's `+0.000011 s` float remainder likewise. **No risk-gate-4
+>     contradiction.** Gate: **4055 collected / 4041 passed / 14 skipped / 1 warning**,
+>     `verify.py` PASS; **+62** delta is exactly the new tests. The first full run hit the **known Tk
+>     transient** — 48 errors in `test_preferences_maintenance_ui.py`, which passes 62/62 in
+>     isolation — and one clean fresh-process retry was green; nothing was weakened or skipped.
+>   - **Phase 4** (2026-08-23): the naming seam, in a **new** Converter-local module
+>     `scripts/Universal/mp3_tools/m4b_naming.py` — `flatten_title()` and `segment_filename()`.
+>     It is a separate module on purpose: `m4b_chapters` is guarded stdlib-only, and naming must
+>     import `shared.output_paths.sanitize_component`, so splitting them kept that purity guard
+>     intact instead of loosening it. **Two stages, and the order is the point**: separators become
+>     visible punctuation *first* (`/` and `\` → `" - "`, NUL dropped, whitespace collapsed), and
+>     only then is a genuine single component handed to the shared sanitiser — which owns every
+>     filename-safety rule and is **consumed byte-unchanged**. Feeding the real title straight to the
+>     sanitiser collapses it to `"Please get off my hearse.mp3"`, losing two thirds of the title and
+>     the order prefix; a test pins that defect alongside the fix. Approved outputs all reproduce
+>     exactly: `01 - 1 — There is no food here - Meg ate all the Swedish Fish - Please get off my
+>     hearse.mp3`, `03 - Chapter 1_ To Goldicia.mp3`, `04 - Chapter 4.mp3` for blank/`"   "`/`..`,
+>     `06 - _CON.mp3`, and a 300-character title capped at 255 with `.mp3` intact. Width is
+>     `max(2, len(str(total)))`; numbering is rendered, never allocated, and holds no cross-item
+>     state. `ChapterSpan` gained no filename or destination. Gate: **4120 collected / 4106 passed /
+>     14 skipped / 1 warning**, `verify.py` PASS, clean on the first attempt with no Tk transient;
+>     the **+65** delta is 64 new tests plus one, because a new production module means
+>     `test_plan3_boundaries` parametrises over it (121 → 122). No Phase 1-3 guard needed changing.
+>   - **Phase 5** (2026-08-23): the ffmpeg command shape, **measured before it was pinned**, in a
+>     new Converter-local module `scripts/Universal/mp3_tools/m4b_commands.py` —
+>     `whole_book_argv()` and `segment_argv()`, pure argv builders that execute nothing, probe
+>     nothing and import nothing (stdlib only; the ffmpeg path and decoder args arrive already
+>     resolved). **Selected shape: output-side `-ss` after `-i`, span as an explicit
+>     `-t (end − start)`.**
+>     **Why, and this is the part not to undo.** Four candidates were compared on a deterministic
+>     generated fixture whose decoded content identifies its own source time (a second-identifying
+>     tone plus a 12 ms 6 kHz burst per second; self-calibration 60/60 markers, worst error 1.00 ms)
+>     across a real chapter-start partition `0 → 7.3 → 19.87 → 41.055 → 43.2 → 59.63 → 60`.
+>     **Input-side `-ss` before `-i` is ~100× faster and silently corrupts audio**: on the FFmpeg
+>     nightly it emitted 2.1 ms of hard digital silence at `-ss 0` and attenuated the first 10–20 ms
+>     of five of six segments to as little as a quarter amplitude **while reporting an exactly
+>     correct duration** — so no drift guard at any tolerance could ever detect it; on FFmpeg 9.0
+>     the same shape instead skipped ~21–24 ms outright and ran 3–12 ms short. Both builds lost
+>     source second 0. **The rejected shape's failure mode changed between two ffmpeg versions
+>     while the selected shape's did not move at all**, which is the second reason it is pinned.
+>     Cause: AAC decoder priming — input-side seek starts at a packet boundary with no preceding
+>     frame for the MDCT overlap. Output-side seek tiled `[0, D]` exactly (60/60 seconds, none lost
+>     or duplicated), matched the source at every boundary to 3–4 decimals, and held duration error
+>     ≤ 0.01 ms, **identically on both builds**. `-to` was measured, not assumed: with output-side
+>     seek it is equivalent to `-t`, but combined with input-side seek it is re-read against the
+>     shifted timeline and turned a requested 20 s span of a real audiobook into a 425 MB, 11-hour
+>     file — so the explicit duration wins the tie on failure mode.
+>     **Cost, measured not extrapolated.** Real fixture *Mistborn Book 1* (AAC-LC, 88 703.585 s,
+>     24.64 h, 47 chapters, SHA-256 `471dee68…`, byte-identical before and after). Output-side seek
+>     costs ~**1.55 s per hour of preceding audio** and is linear: 17.12 s at 11.00 h, **35.79 s at
+>     23.16 h (93.99 %)** — the latter well inside the 300 s bound fixed before any candidate ran,
+>     with output duration exactly 20.000000 s and positional agreement **r = 0.99893 at lag 0**
+>     against an independent `-c copy` extraction. Applied to this book's real 47 chapter starts
+>     that is ~14.3 min of seeking on top of the ~6.0 min of encoding that must happen regardless
+>     (encode measured at 244.8× realtime): **accepted** — under 1 % of the book's own playing time,
+>     and the faster shape is not an alternative because it is wrong.
+>     **Interruptibility (research evidence only, not Phase 11):** spawned through
+>     `shared.subprocess_utils.popen`, `poll()` was `None` at t+1/2/3 s, `terminate()` ended it in
+>     **8.2 ms** with no `kill()` fallback, reaped, PID confirmed gone. No lifecycle, polling,
+>     temp→final promotion or partial-file policy was implemented.
+>     **Environment:** the shared `C:\ffmpeg` nightly suffered a **second** Smart App Control
+>     incident mid-phase (policy `{0283ac0f-…}`, CodeIntegrity 3077/3033/3089/3118, this time
+>     blocking `ffmpeg.exe` from loading `avutil-60.dll`, surfacing as `0xC0E90002` with no output).
+>     The maintainer installed the **WinGet Gyan FFmpeg 9.0 full static build** side-by-side and it
+>     runs under the same SAC policy despite also being unsigned; Phase 5 used it via a
+>     **process-local `PATH` prepend only**. No Windows security setting, binary, installer,
+>     bootstrap or requirement was changed, and `C:\ffmpeg` was left untouched. **Whether the
+>     installer should prefer a stable static distribution is unassigned and deliberately deferred.**
+>     Not adopted into `m4b_converter.py` — the builder ships isolated, as the phase preferred; the
+>     converter is byte-unchanged. Phase 6's seam is one typed `output_args` sequence spliced
+>     between `-vn` and `-c:a`, structurally unable to reach the input-option region. Gate:
+>     **4225 collected / 4211 passed / 14 skipped / 1 warning**, `verify.py` PASS; the **+105** delta
+>     is 104 new tests plus one, because a new production module means `test_plan3_boundaries`
+>     parametrises over it (122 → 123). The generated-media regression was **mutation-checked**:
+>     moving `-ss` to the input side makes it fail (ledger loses second 0, −9.4/−16.7 ms drift).
+>   - **Phase 6** (2026-08-23): metadata modes, D6A chapter retention and artwork, in a new
+>     Converter-local pure policy module `scripts/Universal/mp3_tools/m4b_metadata.py`
+>     (`MetadataMode`, `SourceTags`, `AttachedPicture`, `select_attached_picture`,
+>     `whole_book_tags`, `segment_tags`, `retains_chapters`, `metadata_args`,
+>     `ConversionCommands`, `whole_book_commands`, `segment_commands`) plus the smallest possible
+>     extension to `m4b_commands.py`.
+>     **Whole-book Preserve is an explicit allowlist, and blanket `-map_metadata 0` was measured
+>     and rejected.** Inventory over five real fixtures (15/47/50/39/44 chapters, all byte-identical
+>     before and after) showed blanket copying puts **23 format tags / 25 ID3 frames** into the MP3,
+>     including statements that are simply false about the produced file: `AUDIBLE_DRM_TYPE=Adrm` on
+>     a DRM-free MP3, the MP4 container brands `major_brand`/`minor_version`/`compatible_brands`
+>     stamped onto an MPEG audio file, Audible ACR/ASIN/locale product identifiers, the source
+>     `creation_time`, replaygain computed for the AAC stream, and AAC `Encoding Params`. Twelve of
+>     those frames were `TXXX:` freeform junk. A mutation check confirms the guard bites: reverting
+>     to blanket copying leaks `SRC COMMENT`/`SRC GENRE`/`1999` and the totals `track=3/9`,
+>     `disc=1/2`.
+>     **Out-of-vocabulary but true metadata is deliberately dropped.** The fixtures also carry
+>     narrator, publisher, series/series-part, subtitle, copyright, comment, genre, year, language,
+>     description, grouping and lyrics. These are accurate about the book and are still dropped,
+>     because §15 locks the Converter's encode-time vocabulary to `shared.metadata`'s
+>     `title`/`artist`/`album_artist`/`album` + optional `track`. **Risk gate #2 was reviewed and
+>     not triggered**; `shared/metadata.py` is byte-unchanged and `ffmpeg_metadata_args` is consumed,
+>     never re-implemented, so exactly one friendly-name-to-ffmpeg-key table exists.
+>     **D6A is independently implementable** — measured: `-map_metadata -1 -map_chapters 0` retains
+>     the chapter map while leaking **zero** source metadata, so **risk gate #3 is closed**. The six
+>     cells: Whole Preserve `0` - Whole Replace `0` - Whole Strip `-1` - all three split modes `-1`.
+>     **Risk gate #6 was reached and maintainer-dispositioned (Option A, two passes).** An embedded
+>     cover is one frame at PTS 0 and the locked output-side `-ss` discards everything before the
+>     segment start, so a split segment cannot carry artwork in the audio pass. Five single-command
+>     reconciliations were measured and all failed, one of them silently emitting the whole 88,703 s
+>     book for a 4 s request. **Pass 1 is Phase 5's `segment_argv` byte-for-byte unchanged**
+>     (output-side `-ss`, explicit `-t (end-start)`, xHE decoder args before `-i`, libmp3lame VBR
+>     `-q:a`, `-threads 0`, `-vn`, no artwork). **Pass 2** stream-copies Pass 1's audio plus the one
+>     selected picture: `-i STAGE -i BOOK -map 0:a:0 -map 1:<idx> -c copy -disposition:v:0
+>     attached_pic -map_metadata 0 -map_chapters -1`. `-map_metadata 0` is safe **only** because
+>     input 0 is the already-allowlisted Pass 1 output; the book is input 1 and contributes exactly
+>     one stream, so it can contribute no tags. Whole-book needs **one** pass (no seek to discard the
+>     cover), and a no-art source needs **no** second pass at all.
+>     **Artwork selection has three distinct outcomes** (corrected 2026-08-23): **zero**
+>     attached pictures is a valid no-art source and yields `None`; **exactly one** is selected;
+>     **more than one** raises the typed `ArtworkSelectionError` and selects nothing. The first
+>     implementation resolved a tie by lowest stream index — that was an **invented product
+>     rule**, not one §17 settles, and every real fixture inspected carried exactly one cover, so
+>     there was no evidence to derive it from. `None` and ambiguity are deliberately different
+>     states: `None` means no cover exists, ambiguity means one does and the policy cannot say
+>     which. The error follows the repository's `message`/`detail` shape and lists candidates in
+>     stream order **for the diagnostic only** — nothing selects from that ordering. **A product
+>     rule for multi-cover sources remains undecided and is deliberately unwritten.** Phase 10/11
+>     preflight will turn this refusal into an item-level failure; no UI handling exists yet.
+>     **Artwork is selected by disposition, never by "first video stream".** `attached_pic == 1` is
+>     required and the **absolute** stream index is used, because a source can carry ordinary video
+>     ahead of its cover. Real formats present: **MJPEG** (Mistborn, Miss Savage Fang, DCC, HP4) and
+>     **PNG** (ToA 4). No real fixture had ordinary non-attached video, so a generated fixture
+>     supplies it; mapping it as `0:v:0` makes ffmpeg hard-fail with *"No mimetype is known for
+>     stream 1, cannot write an attached picture"*, which is why the disposition rule matters.
+>     Real-fixture confirmation, sources byte-identical: MJPEG -> `1 APIC image/jpeg 132,940 B`,
+>     PNG -> `1 APIC image/png 4,183,892 B`, both with 0 chapters, segment title/track (no
+>     whole-book title), and **decoded PCM bit-identical across the attach pass** - the attach
+>     re-encodes nothing.
+>     **Muxer technical tags are not leakage.** ffmpeg stamps its own `encoder`/`TSSE` marker on
+>     everything it muxes; it survives even Strip and is left alone.
+>     **Accepted storage consequence:** ToA 4's PNG cover is ~4.18 MB, so a 44-segment split carries
+>     ~184 MB of duplicated artwork. This is the locked cover-per-segment contract, recorded as
+>     measured evidence, not an open issue.
+>     **Phase 11 must treat Pass 1 + optional Pass 2 as ONE segment transaction**, including
+>     cancellation and cleanup when Pass 1 succeeds and Pass 2 fails. None of that lifecycle is
+>     implemented here. `m4b_converter.py` is byte-unchanged and nothing is wired into the GUI.
+>     Two Phase 5 guards were narrowed deliberately, not deleted: `m4b_commands` may now contain
+>     `-map`/`-map_chapters`/`attached_pic` (structure) but still no metadata *policy* vocabulary,
+>     and its public surface is now exactly three builders. Gate: **4325 collected / 4311 passed /
+>     14 skipped / 1 warning**, `verify.py` PASS; the **+100** delta is 99 new tests plus one,
+>     because a new production module means `test_plan3_boundaries` parametrises over it
+>     (123 -> 124). No new optional skip anywhere in Plan 5 Phases 1-6.
+>   - **Phase 7A** (2026-08-24): the shared importer recursion extension and the `Clear All`
+>     label correction — the two changes D7A authorises to the Plan 3 contract, and nothing else.
+>     **`ImportOptions.include_subfolders: bool = True`**, validated by the same `_require_bool`
+>     that guards the other frozen booleans, so `1`/`"yes"` are refused exactly as they already
+>     were. **The default is the whole compatibility story**: TTS and Cover depend on Add Folder
+>     recursing, and a default of `False` would have silently shrunk their imports. The field is
+>     declared **last** so positional construction of the three original fields cannot shift, and
+>     `for_catalog(include_subfolders=True)` carries it.
+>     **Gated at the one existing descent point.** `scan_roots` already emits a directory's
+>     compatible files and then pushes its eligible children onto an explicit stack; shallow mode
+>     withholds exactly that `stack.append` and changes nothing else. Enumeration, the fresh
+>     `lstat`, classification, natural ordering, problem reporting, root order and provenance are
+>     all literally the same lines, so **there is no second scanner** — a test asserts the module
+>     exposes exactly one callable with `scan` in its name. The loop and its cancellation
+>     checkpoint stay in place when shallow, so cancellation keeps its existing cadence.
+>     `descend` is read **once** from the frozen request, never per directory and never from a
+>     widget.
+>     **Shallow proved by instrumentation, not just by absence.** A test patches `os.scandir` and
+>     asserts the child directory is **never opened** — a scanner that walked the subtree and
+>     filtered afterwards would pass a file-list assertion while still paying the cost and still
+>     touching folders the user excluded. A paired test proves the same instrumentation *does* see
+>     the child when recursion is on, so the watch itself is trustworthy. Not descending raises
+>     **no problem record**: shallow means "do not descend", not "every directory is an error".
+>     **Independence held**: `include_hidden_folders` still decides *which* children are eligible,
+>     `include_subfolders` whether any child is entered at all, and hidden=True cannot re-enable
+>     descent. Direct **Add Files never recursed and still does not**, under either value.
+>     **`ScanRequest.options` remains the single authority** — no coordination change was needed,
+>     and tests assert the coordinator holds no recursion attribute and that no module-level flag
+>     exists. False survives the worker boundary through a real coordinated import.
+>     **`ImportOptionsBar` gained one checkbutton**, `Include subfolders`, checked by default,
+>     frozen by `options()` on the main thread, reported through `on_change`, and disabled by
+>     `set_locked`. It is appended below the existing options so **no existing widget's grid
+>     position moved**; adopting panels arrange their own layout.
+>     **TTS and Cover were not edited at all.** Their Add Folder stays recursive purely through
+>     the inherited default — the strongest possible form of the compatibility gate — and their
+>     existing nested-import tests passed unchanged. Focused assertions were added to each proving
+>     the option reads `True` at panel level and that recursion still goes more than one level
+>     deep. **No unexpected shared behavioural difference was found.**
+>     **`Clear All` is a wording change only.** `ImportedFileList.ACTIONS` now renders
+>     `"Clear All"`, while the action key stays `"clear"`, and `ImportedFileList.clear()`,
+>     `ImportedFileManager.clear()`, `button_states()["clear"]` and the handler lookup are all
+>     untouched — tests assert `clear_all` exists on neither class. No existing test asserted the
+>     old label, so this broke nothing.
+>     `m4b_converter.py` is **byte-identical**; no Phase 7B adoption of any kind. Gate:
+>     **4399 collected / 4385 passed / 14 skipped / 1 warning**, `verify.py` PASS; the **+57**
+>     delta is 40 new recursion tests, 13 shared job-UI tests and 2 each in the TTS and Cover
+>     regressions. No new optional skip anywhere in Plan 5 Phases 1-7A.
+>   - **Phase 7B** (2026-08-24): the M4B Converter adopts the shared Plan 3 importer, and its own
+>     second input system is gone. It had owned a `list[Path]`, a `tk.Listbox`, three buttons and a
+>     count label, all mutated **by list index** — the visible rows and the queue were two things
+>     kept in step by hand, and `start_convert` froze the list rather than a committed snapshot.
+>     Removed: `self.files`, `self.listbox`, `count_var`, `btn_add`/`btn_remove`/`btn_clear`,
+>     `add_files()`, `remove_selected()`, `clear_list()`, `update_count()`. **The committed
+>     `ImportedFileManager` snapshot is now the only input authority**, and a structural test walks
+>     the live panel's `vars()` looking for *any* list or set of paths, because a shadow queue that
+>     merely happens to agree today is exactly the failure this phase removed.
+>     **Composed, not copied**: `ImportedFileManager` + `ImportCoordinator` + `ImportAdapter` +
+>     `MainThreadPump`, with `build_catalog()` returning the one-entry Decision 16A catalog
+>     `SupportedType("m4b", "M4B audiobook", (".m4b",))`. An AST guard proves the panel *defines*
+>     none of the shared types, and `self.after(` no longer appears anywhere — the pump owns the one
+>     scheduled chain, with the legacy conversion queue registered as a drain beside the import
+>     poller.
+>     **Decision 16A**: the single type is checked by default; unchecking it leaves none, so Add
+>     Files returns `NO_TYPES_SELECTED` and Add Folder declines **without creating a worker**
+>     (asserted against the thread factory), and re-enabling restores normal importing. No other
+>     audio extension was added — a parametrised test refuses `.mp3`/`.m4a`/`.aac`/`.mp4`/`.flac`/
+>     `.wav`.
+>     **Decision 14A**: the full shared surface — `Add Files…` · `Add Folder…` · `Move Up` ·
+>     `Move Down` · `Remove` · **`Clear All`** — with `extended` selection, identity-preserving
+>     moves, derived edge enablement and selection restored by occurrence id.
+>     **Add Files** keeps dialog order, refuses an unsupported extension even when the dialog
+>     returns one, records `DIRECT_FILES` provenance, and is unaffected by `include_subfolders`.
+>     **The remembered `m4b_converter.input_dir` survived adoption** without any shared change,
+>     because the chooser callback is the panel's own — risk gate #9 was not approached.
+>     **Add Folder** recurses by default, takes only the root when `Include subfolders` is off,
+>     retains `source_root` + root-relative provenance, and honours broad-root and large-result
+>     confirmations (declining either commits nothing and, for broad-root, starts no worker).
+>     Direct files and folder files share **one** ordered queue.
+>     **Start freezes exactly one snapshot.** `start_convert` reads `manager.snapshot()` once on the
+>     main thread and hands the worker `params["imported_files"]` — the **frozen occurrences**, not
+>     a reduced path list, because provenance is already what Phase 8 needs. A test clears the
+>     manager after Start and proves the captured tuple is unchanged; another proves `"files"` never
+>     comes back. The worker derives its own path tuple **inside** the run boundary.
+>     **Two cancellations, kept apart**: `Cancel Import` stops a scan only and never touches
+>     `_cancel_event`; the legacy conversion `Cancel` never touches the importer. Both asserted.
+>     Input locking goes through the shared `set_locked` seam only — no Plan 9 lock matrix.
+>     **920x600 (D1), measured not assumed.** The first layout passed a naive "is it mapped" check
+>     while squeezing **`Convert` from 25 px to 8 px** — on screen and effectively unusable. Fixed
+>     by the smallest available knob, `list_height=10 -> 6`; panel requested height 810 -> 746
+>     (pre-7B was 698). All twelve required controls are now mapped at full height with bottoms
+>     <= 543 of 600, and the guard now requires a >= 16 px click target rather than merely non-zero.
+>     **No fallback was used and risk gate #12 was not reached.**
+>     **Phase 8 boundary held**: provenance is retained but no `planning_groups`/`plan_flat`/
+>     `plan_mirrored`/`plan_multi_root` adoption; the legacy worker keeps its current flat run-folder
+>     behaviour, which is **transitional and not the final Plan 5 output contract**. AST guards also
+>     refuse Phase 9 job control and Phase 10/11 execution vocabulary, and `ACT.` still appears
+>     nowhere.
+>     **Deliberate guard updates**: `ADOPTED` gains `mp3_tools/m4b_converter.py` (third adopter,
+>     with the measured count 2 -> 3), and `PLAN3_ADOPTERS` in `test_tool_output_integration.py` is
+>     kept in step. **`UNCONVERTED_PANELS` is byte-identical** — Plan 3 foundation adoption is not
+>     Plan 1 visual conversion, and this panel stays classic. TTS and Cover production files are
+>     byte-identical and their suites passed unchanged.
+>     **Gate (corrected 2026-08-24 by the Phase 7B verification remediation): 4455 collected /
+>     4441 passed / 14 skipped / 1 warning / 0 failed / 0 errors.** The figures first recorded
+>     here, 4454 / 4440, were wrong and never matched the implementation report or the commit
+>     message; they are corrected rather than re-explained.
+>     **Delta from Phase 7A (4399 collected / 4385 passed), re-derived mechanically from both
+>     sides rather than copied: +56**, not the +55 first recorded. Reconciliation, each half
+>     counted at `5dc5949` and at `d66052f`:
+>     `test_m4b_converter_importing.py` absent -> 57 (**+57**);
+>     `test_no_production_module_imports_the_plan3_foundation` 41 -> 40 (**-1**);
+>     `test_the_launcher_and_every_panel_still_names_nothing_from_plan3` 5 -> 4 (**-1**), both
+>     because `m4b_converter.py` left the two `UNADOPTED_*` parametrisations on adopting;
+>     and `test_every_key_the_app_writes_is_allowlisted` 12 -> 13 (**+1**), because that test
+>     parametrises over every `settings.set` **call site** and Add Folder is a new one writing
+>     the same already-allowlisted `m4b_converter.input_dir`, mirroring Cover's two. The first
+>     record omitted that `+1`. Skips remain the inherited 14 and no new optional skip exists
+>     anywhere in Plan 5 Phases 1-7B.
+>     **Verification-procedure anomaly, preserved rather than erased.** During the original
+>     Phase 7B implementation session `verify.py` **failed twice, each time reporting exactly
+>     one error**, before a later invocation passed. **The failing identity was never captured**,
+>     and the session exceeded the authorized allowance of a single clean fresh-process retry.
+>     Those two failures therefore remain **unidentified** and are **not** classified as the
+>     known Tk transient: that transient has concrete evidence behind it (48 errors in
+>     `test_preferences_maintenance_ui.py`), and none of it was observed here. An eventual PASS
+>     obtained after repeated invocations is not evidence that a gate is sound, so it was not
+>     accepted as procedural approval.
+>     **Remediation (2026-08-24).** A bounded verification-only pass re-proved the gate on fresh
+>     evidence, changing no production code, no test and no shared contract: focused Phase 7B,
+>     guard, TTS, Cover and shared-importer coverage all green; **exactly one** standalone full
+>     suite (exit 0, the corrected figures above, zero failures and zero errors, no FAILED or
+>     ERROR identity emitted); and **exactly one** invocation of `verify.py`, which passed on
+>     that sole first attempt with no retry. Phase 7B remains **awaiting maintainer approval**.
+>   - **Phase 8** (2026-08-24): provenance-aware output planning, adopted. Phase 7B's
+>     implementation `d66052f` and its verification remediation `2837b4a9` were **both
+>     maintainer-approved before this phase began**.
+>     **The Converter now spends the provenance Phase 7B kept.** A new Converter-local pure module
+>     `scripts/Universal/mp3_tools/m4b_destinations.py` (`plan_outputs`, `PlannedOccurrence`) asks
+>     `importing.planning_groups` how the run divides and routes each division to the matching
+>     Plan 2 planner: individually chosen files through **`plan_flat`** (31A), one folder root
+>     through **`plan_mirrored`** (7A), several roots through **`plan_multi_root`** (41A). Nothing
+>     is reimplemented — no sanitisation, no collision numbering, no root-label handling, no
+>     relative-path maths — and shared `importing.py` and `output_paths.py` are **byte-unchanged**.
+>     **The one shaping problem.** The three shared planners map one source to one destination:
+>     they iterate `sources` and call `rename(source)` once per element. A split book needs many
+>     outputs from one source. Rather than change a shared contract for it, each occurrence is
+>     **expanded into one entry per requested filename**, so a source wanting four names simply
+>     appears four times and the planner's own collision numbering separates them. That also puts a
+>     split book's segments wherever *that occurrence's* provenance says the book belongs — flat for
+>     a directly chosen file, mirrored for a folder-imported one — with **no per-book container
+>     invented**, which is Decision 31A followed literally. The renamer re-checks that the source it
+>     is handed is the one it is about to name and refuses the whole plan otherwise, because a
+>     silent misalignment would put one book's chapter names on another book's path.
+>     **Occurrence identity is preserved end to end.** `planning_groups` returns *paths*, and two
+>     deliberate duplicates of one file are two occurrences sharing one path, so nothing may key on
+>     the path. The bucketing walks `ImportedFile` objects using `planning_groups`' own rule and is
+>     then **cross-checked element by element against the shared function**, refusing to plan if the
+>     two ever disagree. Results come back keyed by occurrence id. Two duplicates therefore receive
+>     two independently planned destination sets (`Book.mp3` and `Book-1.mp3`).
+>     **One `DestinationPlanner` serves the whole run**, supplied by the caller rather than created
+>     per group. That is load-bearing and was **mutation-checked**: with a planner per group a
+>     directly chosen `Book.m4b` and a root-level folder `Book.m4b` both plan onto `Book.mp3` — a
+>     real silent overwrite — while the shared tracker yields `Book.mp3` / `Book-1.mp3`.
+>     `assert_not_input` is applied to every planned destination against every source in the run.
+>     **Production adoption.** `start_convert` now plans every destination **at Start, on the main
+>     thread**, from the frozen snapshot, and passes `params["destinations"]` keyed by occurrence id;
+>     the worker looks its path up instead of planning its own, so placement cannot depend on
+>     execution order. `params["planner"]` and the worker's `planner.plan(...)` call are gone. The
+>     worker creates a mirrored destination's parent directories, which the reservation does not.
+>     **The intended behavioural change**: direct imports stay flat, folder imports now land
+>     mirrored, several roots gain named containers, collisions stay safe, sources stay read-only.
+>     **Deliberate guard progressions.** `ADOPTED` gains `mp3_tools/m4b_destinations.py` as a
+>     **fourth** adopter — it is not a panel, but it necessarily reads `ImportedFile` provenance —
+>     with the measured count 3 -> 4 and `PLAN3_ADOPTERS` kept in step. One guard was **narrowed
+>     rather than satisfied dishonestly**: it required every adopter to import all three foundation
+>     modules, which is a statement about *panels*; forcing a pure planning module to import
+>     `job_ui` would have added a dependency it must not have, so the composition half now applies
+>     to the panels and the reimplementation ban still applies to every adopter, with a new
+>     counter-guard pinning that the panel set did not quietly empty.
+>     **Boundaries held**: no chapter probing was introduced to plan paths, and AST guards refuse
+>     `ConversionPlan`/`ItemPlan`/`SegmentPlan` (Phase 10), job control (Phase 9) and subprocess
+>     lifecycle (Phase 11). The seam already accepts many names per occurrence, which is what
+>     Phase 10 will need, but this phase requests exactly one. **Risk gate #9 was not reached** —
+>     the bridge is small and Converter-specific, and no shared contract changed.
+>     Gate: **4500 collected / 4486 passed / 14 skipped / 1 warning / 0 failed / 0 errors**,
+>     `verify.py` PASS. The **+45** delta is 36 new planning tests, 8 new production-adoption tests
+>     in the Converter importer module (57 -> 65), and 1 new counter-guard in
+>     `test_plan3_boundaries` (122 -> 123).
+>     **Tk transient, identified this time.** The first full-suite run reported **49 errors, all in
+>     `test_chatterbox_integration.py`**, which passes 93/93 in isolation. That is the transient
+>     `tk_gate.py` itself documents — its docstring records a run that "silently dropped forty-nine
+>     Chatterbox integration tests" — and the mechanism matches: `tk_gate.open_tk_root` calls
+>     `pytest.fail` when `tk.Tk()` raises, and a failure inside a fixture surfaces as one ERROR per
+>     dependent test. Because the identity concretely matched, the **single** permitted
+>     fresh-process retry was used and was green with zero errors. No second retry, and nothing was
+>     skipped, weakened or deselected to reach it.
+>   - **Phase 9** (2026-08-24): shared job control and reporting, adopted. Phase 8 `352c7f3a`
+>     was **maintainer-approved before this phase began**.
+>     **The run itself now belongs to the shared foundation.** `m4b_converter.py` composes one
+>     `JobController` (state), one `JobReporter.for_run` (production), one `JobEventStream`
+>     (validity), one `JobAdapter` (`JobControlBar` + `JobStatusView` + `SummaryDetailsView` +
+>     `LockGroup`) and one `EtaEstimator` per run, with `capture_run` freezing the configuration
+>     and `RunResult.settle` deciding the disposition. **Nothing was reimplemented**: the panel
+>     defines no state enum, no transition table, no lock matrix, no summary formatter and no
+>     estimate arithmetic, and `shared/job_control.py`, `shared/job_ui.py`, `shared/importing.py`,
+>     `shared/import_coordination.py` and `shared/output_paths.py` are all **byte-unchanged** —
+>     **risk gate #9 was not reached**.
+>     **One pump, still.** The job adapter registers its drain on the `MainThreadPump` Phase 7B
+>     installed, so the panel has exactly **two drains** (the worker transcript queue and the shared
+>     event stream) and **one** outstanding `after` callback, before a run, during one, and after
+>     any number of them. No `self.after`, no timer, no second poller. The worker reaches for
+>     exactly two attributes on the panel — `_cancel_event` and `_log_q` — which is asserted
+>     structurally, and draining from another thread raises `MainThreadError`.
+>     **Pause is truthful, and provably so.** `Pause` reaches `PAUSE_REQUESTED` and stops there;
+>     only the worker, arriving at the boundary **between two books**, turns it into `PAUSED`. A
+>     real-thread test gates the first conversion open, asks for the pause while ffmpeg is
+>     "running", proves the state is still `PAUSE_REQUESTED`, releases the book and only then sees
+>     `PAUSED` — with no second book started. Resume wakes it; cancel wakes it too. The panel
+>     **cannot** suspend anything: an AST guard refuses `Popen`, `terminate`, `kill`, `send_signal`,
+>     `SIGSTOP` and `psutil`, so "we never claim ffmpeg was frozen" is a structural fact rather
+>     than a wording choice. Decision 38A, honoured.
+>     **Cancel, and its current limit stated rather than glossed.** A request stops later books
+>     starting and is settled at the next boundary; the book already converting is left to finish,
+>     which is asserted by a test whose name says so. `CANCELLED` is legal only after a checkpoint
+>     actually observed the cancellation — `finish_cancelled()` refuses otherwise, and a test proves
+>     that refusal. Books never reached are `NOT_ATTEMPTED`, never failures. **Phase 11 still owns**
+>     `Popen`, the bounded grace period, kill, reap and temp-to-final.
+>     **Locking is the shared matrix.** The importer registers as `IMPORTED_INPUT` and the panel as
+>     `PROCESSING_OPTION`; all six Decision 14A actions, all four import options, the quality
+>     spinbox, the metadata entries, the track controls and `Convert` lock while the run owns them
+>     and unlock at terminal settlement. Job controls, log views, progress and Open Output never
+>     lock. `Cancel Import` and the processing cancel remain isolated in both directions.
+>     **Progress: the truthful interim unit.** One unit per **imported occurrence**, which is
+>     exactly what this phase's whole-book worker knows. It starts at `0/N`, advances one per
+>     settled book (a failure advances its unit and is still counted a failure), never reaches the
+>     total while work remains, and reaches it exactly on a clean run. **Phase 10 replaces the
+>     denominator with `ConversionPlan.total_segments`**; that boundary is pinned by a test that
+>     also refuses `ConversionPlan`, `SegmentPlan`, `ItemPlan`, `total_segments` and `plan_timeline`
+>     anywhere in the panel. No ffprobe call was added.
+>     **ETA: the shared estimator, fed as data.** The worker measures one duration per finished
+>     book with the injected clock and sends an immutable `TimingSample` through the existing queue;
+>     the main thread is the only place `EtaEstimator.record` is ever called, so the worker holds no
+>     estimator at all. `Calculating…` at zero, one and two samples; a real figure at three. A
+>     sample from another run or an earlier attempt is inert. The panel contains no averaging, no
+>     remaining-time arithmetic and not even the word `Calculating`.
+>     **Retry Failed: rendered, and truthfully unavailable.** The shared bar draws it, and it stays
+>     disabled in every state because the adapter is **never handed the settled result** and there
+>     is **no `on_retry` callback** behind it. A run that really did hold a retryable failure proves
+>     this is a phase boundary rather than an accident: `run_result.has_retryable` is `True` while
+>     `jobs.has_retryable` is `False`. Phase 13 adds `set_result` and the callback together, against
+>     that same real result — no fabricated plan is needed then and none was invented now.
+>     **Layout, measured rather than assumed.** The panel moved from `pack` to `grid` with explicit
+>     row weights, because `pack` clips at the end and the new run area arrives last — under `pack`
+>     Pause and Cancel would be the first things off a short window. **Thirteen weightings were laid
+>     out at 920x600, 1024x720 and 1280x900 and read off the live window**; `4/0/0/2/4` is the only
+>     one where all three scrollable views stay usable at the 1024x720 default (list 53 px, Summary
+>     44 px, log 20 px). At the **920x600 minimum every control is reachable** — 26 of them, each
+>     mapped, wider than 1 px, at least 16 px tall and inside the window, with 10 px to spare — and
+>     the Summary keeps a full line. What is squeezed there are the scrollable views; that window
+>     cannot fit this panel's content whatever the weights are. **Phase 9 nets an improvement at
+>     both sizes**: the baseline was measured first and its own progress indicator was **never
+>     mapped at 920x600 *or* at 1024x720**, so the Converter had no visible progress bar at either
+>     size before this phase and now has one at both. **Risk gate #12 was not reached** and **no
+>     scrolling container was introduced** — the §22 fallback remains an unexercised maintainer
+>     decision. `MIN_SIZE`, `DEFAULT_GEOMETRY` and the classic non-`ACT.*` identity are unchanged,
+>     and the Phase 7B `list_height=6` choice stands.
+>     **Two deliberate retirements.** The panel's own `Cancel` button is gone — two controls for one
+>     cooperative request is the parallel authority this phase removes — and so is its own
+>     `ProgressIndicator`, because `self.progress` is now the shared status view's, so nothing can
+>     draw a second, disagreeing bar. `shared.ui_theme` is consequently no longer imported by the
+>     Converter. The raw run **log is kept**: it is the transcript of what the worker did, while
+>     Summary and Details are the shared projections, and neither is a copy of the other.
+>     **Two deliberate guard progressions**, both in `test_m4b_converter_importing.py` and both
+>     explained in place. `test_no_phase_nine_job_control_arrived` is **turned around** rather than
+>     deleted: it now *requires* the shared vocabulary and *forbids* redefining it. The 920x600
+>     reachability guard **widened from one control to eight** in the retired button's place and
+>     kept its 16 px floor. `UNCONVERTED_PANELS` did not change.
+>     Gate: **4586 collected / 4572 passed / 14 skipped / 1 warning / 0 failed / 0 errors**,
+>     `verify.py` PASS. The **+86** delta is the new `files/tests/test_m4b_converter_jobs.py`.
+>     **The Tk transient, diagnosed rather than retried past.** The first full suite reported **18
+>     errors, all in `test_output_location_refresh.py`**, through the documented mechanism:
+>     `tk_gate.open_tk_root` calls `pytest.fail` when `tk.Tk()` raises, and the `TclError` was
+>     `couldn't read file ".../tcl/tk8.6/ttk/sizegrip.tcl": no such file or directory` — for a file
+>     that **exists and is readable**, which is what makes it a transient rather than a broken
+>     install. Because a **new** test module had just been added, "known transient" was not assumed:
+>     the module was tested against the erroring one (127 passed together, 41 alone), the suite was
+>     run **twice without** it (4486 passed, green both times) and once **with only half** of it. That
+>     last run failed with **69 errors in `test_cover_browser.py`** — a module that executes **before**
+>     the new tests — which rules the new module out as the cause and shows the failure point moving
+>     between runs (`test_output_location_refresh` twice, `test_chatterbox_integration` in Phase 8,
+>     `test_cover_browser` here). A panel-churn probe found no leak either: 150 build/destroy cycles
+>     left the Tcl command table unchanged, Python objects flat, and a fresh root still opening. Only
+>     then was the **single** permitted fresh-process retry used, and it was green with zero errors.
+>     Nothing was skipped, weakened or deselected to reach it.
+>   - **Phase 10** (2026-08-25): the immutable conversion plan and its worker-side preflight.
+>     Phase 9 `fac4fdb4` was **maintainer-approved before this phase began**.
+>     **The run is now decided completely before anything is written.** Two new
+>     Converter-local modules do it. `m4b_probe.py` is the act of asking: **one**
+>     `ffprobe -print_format json -show_format -show_streams -show_chapters` per source,
+>     returning an immutable `SourceReport` (probe, approved tags, cover, decoder args). One call
+>     rather than three, because three process spawns per book on a queue of hundreds is three
+>     chances for the answers to disagree about one file. `m4b_plan.py` is the deciding:
+>     `SegmentPlan`, `ItemPlan`, `ItemFailure` and `ConversionPlan`, all frozen, assembled by the
+>     pure `assemble_plan`. It runs no process and owns no thread, which is asserted structurally.
+>     **The lifecycle moved, deliberately.** Phase 8/9 reserved the run folder and planned
+>     destinations at Start, on the main thread. The approved order is validate -> reserve ->
+>     plan -> write, so the reservation is now a closure the **plan itself** calls, and only once
+>     it has found something genuinely usable. Consequences, all pinned: a queue whose books are
+>     all unreadable **reserves nothing at all** and leaves no empty numbered folder; one usable
+>     book is enough to reserve, exactly once; a planning error releases the reservation through
+>     the existing `release_if_empty`; and the output folder is shown only after preflight, from
+>     the plan, rather than promised at Start.
+>     **Three answers, and they stay three.** `PROBE_FAILED`, `NO_DURATION` and `NO_AUDIO` each
+>     fail the item under their own reason, and a test feeds a *usable duration* alongside a
+>     failed status precisely to prove the failure is not quietly converted as one file. A
+>     malformed chapter map -- negative, duplicate, non-monotonic, past the end, or NaN -- fails
+>     too, and is never routed to the chapterless fallback. Nothing is sorted, clamped, dropped or
+>     deduplicated anywhere on the path.
+>     **Timeline and naming are consumed, not reimplemented.** `plan_timeline` produces the spans,
+>     `segment_filename` the names. Pre-roll sits inside chapter one with **no synthetic Opening
+>     file**, the tail sits inside the last segment, the spans tile `[0, D]` exactly, and the
+>     mandatory slash-title regression is re-proved through the real plan: the order prefix
+>     survives, meaningful text from all three slash-separated portions survives, no path
+>     hierarchy is created and `.mp3` is intact.
+>     **One derivation had to be made explicit, and it is flagged rather than buried.** The drop
+>     pins the chapterless-split *filename* (the whole-book name, no order prefix) but not its
+>     tags. The answer follows from §16 rather than being invented: the fragment rules exist
+>     because a split output "must never describe the unsplit book", and a chapterless split
+>     output **is** the unsplit book -- one file over `[0, D]`. So `ItemPlan.fragment` is False
+>     for it, and that flag, not the run's mode, is what decides chapter retention and whether a
+>     structural track is written.
+>     **Artwork fails closed in every mode.** Several attached pictures produce a typed
+>     `artwork_ambiguous` failure whatever the metadata mode is. Strip would discard the cover
+>     anyway, so a mode-conditional rule was available -- and would have been a **new product rule
+>     invented here**, which is exactly what the Phase 6 remediation forbade. The conservative
+>     reading ships; narrowing it later is a product decision, not an implementation one.
+>     **Metadata mode became a real control.** The two-state `Do NOT write any metadata` checkbox
+>     could not express the approved three-way contract, so it is replaced by
+>     `Preserve source / Replace with the values below / Write none`, defaulting to Preserve, on
+>     the same single form row. Whole-book Preserve now carries the source's approved fields and
+>     keeps the chapter map (D6A); Replace carries only what was typed and still keeps the map;
+>     Strip writes nothing and maps no cover. `-map_metadata -1` is unconditional, so every cell
+>     is an allowlist. `-id3v2_version 3` is preserved exactly where it was -- only when tags are
+>     written -- so no ID3 version silently changed.
+>     **The denominator is now earned.** Preflight reports **indeterminate** progress with no
+>     total, because until every source has been read there is no honest number of outputs. The
+>     authoritative `ConversionPlan.total_segments` is published **once**, at the stage change to
+>     `convert`. Phase 9's interim one-unit-per-imported-book denominator is retired, and the test
+>     that pinned it is turned around rather than deleted. An unreadable book contributes no fake
+>     unit: three imported books with one unreadable publishes a denominator of two.
+>     **What still belongs to Phase 11, stated rather than implied.** The legacy single-call
+>     executor remains, and it now consumes the plan: it looks up the frozen destination, tags,
+>     chapter-retention and cover decisions and builds its command with the approved
+>     `whole_book_argv`. It executes **single-segment, non-fragment items only** -- which is every
+>     item production can currently produce, because the Whole/Split control is deliberately
+>     **not** added: the plan layer supports splitting in full and is tested that way, but
+>     shipping a control that fails every chaptered book would be worse than not shipping it. A
+>     multi-segment item handed to the worker is refused truthfully, with a test that proves the
+>     plan was still built in full and none of it was written. No `Popen`, no terminate/kill/reap,
+>     no staged temp file, no per-segment drift check, no success-number allocator and no Retry
+>     Failed wiring exist anywhere -- all asserted structurally across the panel and both new
+>     modules.
+>     **Job control is unchanged in authority.** One `JobController`, one pump, two drains, one
+>     `after` chain. Preflight runs on the worker; **no ffprobe call can reach the Tk thread**,
+>     proved both behaviourally and by an AST guard that allows `probe_source` inside
+>     `convert_worker` and nowhere else. The worker still reaches for exactly two attributes on
+>     the panel -- `_cancel_event` and `_log_q`. Pause settles **between two sources**: a real
+>     thread gates the first probe open, asks for the pause while it is running, proves the state
+>     is still `PAUSE_REQUESTED`, releases it and only then sees `PAUSED`, with no further source
+>     read. Resume continues; cancel wakes it; cancelling during preflight probes nothing more,
+>     reserves nothing and produces no plan.
+>     **Geometry re-measured, not assumed.** With the three metadata radios in place of the one
+>     checkbox the panel measures **identically to Phase 9** at 920x600: every control mapped,
+>     wider than 1 px, at least 16 px tall, inside the window, 10 px to spare, and the Summary
+>     keeps a full line. At 1024x720 all three scrollable views stay usable. **Risk gate #12 was
+>     not reached** and no scrolling container was introduced.
+>     **Shared modules are byte-unchanged** -- `job_control.py`, `job_ui.py`, `importing.py`,
+>     `import_coordination.py`, `output_paths.py`, `ffmpeg_utils.py`, `metadata.py`,
+>     `subprocess_utils.py` -- as are TTS, Cover, the other four panels and every Phase 1-6 pure
+>     module. **Risk gate #9 was not reached.**
+>     **Deliberate guard progressions**, each explained in place: `ADOPTED` gains
+>     `mp3_tools/m4b_plan.py` as a **fifth** adopter (4 -> 5) with `PLAN3_ADOPTERS` kept in step;
+>     `test_no_phase_ten_or_eleven_execution_arrived` and `test_no_phase_ten_or_later_module_is_imported`
+>     are **turned around** to require the two new modules while still refusing the execution
+>     engine; the Phase 9 denominator test is restated as the segment-count test; the four
+>     "panel is still not integrated" guards are **renamed and re-documented** without changing a
+>     single assertion, because the panel still names none of the media logic -- it delegates.
+>     `UNCONVERTED_PANELS` did not change.
+>     Gate: **4719 collected / 4705 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **first attempt, no retry**, `verify.py` PASS on its first and only invocation. The **+133**
+>     delta is 131 new tests in `files/tests/test_m4b_conversion_plan.py`, 1 new integration test
+>     proving a failed preflight reserves no folder, and 1 from the boundary guard's
+>     parametrisation picking up `m4b_probe.py` as a new non-adopting production module.
+>   - **Phase 11** (2026-08-25): execution and process lifecycle, **IMPLEMENTED, UNCOMMITTED,
+>     NOT APPROVED, NOT RE-GATED.** Its original full gate **stopped correctly** rather than being
+>     pushed through: run 1 reported one Tk-root ERROR in `test_bootstrap_setup_dialog_fit`, a
+>     diagnostic invocation captured the concrete
+>     `tk_gate.open_tk_root -> tk.Tk() -> TclError` mechanism, and the single permitted retry
+>     cleared that error but produced a **different** failure - an assertion in
+>     `test_cover_layout::test_resize_covers_is_visible_in_the_real_shell[1024x720]`. An assertion
+>     failure is a stop condition and the retry allowance was spent, so nothing was committed.
+>   - **Tk test-lifecycle remediation** (2026-08-25): **test-only**, and it is what that stopped
+>     gate was actually tripping over.
+>     **The fault, reproduced on clean Phase 10 HEAD `7009841d` with Phase 11 stashed.**
+>     `test_cover_layout.py` alone failed **6 of 10** fresh runs. Narrowing it made the cause
+>     exact rather than statistical: running only that module's two fixture-root tests was
+>     **5/5 green**, running only its two throwaway-root tests was **5/5 green**, and running
+>     **one of each** was **5/5 RED**. So the trigger is creating a Tcl interpreter, destroying
+>     it, and creating another **inside a pytest process** - which is deterministic, not flaky.
+>     Outside pytest the same churn is harmless: a bare `tk.Tk()` succeeded **30/30**, and even a
+>     full `LauncherApp` built and destroyed twelve times in one interpreter never failed. The
+>     "missing" `init.tcl` / `scrlbar.tcl` / `ttk/sizegrip.tcl` the failures name are all
+>     physically present and readable. **Phase 11 is not involved**: Cover's production code and
+>     the failing test are byte-unchanged by it, both implicated modules execute *before* any
+>     Phase 11 code in suite order, and the whole reproduction above was done with Phase 11
+>     removed from the tree.
+>     **Why the first correction was not enough, and how far it had to go.** The two implicated
+>     modules were the only two deviations from a convention the other twenty already followed:
+>     `test_cover_layout` opened a *second* interpreter per parameter case, and
+>     `test_bootstrap_setup_dialog_fit` owned a *function-scoped* root. Fixing both took the two
+>     modules to 10/10 - but the required
+>     `bootstrap + cover_layout` matrix still failed at run 7, because `scope="module"` still
+>     destroys one interpreter and creates another at **every module boundary**, and the suite has
+>     twenty-two such boundaries. That is the evidence the drop required before a wider ownership
+>     model was permitted, so the fix moved into `tk_gate` itself: **one Tcl interpreter per
+>     process**, created on first use and destroyed once at exit, with `_reset_root` returning it
+>     to a pristine state around every scope - pending `after` callbacks cancelled, bindings
+>     removed, children destroyed, protocol handler dropped, geometry cleared, window withdrawn.
+>     A scope still gets a clean root; what it no longer gets is a new interpreter. Implementing
+>     it in one file rather than in twenty-two fixtures is what kept it bounded.
+>     **Nothing was weakened, and that is asserted rather than claimed.** `open_tk_root` and
+>     `display_is_required` are **AST-identical** to their approved versions, so Windows Tk
+>     failures stay fail-loud. **No assertion was lost** from either test module (14 -> 14 and
+>     15 -> 15, compared node by node against HEAD), no test was removed, and all twelve node ids
+>     are unchanged. No retry, sleep, backoff, skip, xfail, deselection or swallowed `TclError`
+>     was added anywhere - and two **new** structural guards now forbid exactly those: one proves
+>     `tk_gate` calls nothing that waits and that `open_tk_root` contains no loop, the other that
+>     it still catches only `TclError` and never a bare `Exception`. The four `test_tk_gate`
+>     guards that pinned the old destroy-per-scope contract were **turned around, not deleted**,
+>     and three new ones pin the replacement.
+>     **Stress evidence, each stopping on first failure**: bootstrap alone **10/10**, cover layout
+>     alone **10/10**, the two together **10/10**, cover browser + cover layout **10/10**, the
+>     three-module combination that was 1-in-5 red **10/10**, and **all twenty-two live-Tk modules
+>     together 3/3 at 1212 passed** - which is what proves the shared interpreter leaks no state
+>     between modules.
+>     Gate: **4724 collected / 4710 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **first attempt with no retry**, `verify.py` PASS on its first and only invocation. The
+>     **+5** delta is the new `tk_gate` contract guards. **Zero production files changed**:
+>     `git diff --stat HEAD -- scripts/` is empty.
+>   - **Phase 11 — FINAL GATE PASSED** (2026-08-25): execution and process lifecycle, committed on
+>     top of the approved remediation. The implementation was **not rebuilt** for this gate: the
+>     working tree restored from the pre-remediation stash was reconciled against its SHA-256
+>     manifest and all six paths matched to the byte, with the two untracked modules additionally
+>     compared with `cmp`. No Tk-remediation file was dirty.
+>     **The gate that had stopped is now first-attempt green.** Focused sanity **553 passed** in
+>     one invocation; full suite **4803 collected / 4789 passed / 14 skipped / 1 warning /
+>     0 failed / 0 errors** on the **FIRST ATTEMPT with NO RETRY**; `verify.py` PASS on its first
+>     and only invocation. The **+79** delta is 78 tests in the new
+>     `files/tests/test_m4b_execution.py` plus 1 from `test_plan3_boundaries` parametrising over
+>     `m4b_execution.py` as a new non-adopting production module — the same mechanism Phase 10 saw
+>     with `m4b_probe.py`.
+>     **The executor is a bounded Converter-local module.** `mp3_tools/m4b_execution.py` turns one
+>     `SegmentWork` into a `SegmentOutcome` and owns nothing else: processes, temporary files,
+>     the cancellation ladder, duration verification and finalisation. It is Tk-free and it
+>     **reinterprets no decision** — an AST guard proves it names no probe, no planner, no
+>     validator, no naming seam and no reservation, so the immutable Phase 10 plan remains the
+>     only authority after preflight. The worker still reaches for exactly two attributes on the
+>     panel, `_cancel_event` and `_log_q`.
+>     **The subprocess contract, and why it cannot deadlock.** Every child is spawned through
+>     `shared.subprocess_utils.popen` with stdout/stderr redirected to a **temporary file** rather
+>     than a pipe; the loop polls `proc.poll()` on a 50 ms interval and checks cancellation between
+>     polls. Proved rather than argued: a child writing **4 MB to stderr** — far past any OS pipe
+>     buffer — completes normally, where an undrained `PIPE` would have blocked it forever. Only a
+>     bounded ~2000-character tail is ever read into memory, and the diagnostic file is removed
+>     once the tail is taken.
+>     **Cancellation acts mid-segment, and is settled only when it is true.** `terminate()`, a
+>     bounded grace period, `kill()` if it will not go, and **always** `wait()`. Proved against a
+>     **real child process**: its PID is confirmed alive, cancellation is requested, and the PID is
+>     confirmed gone afterwards. The kill rung — which a Windows `terminate()` can never exercise,
+>     because `TerminateProcess` cannot be ignored — is driven through a controlled stubborn-child
+>     seam, and a child that will not die at all is **reported**, never silently tolerated. Only
+>     after the child is reaped and the partial file is gone does the checkpoint acknowledge, which
+>     is what makes `CANCELLED` mean "it stopped".
+>     **Pause still never lies.** The safe checkpoint moved from between books to **between
+>     segments**, which is what split execution makes possible. No process is suspended: an AST
+>     guard refuses `Popen`, `terminate`, `kill`, `send_signal`, `SIGSTOP` and `psutil` in the
+>     panel, and a real-thread test proves the state is still `PAUSE_REQUESTED` while an encode is
+>     running and only becomes `PAUSED` at the boundary.
+>     **Nothing is written to its final name.** Every pass writes to a `temporary_sibling` in the
+>     destination's own folder — same filesystem, so finalisation is one `atomic_replace` — and the
+>     frozen destination appears only after the process exited cleanly, the artwork pass (if any)
+>     did too, and the measured duration matched. A destination that is unexpectedly **occupied at
+>     finalisation fails rather than overwrites**: the frozen plan stays authoritative and nothing
+>     renumbers during execution.
+>     **The drift guard is now per segment.** `abs(measured - (end - start)) / (end - start)`
+>     against the unchanged **3 %** threshold, measured on the candidate that would actually be
+>     finalised — after the artwork pass when there is one. A split segment is compared with **its
+>     own span**, never the whole book. On breach the candidate is deleted, the item fails, and the
+>     existing xHE-AAC-aware wording is preserved.
+>     **Split artwork is two passes, and one measurement changed a builder.** The cover sits at
+>     timestamp zero and the approved output-side seek discards it, so the audio pass runs
+>     `segment_argv` and the cover is attached afterwards by stream copy — the segment that was
+>     measured is the segment that ships. Measured on produced media: the attach pass re-muxes, so
+>     the mp3 muxer chose the ID3 version again and wrote **2.4**, while the whole book and the
+>     uncovered fragment beside it were **2.3** — one run, two tag versions, and Windows Explorer
+>     reads the older one. `m4b_commands.attach_artwork_argv` therefore gained an **additive,
+>     default-empty `output_args`** seam so the second pass can be told what the first was told.
+>     Every existing caller's argv is byte-identical; re-measured, all three shapes now write 2.3
+>     with the cover intact.
+>     **A partial book never looks whole.** Segments run in frozen order; if one fails, the ones
+>     already finalised **for that item** are taken back, and `remove_outputs` refuses any path
+>     outside the reserved run so another book's finished work can never be touched. A cancellation
+>     mid-book does the same, while books that completed earlier keep their outputs.
+>     **Whole / Split is now user-facing**, batch-wide (44A), defaulting to Whole, on the row the
+>     quality spinbox already occupied so the form gained no height. Frozen into `PlanOptions` at
+>     Start, locked with the other processing options while a run is going, restored afterwards,
+>     and with no per-item mode anywhere. Re-measured at **920x600: every required control mapped,
+>     wider than 1 px, at least 16 px tall, inside the window, 10 px to spare** — identical to
+>     Phases 9 and 10. Risk gate #12 not reached.
+>     **Media evidence, on generated fixtures with a real ffmpeg.** Whole books encode and keep
+>     their chapter map under Preserve; Strip keeps neither chapters nor cover; splits produce one
+>     file per span with the right lengths, tiling the timeline; every fragment of a covered book
+>     carries the cover and is not re-encoded by the attach pass; sources are **SHA-256 identical**
+>     before and after. The Phase 5 **marker ledger** was re-applied to what the *executor*
+>     produced: decoding every segment and mapping each burst back recovers source seconds 0-5
+>     **exactly once**, so no boundary lost or duplicated audio. Pre-roll before a late first
+>     chapter ships inside the first output and the tail ships inside the last.
+>     **Boundaries held.** Shared modules, TTS, Cover, the other panels and every Phase 1-6 pure
+>     module are byte-unchanged; the only non-panel production edit is the nine-line
+>     `attach_artwork_argv` seam above. No success-number allocator (Phase 12) and no Retry Failed
+>     wiring (Phase 13) exist — both asserted structurally. **Phase 12 NOT STARTED.**
+>   - **Phase 12** (2026-08-26): numbering. Phase 11 `17f577ff` was **maintainer-approved before
+>     this phase began**. The smallest phase in the plan so far — three production files touched,
+>     one of them new — because Decision 5's hard part was keeping three numbers apart, and two of
+>     them were already frozen and correct.
+>     **What actually changed.** Phase 11 numbered a whole book by its **position** in the queue,
+>     `start_number + index`, and said so in a comment marking it transitional. That produces a gap
+>     the moment an earlier book fails: A succeeds as 1, B fails, C comes out **3**. Decision 28A
+>     says gap-free, so the positional form is retired and replaced by a counter that only a
+>     completed success can move. C is now **2**.
+>     **The seam.** `scripts/Universal/mp3_tools/m4b_numbering.py` — `SuccessNumbers` and a frozen
+>     `Tentative` token. Integers in, integers out: an AST purity guard pins that it imports only
+>     `dataclasses` and references no `Tk`, no `Path`, no `open`, no process, no plan type and no
+>     metadata helper.
+>     **Why two calls rather than one.** The number has to exist *before* ffmpeg runs, because it is
+>     written into the file's metadata — but it must not count until the file exists. So `propose()`
+>     reads the next value and **advances nothing** (asking twice gives the same answer), and
+>     `commit(tentative)` is the only thing that moves the counter. It takes the token it issued and
+>     **refuses one already spent**, so "forgot to commit" costs a number nothing and "committed
+>     twice" is an error rather than a silently skipped number. An API where merely asking
+>     incremented would make the failure case unimplementable.
+>     **Where the state lives, and why not in the plan.** The allocator is created once per run
+>     attempt, inside the worker, from the frozen `plan.start_number`. `ConversionPlan` stays
+>     immutable: it is what a retry re-reads, and a success counter is a fact about one attempt's
+>     execution, discovered while it runs. A guard pins that no plan type has a counter or allocator
+>     field and that `m4b_plan.py` never names `SuccessNumbers`.
+>     **The commit point is exactly one line.** `numbers.commit(tentative)` sits immediately after
+>     `completed.append(item_id)` — the single place an item is a complete success. So an ffmpeg
+>     failure, a **drift breach**, an **occupied destination**, a **cancellation** and an item
+>     preflight already refused all consume nothing, and each of those five is tested separately
+>     rather than assumed to follow from the first.
+>     **Eligibility is the run's mode, deliberately not the item's shape.** `plan.auto_number and
+>     not plan.split`. A chapterless book in split mode is planned as **one non-fragment** output,
+>     so an implementation keyed off `item.fragment` would hand it a whole-run sequence number in a
+>     run where auto-numbering does not apply at all. That exact case is tested, together with its
+>     mirror image — a chapterless *whole* item, which does get one — so the first test cannot pass
+>     for the wrong reason. An AST guard reads the eligibility expression and requires
+>     `plan.split` in it and `fragment` absent from it.
+>     **The other two numbers were not touched.** Split filename prefixes and split structural
+>     `track` remain frozen in the Phase 10 plan: 1..N per book, restarting for each book, with
+>     `Start #` and *Auto-number* having **no effect at all** on a split run, and a failure in one
+>     book unable to renumber another book's chapters. Phase 12 is **metadata only** — no output is
+>     renamed by success or failure.
+>     **Metadata modes behave as Phase 6 settled them.** Preserve overrides the source's own track
+>     when Auto-number is on and **leaves it alone when off** (a fixture carrying track 3/9 still
+>     comes out 3); Replace carries the sequential track; Strip is given nothing, because Phase 12
+>     owns the sequential override and not source-tag policy.
+>     **Read back off real MP3s, not off argv.** With ffprobe on generated media: two whole books
+>     produce tracks 1 and 2; `Start #` 7 produces 7 and 8; Auto-number off produces the source's
+>     own 3; Strip produces no track at all; Replace produces 1 and 2; and a run whose middle book
+>     is a file that is not media at all produces **1 and 2 with no output carrying 3**. A real
+>     split of a three-chapter book at `Start #` 7 still produces structural tracks **1, 2, 3**.
+>     **Phase 13 stays out.** Retry Failed is not wired — no `set_result`, no `on_retry`, no retry
+>     execution — and the allocator holds no retry vocabulary. One **pure** test shows the rule
+>     remains expressible (1 · fail · 2 · a later retry takes 3) without connecting it to anything.
+>     **Two deliberate guard progressions**, both turned around rather than deleted and both
+>     explained in place: the guards that asserted no success allocator existed now assert that one
+>     does, that the positional form is gone, that the **executor still knows nothing about it**,
+>     and that the plan stayed immutable. `m4b_execution.py`, `m4b_commands.py`, `m4b_plan.py`,
+>     `m4b_metadata.py`, every shared module, TTS, Cover and the Tk remediation are all
+>     **byte-unchanged**, so risk gate #9 was not reached.
+>     Gate: **4853 collected / 4839 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **FIRST ATTEMPT with NO RETRY**, `verify.py` PASS on its first and only invocation. The
+>     **+50** delta is 49 tests in the new `files/tests/test_m4b_numbering.py` plus 1 from
+>     `test_plan3_boundaries` parametrising over `m4b_numbering.py` as a new non-adopting
+>     production module. **Phase 13 NOT STARTED.**
+>   - **Phase 13** (2026-08-27): Retry Failed. The phase **stopped before editing anything**
+>     and came back with a contract gate, which is the part worth reading first.
+>     **The audit, and why it was mandatory.** §3 of the authorization required reconciling
+>     §11.2 against §21 before touching production. §11.2 called a preflight-unusable item
+>     "typed, **retryable**, nothing written"; §21 said Retry Failed "re-executes the frozen
+>     `ConversionPlan` for failed items only, **reusing the destinations planned at the original
+>     Start**". Those cannot both hold. The real production worker was driven over A (succeeds) /
+>     B (execution failure) / C (`PROBE_FAILED`) and the shapes were read off the settled run:
+>     both B and C came back `retryable=True`, both entered `RetryRequest` — and **C had no
+>     `ItemPlan`, no `SegmentPlan` and no destination**, because `assemble_plan` plans outputs for
+>     usable entries only. `ConversionPlan` holds no planner or reservation field either, so the
+>     original collision domain is gone the moment the run's worker returns. Retrying C could only
+>     proceed by re-probing it, rebuilding the plan, planning it a destination after Start, or
+>     retaining mutable planning state — every one of which §7/§8 forbid. Reported, **no edits**,
+>     worktree clean.
+>     **Maintainer disposition: Option A**, the only one needing no forbidden operation.
+>     Preflight/structural failures stay typed, stay visible in Summary and Details, stay
+>     **non-fatal** and write nothing — and are **`retryable=False`**. A corrected source is
+>     submitted through a **new run**, which probes and plans it normally. Execution failures,
+>     which do have an executable plan entry and frozen destinations, stay retryable. The active
+>     drop's §11.2 and §21 were corrected in place to say so before any production edit.
+>     **The classification is explicit at the point of classification.** `ItemFailure.retryable`
+>     now defaults to `False` and `_failure()` states it anyway, because that helper *is* the
+>     preflight refusal. In the worker, `note()` gained a **keyword-only `retryable` with no
+>     default** — the two callers sit at genuinely different stages, and a helper that guessed
+>     between them is exactly how this went wrong. Nothing infers retryability from message text.
+>     **One invariant carries the phase**: `retryable_ids ⊆ {item.occurrence_id for item in
+>     plan.items}`, pinned mechanically over a mixed run. The retry seam re-checks it anyway and
+>     **refuses truthfully** with a bounded diagnostic if it is ever violated, rather than
+>     re-probing, re-planning, reserving, or quietly dropping the id.
+>     **A retry is a new attempt at the same frozen run.** Same `RunSnapshot` **object**, same
+>     `snapshot_id`, same `ConversionPlan` **object**, same run directory, same destinations, same
+>     options. `retry_failed` asks `result.retry()` rather than filtering a list of its own; the
+>     worker enters **below the preflight** — no probe, no validation, no partition, no cover
+>     selection, no reservation, no `DestinationPlanner`. Fresh per attempt: controller, reporter,
+>     stream, adapter, estimator, and the attempt number. Still **one pump, one job drain, one
+>     `after` chain**, and a late `TimingSample` from the previous attempt is inert.
+>     **Destinations stay frozen, suffixes included.** A book that reserved `Same.mp3` and failed
+>     keeps it; the survivor stays `Same-1.mp3`. Compacting names would leave the retry with
+>     nowhere to return to, so §35's observation is now load-bearing rather than merely accepted.
+>     **The cumulative result was expressible in the shared API as it stands**, so risk gate #9
+>     was not reached and **no shared module changed**. `merge_attempt` — pure, Converter-local,
+>     AST-guarded against paths, files, Tk and `self` — folds one attempt into the run: prior
+>     successes keep succeeding, an unretried failure keeps its record, a retried success loses
+>     its record and joins the completed, a retried re-failure has its record **replaced**, and a
+>     retried book a cancellation never reached **keeps its previous failure** rather than being
+>     given an invented one. Ordering is the frozen snapshot's. The result is built with the
+>     public `FailureLog` + `RunResult.settle` and nothing else.
+>     **The mixed case, end to end.** A✓ B✗(execution) C✗(preflight) D✓ → Retry Failed offers
+>     **B alone**; B succeeds → A✓ B✓ C✗ D✓, still `COMPLETED_WITH_FAILURES` because C is still
+>     failed, but `has_retryable is False` and the control goes unavailable. Non-retryable does not
+>     mean hidden, ignored, or magically successful.
+>     **Numbering continues rather than restarting.** The allocator is still per attempt and still
+>     `propose`/`commit`, but a retry starts from `plan.start_number + len(prior.completed_ids)` —
+>     derived from the cumulative result, never from a filename, an output tag or a directory
+>     listing (guarded). So 1 · fail · 2 → retry **3**; `Start #` 7 → 7, 8 → retry **9**; and a
+>     retry that fails again consumes nothing, so the next one still gets 3.
+>     **Split retry is item-level.** A failed segment fails its **book**; Phase 11 has already
+>     taken back the finalised segments, so nothing partial survives, and the retry re-runs **every**
+>     frozen segment in frozen order at its exact original name with its structural track unchanged.
+>     **An unknown occupant is left alone.** There is no ownership token proving a file at a frozen
+>     name is a stale partial of ours, so a retry that finds one **fails safely** — occupant
+>     byte-identical, not overwritten, source untouched, failure still retryable. Phase 11's
+>     no-overwrite contract is not weakened and no deletion path was added.
+>     **The live panel is irrelevant.** After the run, the imported list is cleared and refilled,
+>     Whole becomes Split, Preserve becomes Strip, quality, Auto-number, `Start #`, the replacement
+>     fields and *Include subfolders* are all changed — and the retry still runs the frozen book at
+>     the frozen name with the frozen options. The worker still reaches for exactly two attributes
+>     on the panel, `_cancel_event` and `_log_q`.
+>     **Real threads for the races.** Cancel mid-retry stops it, leaves earlier outputs alone and
+>     fabricates no failure for what it never reached; Pause reaches `PAUSE_REQUESTED` while an
+>     encode is running and only `PAUSED` at the segment boundary; closing during a retry cancels,
+>     joins within the existing bounded timeout and leaves nothing scheduled.
+>     **Generated media, real ffmpeg.** A✓1 / B✗ / C✓2 then a retried B really written as **3**;
+>     `Start #` 7 → 7, 8 → 9; fail, fail, succeed → 3; a covered split book fully rebuilt with every
+>     segment carrying its cover through the unchanged two-pass path; every original destination
+>     verified; survivors and **all sources SHA-256 identical** before and after every attempt.
+>     **Five guard progressions, all turned around rather than deleted and all explained in place**:
+>     the four "Retry Failed is still not wired" guards now assert that `on_retry` and `set_result`
+>     both exist *and arrived together*, and the approved Phase 10 test that pinned
+>     `failure.retryable is True` for `PROBE_FAILED` now pins `is False` with the correction written
+>     beside it. The allocator's half of the Phase 12 guard deliberately still asserts the allocator
+>     knows nothing about retry.
+>     Gate: **4929 collected / 4915 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **FIRST ATTEMPT with NO RETRY**, `verify.py` PASS on its first and only invocation. The
+>     **+76** delta is exactly the new `files/tests/test_m4b_retry.py`; `test_plan3_boundaries` is
+>     unchanged because no new production module was added. `m4b_execution.py`, `m4b_numbering.py`,
+>     `m4b_probe.py`, `m4b_commands.py`, `m4b_metadata.py`, `m4b_destinations.py`, every shared
+>     module, TTS, Cover and the Tk remediation are all **byte-unchanged**. **Phase 14 NOT STARTED.**
+>     *Note for the next full-suite run:* invoke it as `python -m pytest files/tests -q`. A
+>     root-level `python -m pytest` collects nothing at all, because the gitignored scratch tree at
+>     `files/runtime-data/phase14/tree-phase12/` (left over from Plan 4, 2026-08-21) duplicates every
+>     test basename and pytest refuses the collision. `verify.py` already invokes it correctly.
+>     **It is mandatory in the default gate, not optional** (remediated 2026-08-23): it first
+>     shipped behind a `skipif(not have_ffmpeg())`, which §25 forbids — Plan 5 introduces no new
+>     optional skips — so the mark was replaced with a test-local fail-loud `require_ffmpeg()` in
+>     the `tk_gate.py` style. It **runs** the executable rather than only resolving it, because
+>     both Smart App Control incidents left the binary present and resolvable while refusing to
+>     execute it, which a path check cannot see. Either the regression runs and passes or the gate
+>     is red. Collection and the inherited 14 skips are unchanged; Plan 5 Phases 1–5 now contain
+>     **no `skip`, `skipif`, `importorskip`, `xfail` or environment-gated deselection at all**.
+>   - **Phase 14** (2026-08-28): structural and regression hardening. A proof phase, so the
+>     first work was an **audit of Phases 1-13 rather than new tests**: the importer control
+>     surface, Decision 16A, the recursion contract, occurrence identity, the Plan 3 boundary and
+>     the whole Plan 4 regression surface were already covered, and duplicating them would have
+>     bought nothing. What is new is the remainder — the seams those phases left standing on a
+>     caller's good behaviour rather than on a mechanism. One production file changed.
+>     **The `retried_ids` disposition (drop Observation A): made load-bearing.** At `b68b425f`
+>     `merge_attempt` accepted the attempt's boundary and never read it; it was correct only
+>     because its one caller happened to hand it a matching subset, which is a property of the
+>     caller and not of the seam. Both halves of what an attempt reports are now restricted to
+>     `retried_ids`, so an occurrence the attempt was not asked to repeat is settled from the
+>     prior result alone whatever the attempt says about it. **Deliberately silent rather than
+>     raising**: this seam produces the run's one terminal disposition, so refusing here would
+>     leave a finished run with no result at all and a panel still reporting itself busy — worse,
+>     for the person waiting, than declining to believe a claim about a book that never ran. The
+>     shared layer keeps `JobContractError` for values it can reject *before* any work happened.
+>     **Proved, not asserted.** The five adversarial tests were run against the Phase 13 body with
+>     the two filter lines swapped back, and all five **failed**; the file was restored
+>     byte-identical afterwards. Two of them are the interesting ones: a stray completion for an
+>     unretried failed book used to clear its failure, and a record naming an id outside the
+>     snapshot entirely used to **raise `JobContractError` out of the worker thread** — because
+>     `RunResult.__post_init__` already refuses a foreign id. That is the useful discovery: the
+>     shared layer polices "outside the *snapshot*"; nothing policed "outside this *attempt*",
+>     which is what the merge seam owns and now enforces.
+>     **The scratch tree was preserved, not removed.** `files/runtime-data/phase14/tree-phase12/`
+>     was inspected read-only: ignored by `.gitignore:29` (`files/runtime-data/`), untracked,
+>     **not** a worktree or repository (no `.git` anywhere inside, and `.git/worktrees` lists only
+>     `act-phase12-degraded`), dated 2026-08-21. It sits beside genuine Plan 4 Phase 12/13/14
+>     evidence — `full-suite-run1.log`, `nodes-phase12.txt`, `nodes-phase13.txt`,
+>     `degraded_report.json`, the degraded probes and a `no-chatterbox-venv` — and the whole
+>     `phase14/` folder is 2.2 GB across 49,294 files. It is a *copy* of the tree at Plan 4 Phase
+>     12, which is why root-level pytest sees 83 duplicate basenames. **Left in place**: it is
+>     historical evidence nobody has retired, the canonical gate already scopes itself correctly
+>     to `files/tests`, and destroying evidence to make a non-canonical command convenient is the
+>     wrong trade. No broad pytest configuration was added and `verify.py` was not touched.
+>     **Findings on the seven structural targets.** *No second authoritative queue* — still true;
+>     added the retry half of it, which nothing had covered: `retry_failed` names no manager,
+>     importer, catalog or list, and a retry run **after `manager.clear()`** still executes the
+>     frozen book. *Decision 14A* — all six controls present; added multi-row remove and multi-row
+>     move (identity and selection survive both), transactional `Clear All` with no stale
+>     selection, and **locking through a retry**, which was real behaviour that nothing asserted.
+>     *Decision 16A* — one type; added that disabling it **declines new imports without emptying
+>     the queue**, that it cannot reach a run already frozen, and a structural guard that `".m4b"`
+>     appears **exactly once**, inside `build_catalog`. *Recursion* — added that two consecutive
+>     imports on one live panel may disagree about it, and that a shallow import mirrors only what
+>     entered the snapshot (no `Series/` in the output tree). *Occurrence identity* — added
+>     `refresh()` restoring by id, and duplicates staying distinct **in the settled result**, which
+>     is where a path-keyed collapse would have shown. *`ADOPTED`* — needed **no change**: Phases
+>     7B/8/10 already added the three Converter modules and the guard measures the tuple against
+>     the tree in both directions. Pinned instead that `ADOPTED` and `UNCONVERTED_PANELS`
+>     **disagree about `m4b_converter.py` on purpose** — Plan 3 adoption is not Plan 1 visual
+>     conversion — because the instinct on finding one name in two opposite-looking lists is to
+>     delete it from one. `UNCONVERTED_PANELS` is byte-unchanged. *Plan 4* — no regression, and
+>     no new tests: TTS PDF/TXT-only, the EPUB retirement, TTS/Cover recursion defaults and
+>     multi-level folder imports, Cover browser/jobs, `ui_theme`, Chatterbox boundaries and
+>     `tk_gate` are all already covered, so the proof is 627 passed / 1 skipped across them.
+>     Gate: **4962 collected / 4948 passed / 14 skipped / 1 warning / 0 failed / 0 errors** on the
+>     **FIRST ATTEMPT with NO RETRY**, `verify.py` PASS on its first and only invocation. The
+>     **+33** delta is exactly the new `files/tests/test_m4b_hardening.py`; every skip is
+>     pre-existing and no skip, xfail or deselection was added. `compileall` clean, `pip check`
+>     clean, `git diff --check -- scripts/ files/` exit 0. Bare `git diff --check` still reports
+>     every added `Handoff.md` line as trailing whitespace: that is this file's **inherited
+>     CRLF** under `* text=auto`, it is expected, and it is not normalized. Every shared module,
+>     TTS, Cover, `m4b_execution.py`,
+>     `m4b_numbering.py`, `m4b_probe.py`, `m4b_commands.py`, `m4b_metadata.py`,
+>     `m4b_destinations.py`, `m4b_plan.py`, `m4b_chapters.py`, the Tk remediation, the launcher,
+>     `verify.py` and `config.toml` are **byte-unchanged**; version stays `0.6.1`.
+>     *Note:* Python sources in this worktree are **CRLF** (`* text=auto`). A new test file must
+>     match its siblings, or it lands as pure LF and reappears as modified after the next
+>     checkout. **Phase 15 NOT STARTED.**
+>   - **Phase 15 — blocker diagnosis and FFmpeg health remediation** (2026-08-28): the manual
+>     matrix stopped at item 5. **Diagnosis first, no edits.** The GUI reported *"FFmpeg
+>     detected."* and then `Book 1_ Dungeon Crawler Carl.m4b: This file could not be read`, with
+>     `probe status probe_failed: OSError: [WinError 4551] An Application Control policy has
+>     blocked this file` and a Windows Security toast. **The audiobook was never the problem** —
+>     probed through a working binary it is `ProbeStatus.OK`, 48693.06 s, 50 chapters, AAC-LC,
+>     one attached `mjpeg` picture, and its SHA-256
+>     `4f55710e…76c17` is unchanged before and after every probe in this phase.
+>     **Root cause, in four links.** `files/bin` was absent, so `ffmpeg_utils._find` took the first
+>     PATH hit — and the **User** PATH lists `C:\ffmpeg\bin` (position 17) before the WinGet
+>     `Gyan.FFmpeg` directory (position 22). `have_ffmpeg()` was `ffmpeg_path() is not None and
+>     ffprobe_path() is not None`: **existence, never execution**. `bootstrap.ensure_ffmpeg()`
+>     returned `True` on `shutil.which("ffmpeg")` alone — it never looked at ffprobe on that path
+>     and executed nothing. And the `--launch-only` fast path reconciled *requirements* and
+>     *Kokoro* and never mentioned ffmpeg, so nothing revalidated. The first thing that ever **ran**
+>     ffprobe was the preflight of a real conversion, in front of the user. `ProbeStatus.PROBE_FAILED`
+>     was **correct**; the defect was upstream of it.
+>     **Windows evidence, authoritative.** `Microsoft-Windows-CodeIntegrity/Operational` 3033/3077
+>     (Error) + 3089 + 3118, `PolicyName VerifiedAndReputableDesktop`, `PolicyID 27555.1000.240208`,
+>     GUID `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` — **the same policy as the Phase 0 incident**.
+>     `Requested Signing Level 2` vs `Validated Signing Level 1`, `Status 0xc0e90002`, and the
+>     event's `SHA256 Flat Hash` matches `C:\ffmpeg\bin\ffprobe.exe` exactly. 3089 records
+>     `TotalSignatureCount 0`, `PublisherName Unknown`, `KnownRoot 0`; 3118 records
+>     `DefenderMadeCloudCall true`, `IsUnfriendlyFile false`, **no threat name**. So it is
+>     **reputation + signing level**, not malware, not AppLocker (both logs empty), and **not
+>     WatchGuard — no WatchGuard or Panda service or install directory exists on this machine**.
+>     A first hypothesis of Mark-of-the-Web was **wrong** and was corrected from the event data:
+>     MotW is present on the blocked pair and absent on the working one, but it is correlation.
+>     Both builds are unsigned; only one has cloud reputation.
+>     **Maintainer disposition: Option A** — approve the durable shared remediation, risk gate #9
+>     cleared for this bounded scope only.
+>     **The new contract.** *FFmpeg capability exists only through one coherent ffmpeg + ffprobe
+>     pair that setup or repair has established as usable.* New `shared/ffmpeg_health.py` owns it:
+>     pairs are discovered as **siblings of one directory** (half an installation is not a
+>     candidate, so ffmpeg from one build and ffprobe from another is now impossible), proven by
+>     running `-version` on **both** halves through the shared no-window wrappers with a bounded
+>     timeout, and the winner is pinned in `files/runtime-data/ffmpeg-state.json`. Rejected
+>     candidates are recorded and **never executed again**, because attempting a blocked binary is
+>     itself what raises the notification. See the 2026-08-28 ADR for why the pair is pinned where
+>     it lives rather than copied into `files/bin` (~444 MB duplicated, a stale copy would become
+>     an unbeatable first candidate — the very defect being removed — and GPL redistribution is
+>     Plan 9's question).
+>     **`have_ffmpeg()` now means a coherent pair is available**, still not that it runs; the strong
+>     claim is the new `verified_ffmpeg()`, and `status_line()` is the one place the difference is
+>     worded. The panel's *"FFmpeg detected."* is gone.
+>     **Two defects found while building it, both real.** (1) bootstrap first imported
+>     `ffmpeg_health` off `SHARED_DIR`, creating a **second module object** with its own state and
+>     caches — setup and the app could have disagreed about which FFmpeg was in use while both
+>     looked correct. It leaked a test's state into the real `files/runtime-data/` file, which is
+>     how it was caught; now imported as `shared.ffmpeg_health`, pinned by a test asserting the two
+>     are literally the same module. (2) `_install_ffmpeg`'s winget branch was gated on
+>     `_ffmpeg_on_path()`, which **cannot** be true in the process that just ran the installer —
+>     so successful installs were abandoned in favour of downloading a second, worse copy.
+>     **The BtbN nightly fallback is kept but demoted and documented.** Its bytes change on every
+>     upstream commit, so under reputation-based enforcement it is *structurally* more likely to be
+>     refused than the stable WinGet package. It now runs only when winget is absent or failed, and
+>     whatever it produces is proven like any other candidate rather than trusted for being ours.
+>     **Live Stage 1 proof, on the real machine, both installations left in place.**
+>     `C:\ffmpeg` still present and still first (`where.exe ffprobe` confirms). Repair took 2.52 s:
+>     probed `C:\ffmpeg\bin` → `WinError 4551` → rejected; probed the Gyan build → verified; pinned
+>     it, with SHA-256s matching the recorded known-good values exactly. A **fresh** process with
+>     **no PATH prepend** then resolved both halves to the Gyan directory, `verified_ffmpeg() is
+>     True`, `status_line()` = *"FFmpeg verified and ready."*, and `m4b_probe.probe_source()`
+>     returned `ProbeStatus.OK` on the real audiobook with the source byte-identical.
+>     **Notification count is the acceptance measure: exactly one, during repair** (3077 + 3118 at
+>     17:54:55 for the blocked ffprobe), and **zero** during normal runtime and across three
+>     simulated launches at ~60 ms each. Incidentally, `C:\ffmpeg\bin\ffmpeg.exe` passed
+>     `-version` during repair having failed it earlier with `0xC0E90002` — the DLL-load block is
+>     intermittent while the ffprobe block is deterministic, which is precisely why **both** halves
+>     must be proven rather than one taken as evidence for the other.
+>     **One suite failure, root-caused rather than rerun.** `test_mp3_concat_paths.py` failed 8/8
+>     media tests with `WinError 4551`: it resolved its binaries with `shutil.which("ffmpeg")` —
+>     the exact bypass this phase removes from production — and had only ever passed because a
+>     developer prepended a working directory to PATH for the run. Pointed at
+>     `ffmpeg_utils.ffmpeg_cmd()`; green. **No production module outside bootstrap does this**,
+>     verified by grep. Its pre-existing `skipif` condition changed from raw PATH to
+>     `have_ffmpeg()`; it did not skip.
+>     Gates (all **without** any PATH prepend, which is itself part of the proof):
+>     **5021 collected / 5007 passed / 14 skipped / 1 warning / 0 failed**, `verify.py` PASS on its
+>     first and only invocation, `compileall` clean, `pip check` clean,
+>     `git diff --check -- scripts/ files/` exit 0. Delta **+59** = **+58** new
+>     `files/tests/test_ffmpeg_health.py` **+1** `test_no_production_module_imports_the_plan3_
+>     foundation[shared/ffmpeg_health.py]`, the new shared module auto-enrolling in the Plan 3
+>     boundary guard and passing. **No new skip, xfail or deselection.** `job_control.py`,
+>     `job_ui.py`, `output_paths.py`, `importing.py`, `subprocess_utils.py`, `metadata.py`,
+>     `paths.py`, TTS, Cover, every other `mp3_tools` module, the launcher, `verify.py`,
+>     `config.toml`, `requirements.txt`, the `.bat` and the Tk remediation are all
+>     **byte-unchanged**; version stays `0.6.1`.
+>     **Still open, deliberately.** The manual matrix is **not resumed** — items 5+ need the
+>     maintainer to retest. The **clean-install acceptance test** (remove every FFmpeg, let setup
+>     provision from zero) has **NOT** been performed and needs separate authorisation; nothing was
+>     uninstalled or deleted in this phase. And an unsigned FFmpeg under an arbitrary enterprise
+>     WDAC policy remains unfixable from inside the app — signing and distribution stay Plan 9.
+>     **Phase 16 NOT STARTED.**
+>   - **Phase 15 — clean-install acceptance checkpoint** (2026-08-28): the first-run contract
+>     proved end to end on a genuinely FFmpeg-less host. **PASS.**
+>     **Why it was needed.** The Phase 15 blocker fix made a *broken* FFmpeg impossible to
+>     mistake for a working one. It did not prove the other half of the promise — that a machine
+>     with **no** FFmpeg gets one automatically — and nothing in the suite pinned the first-run
+>     chain at all. A person must not need Python or FFmpeg before downloading this tool.
+>     **Mechanical proof first (no host changes).** All three chains verified from source and
+>     now pinned by 26 tests in `files/tests/test_first_run_contract.py`. *No Python:* the `.bat`
+>     gates its fast path on `.venv\Scripts\pythonw.exe`, tries `py` then `python`, installs
+>     `Python.Python.3.12` via winget, then checks
+>     `%LOCALAPPDATA%\Programs\Python\Python312\python.exe` **directly** because a running
+>     shell's PATH does not refresh, and on total failure prints a truthful message, opens
+>     python.org and exits 1 **before** reaching the bootstrap call. *No FFmpeg:* setup installs,
+>     proves both halves, pins. *Blocked FFmpeg present:* a blocked candidate is never "ready",
+>     setup **continues to installation** rather than giving up because something called ffmpeg
+>     exists, and the new pair wins despite the blocked one being earlier on PATH. **No
+>     implementation defect was found** — the tests document behaviour that was already correct.
+>     **Host prepared, reversibly.** `C:\act-phase15-ffmpeg-backup\inventory-before.json` holds
+>     223 SHA-256 hashes of the whole `C:\ffmpeg` tree plus the Gyan binaries and the full PATH.
+>     `C:\ffmpeg` was **moved, not deleted**, to `C:\act-phase15-ffmpeg-backup\ffmpeg`; the
+>     WinGet package was removed with `winget uninstall --id Gyan.FFmpeg`; the dev tree's
+>     `ffmpeg-state.json` was backed up and removed. Verified afterwards: `where.exe` finds
+>     neither binary, no WinGet package remains, and the app's own `discover_pairs()` returns
+>     `[]`. The stale `C:\ffmpeg\bin` entry was deliberately **left in the User PATH** as a
+>     dangling-entry test.
+>     **Disposable tree.** `git archive 395443362d7107300b1f63e5c6c5a44c4327c632 | tar -x` into
+>     `C:\act-phase15-cleanroom\` — no `.git`, no `.venv`, no `runtime-data`, no `files/bin`,
+>     7.1 MB. It differs from a real extraction only by carrying `md-instructions/` and the two
+>     git dotfiles.
+>     **One aborted run, disclosed.** The first launch inherited this session's `VIRTUAL_ENV`,
+>     so `py.exe` ran bootstrap under the *development* interpreter — not what a user
+>     double-clicking from Explorer gets. It was killed, the cleanroom rebuilt pristine, and
+>     relaunched with `VIRTUAL_ENV`/`PYTHONHOME`/`PYTHONPATH` cleared and PATH rebuilt from
+>     Machine + User only. Its log is kept at
+>     `C:\act-phase15-ffmpeg-backup\aborted-contaminated-run-setup.log`.
+>     **The accepted run.** Maintainer pressed **Begin Setup**; nothing else was done by hand and
+>     **no FFmpeg was downloaded manually**. The log reads, in order: `Found GUI-capable Python
+>     3.12: py -3.12` (the `.bat` had launched under 3.13; `find_suitable_python` correctly
+>     preferred 3.12 for Kokoro) → preflight `[XX] ffmpeg + ffprobe found (nowhere yet)` — note
+>     **"found", not "ready"**, the Phase 15 wording — → venv on **Python 3.12.10** → packages
+>     installed and import-verified → **`No usable ffmpeg/ffprobe pair found — installing one.`**
+>     → `Installing ffmpeg via winget (Gyan.FFmpeg)…` → `ffmpeg installed via winget.` →
+>     `Checking …\ffmpeg-9.0.1-full_build\bin…` → `Verified: ffmpeg version 9.0.1-full_build`
+>     → `FFmpeg verified after install` → GUI launched. `files/bin` was **never created**, so the
+>     BtbN nightly fallback was not used.
+>     **The version glob earned itself immediately.** The uninstalled package was `9.0`; winget
+>     installed **9.0.1**, whose directory is `ffmpeg-9.0.1-full_build` — a *different* name. A
+>     hard-coded `ffmpeg-9.0-full_build` would have found nothing. This was luck, not design
+>     foresight, and it is exactly the failure the glob was written against.
+>     **Security evidence.** Across the entire window (19:03 setup start → 20:01 second launch)
+>     the CodeIntegrity log holds **zero** events naming ffmpeg or ffprobe, **zero** 3077, and
+>     **zero** 3118. The only four 3033 entries are Google Chrome's own `vk_swiftshader.dll` and
+>     `vulkan-1.dll`, unrelated to this application. Maintainer observed **no** Windows Security
+>     popup. Nothing was disabled, excluded or unblocked.
+>     **PATH-independence, proved directly.** A cleanroom process run with
+>     `PATH=C:\WINDOWS\system32;C:\WINDOWS` — nothing else — still resolved both halves and
+>     reported `verified_ffmpeg() True` / *"FFmpeg verified and ready."*, while `shutil.which`
+>     returned `None` for both. That also explains a benign `pydub` import-time
+>     `Couldn't find ffmpeg` warning in the launch log: the GUI was started by a bootstrap
+>     process whose environment predated winget's PATH update, and the application was correct
+>     anyway because it reads the pin. `configure_pydub()` then points pydub at the pinned pair.
+>     **The real audiobook.** Through the cleanroom venv, normal runtime, no prepend:
+>     `ProbeStatus.OK`, `48693.061678` s, **50 chapters**, `aac`, `AttachedPicture(index=2,
+>     mjpeg)`, no artwork problem, title read; source SHA-256 `4f55710e…76c17` identical before
+>     and after. The exact file that blocked item 5 now probes cleanly.
+>     **Fast path.** Second `Setup_and_Run` produced no console and no setup dialog; the log is
+>     three lines — `FFmpeg health-check: verified …\ffmpeg-9.0.1-full_build\bin`,
+>     `Kokoro health-check: ok`, `Launching launcher.py`. No reinstall (winget still 9.0.1),
+>     `ffmpeg-state.json` **byte-identical** (same SHA-256), no requirements reconciliation, and
+>     **zero** CodeIntegrity events.
+>     *Minor observation, unresolved:* the setup log shows the Kokoro weights **were**
+>     pre-downloaded, although the maintainer reported unchecking that box. It does not affect
+>     this acceptance and was not investigated; worth a glance if it recurs.
+>     Gates: **5047 collected / 5033 passed / 14 skipped / 1 warning / 0 failed**, delta **+26** =
+>     exactly the new module; `verify.py` PASS; `compileall`, `pip check` and
+>     `git diff --check -- scripts/ files/` clean. **No production code changed.** No new skip,
+>     xfail or deselection.
+>     **Host left as follows:** Gyan.FFmpeg **9.0.1** installed and pinned — the dependency the
+>     app wants — and the dev tree re-pinned to it. The blocked `C:\ffmpeg` stays **backed up
+>     and inactive** at `C:\act-phase15-ffmpeg-backup\ffmpeg`, not deleted, not restored. Its
+>     stale PATH entry remains and is harmless.
+>     **Still outstanding for release:** Python was already installed on this machine, so the
+>     **true no-Python + no-FFmpeg clean Windows environment** proof — fresh extraction, driven
+>     from `Setup_and_Run` — has **NOT** been performed and remains a first-run acceptance
+>     requirement, not polish. Windows Sandbox/Hyper-V were **not** enabled for this checkpoint.
+>     **Phase 15 manual matrix still incomplete** (1–4 PASS, 5 awaiting the maintainer's
+>     whole-book retest, 6+ not run). **Phase 16 NOT STARTED.**
+>   - **Phase 15 — Whole-book artwork truncation** (2026-08-28): the manual matrix's second
+>     blocker, found immediately after the FFmpeg provisioning fix unblocked item 5.
+>     **The symptom.** Whole book + Preserve on the real *Dungeon Crawler Carl* source produced
+>     `output length 0s != planned 48693s (100% off) — the source could not be decoded correctly
+>     (likely xHE-AAC …)`. That explanation was **false**: the source is AAC-LC and its own frozen
+>     probe records `undecodable_xhe=False`, and Split converted all 50 chapters of the same file
+>     with the same binary minutes earlier.
+>     **Not a measurement defect.** Reproducing the exact production command outside the
+>     transaction gave rc **0**, 0.9 s elapsed, a 600 KB file — `video:583KiB audio:2KiB`,
+>     `time=00:00:00.32`. The app's probe, ffprobe stream duration, ffprobe format duration,
+>     mutagen and an actual `-f null -` decode **all agreed** on ~0.33 s. The file genuinely held a
+>     third of a second of a 13.5-hour book. The drift guard was correct and had saved the user
+>     from a 600 KB "audiobook"; it is unchanged.
+>     **Root cause, isolated.** A matrix over the real source, holding `-t 60` constant and varying
+>     one flag: audio alone ✅, audio **+ chapters** ✅ — so the chapter map was innocent — audio +
+>     **artwork** ❌ 0.325 s, artwork + chapters ❌ 0.325 s. Mapping the attached picture out of the
+>     *same input whose audio is being decoded* makes ffmpeg stop after a handful of frames and
+>     **exit 0**. Cover size is irrelevant (a 247-byte cover fails like a 597 KB one). The trigger
+>     is **source length**: ≤50 min fine, ≥55 min always truncates.
+>     **Two hypotheses were tested and discarded**, and both are worth recording. A 2³² timestamp
+>     overflow looked compelling — the book's picture stream has `duration_ts 4,382,375,551` — but 6
+>     hours truncates while sitting *below* 2³². And a 6-hour fixture built by `-stream_loop` had to
+>     be re-tested against a directly-encoded one before the duration threshold could be trusted at
+>     all; construction turned out not to matter.
+>     **The fix.** `m4b_commands._core` opens the source a **second time** when a cover is wanted,
+>     and `_media_args` maps the picture from `1:<abs index>` instead of `0:<abs index>`. Audio and
+>     chapters still come from input 0; decoder args still precede input 0 only, so decoding
+>     semantics are untouched; `-c:v copy`, the attached-picture disposition, the metadata
+>     allowlist, ID3v2.3, quality and `-threads 0` are unchanged. **Still one command and one audio
+>     encode** — Split's two-pass shape also works but would write ~750 MB twice for nothing. See
+>     the 2026-08-28 ADR.
+>     **No second 13.5-hour encode was needed.** The production builder's argv was compared
+>     token-for-token against the command already validated on the full book during diagnosis and is
+>     **byte-identical**; that run gave rc 0, 230.5 s, 743,413,985 bytes, duration exactly
+>     48693.061678, 50 chapters, cover attached, all five approved tags.
+>     **The drift message no longer guesses.** It accused xHE-AAC on *every* mismatch. `SegmentWork`
+>     now carries `undecodable_xhe`, copied from the frozen `ItemPlan` — no re-probe, no string
+>     sniffing, no shared contract touched — and a cause is named only when the plan established
+>     one. Otherwise it reports measured vs planned and that the output was discarded, and
+>     attributes nothing. An AST guard pins that the execution layer never re-probes.
+>     **Why the suite missed it.** `test_a_whole_book_carries_its_cover_in_one_pass` uses a
+>     **six-second** fixture — two orders of magnitude below the boundary — so it passed against the
+>     defect and always would have. A new module-scoped **~60-minute** generated fixture (silent AAC
+>     at 32 kbps, chapters, embedded cover, built in seconds under `tmp_path`) now exercises the
+>     production path. It was **verified to fail against the pre-fix shape**: 3 of its 5 tests fail
+>     when the two production lines are reverted, and the 2 that pass are the fixture sanity check
+>     and the no-cover control, which was never affected. The six-second test is kept — it guards a
+>     different property.
+>     **Five guard progressions, all turned around rather than deleted**, each explained in place:
+>     `0:2` → `1:2` in `test_m4b_metadata`, `test_m4b_execution` and `test_m4b_conversion_plan`,
+>     plus the two xHE wording assertions. Every one still guards what it always guarded.
+>     Gates: **5069 collected / 5055 passed / 14 skipped / 1 warning / 0 failed**, first attempt;
+>     delta **+22**, exactly the new tests — **+12** command-shape guards in
+>     `test_m4b_commands` and **+10** in `test_m4b_execution` (five long-timeline, five drift
+>     taxonomy). The five progressed guards changed assertions, not counts. `verify.py` PASS,
+>     `compileall`, `pip check` and `git diff --check -- scripts/ files/` exit 0 (a bare
+>     `--check` still flags every added `md-instructions` line, which is those files'
+>     inherited CRLF and is not normalized). Source SHA-256
+>     `4f55710e…76c17` unchanged throughout. `ffmpeg_health.py`, `ffmpeg_utils.py`, `bootstrap.py`,
+>     both launchers, TTS, Cover and every shared Plan 2/3 contract **byte-unchanged**; version
+>     stays `0.6.1`.
+>     **Phase 15 manual matrix still incomplete**: 1–4 PASS, **item 5 awaits the maintainer's
+>     Whole-book retest through the normal Setup_and_Run path**, 6+ not run. Diagnostics retained at
+>     `C:\act-phase15-whole-diag\` and `C:\act-phase15-ffmpeg-backup\`. **Phase 16 NOT STARTED.**
+>   - **Phase 15 — Windows xHE-AAC decode** (2026-08-29): the matrix's third blocker. The
+>     AAC-LC book converted correctly after the artwork fix; *Reincarnated as a Sword* did not.
+>     **The measurement.** ffmpeg 9.0.1 refuses **362,465 of 1,515,928 frames** with *"Not yet
+>     implemented in FFmpeg, patches welcome"* — **23.91%** — and exits **0**. 362,465/1,515,928
+>     retained × 35,199.62 s = **26,783 s**, exactly what the maintainer saw. Real PCM slices
+>     across the whole book deliver 75.3–76.4% uniformly (AAC-LC controls: 100%), so the output is
+>     not short at one end but carries ~362,000 excisions. Split is identical: every chapter span
+>     ~76%. **`time=` lied** — decode-to-null reached the file's end because PTS advances over
+>     dropped frames, which is why every measurement here is delivered *samples*.
+>     **Corpus scope.** All 55 real M4Bs were classified: **54 AAC-LC (1,662 h), exactly one
+>     xHE-AAC (9.78 h)**. The gap affects 1.8% of the library — worth fixing, not worth disturbing
+>     the other 54 books for.
+>     **Two candidates rejected on evidence.** Gyan 9.0.1 has only `aac`, `aac_fixed`, `aac_latm`
+>     — asked mechanically, not inferred; `aac_fixed` produces no valid output at all, and
+>     `--enable-mediafoundation` supplies the `aac_mf` *encoder* only. FDK-AAC decodes xHE but
+>     `--enable-libfdk-aac` needs `--enable-nonfree`, which with `--gpl` is **not redistributable**
+>     under this project's GPL-3.0 licence.
+>     **What was chosen, and proved.** Windows 11's own decoder, through `IMFSourceReader` driven
+>     by stdlib `ctypes` — nothing downloaded, installed or redistributed, and no security question.
+>     Full sequential decode of the real book: **1,515,929 samples, 35,199.78 s = 100.0004%**, peak
+>     buffer **4,096 bytes**, 91 s wall clock. See the 2026-08-29 ADR for why the reader rather than
+>     `MediaTranscoder` (6.2 GB), and why a split book decodes **once** (every seek discards 8,055
+>     frames = 0.183 s, measured).
+>     **Live production proof.** Whole + Preserve through the real plan and executor:
+>     **finalised**, 35,199.7794 s against a 35,199.62 s source = **100.0004%** (drift 0.0004%), 565,986,987 bytes, **all 15 chapters**, all five approved tags, one command, 178 s. Split through the production builder and `PcmTimeline`: opening, early, middle and
+>     **final tail** spans all **100.00%**, from one decode. Source SHA-256 `b9a24a88…f8d4`
+>     unchanged throughout. AAC-LC controls — Dungeon Crawler Carl, a 74-hour Supreme Magus, a
+>     461-chapter Shadow Slave — all still route to **ffmpeg** and deliver **100%**.
+>     **One bug found by the live run, and it is worth remembering.** The first attempt produced a
+>     complete 100.0004% audiobook with **zero chapters**: `pcm_argv` emitted `-map_chapters 1`
+>     while the shared `output_args` emitted `-map_chapters 0`, and argument order settled it in
+>     favour of the PCM pipe. Two authorities for one flag is the whole lesson; the chapter map is
+>     now owned by exactly one place on this route.
+>     **Windows 10 and N/KN editions fail closed** at preflight with a typed, **non-retryable**
+>     `undecodable_source` failure (Phase 13 Option A), before a run directory is reserved — rather
+>     than spending minutes to hand back 76% of a book. The message names nothing to disable or
+>     download, because there is nothing honest to name. **macOS is untouched**: `aac_at` already
+>     decodes xHE, so those sources report *decodable* and never reach this path.
+>     Gates: **5124 collected / 5110 passed / 14 skipped / 0 failed**, delta **+55, exactly the new tests — **+54** in `test_m4b_winaudio` and **+1** from the new production module auto-enrolling in the Plan 3 boundary guard**.
+>     `verify.py` PASS; `compileall`, `pip check` and `git diff --check -- scripts/ files/` clean.
+>     No new dependency; `requirements.txt` untouched. Shared Plan 2/3 contracts, TTS, Cover, the
+>     launchers, `ffmpeg_health` and `bootstrap` are **byte-unchanged**; version stays `0.6.1`.
+>     **Phase 15 manual matrix still incomplete**: 1–4 PASS, AAC-LC Whole PASS, **xHE Whole and
+>     Split await the maintainer's retest**, 6+ not run. **Phase 16 NOT STARTED.**
+>   - **Phase 15 — xHE GUI evidence banked, and the ffprobe Unicode blocker** (2026-08-29):
+>     the maintainer ran the xHE retests through the real `Setup_and_Run` path and then hit a
+>     **fourth** blocker on a different real book. Both are recorded here; only the second
+>     needed code.
+>     **The xHE retests PASSED, measured rather than eyeballed.** *Whole* (run `M4B-Converter-23`,
+>     `Reincarnated as a Sword.mp3`, 565,986,987 bytes): **35,199.77941 s** against a
+>     35,199.624717 s source = **100.0004 %**, drift **0.0004 %** — not the old 26,783 s — with
+>     **15 chapters** whose start times match the frozen plan to **0.000000 s**, the `mjpeg`
+>     cover attached, and all five approved tags. The maintainer independently read ~**9:46:40**
+>     in iTunes, which agrees. *Split* (run `M4B-Converter-22`): **exactly 15** order-prefixed
+>     MP3s, every span matched against the frozen timeline — worst per-file deviation
+>     **0.0007 s**, total **35,199.627 s** vs 35,199.625 planned = **100.00000 %**, no missing
+>     middle or tail — each carrying the cover, its own chapter title as `title`, and sequential
+>     tracks 1–15. **No `.act` temp residue** in either run directory. Source SHA-256
+>     `b9a24a88…f8d4` unchanged. Run 23 also converted six other real books; **only ToA 4 was
+>     rejected**, at preflight.
+>     **The audible 06→07 boundary check is still OUTSTANDING.** No durable evidence records the
+>     maintainer performing it, and sample counts are not a substitute for listening.
+>     **The new blocker.** `ToA 4 - The Tyrant's Tomb.m4b` failed preflight with *`probe status
+>     probe_failed: UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in position
+>     6528`*. **The book was never the problem**: ffprobe exited **0** with empty stderr and
+>     22,545 bytes of valid UTF-8 JSON that `json.loads` parses straight from bytes, describing
+>     an ordinary AAC-LC audiobook — **48,123.239909 s (13.37 h), 44 chapters, one PNG cover at
+>     stream 2**, `track 4/5`, Rick Riordan. Source SHA-256
+>     `4fb6b7f569d801d517011de5c548184e6530d4a0024acaa469748bde7b1f397e`, unchanged throughout.
+>     **Root cause, proven not guessed.** `probe_source` asked `check_output` for `text=True`
+>     without naming an encoding, so Python decoded with `locale.getpreferredencoding(False)` =
+>     **cp1252** on this host (`sys.flags.utf8_mode 0`). Byte 6528 is the third byte of
+>     `b"\xe2\x80\x9d"` — U+201D — inside chapter 4's title *A simple “no” works*. The same bytes
+>     decode strictly as UTF-8 and parse as JSON; only the code page failed. `PROBE_FAILED` was a
+>     truthful report of a defect one layer above it.
+>     **Crashing was the loud half.** cp1252 *maps* most of what it should not touch — U+2014 →
+>     `â€”`, U+2019 → `â€™`, U+00E9 → `Ã©` — so a book that avoided the few unmapped bytes would
+>     have converted with mojibake in every chapter name. That is why the fix is measured by exact
+>     round-trip and why `errors="ignore"`/`"replace"` were rejected: they convert a refusal into
+>     a silent corruption. See the 2026-08-29 ADR.
+>     **The fix is one production line.** `sp.check_output(argv, text=True)` → `sp.check_output(argv)`;
+>     the bytes go to `json.loads`, which decodes JSON's own way. The `runner` seam still accepts
+>     **both** `str` and `bytes` (its type hint now says so) and no test needed migrating.
+>     `shared.metadata.read_chapter_titles` has always done exactly this — the Converter's probe
+>     was the one that did not.
+>     **Scope held on evidence.** The sweep found one other locale-decoded ffprobe call reachable
+>     from the Converter — `ffmpeg_utils.probe_audio_stream`, behind `measured_duration` — but it
+>     is a different contract (`-of default=noprint_wrappers=1`, six fixed entries) and its output
+>     **on this very book is pure ASCII**, so it cannot carry a title. Left alone, as was
+>     `-decoders`. TTS, Cover, M4B Maker and the Metadata Editor untouched.
+>     **Real post-fix proof.** ToA 4 now probes `ProbeStatus.OK`: 48,123.239909 s, 44 chapters,
+>     PNG cover, five tags, `undecodable_xhe=False`, **CHAPTERED**, and its 44 planned spans tile
+>     `[0, D]` with `Σ − D = +0.000000000`. Titles return **exactly** — `'4 — Ukulele song? / No
+>     need to remove my guts / A simple “no” works'` — with no `?`, no `�` and no `â€`.
+>     Whole and Split are both viable.
+>     **Why the suite missed it.** Every generated probe fixture titles its chapters `Ch One`; a
+>     pure-ASCII book cannot fail this way. The new `files/tests/test_m4b_probe_encoding.py`
+>     builds a real book whose titles carry the same characters, **asserts the payload really is
+>     cp1252-undecodable** so the guard cannot quietly stop guarding, and pins exact round-trip
+>     rather than the absence of an exception. **Verified to fail against the pre-fix code**: 4 of
+>     its 36 tests fail before the change (the AST `text=` guard, the behavioural
+>     `check_output` stand-in, and the two real-media reads) — the unit payloads pass either way
+>     because they drive the injected seam, which was never the defect.
+>     Gates: **5146 passed / 14 skipped / 0 failed / 2 warnings** on the **FIRST ATTEMPT with NO
+>     RETRY** (both warnings are pydub's, from site-packages, and pre-date this change);
+>     `verify.py` **PASS** on its first and only invocation; `compileall` exit 0, `pip check`
+>     clean, `git diff --check -- scripts/ files/` exit 0. Delta **+36**, exactly the new test
+>     module — a new *test* file adds no Plan 3 boundary-guard row. **No new skip, xfail or
+>     deselection.** `m4b_winaudio.py`, `m4b_commands.py`, `m4b_execution.py`, `m4b_plan.py`,
+>     `m4b_converter.py`, `ffmpeg_health.py`, `ffmpeg_utils.py`, `bootstrap.py`, every shared
+>     Plan 2/3 contract, TTS, Cover, both launchers, `verify.py`, `config.toml` and
+>     `requirements.txt` are **byte-unchanged**; version stays `0.6.1`.
+>     **Observation, recorded and NOT fixed here** (needs its own disposition): a whole-book
+>     output's chapters carry correct start times but **no titles** — ffmpeg's mp3 muxer writes
+>     `CHAP` frames with a `TIT2` sub-frame only under `-map_metadata 0`, and the approved
+>     allowlist shape is `-map_metadata -1` plus explicit `-metadata`. Measured directly on a
+>     three-chapter fixture. This satisfies §16 as written (D6A promises the chapter **map**, and
+>     navigation works) and every pinned test, and it is **not** a regression from any Phase 15
+>     work — it is inherent to the approved Phase 6 design. Flagged for maintainer disposition,
+>     Phase 17. The earlier pytest-wrote-a-temp-FFmpeg-pair-into-the-real-setup-log observation
+>     also remains an untouched follow-up.
+>     **Phase 15 manual matrix still incomplete**: 1–4 PASS, AAC-LC Whole PASS, **xHE Whole and
+>     Split now PASS on measured GUI evidence**, **ToA 4 Whole awaits the maintainer's retest**,
+>     the **audible 06→07 boundary check awaits the maintainer**, and items 6+ have not run. A
+>     true no-Python clean-environment proof is still outstanding for release.
+>     **Phase 16 NOT STARTED.**
+>   - **Phase 15 — Windows validation ACCEPTED and CLOSED** (2026-08-29). **COMPLETE BY EXPLICIT
+>     MAINTAINER ACCEPTANCE.** The maintainer accepted the real-world Windows validation already
+>     performed and explicitly waived the remaining unperformed synthetic/manual §26 rows:
+>     *"I'm not going to test all of that since it would take too long and i don't have time …
+>     i tested enough with the other files and I am happy with how it's performing, if in the
+>     future i encounter an error i will come back to the chat and we can work on it but for now
+>     let's move on."* That disposition supersedes the earlier reconciliation verdict of
+>     *Phase 15 INCOMPLETE*, which was correct under the requirements in force before the waiver.
+>     **What actually PASSED, on real sources through the real `Setup_and_Run` launcher**, Windows
+>     11, 1920x1080 at 100%:
+>     · **Bootstrap/provisioning** — coherent Gyan **FFmpeg 9.0.1** pair discovered, proven by
+>     execution and pinned; the stale blocked `C:\ffmpeg` no longer wins discovery; **zero**
+>     CodeIntegrity events and no security popup across accepted flows; the **clean-install
+>     acceptance** checkpoint proved automatic provisioning end to end on an FFmpeg-less host, and
+>     the fast path was verified afterwards.
+>     · **AAC-LC Whole** — *Book 1: Dungeon Crawler Carl* (`4f55710e…76c17`), Whole + Preserve
+>     PASS after the artwork remediation: full duration, **50 chapters**, mjpeg cover, approved
+>     metadata, source hash unchanged. The truncation defect it exposed was root-caused to the
+>     attached picture and fixed by the **second-input artwork invariant** — input 0 carries audio
+>     and chapters, input 1 is the same file opened only for the stream-copied cover. That
+>     invariant is an accepted Plan-5 decision and must not be "simplified" away.
+>     · **xHE-AAC Whole** — *Reincarnated as a Sword* (`b9a24a88…f8d4`) through the Windows Media
+>     Foundation route: **35,199.77941 s** against a 35,199.624717 s source = **100.0004 %**, drift
+>     0.0004 %, emphatically not the old ~26,783 s truncated ffmpeg result; 15 chapters matching
+>     the frozen plan, cover present, all five approved fields, source unchanged, and ~9:46:40 read
+>     independently in iTunes.
+>     · **xHE-AAC Split** — run `M4B-Converter-22`: **exactly 15** order-prefixed MP3s totalling
+>     **35,199.627 s** against 35,199.625 planned, worst per-file deviation **0.0007 s**, no
+>     missing middle or tail, cover and per-file chapter title on each, tracks 1-15, **no `.act`
+>     residue**, source unchanged.
+>     · **Audible boundary listen** — `06 - Chapter 3_ Meeting at Nocta.mp3` to `07 - … Part 2.mp3`:
+>     *"Boundary PASS — 06 to 07 continues naturally with no missing audio, duplication, or
+>     abnormal gap."* This satisfies §26's listen-across-at-least-one-boundary requirement.
+>     · **Unicode / cp1252** — *ToA 4 - The Tyrant's Tomb* (`4fb6b7f5…397e`). The
+>     `'charmap' codec can't decode byte 0x9d` preflight refusal was fixed in `eda2e489`; post-fix
+>     the book probes `ProbeStatus.OK`, 48,123.239909 s, **44 chapters**, PNG cover, five tags,
+>     Unicode chapter text exact with no replacement characters and no mojibake, source unchanged.
+>     GUI: Whole + **Preserve** PASS, Whole + **Replace** PASS, Whole + **Strip/Write none** PASS,
+>     and the Unicode **Split** path exercised successfully before a deliberate cancellation, with
+>     em dash and curly quotes intact in filenames and logs.
+>     · **Metadata/artwork modes proven** — Whole Preserve, Whole Replace, Whole Strip, and Split
+>     Preserve (the completed 15-output run). JPEG/mjpeg and PNG source covers both exercised;
+>     Preserve retains artwork, Strip omits it.
+>     · **Pause / Resume / Cancel** — all three confirmed by hand. Run 31 logs *"Cancelling… will
+>     stop after the current file."* and the removal of incomplete products; mechanical inspection
+>     afterwards found **no `.act` and no temporary residue**.
+>     · **Source immutability** — all three real books re-hashed identical before and after every
+>     probe, conversion and diagnostic.
+>     **The MP3 playback-timer concern is CLOSED, not outstanding.** A read-only cross-tool
+>     investigation measured chapter 06 at planned/decoded ~2551.862 s, ffprobe gapless
+>     2551.861995 s and raw Xing / last packet / Media Foundation 2551.90204 s — a **~40 ms spread
+>     exactly equal to LAME encoder delay plus padding**, with the player-facing duration never
+>     *shorter* than the decoded audio. The artwork remux was proven timing-neutral. Current
+>     Converter, MP3 Tool and TTS output are all structurally correct; the remembered symptom
+>     reproduces only in **stale TTS files written before the 2026-08-19 finalisation fix**.
+>     Classification **A (normal display rounding) + F (historical-only other-tool issue)**. No
+>     production remediation owed.
+>     **EXPLICITLY WAIVED — NOT PASS.** The following §26 rows were **not manually exercised**;
+>     they are **waived by the maintainer on 2026-08-29** and **non-blocking for Phase-15
+>     completion**. They must not be reclassified as PASS because implementation exists, because
+>     automated tests cover them, because synthetic fixtures were prepared, or because the product
+>     is performing well:
+>     *Fixture breadth* — chapterless · first-chapter-after-zero · trailing-audio · slash-title
+>     final-artifact confirmation · duplicate-title · minimal-metadata.
+>     *Conversion breadth* — Split + Replace · Split + Strip · artwork presence/absence for those
+>     two Split modes · progress and ETA observation · Retry Failed with the success-only numbering
+>     sequence · deliberate direct-file output collision · mirrored folder output.
+>     *Import/control breadth without a durable itemized manual record* — Include subfolders ON/OFF
+>     on one folder · nested-only-when-ON · root-level-in-both · repeated toggle / per-import frozen
+>     state · Clear All · Add Files · Add Folder · Move Up · Move Down · Remove · Ctrl-click ·
+>     Shift-click · deliberate duplicate occurrence add/remove · M4B supported type enabled and
+>     disabled. (Earlier records say "manual items 1-4 passed" but never enumerate them, so no
+>     individual row above can be mapped to that claim.)
+>     **First-chapter-after-zero, specifically.** Not practically representable as a valid M4B on
+>     this fixture path: ffmpeg's MOV/M4B muxer **normalises the first chapter start to 0**, proven
+>     against the default, `+disable_chpl` and `-disable_chpl` forms (the same metadata keeps
+>     `2.000000` in Matroska), and **all five real books on hand also begin at 0.000000**. The
+>     planner behaviour is independently covered by `test_m4b_timeline_partition.py`, which drives a
+>     logical chapter list whose first start is 41.062 and proves the pre-roll lands in chapter 1.
+>     No invalid M4B was fabricated for the row.
+>     **Synthetic fixtures — clarification.** The disposable fixtures prepared for the abandoned
+>     session, including `Retry-B.m4b`, were created under `C:\act-phase15-final-manual-matrix\` and
+>     then relocated by the containment policy to
+>     `files/dev-work/phase15/final-manual-matrix/` — which is why the maintainer could not find
+>     them. They are gitignored local developer evidence, **not** repository fixtures, **not**
+>     private audiobooks and **not** cross-platform assets. Their absence from the expected place is
+>     **not a product defect**. They are retained, not regenerated and not committed.
+>     **Gate at the accepted HEAD** (`58172cc`, unchanged by this documentation checkpoint): bare
+>     `python -m pytest` and `python scripts/verify.py` each report **5164 passed / 14 skipped /
+>     0 failed / 2 warnings**, `verify.py` **RESULT: PASS**.
+>     **Still open, and deliberately not closed here:** the true **no-Python + no-FFmpeg fresh
+>     Windows machine/VM** proof remains a **release** acceptance gap, not a Phase-15 one; and the
+>     Phase-17 observations recorded above and below stand (whole-book chapter titles under the
+>     `-map_metadata -1` allowlist, pytest-state leakage into the real setup log, additive
+>     player-duration structural coverage for Converter/MP3-Tool output, stale pre-fix TTS user
+>     outputs which are **not** to be deleted, and the retained
+>     `files/runtime-data/phase14/tree-phase12/` snapshot now safely excluded by `pytest.ini`).
+>     **Plan 5 remains ACTIVE. Phase 16 NOT STARTED. Phase 17 NOT STARTED. Phase 18 NOT STARTED.**
+>     Version stays `0.6.1`; no tag, release, package, `release.py` run, merge or PR; the Plan-5
+>     drop is **not** retired.
+
+> ## ⟢ SUPERSEDED — v0.6.1 Plan 4 is COMPLETE, APPROVED and CLOSED (2026-08-22)
+>
+> *(Kept for the record. Correct when written; superseded by the block above, which records that
+> Plan 4 has since been merged through pull request #5.)*
 >
 > **This block is the live state of the repository and supersedes every earlier status sentence in
 > this file.** Nothing below it has been deleted or rewritten: the phase-by-phase record stays

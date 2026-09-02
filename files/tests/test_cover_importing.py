@@ -1064,3 +1064,31 @@ def test_the_start_of_a_resize_still_reserves_only_after_validation():
     assert body.index("showwarning") < body.index("reserve_run_directory")
     build = method_named("__init__")
     assert "reserve_run_directory" not in ast.unparse(build)
+
+
+# --------------------------------------------------------------------------- #
+# v0.6.2 Plan 5 Phase 7A — the shared recursion extension must not reach Cover
+# --------------------------------------------------------------------------- #
+
+
+def test_include_subfolders_defaults_to_true_for_cover(make_panel):
+    """Cover gained a shared option and no behaviour.
+
+    Phase 7A added ``include_subfolders`` to the shared frozen contract. Cover was
+    deliberately not edited to pass it, so this proves the inherited default is
+    what keeps its Add Folder recursive.
+    """
+    panel = make_panel()
+    assert panel.importer.options.options().include_subfolders is True
+
+
+def test_cover_folder_import_still_recurses_more_than_one_level(make_panel, tmp_path):
+    root = tmp_path / "Covers"
+    images(root, "top.jpg")
+    images(root / "Disc 1", "inner.png")
+    images(root / "Disc 1" / "Extra", "deep.png")
+    panel = make_panel(choose_folder=lambda: (root,))
+    panel.importer.add_folder()
+    panel._pump.tick()
+    assert sorted(p.name for p in panel.imported_files()) == [
+        "deep.png", "inner.png", "top.jpg"]

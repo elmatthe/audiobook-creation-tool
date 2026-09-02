@@ -1496,3 +1496,31 @@ def test_no_chatterbox_or_later_phase_vocabulary_arrived():
 
 def test_the_panel_still_imports_nothing_from_the_archive():
     assert not [name for name in imported_modules() if "archived" in name]
+
+
+# --------------------------------------------------------------------------- #
+# v0.6.2 Plan 5 Phase 7A — the shared recursion extension must not reach TTS
+# --------------------------------------------------------------------------- #
+
+
+def test_include_subfolders_defaults_to_true_for_tts(make_panel):
+    """TTS gained a shared option and no behaviour.
+
+    Phase 7A added ``include_subfolders`` to the shared frozen contract. TTS was
+    deliberately not edited to pass it, so this proves the inherited default is
+    what keeps its Add Folder recursive.
+    """
+    panel = make_panel()
+    assert panel.importer.options.options().include_subfolders is True
+
+
+def test_tts_folder_import_still_recurses_more_than_one_level(make_panel, tmp_path):
+    root = tmp_path / "Library"
+    sources(root, "top.pdf")
+    sources(root / "Book 1", "inner.txt")
+    sources(root / "Book 1" / "Part A", "deep.txt")
+    panel = make_panel(choose_folder=lambda: (root,))
+    panel.importer.add_folder()
+    panel._pump.tick()
+    assert sorted(p.name for p in panel.imported_files()) == [
+        "deep.txt", "inner.txt", "top.pdf"]

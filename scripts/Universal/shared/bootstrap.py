@@ -70,6 +70,21 @@ VENV_DIR = REPO_ROOT / ".venv"
 LAUNCHER = SCRIPTS_DIR / "launcher.py"
 LAUNCHER_FALLBACK = SCRIPTS_DIR / "tts" / "epub2tts_gui.py"
 
+# The one exception to "no sibling imports": v0.6.2 Plan 5 Phase 15 needs the
+# *same* pair-proving logic in setup and at runtime, and duplicating it here is
+# how the two would drift into disagreeing about which FFmpeg is in use.
+# ``ffmpeg_health`` is stdlib-only and reaches into ``shared`` for nothing but
+# the subprocess wrappers, so it is safe in the pre-venv environment this file
+# runs in -- ``shared/__init__.py`` is a docstring and nothing else.
+#
+# Imported as ``shared.ffmpeg_health`` rather than by directory on purpose: a
+# bare ``import ffmpeg_health`` off ``SHARED_DIR`` would create a *second*
+# module object with its own state and its own caches, so setup and the app
+# could hold different answers to "which FFmpeg?" while both looked correct.
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+from shared import ffmpeg_health  # noqa: E402
+
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
 
@@ -680,8 +695,13 @@ def preflight_report(py, log: "SetupLog") -> dict:
     log.line(f"  {mark(caps['tkinter'])} tkinter import")
     log.line(f"  {mark(caps['tcl_tk_functional'])} Tcl/Tk functional")
     log.line(f"  {mark(caps['ssl'])} ssl support")
-    log.line(f"  {mark(bool(_ffmpeg_on_path() or _ffmpeg_in_bin()))} ffmpeg")
-    log.line(f"  {mark(_ffprobe_available())} ffprobe")
+    # "found", not "ready": this report runs *before* ``ensure_ffmpeg`` proves
+    # anything, and calling a located binary ready is the exact overstatement
+    # Phase 15 removed. The verified line is written by ``ensure_ffmpeg``.
+    pair = ffmpeg_health.pair_in(BIN_DIR) or next(
+        iter(ffmpeg_health.discover_pairs()), None)
+    log.line(f"  {mark(pair is not None)} ffmpeg + ffprobe found "
+             f"({pair.directory if pair else 'nowhere yet'})")
     return caps
 
 
@@ -982,24 +1002,59 @@ def _ffmpeg_in_bin() -> Optional[Path]:
 
 
 def ensure_ffmpeg(log: SetupLog) -> bool:
-    """Make ffmpeg available. Returns True if ffmpeg+ffprobe are usable."""
-    if _ffmpeg_on_path():
-        log.line(f"ffmpeg already on PATH: {_ffmpeg_on_path()}")
-        return True
-    if _ffmpeg_in_bin():
-        log.line(f"ffmpeg already present in bundled bin: {BIN_DIR}")
+    """Establish a **usable** ffmpeg + ffprobe pair. True only if one runs.
+
+    v0.6.2 Plan 5 Phase 15 rewrote this. It used to return ``True`` the moment
+    ``shutil.which("ffmpeg")`` answered — it never looked at ffprobe on that
+    path and never executed anything — so a machine whose first PATH entry was
+    an installation Windows refuses to run was declared ready, and the failure
+    surfaced in front of the user during a real conversion instead.
+
+    The order now is: try what is already here, and only install when nothing
+    here works. That keeps a working machine untouched and still repairs a
+    broken one. Proving the pair here is deliberately the same idea as the
+    Kokoro DLL pre-warm below — make Smart App Control judge the binary inside
+    setup, where a notification is explainable, rather than mid-job.
+    """
+    pair = ffmpeg_health.ensure_ready(log)
+    if pair is not None:
+        log.line(f"FFmpeg verified: {pair.directory}")
+        log.line(f"  {pair.version_text}")
         return True
 
+    log.line("No usable ffmpeg/ffprobe pair found — installing one.")
+    if not _install_ffmpeg(log):
+        return False
+
+    # A fresh install is not on *this* process's PATH, and its package directory
+    # is not where it was a moment ago, so discovery has to run again.
+    pair = ffmpeg_health.establish(log)
+    if pair is None:
+        log.line("  ERROR: ffmpeg was installed but still could not be run.")
+        return False
+    log.line(f"FFmpeg verified after install: {pair.directory}")
+    return True
+
+
+def _install_ffmpeg(log: SetupLog) -> bool:
+    """Obtain ffmpeg through the platform's normal package route."""
     if IS_WINDOWS:
         if shutil.which("winget"):
             log.line("Installing ffmpeg via winget (Gyan.FFmpeg)…")
             r = _run(["winget", "install", "--id", "Gyan.FFmpeg", "-e",
                       "--silent", "--accept-source-agreements",
                       "--accept-package-agreements"])
-            if r.returncode == 0 and _ffmpeg_on_path():
+            if r.returncode == 0:
+                # Deliberately **not** gated on ``_ffmpeg_on_path()`` any more.
+                # winget updates the *user's* PATH, not the environment of a
+                # process already running, so that check failed on exactly the
+                # installs that had just succeeded — and sent setup off to
+                # download a second, worse copy. ``establish`` looks inside the
+                # WinGet package directory itself, so a stale PATH costs
+                # nothing.
                 log.line("  ffmpeg installed via winget.")
                 return True
-            log.line("  winget install did not put ffmpeg on PATH this session — "
+            log.line(f"  winget install failed (exit {r.returncode}) — "
                      "falling back to a portable build.")
         return _download_portable_ffmpeg_windows(log)
 
@@ -1025,7 +1080,21 @@ def ensure_ffmpeg(log: SetupLog) -> bool:
 
 
 def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
-    """Download a portable ffmpeg build into files/bin (Windows fallback)."""
+    """Download a portable ffmpeg build into files/bin (Windows last resort).
+
+    **Kept, but demoted, and worth understanding.** This pulls BtbN's
+    ``master-latest`` build, whose bytes change on every upstream commit. Under
+    reputation-based enforcement — Smart App Control being the case Phase 15 hit
+    — a binary whose hash is new every time never accumulates the cloud
+    reputation that lets an unsigned executable run, so this route is
+    *structurally* more likely to be refused than the stable WinGet package
+    above. That is why it now runs only when winget is unavailable or failed,
+    and why whatever it produces is still put through the same proof as every
+    other candidate rather than being trusted because it is ours.
+
+    Replacing it with a pinned, reputable, redistributable Windows build is
+    release work; it belongs with the signing/distribution question in Plan 9.
+    """
     try:
         BIN_DIR.mkdir(parents=True, exist_ok=True)
         zip_path = BIN_DIR / "ffmpeg_portable.zip"
@@ -1679,6 +1748,35 @@ def show_warning_dialog(title: str, message: str) -> None:
         LOG.line(f"[WARNING] {title}: {message}")
 
 
+def ensure_ffmpeg_ready_for_launch() -> bool:
+    """Confirm the audio tools before the GUI is presented as ready.
+
+    **The Phase 15 gap.** The fast path reconciled requirements and self-healed
+    Kokoro, and never looked at ffmpeg at all — so a machine whose ffmpeg had
+    become unusable launched cheerfully and failed inside the first conversion.
+
+    What this costs on a healthy machine is two ``-version`` calls of the pair
+    already proven, a few tens of milliseconds, and it touches **no other
+    candidate**: sweeping PATH here would be how a launch provokes a security
+    notification by poking a blocked stranger. Repair — which does look wider —
+    happens only once the pinned pair is gone or has stopped running.
+
+    Never blocks launch. A machine with no working ffmpeg can still use Edge
+    TTS, and the tools that do need it now say so honestly instead of implying
+    everything is fine.
+    """
+    pair = ffmpeg_health.ensure_ready(LOG)
+    if pair is not None:
+        LOG.line(f"FFmpeg health-check: verified {pair.directory}")
+        return True
+
+    LOG.line("FFmpeg health-check: no usable ffmpeg/ffprobe pair on this computer.")
+    show_warning_dialog("The audio tools are unavailable",
+                        ffmpeg_health.describe_failure()
+                        + f"\n\nSee log: {LOG.path}")
+    return False
+
+
 def _launch_with_kokoro_healthcheck() -> int:
     """Reconcile dependencies, probe Kokoro health, self-heal, then launch the GUI.
 
@@ -1717,6 +1815,8 @@ def _launch_with_kokoro_healthcheck() -> int:
                 outcome.get("message", "Some dependencies could not be installed.")
                 + f"\n\nSee log: {LOG.path}",
             )
+
+    ensure_ffmpeg_ready_for_launch()
 
     ok, reason = kokoro_is_healthy(venv_py)
     LOG.line(f"Kokoro health-check: {reason}")
@@ -1849,6 +1949,12 @@ def _self_test() -> int:
     LOG.line(f"[self-test] ffmpeg on PATH   = {_ffmpeg_on_path()}")
     LOG.line(f"[self-test] ffmpeg in bin    = {_ffmpeg_in_bin()}")
     LOG.line(f"[self-test] ffprobe available= {_ffprobe_available()}")
+    # Detection only: --self-test performs no installs and executes nothing, so
+    # it reports the *pinned* pair rather than proving a new one.
+    _pinned = ffmpeg_health.pinned_pair()
+    LOG.line(f"[self-test] ffmpeg verified  = {_pinned.directory if _pinned else None}")
+    LOG.line(f"[self-test] ffmpeg candidates= "
+             f"{[str(p.directory) for p in ffmpeg_health.discover_pairs()]}")
     LOG.line(f"[self-test] launch target    = {_launch_target()} "
              f"(exists={_launch_target().exists()})")
     LOG.line("[self-test] OK — detection logic ran without side effects.")

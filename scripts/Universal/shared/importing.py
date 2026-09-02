@@ -475,6 +475,15 @@ class ImportOptions:
     selected_type_ids: frozenset[str] = frozenset()
     include_hidden_folders: bool = False
     allow_duplicate_files: bool = False
+    #: Whether **Add Folder** descends below each selected root.
+    #:
+    #: Defaults to ``True``, which is today's behaviour: every existing adopter
+    #: recurses, and a default of ``False`` would silently shrink their imports.
+    #: Declared last so positional construction of the three original fields is
+    #: unaffected. Independent of :attr:`include_hidden_folders` — that one
+    #: decides *which* children are eligible, this one decides whether any child
+    #: is entered at all.
+    include_subfolders: bool = True
 
     def __post_init__(self) -> None:
         raw = self.selected_type_ids
@@ -495,6 +504,11 @@ class ImportOptions:
             "allow_duplicate_files",
             _require_bool("allow_duplicate_files", self.allow_duplicate_files),
         )
+        object.__setattr__(
+            self,
+            "include_subfolders",
+            _require_bool("include_subfolders", self.include_subfolders),
+        )
 
     @classmethod
     def for_catalog(
@@ -503,14 +517,17 @@ class ImportOptions:
         *,
         include_hidden_folders: bool = False,
         allow_duplicate_files: bool = False,
+        include_subfolders: bool = True,
     ) -> "ImportOptions":
-        """The defaults: everything selected, hidden folders out, duplicates off."""
+        """The defaults: everything selected, hidden folders out, duplicates off,
+        and subfolders **in** — which is what every existing caller already got."""
         if not isinstance(catalog, SupportedTypeCatalog):
             raise ImportContractError("catalog must be a SupportedTypeCatalog")
         return cls(
             selected_type_ids=catalog.default_selection(),
             include_hidden_folders=include_hidden_folders,
             allow_duplicate_files=allow_duplicate_files,
+            include_subfolders=include_subfolders,
         )
 
     @property
@@ -1316,7 +1333,10 @@ def scan_roots(
     3. classify each entry from a fresh ``lstat``, refusing links and anything that
        cannot be read;
     4. emit that directory's compatible files first, in natural order;
-    5. then descend into its eligible child directories, in the same order.
+    5. then descend into its eligible child directories, in the same order —
+       unless ``options.include_subfolders`` is ``False``, in which case step 5 is
+       withheld and each root contributes only the compatible files it directly
+       contains. Everything else about the walk is identical either way.
 
     ``DIRECT_FILES`` roots are ignored here: they name no tree to walk, and validating
     individually chosen files is Phase 3's ``Add Files``.
@@ -1333,6 +1353,9 @@ def scan_roots(
     cancelled = cancel_check if cancel_check is not None else (lambda: False)
 
     extensions = _selected_extensions(request)
+    # Read once from the frozen request. Deliberately not re-read per directory and
+    # never read from a widget: the choice belongs to the import that was started.
+    descend = request.options.include_subfolders
     files: list[ImportedFile] = []
     problems: list[ImportProblem] = []
     discovered = 0
@@ -1471,12 +1494,24 @@ def scan_roots(
 
             # Then the child directories, same order, depth first. Reversed onto the
             # stack so the first child is popped first.
+            #
+            # This push is the **one** descent point in the scanner, which is why
+            # ``include_subfolders`` gates exactly it and nothing else. Shallow and
+            # recursive imports therefore share every line above — the same
+            # enumeration, the same fresh ``lstat``, the same classification, the
+            # same natural ordering, the same problem reporting — and differ only in
+            # whether an eligible child is queued for later. A second scanner would
+            # have to re-earn all of that, and would drift.
+            #
+            # The loop and its checkpoint stay in place when shallow so cancellation
+            # keeps its existing cadence; only the ``stack.append`` is withheld.
             children.sort(key=lambda item: item[0])
             for _key, name, child_path in reversed(children):
                 # Checkpoint: before each recursive descent.
                 if cancelled():
                     return cancel()
-                stack.append((child_path, relative_parts + (name,)))
+                if descend:
+                    stack.append((child_path, relative_parts + (name,)))
 
     # Checkpoint: before result publication.
     if cancelled():

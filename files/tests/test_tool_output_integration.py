@@ -265,11 +265,25 @@ def test_converter_respects_an_existing_destination(output_base):
 
 
 def test_converter_module_reserves_only_at_start(output_base):
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py").read_text(
-        encoding="utf-8"
-    )
-    assert "reserve_run_directory(TOOL_KEY)" in source
-    before, after = source.split("def start_convert", 1)
+    """One reservation seam, and it is not reached at build time.
+
+    Phase 17 gave the call the base its run was accepted with, so the exact
+    call text changed; what this test is about — that there is exactly one
+    reservation and nothing reserves while the panel is being constructed — is
+    unchanged and is now asserted structurally rather than by substring.
+    """
+    path = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py"
+    source = path.read_text(encoding="utf-8")
+
+    tree = ast.parse(source)
+    calls = [node for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr == "reserve_run_directory"]
+    assert len(calls) == 1, f"{len(calls)} reservation calls; there must be exactly one"
+    assert any(isinstance(a, ast.Name) and a.id == "TOOL_KEY" for a in calls[0].args), \
+        "the reservation must name this tool"
+
+    before, _after = source.split("def start_convert", 1)
     assert "reserve_run_directory" not in before, "reservation must not happen at build time"
 
 
@@ -786,7 +800,15 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: Written as dotted module paths because that is what ``TOOL_MODULES`` holds; the
 #: authoritative list is ``test_plan3_boundaries.ADOPTED``, and the test below
 #: proves the two spellings agree rather than trusting that they do.
-PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui")
+#: v0.6.2 Plan 5 Phase 7B adds the M4B Converter as the third adopter, Phase 8
+#: the Converter's own output-planning bridge as the fourth, and Phase 10 its
+#: conversion-plan assembler as the fifth. Neither of those two is a tool
+#: panel, so neither matches anything in ``TOOL_MODULES``; they are listed here
+#: only so this spelling of the adopter list stays in step with ``ADOPTED``,
+#: which is what the assertion below protects.
+PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
+                  "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
+                  "mp3_tools.m4b_plan")
 
 
 def _tool_path(relative: str) -> Path:
@@ -830,14 +852,13 @@ def test_no_unadopted_tool_reached_for_the_plan3_foundation():
         checked.append(relative)
 
     assert sorted(checked) == [
-        "mp3_tools.m4b_converter",
         "mp3_tools.m4b_maker",
         "mp3_tools.m4b_metadata_editor",
         "mp3_tools.mp3_tool",
     ], checked
 
 
-def test_both_authorized_adopters_really_did_adopt():
+def test_every_authorized_adopter_really_did_adopt():
     """The other half of the narrowing, so the exclusion cannot be free.
 
     Excluding a module from the guard above is only honest if that module has
@@ -861,9 +882,9 @@ def test_the_window_constants_are_unchanged():
 def test_the_version_is_unchanged():
     from shared.version import VERSION
 
-    # v0.6.1 Plan 4 Phase 15 closeout: the bump from 0.5.1 happened here and
+    # v0.6.2 Plan 5 Phase 18 closeout: the bump from 0.6.1 happened here and
     # nowhere else. This guard now pins the approved closeout version.
-    assert VERSION == "0.6.1"
+    assert VERSION == "0.6.2"
 
 
 # --------------------------------------------------------------------------- #
@@ -898,7 +919,17 @@ def _tone(path: Path, seconds: float = 1.0, freq: int = 440, codec=None) -> Path
 
 
 class _Q:
-    """Minimal worker host: a cancel event and a queue, like the real panels."""
+    """Minimal worker host: a cancel event and a queue, like the real panels.
+
+    The worker body reaches for exactly these two attributes, which is asserted
+    structurally in ``test_m4b_conversion_plan``; this host is what proves the
+    claim behaviourally against a real ffmpeg.
+
+    These drive ``_run_conversion`` — the body — rather than ``convert_worker``,
+    which since Phase 17 is the guard that wraps it so a fault cannot end the
+    worker thread with the window still locked. Driving the body keeps this
+    host minimal, which is the whole point of it.
+    """
 
     def __init__(self):
         self._cancel_event = threading.Event()
@@ -912,25 +943,71 @@ class _Q:
             except Exception:
                 return out
 
+    def plan(self):
+        """The immutable plan the worker sent back, if it produced one."""
+        for kind, payload in self.drain():
+            if kind == "plan":
+                return payload
+        return None
+
+
+def _run_params(*paths, **extra):
+    """Params shaped the way ``start_convert`` now shapes them.
+
+    v0.6.2 Plan 5 Phase 10 moved preflight and destination planning into the
+    worker: it is handed the frozen occurrences and one frozen ``PlanOptions``,
+    reads every source itself, and reserves the run folder only once something
+    is usable. So there is no destination map to build here any more.
+    """
+    from mp3_tools.m4b_plan import PlanOptions
+
+    params = {"imported_files": _occurrences(*paths), "options": PlanOptions()}
+    params.update(extra)
+    return params
+
+
+def _occurrences(*paths):
+    """Frozen ImportedFile entries, the way the panel now hands them to the worker.
+
+    v0.6.2 Plan 5 Phase 7B retired the Converter's own ``list[Path]``; the run is
+    frozen from the committed ``ImportedFileManager`` snapshot instead, so the
+    worker receives occurrences and derives its own paths inside the run.
+    """
+    from shared.importing import (
+        IdFactory, ImportedFile, ImportRoot, RootKind, capture_identity,
+    )
+    import os
+
+    ids = IdFactory("occ-")
+    root = ImportRoot("direct-1", None, 0, RootKind.DIRECT_FILES)
+    return tuple(
+        ImportedFile(
+            occurrence_id=ids.next_id("occ"),
+            path=Path(entry),
+            source_root=root,
+            relative_path=None,
+            supported_type_id="m4b",
+            identity=capture_identity(Path(entry), os.lstat(entry)),
+        )
+        for entry in paths
+    )
+
 
 @needs_ffmpeg
 def test_the_converter_worker_actually_writes_into_its_run(output_base, tmp_path):
+    """End to end against a real ffmpeg: probe, plan, reserve, convert."""
     from mp3_tools import m4b_converter
 
     source = _tone(tmp_path / "src" / "Book.m4b", 1.0, 300, codec="aac")
     before = source.read_bytes()
-    reservation = op.reserve_run_directory("m4b_converter")
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    params = {
-        "quality": 5, "write_tags": True, "title": "", "artist": "", "album_artist": "",
-        "album": "", "do_track": False, "start_num": 1, "files": [source],
-        "planner": reservation.planner(),
-    }
-    m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)
+    m4b_converter.M4BConverterUI._run_conversion(host, _run_params(source))
 
-    produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())
+    plan = host.plan()
+    assert plan is not None and plan.run_directory is not None, "no plan was produced"
+    produced = sorted(p.name for p in plan.run_directory.iterdir() if p.is_file())
     assert produced == ["Book.mp3"], host.drain()
     assert source.read_bytes() == before, "the source m4b was modified"
 
@@ -941,19 +1018,35 @@ def test_the_converter_worker_numbers_duplicate_stems(output_base, tmp_path):
 
     a = _tone(tmp_path / "one" / "Book.m4b", 1.0, 300, codec="aac")
     b = _tone(tmp_path / "two" / "Book.m4b", 1.0, 500, codec="aac")
-    reservation = op.reserve_run_directory("m4b_converter")
 
     host = _Q()
     host.progress = type("P", (), {"update": lambda *a: None})()
-    params = {
-        "quality": 5, "write_tags": False, "title": "", "artist": "", "album_artist": "",
-        "album": "", "do_track": False, "start_num": 1, "files": [a, b],
-        "planner": reservation.planner(),
-    }
-    m4b_converter.M4BConverterUI.convert_worker(host, reservation.run_directory, params)
+    m4b_converter.M4BConverterUI._run_conversion(host, _run_params(a, b))
 
-    produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())
+    plan = host.plan()
+    assert plan is not None and plan.run_directory is not None
+    produced = sorted(p.name for p in plan.run_directory.iterdir() if p.is_file())
     assert produced == ["Book-1.mp3", "Book.mp3"], host.drain()
+
+
+@needs_ffmpeg
+def test_an_unreadable_source_reserves_no_run_folder(output_base, tmp_path):
+    """A failed preflight writes nothing and leaves no empty numbered folder."""
+    broken = tmp_path / "src" / "Broken.m4b"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text("this is not an audiobook", encoding="utf-8")
+
+    before = sorted(p.name for p in op.ensure_tool_parent("m4b_converter").iterdir())
+    host = _Q()
+    host.progress = type("P", (), {"update": lambda *a: None})()
+    m4b_converter_module = __import__("mp3_tools.m4b_converter", fromlist=["x"])
+    m4b_converter_module.M4BConverterUI._run_conversion(host, _run_params(broken))
+
+    plan = host.plan()
+    assert plan is not None
+    assert plan.items == () and plan.run_directory is None
+    after = sorted(p.name for p in op.ensure_tool_parent("m4b_converter").iterdir())
+    assert after == before, "a failed preflight reserved a folder anyway"
 
 
 @needs_ffmpeg

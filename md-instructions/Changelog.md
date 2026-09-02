@@ -15,6 +15,52 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — **The M4B Converter is rebuilt** (v0.6.2 Plan 5, 2026-08-31)
+
+The Converter now turns an M4B audiobook into MP3s either as **one whole book** or **split by
+chapter**, and the split is a complete partition of the source: every second of the book lands in
+exactly one output, including anything before the first chapter and the tail after the last.
+
+- **Chapters.** A whole-book MP3 keeps the source's chapter map **and its chapter titles**, under
+  both *Preserve* and *Replace* — replacing a book's text does not invalidate its navigation.
+  *Write none* removes it. A split fragment never carries the whole book's map; it gets its own
+  title and its position within its own book.
+- **Metadata.** *Preserve*, *Replace* and *Write none*, all three built as an allowlist: only
+  `title`, `artist`, `album artist`, `album` and an optional track number can reach an output.
+  Container brands, Audible identifiers and freeform tags from the source no longer travel with it.
+- **Artwork.** An embedded cover is kept by Preserve and Replace and removed by *Write none*, on
+  whole books and on every chapter of a split. Covers are copied, never re-encoded. A book with no
+  cover is fine; a book with two is reported rather than guessed at.
+- **Split outputs are grouped per book.** Each book gets its own folder, named after the source
+  file, so converting a shelf of audiobooks no longer interleaves hundreds of chapter files in one
+  directory.
+- **Importing.** Add files or a folder, with an **Include subfolders** option; reorder, remove and
+  clear the queue; add the same book twice deliberately if you want to. The queue is frozen when you
+  press Convert, so changing it mid-run cannot affect the run.
+- **Running a conversion.** Progress and a time estimate, **Pause**, **Resume** and **Cancel** —
+  cancelling stops the run, cleans up the partial file and leaves finished books alone — plus
+  **Retry Failed**, which re-runs only what failed, to exactly the paths originally planned.
+- **Optional whole-book track numbering**, numbered only as books succeed so a failure leaves no gap.
+  It is **off by default**.
+- **Sources are never modified**, and no existing file is ever overwritten.
+
+### Fixed (v0.6.2 Plan 5, 2026-08-31)
+
+- **A whole book with a cover could be silently truncated** — a 13½-hour audiobook came out 0.32
+  seconds long and reported success. Any book over about 50 minutes was affected.
+- **Chapter titles were lost** from whole-book MP3s: the output carried the right number of chapters
+  at the right times, all unnamed.
+- **xHE-AAC audiobooks on Windows** decoded only ~76 % of their audio and reported success; they are
+  now decoded through Windows Media Foundation, or the run stops rather than writing a short book.
+- **Books whose tags contain characters outside the system code page** no longer fail to import.
+- **FFmpeg is verified before use** — both `ffmpeg` and `ffprobe`, proved as a working pair rather
+  than trusted because a path exists — and installed automatically on Windows when missing.
+- **A failure while finishing a file** (a full disk, an ejected drive, a file held open by another
+  program) now reports the problem and returns the window to normal instead of leaving it stuck.
+- **Chapter navigation is written in the tag version Windows Explorer reads**, for every output.
+- **Changing the output folder mid-run** no longer moves a conversion that has already started; the
+  next one picks up the new location as expected.
+
 ### Removed — **BREAKING: EPUB is no longer a supported TTS input** (v0.6.1 Plan 4 Phase 5, 2026-08-14)
 
 > **This is a breaking change for anyone who converted EPUB files.** The TTS Audiobook tool now

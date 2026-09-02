@@ -1,9 +1,11 @@
-"""Locating ffmpeg/ffprobe and wiring them into pydub.
+"""Using the one proven ffmpeg/ffprobe pair, and wiring it into pydub.
 
-The bootstrap may install ffmpeg system-wide (winget / Homebrew) or drop a
-portable build into ``files/bin/``. This module resolves whichever is
-available, preferring the bundled portable build so the app behaves the same
-regardless of what is on the user's PATH.
+Which pair that is, and how it was proven, belongs to
+:mod:`shared.ffmpeg_health`; this module is where the rest of the application
+consumes it. v0.6.2 Plan 5 Phase 15 moved the decision there after a Windows
+Smart App Control incident: resolution order alone had selected an installation
+the machine refuses to execute, and nothing noticed until a real conversion
+tried to run it.
 
 It also configures :mod:`pydub` to use the resolved binaries. pydub shells out
 to ffmpeg/ffprobe internally; pointing it at an explicit path means it never
@@ -14,45 +16,97 @@ does not flash a console window on Windows.
 from __future__ import annotations
 
 import re
-import shutil
 import sys
 from functools import lru_cache
-from pathlib import Path
 
-from . import paths
+from . import ffmpeg_health
 from . import subprocess_utils as sp
 
 _EXE = ".exe" if sys.platform == "win32" else ""
 
 
-def _find(binary: str) -> str | None:
-    """Return a path to ``binary``, preferring the bundled portable build.
+@lru_cache(maxsize=None)
+def _resolved_pair() -> tuple[str | None, str | None, bool]:
+    """The one ffmpeg + ffprobe pair this process uses, and whether it is proven.
 
-    Order: ``files/bin/`` (bundled) → system PATH. Returns ``None`` if the
-    binary cannot be found anywhere.
+    **The pinned pair wins.** ``shared.ffmpeg_health`` records the installation
+    that setup or repair actually *ran*, and consulting it is what stops PATH
+    order deciding. The Phase 15 machine is the whole argument: a build Windows
+    refuses to execute sat earlier on PATH than a working one, so every lookup
+    here used to choose the broken half of the machine.
+
+    Only when nothing is pinned does this fall back to discovery, and even then
+    it takes a **coherent** pair -- both halves from one directory. ffmpeg from
+    one installation and ffprobe from another was previously possible, because
+    each was resolved on its own, and two answers to "which FFmpeg is this?" is
+    not a state any caller can reason about.
+
+    Returns ``(ffmpeg, ffprobe, verified)``. Cached, because the answer cannot
+    change under a running process without :func:`refresh`.
     """
-    bundled = paths.BIN_DIR / f"{binary}{_EXE}"
-    if bundled.exists():
-        return str(bundled)
-    found = shutil.which(binary)
-    return found
+    pinned = ffmpeg_health.pinned_pair()
+    if pinned is not None:
+        return str(pinned.ffmpeg.as_path), str(pinned.ffprobe.as_path), True
+    for pair in ffmpeg_health.discover_pairs():
+        return str(pair.ffmpeg.as_path), str(pair.ffprobe.as_path), False
+    return None, None, False
+
+
+def refresh() -> None:
+    """Forget the resolved pair. Call after setup pins a newly proven one."""
+    _resolved_pair.cache_clear()
+    ffmpeg_path.cache_clear()
+    ffprobe_path.cache_clear()
+    _decoder_available.cache_clear()
 
 
 @lru_cache(maxsize=None)
 def ffmpeg_path() -> str | None:
     """Resolved path to the ffmpeg binary, or ``None`` if unavailable."""
-    return _find("ffmpeg")
+    return _resolved_pair()[0]
 
 
 @lru_cache(maxsize=None)
 def ffprobe_path() -> str | None:
-    """Resolved path to the ffprobe binary, or ``None`` if unavailable."""
-    return _find("ffprobe")
+    """Resolved path to ffprobe — always the sibling of :func:`ffmpeg_path`."""
+    return _resolved_pair()[1]
 
 
 def have_ffmpeg() -> bool:
-    """True when both ffmpeg and ffprobe are resolvable."""
-    return ffmpeg_path() is not None and ffprobe_path() is not None
+    """True when a **coherent** ffmpeg + ffprobe pair is available.
+
+    Deliberately still not a claim that either one *runs*: that is
+    :func:`verified_ffmpeg`. What changed in Phase 15 is that this can no longer
+    be satisfied by two unrelated installations, and that a pinned proven pair
+    is what it reports when there is one.
+    """
+    ffmpeg, ffprobe, _verified = _resolved_pair()
+    return ffmpeg is not None and ffprobe is not None
+
+
+def verified_ffmpeg() -> bool:
+    """True only when the pair in use was **executed** successfully and pinned.
+
+    The distinction is the entire Phase 15 defect: a resolvable path proved
+    nothing, and the first thing that ever ran ffprobe was a real conversion in
+    front of the user.
+    """
+    return _resolved_pair()[2]
+
+
+def status_line() -> str:
+    """One honest sentence about the audio tools, for a tool's own log.
+
+    Three states, because there really are three, and the middle one was the
+    lie: found is not ready.
+    """
+    ffmpeg, _ffprobe, verified = _resolved_pair()
+    if verified:
+        return "FFmpeg verified and ready."
+    if ffmpeg is not None:
+        return ("FFmpeg found but not yet verified — if a conversion cannot "
+                "read a file, run Setup_and_Run once to check it.")
+    return "FFmpeg is not available."
 
 
 def ffmpeg_cmd() -> str:

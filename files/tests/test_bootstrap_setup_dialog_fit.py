@@ -97,8 +97,21 @@ def test_the_window_is_not_merely_made_enormous():
 # --------------------------------------------------------------------------- #
 # B. Live Tk — the text actually fits at the shipped size
 # --------------------------------------------------------------------------- #
-@pytest.fixture
+@pytest.fixture(scope="module")
 def tk_root():
+    """One live root for this module, which is what every other GUI module does.
+
+    It was function-scoped, so each live-Tk test built and tore down its own
+    Tcl interpreter. Inside a pytest process that is not free: creating a
+    root, destroying it and creating another fails outright -- measured 5/5
+    at Phase 10 HEAD, deterministically, with the launcher and Phase 11
+    nowhere in it. Outside pytest the same churn is harmless, which is why it
+    only ever showed up as a 'flaky' GUI gate.
+
+    Nothing about the coverage changes. The two tests below still run against
+    a real Tk, still fail loudly if one cannot be opened, and each destroys
+    the widgets it made so neither can see the other's.
+    """
     tk = pytest.importorskip("tkinter")
     yield from tk_gate.tk_root_session(tk)
 
@@ -108,18 +121,22 @@ def test_a_wrapped_label_reports_a_height_greater_than_one_line(tk_root):
     from tkinter import ttk
 
     frame = ttk.Frame(tk_root)
-    frame.pack(fill="both", expand=True)
-    long_text = ("Optional — leave this unchecked unless you plan to use the "
-                 "cloned voices; the model downloads on first use instead.")
-    unwrapped = ttk.Label(frame, text=long_text)
-    wrapped = ttk.Label(frame, text=long_text, wraplength=400, justify="left")
-    unwrapped.pack()
-    wrapped.pack()
-    tk_root.update_idletasks()
+    try:
+        frame.pack(fill="both", expand=True)
+        long_text = ("Optional — leave this unchecked unless you plan to use the "
+                     "cloned voices; the model downloads on first use instead.")
+        unwrapped = ttk.Label(frame, text=long_text)
+        wrapped = ttk.Label(frame, text=long_text, wraplength=400, justify="left")
+        unwrapped.pack()
+        wrapped.pack()
+        tk_root.update_idletasks()
 
-    assert unwrapped.winfo_reqwidth() > 400, "fixture text is not long enough"
-    assert wrapped.winfo_reqwidth() <= 420
-    assert wrapped.winfo_reqheight() > unwrapped.winfo_reqheight()
+        assert unwrapped.winfo_reqwidth() > 400, "fixture text is not long enough"
+        assert wrapped.winfo_reqwidth() <= 420
+        assert wrapped.winfo_reqheight() > unwrapped.winfo_reqheight()
+    finally:
+        # The root outlives this test now, so this test cleans up after itself.
+        frame.destroy()
 
 
 def test_checkbutton_really_has_no_wraplength_option(tk_root):
@@ -127,4 +144,7 @@ def test_checkbutton_really_has_no_wraplength_option(tk_root):
     from tkinter import ttk
 
     check = ttk.Checkbutton(tk_root, text="x")
-    assert "wraplength" not in check.keys()
+    try:
+        assert "wraplength" not in check.keys()
+    finally:
+        check.destroy()

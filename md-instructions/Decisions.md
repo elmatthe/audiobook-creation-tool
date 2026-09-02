@@ -4,6 +4,437 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-01 — D4 clarified: Strip writes no split-fragment metadata at all
+
+**Decision (post-closeout documentation remediation).** The split-fragment metadata rule recorded as
+**D4** in the 2026-08-31 closeout entry below is **incomplete as written**, and this entry supersedes
+that wording. D4 says a fragment "inherits only `artist`, `album_artist` and `album`; it regenerates
+its own `title` and its structural `track`". That is true of **Preserve** and **Replace** only.
+
+**The complete rule, in both directions:**
+
+- **Split — Preserve / Replace:** the fragment inherits the book-level identity and **regenerates a
+  generated structural title and track**, which always win over any book-level title a Replace run
+  supplies.
+- **Split — Strip / Write none:** **no metadata is written at all.** Nothing is regenerated — not a
+  title, not a track number, not an inherited field. Strip is not "the other two minus the inherited
+  fields"; it is empty by design, and reading D4's regeneration clause as universal would describe a
+  behaviour the tool does not have.
+
+**Why this is a documentation correction and nothing more.** The production invariant is already
+embodied by `mp3_tools/m4b_metadata.segment_tags()`, whose Strip branch returns an empty mapping
+before any inheritance or regeneration is considered, and it is covered by the existing Plan-5
+tests. **No behaviour changed, no code changed, and no approved product decision was reopened** —
+D4's substance stands exactly as approved; only its statement here was too narrow. The 2026-08-31
+entry below is left intact as written, per this log's append-only rule.
+
+*Recorded 2026-09-01 by Claude Code, during the bounded post-closeout documentation remediation.*
+
+---
+
+## 2026-08-31 — Plan 5 closeout: the M4B Converter's approved product contract
+
+**Decision (v0.6.2 Plan 5, Phase 18 closeout).** The Converter upgrade is complete, and these are
+the product rules that outlive the implementation drop. They are recorded here because the drop that
+carried them is deleted at this closeout; each was approved during the plan and is implemented.
+
+**One entry, not six, and deliberately so.** The split-placement decision already has its own entry
+(2026-08-30), as do the Windows xHE-AAC routing decision, the whole-book cover-from-a-second-input
+finding and the FFmpeg-pair pinning rule (2026-08-28/29). Those are not repeated. What follows is the
+remainder, which is a single coherent contract rather than six independent architectural choices.
+
+**Layout (D1).** The Converter keeps `MIN_SIZE == (920, 600)`, the `1024x720` default and its
+classic, non-`ACT.*` visual identity. Plan 5 added its controls within that window rather than
+redesigning the panel; broad visual conversion stays Plan 9's. The sanctioned local scrolling
+fallback was **never needed** — every Plan-5 control is a real target at the supported minimum.
+
+**Artwork (D2).** Preserve and Replace keep the source cover; Strip removes it. Only a stream
+positively identified by `disposition.attached_pic` is copied, by absolute stream index, so ordinary
+video ahead of a cover can never be mistaken for one. A source with no artwork is valid. Two attached
+pictures is an ambiguity and **fails closed** rather than guessing. Covers are stream-copied, never
+re-encoded, and Plan 5 ships **no** replacement-image picker — that is Plan 8's.
+
+**Split-fragment metadata (D4).** A fragment is not the book. It inherits only `artist`,
+`album_artist` and `album`; it regenerates its own `title` and its structural `track`; and it never
+carries the whole book's chapter map or title. The regenerated pair always wins, so a Replace run's
+book title cannot become a chapter's title.
+
+**Numbering (D5).** Three concepts that never mix: a split output's **structural** track is its
+position within its own book and restarts per book; a whole book's **sequential** track is optional,
+allocated **only on success** so a failure consumes nothing and the sequence stays gap-free, and it
+is derived from the run's own result rather than from any filename or directory listing; and the
+filename order prefix is rendered, never allocated. The whole-book option defaults **off** — numbering
+a library is something a user asks for, not something a default does on the way past.
+
+**Whole-book chapter retention (D6A).** A whole output *is* the whole book, so Preserve **and**
+Replace both keep the source chapter map — replacing a book's text does not invalidate its
+navigation. Strip removes it with everything else. Retention means the titles as well as the
+boundaries: a map of anonymous timing points is not the map the source had.
+
+**Shared recursion (D7A).** `ImportOptions.include_subfolders` is a shared importing field, default
+`True`, honoured at the single existing descent point, and frozen per import so toggling it changes
+only the next import. It was extended in shared code rather than forked into the Converter.
+
+**The metadata vocabulary did not grow.** `title`, `artist`, `album_artist`, `album` and an optional
+`track` — the same set `shared/metadata.py` already supported. Everything reaching an output is named
+explicitly; nothing is inherited because ffmpeg could inherit it.
+
+**What deliberately did *not* become a decision record.** ffmpeg argument shapes, the ID3 version
+pin, the worker's exception boundary, the frozen-reservation correction and the Phase-17 bug fixes
+are implementation mechanics or enforcement of rules already approved — the plan's own closeout
+instruction forbids standalone ADRs for them, and they live in `Handoff.md` instead.
+
+*Approved across Plan 5 and recorded at closeout by Claude Code.*
+
+---
+
+## 2026-08-30 — A split run groups every book in its own folder; whole books stay flat
+
+**Decision (v0.6.2 Plan 5, Phase 16; maintainer disposition after real macOS multi-book validation).
+This supersedes the *split* half of D3 / Decision 31A. The whole-book half is unchanged and stays
+exactly as approved.**
+
+A **split** occurrence now gets **one container directory named for its source filename's stem**, at
+the place its own provenance already puts it, and all of that occurrence's segments go inside it.
+`Arazan's Wolves.m4b` becomes `Arazan's Wolves/` — only the final extension is removed before the
+shared sanitiser sees the name. A **whole-book** output is untouched: directly selected books stay
+flat in the run folder, folder-imported books still mirror, and no per-book container is ever
+invented for them.
+
+**Why, and it took a real corpus to see it.** 31A was a reasonable rule and the implementation
+followed it literally. Then Phase 16 ran **12 real audiobooks through Split in one run**: 353 chapter
+MP3s landed flat in a single folder, interleaved by book — `01 - Arazan's Wolves-Part01.mp3` next to
+`01 - Opening Credits.mp3` next to `02 - Prologue.mp3` — and **53 of the 353 carried a collision
+suffix** for no reason except that different books name their chapters alike. Collision-safe planning
+was working perfectly; the *organisation* was the problem, and it is only visible at corpus scale.
+The maintainer judged the result unusable and superseded the rule. **The previous behaviour was not a
+defect and is not recorded as one.**
+
+**The folder is the source stem, never the metadata title.** A Replace run rewrites the book's
+textual metadata, and naming the folder from that would rename it out from under the user
+mid-decision. The filename is the identity people already recognise.
+
+**One authority, not two.** The container is planned through the *same* three shared planners the
+outputs themselves use, with the stem standing in for a filename: `plan_flat` for a directly chosen
+book, `plan_mirrored` under its mirrored parent, `plan_multi_root` inside its root container. So
+provenance, `assert_contained`, `assert_not_input` and the single run-wide collision domain are all
+still decided in one place, and no shared contract changed — `DestinationPlanner.plan` already
+accepted a sanitised `subdir`.
+
+**Reserved once per occurrence, deliberately.** Two occurrences that would take the same folder are
+separated at the *folder* level (`Book`, `Book-1`), and every segment of one book then shares that
+one container. Numbering each segment's parent independently would scatter a single book across
+several folders — the failure this ordering exists to prevent. Two deliberate duplicates of one file
+remain two occurrences with two containers. A failed split book **keeps** its reservation rather than
+releasing it, so Retry Failed writes to the identical frozen paths.
+
+**A chapterless source in a split run keeps its folder too** — one output, but it belongs with the
+books beside it rather than loose at the run root.
+
+One incidental improvement, measured: because each book now owns its folder, the cross-book chapter
+name collisions disappear. The suffixes that 53 of those 353 files carried are simply not generated.
+
+*Maintainer disposition 2026-08-30; implemented and recorded by Claude Code.*
+
+---
+
+## 2026-08-29 — Phase 15 closes on maintainer acceptance, with the untested rows recorded as waived
+
+**Decision (v0.6.2 Plan 5, Phase 15; maintainer disposition, and it overrides the plan's own §26
+completion requirement for this phase only).**
+
+Phase 15 Windows validation is **COMPLETE BY EXPLICIT MAINTAINER ACCEPTANCE**. The maintainer
+accepted the real-world Windows validation already performed and explicitly waived the remaining
+unperformed synthetic/manual §26 rows as prerequisites: *"I'm not going to test all of that since it
+would take too long and i don't have time … i tested enough with the other files and I am happy with
+how it's performing, if in the future i encounter an error i will come back to the chat and we can
+work on it but for now let's move on."*
+
+**The waived rows are recorded as waived, never as passed.** They are enumerated in `Handoff.md` and
+summarised in the plan's §26, under the wording *not manually exercised; explicitly waived by
+maintainer on 2026-08-29; non-blocking for Phase-15 completion*. Nothing may reclassify them as PASS
+on the grounds that the implementation exists, that automated tests cover the behaviour, that
+synthetic fixtures were prepared for them, or that the product is performing well. "Phase 15
+complete" does not mean "all of §26 passed", and any future summary that says so is wrong.
+
+**Why this is a legitimate close rather than a shortcut.** What was validated is the part that
+carries the risk, and it was validated on real 9-to-13-hour audiobooks through the real launcher
+rather than on fixtures: FFmpeg provisioning and clean-install acceptance; AAC-LC Whole; the Windows
+Media Foundation xHE-AAC route Whole at 100.0004 % and Split at 15/15; a human listen across a split
+boundary; the cp1252 Unicode regression with all three Whole metadata modes; Pause, Resume and
+Cancel with verified cleanup; and source immutability by hash on three real books. Four genuine
+Windows blockers were found and fixed along the way — FFmpeg provisioning, whole-book artwork
+truncation, the xHE-AAC decode gap, and the ffprobe code-page refusal — which is the real return
+this phase produced. The waived rows are breadth over synthetic fixtures, and the maintainer judged
+that breadth not worth further time. That is their call to make, and the honest record of it is this
+entry rather than a matrix quietly filled in.
+
+**One row could not have been tested anyway.** *First chapter starting after zero* is not
+representable as a valid M4B here: ffmpeg's MOV/M4B muxer normalises the first chapter start to `0`
+(verified against the default, `+disable_chpl` and `-disable_chpl`; the same metadata keeps
+`2.000000` in Matroska), and all five real books on hand also begin at `0.000000`. No invalid file
+was fabricated to satisfy the row. `test_m4b_timeline_partition.py` covers the planner behaviour it
+was meant to exercise.
+
+**What this does not close.** The true no-Python + no-FFmpeg fresh-machine proof stays outstanding
+as a *release* gate, not a Phase-15 one. The waived rows may be revisited if a real defect appears,
+or folded into the Phase 17 bug hunt. Plan 5 stays ACTIVE, Phase 16 is not started, `VERSION`
+remains `0.6.1`, and nothing was tagged, released, packaged or merged.
+
+*Maintainer disposition 2026-08-29; recorded by Claude Code.*
+
+---
+
+## 2026-08-29 — Project work lives in the repository; external workspaces need permission
+
+**Decision (repository-wide standing policy, maintainer-directed; not tied to one plan or phase).**
+
+All project-related work created while working inside this repository stays **inside** it —
+scratch files, synthetic fixtures, diagnostics, backups, clean-room environments, generated test
+media, temporary evidence, logs and agent working directories. The repo-local home is
+**`files/dev-work/`**, gitignored in full and organised by phase or purpose. Creating a project
+workspace elsewhere on the machine — `C:\act-*`, a Desktop scratch tree, an arbitrary
+`%TEMP%` project folder — is not permitted for convenience.
+
+External paths remain legitimate only where the operating system or the thing under test requires
+them: installed Python and FFmpeg, WinGet and other system package locations, OS-managed caches
+and temp directories the dependencies create themselves at runtime, and the user-selected
+application output location. A test whose purpose *is* to prove out-of-repository behaviour is an
+exception — and before creating such a workspace the agent must **stop and ask**, stating why
+`files/` cannot serve, the exact path proposed, what will be created, and the cleanup plan.
+
+Committable content is application source, tests, required scripts, documentation, and fixtures
+deliberately meant to survive a `git pull` on another machine. Everything local-only stays
+ignored. Sitting inside the repository does not make temporary evidence GitHub content: no broad
+`git add files/`, no force-add of ignored material, and no promotion into `files/test-files/`
+merely because something now lives in-tree.
+
+**Why.** By Phase 15 the project had scattered roughly **5 GB** across five `C:\act-phase15-*`
+folders and eleven `%TEMP%\act-*` directories — a clean-room checkout with its own `.venv`, an
+inactive FFmpeg backup, two diagnostic sets, a synthetic fixture workspace and a registered git
+worktree. None of it was discoverable from the repository, none was covered by `.gitignore`, and
+a fresh clone gave no hint that any of it existed. Keeping the material in-tree and ignored makes
+it visible to whoever is working, disposable in one delete, and impossible to commit by accident,
+while the checkout stays usable as the project's clean development and release source.
+
+**Consequence, accepted knowingly.** The relocated clean-room carries a second copy of
+`files/tests/`, so a bare `pytest` invoked from the repository root now hits 164 basename
+collisions. The authoritative gate is unaffected and was re-measured: `scripts/verify.py` runs
+`pytest files/tests/` explicitly and still collects **5160**. Use `python scripts/verify.py` (or
+`pytest files/tests`), not bare `pytest`.
+
+*Resolved 2026-08-29 by the follow-up checkpoint, and the rule it establishes belongs with this
+one: repository-contained is not the same as active project source, so a local workspace is
+excluded from test and source discovery as well as from Git.* A tracked root `pytest.ini` pins
+`testpaths = files/tests` and adds `dev-work` and `runtime-data` to `norecursedirs`. Bare
+`pytest` now collects the same tree as `verify.py`. The sweep also found the defect was never
+unique to `dev-work`: `files/runtime-data/phase14/tree-phase12/` has carried a second copy of
+`files/tests/` since 2026-08-22, so `pytest .` was already broken before the migration.
+
+**Historical evidence keeps its original paths.** Reports that say evidence was collected at
+`C:\act-phase15-xhe-diag` remain true as written; `Handoff.md` carries the current location map.
+Relocation does not invalidate the evidence.
+
+*Maintainer-directed, 2026-08-29; recorded by Claude Code.*
+
+---
+
+## 2026-08-29 — ffprobe's JSON is read as bytes; the host code page never decodes it
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; narrow, one production line).**
+
+`m4b_probe.probe_source` asks `check_output` for **bytes** and hands them to `json.loads`, which
+decodes JSON's own way (UTF-8/16/32, per RFC 4627). It never asks for `text=True`, an `encoding=`
+or an `errors=` mode. A payload that is not valid JSON — or not valid UTF-8 — still fails closed
+through the existing typed `ProbeStatus.PROBE_FAILED`, unrepaired.
+
+**Why.** A maintainer imported the real `ToA 4 - The Tyrant's Tomb.m4b` and the Converter refused
+it: *`probe status probe_failed: UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d in
+position 6528`*. The book is an ordinary valid AAC-LC audiobook — 48,123.24 s, 44 chapters, one
+PNG cover, five readable tags — and ffprobe read it perfectly: **exit 0, empty stderr, 22,545
+bytes of valid UTF-8 that `json.loads` parses straight from bytes**. The failure was ours.
+`text=True` with no encoding makes Python decode with `locale.getpreferredencoding(False)`, which
+is **cp1252** on a stock English Windows install. Byte 6528 is the third byte of
+`b"\xe2\x80\x9d"` — U+201D RIGHT DOUBLE QUOTATION MARK — inside chapter 4's title *A simple “no”
+works*. The typed failure was truthful about what it saw; what it saw was a defect one layer up.
+
+**Crashing was the loud half.** cp1252 *maps* most of the bytes it should not touch: U+2014
+arrives as `â€”`, U+2019 as `â€™`, U+00E9 as `Ã©`. A book whose titles avoided the handful of
+unmapped bytes would have converted successfully with mojibake baked into every chapter name and
+tag. So the fix is measured by exact round-trip, not by the absence of an exception — which is
+also why `errors="ignore"` and `errors="replace"` are rejected outright: both turn a refusal into
+a silent corruption of the user's chapter titles.
+
+**Why not decode UTF-8 explicitly.** It would work — ffprobe does emit UTF-8 — but it makes this
+module a second authority on an encoding `json` already determines correctly, including the
+BOM/UTF-16 cases. `shared.metadata.read_chapter_titles` has passed ffprobe's bytes straight to
+`json.loads` since it was written; the Converter's probe was the one place that did not, and this
+makes them agree rather than inventing a third way.
+
+**Scope, decided on evidence rather than tidiness.** The sweep found one other locale-decoded
+ffprobe call reachable from the Converter: `ffmpeg_utils.probe_audio_stream`, used by
+`measured_duration` for the drift guard. It is **not** the same contract — `-of
+default=noprint_wrappers=1` over six fixed entries — and its output on the very book that broke
+the probe is **pure ASCII** (`codec_name/profile/sample_rate/channels/channel_layout/duration`),
+which cannot carry a title or a tag. It was left alone. `-decoders` likewise. Nothing in TTS,
+Cover, the M4B Maker or the Metadata Editor was touched.
+
+**Why the suite was green while a real audiobook was being refused.** Every generated probe
+fixture titles its chapters `Ch One`. A pure-ASCII book cannot fail this way. The regression now
+builds a book whose titles carry the same characters, and asserts the payload really is
+cp1252-undecodable so the guard cannot quietly stop guarding.
+
+— Diagnosed and implemented by Claude Code from the maintainer's real-book report, 2026-08-29
+
+---
+
+## 2026-08-29 — Windows decodes xHE-AAC through Media Foundation; ordinary AAC stays on ffmpeg
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; maintainer-approved, no new dependency).**
+
+A source the probe marks `undecodable_xhe` has its audio decoded by **Windows Media Foundation**
+and piped into the unchanged MP3 encode. Everything else — all 54 AAC-LC books in the real
+corpus — keeps the existing ffmpeg path untouched. Where Windows cannot decode it either, the run
+**fails closed at preflight** rather than producing a shortened audiobook.
+
+**Why ffmpeg is not enough today.** Measured against the real 9.78-hour xHE-AAC book: ffmpeg 9.0.1
+refuses **362,465 of 1,515,928 frames** with *"Not yet implemented in FFmpeg, patches welcome"* —
+**23.91 %** of the audio — concatenates the rest into 26,783 s against a planned 35,200 s, and
+**exits 0**. Split is no better: every chapter span comes back at ~76 %. The audio is not merely
+short, it carries ~362,000 excisions. Only the drift guard stopped it shipping. Upstream added the
+USAC frequency-domain path in FFmpeg 8.0 and still returns *patches welcome* for eSBR, uniDrc and
+time-warped MDCT; since 23.91 % of frames fail rather than all of them, the gap is a **per-frame**
+tool. Naming it exactly needs an instrumented build and does not change this decision.
+
+**Why Media Foundation and not FDK-AAC.** FDK v2 does decode xHE-AAC. But `--enable-libfdk-aac`
+requires `--enable-nonfree`, which combined with `--gpl` yields a binary that **may not be
+redistributed**; this project is GPL-3.0, and no reputable pre-built ffmpeg ships it. Windows 11's
+decoder is already installed, needs no download, raises no Smart App Control question, and is
+driven from `ctypes` — **stdlib**. It delivered **35,199.78 s of that book: 100.0004 %**.
+
+**Why `IMFSourceReader` and not `MediaTranscoder`.** MediaTranscoder also decodes this book
+correctly, but only into a file, and the decoded book is **6.2 GB**. Chunking it was measured and
+rejected: `[600,1200)` yields 26,452,025 frames while `[600,900) + [900,1200)` yields 26,443,970 —
+every seek discards **8,055 frames (0.183 s)** to decoder priming. The reader is a *pull* interface:
+strictly sequential, so nothing is primed away, handing back **4 KB** at a time so the 6.2 GB flows
+through a pipe and is never stored.
+
+**Why a split book decodes once.** Because seeking is lossy, `PcmTimeline` runs the decoder once
+per item and cuts the PCM at frozen chapter boundaries in the order the segments already run in.
+Measured on the real book: opening, early, middle and **final tail** spans all at **100.00 %**.
+A short read is reported, never padded — silence in place of missing audio would defeat the guard.
+
+**Capability is probed, never inferred from a version.** Windows N/KN editions ship without the
+media feature pack and components can be removed by policy, so the question asked is whether the
+libraries load and `MFStartup` succeeds.
+
+**What did not change.** The >3 % drift guard, the encoder, the quality, the metadata allowlist,
+ID3v2.3, destinations, numbering, retry, cancellation, and macOS — which keeps `aac_at`, and
+therefore reports such sources *decodable* and never reaches this path at all.
+
+**One bug this decision cost, recorded so it is not repeated.** The first live run produced a
+complete 100.0004 % audiobook with **zero chapters**: `pcm_argv` emitted `-map_chapters 1` and the
+shared `output_args` emitted `-map_chapters 0`, and argument order settled it in favour of the PCM
+pipe, which has no chapters. The chapter map is now owned by exactly one place on this route.
+
+— Claude Code, at the maintainer's direction
+
+---
+
+## 2026-08-28 — A whole book with a cover opens its source twice, and the picture comes from input 1
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation).**
+
+When a Whole output retains artwork, the command opens the same audiobook **twice**: input 0 is
+decoded for audio and supplies the chapter map, input 1 exists solely so the attached picture can be
+stream-copied out of it.
+
+```
+ffmpeg … -i BOOK.m4b -i BOOK.m4b -map 0:a:0 -map 1:<abs index> -c:v copy
+         -disposition:v:0 attached_pic … -map_chapters 0 … -c:a libmp3lame …
+```
+
+**Why, and it is not obvious.** Mapping the cover out of the *same* input whose audio is being
+decoded makes ffmpeg **exit 0** after encoding a handful of audio frames. The artifact that started
+this was a 600 KB "audiobook" holding **0.32 seconds** of a 13.5-hour book, alongside its cover,
+reported as success. A controlled matrix on the real source isolated it exactly: audio alone passed,
+audio **plus chapters** passed, and only the same-input picture truncated — so the chapter map, the
+obvious suspect, was innocent. Cover size is irrelevant; a 247-byte cover truncates like a 597 KB
+one. The trigger is **source length**: everything up to 50 minutes is fine, 55 minutes and beyond
+always truncates. Opening the file a second time for the cover alone fixes it, proven on the full
+book — 743 MB, duration exact, all 50 chapters, cover intact, audio encoded once.
+
+**Why not two passes.** Split already attaches artwork in a second stream-copy pass, and copying that
+shape here would also have worked. It was rejected: for a book this size it means writing ~750 MB
+twice for no benefit the one-command form does not already give. A Whole book remains **one ffmpeg
+invocation and one audio encode**, which is what the plan always said it was.
+
+**What this is explicitly not.** It is **not** recorded as an ffmpeg 9.0.1 regression. No evidence
+establishes when the behaviour began: every previous Whole output on this machine is a 0-byte
+placeholder, and the automated suite's real-media Whole+cover test is six seconds long — two orders
+of magnitude below the boundary — so it would have passed against the defect at any version. The
+coverage gap alone explains why this survived to a manual matrix. A `~60`-minute generated fixture
+now closes it, and it was verified to fail against the pre-fix shape before being trusted.
+
+**Do not simplify the second input away.** `m4b_commands._core` and `_media_args` carry the reasoning,
+and five separate guards — in `test_m4b_commands`, `test_m4b_metadata`, `test_m4b_execution` and
+`test_m4b_conversion_plan` — pin `1:<index>` and refuse `0:<index>`.
+
+— Claude Code, at the maintainer's direction
+
+---
+
+## 2026-08-28 — The proven FFmpeg pair is *pinned where it lives*, never copied into `files/bin/`
+
+**Decision (v0.6.2 Plan 5, Phase 15 blocker remediation; maintainer cleared risk gate #9 for this
+bounded shared change).**
+
+FFmpeg capability now exists only through **one coherent ffmpeg + ffprobe pair that setup or repair
+has actually executed**. `shared/ffmpeg_health.py` discovers candidate pairs, proves them by running
+`-version` on both halves, and records the winner — **by absolute path** — in
+`files/runtime-data/ffmpeg-state.json`. `shared/ffmpeg_utils.py` consumes that record. The pair is
+**not** copied into `files/bin/`.
+
+**Why a pinned external pair rather than a normalized local copy.** Copying was the obvious
+alternative and it loses on every axis that matters here. The proven Windows build is a 222 MB
+static ffmpeg plus a 222 MB static ffprobe, so a copy costs ~444 MB of duplicated bytes for no new
+capability. A copy also goes **stale silently**: `files/bin` is checked first, so a copy left behind
+by a `winget upgrade` would become an unbeatable candidate — which is a rebuild of the exact defect
+this phase removed, where a bad candidate won because it happened to be looked at first. And
+copying a GPL third-party binary into the repository tree edges toward redistribution, which is
+Plan 9's question, not this phase's. Pinning keeps **one** source of truth, keeps the installation
+owned by the package manager that installed it, and makes an upgrade *detectable* — the recorded
+size/mtime stop matching, the pin is invalidated, and the pair is re-proven.
+
+**Why identity is path + size + mtime, with SHA-256 as evidence rather than as the check.** Hashing
+444 MB on every launch is a visible cost for no extra safety against accidental change. The hash is
+computed once at proof time and kept as durable evidence, and re-derived on repair.
+
+**What identity deliberately cannot see, and what covers it.** Nothing about the bytes changes when
+a *policy* changes: a pair that ran yesterday and is refused today is byte-identical. So
+`ensure_ready()` re-proves the **pinned pair only** on every launch — two bounded `-version` calls,
+~60 ms measured — and never sweeps PATH. That distinction is load-bearing: **executing a blocked
+binary is itself what raises the Windows Security notification**, so probing strangers on a normal
+launch would manufacture the very popup this phase exists to remove. Candidates already proven
+unusable are recorded and skipped without being executed again.
+
+**Why `have_ffmpeg()` did not simply become "verified".** It now means *a coherent pair is
+available* — still not a claim that either half runs — because a machine that has never run setup
+must still be able to use the tools rather than be told it has no FFmpeg at all. The strong claim
+lives in the new `verified_ffmpeg()`, and `status_line()` is the single place the difference is
+worded, so "found" can never again be printed as "detected" and read as "ready".
+
+**Security boundary, explicitly.** Nothing here disables, weakens, excludes from, or works around
+Smart App Control, Defender, WDAC or any endpoint policy, and nothing suppresses a Windows
+notification while still using a blocked binary. When no candidate runs, the app says so at the
+setup/repair boundary and points at an administrator allowlisting FFmpeg. An organisation's policy
+that refuses every legitimate build is a limit the application accepts, not one it routes around.
+Getting an unsigned FFmpeg trusted by reputation or signature is release work and stays in Plan 9.
+
+— Claude Code, at the maintainer's direction
+
+---
+
 ## 2026-08-22 — Plan 4 closeout: EPUB is retired and archived, Decision 52B is partially superseded, and the licence obligation survives in production
 
 **Decision (v0.6.1 Plan 4, Phase 5, ratified at the Phase 15 closeout).**
