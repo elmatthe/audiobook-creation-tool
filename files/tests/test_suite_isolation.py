@@ -23,6 +23,8 @@ that has quietly become a no-op is worse than none, because it reads as coverage
 
 from __future__ import annotations
 
+import hashlib
+import os
 from pathlib import Path
 
 from shared import bootstrap, paths
@@ -131,3 +133,83 @@ def test_the_run_header_is_written_once_per_logger(tmp_path, monkeypatch):
     log.line("b")
 
     assert log.path.read_text(encoding="utf-8").count("===== Setup run") == 1
+
+
+# --------------------------------------------------------------------------- #
+# D. The stamp guard is content-aware, not just metadata-aware
+#
+# (size, mtime_ns) caught the accidental writer that was actually found, because
+# rewriting the stamp moves its timestamp. It is not a content-integrity proof:
+# a stamp falsified in place -- a different requirements_sha256 of the same
+# length, with the timestamp put back -- is byte-different and metadata-identical.
+# That is the shape a *false* success stamp would have, which is the thing this
+# guard exists to catch, so the single-file fingerprint hashes content.
+#
+# The directory fingerprint deliberately does not hash: it covers the real logs
+# directory, checked once per session, where anything written necessarily changes
+# a size or a timestamp.
+# --------------------------------------------------------------------------- #
+def test_a_same_size_rewrite_with_a_restored_timestamp_is_still_caught(tmp_path):
+    stamp = tmp_path / ".requirements-state.json"
+    stamp.write_text('{"requirements_sha256": "aaaa"}', encoding="utf-8")
+    before_stat = stamp.stat()
+    before = conftest._fingerprint(stamp)
+
+    # Same length, different content -- a falsified stamp.
+    stamp.write_text('{"requirements_sha256": "bbbb"}', encoding="utf-8")
+    # ...and the timestamp put back, so metadata alone learns nothing.
+    os.utime(stamp, ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns))
+
+    after = conftest._fingerprint(stamp)
+
+    assert stamp.stat().st_size == before_stat.st_size
+    assert stamp.stat().st_mtime_ns == before_stat.st_mtime_ns
+    assert after != before, "a same-size, same-mtime content change slipped past"
+
+
+def test_the_file_fingerprint_carries_a_content_hash(tmp_path):
+    stamp = tmp_path / ".requirements-state.json"
+    stamp.write_text('{"a": 1}', encoding="utf-8")
+
+    size, mtime_ns, digest = conftest._fingerprint(stamp)
+
+    assert size == stamp.stat().st_size
+    assert mtime_ns == stamp.stat().st_mtime_ns
+    assert digest == hashlib.sha256(stamp.read_bytes()).hexdigest()
+
+
+def test_identical_content_fingerprints_identically(tmp_path):
+    """The guard must not cry wolf on a rewrite that changed nothing."""
+    stamp = tmp_path / ".requirements-state.json"
+    stamp.write_text('{"a": 1}', encoding="utf-8")
+    before = conftest._fingerprint(stamp)
+    stat = stamp.stat()
+
+    stamp.write_text('{"a": 1}', encoding="utf-8")
+    os.utime(stamp, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+    assert conftest._fingerprint(stamp) == before
+
+
+def test_the_directory_fingerprint_stays_metadata_only(tmp_path):
+    """Cost boundary: no hashing of the log tree."""
+    watched = tmp_path / "logs"
+    watched.mkdir()
+    (watched / "setup.log").write_text("x", encoding="utf-8")
+
+    entries = conftest._fingerprint(watched)
+
+    assert entries == (("setup.log", 1, (watched / "setup.log").stat().st_mtime_ns),)
+
+
+def test_the_guard_watches_the_real_import_proof():
+    assert (REPO_ROOT / ".venv" / ".import-proof.json") in \
+        set(conftest._GUARDED_PATHS.values())
+
+
+def test_both_venv_records_are_checked_around_every_test():
+    """Per-test attribution for the two small files; the log tree is per-session."""
+    per_test = set(conftest._PER_TEST_GUARDED)
+    assert "the real requirements stamp" in per_test
+    assert "the real import proof" in per_test
+    assert "the real setup log directory" not in per_test

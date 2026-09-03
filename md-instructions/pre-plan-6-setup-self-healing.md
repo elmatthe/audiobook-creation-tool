@@ -183,6 +183,7 @@ Plan-5 Phase-15 health architecture.
 | **M3** | Medium | The unrepairable-prerequisite notice is a **blocking modal on the launch fast path**. Observed live: the process sat indefinitely at *"The audio tools are unavailable"* before the GUI existed. | `bootstrap.py:1737`, `:1751`; live reproduction |
 | **M4** | Medium | macOS has no repo-local fallback and no automated route without Homebrew; `_install_ffmpeg`'s mac branch prints `https://brew.sh/` and returns. The `.command`'s only `brew install ffmpeg` lives in the **first-run** branch and never runs for an existing venv. | `.command`; `bootstrap.py:1039` |
 | **M5** | Medium | Neither WinGet invocation passes an explicit `--scope`. Both `Python.Python.3.12` and `Gyan.FFmpeg` rely on the package default — untested against the CSPW-PC Standard User constraint. | `.bat`; `bootstrap.py:828`, `:1039` |
+| **L2** | Low | **Tk finalisation stalls a worker thread (pre-existing, NOT fixed here).** A garbage collection that lands on a non-main thread finalises a leftover `tkinter.Variable`; `Variable.__del__` calls into Tcl, which stalls off the main thread. Any bounded wait on that thread then times out. It predates this drop and is only ever *exposed* by changes to allocation timing. **Phase 1 changed nothing for it** — see Phase 6 row 18. | Stack dump of the stalled `import-c-op-000001` thread, stopped inside `tkinter/__init__.py:414 __del__` |
 | **L1** | Low | **Test runs mutate production environment state.** (a) Module-level `LOG = SetupLog()` writes into the **production** `files/runtime-data/logs/setup_<date>.log` during pytest runs, interleaving tmpdir paths with real runs. (b) A full suite run **rewrites the real `.venv/.requirements-state.json`** — observed 2026-09-03, `recorded_at` advancing from `2026-09-02T21:05:05` to `2026-09-03T06:17:22` during a `verify.py` run, fingerprint unchanged. **Traced mechanically in Phase 1** (a plugin that redirected and recorded any write aimed at the real stamp, so one run found every culprit instead of the first): **three** tests — `test_bootstrap_setup_logging.py::test_run_setup_reaches_kokoro_warmup_without_typeerror` and `test_chatterbox_bootstrap.py::{test_run_setup_skips_the_chatterbox_steps_when_not_requested, test_run_setup_downloads_chatterbox_only_when_asked}`. Each drives `run_setup` with every install *step* stubbed but leaves `bootstrap.VENV_DIR` at the real checkout, so C2's unconditional stamp lands in the real `.venv`. Harmless only because the fingerprint matched — a suite that can write the real stamp can write a **false** one, which is exactly the C2 invariant. | Tripwire stacks: `run_setup` → `record_requirements_state` → `Path.write_text` |
 
 ### 4.4 Two structural test weaknesses that let C2 and M1 survive
@@ -569,10 +570,19 @@ checks unaffected.
 > L1a closed by making `SetupLog` open its file on first use rather than at import;
 > L1b closed by redirecting `VENV_DIR`/`LOGS_DIR` in the three traced tests, plus a
 > conftest guard that fails any test mutating the real stamp.
-> **Measured, not asserted:** the launch-time presence probe of all seven required
-> modules costs **~32 ms** (one subprocess, `find_spec`), against **~6 970 ms** for a
-> real import of the same seven — torch, via chatterbox. Presence therefore rides the
-> healthy launch; real proof stays behind the repair boundary.
+> **Measured, not asserted** (median of five, net of a 30 ms interpreter start):
+> the presence probe of all seven costs **~32 ms**; a real import of the same seven
+> costs **~6 763 ms**, of which **chatterbox alone is ~5 895 ms** (torch) — the other
+> six total ~1 430 ms (`nltk` ~994, `edge_tts` ~500, `fitz` ~66, `pydub` ~26,
+> `mutagen` ~14, `PIL` ~1).
+>
+> **Remediated after review.** Presence alone left a second hole: a module whose
+> spec resolves but whose *import* raises stayed invisible behind a matching
+> fingerprint. `prove_required_imports` now really imports the whole set, its
+> success is recorded in `.venv/.import-proof.json`, and the record is
+> re-established after `IMPORT_PROOF_MAX_AGE_DAYS`. Steady state is unchanged
+> (~32 ms plus one small file read); the proof's ~6.8 s is paid at most once per
+> window, and a break is caught within that window instead of never.
 > **Gate:** 17 failed / 5102 passed / 57 skipped / 76 errors — failures, errors and
 > skips all equal to the pre-existing baseline, with +41 passed from the new tests.
 > Phase-1-attributable failures: **zero**.
@@ -732,7 +742,8 @@ scenarios.** At minimum:
 | 14 | last-known-good preservation across a failed replacement |
 | 15 | successful repair → **second launch is a no-op fast path** |
 | 16 | macOS: existing venv + FFmpeg removed, Homebrew present and Homebrew absent (mocked) |
-| 17 | **test isolation** — a full suite run writes **no** production state: not the real `.venv/.requirements-state.json`, not `files/runtime-data/logs/setup_<date>.log`, not `files/runtime-data/ffmpeg-state.json`, not `files/bin` (L1) |
+| 17 | **test isolation** — a full suite run writes **no** production state: not the real `.venv/.requirements-state.json`, not `.venv/.import-proof.json`, not `files/runtime-data/logs/setup_<date>.log`, not `files/runtime-data/ffmpeg-state.json`, not `files/bin` (L1) |
+| 18 | **Tk finalisation on worker threads (L2, pre-existing)** — a cyclic collection landing on a non-main thread finalises a leftover `tkinter.Variable`; `Variable.__del__` calls into Tcl and stalls off the main thread, timing out bounded waits in unrelated threading tests. Latent in the suite and **not** introduced by this drop: Phase 1 surfaced it by changing fixture allocation and closed it by reverting to session-scoped isolation, changing **no** production or test behaviour for it. Needs a real fix — deterministic main-thread finalisation of Tk objects between modules — not a widened timeout. |
 
 Also tighten the remaining substring-slicing structural test (§4.4) to AST.
 

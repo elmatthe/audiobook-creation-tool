@@ -2,6 +2,72 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 1 REMEDIATED after review (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the Phase-1 completion
+> claim in the block below it, which was correct about everything it listed but incomplete:
+> one contract gap survived. Everything else in that block still stands. Nothing below is
+> deleted or rewritten.**
+>
+> - **The gap independent review found.** Phase 1 closed "current pins + module absent" with a
+>   `find_spec` presence probe. It did **not** close "current pins + spec resolves + the import
+>   actually raises" — a damaged native extension, a missing DLL dependency, a package whose
+>   import-time initialisation fails. None of those changes `requirements.txt`, so the
+>   fingerprint matched, presence said yes, and the environment stayed classified healthy
+>   indefinitely. The code correctly *said* `find_spec` is not importability proof; the launch
+>   path did not act on that.
+> - **Demonstrated, not argued.** Against commit `01dd93b` a scripted scenario — matching pins,
+>   a real package whose module body raises — reports `requirements_are_current() = True` and
+>   `required_modules_present() = True`, with nothing in the lifecycle able to notice. The same
+>   scenario on the remediated tree re-proves, catches `BROKEN:… ImportError`, and routes into
+>   repair. 15 of the new tests fail against `01dd93b`.
+> - **The design, chosen after measuring rather than assuming.** Per-module real import cost on
+>   this venv (median of five, net of a 30 ms interpreter start): **chatterbox ~5 895 ms** —
+>   torch — then `nltk` ~994, `edge_tts` ~500, `fitz` ~66, `pydub` ~26, `mutagen` ~14, `PIL` ~1.
+>   All seven together in one subprocess: ~6 763 ms. Putting that on every healthy launch was
+>   not acceptable, so: the cheap presence probe still runs every launch as a decisive negative,
+>   and a **real import proof** (`prove_required_imports`) is recorded in
+>   `.venv/.import-proof.json` and re-established once it is older than
+>   `IMPORT_PROOF_MAX_AGE_DAYS` (7). Steady state is unchanged — ~32 ms plus one small file read.
+>   A broken import is now caught within a week instead of never.
+> - **No second package system.** The proof reuses `REQUIRED_IMPORTS`; diagnosis and repair reuse
+>   `validate_installed_packages` and `reconcile_requirements`, which remains the single owner of
+>   pip → proof → stamp. The proof record is deliberately separate from the requirements stamp:
+>   the stamp says which pins this environment was reconciled against, the proof says the modules
+>   were really imported. Overloading one record with both questions is what caused the original
+>   defect.
+> - **Isolation guard hardened.** The per-test fingerprint for the two small `.venv` records now
+>   includes a **SHA-256 of their content**, not just `(size, mtime_ns)`. Proved: a stamp rewritten
+>   to a different `requirements_sha256` of the same length with its timestamp restored is
+>   **missed** by the old metadata-only fingerprint and **caught** by the new one — which is
+>   exactly the shape a falsified success stamp would take. The log-directory fingerprint stays
+>   metadata-only and session-scoped; hashing a growing log tree per test would cost much and
+>   prove nothing.
+> - **Tk finalisation (L2) — recorded, deliberately not fixed.** A cyclic collection landing on a
+>   non-main thread finalises a leftover `tkinter.Variable`, and `Variable.__del__` stalls in Tcl
+>   off the main thread. It is latent in the suite, predates this drop, and was only ever
+>   *exposed* by fixture allocation timing. **No production or test behaviour was changed for
+>   it**; it is now Phase 6 matrix row 18 and defect L2 in the drop, to be fixed properly rather
+>   than by widening a timeout.
+> - **Gate: 17 failed / 5123 passed / 57 skipped / 76 errors.** The failure and error lists are
+>   **identical** to the committed Phase-1 run — not merely equal in count — with +21 passed from
+>   the new tests. `verify.py` deps/docs/docnames/config all PASS. **Phase-1-attributable
+>   failures: zero.**
+> - **Preserved HOME-PC acceptance condition intact**, verified after the run: `.venv` on Python
+>   3.12.10, not deleted or rebuilt; the real requirements stamp **unchanged including its content
+>   hash**; no real import-proof file created; the real log directory unchanged; **no `files/bin`,
+>   nothing on PATH, no `Gyan.FFmpeg` package, no FFmpeg pin.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 2 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 1 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/conftest.py`; `files/tests/test_bootstrap_requirements_state.py`;
+> `files/tests/test_suite_isolation.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. All staged and committed
+> together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 maintenance drop, PHASE 1 COMPLETE (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the "STATUS: Phase 0 only is

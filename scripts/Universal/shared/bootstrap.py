@@ -265,6 +265,24 @@ def venv_pip() -> list[str]:
 #: Filename of the per-environment requirements stamp, inside the venv.
 REQUIREMENTS_STATE_NAME = ".requirements-state.json"
 
+#: Filename of the per-environment *import proof*, inside the venv. Deliberately
+#: a separate record from the requirements stamp, because it answers a different
+#: question. The stamp says "this environment was reconciled against these pins";
+#: the proof says "every required module was actually imported, successfully, at
+#: this moment". A stamp can be true while the proof has gone stale — that is the
+#: whole point of keeping them apart.
+IMPORT_PROOF_NAME = ".import-proof.json"
+
+#: How long a real-import proof is trusted before it is re-established.
+#:
+#: This is the bound on the one thing a content hash cannot see. ``requirements.txt``
+#: does not change when a native extension is damaged, a DLL dependency goes
+#: missing, or an antivirus quarantines a file inside an installed package — so a
+#: fingerprint match can hide a genuinely broken import. Re-proving on a schedule
+#: means such a break is caught within a week rather than never, without paying
+#: the proof's cost on every launch.
+IMPORT_PROOF_MAX_AGE_DAYS = 7
+
 #: Exit code meaning "the user chose not to install", as distinct from "the
 #: install broke".
 #:
@@ -305,6 +323,52 @@ def setup_exit_code(*, started: bool, done: bool, ok: bool) -> int:
 
 def requirements_state_path() -> Path:
     return VENV_DIR / REQUIREMENTS_STATE_NAME
+
+
+def import_proof_path() -> Path:
+    return VENV_DIR / IMPORT_PROOF_NAME
+
+
+def record_import_proof(python_version: str = "") -> None:
+    """Record that every required module was just really imported.
+
+    **Only ever call immediately after a successful real import proof.** Same
+    discipline as the requirements stamp: evidence of success, never an intention.
+    """
+    fingerprint = requirements_fingerprint()
+    try:
+        import_proof_path().parent.mkdir(parents=True, exist_ok=True)
+        import_proof_path().write_text(
+            json.dumps({
+                "requirements_sha256": fingerprint,
+                "python_version": python_version,
+                "proved_at": time.time(),
+                "proved_at_human": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # an unproved environment re-proves next launch; safe, not fatal
+
+
+def import_proof_is_current() -> bool:
+    """True when a real-import proof for these pins is on file and still fresh.
+
+    Costs one small file read and no subprocess, so the healthy launch pays
+    nothing for it. Anything unexpected — missing, unreadable, malformed, for
+    different pins, or simply old — means the same thing: prove it again. None of
+    those is evidence that the environment still imports.
+    """
+    try:
+        payload = json.loads(import_proof_path().read_text(encoding="utf-8"))
+        if payload.get("requirements_sha256") != requirements_fingerprint():
+            return False
+        age = time.time() - float(payload["proved_at"])
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+    # A clock moved backwards makes ``age`` negative; treat that as stale too
+    # rather than trusting a proof that appears to come from the future.
+    return 0 <= age <= IMPORT_PROOF_MAX_AGE_DAYS * 86400
 
 
 def requirements_fingerprint() -> str:
@@ -390,6 +454,10 @@ def reconcile_requirements(log: "SetupLog") -> tuple[bool, str]:
     if not validate_installed_packages(log):
         return False, RECONCILE_IMPORT_FAILED
     record_requirements_state()
+    # ``validate_installed_packages`` just imported every required module for
+    # real, so this environment is proved as of now. Recording that here is what
+    # stops a freshly reconciled machine from re-proving on its very next launch.
+    record_import_proof()
     return True, RECONCILE_OK
 
 
@@ -1137,21 +1205,24 @@ def required_modules_present(venv_py: Path) -> tuple[bool, str]:
     here to import?"; a package with a broken native extension, a missing DLL or
     an ABI mismatch still has a spec and still raises on import. What the probe
     gives is a **decisive negative**: a module with no spec cannot possibly
-    import, so its absence is enough to send the launch into the repair path,
-    where the real proof happens.
+    import, so its absence is enough, on its own, to send the launch into repair.
 
-    Why presence and not proof, on the launch path — measured on HOME-PC against
-    the real 3.12.10 venv, median of five runs:
+    It is therefore one half of the launch-time check and never the whole of it.
+    The other half is ``prove_required_imports``, which really imports and is
+    re-established on a schedule; between them, absence is caught immediately and
+    breakage is caught within a bounded window. Neither replaces the other.
 
-    * this probe (all seven, one subprocess): **~32 ms**;
-    * a real ``import`` of the same seven: **~6 970 ms**, dominated by torch
-      arriving through ``chatterbox``.
+    Why presence is the half that runs every time — measured on HOME-PC against
+    the real 3.12.10 venv, median of five runs, net of a 30 ms interpreter start:
 
-    Two hundred times the cost on every healthy launch buys nothing, because the
-    real proof already runs where it matters: at setup, reconciliation and
-    repair, inside ``validate_installed_packages``. The version gate is evaluated
-    *inside* the probe from the venv's own ``sys.version_info`` so this stays one
-    subprocess rather than two.
+    * this probe (all seven, one subprocess): **~32 ms** total;
+    * a real ``import`` of the same seven: **~6 763 ms**, of which
+      ``chatterbox`` alone is **~5 895 ms** (it pulls in torch). The other six
+      together cost ~1 430 ms: ``nltk`` ~994, ``edge_tts`` ~500, ``fitz`` ~66,
+      ``pydub`` ~26, ``mutagen`` ~14, ``PIL`` ~1.
+
+    The version gate is evaluated *inside* the probe from the venv's own
+    ``sys.version_info`` so this stays one subprocess rather than two.
     """
     probe = (
         "import importlib.util as u, sys; "
@@ -1175,6 +1246,59 @@ def required_modules_present(venv_py: Path) -> tuple[bool, str]:
     except Exception as exc:
         # A probe that cannot run is not evidence that anything is missing.
         return True, f"probe unavailable: {exc!r}"
+
+
+def prove_required_imports(venv_py: Path) -> tuple[Optional[bool], str, str]:
+    """Really import every required module. Returns ``(ok, detail, version)``.
+
+    ``ok`` is tri-state on purpose: ``True`` proved, ``False`` proved broken, and
+    ``None`` when the probe itself could not run. The third is not a finding —
+    repairing a machine whose only problem was that a subprocess would not start
+    would be worse than doing nothing.
+
+    This is the authority that ``required_modules_present`` deliberately is not.
+    ``find_spec`` answers "is there something here to import" and cannot answer
+    "does importing it work": a damaged native extension, a missing DLL
+    dependency and a package whose import-time initialisation raises all keep a
+    perfectly good spec. Those are exactly the breakages a ``requirements.txt``
+    hash cannot see either, because the file did not change.
+
+    One subprocess for the whole set rather than one per module — 6.8 s measured
+    together against 7.5 s apart, and this is a proof, not a diagnosis. When it
+    fails, the existing ``validate_installed_packages`` does the per-module work
+    of naming and repairing the culprit, so there is no second mechanism here.
+
+    The ``<3.13`` gate is evaluated inside the child from its own
+    ``sys.version_info``, keeping this to a single spawn.
+    """
+    probe = (
+        "import sys\n"
+        f"mods = {list(REQUIRED_IMPORTS)!r}\n"
+        f"gated = {sorted(_GATED_BELOW_313)!r}\n"
+        "keep = sys.version_info[:2] < (3, 13)\n"
+        "mods = [m for m in mods if keep or m not in gated]\n"
+        "bad = []\n"
+        "for m in mods:\n"
+        "    try:\n"
+        "        __import__(m)\n"
+        "    except BaseException as exc:\n"
+        "        bad.append('%s (%s: %s)' % (m, type(exc).__name__, exc))\n"
+        "if bad:\n"
+        "    print('BROKEN:' + '; '.join(bad))\n"
+        "    sys.exit(1)\n"
+        "print('OK %d.%d.%d' % sys.version_info[:3])\n"
+    )
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-c", probe],
+            capture_output=True, text=True, timeout=600, **_hidden(),
+        )
+        out = (r.stdout or "").strip()
+        if r.returncode == 0 and out.startswith("OK"):
+            return True, "ok", out[2:].strip()
+        return False, out or (r.stderr or "").strip() or "unknown", ""
+    except Exception as exc:
+        return None, f"probe unavailable: {exc!r}", ""
 
 
 def pip_install_requirements(log: SetupLog) -> bool:
@@ -2043,30 +2167,56 @@ def _launch_with_kokoro_healthcheck() -> int:
             )
     else:
         # The fingerprint says which pins this environment was built against. It
-        # does not say the packages are still here: a required module that was
-        # never installed, or that has been removed, leaves the hash untouched,
-        # and before this check the drift gate skipped the repair forever. One
-        # cheap presence probe (~32 ms measured) closes that hole; the real
-        # import proof stays in the repair path where its ~7 s belongs.
+        # cannot say the packages are still here, and it cannot say they still
+        # import. Two different blind spots, so two different checks:
+        #
+        #   1. a cheap presence probe (~32 ms) every launch — a module with no
+        #      spec at all cannot import, so absence is decisive immediately;
+        #   2. a real import proof, re-established on a bounded schedule — the
+        #      only thing that catches a module whose spec is fine but whose
+        #      import raises (damaged native extension, missing DLL, broken
+        #      import-time initialisation). None of those changes
+        #      requirements.txt, so without this a fingerprint match would hide
+        #      them for as long as the pins stayed still.
+        #
+        # The proof costs ~6.8 s and is therefore not on every launch; the
+        # recorded proof makes the steady state a single small file read.
+        broken = ""
         present, detail = required_modules_present(venv_py)
         if not present:
             LOG.line(f"Required packages missing despite matching pins: {detail}")
+            broken = detail
+        elif not import_proof_is_current():
+            LOG.line("Re-proving that the required packages still import…")
+            proved, proof_detail, version = prove_required_imports(venv_py)
+            if proved:
+                record_import_proof(version)
+                LOG.line(f"  All required packages import cleanly (Python {version}).")
+            elif proved is None:
+                # Could not run the probe. Not a finding; record nothing so the
+                # next launch tries again rather than repairing on no evidence.
+                LOG.line(f"  Import proof could not run: {proof_detail}")
+            else:
+                LOG.line(f"Required packages are present but do not import: "
+                         f"{proof_detail}")
+                broken = proof_detail
+
+        if broken:
             repair: dict = {}
 
             def _repair_missing() -> bool:
-                ok_fix, message = repair_missing_requirements(LOG, detail)
+                ok_fix, message = repair_missing_requirements(LOG, broken)
                 repair["message"] = message
                 return ok_fix
 
             show_repair_dialog(
                 _repair_missing,
                 title="Restoring the app's components…",
-                detail="Some components this app needs are missing from the "
-                       "installation. They are being reinstalled now; nothing "
-                       "is being deleted and your settings are untouched.",
+                detail="Some components this app needs are missing or damaged. "
+                       "They are being reinstalled now; nothing is being deleted "
+                       "and your settings are untouched.",
             )
-            present_now, _ = required_modules_present(venv_py)
-            if not present_now:
+            if not import_proof_is_current():
                 show_warning_dialog(
                     "Some components could not be restored",
                     repair.get("message",

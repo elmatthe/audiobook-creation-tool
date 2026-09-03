@@ -11,6 +11,7 @@ guard at the bottom of this file.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -50,9 +51,10 @@ if str(SCRIPTS_ROOT) not in sys.path:
 # --------------------------------------------------------------------------- #
 _GUARDED_PATHS = {
     "the real requirements stamp": REPO_ROOT / ".venv" / ".requirements-state.json",
+    "the real import proof": REPO_ROOT / ".venv" / ".import-proof.json",
     "the real setup log directory": REPO_ROOT / "files" / "runtime-data" / "logs",
 }
-_PER_TEST_GUARDED = ("the real requirements stamp",)
+_PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof")
 
 
 # Captured at import, before any test can monkeypatch them. The guard has to
@@ -63,16 +65,25 @@ _REAL_STAT = os.stat
 
 
 def _fingerprint(path: Path):
-    """(size, mtime_ns) for a file, or the sorted equivalent for a directory.
+    """(size, mtime_ns, sha256) for a file, or the metadata equivalent for a directory.
 
     A missing path fingerprints as ``None``, so a machine with no ``.venv`` and a
     machine with one are both handled without special-casing.
 
-    ``os.scandir`` rather than ``Path.iterdir`` + ``Path.stat``: this runs twice
-    for every test in the suite, and on Windows scandir carries the size and
-    timestamps back from the directory enumeration itself instead of paying a
-    separate stat syscall per entry. With ~80 files in the real logs directory
-    the naive version turned the guard into the slowest thing in the run.
+    **The single-file case hashes the content.** Size and timestamp alone would
+    miss a same-size edit whose mtime was restored — a stamp rewritten with a
+    different ``requirements_sha256`` is exactly that shape, and it is the
+    falsification this guard exists to catch. The file is a few hundred bytes and
+    the guard reads it twice per test, so the hash is free in practice.
+
+    **The directory case deliberately does not hash.** It covers the real logs
+    directory, whose ~80 entries are checked once per session; hashing a growing
+    log tree around every test would be expensive for no gain, since a log that
+    is written at all has changed size or timestamp.
+
+    ``os.scandir`` rather than ``Path.iterdir`` + ``Path.stat``: on Windows
+    scandir carries size and timestamps back from the directory enumeration
+    itself instead of paying a separate stat syscall per entry.
     """
     try:
         with _REAL_SCANDIR(path) as entries:
@@ -86,7 +97,9 @@ def _fingerprint(path: Path):
         return None
     try:
         stat = _REAL_STAT(path)
-        return (stat.st_size, stat.st_mtime_ns)
+        with open(path, "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+        return (stat.st_size, stat.st_mtime_ns, digest)
     except OSError:
         return None
 

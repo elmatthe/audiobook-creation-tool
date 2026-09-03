@@ -530,3 +530,191 @@ def test_the_launch_path_checks_presence_when_the_pins_already_match():
     assert "ensure_requirements_current" in called
     assert "kokoro_is_healthy" in called
     assert "launch_gui" in called
+
+
+# --------------------------------------------------------------------------- #
+# I. Present is not importable (PRE-PLAN-6 Phase 1 remediation)
+#
+# Section H closed the "current stamp, module absent" hole with a find_spec
+# presence probe. That probe cannot close the neighbouring one: a module whose
+# spec resolves perfectly but whose *import* raises -- a damaged native
+# extension, a missing DLL dependency, a package whose import-time
+# initialisation blows up. None of those changes requirements.txt, so the
+# fingerprint still matches and presence still says yes.
+#
+# The authority for that question is a real import, and the reason it is not on
+# every launch is cost: measured on the real 3.12.10 venv, median of five, net
+# of a 30 ms interpreter start -- chatterbox ~5895 ms on its own (torch), nltk
+# ~994, edge_tts ~500, fitz ~66, pydub ~26, mutagen ~14, PIL ~1. So the proof is
+# recorded when it succeeds and re-established on a bounded schedule, which is
+# what stops a matching fingerprint from hiding a broken import indefinitely.
+# --------------------------------------------------------------------------- #
+def test_a_module_that_imports_is_proved(fake_env, monkeypatch):
+    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["json", "pathlib"])
+    ok, detail, version = bootstrap.prove_required_imports(Path(sys.executable))
+    assert ok is True
+    assert detail == "ok"
+    assert version.startswith("3.")
+
+
+def test_a_module_with_a_spec_that_cannot_import_is_caught(fake_env, monkeypatch,
+                                                           tmp_path):
+    """The exact gap: find_spec succeeds, the import raises.
+
+    A real package on disk whose module body raises -- the shape of a damaged
+    native extension -- so this is proved against a real interpreter rather than
+    a stub.
+    """
+    site = tmp_path / "site"
+    (site / "phase1_broken_pkg").mkdir(parents=True)
+    (site / "phase1_broken_pkg" / "__init__.py").write_text(
+        "raise ImportError('the native extension is damaged')", encoding="utf-8")
+    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["phase1_broken_pkg"])
+    monkeypatch.setenv("PYTHONPATH", str(site))
+
+    # Presence is satisfied -- which is precisely why presence is not enough.
+    present, _ = bootstrap.required_modules_present(Path(sys.executable))
+    assert present is True
+
+    ok, detail, _ = bootstrap.prove_required_imports(Path(sys.executable))
+
+    assert ok is False
+    assert "phase1_broken_pkg" in detail
+    assert "damaged" in detail
+
+
+def test_a_proof_probe_that_cannot_run_is_not_a_finding(fake_env, monkeypatch):
+    """Tri-state: unable to prove is not the same as proved broken."""
+    def boom(*a, **k):
+        raise OSError("blocked")
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", boom)
+    ok, detail, _ = bootstrap.prove_required_imports(Path(sys.executable))
+    assert ok is None
+    assert "probe unavailable" in detail
+
+
+# --- the recorded proof ---------------------------------------------------- #
+def test_an_environment_with_no_proof_is_not_current(fake_env):
+    assert bootstrap.import_proof_is_current() is False
+
+
+def test_a_fresh_proof_is_current(fake_env):
+    bootstrap.record_import_proof("3.12.10")
+    assert bootstrap.import_proof_is_current() is True
+
+
+def test_a_proof_for_different_pins_is_not_current(fake_env):
+    bootstrap.record_import_proof("3.12.10")
+    fake_env.reqs.write_text("pillow==12.2.0\nedge-tts==7.2.9\n", encoding="utf-8")
+    assert bootstrap.import_proof_is_current() is False
+
+
+def test_a_proof_older_than_the_window_is_not_current(fake_env):
+    """The bound that stops a broken import hiding forever behind good pins."""
+    bootstrap.record_import_proof("3.12.10")
+    payload = json.loads(bootstrap.import_proof_path().read_text(encoding="utf-8"))
+    payload["proved_at"] -= (bootstrap.IMPORT_PROOF_MAX_AGE_DAYS * 86400) + 60
+    bootstrap.import_proof_path().write_text(json.dumps(payload), encoding="utf-8")
+
+    assert bootstrap.import_proof_is_current() is False
+
+
+def test_a_proof_from_the_future_is_not_trusted(fake_env):
+    """A clock that moved backwards must not grant an unbounded proof."""
+    bootstrap.record_import_proof("3.12.10")
+    payload = json.loads(bootstrap.import_proof_path().read_text(encoding="utf-8"))
+    payload["proved_at"] += 86400 * 365
+    bootstrap.import_proof_path().write_text(json.dumps(payload), encoding="utf-8")
+
+    assert bootstrap.import_proof_is_current() is False
+
+
+def test_a_corrupt_proof_is_treated_as_absent(fake_env):
+    bootstrap.import_proof_path().write_text("not json{", encoding="utf-8")
+    assert bootstrap.import_proof_is_current() is False
+
+
+def test_the_proof_lives_beside_the_stamp_and_is_a_separate_record(fake_env):
+    """Two records, two questions -- the stamp is not overloaded."""
+    assert bootstrap.import_proof_path().is_relative_to(fake_env.venv)
+    assert bootstrap.import_proof_path() != bootstrap.requirements_state_path()
+
+
+def test_a_successful_reconcile_records_both_the_stamp_and_the_proof(
+        fake_env, install_spy):
+    """validate_installed_packages just imported everything, so say so."""
+    ok, _msg = bootstrap.ensure_requirements_current(_Log())
+
+    assert ok is True
+    assert bootstrap.requirements_are_current() is True
+    assert bootstrap.import_proof_is_current() is True
+
+
+def test_a_failed_reconcile_records_no_proof(fake_env, install_spy):
+    install_spy["validate_ok"] = False
+
+    ok, _msg = bootstrap.ensure_requirements_current(_Log())
+
+    assert ok is False
+    assert not bootstrap.requirements_state_path().exists()
+    assert not bootstrap.import_proof_path().exists()
+    assert bootstrap.import_proof_is_current() is False
+
+
+def test_a_broken_import_is_repaired_proved_and_then_recorded(fake_env, install_spy):
+    """Detection -> repair -> real proof -> success state, in one round trip.
+
+    The environment is not deleted and requirements.txt is not touched.
+    """
+    bootstrap.record_requirements_state()          # current pins, no proof yet
+    before = fake_env.reqs.read_text(encoding="utf-8")
+    assert bootstrap.requirements_are_current() is True
+    assert bootstrap.import_proof_is_current() is False
+
+    ok, msg = bootstrap.repair_missing_requirements(
+        _Log(), "BROKEN:pydub (ImportError: DLL load failed)")
+
+    assert ok is True
+    assert install_spy["pip"] == 1 and install_spy["validate"] == 1
+    assert bootstrap.import_proof_is_current() is True
+    assert "repair" in msg.lower()
+    assert fake_env.reqs.read_text(encoding="utf-8") == before
+    assert fake_env.venv.is_dir()
+
+
+def test_a_failed_repair_leaves_the_environment_retryable(fake_env, install_spy):
+    """No false proof, no false stamp, and the next launch tries again."""
+    install_spy["validate_ok"] = False
+
+    ok, _msg = bootstrap.repair_missing_requirements(_Log(), "BROKEN:pydub")
+
+    assert ok is False
+    assert bootstrap.import_proof_is_current() is False
+    assert not bootstrap.requirements_state_path().exists()
+
+    install_spy["validate_ok"] = True
+    ok2, _msg2 = bootstrap.repair_missing_requirements(_Log(), "BROKEN:pydub")
+    assert ok2 is True
+    assert bootstrap.import_proof_is_current() is True
+
+
+def test_the_launch_path_reproves_imports_and_routes_failures_to_repair():
+    """Wiring, on the parsed tree rather than on source text."""
+    import ast
+
+    src = Path(bootstrap.__file__).read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef)
+              and n.name == "_launch_with_kokoro_healthcheck")
+    called = {n.func.id for n in ast.walk(fn)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "prove_required_imports" in called
+    assert "import_proof_is_current" in called
+    assert "record_import_proof" in called
+    assert "repair_missing_requirements" in called
+    # What it must not have displaced.
+    assert "required_modules_present" in called
+    assert "ensure_requirements_current" in called
+    assert "kokoro_is_healthy" in called
+    assert "launch_gui" in called
