@@ -17,9 +17,16 @@
 >   - merge commit: **`7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`**
 >   - parent 1 (pre-merge `master`): `81c9c0600ca74a42a22bd09d367a702bee9708fe`
 >   - parent 2 (feature head): `393a5625f0bce90cb4f9f4313196017acf958f56`
-> - **`master` now points to `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`.** Any sentence below saying
->   `origin/master` is `81c9c06`, that there is no pull request, that merge is unauthorized, or that
->   the feature branch is unmerged, is **superseded by this block.**
+> - **Integration anchors — stable, and deliberately not a live branch tip.** Plan 5's **production**
+>   integration anchor is **PR #6 / `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`**; the follow-up
+>   **records reconciliation** was integrated through **PR #7 /
+>   `e8c6635673fd95ed5e0a3842e480ab5a3d9c8c0a`** (documentation only). Both are permanent commits in
+>   `master`'s history and stay true forever. **The literal current tip of `master` is not recorded
+>   here on purpose** — query Git for it. Naming a live HEAD in this block is self-invalidating: the
+>   very act of merging a documentation update advances `master` past the SHA that update claims,
+>   which is exactly how the earlier wording went stale the moment PR #7 landed.
+> - Any sentence below saying `origin/master` is `81c9c06`, that there is no pull request, that merge
+>   is unauthorized, or that the feature branch is unmerged, is **superseded by this block.**
 > - **The feature branch `feature/0.6.2-m4b-converter-upgrade` is RETAINED** at
 >   `393a5625f0bce90cb4f9f4313196017acf958f56`, matching the precedent set by every earlier plan
 >   branch. It was not deleted.
