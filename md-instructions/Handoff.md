@@ -2,6 +2,55 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — the PRE-PLAN-6 `Setup_and_Run` self-healing maintenance drop is now ACTIVE (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "THE NEXT ACTION is ONE
+> separate bounded PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing remediation" wording in the
+> block below it — that remediation has now been scoped and started. Everything else in that block
+> stands. Nothing below is deleted or rewritten.**
+>
+> - **The PRE-PLAN-6 remediation named as the next action below is now underway**, on its own
+>   maintenance branch, as ONE bounded drop. It is **not** part of Plan 5 and it is **not** Plan 6.
+> - **Branch:** `maintenance/0.6.2-setup-self-healing`, created from **PR #8 /
+>   `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c`** — the exact verified `master` baseline at the time
+>   of the checkpoint. Per the durable-anchor rule established by PR #8, that is a permanent merge
+>   commit, not a claim about where `master` points today.
+> - **Drop:** `md-instructions/pre-plan-6-setup-self-healing.md` — temporary, deleted at closeout.
+>   It carries the full contract: eleven bounded phases (0–10), the Python `>=3.11,<3.13`
+>   full-feature contract, the requirements/import-validation invariant, the FFmpeg health contract,
+>   the resolved Gyan **9.0.1** portable-fallback provenance pin, the staging/promotion design, the
+>   user-scope portability rules, the failure-UX contract, verification rules and manual gates.
+> - **Two read-only investigations preceded it and agree independently.** A Claude Code
+>   investigation on `e36ab7d` **reproduced the defect live on HOME-PC** and traced it in source;
+>   the maintainer's preserved Codex report reaches the same primary conclusion. The defect is
+>   confirmed, not hypothesised: with an existing `.venv`, `--launch-only` **detects** a missing or
+>   broken ffmpeg/ffprobe pair but **cannot provision one**, then tells the user to re-run
+>   `Setup_and_Run`, which repeats the identical non-repairing path. A second instance of the same
+>   shape exists on the requirements success stamp.
+> - **STATUS: Phase 0 only is complete** — this branch, this drop, and this entry. **Zero production
+>   and zero test code has changed.** `Setup_and_Run-*`, `scripts/**`, `files/tests/**`,
+>   `requirements.txt`, `config.toml`, `release.py` and packaging are all untouched.
+> - **The preserved HOME-PC acceptance condition is intact and must stay intact:** an existing
+>   healthy root `.venv` (Python 3.12.10) **plus no usable ffmpeg/ffprobe pair anywhere**. Phases
+>   1–6 must not repair or disturb it. **Phase 7 is the first phase permitted to spend it**, and
+>   spending it is the acceptance test.
+> - **Nothing downstream is authorized:** no merge to `master`, no pull request, no tag, no GitHub
+>   release, no package, no `release.py` run. Version identity remains **`0.6.2`, UNRELEASED**; the
+>   latest published release remains **`v0.4.0`**.
+> - **Plan 6 has still NOT begun** and may begin only after this maintenance work is dispositioned
+>   **and integrated into `master`**.
+> - **Known local-only test failure, unchanged and deliberately not fixed:**
+>   `test_plan3_boundaries.py` asserts the contents of `md-instructions/don't-delete/` with strict
+>   set equality, so this machine's preserved **untracked**
+>   `Codex-Investigation-Report-batch-launcher.md` fails it here. That file is absent from the Git
+>   tree, cannot affect a clean checkout, and must never be deleted, moved or staged to make a suite
+>   green.
+>
+> **Session sync log — HOME-PC, 2026-09-03.** Added on `maintenance/0.6.2-setup-self-healing`:
+> `md-instructions/pre-plan-6-setup-self-healing.md` (new). Changed: `md-instructions/Handoff.md`
+> (this block). No other tracked file added, changed or deleted. Both are staged and committed in
+> the same commit as this entry.
+
 > ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is MERGED into master via PR #6 (2026-09-02)
 >
 > **This block is the live state of the repository. It supersedes every "next action", "not
