@@ -29,6 +29,7 @@ Nothing here installs anything, downloads weights or touches a real environment.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -267,16 +268,27 @@ def test_the_launch_path_reconciles_requirements_before_launching():
 
 
 def test_setup_records_the_stamp_only_after_packages_validate():
+    """run_setup owns no stamping of its own — it delegates to the one owner.
+
+    This replaces a guard that asserted only that the *text*
+    "validate_installed_packages" appeared before the *text*
+    "record_requirements_state()" inside run_setup. That ordering was equally
+    true of the defect it was supposed to catch: the call was there, in the right
+    order, and its result was thrown away. Textual order is not a safety
+    property. The behavioural proof lives in section G below; this states the
+    structural half on the parsed tree.
+    """
     import ast
 
     src = Path(bootstrap.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "run_setup")
-    body = ast.get_source_segment(src, fn)
-    assert "record_requirements_state()" in body
-    assert body.index("validate_installed_packages") < body.index(
-        "record_requirements_state()")
+    called = {n.func.id for n in ast.walk(fn)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "reconcile_requirements" in called
+    assert "record_requirements_state" not in called
+    assert "validate_installed_packages" not in called
 
 
 def test_kokoro_self_heal_is_still_wired_into_launch():
@@ -316,3 +328,205 @@ def test_a_pre_pillow_heif_environment_is_detected_as_stale(fake_env, install_sp
     ok, _msg = bootstrap.ensure_requirements_current(_Log())
     assert ok is True and install_spy["pip"] == 1
     assert bootstrap.requirements_are_current() is True
+
+
+# --------------------------------------------------------------------------- #
+# G. run_setup obeys the SAME invariant as the drift path (PRE-PLAN-6 defect C2)
+#
+# The drift path was always correct. ``run_setup`` was not: it called
+# ``validate_installed_packages(log)`` for its side effects, threw the boolean
+# away, and stamped unconditionally. A first run whose package installed but did
+# not import was therefore recorded as healthy forever -- ``requirements_are_current()``
+# returned True on every later launch, so the reconcile never ran again and
+# nothing re-probed the required imports.
+#
+# These are behavioural. The old guard asserted only that the text
+# "validate_installed_packages" appeared before the text
+# "record_requirements_state()" in the source, which is true of the defect too.
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def setup_steps(monkeypatch, fake_env):
+    """Stub every run_setup stage except the requirements work under test.
+
+    ``fake_env`` is what keeps this honest: it redirects ``VENV_DIR`` at the
+    module level, so the stamp these tests write lands in ``tmp_path`` and never
+    in the developer's real ``.venv``.
+    """
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    monkeypatch.setattr(bootstrap, "preflight_report", lambda py, log: {})
+    monkeypatch.setattr(bootstrap, "_create_validated_venv",
+                        lambda py, log, headless: True)
+    monkeypatch.setattr(bootstrap, "ensure_ffmpeg", lambda log: True)
+    monkeypatch.setattr(bootstrap, "predownload_kokoro", lambda log: None)
+    return fake_env
+
+
+def _setup() -> tuple[bool, str]:
+    return bootstrap.run_setup(False, lambda *a: None, _Log())
+
+
+def test_setup_writes_no_stamp_when_validation_fails(setup_steps, install_spy):
+    """The defect, stated as behaviour: pip fine, imports broken, stamped anyway."""
+    install_spy["validate_ok"] = False
+
+    ok, msg = _setup()
+
+    assert ok is False
+    assert "import" in msg.lower()
+    assert not bootstrap.requirements_state_path().exists()
+    assert bootstrap.requirements_are_current() is False
+
+
+def test_setup_writes_no_stamp_when_pip_fails(setup_steps, install_spy):
+    install_spy["pip_ok"] = False
+
+    ok, _msg = _setup()
+
+    assert ok is False
+    assert install_spy["validate"] == 0  # never validate what pip did not install
+    assert not bootstrap.requirements_state_path().exists()
+
+
+def test_setup_writes_one_correct_stamp_when_both_succeed(setup_steps, install_spy):
+    ok, _msg = _setup()
+
+    assert ok is True
+    assert install_spy["pip"] == 1 and install_spy["validate"] == 1
+    payload = json.loads(
+        bootstrap.requirements_state_path().read_text(encoding="utf-8"))
+    assert payload["requirements_sha256"] == bootstrap.requirements_fingerprint()
+    assert bootstrap.requirements_are_current() is True
+
+
+def test_a_setup_whose_validation_failed_is_retried_on_the_next_run(
+        setup_steps, install_spy):
+    """No stamp means the next invocation tries again instead of skipping."""
+    install_spy["validate_ok"] = False
+    assert _setup()[0] is False
+    assert bootstrap.requirements_are_current() is False
+
+    install_spy["validate_ok"] = True
+    assert _setup()[0] is True
+    assert bootstrap.requirements_are_current() is True
+
+
+def test_setup_never_reaches_the_stamp_writer_when_validation_fails(
+        setup_steps, install_spy, monkeypatch):
+    """Not merely 'no file' -- the writer is not called at all."""
+    calls: list[int] = []
+    monkeypatch.setattr(bootstrap, "record_requirements_state",
+                        lambda *a, **k: calls.append(1))
+    install_spy["validate_ok"] = False
+
+    assert _setup()[0] is False
+    assert calls == []
+
+
+def test_one_function_owns_pip_validation_and_the_stamp():
+    """Structural, via AST: no second call site can reintroduce the bypass.
+
+    Asserted on the parsed tree, never on source substrings or their ordering.
+    """
+    import ast
+
+    src = Path(bootstrap.__file__).read_text(encoding="utf-8")
+    enclosing = sorted(
+        n.name for n in ast.walk(ast.parse(src))
+        if isinstance(n, ast.FunctionDef)
+        and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                and c.func.id == "record_requirements_state"
+                for c in ast.walk(n))
+    )
+    assert enclosing == ["reconcile_requirements"]
+
+
+# --------------------------------------------------------------------------- #
+# H. A matching fingerprint is not a health claim
+#
+# The fingerprint answers "which pins was this environment reconciled against?".
+# It cannot answer "are those packages still here?" -- a required package that
+# was never installed, or that has been removed since, leaves the hash untouched.
+# Before this, the drift gate short-circuited on the matching hash and nothing on
+# the launch path ever looked at REQUIRED_IMPORTS again.
+#
+# The probe is deliberately *presence* (find_spec), not proof of importability.
+# Measured on HOME-PC against the real 3.12.10 venv, median of five: presence of
+# all seven in one subprocess ~32 ms; a real import of the same seven ~6 970 ms,
+# dominated by torch arriving through chatterbox. The real proof therefore stays
+# where its cost is justified -- setup, reconciliation and repair.
+# --------------------------------------------------------------------------- #
+def test_a_present_module_set_probes_clean(monkeypatch):
+    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS", ["json"])
+    ok, detail = bootstrap.required_modules_present(Path(sys.executable))
+    assert ok is True and detail == "ok"
+
+
+def test_a_missing_module_is_a_decisive_negative(monkeypatch):
+    """find_spec proves absence even though it cannot prove importability."""
+    monkeypatch.setattr(bootstrap, "REQUIRED_IMPORTS",
+                        ["json", "definitely_not_installed_xyz"])
+    ok, detail = bootstrap.required_modules_present(Path(sys.executable))
+    assert ok is False
+    assert "definitely_not_installed_xyz" in detail
+
+
+def test_a_probe_that_cannot_run_is_not_treated_as_missing(monkeypatch):
+    """An unrunnable probe is absence of evidence, not evidence of absence."""
+    def boom(*a, **k):
+        raise OSError("blocked")
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", boom)
+    ok, detail = bootstrap.required_modules_present(Path(sys.executable))
+    assert ok is True
+    assert "probe unavailable" in detail
+
+
+def test_presence_and_importability_are_not_the_same_claim():
+    """Stated once, in the code, so a later reader cannot conflate them."""
+    doc = bootstrap.required_modules_present.__doc__ or ""
+    assert "not" in doc.lower() and "proof" in doc.lower()
+
+
+def test_a_fingerprint_match_no_longer_hides_a_missing_package(fake_env,
+                                                               install_spy,
+                                                               monkeypatch):
+    """The whole point: current pins, absent package, repair still happens."""
+    bootstrap.record_requirements_state()
+    assert bootstrap.requirements_are_current() is True
+
+    ok, msg = bootstrap.repair_missing_requirements(_Log(), "MISSING:pydub")
+
+    assert ok is True
+    assert install_spy["pip"] == 1 and install_spy["validate"] == 1
+    assert "repair" in msg.lower()
+
+
+def test_repairing_a_missing_package_still_obeys_the_stamp_invariant(
+        fake_env, install_spy):
+    """Bypassing the fingerprint gate does not bypass the proof."""
+    install_spy["validate_ok"] = False
+
+    ok, _msg = bootstrap.repair_missing_requirements(_Log(), "MISSING:pydub")
+
+    assert ok is False
+    assert not bootstrap.requirements_state_path().exists()
+
+
+def test_the_launch_path_checks_presence_when_the_pins_already_match():
+    """Wiring, on the parsed tree rather than on source text."""
+    import ast
+
+    src = Path(bootstrap.__file__).read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef)
+              and n.name == "_launch_with_kokoro_healthcheck")
+    called = {n.func.id for n in ast.walk(fn)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "required_modules_present" in called
+    assert "repair_missing_requirements" in called
+    # The existing behaviour it must not have displaced.
+    assert "ensure_requirements_current" in called
+    assert "kokoro_is_healthy" in called
+    assert "launch_gui" in called

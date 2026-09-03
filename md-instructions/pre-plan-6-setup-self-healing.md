@@ -4,7 +4,8 @@
 **Version identity:** `0.6.2`, **UNRELEASED** — this drop publishes nothing
 **Branch:** `maintenance/0.6.2-setup-self-healing`
 **Base:** `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c` (PR #8 merge commit on `master`)
-**Status:** Phase 0 complete (this document). Phase 1 not started.
+**Status:** Phase 0 complete (this document). **Phase 1 complete** — C2, M1, L1a and L1b
+fixed; Python contract enforced. Phase 2 not started.
 **Authored:** 2026-09-03, from the approved Checkpoint-1 read-only investigation as revised by
 maintainer/ChatGPT review.
 
@@ -182,7 +183,7 @@ Plan-5 Phase-15 health architecture.
 | **M3** | Medium | The unrepairable-prerequisite notice is a **blocking modal on the launch fast path**. Observed live: the process sat indefinitely at *"The audio tools are unavailable"* before the GUI existed. | `bootstrap.py:1737`, `:1751`; live reproduction |
 | **M4** | Medium | macOS has no repo-local fallback and no automated route without Homebrew; `_install_ffmpeg`'s mac branch prints `https://brew.sh/` and returns. The `.command`'s only `brew install ffmpeg` lives in the **first-run** branch and never runs for an existing venv. | `.command`; `bootstrap.py:1039` |
 | **M5** | Medium | Neither WinGet invocation passes an explicit `--scope`. Both `Python.Python.3.12` and `Gyan.FFmpeg` rely on the package default — untested against the CSPW-PC Standard User constraint. | `.bat`; `bootstrap.py:828`, `:1039` |
-| **L1** | Low | **Test runs mutate production environment state.** (a) Module-level `LOG = SetupLog()` writes into the **production** `files/runtime-data/logs/setup_<date>.log` during pytest runs, interleaving tmpdir paths with real runs. (b) A full suite run **rewrites the real `.venv/.requirements-state.json`** — observed 2026-09-03, `recorded_at` advancing from `2026-09-02T21:05:05` to `2026-09-03T06:17:22` during a `verify.py` run, fingerprint unchanged. Five modules touch the stamp API (`test_bootstrap_requirements_state.py`, `test_bootstrap_setup_cancel.py`, `test_bootstrap_setup_logging.py`, `test_chatterbox_bootstrap.py`, `test_first_run_contract.py`); every call in the first is behind the `fake_env` fixture, so the unredirected writer is elsewhere and must be identified, not guessed. Harmless today because the fingerprint matched — but a suite that can write the real stamp can also write a **false** one, which is exactly the C2 invariant. | Observed in `setup_2026-09-02.log`; stamp mtime + `recorded_at` |
+| **L1** | Low | **Test runs mutate production environment state.** (a) Module-level `LOG = SetupLog()` writes into the **production** `files/runtime-data/logs/setup_<date>.log` during pytest runs, interleaving tmpdir paths with real runs. (b) A full suite run **rewrites the real `.venv/.requirements-state.json`** — observed 2026-09-03, `recorded_at` advancing from `2026-09-02T21:05:05` to `2026-09-03T06:17:22` during a `verify.py` run, fingerprint unchanged. **Traced mechanically in Phase 1** (a plugin that redirected and recorded any write aimed at the real stamp, so one run found every culprit instead of the first): **three** tests — `test_bootstrap_setup_logging.py::test_run_setup_reaches_kokoro_warmup_without_typeerror` and `test_chatterbox_bootstrap.py::{test_run_setup_skips_the_chatterbox_steps_when_not_requested, test_run_setup_downloads_chatterbox_only_when_asked}`. Each drives `run_setup` with every install *step* stubbed but leaves `bootstrap.VENV_DIR` at the real checkout, so C2's unconditional stamp lands in the real `.venv`. Harmless only because the fingerprint matched — a suite that can write the real stamp can write a **false** one, which is exactly the C2 invariant. | Tripwire stacks: `run_setup` → `record_requirements_state` → `Path.write_text` |
 
 ### 4.4 Two structural test weaknesses that let C2 and M1 survive
 
@@ -558,7 +559,23 @@ checks unaffected.
 
 ---
 
-### PHASE 1 — requirements-state invariant + Python selection
+### PHASE 1 — requirements-state invariant + Python selection ✅ COMPLETE
+
+> **Outcome.** C2 closed by making `reconcile_requirements` the single owner of
+> pip → real import proof → stamp (AST-guarded: it is the only caller of
+> `record_requirements_state`). M1 closed by structured `list[list[str]]` candidates.
+> Python contract enforced through one `is_full_feature_python` predicate (`>=3.11,<3.13`),
+> kept distinct from Kokoro's `>=3.10` range so the project floor is not widened.
+> L1a closed by making `SetupLog` open its file on first use rather than at import;
+> L1b closed by redirecting `VENV_DIR`/`LOGS_DIR` in the three traced tests, plus a
+> conftest guard that fails any test mutating the real stamp.
+> **Measured, not asserted:** the launch-time presence probe of all seven required
+> modules costs **~32 ms** (one subprocess, `find_spec`), against **~6 970 ms** for a
+> real import of the same seven — torch, via chatterbox. Presence therefore rides the
+> healthy launch; real proof stays behind the repair boundary.
+> **Gate:** 17 failed / 5102 passed / 57 skipped / 76 errors — failures, errors and
+> skips all equal to the pre-existing baseline, with +41 passed from the new tests.
+> Phase-1-attributable failures: **zero**.
 
 **Fixes:** C2, M1, and the §4.4 stamp test weakness.
 

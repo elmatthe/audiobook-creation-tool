@@ -144,13 +144,18 @@ def test_the_bootstrap_probes_the_winget_user_scope_python_location(monkeypatch)
     # ``PureWindowsPath.parts`` — so the old raw ``str.endswith`` was really
     # asserting which host ran the suite. On Windows this compares exactly the
     # value it always did; the contract itself is unchanged and no weaker.
-    user_scope = [PureWindowsPath(c) for c in candidates
+    # Candidates are structured argv sequences (PRE-PLAN-6 Phase 1): a path
+    # candidate is a one-element list whose single element may contain spaces,
+    # and a launcher candidate is ["py", "-3.12"]. Only the single-token path
+    # candidates can name a user-scope install.
+    paths = [argv[0] for argv in candidates if len(argv) == 1]
+    user_scope = [PureWindowsPath(c) for c in paths
                   if PureWindowsPath(c).parts[-4:]
                   == ("Programs", "Python", "Python312", "python.exe")]
     assert user_scope, candidates
     assert user_scope[0] == PureWindowsPath(
         r"C:\Users\someone\AppData\Local\Programs\Python\Python312\python.exe")
-    assert "py -3.12" in candidates
+    assert ["py", "-3.12"] in candidates
 
 
 def test_installing_python_re_probes_even_if_winget_reports_a_problem(monkeypatch):

@@ -101,6 +101,24 @@ for _stream in (sys.stdout, sys.stderr):
 PREFERRED_PY = ("3.12", "3.11")
 WINGET_PYTHON_ID = "Python.Python.3.12"
 
+# The project's full-feature range, in one place. 3.11 is the floor the project
+# supports; 3.13 is excluded because the pinned Kokoro/Chatterbox wheels require
+# <3.13. Every "is this interpreter a fully supported target?" question goes
+# through ``is_full_feature_python`` so a future 3.13 unlock is one edit here.
+FULL_FEATURE_MIN = (3, 11)
+FULL_FEATURE_BELOW = (3, 13)
+
+
+def is_full_feature_python(ver: tuple[int, int] | None) -> bool:
+    """True for an interpreter the project fully supports: >=3.11, <3.13.
+
+    Deliberately *not* the same predicate as ``_is_kokoro_compatible``. That one
+    states Kokoro's own wheel range, whose floor is 3.10; the project's floor is
+    3.11 and must not be widened to 3.10 by reusing the wrong test. Both exist
+    because they answer different questions about the same interpreter.
+    """
+    return ver is not None and FULL_FEATURE_MIN <= ver < FULL_FEATURE_BELOW
+
 
 def _is_kokoro_compatible(ver: tuple[int, int] | None) -> bool:
     """Kokoro's PyPI wheels require >=3.10,<3.13."""
@@ -117,30 +135,58 @@ FFMPEG_WIN_ZIP_URL = (
 #  Logging
 # ===========================================================================
 class SetupLog:
-    """Tee setup output to a dated log file and an optional UI callback."""
+    """Tee setup output to a dated log file and an optional UI callback.
+
+    **The file is opened on first use, never at construction.** Creating a
+    ``SetupLog`` -- which importing this module does, for the shared ``LOG`` --
+    used to create ``files/runtime-data/logs/`` and append a run header
+    immediately. Every test that imported ``bootstrap`` therefore wrote into the
+    production setup log, interleaving pytest temp paths with real runs and
+    making a user-supplied log harder to trust when diagnosing a real failure.
+
+    Deferring the open changes nothing a user sees: the header is still the first
+    thing in the file, still written before any other line, and still mirrored to
+    stdout but not to the UI sink -- it is emitted the moment the log is actually
+    used rather than the moment it is constructed.
+    """
 
     def __init__(self) -> None:
-        LOGS_DIR.mkdir(parents=True, exist_ok=True)
-        self.path = LOGS_DIR / f"setup_{datetime.now():%Y-%m-%d}.log"
-        self._fh = open(self.path, "a", encoding="utf-8")
+        self._fh = None
+        self._path: Optional[Path] = None
+        self._header_written = False
         self._ui: Optional[Callable[[str], None]] = None
-        self.line(f"\n===== Setup run {datetime.now():%Y-%m-%d %H:%M:%S} =====")
-        self.line(f"Repo root: {REPO_ROOT}")
 
-    def set_ui_sink(self, sink: Optional[Callable[[str], None]]) -> None:
-        self._ui = sink
+    @property
+    def path(self) -> Path:
+        """The dated log path, resolved on first request and then fixed."""
+        if self._path is None:
+            self._path = LOGS_DIR / f"setup_{datetime.now():%Y-%m-%d}.log"
+        return self._path
 
-    def line(self, msg: str) -> None:
+    def _handle(self):
+        if self._fh is None:
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            self._fh = open(self.path, "a", encoding="utf-8")
+        return self._fh
+
+    def _write_header_once(self) -> None:
+        if self._header_written:
+            return
+        self._header_written = True  # set first: a failed write must not retry forever
+        for msg in (f"\n===== Setup run {datetime.now():%Y-%m-%d %H:%M:%S} =====",
+                    f"Repo root: {REPO_ROOT}"):
+            self._to_file(msg)
+            self._to_stdout(msg)
+
+    def _to_file(self, msg: str) -> None:
         try:
-            self._fh.write(msg + "\n")
-            self._fh.flush()
+            fh = self._handle()
+            fh.write(msg + "\n")
+            fh.flush()
         except Exception:
             pass
-        if self._ui is not None:
-            try:
-                self._ui(msg)
-            except Exception:
-                pass
+
+    def _to_stdout(self, msg: str) -> None:
         # Mirror to stdout when one exists. Under pythonw.exe (the fast-path
         # launcher) sys.stdout is None, and the console codepage may not encode
         # every character — both are swallowed rather than allowed to crash the
@@ -151,11 +197,27 @@ class SetupLog:
         except Exception:
             pass
 
+    def set_ui_sink(self, sink: Optional[Callable[[str], None]]) -> None:
+        self._ui = sink
+
+    def line(self, msg: str) -> None:
+        self._write_header_once()
+        self._to_file(msg)
+        if self._ui is not None:
+            try:
+                self._ui(msg)
+            except Exception:
+                pass
+        self._to_stdout(msg)
+
     def close(self) -> None:
         try:
-            self._fh.close()
+            if self._fh is not None:
+                self._fh.close()
         except Exception:
             pass
+        finally:
+            self._fh = None
 
 
 LOG = SetupLog()
@@ -293,6 +355,44 @@ def record_requirements_state() -> None:
         pass  # an unstamped environment reconciles again; that is safe, not fatal
 
 
+# Outcomes of ``reconcile_requirements``. Callers word them for their own
+# context — a first-run setup dialog and a launch-time repair say different
+# things about the same technical fact.
+RECONCILE_OK = "ok"
+RECONCILE_PIP_FAILED = "pip"
+RECONCILE_IMPORT_FAILED = "import"
+
+
+def reconcile_requirements(log: "SetupLog") -> tuple[bool, str]:
+    """Install the pins, prove they import, and **only then** stamp success.
+
+    This is the single owner of the pip → validate → stamp sequence, and the only
+    place in this module that calls ``record_requirements_state``. It exists
+    because the sequence was previously written out twice: correctly in the drift
+    path, and incorrectly in ``run_setup``, which called
+    ``validate_installed_packages`` for its side effects, discarded the boolean
+    and stamped unconditionally. A first run whose package installed but did not
+    import was then recorded as healthy permanently — the fingerprint matched on
+    every later launch, so nothing ever re-probed the imports.
+
+    The invariant, in one place so a future call site cannot restate it wrongly:
+    **a success stamp is written if and only if pip succeeded and every required
+    import was proved.** Either failure writes nothing, so the next invocation
+    retries rather than remembering a failure as success.
+
+    Returns ``(ok, reason)`` where ``reason`` is one of the ``RECONCILE_*``
+    constants.
+    """
+    if not pip_install_requirements(log):
+        return False, RECONCILE_PIP_FAILED
+    # pip exiting 0 is not proof that anything imports — a partial wheel, an ABI
+    # mismatch or a clobbered install all exit 0. Prove it by importing.
+    if not validate_installed_packages(log):
+        return False, RECONCILE_IMPORT_FAILED
+    record_requirements_state()
+    return True, RECONCILE_OK
+
+
 def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
     """Reconcile this environment with ``requirements.txt`` if the pins changed.
 
@@ -309,17 +409,40 @@ def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
 
     log.line("Dependencies have changed since this environment was set up — "
              "reconciling it with scripts/requirements.txt…")
-    if not pip_install_requirements(log):
-        return False, ("Some dependencies could not be installed. The application "
-                       "will still open, but features needing them may be "
-                       "unavailable.")
-    if not validate_installed_packages(log):
-        return False, ("Some dependencies installed but could not be imported. The "
-                       "application will still open, but features needing them may "
-                       "be unavailable.")
-    record_requirements_state()
+    ok, reason = reconcile_requirements(log)
+    if not ok:
+        return False, _reconcile_launch_message(reason)
     log.line("  Dependencies reconciled; this environment is now up to date.")
     return True, "Dependencies reconciled."
+
+
+def repair_missing_requirements(log: "SetupLog", missing: str) -> tuple[bool, str]:
+    """Reconcile an environment whose fingerprint matches but whose packages don't.
+
+    The fingerprint answers *"which pins was this environment built against?"* —
+    not *"are those packages still here and still importable?"*. A required
+    package that was never installed, or that stopped importing, leaves the
+    fingerprint untouched, so the drift path's own gate would skip the repair
+    forever. This route deliberately bypasses that gate; the proof and the stamp
+    rules are unchanged, because both live in ``reconcile_requirements``.
+    """
+    log.line(f"Required packages are missing from this environment: {missing}")
+    ok, reason = reconcile_requirements(log)
+    if not ok:
+        return False, _reconcile_launch_message(reason)
+    log.line("  Required packages reinstalled and proved to import.")
+    return True, "Dependencies repaired."
+
+
+def _reconcile_launch_message(reason: str) -> str:
+    """Launch-context wording for a reconciliation failure."""
+    if reason == RECONCILE_IMPORT_FAILED:
+        return ("Some dependencies installed but could not be imported. The "
+                "application will still open, but features needing them may "
+                "be unavailable.")
+    return ("Some dependencies could not be installed. The application "
+            "will still open, but features needing them may be "
+            "unavailable.")
 
 
 def venv_is_valid() -> bool:
@@ -708,31 +831,67 @@ def preflight_report(py, log: "SetupLog") -> dict:
 # ===========================================================================
 #  Locate / install a suitable Python interpreter for the venv
 # ===========================================================================
-def _candidate_interpreters() -> list[str]:
-    """Build an ordered list of interpreter commands to probe."""
-    cands: list[str] = []
+def _candidate_interpreters() -> list[list[str]]:
+    """Build an ordered list of interpreter **argv sequences** to probe.
+
+    Each candidate is a real argv from the moment it is created — a one-element
+    list for an executable (whose single element may legitimately contain
+    spaces) or ``["py", "-3.12"]`` for a launcher invocation. Nothing downstream
+    re-parses a command string, which is what used to shatter
+    ``C:\\Program Files\\Python312\\python.exe`` into two arguments and make a
+    machine-scope Python undiscoverable.
+    """
+    cands: list[list[str]] = []
     if IS_WINDOWS:
         # The py launcher can target an exact version.
         for ver in PREFERRED_PY:
-            cands.append(f"py -{ver}")
+            cands.append(["py", f"-{ver}"])
         # Common per-user winget / python.org install locations.
         local = os.environ.get("LOCALAPPDATA", "")
         progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
         for ver in PREFERRED_PY:
             tag = ver.replace(".", "")
             if local:
-                cands.append(str(Path(local) / "Programs" / "Python" / f"Python{tag}" / "python.exe"))
-            cands.append(str(Path(progfiles) / f"Python{tag}" / "python.exe"))
-        cands.append("python")
+                cands.append([str(Path(local) / "Programs" / "Python"
+                                  / f"Python{tag}" / "python.exe")])
+            cands.append([str(Path(progfiles) / f"Python{tag}" / "python.exe")])
+        cands.append(["python"])
     else:
         for ver in PREFERRED_PY:
-            cands.append(f"python{ver}")
+            cands.append([f"python{ver}"])
         # Homebrew locations (Apple Silicon + Intel).
         for ver in PREFERRED_PY:
-            cands.append(f"/opt/homebrew/bin/python{ver}")
-            cands.append(f"/usr/local/bin/python{ver}")
-        cands.append("python3")
+            cands.append([f"/opt/homebrew/bin/python{ver}"])
+            cands.append([f"/usr/local/bin/python{ver}"])
+        cands.append(["python3"])
     return cands
+
+
+def _is_path_like(token: str) -> bool:
+    """True when a token names a location rather than a command on PATH."""
+    return os.sep in token or (os.altsep is not None and os.altsep in token)
+
+
+def _candidate_is_worth_probing(argv: list[str]) -> bool:
+    """Cheap pre-spawn filter, applied to the argv itself.
+
+    Three cases, each decided on structure rather than on whether some string
+    happened to contain a space:
+
+    * a launcher invocation (``py -3.12``) is worth probing only when the
+      launcher itself resolves — HOME-PC has no ``py``, and spawning it once per
+      preferred version is pure waste;
+    * a path candidate is worth probing only if the file is actually there;
+    * a bare command is worth probing only if it resolves on PATH.
+    """
+    if not argv:
+        return False
+    head = argv[0]
+    if len(argv) > 1:
+        return shutil.which(head) is not None
+    if _is_path_like(head):
+        return Path(head).exists()
+    return shutil.which(head) is not None
 
 
 def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]:
@@ -757,55 +916,61 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
     #    accept <3.13 here so we never silently pick 3.13 over an available 3.12
     #    (3.13 loses Kokoro); a 3.13-only system still falls through to step 4.
     cur_ver = sys.version_info[:2]
-    if sys.executable and (3, 11) <= cur_ver < (3, 13):
+    if sys.executable and is_full_feature_python(cur_ver):
         if not prefer_tk or _tcl_tk_ok([sys.executable]):
             log.line(f"  Using the current interpreter: {sys.executable} "
                      f"(Python {cur_ver[0]}.{cur_ver[1]})")
             return [sys.executable]
 
-    best_any: Optional[list[str]] = None      # any >=3.11 fallback
-    pref_no_tk: Optional[list[str]] = None     # a 3.12/3.11 that lacks Tk
-    for cand in _candidate_interpreters():
-        argv = cand.split() if " " in cand else [cand]
-        # Skip absolute paths that don't exist (cheap check before spawning).
-        if len(argv) == 1 and ("/" in cand or "\\" in cand) and not Path(cand).exists():
+    best_any: Optional[list[str]] = None      # a >=3.11 but out-of-range fallback
+    pref_no_tk: Optional[list[str]] = None    # a full-feature Python that lacks Tk
+    for argv in _candidate_interpreters():
+        if not _candidate_is_worth_probing(argv):
             continue
-        if len(argv) == 1 and not (("/" in cand or "\\" in cand)) and shutil.which(argv[0]) is None:
-            # Bare command not on PATH (except the 'py' launcher handled above).
-            if argv[0] != "py":
-                continue
         ver = _interp_version_argv(argv)
         if ver is None:
             continue
         ver_str = f"{ver[0]}.{ver[1]}"
-        if ver_str in PREFERRED_PY:
+        if is_full_feature_python(ver):
             if not prefer_tk or _tcl_tk_ok(argv):
-                log.line(f"  Found GUI-capable Python {ver_str}: {' '.join(argv)}")
+                log.line(f"  Found GUI-capable Python {ver_str}: {_shown(argv)}")
                 return argv
             if pref_no_tk is None:
                 pref_no_tk = argv
-        elif ver >= (3, 11) and best_any is None:
+        elif ver >= FULL_FEATURE_MIN and best_any is None:
             best_any = argv
 
-    # 3. A preferred-version Python exists but has no Tk. On macOS we can fix it.
+    # 3. A full-feature Python exists but has no Tk. On macOS we can fix it.
     if pref_no_tk is not None:
         if prefer_tk and IS_MAC and shutil.which("brew"):
             _brew_install_python_tk(log)
             if _tcl_tk_ok(pref_no_tk):
-                log.line(f"  Tk support installed; using {' '.join(pref_no_tk)}")
+                log.line(f"  Tk support installed; using {_shown(pref_no_tk)}")
                 return pref_no_tk
             log.line("  Tk still unavailable after python-tk install.")
-        log.line(f"  Using {' '.join(pref_no_tk)} (GUI may be unavailable; the "
+        log.line(f"  Using {_shown(pref_no_tk)} (GUI may be unavailable; the "
                  "command line still works).")
         return pref_no_tk
 
     if best_any is not None:
         bv = _interp_version_argv(best_any)
-        log.line(f"  No 3.12/3.11 found; using Python {bv[0]}.{bv[1]} "
-                 "(note: Kokoro local voices require <3.13).")
+        # Returned, but never as the preferred fully-compatible answer: outside
+        # >=3.11,<3.13 the pinned Kokoro/Chatterbox wheels do not install, so
+        # this is a degraded target that setup then tries to replace with 3.12.
+        shown = f"{bv[0]}.{bv[1]}" if bv else "unknown"
+        log.line(f"  No fully compatible Python ({FULL_FEATURE_MIN[0]}."
+                 f"{FULL_FEATURE_MIN[1]}–{FULL_FEATURE_BELOW[0]}."
+                 f"{FULL_FEATURE_BELOW[1] - 1}) found; Python {shown} is a "
+                 "degraded fallback — local Kokoro/Chatterbox voices are "
+                 "unavailable on it.")
         return best_any
     log.line("  No suitable Python found on this system.")
     return None
+
+
+def _shown(argv: list[str]) -> str:
+    """Render an argv for a log line without pretending it is a command string."""
+    return " ".join(argv)
 
 
 def _interp_version_argv(argv: list[str]) -> Optional[tuple[int, int]]:
@@ -962,6 +1127,54 @@ def validate_installed_packages(log: SetupLog) -> bool:
         return False
     log.line("  All required packages import cleanly.")
     return True
+
+
+def required_modules_present(venv_py: Path) -> tuple[bool, str]:
+    """Cheap **presence** probe of ``REQUIRED_IMPORTS``. Returns ``(ok, detail)``.
+
+    This is deliberately *not* proof of importability, and must never be
+    described as such. ``importlib.util.find_spec`` answers "is there something
+    here to import?"; a package with a broken native extension, a missing DLL or
+    an ABI mismatch still has a spec and still raises on import. What the probe
+    gives is a **decisive negative**: a module with no spec cannot possibly
+    import, so its absence is enough to send the launch into the repair path,
+    where the real proof happens.
+
+    Why presence and not proof, on the launch path — measured on HOME-PC against
+    the real 3.12.10 venv, median of five runs:
+
+    * this probe (all seven, one subprocess): **~32 ms**;
+    * a real ``import`` of the same seven: **~6 970 ms**, dominated by torch
+      arriving through ``chatterbox``.
+
+    Two hundred times the cost on every healthy launch buys nothing, because the
+    real proof already runs where it matters: at setup, reconciliation and
+    repair, inside ``validate_installed_packages``. The version gate is evaluated
+    *inside* the probe from the venv's own ``sys.version_info`` so this stays one
+    subprocess rather than two.
+    """
+    probe = (
+        "import importlib.util as u, sys; "
+        f"mods = {list(REQUIRED_IMPORTS)!r}; "
+        f"gated = {sorted(_GATED_BELOW_313)!r}; "
+        "keep = sys.version_info[:2] < (3, 13); "
+        "mods = [m for m in mods if keep or m not in gated]; "
+        "missing = [m for m in mods if u.find_spec(m) is None]; "
+        "print('MISSING:' + ','.join(missing) if missing else 'OK'); "
+        "sys.exit(0 if not missing else 1)"
+    )
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-c", probe],
+            capture_output=True, text=True, timeout=60, **_hidden(),
+        )
+        out = (r.stdout or "").strip()
+        if r.returncode == 0 and out == "OK":
+            return True, "ok"
+        return False, out or (r.stderr or "").strip() or "unknown"
+    except Exception as exc:
+        # A probe that cannot run is not evidence that anything is missing.
+        return True, f"probe unavailable: {exc!r}"
 
 
 def pip_install_requirements(log: SetupLog) -> bool:
@@ -1361,15 +1574,17 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         return False, "Failed to create a working virtual environment (see the log)."
 
     progress(2, "Installing packages (largest step — please wait)…")
-    if not pip_install_requirements(log):
+    # One owner for pip → real import proof → stamp, shared with the drift path.
+    # The environment is bound to the pins it was just built from only once those
+    # pins are proved to import, so a later release that changes requirements.txt
+    # is detected instead of ignored, and a broken install is never remembered as
+    # a success.
+    ok_req, reason = reconcile_requirements(log)
+    if not ok_req:
+        if reason == RECONCILE_IMPORT_FAILED:
+            return False, ("Python packages installed but could not be imported "
+                           "(see the log). Setup did not complete.")
         return False, "Failed to install Python packages (see the log)."
-
-    # pip exiting 0 isn't proof the packages import — verify explicitly.
-    validate_installed_packages(log)
-
-    # Bind this environment to the pins it was just built from, so a later
-    # release that changes requirements.txt is detected instead of ignored.
-    record_requirements_state()
 
     progress(3, "Setting up ffmpeg…")
     if not ensure_ffmpeg(log):
@@ -1395,6 +1610,17 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
             warmup_chatterbox(venv_python(), log.line)
 
     progress(total, "Setup complete.")
+    # An out-of-range base builds a working venv but cannot install the pinned
+    # Kokoro/Chatterbox wheels, so reporting a plain success would overstate what
+    # this machine got. Setup already tried to obtain 3.12 above and could not;
+    # say so rather than let "Setup complete." stand for a degraded install.
+    if not is_full_feature_python(_interp_version_argv(py_argv)):
+        return True, ("Setup finished with limits: no fully compatible Python "
+                      f"({FULL_FEATURE_MIN[0]}.{FULL_FEATURE_MIN[1]}–"
+                      f"{FULL_FEATURE_BELOW[0]}.{FULL_FEATURE_BELOW[1] - 1}) "
+                      "could be installed, so the local Kokoro and Chatterbox "
+                      "voices are unavailable. Edge TTS and the audio tools "
+                      "work normally.")
     return True, "Setup complete."
 
 
@@ -1815,6 +2041,38 @@ def _launch_with_kokoro_healthcheck() -> int:
                 outcome.get("message", "Some dependencies could not be installed.")
                 + f"\n\nSee log: {LOG.path}",
             )
+    else:
+        # The fingerprint says which pins this environment was built against. It
+        # does not say the packages are still here: a required module that was
+        # never installed, or that has been removed, leaves the hash untouched,
+        # and before this check the drift gate skipped the repair forever. One
+        # cheap presence probe (~32 ms measured) closes that hole; the real
+        # import proof stays in the repair path where its ~7 s belongs.
+        present, detail = required_modules_present(venv_py)
+        if not present:
+            LOG.line(f"Required packages missing despite matching pins: {detail}")
+            repair: dict = {}
+
+            def _repair_missing() -> bool:
+                ok_fix, message = repair_missing_requirements(LOG, detail)
+                repair["message"] = message
+                return ok_fix
+
+            show_repair_dialog(
+                _repair_missing,
+                title="Restoring the app's components…",
+                detail="Some components this app needs are missing from the "
+                       "installation. They are being reinstalled now; nothing "
+                       "is being deleted and your settings are untouched.",
+            )
+            present_now, _ = required_modules_present(venv_py)
+            if not present_now:
+                show_warning_dialog(
+                    "Some components could not be restored",
+                    repair.get("message",
+                               "Some dependencies could not be installed.")
+                    + f"\n\nSee log: {LOG.path}",
+                )
 
     ensure_ffmpeg_ready_for_launch()
 

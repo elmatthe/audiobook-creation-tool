@@ -2,6 +2,65 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 maintenance drop, PHASE 1 COMPLETE (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "STATUS: Phase 0 only is
+> complete" line in the block below it; everything else in that block still stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **Phase 1 of `md-instructions/pre-plan-6-setup-self-healing.md` is complete**, on
+>   `maintenance/0.6.2-setup-self-healing`. Phases 2–10 have **not** started.
+> - **Defect C2 is closed.** `run_setup` used to call `validate_installed_packages`, discard the
+>   boolean, and stamp the environment unconditionally — so a first run whose package installed but
+>   did not import was recorded as healthy permanently. There is now exactly **one** owner of
+>   pip → real import proof → stamp, `reconcile_requirements`, and an AST guard asserts it is the
+>   only caller of `record_requirements_state`. The drift path already obeyed the invariant and was
+>   not weakened.
+> - **Defect M1 is closed.** Interpreter candidates are structured argv sequences
+>   (`list[list[str]]`) from creation, so `C:\Program Files\Python312\python.exe` and account or
+>   repository paths containing spaces survive to the probe as one argument instead of being split
+>   and silently dropped.
+> - **The Python contract is enforced through one predicate.** `is_full_feature_python` states the
+>   project range `>=3.11,<3.13`, deliberately distinct from `_is_kokoro_compatible` (Kokoro's own
+>   `>=3.10`) so the project floor is not widened to 3.10 by reusing the wrong test. 3.13+ is never
+>   returned as the preferred fully-compatible result; it is a labelled degraded fallback, and a
+>   setup that lands on one no longer reports a plain "Setup complete."
+> - **A matching fingerprint is no longer a health claim.** The launch path now runs a cheap
+>   *presence* probe of the required imports when the pins already match, and enters the existing
+>   repair-and-prove path when something is missing. Measured on this machine, median of five:
+>   presence of all seven in one subprocess **~32 ms**; a real import of the same seven **~6 970 ms**
+>   (torch, through chatterbox). Presence is explicitly documented as *not* proof of importability.
+> - **The test-isolation defect (L1) is fixed and its cause was traced, not guessed.** Three tests
+>   drove `run_setup` with the install steps stubbed but `VENV_DIR` still pointing at the real
+>   checkout, so C2's unconditional stamp rewrote the developer's real
+>   `.venv/.requirements-state.json`. Separately `bootstrap` opened the dated setup log at *import*
+>   time, and `shared.logging_setup` wrote real `session_*.log` files. `SetupLog` now opens on first
+>   use, the log directories are redirected for the session, and a conftest guard fails any test that
+>   mutates the real stamp. Proven behaviourally: a full run leaves the real stamp byte-identical
+>   (same `mtime_ns`) and the real log directory unchanged.
+> - **Gate: 17 failed / 5102 passed / 57 skipped / 76 errors.** Failures, errors and skips all equal
+>   the pre-existing baseline; the only delta is **+41 passed** from the new tests.
+>   **Phase-1-attributable failures: zero.** The 16 chatterbox failures and all 76 errors are the
+>   preserved missing-FFmpeg condition; the one `test_plan3_boundaries` failure is the preserved
+>   untracked maintainer report. A clean `e36ab7d` worktree under `files/dev-work/` was used to
+>   establish that baseline and was removed afterwards.
+> - **The preserved HOME-PC acceptance condition is intact.** Existing healthy `.venv` on Python
+>   3.12.10, not deleted or rebuilt; `.requirements-state.json` byte-identical to its pre-phase
+>   baseline; **no `files/bin`, nothing on PATH, no `Gyan.FFmpeg` package, no FFmpeg pin.** Nothing
+>   was installed, repaired or promoted. **Phase 7 remains the first phase allowed to spend it.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no GitHub release, no
+>   package, no `release.py` run. Version identity remains **`0.6.2`, UNRELEASED**; the latest
+>   published release remains **`v0.4.0`**. **Plan 6 has still not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 1).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/conftest.py`; `files/tests/test_bootstrap_requirements_state.py`;
+> `files/tests/test_bootstrap_setup_cancel.py`; `files/tests/test_bootstrap_setup_logging.py`;
+> `files/tests/test_chatterbox_bootstrap.py`; `files/tests/test_first_run_contract.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: `files/tests/test_bootstrap_python_selection.py`;
+> `files/tests/test_suite_isolation.py`. Deleted: none. All are staged and committed together.
+
 > ## ⟢ CURRENT STATE — the PRE-PLAN-6 `Setup_and_Run` self-healing maintenance drop is now ACTIVE (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the "THE NEXT ACTION is ONE
