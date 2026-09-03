@@ -1315,11 +1315,18 @@ def _move_venv_aside(log: SetupLog) -> Optional[Path]:
     The old environment is the only thing standing between the user and a
     machine with nothing on it, so it is not destroyed until its replacement has
     been proved to work.
+
+    An aside that somehow still exists is **never** overwritten — it would be
+    someone's last-known-good environment from an interrupted repair. A unique
+    name is used instead, so the worst case is disk to clean rather than an
+    environment nobody can get back. :func:`recover_interrupted_replacement`
+    normally resolves that state before this is reached.
     """
     if not VENV_DIR.exists():
         return None
     aside = _venv_aside_path()
-    shutil.rmtree(aside, ignore_errors=True)
+    if aside.exists():
+        aside = aside.with_name(f"{aside.name}-{int(time.time())}")
     try:
         os.replace(VENV_DIR, aside)
         return aside
@@ -1348,56 +1355,157 @@ def _discard_venv_aside(aside: Optional[Path]) -> None:
         shutil.rmtree(aside, ignore_errors=True)
 
 
-def _create_validated_venv(py_argv: list[str], log: SetupLog,
-                           headless: bool) -> bool:
-    """Create the venv and confirm it is actually usable.
+class VenvReplacement:
+    """The previous environment, held safe while its replacement is proved.
 
-    A Tk-capable *base* Python must produce a Tk-capable *venv*; if it doesn't,
-    or the venv cannot import ssl, the venv is broken — recreate once (the
-    self-healing recovery path). Returns False only if a working venv (ssl at
-    minimum) cannot be produced.
+    Replacing an environment is a transaction, and the thing that makes it one
+    is that the old environment stays recoverable until the new one has passed
+    **every** check needed to take over — not merely until it can import ``ssl``.
+    A venv that starts but whose packages will not install is not a replacement;
+    committing at the capability check and only then discovering that would
+    leave the user with nothing to go back to.
 
-    **Replacement is rollback-safe.** This used to ``shutil.rmtree`` the existing
-    environment and only then try to build a new one, which was tolerable while
-    it ran solely from first-run setup and unacceptable once an ordinary launch
-    can reach it: a failed ``create_venv`` — no base interpreter, no disk, an
-    interrupted run — would have left the user with nothing at all, from a
-    machine that had been working a moment earlier. The old environment is now
-    renamed aside on the same volume and is only discarded once its replacement
-    has proved it can import ssl. If anything goes wrong it is put back.
+    So the caller driving the whole repair owns ``commit`` and ``rollback``, and
+    the create-and-validate step only reports what it did. ``_create_validated_venv``
+    still owns the transaction when nobody else does, which keeps first-run
+    setup behaving exactly as before.
     """
-    aside: Optional[Path] = None
-    if VENV_DIR.exists():
-        # A venv built on >=3.13 can never install Kokoro. If the chosen base
-        # is Kokoro-compatible (<3.13), rebuild on it rather than reusing the
-        # incompatible venv forever.
-        venv_ver = _interp_version_argv([str(venv_python())])
-        base_ver = _interp_version_argv(py_argv)
-        replace_for_version = (venv_ver is not None
-                               and not _is_kokoro_compatible(venv_ver)
-                               and _is_kokoro_compatible(base_ver))
-        if replace_for_version:
-            log.line(f"  Existing venv is Python {venv_ver[0]}.{venv_ver[1]} "
-                     f"(no Kokoro support) but Python {base_ver[0]}.{base_ver[1]} "
-                     "is available — rebuilding the venv on it.")
-            aside = _move_venv_aside(log)
-        elif not venv_is_valid():
-            log.line("  Existing virtual environment is broken — replacing it.")
-            aside = _move_venv_aside(log)
+
+    __slots__ = ("aside", "committed")
+
+    def __init__(self, aside: Optional[Path] = None) -> None:
+        self.aside = aside
+        self.committed = False
+
+    @property
+    def has_previous(self) -> bool:
+        return self.aside is not None and self.aside.exists()
+
+    def commit(self) -> None:
+        """Accept the replacement and discard the environment it replaced."""
+        _discard_venv_aside(self.aside)
+        self.aside = None
+        self.committed = True
+
+    def rollback(self, log: SetupLog) -> bool:
+        """Put the previous environment back. True if it is in place again.
+
+        Returns False when there was nothing to restore *or* when restoring
+        failed — the caller must not report a successful rollback it did not get.
+        """
+        if not self.has_previous:
+            return False
+        restored = _restore_venv(self.aside, log)
+        if restored:
+            self.aside = None
+        return restored
+
+
+def recover_interrupted_replacement(log: SetupLog) -> None:
+    """Resolve a replacement that a previous run never finished.
+
+    A repair can be interrupted at any point — the process killed, the machine
+    restarted — and it leaves evidence: an aside directory that was never
+    committed or rolled back. Two states are possible, and both have a
+    deterministic answer rather than a guess:
+
+    * **aside only, no venv** — interrupted between the rename and a working
+      replacement. The aside *is* the last-known-good environment, so it goes
+      back. Without this the next launch would see no environment at all and
+      fall into a full first-run install, and the user's working environment
+      would have been thrown away by a repair that was trying to protect it.
+
+    * **both present** — a candidate exists but the transaction never committed.
+      The candidate is only trustworthy if it got far enough to record a valid
+      import proof for the current pins on its own interpreter; that is exactly
+      the commit condition. If it did, the transaction had effectively finished
+      and the aside is discarded. If it did not, the candidate is unproven and
+      the aside — which is known to have worked — is restored.
+
+    Nothing here deletes an aside that has not been positively superseded.
+    """
+    aside = _venv_aside_path()
+    if not aside.exists():
+        return
 
     if not VENV_DIR.exists():
+        log.line("A previous environment repair was interrupted — restoring the "
+                 "environment it had set aside.")
+        _restore_venv(aside, log)
+        return
+
+    if import_proof_is_current():
+        log.line("A previous environment repair had already completed — "
+                 "discarding the environment it replaced.")
+        _discard_venv_aside(aside)
+        return
+
+    log.line("A previous environment repair was interrupted before it finished — "
+             "restoring the environment it had set aside.")
+    _restore_venv(aside, log)
+
+
+def _create_validated_venv(py_argv: list[str], log: SetupLog, headless: bool,
+                           txn: Optional[VenvReplacement] = None) -> bool:
+    """Create the venv and confirm it is actually usable.
+
+    Returns False only if a working venv (ssl at minimum) cannot be produced.
+
+    **Whether to replace is one question, asked of one authority.** It used to be
+    decided here by ``_is_kokoro_compatible``, whose floor is Kokoro's 3.10 and
+    not the project's 3.11 — so a 3.10 environment that the health model had
+    already called incompatible could arrive here and be kept, and the repair
+    would report success having changed nothing. It now asks
+    :func:`assess_venv_health` with the base interpreter's own compatibility, so
+    the replace decision and the health verdict cannot disagree. A *degraded*
+    environment — one nothing better can replace — is deliberately left alone.
+
+    **Nothing destroys an environment this function did not create.** The Tk
+    recreate step used to ``rmtree`` an existing venv outright, and because a
+    Tk-broken environment still passes ``venv_is_valid`` (interpreter + ssl) it
+    had never been set aside — so a CLI-capable environment could be destroyed
+    and, if the rebuild then failed, be unrecoverable. The recreate now only ever
+    discards a candidate created moments earlier.
+
+    ``txn`` lets the caller own commit and rollback, because the full proof a
+    replacement must pass — packages installed, real imports proved — happens
+    *after* this returns. Without a ``txn`` the transaction is owned here, which
+    is what first-run setup wants.
+    """
+    own_txn = txn is None
+    if txn is None:
+        txn = VenvReplacement()
+
+    if VENV_DIR.exists():
+        base_ver = _interp_version_argv(py_argv)
+        health = assess_venv_health(
+            require_tk=not headless,
+            compatible_base_available=is_full_feature_python(base_ver))
+        if health.state == VENV_REPAIRABLE:
+            log.line(f"  Replacing the existing environment: {health.detail}")
+            txn.aside = _move_venv_aside(log)
+        else:
+            log.line(f"  Keeping the existing environment ({health.state}).")
+
+    created = False
+    if not VENV_DIR.exists():
         if not create_venv(py_argv, log):
-            _restore_venv(aside, log)
+            if own_txn:
+                txn.rollback(log)
             return False
+        created = True
 
     caps = probe_capabilities(venv_python())
     needs_recreate = (not caps["ssl"]) or (not headless and not caps["tcl_tk_functional"])
-    if needs_recreate:
+    if needs_recreate and created:
+        # Only ever a candidate built moments ago: anything worth keeping is
+        # already aside, and anything not worth replacing was left alone above.
         reason = "cannot import ssl" if not caps["ssl"] else "cannot initialize Tcl/Tk"
         log.line(f"  [!!] New venv {reason} — recreating once from scratch.")
         shutil.rmtree(VENV_DIR, ignore_errors=True)
         if not create_venv(py_argv, log):
-            _restore_venv(aside, log)
+            if own_txn:
+                txn.rollback(log)
             return False
         caps = probe_capabilities(venv_python())
 
@@ -1406,9 +1514,8 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog,
                  "recreate. pip and Edge TTS will not work.")
         # A replacement that cannot import ssl is worse than what was there
         # before, so hand the previous environment back rather than keeping it.
-        if _restore_venv(aside, log):
-            return False
-        _discard_venv_aside(aside)
+        if own_txn:
+            txn.rollback(log)
         return False
     if not headless and not caps["tcl_tk_functional"]:
         # ssl works (so setup can proceed), but the GUI base lost Tk. Don't abort —
@@ -1416,7 +1523,8 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog,
         log.line("  [!!] The virtual environment cannot initialize Tcl/Tk, so the "
                  "app window may not open. Setup will finish; install Tk support "
                  "(macOS: brew install python-tk@3.12) and re-run to enable the GUI.")
-    _discard_venv_aside(aside)
+    if own_txn:
+        txn.commit()
     log.line(f"  venv ready (ssl={caps['ssl']}, tkinter={caps['tcl_tk_functional']}).")
     return True
 
@@ -1591,6 +1699,10 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     """
     log.line("Repairing the Python environment (packages only — no other setup)…")
 
+    # A previous attempt may have been interrupted mid-transaction. Resolve that
+    # before starting a new one, so an aside is never treated as scrap.
+    recover_interrupted_replacement(log)
+
     py_argv = find_suitable_python(log, prefer_tk=not headless)
     if py_argv is not None and not is_full_feature_python(_interp_version_argv(py_argv)):
         log.line("  The Python found is not fully compatible — trying to obtain 3.12…")
@@ -1603,25 +1715,50 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
         return False, ("No suitable Python could be found or installed, so the "
                        "app's environment could not be repaired.")
 
-    if not _create_validated_venv(py_argv, log, headless):
-        return False, ("The app's Python environment could not be rebuilt. The "
-                       "previous environment was left in place where possible.")
+    # One transaction, spanning the whole proof. The replacement does not take
+    # over until its packages install *and* really import — a venv whose
+    # interpreter starts but whose dependencies will not install is not a
+    # replacement, and discovering that after the old environment had been
+    # deleted would leave nothing to go back to.
+    txn = VenvReplacement()
+    failure: Optional[str] = None
 
-    ok, reason = reconcile_requirements(log)
-    if not ok:
-        if reason == RECONCILE_IMPORT_FAILED:
-            return False, ("The environment was rebuilt but its packages could "
-                           "not be imported. It will be retried next time.")
-        return False, ("The environment was rebuilt but its packages could not "
-                       "be installed. It will be retried next time.")
+    if not _create_validated_venv(py_argv, log, headless, txn=txn):
+        failure = "The app's Python environment could not be rebuilt."
+    else:
+        ok, reason = reconcile_requirements(log)
+        if not ok:
+            failure = (
+                "The environment was rebuilt but its packages could not be "
+                "imported." if reason == RECONCILE_IMPORT_FAILED else
+                "The environment was rebuilt but its packages could not be "
+                "installed.")
 
-    final_ver = _interp_version_argv(py_argv)
-    if not is_full_feature_python(final_ver):
-        shown = f"{final_ver[0]}.{final_ver[1]}" if final_ver else "unknown"
-        return True, (f"The environment was rebuilt on Python {shown}, which "
-                      "cannot run the local Kokoro and Chatterbox voices. Edge "
-                      "TTS and the audio tools work normally.")
-    return True, "The app's Python environment was repaired."
+    if failure is None:
+        # Judge the environment that now exists, never the base interpreter that
+        # was selected to build it. Those are different claims, and reporting the
+        # base's version would hide a replacement that silently did not happen.
+        health = assess_venv_health(require_tk=not headless,
+                                    compatible_base_available=False)
+        if not health.can_launch:
+            failure = f"The rebuilt environment is still not usable: {health.detail}"
+
+    if failure is not None:
+        restored = txn.rollback(log)
+        if restored:
+            return False, (f"{failure} The previous environment was put back, and "
+                           "this will be retried next time.")
+        if txn.aside is not None:
+            return False, (f"{failure} The previous environment could not be put "
+                           "back either — see the log.")
+        return False, f"{failure} It will be retried next time."
+
+    txn.commit()
+    if not health.is_fully_healthy:
+        return True, (f"The environment was rebuilt, with limits: {health.detail}")
+    shown = (f"{health.version[0]}.{health.version[1]}"
+             if health.version else "unknown")
+    return True, f"The app's Python environment was repaired (Python {shown})."
 
 
 def pip_install_requirements(log: SetupLog) -> bool:
@@ -1988,6 +2125,11 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         chatterbox_step = len(steps)
         steps.append("Downloading Chatterbox voice model")
     total = len(steps)
+
+    # An interrupted repair can leave no ``.venv`` at all, which looks exactly
+    # like a fresh machine and would land here. Put the environment it set aside
+    # back first, so a first run never starts by discarding one that worked.
+    recover_interrupted_replacement(log)
 
     progress(0, "Locating a suitable Python…")
     py_argv = find_suitable_python(log, prefer_tk=not headless)

@@ -361,9 +361,13 @@ def test_a_repair_run_installs_no_ffmpeg(env, monkeypatch):
                         lambda log, prefer_tk=True: ["py", "-3.12"])
     monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
     monkeypatch.setattr(bootstrap, "_create_validated_venv",
-                        lambda argv, log, headless: True)
+                        lambda argv, log, headless, txn=None: True)
     monkeypatch.setattr(bootstrap, "reconcile_requirements",
                         lambda log: (True, bootstrap.RECONCILE_OK))
+    monkeypatch.setattr(bootstrap, "assess_venv_health",
+                        lambda **kw: bootstrap.VenvHealth(
+                            bootstrap.VENV_HEALTHY, "ok", "ok",
+                            version=(3, 12), ssl=True, tk=True, executes=True))
 
     ok, _msg = bootstrap.repair_venv(_Log())
 
@@ -686,3 +690,496 @@ def test_the_ffmpeg_winget_command_is_left_alone():
     literals = [n.value for n in ast.walk(fn)
                 if isinstance(n, ast.Constant) and isinstance(n.value, str)]
     assert "--scope" not in literals
+
+
+# --------------------------------------------------------------------------- #
+# H. The replacement transaction (Phase 2 remediation)
+#
+# The first cut of Phase 2 preserved the old environment, but not for long
+# enough and not on every path. Review found four related gaps, all of which
+# come down to the same thing: replacing an environment is a transaction, and it
+# is not finished when the new interpreter can import ssl.
+#
+#   1. A Tk-broken environment passes venv_is_valid (interpreter + ssl), so it
+#      was never set aside -- and the recreate step then rmtree'd it outright.
+#   2. The aside was discarded when the candidate's capabilities passed, before
+#      repair_venv had installed or proved a single package.
+#   3. The replace decision used _is_kokoro_compatible (floor 3.10) while the
+#      health model used is_full_feature_python (floor 3.11), so a 3.10 venv
+#      could be called incompatible and then kept.
+#   4. The final report read the version of the *base* interpreter, which says
+#      nothing about the environment that actually ended up on disk.
+# --------------------------------------------------------------------------- #
+def _reconcile_spy(monkeypatch, *, pip_ok=True, validate_ok=True):
+    calls = {"pip": 0, "validate": 0}
+
+    def fake_pip(log):
+        calls["pip"] += 1
+        return pip_ok
+
+    def fake_validate(log):
+        calls["validate"] += 1
+        return validate_ok
+
+    monkeypatch.setattr(bootstrap, "pip_install_requirements", fake_pip)
+    monkeypatch.setattr(bootstrap, "validate_installed_packages", fake_validate)
+    return calls
+
+
+def _existing_venv(env, marker: str = "previous") -> Path:
+    """An environment on disk with something identifiable inside it."""
+    keepsake = env.venv / "keepsake.txt"
+    keepsake.parent.mkdir(parents=True, exist_ok=True)
+    keepsake.write_text(marker, encoding="utf-8")
+    _fake_interpreter(env)
+    return keepsake
+
+
+def _creates_venv(monkeypatch, *, ok=True):
+    def fake_create(argv, log):
+        if not ok:
+            return False
+        (bootstrap.VENV_DIR / "Scripts").mkdir(parents=True, exist_ok=True)
+        (bootstrap.VENV_DIR / "candidate.txt").write_text("new", encoding="utf-8")
+        _fake_interpreter(SimpleNamespace(venv=bootstrap.VENV_DIR))
+        return True
+
+    monkeypatch.setattr(bootstrap, "create_venv", fake_create)
+
+
+def _caps(ssl=True, tk=True):
+    return {"ssl": ssl, "tcl_tk_functional": tk, "tkinter": tk, "venv": True}
+
+
+# --- Gap 1: a Tk-broken environment is preserved before it is replaced ------ #
+def _versions(monkeypatch, *, venv, base):
+    """Make the venv interpreter and the base report different versions.
+
+    Load-bearing for the 3.10 case: with a single flat stub both sides look
+    alike and the replace decision cannot be observed at all.
+    """
+    venv_exe = str(bootstrap.venv_python())
+
+    def fake_version(argv):
+        return venv if argv and str(argv[0]) == venv_exe else base
+
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", fake_version)
+
+
+def test_a_tk_broken_environment_is_set_aside_before_replacement(env, monkeypatch):
+    """The exact Gap-1 precondition: venv_is_valid says yes, Tk says no.
+
+    ``venv_is_valid`` tests the interpreter and ssl only, so a Tk-broken
+    environment passed it — and nothing set it aside before the recreate step
+    deleted it outright.
+    """
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "venv_is_valid", lambda: True)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(tk=False))
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps(tk=False))
+    _versions(monkeypatch, venv=(3, 12), base=(3, 12))
+    _creates_venv(monkeypatch, ok=False)          # the replacement fails
+
+    ok = bootstrap._create_validated_venv(["py", "-3.12"], _Log(), False)
+
+    assert ok is False
+    assert keepsake.exists(), "a CLI-capable environment was destroyed"
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+
+
+def test_a_tk_broken_environment_is_replaced_when_a_better_base_exists(env, monkeypatch):
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "venv_is_valid", lambda: True)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(tk=False))
+    _versions(monkeypatch, venv=(3, 12), base=(3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+
+    ok = bootstrap._create_validated_venv(["py", "-3.12"], _Log(), False)
+
+    assert ok is True
+    assert (env.venv / "candidate.txt").exists()
+    assert not keepsake.exists()
+    assert not bootstrap._venv_aside_path().exists()
+
+
+def test_nothing_destroys_an_environment_it_did_not_create(env, monkeypatch):
+    """The recreate step may only ever discard a candidate."""
+    keepsake = _existing_venv(env)
+    # Healthy enough to keep, but the capability probe disagrees about Tk.
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(tk=False))
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 13))
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps(tk=False))
+    monkeypatch.setattr(bootstrap, "create_venv",
+                        lambda argv, log: pytest.fail("must not rebuild"))
+
+    bootstrap._create_validated_venv(["py", "-3.13"], _Log(), False)
+
+    assert keepsake.exists()
+
+
+# --- Gap 2: the transaction spans package install and real imports ---------- #
+def test_a_pip_failure_after_a_new_venv_restores_the_previous_one(env, monkeypatch):
+    """Capabilities passing is not the commit point."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: None)   # dead: replace
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    _reconcile_spy(monkeypatch, pip_ok=False)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is False
+    assert keepsake.exists(), "the old environment was gone before pip even ran"
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+    assert "put back" in message
+    assert not (env.venv / "candidate.txt").exists()
+
+
+def test_an_import_failure_after_a_new_venv_restores_the_previous_one(env, monkeypatch):
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: None)
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    _reconcile_spy(monkeypatch, validate_ok=False)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is False
+    assert keepsake.exists()
+    assert "put back" in message
+
+
+def test_no_success_state_is_written_when_the_replacement_fails(env, monkeypatch):
+    """Phase 1's rules are untouched by the transaction change."""
+    _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: None)
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    _reconcile_spy(monkeypatch, validate_ok=False)
+
+    bootstrap.repair_venv(_Log())
+
+    assert not bootstrap.requirements_state_path().exists()
+    assert not bootstrap.import_proof_path().exists()
+
+
+def test_a_committed_replacement_removes_the_previous_environment(env, monkeypatch):
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    _reconcile_spy(monkeypatch)
+
+    # The real health authority throughout: dead until the candidate exists,
+    # healthy afterwards. Stubbing it out would have hidden the replace
+    # decision, which is the thing under test.
+    def staged_probe(py):
+        return _probe() if (bootstrap.VENV_DIR / "candidate.txt").exists() else None
+
+    monkeypatch.setattr(bootstrap, "probe_venv", staged_probe)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is True
+    assert not keepsake.exists()
+    assert (env.venv / "candidate.txt").exists()
+    assert not bootstrap._venv_aside_path().exists()
+    assert "repaired" in message
+
+
+# --- Gap 3: one compatibility authority, floor 3.11 ------------------------- #
+def test_a_310_environment_is_replaced_by_a_312_base(env, monkeypatch):
+    """3.10 satisfies Kokoro's floor and not the project's. The project wins.
+
+    ``venv_is_valid`` is True here on purpose: the 3.10 environment runs and has
+    ssl, so the only thing that can decide to replace it is the version
+    predicate — which is exactly the one that was wrong.
+    """
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "venv_is_valid", lambda: True)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 10)))
+    _versions(monkeypatch, venv=(3, 10), base=(3, 12))
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+
+    ok = bootstrap._create_validated_venv(["py", "-3.12"], _Log(), False)
+
+    assert ok is True
+    assert not keepsake.exists(), "the 3.10 environment was kept"
+    assert (env.venv / "candidate.txt").exists()
+
+
+def test_the_two_compatibility_predicates_disagree_about_310_on_purpose():
+    """The bug was using the wrong one; both still exist and mean what they say."""
+    assert bootstrap._is_kokoro_compatible((3, 10)) is True
+    assert bootstrap.is_full_feature_python((3, 10)) is False
+
+
+def test_a_310_environment_with_no_better_base_is_not_called_healthy(env, monkeypatch):
+    _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 10)))
+
+    health = bootstrap.assess_venv_health(compatible_base_available=False)
+
+    assert health.state == bootstrap.VENV_DEGRADED
+    assert health.is_fully_healthy is False
+    assert health.can_launch is True
+
+
+def test_a_310_environment_is_not_replaced_when_the_base_is_no_better(env, monkeypatch):
+    """Nothing better to build with means churn, not repair."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 10)))
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 10))
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    monkeypatch.setattr(bootstrap, "create_venv",
+                        lambda argv, log: pytest.fail("must not rebuild"))
+
+    bootstrap._create_validated_venv(["py", "-3.10"], _Log(), False)
+
+    assert keepsake.exists()
+
+
+# --- Gap 4: report the environment that exists, not the base that built it -- #
+def test_a_repair_reports_the_resulting_venv_not_the_selected_base(env, monkeypatch):
+    """Base 3.12, resulting venv still 3.10: no full-health claim."""
+    _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    monkeypatch.setattr(bootstrap, "_create_validated_venv",
+                        lambda argv, log, headless, txn=None: True)
+    _reconcile_spy(monkeypatch)
+    # The environment on disk did not actually become 3.12.
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 10)))
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is True                      # usable
+    assert "repaired (Python" not in message   # but not claimed as full health
+    assert "limits" in message
+    assert "3.10" in message
+
+
+def test_a_repair_that_leaves_an_unusable_venv_is_reported_as_failure(env, monkeypatch):
+    _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    monkeypatch.setattr(bootstrap, "_create_validated_venv",
+                        lambda argv, log, headless, txn=None: True)
+    _reconcile_spy(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: None)   # dead
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is False
+    assert "still not usable" in message
+
+
+def test_a_successful_repair_names_the_version_the_venv_actually_has(env, monkeypatch):
+    _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    monkeypatch.setattr(bootstrap, "_create_validated_venv",
+                        lambda argv, log, headless, txn=None: True)
+    _reconcile_spy(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 11)))
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is True
+    assert "3.11" in message
+
+
+# --- Interrupted repairs -------------------------------------------------- #
+def test_an_aside_left_with_no_environment_is_restored(env, monkeypatch):
+    """Interruption A: renamed aside, killed before a candidate existed."""
+    aside = bootstrap._venv_aside_path()
+    (aside / "Scripts").mkdir(parents=True)
+    (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert env.venv.is_dir()
+    assert (env.venv / "keepsake.txt").read_text(encoding="utf-8") == "previous"
+    assert not aside.exists()
+
+
+def test_an_unproven_candidate_loses_to_the_preserved_environment(env, monkeypatch):
+    """Interruption B: both present, candidate never finished its proof."""
+    aside = bootstrap._venv_aside_path()
+    (aside / "Scripts").mkdir(parents=True)
+    (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
+    (env.venv / "Scripts").mkdir(parents=True)
+    (env.venv / "candidate.txt").write_text("unproven", encoding="utf-8")
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "keepsake.txt").exists()
+    assert not (env.venv / "candidate.txt").exists()
+    assert not aside.exists()
+
+
+def test_a_proved_candidate_supersedes_the_preserved_environment(env, monkeypatch):
+    """Both present, but the candidate had already recorded a valid proof."""
+    aside = bootstrap._venv_aside_path()
+    (aside / "Scripts").mkdir(parents=True)
+    (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
+    _fake_interpreter(env)
+    (env.venv / "candidate.txt").write_text("proved", encoding="utf-8")
+    bootstrap.record_import_proof("3.12.10")
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "candidate.txt").exists()
+    assert not aside.exists()
+
+
+def test_a_repair_recovers_before_starting_a_new_transaction(env, monkeypatch):
+    """Interruption A, then the next repair: no manual deletion anywhere."""
+    aside = bootstrap._venv_aside_path()
+    (aside / "Scripts").mkdir(parents=True)
+    (aside / "Scripts" / bootstrap.venv_python().name).write_bytes(b"interpreter")
+    (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    _creates_venv(monkeypatch)
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    _reconcile_spy(monkeypatch)
+
+    ok, _message = bootstrap.repair_venv(_Log())
+
+    assert ok is True
+    assert env.venv.is_dir()
+    assert not aside.exists()
+
+
+def test_an_aside_is_never_silently_overwritten(env):
+    """If one somehow survives, a second gets a unique name rather than eating it."""
+    aside = bootstrap._venv_aside_path()
+    (aside / "Scripts").mkdir(parents=True)
+    (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
+    _fake_interpreter(env)
+
+    second = bootstrap._move_venv_aside(_Log())
+
+    assert second is not None
+    assert second != aside
+    assert (aside / "keepsake.txt").read_text(encoding="utf-8") == "previous"
+
+
+def test_first_run_setup_also_recovers_an_interrupted_repair():
+    """An interrupted repair leaves no .venv, which looks like a fresh machine."""
+    src = Path(bootstrap.__file__).read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "run_setup")
+    called = {n.func.id for n in ast.walk(fn)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "recover_interrupted_replacement" in called
+
+
+def test_a_rollback_that_failed_is_not_reported_as_success(env, monkeypatch):
+    txn = bootstrap.VenvReplacement(None)
+    assert txn.rollback(_Log()) is False
+
+    aside = bootstrap._venv_aside_path()
+    (aside / "Scripts").mkdir(parents=True)
+    txn = bootstrap.VenvReplacement(aside)
+    monkeypatch.setattr(bootstrap, "_restore_venv", lambda a, log: False)
+    assert txn.rollback(_Log()) is False
+
+
+def test_the_second_launch_after_a_repair_is_an_ordinary_fast_path(env, monkeypatch,
+                                                                   launch_spies):
+    """No repair loop: a committed replacement just launches next time."""
+    _fake_interpreter(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    first = bootstrap._launch_with_kokoro_healthcheck()
+    second = bootstrap._launch_with_kokoro_healthcheck()
+
+    assert (first, second) == (0, 0)
+    assert launch_spies["launched"] == 2
+    assert not bootstrap._venv_aside_path().exists()
+
+
+# --------------------------------------------------------------------------- #
+# I. The launcher's "any non-zero means repair" rule is safe
+#
+# The .bat cannot tell "bootstrap ran and returned 3" from "the interpreter
+# could not start" -- cmd reports both as a non-zero errorlevel, and the second
+# is precisely the case bootstrap cannot report, because it never runs. So the
+# launcher treats every non-zero answer as a repair request.
+#
+# That is only defensible because a repair request is not itself destructive.
+# --repair-venv re-asks the health authority, and an environment that turns out
+# to be healthy is kept, not replaced. So an unrelated bootstrap failure costs a
+# reconcile pass, never the environment. These tests hold that property in place,
+# since it is what makes the coarse launcher rule acceptable.
+# --------------------------------------------------------------------------- #
+def test_a_spurious_repair_request_does_not_replace_a_healthy_environment(
+        env, monkeypatch):
+    """The safety net under the launcher's coarse exit-code rule."""
+    keepsake = _existing_venv(env)
+    monkeypatch.setattr(bootstrap, "venv_is_valid", lambda: True)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    _versions(monkeypatch, venv=(3, 12), base=(3, 12))
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: ["py", "-3.12"])
+    monkeypatch.setattr(bootstrap, "probe_capabilities", lambda py: _caps())
+    monkeypatch.setattr(bootstrap, "create_venv",
+                        lambda argv, log: pytest.fail("a healthy environment was replaced"))
+    _reconcile_spy(monkeypatch)
+
+    ok, message = bootstrap.repair_venv(_Log())
+
+    assert ok is True
+    assert keepsake.read_text(encoding="utf-8") == "previous"
+    assert "repaired" in message
+
+
+def test_the_launcher_treats_every_non_zero_check_as_a_repair_request():
+    """Documented on purpose: cmd cannot distinguish the dead-interpreter case."""
+    text = BAT.read_text(encoding="utf-8", errors="replace")
+    assert "if errorlevel 1 goto needsrepair" in text
+
+
+def test_the_repair_request_code_is_what_bootstrap_actually_returns(env, monkeypatch):
+    _fake_interpreter(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: None)
+    monkeypatch.setattr(bootstrap, "show_warning_dialog", lambda *a, **k: None)
+
+    assert bootstrap._venv_check() == bootstrap.EXIT_VENV_REPAIR_REQUIRED
+
+
+def test_a_healthy_environment_answers_the_check_with_zero(env, monkeypatch):
+    _fake_interpreter(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+
+    assert bootstrap._venv_check() == 0
+
+
+def test_a_degraded_environment_answers_the_check_with_zero(env, monkeypatch):
+    """Degraded launches. Only a genuine repair opportunity returns 3."""
+    _fake_interpreter(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 13)))
+    monkeypatch.setattr(bootstrap, "find_suitable_python",
+                        lambda log, prefer_tk=True: None)
+
+    assert bootstrap._venv_check() == 0

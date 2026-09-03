@@ -2,6 +2,77 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 2 REMEDIATED after review (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the Phase-2 rollback claim
+> in the block below it, which was correct about the health model and the handoff and
+> overstated the replacement transaction. Everything else there still stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **What review found.** The Phase-2 health model, launcher handoff and ~169.7 ms
+>   `--venv-check` cost were accepted. Four correctness gaps inside the replacement
+>   transaction were not, and all four were confirmed in the committed code rather than
+>   argued:
+>   1. **Tk-only repair was not rollback-safe.** A Tk-broken environment passes
+>      `venv_is_valid` (interpreter + ssl), so it was never set aside — and the recreate step
+>      then `rmtree`d it outright. If the rebuild failed, a CLI-capable environment was gone.
+>   2. **The aside was discarded too early.** It was released when the candidate's
+>      *capabilities* passed, but `repair_venv` runs `reconcile_requirements` afterwards — so
+>      a pip or import failure left no way back.
+>   3. **Two compatibility predicates.** The replace decision used `_is_kokoro_compatible`
+>      (floor 3.10) while the health model used `is_full_feature_python` (floor 3.11), so a
+>      3.10 environment could be called incompatible by one and kept by the other.
+>   4. **The report read the base, not the result.** `_interp_version_argv(py_argv)` names the
+>      interpreter that was *selected*, not the one the environment ended up with.
+> - **The transaction is now explicit and caller-owned.** `VenvReplacement` holds the previous
+>   environment; `repair_venv` owns commit and rollback across the whole proof — create →
+>   capabilities → pip → **real imports** → resulting-venv health — and commits only at the
+>   end. `_create_validated_venv` still owns the transaction when nobody else does, so
+>   first-run setup is unchanged.
+> - **Nothing destroys an environment it did not create.** The recreate step only ever
+>   discards a candidate built moments earlier; anything worth keeping is already aside, and
+>   anything not worth replacing was left alone.
+> - **One compatibility authority.** The replace decision goes through `assess_venv_health`
+>   with the base interpreter's own compatibility, so it cannot disagree with the health
+>   verdict. A 3.10 environment with a 3.12 base is now actually replaced; with no better base
+>   it is degraded, not falsely healthy. Both predicates still exist and still mean what they
+>   say — the bug was using the wrong one.
+> - **The outcome is read from the environment that exists.** A repair reports full health
+>   only when the resulting venv is itself fully healthy; base 3.12 with a venv still on 3.10
+>   reports limits, and a repair that leaves an unusable venv is a failure with rollback.
+> - **Interrupted repairs have a deterministic answer.** `recover_interrupted_replacement`
+>   runs before any new transaction and at the start of `run_setup`: an aside with no venv is
+>   **restored** (without this, the next launch would see no environment and fall into a full
+>   first-run install, having thrown away one that worked); with both present, the candidate
+>   wins only if it recorded a valid import proof for the current pins on its own interpreter
+>   — which is exactly the commit condition — and otherwise the preserved environment is put
+>   back. An aside is **never** blindly deleted; if one somehow survives, a second gets a
+>   unique name rather than overwriting it.
+> - **Rollback is never claimed falsely.** `VenvReplacement.rollback` returns False when there
+>   was nothing to restore *or* when restoring failed, and the message distinguishes the two.
+> - **Windows exit-code rule reviewed, not redesigned.** `if errorlevel 1 goto needsrepair`
+>   stays: cmd cannot distinguish "bootstrap returned 3" from "the interpreter could not
+>   start", and the second is precisely the case bootstrap cannot report. That is safe
+>   *because* a repair request is no longer destructive — `--repair-venv` re-asks the health
+>   authority and keeps a healthy environment. A test holds that property in place.
+> - **Gate: 17 failed / 5195 passed / 57 skipped / 76 errors.** Failure and error rows
+>   identical to the Phase-2 run, +27 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-2-attributable failures: zero.** 17 of the new tests fail against `5919723`.
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10, not
+>   deleted or rebuilt, no `.venv.replaced*` anywhere; requirements stamp, import proof, log
+>   directory and `ffmpeg-state.json` all unchanged including content hashes; no `files/bin`,
+>   nothing on PATH, no FFmpeg pin. Every destructive scenario was exercised in `tmp_path`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published
+>   release remains **`v0.4.0`**. **Phase 3 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 2 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/test_venv_recovery.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. The launchers were
+> **not** changed — no remediation test proved it necessary. All staged and committed
+> together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 2 COMPLETE (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the "Phase 2 has not

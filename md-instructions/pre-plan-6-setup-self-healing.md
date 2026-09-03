@@ -652,6 +652,26 @@ red, in the phase report), then **the phase ends green**. Do not leave a permane
 >
 > **Gate:** 17 failed / 5168 passed / 57 skipped / 76 errors — failure and error rows
 > identical to Phase 1's, +45 passed. Phase-2-attributable failures: **zero**.
+>
+> **Remediated after review.** The health model, handoff and ~169.7 ms check were accepted;
+> four correctness gaps inside the replacement transaction were not. A Tk-broken environment
+> passes `venv_is_valid` (interpreter + ssl), so it was never set aside and the recreate step
+> destroyed it outright. The aside was discarded when the candidate's *capabilities* passed —
+> before a single package had been installed or proved. The replace decision still used
+> `_is_kokoro_compatible` (floor 3.10) while the health model used `is_full_feature_python`
+> (floor 3.11), so a 3.10 environment could be called incompatible and then kept. And the
+> final report read the *base* interpreter's version, which says nothing about the environment
+> that ended up on disk.
+>
+> Now: replacement is an explicit `VenvReplacement` transaction owned by `repair_venv` and
+> spanning create → capabilities → pip → real imports → resulting-venv health, committing only
+> at the end; nothing destroys an environment it did not create; the replace decision goes
+> through `assess_venv_health` so it cannot disagree with the health verdict; the outcome is
+> read from the actual venv; and `recover_interrupted_replacement` resolves a half-finished
+> repair deterministically — an aside with no venv is restored, and with both present the
+> candidate wins only if it recorded a valid import proof. An aside is never blindly deleted.
+> **Gate after remediation:** 17 failed / 5195 passed / 57 skipped / 76 errors, rows identical,
+> +27 passed.
 
 **Fixes:** H2, and the dead `_create_validated_venv` recovery branches.
 
