@@ -182,7 +182,7 @@ Plan-5 Phase-15 health architecture.
 | **M3** | Medium | The unrepairable-prerequisite notice is a **blocking modal on the launch fast path**. Observed live: the process sat indefinitely at *"The audio tools are unavailable"* before the GUI existed. | `bootstrap.py:1737`, `:1751`; live reproduction |
 | **M4** | Medium | macOS has no repo-local fallback and no automated route without Homebrew; `_install_ffmpeg`'s mac branch prints `https://brew.sh/` and returns. The `.command`'s only `brew install ffmpeg` lives in the **first-run** branch and never runs for an existing venv. | `.command`; `bootstrap.py:1039` |
 | **M5** | Medium | Neither WinGet invocation passes an explicit `--scope`. Both `Python.Python.3.12` and `Gyan.FFmpeg` rely on the package default — untested against the CSPW-PC Standard User constraint. | `.bat`; `bootstrap.py:828`, `:1039` |
-| **L1** | Low | Module-level `LOG = SetupLog()` writes into the **production** `files/runtime-data/logs/setup_<date>.log` during pytest runs, interleaving tmpdir paths with real runs and making a user-supplied log harder to trust. | Observed in `setup_2026-09-02.log` |
+| **L1** | Low | **Test runs mutate production environment state.** (a) Module-level `LOG = SetupLog()` writes into the **production** `files/runtime-data/logs/setup_<date>.log` during pytest runs, interleaving tmpdir paths with real runs. (b) A full suite run **rewrites the real `.venv/.requirements-state.json`** — observed 2026-09-03, `recorded_at` advancing from `2026-09-02T21:05:05` to `2026-09-03T06:17:22` during a `verify.py` run, fingerprint unchanged. Five modules touch the stamp API (`test_bootstrap_requirements_state.py`, `test_bootstrap_setup_cancel.py`, `test_bootstrap_setup_logging.py`, `test_chatterbox_bootstrap.py`, `test_first_run_contract.py`); every call in the first is behind the `fake_env` fixture, so the unredirected writer is elsewhere and must be identified, not guessed. Harmless today because the fingerprint matched — but a suite that can write the real stamp can also write a **false** one, which is exactly the C2 invariant. | Observed in `setup_2026-09-02.log`; stamp mtime + `recorded_at` |
 
 ### 4.4 Two structural test weaknesses that let C2 and M1 survive
 
@@ -574,6 +574,11 @@ checks unaffected.
   element; assert version-predicate selection rather than `PATH` order.
 - Tighten `test_setup_records_the_stamp_only_after_packages_validate` from string-index ordering to
   a real behavioural assertion.
+- **Identify and fix the unredirected stamp writer** (L1b). A test run must not be able to write the
+  real `.venv/.requirements-state.json`. Find the actual culprit among the five modules named in
+  §4.3 — do not guess — and add a guard that fails if the suite writes production environment state.
+  This is not housekeeping: a suite that can write the real stamp can write a **false** one, which is
+  the very invariant this phase exists to protect.
 
 **Mutation proof:** demonstrate the new tests **fail against the pre-fix behaviour** (transient
 red, in the phase report), then **the phase ends green**. Do not leave a permanently red checkpoint.
@@ -675,8 +680,9 @@ that no normal launch path reaches the new code yet.
   `ffmpeg_health.describe_failure()`, `m4b_converter.py:650` and `:963`.
 - **macOS orchestration** structurally (§8.6): the existing Homebrew acquisition reachable from the
   existing-venv path; missing Homebrew handled truthfully.
-- Address L1 while here if it is genuinely one line of scope (test runs must not write the
-  production setup log); otherwise record it and defer.
+- Address **L1a** (test runs must not write the production setup log) if it is genuinely small scope
+  while the logging surface is already open; otherwise record it and let Phase 6 row 17 catch it.
+  **L1b** — the unredirected requirements-stamp writer — belongs to **Phase 1**, not here.
 
 **Do NOT consume the real HOME-PC broken state in this phase.** Prove the orchestration against
 mocked/staged environments only.
@@ -709,6 +715,7 @@ scenarios.** At minimum:
 | 14 | last-known-good preservation across a failed replacement |
 | 15 | successful repair → **second launch is a no-op fast path** |
 | 16 | macOS: existing venv + FFmpeg removed, Homebrew present and Homebrew absent (mocked) |
+| 17 | **test isolation** — a full suite run writes **no** production state: not the real `.venv/.requirements-state.json`, not `files/runtime-data/logs/setup_<date>.log`, not `files/runtime-data/ffmpeg-state.json`, not `files/bin` (L1) |
 
 Also tighten the remaining substring-slicing structural test (§4.4) to AST.
 
@@ -924,6 +931,8 @@ purpose, using the `[ ]` / `[x]` / `[~]` / `[-]` markers and an Issues Found tab
       before extraction, staged, safely extracted, proved in staging, promoted by a single
       same-volume directory rename into a versioned destination, proved and pinned after.
 - [ ] Nothing weakens or routes around a security policy.
+- [ ] A full test run writes **no** production environment state — no real `.venv` stamp, no
+      production setup log, no `ffmpeg-state.json`, no `files/bin`.
 - [ ] Phases 7, 8 and 9 have maintainer-approved real-machine evidence.
 - [ ] The superseding ADR is recorded; the 2026-08-28 entry is intact.
 - [ ] Coordination records are accurate; this drop is deleted.
