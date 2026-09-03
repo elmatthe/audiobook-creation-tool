@@ -672,6 +672,18 @@ red, in the phase report), then **the phase ends green**. Do not leave a permane
 > candidate wins only if it recorded a valid import proof. An aside is never blindly deleted.
 > **Gate after remediation:** 17 failed / 5195 passed / 57 skipped / 76 errors, rows identical,
 > +27 passed.
+>
+> **Remediated again, once more on review.** Interrupted-repair recovery treated the import
+> proof as *the* commit condition. It is one of eight. A real window exists where pip
+> succeeded, the imports were proved and the proof was written — and the process died before
+> the final health check ever ran; recovery then deleted a working environment on the strength
+> of a candidate nobody had confirmed could launch. Recovery now re-establishes **both** halves
+> — a current interpreter-matching proof **and** the actual candidate passing
+> `assess_venv_health(...).can_launch`, the same authority and the same meaning `repair_venv`
+> uses immediately before `commit` — and takes the caller's `require_tk` context so an
+> interrupted headless repair is not judged against a GUI standard. No new marker file was
+> needed: the existing authorities are simply re-evaluated. **Final gate:** 17 failed /
+> 5203 passed / 57 skipped / 76 errors, rows identical, +8 passed.
 
 **Fixes:** H2, and the dead `_create_validated_venv` recovery branches.
 

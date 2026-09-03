@@ -2,6 +2,70 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 2 FINAL remediation: interrupted recovery replays the real commit condition (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the interrupted-recovery
+> claim in the block below it, which said the import proof "is exactly the commit condition".
+> It is not — it is one of eight. Everything else in that block still stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **The gap.** The live transaction commits only after: candidate exists → interpreter and
+>   capability checks pass → `reconcile_requirements` succeeds → required imports are really
+>   proved → the proof is recorded → `assess_venv_health` runs against the **actual** resulting
+>   venv → `can_launch` is True → `txn.commit()`. Recovery, however, discarded the preserved
+>   environment on the strength of `import_proof_is_current()` alone. There is a real
+>   interruption window between those two points: pip succeeded, the imports were proved, the
+>   proof was written, and the process died before the final health check ever ran. On restart,
+>   a working environment was deleted for a candidate nobody had confirmed could launch.
+> - **The fix.** `recover_interrupted_replacement` now re-establishes **both** halves before an
+>   aside may be discarded: a current, interpreter-matching real-import proof **and** the actual
+>   candidate passing `assess_venv_health(...)`, using the same authority and the same
+>   `can_launch` meaning `repair_venv` uses immediately before `commit`. A candidate whose proof
+>   is valid but whose environment cannot run no longer wins — the preserved environment is
+>   restored and the repair stays retryable.
+> - **Headless context is carried, not assumed.** The function takes `require_tk`, and both
+>   callers pass `not headless`, so an interrupted headless repair is never judged against a GUI
+>   standard it never claimed to meet. Worth recording honestly: with no better base available a
+>   Tk-less environment is *degraded*, and degraded still launches — so today that context
+>   changes the state that is **reported**, not whether the candidate may commit. It is threaded
+>   through so recovery evaluates the identical call to the one the transaction makes; a test
+>   states exactly that rather than implying more.
+> - **No new marker file.** The exact final condition is re-evaluated from the authorities that
+>   already exist. Nothing durable was added, and a test asserts recovery writes nothing into
+>   the candidate.
+> - **Red proof, for the stated reason.** Against `9dcbe5a` the new
+>   `test_a_proved_but_unlaunchable_candidate_does_not_win` fails with
+>   `FileNotFoundError: ....venv\keepsake.txt` — the preserved environment's own file is gone,
+>   because the old code discarded the aside on the proof alone. That is the defect, observed
+>   rather than asserted. Six of the new tests fail there; the other 74 pass, so no approved
+>   Phase-2 behaviour was disturbed.
+> - **Gate: 17 failed / 5203 passed / 57 skipped / 76 errors.** Failure and error rows identical
+>   to the previous run, +8 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-2-attributable failures: zero.**
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10, not
+>   deleted or rebuilt; **no `.venv.replaced*` beside the real venv**; requirements stamp, import
+>   proof, log directory and `ffmpeg-state.json` all unchanged including content hashes;
+>   `files/bin` absent; nothing on PATH; **no `Gyan.FFmpeg` package installed**. Every
+>   transaction scenario ran in `tmp_path`.
+> - **Phase-3 provenance, recorded only.** ChatGPT re-verified, immediately before this
+>   checkpoint: Gyan release tag **9.0.1**, asset **ffmpeg-9.0.1-full_build.zip**, URL
+>   `https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-full_build.zip`,
+>   asset size **251427729** bytes, digest
+>   **sha256:2e8e28af97c2ae338ccef92e36da9b2a4cd21d0cad9dde093545606cb07f5b00**; the
+>   `winget-pkgs` manifest for `Gyan.FFmpeg` **9.0.1** carries the same URL and the same
+>   `InstallerSha256`. **Informational only — Phase 3 was NOT started and no FFmpeg code,
+>   URL or hash was touched.** Phase 3 must still re-verify these facts itself at its own start,
+>   as the drop requires.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 3 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 2 final remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/test_venv_recovery.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. The launchers were
+> **not** changed. All staged and committed together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 2 REMEDIATED after review (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the Phase-2 rollback claim

@@ -32,6 +32,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1034,18 +1035,149 @@ def test_an_unproven_candidate_loses_to_the_preserved_environment(env, monkeypat
     assert not aside.exists()
 
 
-def test_a_proved_candidate_supersedes_the_preserved_environment(env, monkeypatch):
-    """Both present, but the candidate had already recorded a valid proof."""
+def _interrupted_both(env, *, proved: bool = True) -> Path:
+    """Both directories present: a preserved environment and a candidate."""
     aside = bootstrap._venv_aside_path()
     (aside / "Scripts").mkdir(parents=True)
+    (aside / "Scripts" / bootstrap.venv_python().name).write_bytes(b"interpreter")
     (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
     _fake_interpreter(env)
-    (env.venv / "candidate.txt").write_text("proved", encoding="utf-8")
-    bootstrap.record_import_proof("3.12.10")
+    (env.venv / "candidate.txt").write_text("candidate", encoding="utf-8")
+    if proved:
+        bootstrap.record_import_proof("3.12.10")
+    return aside
+
+
+def test_a_proved_and_launchable_candidate_supersedes_the_preserved_environment(
+        env, monkeypatch):
+    """Both halves of the commit condition, so the transaction had finished."""
+    aside = _interrupted_both(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
 
     bootstrap.recover_interrupted_replacement(_Log())
 
     assert (env.venv / "candidate.txt").exists()
+    assert not aside.exists()
+
+
+def test_a_proved_but_unlaunchable_candidate_does_not_win(env, monkeypatch):
+    """The interruption window the import proof alone could not see.
+
+    pip succeeded, the imports were proved, the proof was written -- and the
+    process died before the final health check ever ran. Treating the proof as
+    the whole commit condition deleted a working environment on the strength of
+    a candidate nobody had confirmed could launch.
+    """
+    aside = _interrupted_both(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: None)   # will not run
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "keepsake.txt").read_text(encoding="utf-8") == "previous"
+    assert not (env.venv / "candidate.txt").exists()
+    assert not aside.exists()
+
+
+def test_a_proved_candidate_that_lost_ssl_does_not_win(env, monkeypatch):
+    """Same window, a different way for the candidate to be unusable."""
+    aside = _interrupted_both(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(ssl=False))
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "keepsake.txt").exists()
+    assert not aside.exists()
+
+
+def test_recovery_uses_the_same_health_meaning_as_the_commit(env, monkeypatch):
+    """A degraded-but-launchable candidate is committable, so it wins.
+
+    ``can_launch``, not ``is_fully_healthy`` -- the same meaning repair_venv
+    uses immediately before commit. A different standard here would make
+    recovery disagree with the transaction it is completing.
+    """
+    aside = _interrupted_both(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(version=(3, 13)))
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert (env.venv / "candidate.txt").exists()
+    assert not aside.exists()
+
+
+def test_an_interrupted_headless_repair_is_not_judged_against_a_gui_standard(
+        env, monkeypatch):
+    """A headless transaction never claimed Tk, so recovery must not demand it."""
+    aside = _interrupted_both(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(tk=False))
+
+    bootstrap.recover_interrupted_replacement(_Log(), require_tk=False)
+
+    assert (env.venv / "candidate.txt").exists()
+    assert not aside.exists()
+
+
+def test_a_tkless_candidate_is_launchable_under_either_context(env, monkeypatch):
+    """Honest about what ``require_tk`` does and does not decide here.
+
+    With no better base available, a Tk-less environment is *degraded*, and
+    degraded still launches — so the Tk context changes the state that gets
+    reported, not whether the candidate may commit. The context is threaded
+    through anyway so recovery evaluates the identical call to the one
+    ``repair_venv`` makes before committing; a divergence there is precisely how
+    the two would drift apart later.
+    """
+    aside = _interrupted_both(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(tk=False))
+    gui = bootstrap.assess_venv_health(require_tk=True,
+                                       compatible_base_available=False)
+    headless = bootstrap.assess_venv_health(require_tk=False,
+                                            compatible_base_available=False)
+
+    assert gui.state == bootstrap.VENV_DEGRADED
+    assert headless.state == bootstrap.VENV_HEALTHY
+    assert gui.can_launch is headless.can_launch is True
+
+    bootstrap.recover_interrupted_replacement(_Log(), require_tk=True)
+
+    assert (env.venv / "candidate.txt").exists()
+    assert not aside.exists()
+
+
+def test_an_unlaunchable_candidate_loses_under_both_contexts(env, monkeypatch):
+    """The conditions that do decide it are context-independent, by design."""
+    for require_tk in (True, False):
+        aside = _interrupted_both(env)
+        monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe(ssl=False))
+
+        bootstrap.recover_interrupted_replacement(_Log(), require_tk=require_tk)
+
+        assert (env.venv / "keepsake.txt").exists(), require_tk
+        shutil.rmtree(env.venv, ignore_errors=True)
+
+
+def test_both_callers_pass_their_own_tk_context():
+    """Recovery must not silently apply a standard the caller did not choose."""
+    src = Path(bootstrap.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    for name in ("repair_venv", "run_setup"):
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == name)
+        call = next(c for c in ast.walk(fn)
+                    if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                    and c.func.id == "recover_interrupted_replacement")
+        assert [kw.arg for kw in call.keywords] == ["require_tk"], name
+
+
+def test_no_new_success_marker_file_was_introduced(env, monkeypatch):
+    """Recovery re-evaluates the existing authorities; it records nothing new."""
+    aside = _interrupted_both(env)
+    monkeypatch.setattr(bootstrap, "probe_venv", lambda py: _probe())
+    before = {p.name for p in env.venv.iterdir()}
+
+    bootstrap.recover_interrupted_replacement(_Log())
+
+    assert {p.name for p in env.venv.iterdir()} == before
     assert not aside.exists()
 
 

@@ -1401,26 +1401,39 @@ class VenvReplacement:
         return restored
 
 
-def recover_interrupted_replacement(log: SetupLog) -> None:
+def recover_interrupted_replacement(log: SetupLog, *,
+                                    require_tk: bool = True) -> None:
     """Resolve a replacement that a previous run never finished.
 
     A repair can be interrupted at any point — the process killed, the machine
     restarted — and it leaves evidence: an aside directory that was never
-    committed or rolled back. Two states are possible, and both have a
+    committed or rolled back. Two states are possible, and both get a
     deterministic answer rather than a guess:
 
     * **aside only, no venv** — interrupted between the rename and a working
       replacement. The aside *is* the last-known-good environment, so it goes
       back. Without this the next launch would see no environment at all and
       fall into a full first-run install, and the user's working environment
-      would have been thrown away by a repair that was trying to protect it.
+      would have been thrown away by a repair that existed to protect it.
 
     * **both present** — a candidate exists but the transaction never committed.
-      The candidate is only trustworthy if it got far enough to record a valid
-      import proof for the current pins on its own interpreter; that is exactly
-      the commit condition. If it did, the transaction had effectively finished
-      and the aside is discarded. If it did not, the candidate is unproven and
-      the aside — which is known to have worked — is restored.
+      It may only supersede the aside if recovery can establish the *same*
+      facts the transaction itself requires before committing.
+
+    **The commit condition is not the import proof alone**, and treating it that
+    way was wrong: a real interruption window exists where pip succeeded, the
+    imports were proved, the proof was written — and the process died before the
+    final health check ever ran. Recovery would then have deleted a working
+    environment on the strength of a proof about a candidate nobody had yet
+    confirmed could launch. So both halves are re-established here, using the
+    same authority and the same ``can_launch`` meaning ``repair_venv`` uses
+    immediately before ``commit``:
+
+    1. a current, interpreter-matching real-import proof, and
+    2. the actual candidate environment passing ``assess_venv_health``.
+
+    ``require_tk`` carries the caller's context, because an interrupted headless
+    repair must not be judged against a GUI standard it never claimed to meet.
 
     Nothing here deletes an aside that has not been positively superseded.
     """
@@ -1435,9 +1448,17 @@ def recover_interrupted_replacement(log: SetupLog) -> None:
         return
 
     if import_proof_is_current():
-        log.line("A previous environment repair had already completed — "
-                 "discarding the environment it replaced.")
-        _discard_venv_aside(aside)
+        health = assess_venv_health(require_tk=require_tk,
+                                    compatible_base_available=False)
+        if health.can_launch:
+            log.line("A previous environment repair had reached its commit "
+                     "condition — discarding the environment it replaced.")
+            _discard_venv_aside(aside)
+            return
+        log.line("A previous environment repair proved its packages but left an "
+                 f"environment that cannot run ({health.detail}) — restoring the "
+                 "environment it had set aside.")
+        _restore_venv(aside, log)
         return
 
     log.line("A previous environment repair was interrupted before it finished — "
@@ -1700,8 +1721,9 @@ def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
     log.line("Repairing the Python environment (packages only — no other setup)…")
 
     # A previous attempt may have been interrupted mid-transaction. Resolve that
-    # before starting a new one, so an aside is never treated as scrap.
-    recover_interrupted_replacement(log)
+    # before starting a new one, so an aside is never treated as scrap. Same Tk
+    # context this repair will judge its own result by.
+    recover_interrupted_replacement(log, require_tk=not headless)
 
     py_argv = find_suitable_python(log, prefer_tk=not headless)
     if py_argv is not None and not is_full_feature_python(_interp_version_argv(py_argv)):
@@ -2129,7 +2151,7 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
     # An interrupted repair can leave no ``.venv`` at all, which looks exactly
     # like a fresh machine and would land here. Put the environment it set aside
     # back first, so a first run never starts by discarding one that worked.
-    recover_interrupted_replacement(log)
+    recover_interrupted_replacement(log, require_tk=not headless)
 
     progress(0, "Locating a suitable Python…")
     py_argv = find_suitable_python(log, prefer_tk=not headless)
