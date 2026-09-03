@@ -2,6 +2,79 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 2 COMPLETE (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "Phase 2 has not
+> started" line in the block below it; everything else there still stands. Nothing below is
+> deleted or rewritten.**
+>
+> - **Defect H2 is closed.** The Windows launcher decided the environment was fine by asking
+>   whether `.venv\Scripts\pythonw.exe` existed, and macOS by asking whether
+>   `.venv/bin/python` was executable. Both are questions about a *file*. An environment
+>   whose Python no longer runs, that lost `ssl`, or that sits on a Python too new for the
+>   pinned voice engines still has that file — and `bootstrap.main` returned from
+>   `--launch-only` before `venv_is_valid()` was ever consulted, so every recovery path the
+>   setup code already owned was structurally unreachable from a normal launch.
+> - **One health authority.** `assess_venv_health` returns a `VenvHealth` over four states —
+>   healthy, repairable, degraded, absent — with a reason and a sentence fit to show a user.
+>   It costs **one** subprocess (~58 ms measured; `probe_capabilities`' four cost ~190 ms).
+>   The launchers know nothing about Python versions, ssl or Tk.
+> - **The handoff.** A venv cannot replace itself: Windows locks the running `python.exe`,
+>   so neither a delete nor a rename of its directory can succeed. Bootstrap therefore asks,
+>   with `EXIT_VENV_REPAIR_REQUIRED = 3` — a distinct code, because overloading 1 or 2 would
+>   make an ordinary failure indistinguishable from a request — and the launcher re-enters
+>   bootstrap on a base interpreter with `--repair-venv`. Windows asks first via
+>   `--venv-check` (**169.7 ms** measured on the real healthy environment) because it starts
+>   the GUI detached and cannot wait; macOS reads the same code from the `--launch-only`
+>   call it already waited on, and separately notices an interpreter that is present but not
+>   runnable, which bootstrap cannot report because it never starts.
+> - **The healthy steady state is unchanged**: still `start "" pythonw.exe … --launch-only`,
+>   detached and console-free.
+> - **Phase 3's surface stayed sealed.** Recovery goes through a bounded `repair_venv` —
+>   locate a base interpreter, replace the venv, reconcile packages, stop — and never through
+>   `run_setup`, which reaches `ensure_ffmpeg` and the portable fallback. Guarded both
+>   structurally (AST: `repair_venv` and `_repair_and_launch` call neither `ensure_ffmpeg`
+>   nor `run_setup`) and behaviourally (a repair run with both spied installs nothing).
+> - **Rebuilds are now rollback-safe.** `_create_validated_venv` used to `rmtree` the
+>   environment and only then try to build one; a failing `create_venv` left a machine that
+>   had been working a moment earlier with nothing at all. The old environment is renamed
+>   aside on the same volume, restored if the replacement fails or cannot import `ssl`, and
+>   discarded only once the replacement is proved.
+> - **Degraded is a state, not a loop.** A 3.13-only machine with no obtainable 3.12, or a
+>   Tk-less environment with no better base, launches and says so instead of being destroyed
+>   on every run. A repair never asks for a second repair.
+> - **Minimum scope preserved:** requirements drift still reconciles in place, a missing or
+>   broken package is still repaired in place, Kokoro still self-heals in the venv, and a
+>   missing FFmpeg still triggers **no** venv rebuild and **no** provisioning.
+> - **Import proof now carries interpreter identity** (path, size, mtime_ns), so a proof
+>   cannot survive the interpreter being replaced. The 7-day window is untouched and remains
+>   one named constant.
+> - **WinGet scope:** the **Python** install is now explicitly `--scope user` in both
+>   bootstrap and the `.bat`, since an ordinary repair can reach it and CSPW-PC has no admin
+>   rights. The **FFmpeg** WinGet command is deliberately untouched — that half of M5 is
+>   later work, and a test asserts it stayed alone.
+> - **Gate: 17 failed / 5168 passed / 57 skipped / 76 errors.** The failure and error rows
+>   are **identical** to the Phase-1 remediation run, with +45 passed from the new tests.
+>   `verify.py` deps/docs/docnames/config all PASS. **Phase-2-attributable failures: zero.**
+>   35 of the new tests fail against `9e080a2`.
+> - **Preserved HOME-PC acceptance condition intact**, verified after the run: `.venv` on
+>   Python 3.12.10, not deleted or rebuilt, no `.venv.replaced` left behind; requirements
+>   stamp, import proof, log directory and `ffmpeg-state.json` all **unchanged including
+>   content hashes**; **no `files/bin`, nothing on PATH, no `Gyan.FFmpeg` package, no FFmpeg
+>   pin.** Nothing was installed, provisioned or promoted.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published
+>   release remains **`v0.4.0`**. **Phase 3 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 2).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `Setup_and_Run-audiobook-creation-tool.bat`;
+> `Setup_and_Run-audiobook-creation-tool.command`; `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/conftest.py`; `files/tests/test_first_run_contract.py`;
+> `files/tests/test_bootstrap_setup_cancel.py`; `files/tests/test_cleanup_state.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this
+> block). Added: `files/tests/test_venv_recovery.py`. Deleted: none. All staged and
+> committed together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 1 REMEDIATED after review (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the Phase-1 completion

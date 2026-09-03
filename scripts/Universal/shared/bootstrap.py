@@ -297,6 +297,16 @@ IMPORT_PROOF_MAX_AGE_DAYS = 7
 #: failure code). A genuine error still exits 1.
 EXIT_SETUP_CANCELLED = 2
 
+#: "This environment needs rebuilding, and I cannot do it from in here."
+#:
+#: A bootstrap running *on* the venv interpreter cannot replace that venv: on
+#: Windows the running ``python.exe`` is locked, so neither a delete nor a
+#: rename of its directory can succeed. The launcher therefore has to be told,
+#: rather than guessing, and it re-enters bootstrap on a base interpreter.
+#: A distinct code because overloading 1 ("something failed") or 2 ("the user
+#: cancelled") would make an ordinary failure indistinguishable from a request.
+EXIT_VENV_REPAIR_REQUIRED = 3
+
 
 def setup_exit_code(*, started: bool, done: bool, ok: bool) -> int:
     """Map a first-run dialog outcome to a process exit code.
@@ -329,6 +339,21 @@ def import_proof_path() -> Path:
     return VENV_DIR / IMPORT_PROOF_NAME
 
 
+def _interpreter_identity() -> Optional[list]:
+    """``[path, size, mtime_ns]`` of the venv interpreter, or None.
+
+    Cheap enough (one ``stat``) to check on every launch, and specific enough
+    that a rebuilt or replaced environment cannot inherit an older proof: a new
+    venv writes a new ``python.exe``, so size and timestamp both move.
+    """
+    py = venv_python()
+    try:
+        stat = py.stat()
+        return [str(py), stat.st_size, stat.st_mtime_ns]
+    except OSError:
+        return None
+
+
 def record_import_proof(python_version: str = "") -> None:
     """Record that every required module was just really imported.
 
@@ -342,6 +367,7 @@ def record_import_proof(python_version: str = "") -> None:
             json.dumps({
                 "requirements_sha256": fingerprint,
                 "python_version": python_version,
+                "interpreter": _interpreter_identity(),
                 "proved_at": time.time(),
                 "proved_at_human": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }, indent=2),
@@ -362,6 +388,13 @@ def import_proof_is_current() -> bool:
     try:
         payload = json.loads(import_proof_path().read_text(encoding="utf-8"))
         if payload.get("requirements_sha256") != requirements_fingerprint():
+            return False
+        # A proof belongs to the interpreter that produced it. Phase 2 can
+        # replace the venv underneath an otherwise-matching stamp, and a proof
+        # carried over from the interpreter that was there before would be a
+        # claim about a Python that no longer exists. A record written before
+        # this field existed has no identity to match and is simply re-proved.
+        if payload.get("interpreter") != _interpreter_identity():
             return False
         age = time.time() - float(payload["proved_at"])
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -520,6 +553,9 @@ def venv_is_valid() -> bool:
     import it is broken (a known failure mode when the base Python was built
     without OpenSSL). Treating such a venv as invalid sends the bootstrap down
     the recreate path instead of launching a half-working app.
+
+    Kept as the narrow yes/no it always was. :func:`assess_venv_health` is the
+    richer answer; this remains the one-bit version several callers still want.
     """
     py = venv_python()
     if not py.exists():
@@ -535,6 +571,168 @@ def venv_is_valid() -> bool:
         return r.returncode == 0
     except Exception:
         return False
+
+
+# ===========================================================================
+#  Venv health — one authority
+# ===========================================================================
+#: The venv is fine and the app should just start.
+VENV_HEALTHY = "healthy"
+#: The venv is unusable or wrong, and something better can be built.
+VENV_REPAIRABLE = "repairable"
+#: The venv works for real work but is not a fully healthy setup, and nothing
+#: better is currently obtainable. It must launch — and must NOT be rebuilt on
+#: every launch in the hope that this time will differ.
+VENV_DEGRADED = "degraded"
+#: There is no venv at all. First run.
+VENV_ABSENT = "absent"
+
+
+class VenvHealth:
+    """What is actually true about the virtual environment.
+
+    Deliberately a small structured result rather than a bare boolean. The
+    launcher used to ask "does ``pythonw.exe`` exist?", which conflates *present*
+    with *usable* and had no way to express "runs, but on the wrong Python" or
+    "works except the GUI". Those distinctions decide whether to launch, repair,
+    or launch-and-say-so, and each needs a different answer.
+    """
+
+    __slots__ = ("state", "reason", "detail", "version", "ssl", "tk", "executes")
+
+    def __init__(self, state: str, reason: str, detail: str, *,
+                 version: Optional[tuple] = None, ssl: bool = False,
+                 tk: bool = False, executes: bool = False) -> None:
+        self.state = state
+        self.reason = reason
+        self.detail = detail
+        self.version = version
+        self.ssl = ssl
+        self.tk = tk
+        self.executes = executes
+
+    @property
+    def can_launch(self) -> bool:
+        """True when the app should start on this environment as it stands."""
+        return self.state in (VENV_HEALTHY, VENV_DEGRADED)
+
+    @property
+    def is_fully_healthy(self) -> bool:
+        return self.state == VENV_HEALTHY
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return (f"VenvHealth({self.state!r}, {self.reason!r}, "
+                f"version={self.version!r}, ssl={self.ssl}, tk={self.tk})")
+
+
+_VENV_PROBE = (
+    "import json, sys\n"
+    "d = {'version': list(sys.version_info[:3])}\n"
+    "try:\n"
+    "    import ssl  # noqa: F401\n"
+    "    d['ssl'] = True\n"
+    "except Exception:\n"
+    "    d['ssl'] = False\n"
+    "try:\n"
+    "    import tkinter\n"
+    "    tkinter.Tcl()\n"
+    "    d['tk'] = True\n"
+    "except Exception:\n"
+    "    d['tk'] = False\n"
+    "print(json.dumps(d))\n"
+)
+
+
+def probe_venv(venv_py: Path) -> Optional[dict]:
+    """Version, ssl and *functional* Tk from the venv, in one subprocess.
+
+    One spawn rather than :func:`probe_capabilities`' four, because this runs on
+    the launch path: measured on HOME-PC, ~58 ms against ~190 ms. ``None`` means
+    the interpreter did not execute at all, which is itself the answer.
+
+    Tk is proved by initialising ``Tcl()``, never by importing ``tkinter`` — the
+    import succeeds on a Homebrew ``python@3.12`` with no ``python-tk@3.12``,
+    and the app then dies opening its window.
+    """
+    try:
+        r = subprocess.run([str(venv_py), "-c", _VENV_PROBE],
+                           capture_output=True, text=True, timeout=120, **_hidden())
+        if r.returncode != 0:
+            return None
+        payload = json.loads((r.stdout or "").strip())
+        return {
+            "version": tuple(payload["version"][:2]),
+            "ssl": bool(payload["ssl"]),
+            "tk": bool(payload["tk"]),
+        }
+    except Exception:
+        return None
+
+
+def assess_venv_health(*, require_tk: bool = True,
+                       compatible_base_available: Optional[bool] = None
+                       ) -> VenvHealth:
+    """Classify the existing virtual environment. The single authority.
+
+    ``compatible_base_available`` answers "could we build something better?" and
+    is what separates *repairable* from *degraded*. It is a callable question
+    (it spawns interpreters), so it is only ever asked when the venv is already
+    known not to be fully healthy — a healthy launch never pays for it.
+    """
+    py = venv_python()
+    if not py.exists():
+        return VenvHealth(VENV_ABSENT, "no-venv",
+                          "No virtual environment has been created yet.")
+
+    caps = probe_venv(py)
+    if caps is None:
+        return VenvHealth(
+            VENV_REPAIRABLE, "interpreter-dead",
+            "The environment's Python cannot run. It has to be rebuilt.")
+
+    version, has_ssl, has_tk = caps["version"], caps["ssl"], caps["tk"]
+
+    if not has_ssl:
+        # pip and Edge TTS both need ssl; this is a real failure, not a nuisance.
+        return VenvHealth(
+            VENV_REPAIRABLE, "no-ssl",
+            "The environment's Python cannot import ssl, so downloads and Edge "
+            "voices cannot work. It has to be rebuilt.",
+            version=version, ssl=False, tk=has_tk, executes=True)
+
+    if not is_full_feature_python(version):
+        shown = f"{version[0]}.{version[1]}"
+        if compatible_base_available is None or compatible_base_available:
+            return VenvHealth(
+                VENV_REPAIRABLE, "incompatible-python",
+                f"The environment runs Python {shown}, which cannot install the "
+                "local Kokoro and Chatterbox voices. A compatible Python is "
+                "available, so it can be rebuilt.",
+                version=version, ssl=True, tk=has_tk, executes=True)
+        return VenvHealth(
+            VENV_DEGRADED, "incompatible-python-no-base",
+            f"The environment runs Python {shown} and no compatible Python "
+            f"({FULL_FEATURE_MIN[0]}.{FULL_FEATURE_MIN[1]}–"
+            f"{FULL_FEATURE_BELOW[0]}.{FULL_FEATURE_BELOW[1] - 1}) could be "
+            "obtained. Edge TTS and the audio tools work; the local voices do not.",
+            version=version, ssl=True, tk=has_tk, executes=True)
+
+    if require_tk and not has_tk:
+        if compatible_base_available is None or compatible_base_available:
+            return VenvHealth(
+                VENV_REPAIRABLE, "no-tk",
+                "The environment cannot open a window (Tcl/Tk does not start). "
+                "It can be rebuilt from a Python that has Tk.",
+                version=version, ssl=True, tk=False, executes=True)
+        return VenvHealth(
+            VENV_DEGRADED, "no-tk-unfixable",
+            "The environment cannot open a window (Tcl/Tk does not start) and no "
+            "Python with working Tk could be found. The command-line tools still "
+            "work.",
+            version=version, ssl=True, tk=False, executes=True)
+
+    return VenvHealth(VENV_HEALTHY, "ok", "The environment is healthy.",
+                      version=version, ssl=True, tk=has_tk, executes=True)
 
 
 # ===========================================================================
@@ -1058,7 +1256,14 @@ def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]
     if IS_WINDOWS:
         if shutil.which("winget"):
             log.line(f"Installing {WINGET_PYTHON_ID} via winget (this can take a few minutes)…")
+            # Explicit user scope. Phase 2 makes this reachable from an ordinary
+            # launcher repair rather than only from a first run the user started
+            # deliberately, and CSPW-PC is a Standard User with no admin rights:
+            # a machine-wide install there would prompt for a password nobody
+            # has. Saying "user" out loud also stops the answer depending on a
+            # package default that can change under us.
             r = _run(["winget", "install", "--id", WINGET_PYTHON_ID, "-e",
+                      "--scope", "user",
                       "--silent", "--accept-source-agreements",
                       "--accept-package-agreements"])
             log.line(r.stdout.strip() or "")
@@ -1095,34 +1300,94 @@ def create_venv(py_argv: list[str], log: SetupLog) -> bool:
     return True
 
 
+#: Where a previous environment waits while its replacement is being proved.
+VENV_ASIDE_SUFFIX = ".replaced"
+
+
+def _venv_aside_path() -> Path:
+    return VENV_DIR.with_name(VENV_DIR.name + VENV_ASIDE_SUFFIX)
+
+
+def _move_venv_aside(log: SetupLog) -> Optional[Path]:
+    """Rename the current venv out of the way. Returns the aside path, or None.
+
+    A rename, not a delete, and on the same volume so it is atomic and cheap.
+    The old environment is the only thing standing between the user and a
+    machine with nothing on it, so it is not destroyed until its replacement has
+    been proved to work.
+    """
+    if not VENV_DIR.exists():
+        return None
+    aside = _venv_aside_path()
+    shutil.rmtree(aside, ignore_errors=True)
+    try:
+        os.replace(VENV_DIR, aside)
+        return aside
+    except OSError as exc:
+        # Typically the running interpreter is inside it (Windows locks it).
+        log.line(f"  Could not set the existing environment aside: {exc}")
+        return None
+
+
+def _restore_venv(aside: Optional[Path], log: SetupLog) -> bool:
+    """Put a set-aside environment back. Returns True if the venv is restored."""
+    if aside is None or not aside.exists():
+        return False
+    shutil.rmtree(VENV_DIR, ignore_errors=True)
+    try:
+        os.replace(aside, VENV_DIR)
+        log.line("  Restored the previous environment; nothing was lost.")
+        return True
+    except OSError as exc:
+        log.line(f"  [!!] Could not restore the previous environment: {exc}")
+        return False
+
+
+def _discard_venv_aside(aside: Optional[Path]) -> None:
+    if aside is not None:
+        shutil.rmtree(aside, ignore_errors=True)
+
+
 def _create_validated_venv(py_argv: list[str], log: SetupLog,
                            headless: bool) -> bool:
     """Create the venv and confirm it is actually usable.
 
     A Tk-capable *base* Python must produce a Tk-capable *venv*; if it doesn't,
-    or the venv cannot import ssl, the venv is broken — delete and recreate once
-    (the self-healing recovery path). Returns False only if a working venv (ssl
-    at minimum) cannot be produced.
+    or the venv cannot import ssl, the venv is broken — recreate once (the
+    self-healing recovery path). Returns False only if a working venv (ssl at
+    minimum) cannot be produced.
+
+    **Replacement is rollback-safe.** This used to ``shutil.rmtree`` the existing
+    environment and only then try to build a new one, which was tolerable while
+    it ran solely from first-run setup and unacceptable once an ordinary launch
+    can reach it: a failed ``create_venv`` — no base interpreter, no disk, an
+    interrupted run — would have left the user with nothing at all, from a
+    machine that had been working a moment earlier. The old environment is now
+    renamed aside on the same volume and is only discarded once its replacement
+    has proved it can import ssl. If anything goes wrong it is put back.
     """
+    aside: Optional[Path] = None
     if VENV_DIR.exists():
         # A venv built on >=3.13 can never install Kokoro. If the chosen base
         # is Kokoro-compatible (<3.13), rebuild on it rather than reusing the
         # incompatible venv forever.
         venv_ver = _interp_version_argv([str(venv_python())])
         base_ver = _interp_version_argv(py_argv)
-        if (venv_ver is not None and not _is_kokoro_compatible(venv_ver)
-                and _is_kokoro_compatible(base_ver)):
+        replace_for_version = (venv_ver is not None
+                               and not _is_kokoro_compatible(venv_ver)
+                               and _is_kokoro_compatible(base_ver))
+        if replace_for_version:
             log.line(f"  Existing venv is Python {venv_ver[0]}.{venv_ver[1]} "
                      f"(no Kokoro support) but Python {base_ver[0]}.{base_ver[1]} "
                      "is available — rebuilding the venv on it.")
-            shutil.rmtree(VENV_DIR, ignore_errors=True)
-
-    if VENV_DIR.exists() and not venv_is_valid():
-        log.line("  Existing virtual environment is broken — removing it first.")
-        shutil.rmtree(VENV_DIR, ignore_errors=True)
+            aside = _move_venv_aside(log)
+        elif not venv_is_valid():
+            log.line("  Existing virtual environment is broken — replacing it.")
+            aside = _move_venv_aside(log)
 
     if not VENV_DIR.exists():
         if not create_venv(py_argv, log):
+            _restore_venv(aside, log)
             return False
 
     caps = probe_capabilities(venv_python())
@@ -1132,12 +1397,18 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog,
         log.line(f"  [!!] New venv {reason} — recreating once from scratch.")
         shutil.rmtree(VENV_DIR, ignore_errors=True)
         if not create_venv(py_argv, log):
+            _restore_venv(aside, log)
             return False
         caps = probe_capabilities(venv_python())
 
     if not caps["ssl"]:
         log.line("  ERROR: the virtual environment still cannot import ssl after a "
                  "recreate. pip and Edge TTS will not work.")
+        # A replacement that cannot import ssl is worse than what was there
+        # before, so hand the previous environment back rather than keeping it.
+        if _restore_venv(aside, log):
+            return False
+        _discard_venv_aside(aside)
         return False
     if not headless and not caps["tcl_tk_functional"]:
         # ssl works (so setup can proceed), but the GUI base lost Tk. Don't abort —
@@ -1145,6 +1416,7 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog,
         log.line("  [!!] The virtual environment cannot initialize Tcl/Tk, so the "
                  "app window may not open. Setup will finish; install Tk support "
                  "(macOS: brew install python-tk@3.12) and re-run to enable the GUI.")
+    _discard_venv_aside(aside)
     log.line(f"  venv ready (ssl={caps['ssl']}, tkinter={caps['tcl_tk_functional']}).")
     return True
 
@@ -1299,6 +1571,57 @@ def prove_required_imports(venv_py: Path) -> tuple[Optional[bool], str, str]:
         return False, out or (r.stderr or "").strip() or "unknown", ""
     except Exception as exc:
         return None, f"probe unavailable: {exc!r}", ""
+
+
+def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
+    """Rebuild the Python environment, and **only** the Python environment.
+
+    This is the bounded recovery route an ordinary launcher run may reach when
+    :func:`assess_venv_health` says the venv is repairable. It is deliberately
+    *not* ``run_setup``: that owns general first-run installation and reaches
+    ``ensure_ffmpeg`` and, through it, FFmpeg provisioning. Making a normal
+    launch fall into that would put the portable-FFmpeg acquisition on the
+    launch path a whole phase before it has been made safe to run — so this
+    function locates a base interpreter, replaces the venv, reconciles the
+    Python packages, and stops. FFmpeg detection on the launch path is unchanged
+    and still never installs.
+
+    Must be called from an interpreter that is **not** the one inside the venv;
+    see :data:`EXIT_VENV_REPAIR_REQUIRED`.
+    """
+    log.line("Repairing the Python environment (packages only — no other setup)…")
+
+    py_argv = find_suitable_python(log, prefer_tk=not headless)
+    if py_argv is not None and not is_full_feature_python(_interp_version_argv(py_argv)):
+        log.line("  The Python found is not fully compatible — trying to obtain 3.12…")
+        better = install_python(log, prefer_tk=not headless)
+        if better is not None and is_full_feature_python(_interp_version_argv(better)):
+            py_argv = better
+    if py_argv is None:
+        py_argv = install_python(log, prefer_tk=not headless)
+    if py_argv is None:
+        return False, ("No suitable Python could be found or installed, so the "
+                       "app's environment could not be repaired.")
+
+    if not _create_validated_venv(py_argv, log, headless):
+        return False, ("The app's Python environment could not be rebuilt. The "
+                       "previous environment was left in place where possible.")
+
+    ok, reason = reconcile_requirements(log)
+    if not ok:
+        if reason == RECONCILE_IMPORT_FAILED:
+            return False, ("The environment was rebuilt but its packages could "
+                           "not be imported. It will be retried next time.")
+        return False, ("The environment was rebuilt but its packages could not "
+                       "be installed. It will be retried next time.")
+
+    final_ver = _interp_version_argv(py_argv)
+    if not is_full_feature_python(final_ver):
+        shown = f"{final_ver[0]}.{final_ver[1]}" if final_ver else "unknown"
+        return True, (f"The environment was rebuilt on Python {shown}, which "
+                      "cannot run the local Kokoro and Chatterbox voices. Edge "
+                      "TTS and the audio tools work normally.")
+    return True, "The app's Python environment was repaired."
 
 
 def pip_install_requirements(log: SetupLog) -> bool:
@@ -2127,7 +2450,7 @@ def ensure_ffmpeg_ready_for_launch() -> bool:
     return False
 
 
-def _launch_with_kokoro_healthcheck() -> int:
+def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int:
     """Reconcile dependencies, probe Kokoro health, self-heal, then launch the GUI.
 
     Runs on *every* launch (both the ``--launch-only`` fast path used by the
@@ -2140,7 +2463,50 @@ def _launch_with_kokoro_healthcheck() -> int:
     remediation runs **first**, because a stale environment is exactly the case
     where Kokoro's own probe would otherwise be the only thing checked. When the
     pins are unchanged it is one file hash and costs nothing.
+
+    Before any of that, the environment itself is assessed. The launcher used to
+    decide this by asking whether ``pythonw.exe`` existed, which cannot tell a
+    working environment from a wrecked one, and ``--launch-only`` returned here
+    without ever calling ``venv_is_valid`` — so every recovery path the setup
+    code already had was unreachable from a normal launch. A venv that needs
+    replacing cannot be replaced from inside itself, so that case returns
+    :data:`EXIT_VENV_REPAIR_REQUIRED` for the launcher to act on.
     """
+    health = assess_venv_health(require_tk=True)
+    LOG.line(f"Environment health: {health.state} ({health.reason})")
+    if not allow_repair_handoff and health.state == VENV_REPAIRABLE:
+        # A repair has just run. Asking for another one would be a loop, and the
+        # honest reading of "still repairable" after a completed repair is that
+        # this machine cannot do better — so launch anyway if the environment
+        # can carry the app at all, and say what is wrong.
+        LOG.line(f"  Still not fully healthy after a repair: {health.detail}")
+        if not health.executes or not health.ssl:
+            show_warning_dialog("The app's environment is not usable",
+                                f"{health.detail}\n\nSee log: {LOG.path}")
+            return 1
+        LOG.line("  Launching with limits rather than repairing again.")
+    elif health.state == VENV_REPAIRABLE:
+        # Confirm against a real base before asking for a rebuild: "repairable"
+        # was decided without knowing whether anything better is obtainable, and
+        # for the version/Tk cases the honest answer may be "no, this is as good
+        # as this machine gets" — which is a degraded launch, not a rebuild loop.
+        if health.reason in ("incompatible-python", "no-tk"):
+            base = find_suitable_python(LOG, prefer_tk=True)
+            better = base is not None and is_full_feature_python(
+                _interp_version_argv(base))
+            health = assess_venv_health(require_tk=True,
+                                        compatible_base_available=better)
+            LOG.line(f"Environment health after checking for a better Python: "
+                     f"{health.state} ({health.reason})")
+        if health.state == VENV_REPAIRABLE:
+            LOG.line(f"  {health.detail}")
+            LOG.line("  Handing back to the launcher for an environment repair.")
+            return EXIT_VENV_REPAIR_REQUIRED
+    if health.state == VENV_ABSENT and allow_repair_handoff:
+        return EXIT_VENV_REPAIR_REQUIRED
+    if health.state == VENV_DEGRADED:
+        LOG.line(f"  Launching with limits: {health.detail}")
+
     venv_py = venv_python()
 
     if not requirements_are_current():
@@ -2283,6 +2649,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--self-test", action="store_true",
                         help="Run detection logic only — no installs, no GUI. "
                              "For developer verification.")
+    parser.add_argument("--venv-check", action="store_true",
+                        help="Classify the existing environment and exit. Used by "
+                             "the Windows launcher, which cannot wait for the "
+                             "detached GUI launch and so asks first. No installs, "
+                             "no GUI, no launch.")
+    parser.add_argument("--repair-venv", action="store_true",
+                        help="Rebuild the Python environment and its packages, "
+                             "then launch. Must be run from a base interpreter, "
+                             "never from inside the venv being replaced. Repairs "
+                             "the environment only — it never installs ffmpeg.")
     args = parser.parse_args(argv)
 
     if not _platform_sane():
@@ -2295,6 +2671,12 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.self_test:
         return _self_test()
+
+    if args.venv_check:
+        return _venv_check()
+
+    if args.repair_venv:
+        return _repair_and_launch(headless=args.headless)
 
     if args.launch_only:
         # Fast path from the .bat/.command. Self-heal Kokoro before launching so
@@ -2310,6 +2692,49 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.headless:
         return _run_headless(skip_kokoro=args.skip_kokoro_download)
     return run_with_gui(skip_kokoro_default=args.skip_kokoro_download)
+
+
+def _venv_check() -> int:
+    """Classify the environment for the launcher and exit. Never installs.
+
+    Windows cannot use the launch path's own answer: it starts the GUI bootstrap
+    detached so the console does not linger, which means the batch file is gone
+    long before that process could report anything. So it asks this first — one
+    bootstrap start plus one probe, ~150 ms measured — and only then starts the
+    real launch. macOS already runs its launch synchronously and reads the same
+    codes straight from it.
+    """
+    health = assess_venv_health(require_tk=True)
+    if health.state in ("repairable", "absent"):
+        # Only spend interpreter probes once the cheap answer says something is
+        # wrong, and only for the two reasons where "is anything better even
+        # available?" changes the verdict from repair to degraded-but-usable.
+        if health.reason in ("incompatible-python", "no-tk"):
+            base = find_suitable_python(LOG, prefer_tk=True)
+            better = base is not None and is_full_feature_python(
+                _interp_version_argv(base))
+            health = assess_venv_health(require_tk=True,
+                                        compatible_base_available=better)
+    LOG.line(f"[venv-check] {health.state}: {health.detail}")
+    if health.can_launch:
+        return 0
+    return EXIT_VENV_REPAIR_REQUIRED
+
+
+def _repair_and_launch(headless: bool) -> int:
+    """Bounded environment repair, then the normal launch health path.
+
+    Reached only from a launcher that was told :data:`EXIT_VENV_REPAIR_REQUIRED`,
+    and running on a base interpreter rather than the venv's own.
+    """
+    ok, message = repair_venv(LOG, headless=headless)
+    LOG.line(message)
+    if not ok:
+        show_warning_dialog("The app's environment could not be repaired",
+                            f"{message}\n\nSee log: {LOG.path}")
+        return 1
+    # No second handoff: a repair has just run, so another request would loop.
+    return _launch_with_kokoro_healthcheck(allow_repair_handoff=False)
 
 
 def _run_headless(skip_kokoro: bool) -> int:

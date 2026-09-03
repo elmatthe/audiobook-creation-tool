@@ -68,14 +68,25 @@ def bat_text() -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_launcher_takes_the_fast_path_only_when_the_venv_exists(bat_text):
-    assert r'if exist ".venv\Scripts\pythonw.exe"' in bat_text
+def test_the_launcher_takes_the_fast_path_only_when_the_venv_is_healthy(bat_text):
+    """Existence is not health (PRE-PLAN-6 Phase 2).
+
+    This used to assert ``if exist ".venv\\Scripts\\pythonw.exe"``, which is a
+    question about a file. An environment whose Python cannot run, that lost
+    ssl, or that sits on a version too new for the pinned voice engines still
+    has that file, so the launcher started something that could not work and
+    bootstrap's own recovery paths were unreachable. The gate is now bootstrap's
+    verdict. Behavioural coverage lives in ``test_venv_recovery.py``, which runs
+    this launcher against sandbox trees.
+    """
+    assert "--venv-check" in bat_text
     assert "--launch-only" in bat_text
+    assert r'if exist ".venv\Scripts\pythonw.exe"' not in bat_text
 
 
 def test_a_freshly_extracted_tree_therefore_runs_first_run_setup(bat_text):
-    """No ``.venv`` means the fast path cannot be taken, so setup runs."""
-    fast = bat_text.index(r'if exist ".venv\Scripts\pythonw.exe"')
+    """No ``.venv`` means the health gate cannot be reached, so setup runs."""
+    fast = bat_text.index(r'if not exist ".venv\Scripts\python.exe" goto firstrun')
     first_run = bat_text.index("first-time setup")
     assert fast < first_run
 

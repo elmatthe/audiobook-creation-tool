@@ -5,7 +5,10 @@
 **Branch:** `maintenance/0.6.2-setup-self-healing`
 **Base:** `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c` (PR #8 merge commit on `master`)
 **Status:** Phase 0 complete (this document). **Phase 1 complete** — C2, M1, L1a and L1b
-fixed; Python contract enforced. Phase 2 not started.
+fixed; Python contract enforced; remediated after review so a present-but-non-importable
+module can no longer hide behind matching pins. **Phase 2 complete** — H2 closed; venv
+health is one bootstrap-owned authority, recovery is reachable and rollback-safe, and no
+launch path reaches FFmpeg provisioning. Phase 3 not started.
 **Authored:** 2026-09-03, from the approved Checkpoint-1 read-only investigation as revised by
 maintainer/ChatGPT review.
 
@@ -616,7 +619,39 @@ red, in the phase report), then **the phase ends green**. Do not leave a permane
 
 ---
 
-### PHASE 2 — existing-venv liveness / launcher recovery
+### PHASE 2 — existing-venv liveness / launcher recovery ✅ COMPLETE
+
+> **Outcome.** H2 closed. Venv health is no longer an existence test: bootstrap owns one
+> authority, `assess_venv_health`, returning `VenvHealth` over four states — healthy,
+> repairable, degraded, absent — from a **single** subprocess (~58 ms measured, against
+> ~190 ms for `probe_capabilities`' four). The launchers know nothing about Python
+> versions, ssl or Tk; Windows asks `--venv-check` (169.7 ms measured on the real healthy
+> environment) and macOS reads the same verdict from the `--launch-only` call it already
+> waited on. A venv cannot replace itself — Windows locks the running `python.exe` — so
+> replacement is requested with `EXIT_VENV_REPAIR_REQUIRED = 3` and performed from a base
+> interpreter via `--repair-venv`.
+>
+> **Scope held.** Recovery runs through `repair_venv`, never `run_setup`, so no ordinary
+> launch can reach `ensure_ffmpeg` or the portable fallback a phase early — guarded
+> structurally (AST) and behaviourally. Package problems are still repaired in place and
+> never rebuild the environment.
+>
+> **Rollback safety.** `_create_validated_venv` used to `rmtree` the environment and only
+> then try to build one; a failing `create_venv` left the user with nothing. The old
+> environment is now renamed aside on the same volume and restored if the replacement
+> fails or cannot import ssl, and discarded only once the replacement is proved.
+>
+> **Degraded is not a rebuild loop.** A 3.13-only machine with no obtainable 3.12, or a
+> Tk-less environment with no better base, launches and says so rather than being
+> destroyed on every run. A repair never asks for a second repair.
+>
+> **Also:** the import proof now carries the venv interpreter's identity (path, size,
+> mtime), so a proof cannot survive the interpreter being replaced. The **Python** WinGet
+> install is explicitly `--scope user` now that an ordinary repair can reach it; the
+> FFmpeg WinGet command is deliberately untouched and stays with M5.
+>
+> **Gate:** 17 failed / 5168 passed / 57 skipped / 76 errors — failure and error rows
+> identical to Phase 1's, +45 passed. Phase-2-attributable failures: **zero**.
 
 **Fixes:** H2, and the dead `_create_validated_venv` recovery branches.
 

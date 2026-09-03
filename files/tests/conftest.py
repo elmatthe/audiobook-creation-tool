@@ -142,6 +142,12 @@ def _sandbox_setup_log(_sandbox_logs_dir):
     log = None
     try:
         log = bootstrap.SetupLog()
+        # Resolve the path now, while LOGS_DIR is definitely the sandbox.
+        # SetupLog resolves lazily and then caches, so a test that redirects
+        # LOGS_DIR for its own purposes before this logger is first used would
+        # otherwise capture it and pin the shared logger to that test's tmp_path
+        # for the rest of the session.
+        _ = log.path
         yield log
     finally:
         if log is not None:
