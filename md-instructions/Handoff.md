@@ -2,6 +2,64 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is MERGED into master via PR #6 (2026-09-02)
+>
+> **This block is the live state of the repository. It supersedes every "next action", "not
+> merged", "no pull request", "merge is not authorized" and "`origin/master` is untouched at
+> `81c9c06`" statement in *every* block below it — including the 2026-09-01 recheck blocks and the
+> 2026-08-31 closeout block, each of which was correct when written and is kept as dated evidence.
+> Nothing below is deleted or rewritten, and the phase-by-phase historical record is untouched.**
+>
+> - **v0.6.2 Plan 5 (M4B Converter upgrade) is COMPLETE, APPROVED, CLOSED and now INTEGRATED INTO
+>   `master`.**
+> - **Merged through pull request #6 on 2026-09-02**, using a **normal two-parent merge commit** —
+>   *not* a squash and *not* a rebase.
+>   - merge commit: **`7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`**
+>   - parent 1 (pre-merge `master`): `81c9c0600ca74a42a22bd09d367a702bee9708fe`
+>   - parent 2 (feature head): `393a5625f0bce90cb4f9f4313196017acf958f56`
+> - **`master` now points to `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`.** Any sentence below saying
+>   `origin/master` is `81c9c06`, that there is no pull request, that merge is unauthorized, or that
+>   the feature branch is unmerged, is **superseded by this block.**
+> - **The feature branch `feature/0.6.2-m4b-converter-upgrade` is RETAINED** at
+>   `393a5625f0bce90cb4f9f4313196017acf958f56`, matching the precedent set by every earlier plan
+>   branch. It was not deleted.
+> - **v0.6.2 is still UNRELEASED.** The merge published nothing: there is **no `[0.6.2]` changelog
+>   heading, no `v0.6.2` tag, no GitHub release, no package** and no `release.py` run. **The latest
+>   published GitHub release remains `v0.4.0`**, and the README download links still point at it.
+>   Plan 9 continues to own release hardening and publication.
+> - **Plan 6 has NOT begun** and must not begin yet — see the next action below.
+>
+> **How Plan 5 reached integration, in order.** This sequence is the record; do not compress it into
+> "Plan 5 was approved and merged".
+>
+> 1. **First post-closeout integration review (read-only) — NOT READY.** The blockers were
+>    **documentation only**; the implementation itself was judged sound.
+> 2. **Documentation remediation — completed** (commit `3fc58bf`), correcting those records.
+> 3. **Second independent recheck (read-only) — NOT READY.** All eight documentation blockers were
+>    confirmed **resolved** and the production implementation **sound**, but one **HIGH, test-only**
+>    blocker remained: a split-destination test built its fixture as `Book?.m4b`, which the Win32 API
+>    forbids, so it failed deterministically on Windows before any planning code ran.
+> 4. **Windows test-portability blocker — corrected** (commit `393a562`), test-only, with no
+>    production file touched.
+> 5. **Final independent integration-readiness recheck — READY.**
+> 6. **Independent PR/integration review of PR #6 — READY TO MERGE.**
+> 7. **Maintainer-authorized merge of PR #6 — COMPLETE** (2026-09-02).
+>
+> **Accepted waivers remain waivers, not passes** — in particular no real xHE-AAC (USAC) source was
+> available on either platform, so neither the Windows Media Foundation route nor the macOS `aac_at`
+> route has a live end-to-end decode behind it; several real-source artwork/chapter edge rows stand
+> on synthetic produced-bytes proofs; and Windows 125% scaling remains deferred to Plan 9.
+>
+> **Known local-only test failure, not branch content.** `test_plan3_boundaries.py` asserts the
+> contents of `md-instructions/don't-delete/` with strict set equality, so this machine's preserved
+> **untracked** `Codex-Investigation-Report-batch-launcher.md` fails it here. That file is absent
+> from the Git tree and was absent from PR #6, so it cannot affect a clean checkout.
+>
+> **THE NEXT ACTION is ONE separate bounded PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing
+> remediation** for the carry-forward defect recorded below. It is **not** part of Plan 5, and it is
+> **not** Plan 6. **Plan 6 must not begin until that remediation is dispositioned.** Merging Plan 5
+> authorizes no release, tag or package.
+
 > ## ⟢ CURRENT STATE — post-remediation recheck ran, found ONE test-portability blocker, now fixed (2026-09-01)
 >
 > **This block is the live state of the repository and supersedes the "next action" wording in the
