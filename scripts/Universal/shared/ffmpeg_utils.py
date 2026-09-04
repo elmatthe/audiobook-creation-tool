@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 import sys
 from functools import lru_cache
+from pathlib import Path
 
 from . import ffmpeg_health
 from . import subprocess_utils as sp
@@ -353,9 +354,26 @@ def mp3_export_options(bitrate: str | None = None) -> dict:
 _pydub_configured = False
 
 
-#: What pydub is pointed at when nothing is pinned. A path that cannot exist,
-#: named so it explains itself if it ever reaches a traceback.
-UNVERIFIED_PYDUB_SENTINEL = "<no-verified-ffmpeg>"
+#: What pydub is pointed at when nothing is pinned: this package's own
+#: directory, absolute and resolved.
+#:
+#: **It has to be an absolute path, and the reason is mechanical.** Process
+#: creation treats a bare token — anything with no path separator — as a
+#: *command name* and searches PATH for it. So a decorative sentinel like
+#: ``"<no-verified-ffmpeg>"`` does not actually close the escape it was written
+#: to close: it only happens to fail on Windows, where ``<`` and ``>`` cannot
+#: appear in a filename. On macOS and Linux those are ordinary filename
+#: characters, so a PATH directory may legally contain an executable with that
+#: exact name, and pydub would run it. Relying on one platform's filename rules
+#: is not an invariant. An absolute path is: there is nothing to search.
+#:
+#: **A directory rather than a nonexistent file**, because "no process API will
+#: execute a directory" is a property of the operating system, while "this file
+#: does not exist" is a property of the filesystem right now — one that anyone
+#: could change by creating the file. This directory necessarily exists (the
+#: module was imported from it) and necessarily is not an ffmpeg binary, on
+#: every supported platform, with nothing written to disk to make it so.
+UNVERIFIED_PYDUB_SENTINEL = str(Path(__file__).resolve().parent)
 
 
 def configure_pydub() -> None:
@@ -370,10 +388,12 @@ def configure_pydub() -> None:
     leaving it unconfigured was a way for audio work to escape the health
     authority entirely — the one route that no consumer gate in this
     application sits in front of. When nothing is pinned, pydub is therefore
-    pointed at a path that cannot exist, so an operation that slips past a gate
-    fails immediately and visibly instead of quietly running an installation
-    nobody proved. :func:`refresh` clears this, so pinning a pair mid-session
-    replaces the sentinel with the real thing.
+    pointed at :data:`UNVERIFIED_PYDUB_SENTINEL` — an absolute path to a
+    directory, which no process API will execute and which forces no PATH
+    lookup on any supported platform. An operation that slips past a gate fails
+    immediately, locally and visibly, instead of quietly running an
+    installation nobody proved. :func:`refresh` clears this, so pinning a pair
+    mid-session replaces the sentinel with the real thing.
     """
     global _pydub_configured
     if _pydub_configured:

@@ -226,6 +226,119 @@ def test_pinning_a_pair_later_replaces_the_sentinel(monkeypatch, tmp_path):
     assert Path(pydub.AudioSegment.converter).parent == directory
 
 
+def test_the_unverified_sentinel_cannot_be_looked_up_on_path():
+    """The sentinel must be an absolute path, not a command name.
+
+    This is the cross-platform half of the pydub closure, and it is a property
+    of *process creation*, not of pydub. ``subprocess`` — and the CreateProcess
+    / ``execvp`` calls under it — treat an argv[0] containing no path separator
+    as a **command name** and search PATH for it. Anything with a separator is
+    a filesystem object and is opened directly.
+
+    So a decorative token like ``"<no-verified-ffmpeg>"`` does not close the
+    escape it was written to close. It is safe on Windows only by accident:
+    ``<`` and ``>`` are illegal in NTFS filenames, so the lookup cannot match
+    anything. On macOS and Linux they are ordinary filename characters, a PATH
+    directory may legally hold an executable named exactly that, and pydub
+    would run it — unverified PATH execution, which is precisely what this
+    phase says is impossible.
+
+    Asserted as the platform-independent property rather than by creating such
+    a file, because the Windows development machine cannot represent the POSIX
+    case and faking the filesystem would prove nothing about it.
+    """
+    sentinel = ffmpeg_utils.UNVERIFIED_PYDUB_SENTINEL
+
+    assert os.path.isabs(sentinel), (
+        f"{sentinel!r} is not absolute, so process creation would resolve it "
+        "as a command name through PATH")
+    assert os.path.dirname(sentinel), "no path component: still a bare token"
+    assert sentinel not in ("ffmpeg", "ffprobe", "avconv", "avprobe")
+    # The specific historical value, named so this cannot silently regress to it.
+    assert sentinel != "<no-verified-ffmpeg>"
+
+
+def test_the_unverified_sentinel_is_structurally_not_an_executable():
+    """A directory, not a nonexistent file — the stronger of the two options.
+
+    "Nothing will execute a directory" is a property of the operating system.
+    "This file does not exist" is a property of the filesystem at one moment,
+    which anyone can change by creating the file. The sentinel is this
+    package's own directory: it necessarily exists, because the module under
+    test was imported from it, and it necessarily is not an ffmpeg binary.
+    """
+    sentinel = Path(ffmpeg_utils.UNVERIFIED_PYDUB_SENTINEL)
+
+    assert sentinel.is_dir(), "the fail-closed target must be a real directory"
+    assert not sentinel.is_file()
+    assert sentinel == Path(ffmpeg_utils.__file__).resolve().parent
+
+
+def test_an_unverified_pydub_run_fails_without_searching_path(monkeypatch,
+                                                              tmp_path):
+    """End to end: what pydub is handed cannot become a PATH lookup.
+
+    A real ffmpeg is planted on PATH so that a bare-name argv[0] *would*
+    resolve to it. The assertion is that the value pydub receives is not a
+    bare name at all, so the lookup never happens — and that actually trying to
+    run it fails locally, at the fixed target, rather than executing anything.
+    """
+    pydub = _pydub()
+    decoy = install(tmp_path / "decoy-on-path")
+    monkeypatch.setenv("PATH", str(decoy))
+    ffmpeg_utils.refresh()
+    monkeypatch.setattr(ffmpeg_utils, "_pydub_configured", False)
+
+    ffmpeg_utils.configure_pydub()
+
+    converter = pydub.AudioSegment.converter
+    assert os.path.isabs(converter)
+    assert Path(converter).parent != decoy, "pydub picked up the PATH decoy"
+
+    import subprocess
+    with pytest.raises(OSError):
+        subprocess.run([converter, "-version"], capture_output=True)
+
+
+def test_the_prober_name_is_the_same_fail_closed_target(monkeypatch):
+    """pydub probes through ``get_prober_name``; it must not be exempt."""
+    pydub = _pydub()
+    from pydub import utils as pydub_utils
+
+    monkeypatch.setenv("PATH", "")
+    ffmpeg_utils.refresh()
+    monkeypatch.setattr(ffmpeg_utils, "_pydub_configured", False)
+
+    ffmpeg_utils.configure_pydub()
+
+    prober = pydub_utils.get_prober_name()
+    assert prober == ffmpeg_utils.UNVERIFIED_PYDUB_SENTINEL
+    assert os.path.isabs(prober)
+    assert pydub.AudioSegment.ffprobe == prober
+
+
+def test_pinning_replaces_the_fail_closed_target_everywhere(monkeypatch,
+                                                            tmp_path):
+    """The approved refresh behaviour, re-asserted across all four settings."""
+    pydub = _pydub()
+    from pydub import utils as pydub_utils
+
+    monkeypatch.setenv("PATH", "")
+    ffmpeg_utils.refresh()
+    monkeypatch.setattr(ffmpeg_utils, "_pydub_configured", False)
+    ffmpeg_utils.configure_pydub()
+    assert pydub_utils.get_prober_name() == ffmpeg_utils.UNVERIFIED_PYDUB_SENTINEL
+
+    directory = install(tmp_path / "good")
+    pin(monkeypatch, directory)          # pin() calls refresh()
+    ffmpeg_utils.configure_pydub()
+
+    assert Path(pydub.AudioSegment.converter).parent == directory
+    assert Path(pydub.AudioSegment.ffmpeg).parent == directory
+    assert Path(pydub.AudioSegment.ffprobe).parent == directory
+    assert Path(pydub_utils.get_prober_name()).parent == directory
+
+
 # --------------------------------------------------------------------------- #
 # D. Consumer gates
 # --------------------------------------------------------------------------- #

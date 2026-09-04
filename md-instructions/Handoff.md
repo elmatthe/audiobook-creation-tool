@@ -2,6 +2,73 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 4 REMEDIATED: a sentinel with no path is still a command name (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-4 claim below that
+> pydub "cannot fall back to a bare PATH ffmpeg" — on macOS it still could. Everything else in
+> that block stands. Nothing below is deleted or rewritten.**
+>
+> - **The gap.** Phase 4 pointed unconfigured pydub at `UNVERIFIED_PYDUB_SENTINEL`, whose value
+>   was `"<no-verified-ffmpeg>"`. That string has no absolute path and **no path separator**, and
+>   process creation treats an argv[0] with no separator as a **command name** — it searches
+>   PATH for it. So the value was not a fail-closed target at all; it was a bare command token
+>   with a self-explaining name.
+> - **Why it looked safe.** On Windows `<` and `>` are illegal in a filename, so the PATH lookup
+>   can never match anything and the call fails. That is an accident of NTFS naming rules, not
+>   an invariant. **This project also supports macOS**, where `<` and `>` are ordinary filename
+>   characters: a PATH directory may legally contain an executable named exactly
+>   `<no-verified-ffmpeg>`, and pydub would execute it. Unverified PATH execution — the precise
+>   thing Phase 4 declares impossible.
+> - **The fix is one line of value.** `UNVERIFIED_PYDUB_SENTINEL` is now
+>   `str(Path(__file__).resolve().parent)`: this package's own absolute directory. **Absolute**,
+>   so there is nothing for process creation to search. **A directory**, so no process API on
+>   any supported platform can execute it as the FFmpeg binary.
+> - **Why a directory rather than an absolute nonexistent file.** An absolute nonexistent path
+>   would also have closed the PATH route and would have been much better than the old value.
+>   But *"no process API will execute a directory"* is a property of the operating system, while
+>   *"this file does not exist"* is a property of the filesystem at one moment — one that anyone
+>   can change by creating the file. The directory necessarily exists (the module was imported
+>   from it) and necessarily is not an ffmpeg binary. **No dummy executable and no sentinel file
+>   were created**, and nothing was written to disk.
+> - **The approved Phase-4 model is untouched.** `discovered_ffmpeg()` is still observation only;
+>   `have_ffmpeg()` is still `verified_ffmpeg()`; `ffmpeg_path`/`ffprobe_path` still expose only
+>   the pin; `ffmpeg_cmd`/`ffprobe_cmd` still raise `FFmpegUnavailable`; `status_line()` is still
+>   the single wording authority and still executes nothing; the consumer gates and the central
+>   fail-closed accessor are unchanged. `ffmpeg_health.py` and `ffmpeg_portable.py` were **not**
+>   touched.
+> - **pydub configuration is unchanged in shape.** Unpinned, all four settings — `converter`,
+>   `ffmpeg`, `ffprobe` and `pydub_utils.get_prober_name` — resolve to the fail-closed absolute
+>   directory. Pinned, all four are the real absolute sibling paths, exactly as before.
+>   `refresh()` still clears the flag so a later pin replaces the fail-closed target.
+> - **Red proof, for the defect it names.** Against `c96d566`, four of five new regressions
+>   fail: the sentinel is not absolute (so it *would* be resolved through PATH), it is not a
+>   directory, `get_prober_name()` is not absolute either, and an unverified pydub run is handed
+>   a bare token while a real ffmpeg sits on PATH. All pass on this tree. **Reported honestly:**
+>   the fifth, `test_pinning_replaces_the_fail_closed_target_everywhere`, asserts that pinned
+>   behaviour is *not* regressed; it passes on both trees and is not red evidence.
+> - **The test asserts the cross-platform property, not a faked filesystem.** It does not create
+>   a file named with `<` or `>` — Windows cannot represent the macOS case, and faking it would
+>   prove nothing about the platform where the defect actually bites.
+> - **Gate: 17 failed / 5340 passed / 57 skipped / 76 errors.** The 93 FAILED/ERROR rows are
+>   **byte-identical** to the Phase-4 run; the delta is **+5 passed**, exactly the five new
+>   tests. `verify.py` deps / docs / docnames / config all PASS; the pytest row is the standing
+>   HOME-PC red baseline. **Remediation-attributable failures: zero.**
+> - **Preserved HOME-PC state intact:** requirements stamp, import proof, log directory and
+>   `ffmpeg-state.json` unchanged **including content hashes** (`ffmpeg-state.json` still has no
+>   active pair); `.venv` still Python 3.12.10; `files/bin` absent; no `ffmpeg-staging`;
+>   `where ffmpeg` finds nothing; no `Gyan.FFmpeg`; no `.venv.replaced*`; PATH unchanged. No
+>   download, no install.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 5 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; the 2026-08-28 entry is intact.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 4 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/ffmpeg_utils.py`;
+> `files/tests/test_ffmpeg_runtime_trust.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: none. Deleted: none. All staged and committed together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 4 COMPLETE: runtime FFmpeg trust closure (2026-09-04)
 >
 > **This block is the live state of the repository. It supersedes the Phase-3 blocks' closing

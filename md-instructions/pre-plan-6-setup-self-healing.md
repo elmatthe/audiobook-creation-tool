@@ -834,6 +834,36 @@ that no normal launch path reaches the new code yet.
 > **Gate:** 17 failed / 5335 passed / 57 skipped / 76 errors — the 93 FAILED/ERROR rows are
 > byte-identical to Phase 3's, +31 passed. Phase-4-attributable failures: **zero**. Nothing was
 > downloaded or installed; HOME-PC still has no FFmpeg.
+>
+> **Remediated after review**, at the one place the closure was not cross-platform. The
+> unpinned pydub target was the string `"<no-verified-ffmpeg>"` — decorative, and mechanically
+> still a **bare command token**. Process creation treats an argv[0] with no path separator as a
+> *command name* and searches PATH for it, so that value closed the escape on Windows **only by
+> accident**: `<` and `>` are illegal in NTFS filenames, so the lookup can never match. On
+> macOS — which this project supports — they are ordinary filename characters, a PATH directory
+> may legally hold an executable named exactly that, and pydub would have run it. One platform's
+> filename rules are not an invariant.
+>
+> `UNVERIFIED_PYDUB_SENTINEL` is now `str(Path(__file__).resolve().parent)` — this package's own
+> absolute directory. Absolute, so no PATH search occurs on any platform; a **directory**, so no
+> process API can execute it. A nonexistent absolute file would also have closed the PATH route,
+> but "nothing executes a directory" is a property of the operating system while "this file does
+> not exist" is a property of the filesystem right now, which anyone can change by creating the
+> file. Nothing is written to disk and no fake executable exists; the directory is necessarily
+> present because the module was imported from it.
+>
+> The approved model is untouched: the same four settings
+> (`converter` / `ffmpeg` / `ffprobe` / `get_prober_name`) are still always set, pinned
+> behaviour is unchanged, and `refresh()` still replaces the fail-closed target with a real pin.
+>
+> **Red proof:** four of the five new regressions fail against `c96d566` — the sentinel is not
+> absolute, is not a directory, the prober name is not absolute, and an unverified pydub run is
+> handed a bare token. The fifth asserts pinned behaviour is *not* regressed and passes on both
+> trees, so it is reported as such rather than as red evidence. The test asserts the
+> platform-independent property; it does **not** create a `<`/`>` filename, which the Windows
+> development machine cannot represent.
+> **Gate after remediation:** 17 failed / 5340 passed / 57 skipped / 76 errors, the 93 rows
+> byte-identical, +5 passed — exactly the five new tests.
 
 **Fixes:** H3, M2.
 
