@@ -104,6 +104,43 @@ def _fingerprint(path: Path):
         return None
 
 
+@pytest.fixture
+def pinned_ffmpeg(monkeypatch, tmp_path):
+    """A sandbox ffmpeg + ffprobe pair, proved and pinned. Returns its directory.
+
+    PRE-PLAN-6 Phase 4 closed the runtime trust boundary: ``ffmpeg_cmd()`` and
+    ``ffprobe_cmd()`` now resolve **only** the pinned pair and raise otherwise,
+    instead of falling back to the bare names. That is the point of the change —
+    a command line can no longer escape the health authority — but it means a
+    test that merely *builds* a command now needs a pinned pair to build it from.
+
+    So this models the real contract rather than weakening production for old
+    fixtures: real files, a real ``establish`` call, a stub runner standing in
+    for execution, and every state path inside ``tmp_path``.
+    """
+    from shared import ffmpeg_health, ffmpeg_utils
+
+    resources = tmp_path / "ffmpeg-state"
+    resources.mkdir(parents=True, exist_ok=True)
+    directory = tmp_path / "ffmpeg-bin"
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in ("ffmpeg", "ffprobe"):
+        (directory / f"{name}{ffmpeg_health.EXE}").write_text(
+            "sandbox binary", encoding="utf-8")
+
+    monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", resources)
+    monkeypatch.setattr(ffmpeg_health, "BIN_DIR", tmp_path / "no-bundled-bin")
+    monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
+    monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
+    monkeypatch.setenv("PATH", str(directory))
+
+    proven = ffmpeg_health.establish(runner=lambda exe: (True, "ffmpeg version 9.0.1"))
+    assert proven is not None, "the sandbox pair should have pinned"
+    ffmpeg_utils.refresh()
+    yield directory
+    ffmpeg_utils.refresh()
+
+
 @pytest.fixture(scope="session")
 def _sandbox_logs_dir(tmp_path_factory):
     """One throwaway logs directory for the whole session."""

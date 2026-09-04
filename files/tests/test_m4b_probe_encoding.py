@@ -49,6 +49,13 @@ from shared import ffmpeg_utils
 
 from test_m4b_metadata import require_ffmpeg  # noqa: E402
 
+# PRE-PLAN-6 Phase 4 closed the runtime trust boundary: ``ffprobe_cmd()``
+# resolves only a proved, pinned pair and refuses otherwise. These tests build
+# and parse real probe command lines without executing anything, so they need a
+# pinned pair to build from -- modelled honestly with a sandbox pair rather than
+# by relaxing the production contract.
+pytestmark = pytest.mark.usefixtures("pinned_ffmpeg")
+
 #: The exact character that broke the real book, and three that cp1252 would
 #: have silently mangled rather than refused.
 BREAKS_CP1252 = "”"                     # utf-8 tail byte 0x9d, unmapped

@@ -25,98 +25,139 @@ from . import subprocess_utils as sp
 _EXE = ".exe" if sys.platform == "win32" else ""
 
 
+class FFmpegUnavailable(RuntimeError):
+    """No proved, pinned ffmpeg + ffprobe pair is active on this machine.
+
+    Raised by the command API rather than returning a bare name, because the
+    caller is about to *execute* something and there is nothing safe to give it.
+    A refusal a caller can see beats a command line that quietly runs whatever
+    the PATH happens to contain.
+    """
+
+
 @lru_cache(maxsize=None)
-def _resolved_pair() -> tuple[str | None, str | None, bool]:
-    """The one ffmpeg + ffprobe pair this process uses, and whether it is proven.
+def _executable_pair() -> tuple[str | None, str | None]:
+    """The pair this process may actually **run**, or ``(None, None)``.
 
-    **The pinned pair wins.** ``shared.ffmpeg_health`` records the installation
-    that setup or repair actually *ran*, and consulting it is what stops PATH
-    order deciding. The Phase 15 machine is the whole argument: a build Windows
-    refuses to execute sat earlier on PATH than a working one, so every lookup
-    here used to choose the broken half of the machine.
+    Only ``ffmpeg_health.pinned_pair()`` — the installation that setup or repair
+    executed, recorded durably, and whose files still match what was recorded.
+    Nothing else qualifies.
 
-    Only when nothing is pinned does this fall back to discovery, and even then
-    it takes a **coherent** pair -- both halves from one directory. ffmpeg from
-    one installation and ffprobe from another was previously possible, because
-    each was resolved on its own, and two answers to "which FFmpeg is this?" is
-    not a state any caller can reason about.
+    **This used to fall back to discovery**, taking the first coherent pair it
+    found and marking it unverified, and callers then ran it anyway. That is the
+    Phase 15 defect one step removed: coherence and resolvability are properties
+    of paths, and the machine that started all of this had a perfectly coherent,
+    perfectly resolvable pair that Windows refused to execute. A path is not a
+    proof, so discovery is now observational only — see
+    :func:`discovered_ffmpeg` — and never reaches an execution site.
 
-    Returns ``(ffmpeg, ffprobe, verified)``. Cached, because the answer cannot
-    change under a running process without :func:`refresh`.
+    Cached; the answer cannot change under a running process without
+    :func:`refresh`.
     """
     pinned = ffmpeg_health.pinned_pair()
-    if pinned is not None:
-        return str(pinned.ffmpeg.as_path), str(pinned.ffprobe.as_path), True
-    for pair in ffmpeg_health.discover_pairs():
-        return str(pair.ffmpeg.as_path), str(pair.ffprobe.as_path), False
-    return None, None, False
+    if pinned is None:
+        return None, None
+    return str(pinned.ffmpeg.as_path), str(pinned.ffprobe.as_path)
 
 
 def refresh() -> None:
     """Forget the resolved pair. Call after setup pins a newly proven one."""
-    _resolved_pair.cache_clear()
+    global _pydub_configured
+    _executable_pair.cache_clear()
     ffmpeg_path.cache_clear()
     ffprobe_path.cache_clear()
     _decoder_available.cache_clear()
+    # pydub was pointed at whatever was resolved at the time; a new pin has to
+    # be able to replace it, or the process keeps using the previous answer.
+    _pydub_configured = False
 
 
 @lru_cache(maxsize=None)
 def ffmpeg_path() -> str | None:
-    """Resolved path to the ffmpeg binary, or ``None`` if unavailable."""
-    return _resolved_pair()[0]
+    """Absolute path of the **pinned** ffmpeg, or ``None`` if none is active."""
+    return _executable_pair()[0]
 
 
 @lru_cache(maxsize=None)
 def ffprobe_path() -> str | None:
-    """Resolved path to ffprobe — always the sibling of :func:`ffmpeg_path`."""
-    return _resolved_pair()[1]
+    """Absolute path of the pinned ffprobe — always :func:`ffmpeg_path`'s sibling."""
+    return _executable_pair()[1]
 
 
 def have_ffmpeg() -> bool:
-    """True when a **coherent** ffmpeg + ffprobe pair is available.
+    """True when FFmpeg is usable: a proved, pinned pair is active.
 
-    Deliberately still not a claim that either one *runs*: that is
-    :func:`verified_ffmpeg`. What changed in Phase 15 is that this can no longer
-    be satisfied by two unrelated installations, and that a pinned proven pair
-    is what it reports when there is one.
+    **This changed meaning deliberately.** It used to be satisfied by a coherent
+    pair that had never been executed, which made "have" read like permission
+    while proving nothing — and every consumer gate in the app was written
+    against it. "Have" now means the same thing as
+    :func:`verified_ffmpeg`, so a gate written against either name is safe.
+    :func:`discovered_ffmpeg` is where the older, weaker question moved, under a
+    name that cannot be mistaken for readiness.
     """
-    ffmpeg, ffprobe, _verified = _resolved_pair()
-    return ffmpeg is not None and ffprobe is not None
+    return verified_ffmpeg()
 
 
 def verified_ffmpeg() -> bool:
     """True only when the pair in use was **executed** successfully and pinned.
 
-    The distinction is the entire Phase 15 defect: a resolvable path proved
+    The explicit strong name, and what consumer gates should say when they mean
+    it. The distinction is the entire Phase 15 defect: a resolvable path proved
     nothing, and the first thing that ever ran ffprobe was a real conversion in
     front of the user.
     """
-    return _resolved_pair()[2]
+    return ffmpeg_path() is not None and ffprobe_path() is not None
+
+
+def discovered_ffmpeg() -> bool:
+    """True when a coherent pair merely *appears* to exist. Observational only.
+
+    Deliberately named so it cannot be read as permission. It answers "is there
+    something here?" for a status line, and nothing else may use it to decide
+    whether to run anything. It executes nothing: enumeration only, so drawing a
+    status line can never raise the Windows Security prompt that executing a
+    blocked binary raises.
+    """
+    return next(iter(ffmpeg_health.discover_pairs()), None) is not None
 
 
 def status_line() -> str:
     """One honest sentence about the audio tools, for a tool's own log.
 
     Three states, because there really are three, and the middle one was the
-    lie: found is not ready.
+    lie: found is not ready. It is now *only* informational — nothing acts on
+    it — and it says plainly that the tools are not usable yet.
     """
-    ffmpeg, _ffprobe, verified = _resolved_pair()
-    if verified:
+    if verified_ffmpeg():
         return "FFmpeg verified and ready."
-    if ffmpeg is not None:
-        return ("FFmpeg found but not yet verified — if a conversion cannot "
-                "read a file, run Setup_and_Run once to check it.")
+    if discovered_ffmpeg():
+        return ("FFmpeg was found but has not been verified on this computer, "
+                "so the audio tools are not available yet.")
     return "FFmpeg is not available."
 
 
 def ffmpeg_cmd() -> str:
-    """ffmpeg path for building command lists; falls back to the bare name."""
-    return ffmpeg_path() or "ffmpeg"
+    """Absolute ffmpeg path for a command line. Raises if none is pinned.
+
+    **No bare-name fallback.** It used to return ``"ffmpeg"`` when nothing was
+    resolved, which let a command line escape the health authority entirely and
+    run whatever PATH offered — resolved independently of ffprobe, so the two
+    halves need not even have been the same installation.
+    """
+    path = ffmpeg_path()
+    if path is None:
+        raise FFmpegUnavailable(
+            "No verified FFmpeg is available on this computer yet.")
+    return path
 
 
 def ffprobe_cmd() -> str:
-    """ffprobe path for building command lists; falls back to the bare name."""
-    return ffprobe_path() or "ffprobe"
+    """Absolute ffprobe path for a command line. Raises if none is pinned."""
+    path = ffprobe_path()
+    if path is None:
+        raise FFmpegUnavailable(
+            "No verified FFmpeg is available on this computer yet.")
+    return path
 
 
 # --------------------------------------------------------------------------- #
@@ -213,6 +254,10 @@ def _decoder_available(name: str) -> bool:
     """
     try:
         out = sp.check_output([ffmpeg_cmd(), "-hide_banner", "-decoders"], text=True)
+    except FFmpegUnavailable:
+        # Nothing proved to ask. "No decoders" is the honest answer, and the
+        # caller's own gate is what decides whether that matters.
+        return False
     except Exception:
         return False
     # Entries look like: " A....D aac_at  aac (AudioToolbox) ...". The decoder
@@ -308,30 +353,43 @@ def mp3_export_options(bitrate: str | None = None) -> dict:
 _pydub_configured = False
 
 
+#: What pydub is pointed at when nothing is pinned. A path that cannot exist,
+#: named so it explains itself if it ever reaches a traceback.
+UNVERIFIED_PYDUB_SENTINEL = "<no-verified-ffmpeg>"
+
+
 def configure_pydub() -> None:
-    """Point pydub at the resolved ffmpeg/ffprobe binaries.
+    """Point pydub at the pinned ffmpeg/ffprobe, or at nothing usable.
 
     Safe to call repeatedly and safe to call when pydub is not installed (it
     simply does nothing). Call this once at tool/launcher startup, before any
     ``AudioSegment`` operation.
+
+    **The unpinned case is the point.** pydub defaults to the bare names
+    ``ffmpeg`` and ``ffprobe`` and shells out to whatever PATH resolves, so
+    leaving it unconfigured was a way for audio work to escape the health
+    authority entirely — the one route that no consumer gate in this
+    application sits in front of. When nothing is pinned, pydub is therefore
+    pointed at a path that cannot exist, so an operation that slips past a gate
+    fails immediately and visibly instead of quietly running an installation
+    nobody proved. :func:`refresh` clears this, so pinning a pair mid-session
+    replaces the sentinel with the real thing.
     """
     global _pydub_configured
     if _pydub_configured:
         return
-    ff = ffmpeg_path()
-    fp = ffprobe_path()
+    ff = ffmpeg_path() or UNVERIFIED_PYDUB_SENTINEL
+    fp = ffprobe_path() or UNVERIFIED_PYDUB_SENTINEL
     try:
         from pydub import AudioSegment
         from pydub import utils as pydub_utils
 
-        if ff:
-            AudioSegment.converter = ff
-            AudioSegment.ffmpeg = ff
-        if fp:
-            AudioSegment.ffprobe = fp
-            # pydub probes media via ffprobe; pin the name so it does not
-            # re-scan PATH (and so it uses our bundled copy when present).
-            pydub_utils.get_prober_name = lambda: fp  # type: ignore[assignment]
+        AudioSegment.converter = ff
+        AudioSegment.ffmpeg = ff
+        AudioSegment.ffprobe = fp
+        # pydub probes media via ffprobe; pin the name so it does not re-scan
+        # PATH (and so it uses our proved copy when there is one).
+        pydub_utils.get_prober_name = lambda: fp  # type: ignore[assignment]
     except Exception:
         # pydub not importable (e.g. running a non-TTS tool) — nothing to do.
         pass

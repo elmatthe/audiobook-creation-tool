@@ -786,7 +786,54 @@ that no normal launch path reaches the new code yet.
 
 ---
 
-### PHASE 4 — runtime FFmpeg trust closure
+### PHASE 4 — runtime FFmpeg trust closure ✅ COMPLETE
+
+> **The invariant:** *observation is not permission.* Finding two coherent siblings on disk is a
+> fact about the filesystem; being allowed to execute them is a fact about `ffmpeg_health` having
+> actually run both halves. Phase 4 stops the first from being reported as the second.
+>
+> **The central API is fail-closed, so consumers inherit the boundary.** `ffmpeg_cmd()` and
+> `ffprobe_cmd()` resolve **only** `ffmpeg_health.pinned_pair()` and raise `FFmpegUnavailable`
+> otherwise — no discovery fallback, no bare `"ffmpeg"`/`"ffprobe"`, and therefore no way for the
+> two halves to come from different installations. That was chosen over scattering ~20 duplicated
+> gates across `m4b_maker`, `m4b_probe`, `mp3_tool`, `metadata`, `chatterbox_synth` and
+> `epub2tts_edge`: a gate can be forgotten at the next call site, a raising accessor cannot.
+> `have_ffmpeg()` is now exactly `verified_ffmpeg()`; the observation half moved to the separate,
+> honestly-named `discovered_ffmpeg()`, which is used for wording and nothing else.
+>
+> **pydub was the one route with no gate in front of it.** Left unconfigured it shells out to
+> whatever `PATH` resolves. `configure_pydub()` now *always* sets `converter` / `ffmpeg` /
+> `ffprobe` and `pydub_utils.get_prober_name`, pointing them at `UNVERIFIED_PYDUB_SENTINEL`
+> (`<no-verified-ffmpeg>`) when nothing is pinned, so an unverified machine fails visibly instead
+> of silently running an unproved binary. `refresh()` clears the configured flag, so a later pin
+> replaces the sentinel.
+>
+> **`status_line()` is still the single place the wording lives**, now with three states, and a
+> test proves that drawing it executes nothing.
+>
+> **Red proof** (`files/dev-work/phase4/red-proof.txt`): against `fd6c8b2`, five invariants break —
+> unproved pair reported runtime-ready, unproved pair exposed as executable, the MP3 Tool gate
+> authorising it, `ffmpeg_cmd()`/`ffprobe_cmd()` returning the bare names, and pydub defaulting to
+> a bare `PATH` ffmpeg. All six hold against this tree. The sixth is labelled `[control]` because
+> it is a positive invariant that also passes pre-fix.
+>
+> **The two old-contract tests were rewritten, not deleted**, so the change of contract is legible:
+> `test_an_unproven_coherent_pair_is_not_runtime_ready` and
+> `test_there_is_no_bare_name_fallback_for_command_building`. `test_ffmpeg_runtime_trust.py` adds
+> 26 tests including a structural inventory (no bare-name argv head, no runtime `shutil.which`)
+> and AST assertions that the headline gates ask only `verified_ffmpeg`.
+>
+> **Two allowlist entries, each with a companion proof.** `epub2tts_edge.py` builds
+> `["ffmpeg", …]` lists but always routes them through `_run_ffmpeg`, which rewrites `argv[0]`
+> via `ffmpeg_cmd()` — two tests prove the rewrite exists and inherits the refusal.
+> `bootstrap.py`'s `shutil.which("ffmpeg")` is setup-layer *detection*, not runtime execution.
+>
+> **`shared/ffmpeg_portable.py` was not touched.** The 2026-08-28 ADR is intact; the **additive
+> superseding ADR is owed at Phase 10**, not now.
+>
+> **Gate:** 17 failed / 5335 passed / 57 skipped / 76 errors — the 93 FAILED/ERROR rows are
+> byte-identical to Phase 3's, +31 passed. Phase-4-attributable failures: **zero**. Nothing was
+> downloaded or installed; HOME-PC still has no FFmpeg.
 
 **Fixes:** H3, M2.
 

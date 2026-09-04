@@ -647,12 +647,9 @@ class M4BConverterUI(ttk.Frame):
         # about an installation Windows was refusing to execute. The wording now
         # comes from ``status_line`` so "found" and "verified" cannot be confused
         # again, and so the distinction is stated in exactly one place.
-        if not ffmpeg_utils.have_ffmpeg():
-            self.log_write(
-                "WARNING: ffmpeg/ffprobe not found. Run the setup launcher to install it.\n"
-            )
-        else:
-            self.log_write(ffmpeg_utils.status_line() + "\n")
+        # ``status_line`` words all three states, including "found but not
+        # verified", so there is nothing left for this panel to phrase itself.
+        self.log_write(ffmpeg_utils.status_line() + "\n")
 
         # One pump, one scheduled chain: the conversion queue is a drain on
         # the same pump the import poller rides, and so is the shared job
@@ -960,8 +957,12 @@ class M4BConverterUI(ttk.Frame):
         if not imported:
             messagebox.showwarning("No files", "Please import .m4b files first.")
             return
-        if not ffmpeg_utils.have_ffmpeg():
-            messagebox.showerror("FFmpeg not found", "FFmpeg/ffprobe not found.")
+        if not ffmpeg_utils.verified_ffmpeg():
+            # Verified, not merely found: a coherent path proves nothing about
+            # whether this machine will execute it, which is exactly how a
+            # conversion used to fail in front of the user.
+            messagebox.showerror("FFmpeg is not ready",
+                                 ffmpeg_utils.status_line())
             return
 
         # Every Tk value the run will ever use, read once, here.

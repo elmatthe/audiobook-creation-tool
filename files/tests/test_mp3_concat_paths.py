@@ -35,10 +35,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # to execute, and these tests only passed because a developer had prepended a
 # working directory to PATH for the run. They now use the same proven pair the
 # app does, so this module tests the shipped resolution instead of PATH order.
-FFMPEG = ffmpeg_utils.ffmpeg_cmd()
-FFPROBE = ffmpeg_utils.ffprobe_cmd()
-needs_ffmpeg = pytest.mark.skipif(not ffmpeg_utils.have_ffmpeg(),
-                                  reason="ffmpeg/ffprobe not available")
+# PRE-PLAN-6 Phase 4: resolved lazily and gated on *verified*. The command API
+# now refuses to hand back anything but a proved, pinned pair, so resolving at
+# import time turned "no FFmpeg on this machine" into a collection error for the
+# whole module. These tests genuinely need a real binary, so they skip when
+# there is not a proved one -- which is what the guard always meant.
+needs_ffmpeg = pytest.mark.skipif(not ffmpeg_utils.verified_ffmpeg(),
+                                  reason="no verified ffmpeg/ffprobe available")
+
+
+def _ffmpeg() -> str:
+    return ffmpeg_utils.ffmpeg_cmd()
+
+
+def _ffprobe() -> str:
+    return ffmpeg_utils.ffprobe_cmd()
 
 # Names that have to survive: plain, spaces, one quote, several quotes, Unicode,
 # and everything at once. Windows forbids most other punctuation in a filename.
@@ -128,7 +139,7 @@ def test_the_listfile_is_written_as_utf8(tmp_path):
 
 def tone(path: Path, seconds: int = 1, freq: int = 440) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([FFMPEG, "-y", "-v", "error", "-f", "lavfi",
+    subprocess.run([_ffmpeg(), "-y", "-v", "error", "-f", "lavfi",
                     "-i", f"sine=frequency={freq}:duration={seconds}",
                     "-c:a", "libmp3lame", "-b:a", "64k", str(path)],
                    check=True, capture_output=True)
@@ -136,7 +147,7 @@ def tone(path: Path, seconds: int = 1, freq: int = 440) -> Path:
 
 
 def duration(path: Path) -> float:
-    done = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration",
+    done = subprocess.run([_ffprobe(), "-v", "error", "-show_entries", "format=duration",
                            "-of", "default=nw=1:nk=1", str(path)],
                           capture_output=True, text=True, check=True)
     return float(done.stdout.strip())
@@ -151,7 +162,7 @@ def test_ffmpeg_really_concatenates_through_a_directory_with_that_name(tmp_path,
     listfile = work / "inputs.txt"
     mp3_tool.write_concat_listfile(sources, listfile)
     out = work / f"combined {name}.mp3"
-    done = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+    done = subprocess.run([_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
                            "-f", "concat", "-safe", "0", "-i", str(listfile),
                            "-c:a", "libmp3lame", "-q:a", "2", str(out)],
                           capture_output=True, text=True)
@@ -167,7 +178,7 @@ def test_a_filename_with_an_apostrophe_concatenates_even_in_a_plain_directory(tm
     listfile = tmp_path / "inputs.txt"
     mp3_tool.write_concat_listfile(sources, listfile)
     out = tmp_path / "combined.mp3"
-    done = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+    done = subprocess.run([_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
                            "-f", "concat", "-safe", "0", "-i", str(listfile),
                            "-c:a", "libmp3lame", "-q:a", "2", str(out)],
                           capture_output=True, text=True)
@@ -186,7 +197,7 @@ def test_the_sources_are_byte_identical_afterwards(tmp_path):
     listfile = work / "inputs.txt"
     mp3_tool.write_concat_listfile(sources, listfile)
     out = work / "combined.mp3"
-    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+    subprocess.run([_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
                     "-f", "concat", "-safe", "0", "-i", str(listfile),
                     "-c:a", "libmp3lame", "-q:a", "2", str(out)],
                    check=True, capture_output=True)
@@ -205,7 +216,7 @@ def test_input_order_is_preserved_audibly(tmp_path):
     lines = listfile.read_text(encoding="utf-8").splitlines()
     assert "first.mp3" in lines[0] and "second.mp3" in lines[1]
     out = work / "combined.mp3"
-    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+    subprocess.run([_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
                     "-f", "concat", "-safe", "0", "-i", str(listfile),
                     "-c:a", "libmp3lame", "-q:a", "2", str(out)],
                    check=True, capture_output=True)

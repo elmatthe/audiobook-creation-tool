@@ -2,6 +2,98 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 4 COMPLETE: runtime FFmpeg trust closure (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-3 blocks' closing
+> line that "Phase 4 has not started". Everything else in them stands. Nothing below is deleted
+> or rewritten.**
+>
+> - **The new invariant, in one sentence: *observation is not permission.*** Two coherent
+>   sibling executables on disk is a fact about the filesystem. Being allowed to run them is a
+>   fact about `ffmpeg_health` having actually executed **both halves**. Before this phase the
+>   first was silently reported as the second, and Phase 3's pin work would have been wasted on
+>   consumers that never consulted it.
+> - **Defect H3 closed — `have_ffmpeg()` no longer blesses an unproved pair.** It is now exactly
+>   `verified_ffmpeg()`. The observation half moved to a separate, honestly-named
+>   `discovered_ffmpeg()`, whose only consumer is `status_line()` wording. `ffmpeg_path` /
+>   `ffprobe_path` expose the pinned pair or nothing.
+> - **Defect M2 closed — there is no bare-name fallback.** `ffmpeg_cmd()` / `ffprobe_cmd()`
+>   resolve **only** `ffmpeg_health.pinned_pair()` and raise **`FFmpegUnavailable`** otherwise.
+>   Returning `None` as `argv[0]` was rejected in favour of raising: a `None` propagates to a
+>   confusing `TypeError` deep inside `subprocess`, whereas the exception names the condition at
+>   the boundary where it is true. The two halves can no longer be resolved independently,
+>   because there is no independent resolution left.
+> - **The central API is fail-closed, rather than ~20 duplicated gates.** Making the accessor
+>   raise means every deep consumer — `m4b_maker` (×6), `m4b_probe`, `mp3_tool` (×9), `metadata`
+>   (×3), `chatterbox_synth`, `epub2tts_edge`, `m4b_converter:1745` — inherits the boundary
+>   without a call site being able to forget it. The three headline user-facing gates
+>   (`m4b_converter.py:650` status wording, `m4b_converter.py:963` conversion start,
+>   `mp3_tool.ensure_ffmpeg_available`) were still moved to `verified_ffmpeg()` explicitly, so
+>   the user is told *why* rather than meeting an exception.
+> - **pydub was the one route with no gate in front of it.** Left unconfigured it shells out to
+>   whatever `PATH` resolves — the exact escape M2 describes, reached without touching
+>   `ffmpeg_cmd()` at all. `configure_pydub()` now **always** sets `converter` / `ffmpeg` /
+>   `ffprobe` and `pydub_utils.get_prober_name`, pointing them at `UNVERIFIED_PYDUB_SENTINEL`
+>   (`<no-verified-ffmpeg>`) when nothing is pinned, so an unverified machine fails visibly
+>   instead of silently running an unproved binary. `refresh()` clears the configured flag so a
+>   later pin replaces the sentinel.
+> - **`status_line()` is still the single place the found / verified / absent distinction is
+>   worded**, now with three states — and a test proves that *drawing a status line executes
+>   nothing*, which is the whole point of separating observation from execution.
+> - **Red proof, for the defects it names.** Against `fd6c8b2`, five invariants break: an
+>   unproved pair reported runtime-ready (H3), that pair exposed as executable (H3), the MP3 Tool
+>   gate authorising every FFmpeg-backed operation on it (H3), `ffmpeg_cmd()`/`ffprobe_cmd()`
+>   returning the bare names (M2), and pydub defaulting to a bare `PATH` ffmpeg (M2). All hold on
+>   this tree. **Reported honestly:** the sixth probe — *a pinned pair is what execution uses* —
+>   is a positive invariant labelled `[control]`; it passes pre-fix too and is not red evidence.
+> - **The two old-contract tests were rewritten, not deleted**, so the change of contract stays
+>   legible in the file that used to bless the old one:
+>   `test_have_ffmpeg_is_true_for_an_unproven_but_coherent_pair` →
+>   `test_an_unproven_coherent_pair_is_not_runtime_ready`, and
+>   `test_the_bare_name_fallback_survives_for_command_building` →
+>   `test_there_is_no_bare_name_fallback_for_command_building`.
+> - **New `files/tests/test_ffmpeg_runtime_trust.py` (26 tests)** covers observation-vs-execution,
+>   the fail-closed command API, pydub trust including the sentinel, the consumer gates (AST
+>   assertions that only `verified_ffmpeg` is asked), a **structural inventory** (no bare
+>   `["ffmpeg", …]` argv head, no runtime `shutil.which("ffmpeg")`), cache/refresh behaviour, and
+>   that `ffmpeg_utils` never proves, pins or provisions.
+> - **Two allowlist entries, each with a companion proof rather than a bare exemption.**
+>   `epub2tts_edge.py` builds `["ffmpeg", …]` lists but always routes them through `_run_ffmpeg`,
+>   which rewrites `argv[0]` via `ffmpeg_cmd()` — two tests prove the rewrite exists and that it
+>   inherits the refusal. `bootstrap.py`'s `shutil.which("ffmpeg")` is **setup-layer detection**,
+>   not runtime execution, and is excluded on that basis.
+> - **Four test modules needed a pinned pair, and got one instead of a weakened production API.**
+>   A new non-autouse `pinned_ffmpeg` conftest fixture builds a real sandbox pair inside
+>   `tmp_path`, proves it through `establish` with a stub runner, and redirects every state path.
+>   Two hazards surfaced and were fixed at the source: `test_mp3_concat_paths.py` called
+>   `ffmpeg_cmd()` at **module scope** (now lazy, guarded by `verified_ffmpeg()`), and
+>   `test_m4b_execution.py` **hung forever** because the new gate opened a real Tk `showerror`
+>   modal — the shared `install_conversion_stubs` now patches `verified_ffmpeg` too.
+> - **Gate: 17 failed / 5335 passed / 57 skipped / 76 errors.** The 93 FAILED/ERROR rows are
+>   **byte-identical** to the Phase-3-remediation run, +31 passed. `verify.py` deps / docs /
+>   docnames / config all PASS; the pytest row is the standing HOME-PC red baseline (no FFmpeg).
+>   **Phase-4-attributable failures: zero.**
+> - **Preserved HOME-PC state intact**, verified after the run: requirements stamp, import proof,
+>   log directory and `ffmpeg-state.json` unchanged **including content hashes**; `.venv` still
+>   Python 3.12.10; `files/bin` still absent; no `ffmpeg-staging`; `where ffmpeg` finds nothing;
+>   no `Gyan.FFmpeg` package; no `.venv.replaced*`. No download, no install.
+> - **`scripts/Universal/shared/ffmpeg_portable.py` was NOT touched**, and the **2026-08-28 ADR
+>   is intact**. The **additive superseding ADR is owed at Phase 10** — the runtime contract it
+>   describes has changed in code, and `Decisions.md` must say so additively rather than by
+>   editing history.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 5 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 4).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/ffmpeg_utils.py`;
+> `scripts/Universal/mp3_tools/m4b_converter.py`; `scripts/Universal/mp3_tools/mp3_tool.py`;
+> `files/tests/conftest.py`; `files/tests/test_ffmpeg_health.py`;
+> `files/tests/test_m4b_conversion_plan.py`; `files/tests/test_m4b_probe_encoding.py`;
+> `files/tests/test_mp3_concat_paths.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: `files/tests/test_ffmpeg_runtime_trust.py`.
+> Deleted: none. All staged and committed together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 3 REMEDIATED: persistence is part of the pin (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the Phase-3 claim below that
