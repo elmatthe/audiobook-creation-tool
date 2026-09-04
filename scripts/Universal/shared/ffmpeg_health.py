@@ -244,6 +244,32 @@ def _winget_package_dirs() -> list[Path]:
     return list(reversed(found))
 
 
+#: Repo-local portable installs live under ``files/bin/ffmpeg/<version>/bin``.
+#: A dedicated subtree, not ``files/bin`` itself, so the generic bin directory
+#: is never owned or replaced by one dependency.
+PORTABLE_ROOT_NAME = "ffmpeg"
+
+
+def portable_root() -> Path:
+    return BIN_DIR / PORTABLE_ROOT_NAME
+
+
+def _portable_dirs() -> list[Path]:
+    """Repo-local versioned portable builds, newest-looking first.
+
+    Bounded on purpose: exactly one level of version directories under
+    ``files/bin/ffmpeg``, each contributing only its own ``bin``. It never
+    recurses into ``files/bin`` generally and never walks a drive — enumeration
+    is not discovery, and nothing here executes anything. Sorted for a
+    deterministic order, reversed so a newer version wins a tie.
+    """
+    try:
+        versions = sorted(p for p in portable_root().iterdir() if p.is_dir())
+    except OSError:
+        return []
+    return [v / "bin" for v in reversed(versions) if (v / "bin").is_dir()]
+
+
 def _brew_dirs() -> list[Path]:
     return [Path(p) for p in ("/opt/homebrew/bin", "/usr/local/bin")] if IS_MAC else []
 
@@ -261,7 +287,8 @@ def candidate_directories() -> list[Path]:
     when it never reached PATH -- which is a real case, because a fresh
     ``winget install`` does not update the PATH of an already-running process.
     """
-    ordered = [BIN_DIR, *_path_dirs(), *_winget_package_dirs(), *_brew_dirs()]
+    ordered = [BIN_DIR, *_portable_dirs(), *_path_dirs(),
+               *_winget_package_dirs(), *_brew_dirs()]
     seen: set[str] = set()
     unique: list[Path] = []
     for directory in ordered:
@@ -512,6 +539,59 @@ def establish(log=None, *, runner=None, candidates: Iterable[Pair] | None = None
 
     save_state(HealthState(pair=None, rejected=tuple(rejected)))
     return None
+
+
+def adopt_pair(pair: Pair, log=None, *, runner=None) -> Optional[Pair]:
+    """Prove **one** coherent candidate and pin it only if it actually runs.
+
+    ``establish`` is the wrong primitive for adopting a single known candidate.
+    It is a discovery loop, and when nothing proves it ends by writing
+    ``pair=None`` — so handing it one candidate that fails would erase a pinned
+    pair that is working perfectly well. A replacement that cannot be proved
+    must cost nothing but the attempt.
+
+    So this is deliberately narrow:
+
+    * the candidate must be coherent — one sibling pair, as everywhere else;
+    * both halves are **executed** here, by this module. A caller cannot assert
+      a pair is good and have it pinned on its word;
+    * on success the active pin becomes this pair, with the usual durable
+      evidence: absolute paths, size/mtime identity, SHA-256 of both binaries,
+      and the ``-version`` text;
+    * on failure the previous active pair is left exactly as it was. The
+      candidate is remembered as rejected, which is what stops a blocked binary
+      being re-executed later, but remembering a rejection never costs the pin.
+
+    Returns the proven pair, or None.
+    """
+    log = log or _NullLog()
+    if not pair.is_coherent():
+        log.line("  Refusing to adopt a pair whose halves are not siblings.")
+        return None
+
+    state = load_state()
+    proof = prove_pair(pair, runner=runner)
+    if not proof.ok:
+        identity = (pair.ffmpeg.identity(), pair.ffprobe.identity())
+        rejected = list(state.rejected)
+        if identity not in rejected:
+            rejected.append(identity)
+        # Keep whatever was already pinned. This is the whole point of the
+        # helper: a failed replacement is not evidence against the incumbent.
+        save_state(HealthState(pair=state.pair, rejected=tuple(rejected)))
+        log.line(f"  Not usable ({proof.failed}): {proof.detail}")
+        return None
+
+    proven = replace(
+        pair,
+        ffmpeg=replace(pair.ffmpeg, sha256=sha256_of(pair.ffmpeg.as_path)),
+        ffprobe=replace(pair.ffprobe, sha256=sha256_of(pair.ffprobe.as_path)),
+        version_text=proof.version_text,
+        proven_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+    )
+    save_state(HealthState(pair=proven, rejected=state.rejected))
+    log.line(f"  Verified: {proof.version_text or pair.directory}")
+    return proven
 
 
 def ensure_ready(log=None, *, runner=None) -> Optional[Pair]:

@@ -4,7 +4,9 @@
 **Version identity:** `0.6.2`, **UNRELEASED** — this drop publishes nothing
 **Branch:** `maintenance/0.6.2-setup-self-healing`
 **Base:** `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c` (PR #8 merge commit on `master`)
-**Status:** Phase 0 complete (this document). **Phase 1 complete** — C2, M1, L1a and L1b
+**Status:** Phase 0 complete (this document). **Phase 3 complete** — the portable Windows
+FFmpeg acquisition is pinned, verified, transactional and cannot sacrifice a working pair.
+Phase 4 not started. **Phase 1 complete** — C2, M1, L1a and L1b
 fixed; Python contract enforced; remediated after review so a present-but-non-importable
 module can no longer hide behind matching pins. **Phase 2 complete** — H2 closed; venv
 health is one bootstrap-owned authority, recovery is reachable and rollback-safe, and no
@@ -705,7 +707,44 @@ red, in the phase report), then **the phase ends green**. Do not leave a permane
 
 ---
 
-### PHASE 3 — safe Windows portable FFmpeg acquisition
+### PHASE 3 — safe Windows portable FFmpeg acquisition ✅ COMPLETE
+
+> **Provenance re-verified first**, against both authorities, before the pin was written:
+> the GyanD/codexffmpeg release for tag `9.0.1` (asset `ffmpeg-9.0.1-full_build.zip`,
+> size `251427729`, digest `sha256:2e8e28af…5b00`, not draft/prerelease) and Microsoft's
+> winget-pkgs `Gyan.FFmpeg` `9.0.1` manifest (same `InstallerUrl`, same `InstallerSha256`,
+> and `ffmpeg-9.0.1-full_build\bin\{ffmpeg,ffprobe}.exe`). No mismatch. The asset was **not**
+> downloaded for this check.
+>
+> **Two pins, kept apart.** The *source* pin (`shared/ffmpeg_portable.py`) says only *these
+> bytes are the reviewed build*; the *runtime* pin (`ffmpeg_health`) says only *these sibling
+> executables were actually executed*. Neither substitutes for the other, and `ensure_ready`
+> still re-proves the active pair later.
+>
+> **The transaction:** stream to `…​.part` → hash while streaming → compare at EOF, extracting
+> nothing unless it matches → validate every member (traversal, absolute, drive, UNC, symlink,
+> size bounds) before writing any payload → require the sibling pair via `pair_in` in the
+> deterministic `ffmpeg-9.0.1-full_build/bin` → **prove both halves in staging** → promote the
+> complete build with **one** `os.replace` into `files/bin/ffmpeg/9.0.1` → prove again at the
+> final paths → pin via the new `ffmpeg_health.adopt_pair`.
+>
+> **`adopt_pair` exists because `establish` was the wrong primitive**: it is a discovery loop
+> that writes `pair=None` when nothing proves, so handing it one failing candidate would have
+> erased a working pin. `adopt_pair` proves one coherent candidate itself, pins only on
+> success, and on failure records the rejection **without** touching the incumbent.
+>
+> **Interruption:** a promoted-but-unpinned build is re-proved and adopted without
+> re-downloading; an existing final directory is never overwritten or merged into; a verified
+> staged archive is reused (re-hashed, never trusted by name); a stale extraction never merges
+> into a retry.
+>
+> **Discovery** gained one bounded level: `files/bin/ffmpeg/<version>/bin`, sorted, no walking,
+> no execution. **Not reachable from any ordinary launch** — asserted over the call graph for
+> `--venv-check`, `--launch-only`, `repair_venv` and `--repair-venv`. Phase 5 owns that wiring.
+>
+> **Gate:** 17 failed / 5283 passed / 57 skipped / 76 errors — rows identical to Phase 2's,
+> +80 passed. Phase-3-attributable failures: **zero**. Nothing was downloaded or installed;
+> HOME-PC still has no FFmpeg.
 
 **Fixes:** H1. **Deliberately still NOT reachable from a normal launch at phase end.**
 

@@ -2,6 +2,90 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 3 COMPLETE: safe portable FFmpeg acquisition (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "Phase 3 has not started"
+> line in the block below it; everything else there still stands. Nothing below is deleted or
+> rewritten.**
+>
+> - **Provenance was re-verified before the pin was written**, independently, against both
+>   authorities — not taken from `Handoff.md` or the drop:
+>   - **GyanD/codexffmpeg release `9.0.1`** (GitHub API): asset `ffmpeg-9.0.1-full_build.zip`,
+>     size **251427729**, digest **sha256:2e8e28af97c2ae338ccef92e36da9b2a4cd21d0cad9dde093545606cb07f5b00**,
+>     `draft: false`, `prerelease: false`, published 2026-08-12.
+>   - **microsoft/winget-pkgs** `manifests/g/Gyan/FFmpeg/9.0.1/Gyan.FFmpeg.installer.yaml`:
+>     `PackageIdentifier: Gyan.FFmpeg`, `PackageVersion: 9.0.1`, the same `InstallerUrl`, the
+>     same `InstallerSha256`, and the sibling layout
+>     `ffmpeg-9.0.1-full_build\bin\{ffmpeg,ffprobe}.exe`.
+>   - **No mismatch.** Evidence recorded in `files/dev-work/phase3/provenance.txt`. The 251 MB
+>     asset was **not** downloaded — metadata suffices because the production download enforces
+>     the hard-coded digest.
+> - **Defect H1 is closed.** The old fallback fetched BtbN's `master-latest` — floating on two
+>   axes — with `urlretrieve` straight into the live `files/bin`, verified nothing, wrote
+>   `ffmpeg.exe` and `ffprobe.exe` there as two independent writes, and reported success if
+>   `ffmpeg.exe` merely existed. It is gone, replaced rather than left as a second route.
+> - **Two pins, deliberately kept apart.** `shared/ffmpeg_portable.py` owns the **source** pin —
+>   version, asset, exact URL, expected SHA-256 — asserting only *these bytes are the reviewed
+>   Gyan 9.0.1 build*. `shared/ffmpeg_health.py` remains the sole **runtime** authority,
+>   asserting only *these sibling executables were actually executed*. Neither substitutes for
+>   the other; `ensure_ready` still re-proves the active pair on later launches. Tests state
+>   both the positive and the negative of each claim.
+> - **The transaction:** stream to `….part` → SHA-256 computed as bytes land → compared at EOF,
+>   with **nothing extracted** unless it matches → whole member set validated (traversal,
+>   absolute POSIX, drive-absolute, UNC, backslash traversal, symlink, per-member and total size
+>   bounds) **before** any payload is written → sibling pair required via `pair_in` in the
+>   deterministic `ffmpeg-9.0.1-full_build/bin` → **both halves proved in staging** → the
+>   complete build promoted with **one** `os.replace` into `files/bin/ffmpeg/9.0.1` → proved
+>   **again** at the final absolute paths → pinned.
+> - **`ffmpeg_health.adopt_pair` is new, and small, because `establish` was the wrong
+>   primitive.** `establish` is a discovery loop that writes `pair=None` when nothing proves —
+>   handing it one failing candidate would have erased a perfectly good pin. `adopt_pair` proves
+>   one coherent candidate itself (a caller cannot assert a pair is good), pins only on success,
+>   and on failure records the rejection **without** touching the incumbent. Every pre-commit
+>   failure mode is tested against an already-pinned pair A: download, hash, unsafe archive,
+>   missing ffprobe, staging proof, final proof. A survives all of them.
+> - **Interruption after promotion is idempotent.** A promoted-but-unpinned build is re-proved
+>   and adopted without re-downloading; an existing final directory is never overwritten or
+>   merged into; an existing-but-unusable one is never mistaken for success. A verified staged
+>   archive is reused only after being **re-hashed** — a filename is not evidence — and a stale
+>   extraction can never merge into a retry.
+> - **Discovery** gained exactly one bounded level: `files/bin/ffmpeg/<version>/bin`, one level
+>   deep, sorted deterministically, no drive scanning, no execution from enumeration. The
+>   generic `files/bin` is never owned or replaced.
+> - **Not reachable from an ordinary launch.** Asserted over bootstrap's call graph:
+>   `--venv-check`, `--launch-only`, `repair_venv` and `--repair-venv` reach neither
+>   `ensure_ffmpeg` nor the acquirer. Explicit first-run setup keeps the route it always had.
+>   **Phase 5 owns wiring provisioning into launches.**
+> - **Gate: 17 failed / 5283 passed / 57 skipped / 76 errors.** Failure and error rows identical
+>   to the Phase-2 run, +80 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-3-attributable failures: zero.** One pre-existing boundary guard in
+>   `test_cleanup_worker.py` correctly caught the new module's use of `rmtree`; its allowlist
+>   was extended with the same justification it already applies to `bootstrap.py` and
+>   `metadata.py` — the module clears only its own staging, never a catalog-derived path, and
+>   the assertions that pin *that* are unchanged.
+> - **Red proof:** six invariants, each demonstrated broken against `e112fa7` for its own
+>   reason — floating source; no expected digest anywhere; a deliberately wrong archive
+>   **accepted and reported as success**; executables written loose into the live `files/bin`;
+>   no member validation at all; and `establish()` writing `pair=None` and **erasing a working
+>   pinned pair**. All six hold on the Phase-3 tree.
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10;
+>   requirements stamp, import proof, log directory and `ffmpeg-state.json` all unchanged
+>   including content hashes (`pair` still `None`); **`files/bin` still absent**; no
+>   `ffmpeg-staging`; nothing on PATH; **no `Gyan.FFmpeg` package installed**. No archive was
+>   downloaded and no FFmpeg was installed — every test used fixture ZIPs of a few hundred bytes
+>   and a stubbed fetcher, inside `tmp_path`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 4 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 3).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `scripts/Universal/shared/ffmpeg_health.py`; `files/tests/test_cleanup_worker.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: `scripts/Universal/shared/ffmpeg_portable.py`;
+> `files/tests/test_ffmpeg_portable.py`. Deleted: none. The launchers, `ffmpeg_utils`, the
+> converter and `mp3_tool` were **not** touched. All staged and committed together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 2 FINAL remediation: interrupted recovery replays the real commit condition (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the interrupted-recovery

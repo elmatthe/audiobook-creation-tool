@@ -835,14 +835,17 @@ def test_the_coordinator_never_starts_another_process():
 def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
     """Only the coordinator removes a directory as part of cleanup.
 
-    Two pre-existing, unrelated uses of ``rmtree`` are named explicitly rather
-    than waved through: ``bootstrap.py`` rebuilds a broken virtual environment
-    during setup, and ``metadata.py`` removes its own temporary work folder.
-    Neither derives a path from the catalog, which is what the second assertion
-    pins.
+    Three unrelated uses of ``rmtree`` are named explicitly rather than waved
+    through: ``bootstrap.py`` rebuilds a broken virtual environment during setup,
+    ``metadata.py`` removes its own temporary work folder, and
+    ``ffmpeg_portable.py`` clears its own per-attempt staging directories under
+    ``files/runtime-data/ffmpeg-staging`` — never the installed build, and never
+    a path that came from the cleanup catalog. That last part is what the two
+    assertions below actually pin; being on this list is not permission to
+    delete a catalog target.
     """
     shared = REPO_ROOT / "scripts" / "Universal" / "shared"
-    allowed_rmtree = {"bootstrap.py", "metadata.py"}
+    allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py"}
     for path in sorted(shared.glob("*.py")):
         source = path.read_text(encoding="utf-8")
         if path.name != "cleanup_worker.py":

@@ -41,8 +41,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -84,6 +82,7 @@ LAUNCHER_FALLBACK = SCRIPTS_DIR / "tts" / "epub2tts_gui.py"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 from shared import ffmpeg_health  # noqa: E402
+from shared import ffmpeg_portable  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -124,11 +123,10 @@ def _is_kokoro_compatible(ver: tuple[int, int] | None) -> bool:
     """Kokoro's PyPI wheels require >=3.10,<3.13."""
     return ver is not None and (3, 10) <= ver < (3, 13)
 
-# Portable ffmpeg fallback (Windows only) — used if winget is unavailable.
-FFMPEG_WIN_ZIP_URL = (
-    "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/"
-    "ffmpeg-master-latest-win64-gpl.zip"
-)
+# Portable ffmpeg fallback (Windows only) — used if winget is unavailable. The
+# source pin lives in ``shared/ffmpeg_portable.py``: one authoritative set of
+# constants, verified against the Gyan release and Microsoft's winget-pkgs
+# manifest, rather than a URL floating on "latest" as this used to be.
 
 
 # ===========================================================================
@@ -1899,45 +1897,28 @@ def _install_ffmpeg(log: SetupLog) -> bool:
 
 
 def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
-    """Download a portable ffmpeg build into files/bin (Windows last resort).
+    """Install the pinned portable FFmpeg build (Windows last resort).
 
-    **Kept, but demoted, and worth understanding.** This pulls BtbN's
-    ``master-latest`` build, whose bytes change on every upstream commit. Under
-    reputation-based enforcement — Smart App Control being the case Phase 15 hit
-    — a binary whose hash is new every time never accumulates the cloud
-    reputation that lets an unsigned executable run, so this route is
-    *structurally* more likely to be refused than the stable WinGet package
-    above. That is why it now runs only when winget is unavailable or failed,
-    and why whatever it produces is still put through the same proof as every
-    other candidate rather than being trusted because it is ours.
+    The work lives in :mod:`shared.ffmpeg_portable`, which owns the *source*
+    pin — version, asset, exact URL and expected SHA-256 — and performs the
+    whole transaction: stream, verify the digest before extracting anything,
+    validate every archive member, prove the pair in staging, promote the
+    complete build with one directory rename into a versioned destination,
+    prove it again at its final paths, and only then pin it through
+    ``ffmpeg_health``.
 
-    Replacing it with a pinned, reputable, redistributable Windows build is
-    release work; it belongs with the signing/distribution question in Plan 9.
+    The name is kept because the call site above reads well, and because this is
+    still exactly what it says: the fallback for when winget is unavailable or
+    failed. What changed is that it can no longer trade a working FFmpeg for a
+    broken one — every failure before the final pin leaves whatever was already
+    pinned untouched.
     """
-    try:
-        BIN_DIR.mkdir(parents=True, exist_ok=True)
-        zip_path = BIN_DIR / "ffmpeg_portable.zip"
-        log.line(f"Downloading portable ffmpeg from {FFMPEG_WIN_ZIP_URL}…")
-        log.line("  (~80 MB, one-time. This may take a minute.)")
-        urllib.request.urlretrieve(FFMPEG_WIN_ZIP_URL, zip_path)
-        log.line("  Extracting…")
-        with zipfile.ZipFile(zip_path) as zf:
-            members = zf.namelist()
-            wanted = [m for m in members
-                      if m.endswith("/bin/ffmpeg.exe") or m.endswith("/bin/ffprobe.exe")]
-            for m in wanted:
-                data = zf.read(m)
-                (BIN_DIR / Path(m).name).write_bytes(data)
-        zip_path.unlink(missing_ok=True)
-        if _ffmpeg_in_bin():
-            log.line(f"  Portable ffmpeg ready in {BIN_DIR}.")
-            return True
-        log.line("  ERROR: ffmpeg.exe not found inside the downloaded archive.")
+    pinned = ffmpeg_portable.acquire(log)
+    if pinned is None:
+        log.line("  Could not install a portable FFmpeg build.")
         return False
-    except Exception as exc:  # network error, etc.
-        log.line(f"  ERROR downloading portable ffmpeg: {exc}")
-        log.line("  Manual install: https://github.com/BtbN/FFmpeg-Builds/releases")
-        return False
+    ffmpeg_portable.cleanup_staging()
+    return True
 
 
 def predownload_kokoro(log: SetupLog) -> None:
