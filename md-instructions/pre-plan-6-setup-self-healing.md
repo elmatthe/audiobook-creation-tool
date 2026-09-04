@@ -745,6 +745,21 @@ red, in the phase report), then **the phase ends green**. Do not leave a permane
 > **Gate:** 17 failed / 5283 passed / 57 skipped / 76 errors — rows identical to Phase 2's,
 > +80 passed. Phase-3-attributable failures: **zero**. Nothing was downloaded or installed;
 > HOME-PC still has no FFmpeg.
+>
+> **Remediated after review**, at the persistence/retry boundary. `save_state` swallowed
+> `OSError` and returned nothing, so `adopt_pair` proved a pair, failed to record it, and
+> reported it as pinned anyway — a false success that Phase 4 would then have taught consumers
+> to trust. It now writes the complete JSON to a uniquely-named sibling, `fsync`s, and swaps it
+> in with one `os.replace`, returning a bool; `adopt_pair` returns an `Adoption`
+> (`pinned` / `not-proved` / `not-persisted` / `incoherent`) so *proved* and *pinned* can no
+> longer be confused, and `establish` is truthful the same way. Separately, an incomplete or
+> non-running installed `9.0.1` was a permanent dead end — `promote` refused the occupied
+> destination forever, clearable only by hand. It now moves the unusable occupant aside once a
+> fresh candidate has been hash-verified, extracted and **proved**, restores it if the install
+> fails, and discards it only on success. A build that is promoted and proved but cannot be
+> recorded is left in place for the next run to adopt without re-downloading.
+> **Gate after remediation:** 17 failed / 5304 passed / 57 skipped / 76 errors, rows identical,
+> +21 passed.
 
 **Fixes:** H1. **Deliberately still NOT reachable from a normal launch at phase end.**
 

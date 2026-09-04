@@ -448,8 +448,25 @@ def load_state() -> HealthState:
     return HealthState(pair=pair, rejected=tuple(rejected))
 
 
-def save_state(state: HealthState) -> None:
-    """Persist the state. Failing to write is never fatal -- it costs a re-proof."""
+def save_state(state: HealthState) -> bool:
+    """Persist the state atomically. Returns whether it was actually committed.
+
+    **Returns a bool because the caller has to know.** This used to swallow
+    ``OSError`` and return nothing, so a disk-full or permission failure was
+    indistinguishable from success — and ``adopt_pair`` went on to report a pair
+    as pinned that no later run would ever see. Proving a pair and durably
+    recording it as the active one are two different facts, and only the second
+    makes it the runtime pin.
+
+    **And it writes through a temporary sibling.** A direct ``write_text`` over
+    the live file can truncate it: a failure part-way through leaves neither the
+    old state nor the new one, so an attempt to *record* a replacement could
+    destroy the record of a pair that was working. The complete JSON is
+    serialised first, written to a uniquely-named sibling in the same directory
+    (same filesystem, so the rename is atomic), and only then does one
+    ``os.replace`` make it the live state. Failing anywhere before that leaves
+    the previous state byte-for-byte intact.
+    """
     payload: dict = {
         "proof_version": PROOF_VERSION,
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -470,11 +487,25 @@ def save_state(state: HealthState) -> None:
             "ffprobe": {"path": ffprobe_identity[0], "size": ffprobe_identity[1],
                         "mtime_ns": ffprobe_identity[2]},
         })
+    # Serialise before touching anything on disk: a payload that cannot even be
+    # rendered must not cost the existing state.
+    text = json.dumps(payload, indent=2)
+    target = state_path()
+    temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp")
     try:
-        state_path().parent.mkdir(parents=True, exist_ok=True)
-        state_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(temporary, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        return True
     except OSError:
-        pass
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass  # nothing more to do; the live state is still whatever it was
+        return False
 
 
 def pinned_pair() -> Optional[Pair]:
@@ -529,7 +560,12 @@ def establish(log=None, *, runner=None, candidates: Iterable[Pair] | None = None
                 version_text=proof.version_text,
                 proven_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
             )
-            save_state(HealthState(pair=proven, rejected=tuple(rejected)))
+            if not save_state(HealthState(pair=proven, rejected=tuple(rejected))):
+                # Same distinction as ``adopt_pair``: it ran, but it is not the
+                # recorded active pair, so do not hand it back as one.
+                log.line(f"  {pair.directory} runs, but the result could not be "
+                         "recorded as the active pair. Not pinned.")
+                return None
             log.line(f"  Verified: {proof.version_text or pair.directory}")
             return proven
         identity = (pair.ffmpeg.identity(), pair.ffprobe.identity())
@@ -541,7 +577,43 @@ def establish(log=None, *, runner=None, candidates: Iterable[Pair] | None = None
     return None
 
 
-def adopt_pair(pair: Pair, log=None, *, runner=None) -> Optional[Pair]:
+#: ``adopt_pair`` outcomes. Four, not two, because "it did not become the active
+#: pair" has genuinely different causes and the caller acts differently on them:
+#: a pair that will not run is a bad candidate, while a pair that ran and could
+#: not be recorded is a good candidate and a bad disk.
+ADOPT_PINNED = "pinned"
+ADOPT_INCOHERENT = "incoherent"
+ADOPT_NOT_PROVED = "not-proved"
+ADOPT_NOT_PERSISTED = "not-persisted"
+
+
+@dataclass(frozen=True)
+class Adoption:
+    """What happened when a candidate was offered as the active pair.
+
+    ``pair`` is set only when the pair is genuinely pinned. Truthiness follows
+    that, so ``if adopt_pair(...)`` means "this is now the active runtime pair"
+    and nothing weaker.
+    """
+
+    status: str
+    pair: Optional[Pair] = None
+    detail: str = ""
+
+    @property
+    def pinned(self) -> bool:
+        return self.status == ADOPT_PINNED
+
+    @property
+    def proved(self) -> bool:
+        """The binaries ran — true even when recording them failed."""
+        return self.status in (ADOPT_PINNED, ADOPT_NOT_PERSISTED)
+
+    def __bool__(self) -> bool:
+        return self.pinned
+
+
+def adopt_pair(pair: Pair, log=None, *, runner=None) -> Adoption:
     """Prove **one** coherent candidate and pin it only if it actually runs.
 
     ``establish`` is the wrong primitive for adopting a single known candidate.
@@ -562,12 +634,12 @@ def adopt_pair(pair: Pair, log=None, *, runner=None) -> Optional[Pair]:
       candidate is remembered as rejected, which is what stops a blocked binary
       being re-executed later, but remembering a rejection never costs the pin.
 
-    Returns the proven pair, or None.
+    Returns an :class:`Adoption` describing exactly which of those happened.
     """
     log = log or _NullLog()
     if not pair.is_coherent():
         log.line("  Refusing to adopt a pair whose halves are not siblings.")
-        return None
+        return Adoption(ADOPT_INCOHERENT, detail="halves are not siblings")
 
     state = load_state()
     proof = prove_pair(pair, runner=runner)
@@ -578,9 +650,13 @@ def adopt_pair(pair: Pair, log=None, *, runner=None) -> Optional[Pair]:
             rejected.append(identity)
         # Keep whatever was already pinned. This is the whole point of the
         # helper: a failed replacement is not evidence against the incumbent.
-        save_state(HealthState(pair=state.pair, rejected=tuple(rejected)))
+        # And failing to *record* the rejection is not evidence either — the
+        # atomic write leaves the incumbent intact, and the worst outcome is
+        # that this candidate gets probed again another day.
+        if not save_state(HealthState(pair=state.pair, rejected=tuple(rejected))):
+            log.line("  (could not record this rejection; it may be re-probed later)")
         log.line(f"  Not usable ({proof.failed}): {proof.detail}")
-        return None
+        return Adoption(ADOPT_NOT_PROVED, detail=proof.detail)
 
     proven = replace(
         pair,
@@ -589,9 +665,16 @@ def adopt_pair(pair: Pair, log=None, *, runner=None) -> Optional[Pair]:
         version_text=proof.version_text,
         proven_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
     )
-    save_state(HealthState(pair=proven, rejected=state.rejected))
+    if not save_state(HealthState(pair=proven, rejected=state.rejected)):
+        # The binaries ran — that much is true and worth saying. What did not
+        # happen is the part that makes them the runtime pin, so this is not
+        # adoption and must not be reported as it. The previous active pair is
+        # untouched and the whole operation stays retryable.
+        log.line(f"  Both executables ran, but the result could not be recorded "
+                 f"as the active pair (see {state_path()}). Not pinned.")
+        return Adoption(ADOPT_NOT_PERSISTED, detail="the active state could not be written")
     log.line(f"  Verified: {proof.version_text or pair.directory}")
-    return proven
+    return Adoption(ADOPT_PINNED, pair=proven)
 
 
 def ensure_ready(log=None, *, runner=None) -> Optional[Pair]:

@@ -327,6 +327,10 @@ def staged_pair(build: Path):
 # --------------------------------------------------------------------------- #
 #  Promotion
 # --------------------------------------------------------------------------- #
+def _unusable_final_aside() -> Path:
+    return final_dir().with_name(final_dir().name + ".unusable")
+
+
 def promote(build: Path, log=None) -> Optional[Path]:
     """Move the complete build into its versioned home. One rename.
 
@@ -335,40 +339,74 @@ def promote(build: Path, log=None) -> Optional[Path]:
     both under ``files/``. Nothing writes ``ffmpeg.exe`` and then ``ffprobe.exe``
     as two separate steps, because that is precisely how an interruption used to
     leave one half of one build beside one half of another.
+
+    **An occupied destination is repaired, not surrendered to.** Refusing
+    outright was fail-closed but not retryable: an incomplete or non-running
+    ``9.0.1`` directory blocked every future attempt forever, and the only way
+    out was for someone to delete it by hand — which is exactly the recovery
+    this whole drop exists to remove. The caller only reaches here once a fresh
+    candidate has been hash-verified, safely extracted and **proved**, so the
+    occupant is known to be the worse of the two. It is moved aside rather than
+    deleted, and restored if the rename fails, so a failed repair leaves the
+    machine as it found it.
     """
     log = log or _NullLog()
     destination = final_dir()
-    if destination.exists():
-        log.line(f"  A build already exists at {destination}; not overwriting it.")
-        return None
     destination.parent.mkdir(parents=True, exist_ok=True)
+
+    aside: Optional[Path] = None
+    if destination.exists():
+        aside = _unusable_final_aside()
+        shutil.rmtree(aside, ignore_errors=True)
+        try:
+            os.replace(destination, aside)
+            log.line(f"  Setting aside the unusable build at {destination}.")
+        except OSError as exc:
+            log.line(f"  ERROR clearing the previous build directory: {exc}")
+            return None
+
     try:
         os.replace(build, destination)
     except OSError as exc:
         log.line(f"  ERROR installing the FFmpeg build: {exc}")
+        if aside is not None:
+            try:
+                os.replace(aside, destination)
+                log.line("  Put the previous build directory back.")
+            except OSError:
+                log.line("  [!!] Could not put the previous build directory back; "
+                         f"it is at {aside}.")
         return None
+
+    if aside is not None:
+        shutil.rmtree(aside, ignore_errors=True)
     log.line(f"  Installed FFmpeg {PORTABLE_FFMPEG_VERSION} into {destination}.")
     return destination
 
 
 def adopt_existing_final(log=None, *, runner=None):
-    """Prove and pin an already-promoted build, if there is a usable one.
+    """Prove and pin an already-promoted build. Returns an ``Adoption``.
 
     The interruption this exists for: the rename succeeded and the process died
     before the pair was proved and pinned. A directory on disk is evidence that
     a promotion *happened*, never evidence that what it contains runs — the same
     distinction the venv transaction had to learn. So the pair is re-proved from
-    the final absolute paths, and only a real proof pins it. An incomplete or
-    unusable directory yields None and is left alone rather than being deleted
-    or merged into.
+    the final absolute paths, and only a real proof pins it.
+
+    The result distinguishes three outcomes the caller must treat differently:
+    *pinned* (use it), *not proved* (the directory is in the way and may be
+    repaired), and *proved but not persisted* (the files are good, the disk is
+    not — leave them exactly where they are for the next attempt).
     """
     log = log or _NullLog()
     if not final_dir().is_dir():
-        return None
+        return ffmpeg_health.Adoption(ffmpeg_health.ADOPT_NOT_PROVED,
+                                      detail="no installed build")
     pair = ffmpeg_health.pair_in(final_bin_dir())
     if pair is None:
         log.line(f"  {final_dir()} exists but has no ffmpeg + ffprobe pair.")
-        return None
+        return ffmpeg_health.Adoption(ffmpeg_health.ADOPT_NOT_PROVED,
+                                      detail="no ffmpeg + ffprobe pair")
     return ffmpeg_health.adopt_pair(pair, log, runner=runner)
 
 
@@ -386,9 +424,16 @@ def acquire(log=None, *, opener: Optional[Callable] = None, runner=None):
 
     # An interrupted previous run may already have promoted a usable build.
     adopted = adopt_existing_final(log, runner=runner)
-    if adopted is not None:
+    if adopted.pinned:
         log.line("  A previously installed build was proved and pinned.")
-        return adopted
+        return adopted.pair
+    if adopted.proved:
+        # It runs; only the record failed. Replacing perfectly good binaries
+        # because a disk write failed would be the wrong repair entirely, and
+        # the next run can adopt them once writing works again.
+        log.line("  The installed build runs but could not be recorded as the "
+                 "active pair. Leaving it in place to try again.")
+        return None
 
     archive = download_archive(log, opener=opener)
     if archive is None:
@@ -423,7 +468,12 @@ def acquire(log=None, *, opener: Optional[Callable] = None, runner=None):
 
     # Proved again at the paths that will actually be used and recorded. The
     # staging proof was about different absolute paths.
-    return ffmpeg_health.adopt_pair(final_pair, log, runner=runner)
+    adopted = ffmpeg_health.adopt_pair(final_pair, log, runner=runner)
+    if adopted.pinned:
+        return adopted.pair
+    # Promoted and proved, but not recorded. The build stays where it is: it is
+    # good, and the next run adopts it without downloading anything again.
+    return None
 
 
 def cleanup_staging() -> None:

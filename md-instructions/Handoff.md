@@ -2,6 +2,81 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 3 REMEDIATED: persistence is part of the pin (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the Phase-3 claim below that
+> a build was "proved and pinned" — the pin could fail to persist and still be reported as
+> success. Everything else in that block stands. Nothing below is deleted or rewritten.**
+>
+> - **Gap 1 — a failed state write was reported as a successful pin.** `save_state` swallowed
+>   `OSError` and returned nothing, so `adopt_pair` proved the pair, failed to record it, logged
+>   *"Verified"* and handed it back. A disk-full or permission failure therefore produced
+>   *"acquisition succeeded, pair pinned"* while `pinned_pair()` still resolved the incumbent —
+>   or nothing. **Phase 4 is about to make consumers trust exactly that pin**, which is why this
+>   was blocking rather than cosmetic.
+> - **Fixed by separating two facts that were collapsed into one.** `save_state` now returns
+>   whether it committed, and `adopt_pair` returns an **`Adoption`** with four outcomes —
+>   `pinned`, `not-proved`, `not-persisted`, `incoherent` — plus a `proved` property, so *the
+>   binaries ran* and *this is the active runtime pair* can be stated separately and truthfully.
+>   `establish` was made truthful the same way. A `not-persisted` result logs that the
+>   executables ran and that it is **not pinned**, leaves the incumbent active, and stays
+>   retryable.
+> - **State writes are now atomic.** The complete JSON is serialised first, written to a
+>   uniquely-named sibling in the same directory, `fsync`ed, and swapped in with one
+>   `os.replace`. The live file is never the file being written, so a failure part-way through
+>   can no longer leave neither the old state nor the new one — an attempt to *record* a
+>   replacement destroying the record of a pair that worked.
+> - **Rejection metadata cannot cost the pin.** Failing to record a rejection is logged and
+>   otherwise ignored: the atomic write leaves the incumbent intact, and the only consequence is
+>   that the candidate may be probed again another day. Inability to record a rejection is not
+>   evidence against the incumbent.
+> - **Gap 2 — an unusable installed build was a permanent dead end.** An incomplete or
+>   non-running `files/bin/ffmpeg/9.0.1` made `adopt_existing_final` return nothing, so
+>   `acquire` downloaded, extracted and proved a fresh candidate — and then `promote` refused
+>   the occupied destination and returned `None`. Every later attempt did exactly the same. Fail
+>   closed, but clearable only by a human deleting the directory, which is precisely the
+>   recovery this drop exists to remove.
+> - **Fixed with the same discipline as the venv transaction.** `promote` is only ever reached
+>   once a fresh candidate has been hash-verified, safely extracted and **proved**, so the
+>   occupant is known to be the worse of the two. It is moved aside — not deleted — replaced
+>   wholesale, restored if the install fails, and discarded only once the replacement is in
+>   place. Three cases are distinguished: *usable* (adopt it, no download), *unusable* (repair
+>   it), and *proved but unrecorded* (**leave the files exactly where they are** — they are
+>   good, the disk was not, and the next run adopts them without downloading again).
+> - **Red proof, each for its named reason.** Against `a457765`: *"adopt_pair reported B as
+>   adopted while pinned_pair still resolves A — false success"*, and *"acquire() returned None
+>   twice: promote() refuses the occupied destination, so the dead end persists until a human
+>   deletes the directory"*. Both hold on the remediated tree. **Reported honestly:** the third
+>   probe — that a failed write cannot damage the incumbent — *already held* at `a457765`,
+>   because the injection fails before writing rather than mid-write. The atomic write removes
+>   the possibility of a torn write, which that injection cannot simulate; it is a real
+>   hardening, not a demonstrated pre-existing corruption.
+> - **One pre-existing test was rewritten, deliberately.**
+>   `test_an_unwritable_state_directory_is_not_fatal` asserted that `establish` still returns
+>   the pair on a write failure, "because losing the record only costs a re-proof". That is the
+>   conflation this remediation exists to remove. It now asserts the truthful contract — not
+>   fatal, not crashing, still retryable, but **not a pin** — with a companion test proving the
+>   run pins normally once writing works.
+> - **Gate: 17 failed / 5304 passed / 57 skipped / 76 errors.** Failure and error rows identical
+>   to the Phase-3 run, +21 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-3-attributable failures: zero.**
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10;
+>   requirements stamp, import proof, log directory and `ffmpeg-state.json` all unchanged
+>   including content hashes; `files/bin` still absent; no `ffmpeg-staging`; no stray `.tmp`
+>   state siblings; nothing on PATH; no `Gyan.FFmpeg` package. No download, no install — fixture
+>   archives and a stubbed fetcher inside `tmp_path` throughout.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 4 has not started. Plan 6 has not begun.** The superseding
+>   FFmpeg ADR remains owed at Phase 10.
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 3 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/ffmpeg_health.py`;
+> `scripts/Universal/shared/ffmpeg_portable.py`; `files/tests/test_ffmpeg_health.py`;
+> `files/tests/test_ffmpeg_portable.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. All staged and
+> committed together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 3 COMPLETE: safe portable FFmpeg acquisition (2026-09-03)
 >
 > **This block is the live state of the repository. It supersedes the "Phase 3 has not started"

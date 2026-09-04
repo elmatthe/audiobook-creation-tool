@@ -522,14 +522,42 @@ def test_the_state_file_is_local_disposable_and_not_tracked():
 
 
 def test_an_unwritable_state_directory_is_not_fatal(monkeypatch, tmp_path):
-    """Losing the record costs a re-proof next launch. It must not lose the run."""
+    """It must not crash, and it must not claim a pin it could not record.
+
+    This previously asserted that ``establish`` still returned the pair — on the
+    reasoning that losing the record only costs a re-proof. That conflated two
+    facts. *Both binaries ran* is true; *this is now the active runtime pair* is
+    not, when nothing could be written. Phase 4 makes consumers trust the active
+    pin, so returning an unrecorded pair as one would let the app act on a pin
+    that no later run can see. Not fatal, still retryable, but not a pin.
+    """
     directory = install(tmp_path / "good")
     blocker = tmp_path / "blocker"
     blocker.write_text("this is a file, not a directory", encoding="utf-8")
     monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", blocker / "runtime-data")
     monkeypatch.setenv("PATH", str(directory))
+
     pair = ffmpeg_health.establish(runner=runner_for(healthy=both(directory)))
-    assert pair is not None, "a state write failure must not lose the proof"
+
+    assert pair is None, "an unrecorded proof must not be reported as pinned"
+    assert ffmpeg_health.pinned_pair() is None
+
+
+def test_a_state_write_failure_leaves_the_run_retryable(monkeypatch, tmp_path):
+    """The other half of "not fatal": once writing works, it pins normally."""
+    directory = install(tmp_path / "good")
+    monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", tmp_path / "state")
+    monkeypatch.setenv("PATH", str(directory))
+    runner = runner_for(healthy=both(directory))
+
+    monkeypatch.setattr(ffmpeg_health, "save_state", lambda state: False)
+    assert ffmpeg_health.establish(runner=runner) is None
+
+    monkeypatch.undo()
+    monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", tmp_path / "state")
+    monkeypatch.setenv("PATH", str(directory))
+    assert ffmpeg_health.establish(runner=runner_for(healthy=both(directory))) \
+        is not None
 
 
 # --------------------------------------------------------------------------- #

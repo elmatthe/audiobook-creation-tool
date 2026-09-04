@@ -28,6 +28,7 @@ import hashlib
 import io
 import json
 import os
+import pathlib
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -572,9 +573,9 @@ def pinned_a(sandbox):
     directory = sandbox.tmp / "existing-ffmpeg"
     _install_pair(directory)
     pair = ffmpeg_health.pair_in(directory)
-    proved = ffmpeg_health.adopt_pair(pair, _Log(), runner=_runner(True))
-    assert proved is not None
-    return SimpleNamespace(directory=directory, pair=proved)
+    adopted = ffmpeg_health.adopt_pair(pair, _Log(), runner=_runner(True))
+    assert adopted.pinned
+    return SimpleNamespace(directory=directory, pair=adopted.pair)
 
 
 def _assert_a_still_active(pinned_a):
@@ -661,7 +662,7 @@ def test_adopt_pair_never_clobbers_the_incumbent_on_failure(sandbox, pinned_a):
     _install_pair(candidate_dir)
     candidate = ffmpeg_health.pair_in(candidate_dir)
 
-    assert ffmpeg_health.adopt_pair(candidate, _Log(), runner=_runner(False)) is None
+    assert not ffmpeg_health.adopt_pair(candidate, _Log(), runner=_runner(False))
     _assert_a_still_active(pinned_a)
 
 
@@ -688,7 +689,9 @@ def test_adopt_pair_refuses_an_incoherent_pair(sandbox):
     from dataclasses import replace as _replace
     mixed = _replace(good, ffprobe=other.ffprobe)
 
-    assert ffmpeg_health.adopt_pair(mixed, _Log(), runner=_runner(True)) is None
+    outcome = ffmpeg_health.adopt_pair(mixed, _Log(), runner=_runner(True))
+    assert not outcome.pinned
+    assert outcome.status == ffmpeg_health.ADOPT_INCOHERENT
 
 
 def test_a_successful_replacement_does_take_over(sandbox, monkeypatch, pinned_a):
@@ -723,7 +726,8 @@ def test_an_existing_but_unusable_promoted_build_is_not_treated_as_success(
 
     result = ffmpeg_portable.adopt_existing_final(_Log(), runner=_runner(False))
 
-    assert result is None
+    assert not result.pinned
+    assert result.status == ffmpeg_health.ADOPT_NOT_PROVED
     _assert_a_still_active(pinned_a)
 
 
@@ -733,24 +737,61 @@ def test_an_existing_promoted_directory_without_a_pair_is_not_success(sandbox):
                                                                  encoding="utf-8")
 
     log = _Log()
-    assert ffmpeg_portable.adopt_existing_final(log, runner=_runner(True)) is None
+    assert not ffmpeg_portable.adopt_existing_final(log, runner=_runner(True))
     assert "no ffmpeg + ffprobe pair" in log.text
 
 
-def test_an_existing_final_directory_is_never_overwritten(sandbox, monkeypatch):
-    """A promotion into an occupied destination is refused, never merged."""
+def test_an_occupied_destination_is_replaced_not_merged(sandbox, monkeypatch):
+    """Refusing outright was fail-closed but not retryable.
+
+    An incomplete or non-running 9.0.1 directory used to block every future
+    attempt forever, and the only way out was for someone to delete it by hand —
+    the exact recovery this drop exists to remove. ``promote`` is only reached
+    once a fresh candidate has been hash-verified, extracted safely and
+    **proved**, so the occupant is known to be the worse of the two. It is moved
+    aside, replaced wholesale, and never merged into.
+    """
     ffmpeg_portable.final_dir().mkdir(parents=True)
-    (ffmpeg_portable.final_dir() / "existing.txt").write_text("x", encoding="utf-8")
+    (ffmpeg_portable.final_dir() / "leftover.txt").write_text("x", encoding="utf-8")
     payload = _archive_bytes()
     _pin(monkeypatch, payload)
     ffmpeg_portable.staging_root().mkdir(parents=True, exist_ok=True)
     ffmpeg_portable.archive_path().write_bytes(payload)
     build = ffmpeg_portable.extract_archive(ffmpeg_portable.archive_path(), _Log())
 
+    promoted = ffmpeg_portable.promote(build, _Log())
+
+    assert promoted == ffmpeg_portable.final_dir()
+    assert not (ffmpeg_portable.final_dir() / "leftover.txt").exists()
+    assert (ffmpeg_portable.final_bin_dir() / _exe("ffmpeg")).is_file()
+    assert not ffmpeg_portable._unusable_final_aside().exists()
+
+
+def test_a_failed_replacement_puts_the_occupant_back(sandbox, monkeypatch):
+    """A repair that cannot finish leaves the machine as it found it."""
+    ffmpeg_portable.final_dir().mkdir(parents=True)
+    (ffmpeg_portable.final_dir() / "leftover.txt").write_text("x", encoding="utf-8")
+    payload = _archive_bytes()
+    _pin(monkeypatch, payload)
+    ffmpeg_portable.staging_root().mkdir(parents=True, exist_ok=True)
+    ffmpeg_portable.archive_path().write_bytes(payload)
+    build = ffmpeg_portable.extract_archive(ffmpeg_portable.archive_path(), _Log())
+
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def fail_the_second_move(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 2:            # the aside move works, the install does not
+            raise OSError("disk full")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(ffmpeg_portable.os, "replace", fail_the_second_move)
     log = _Log()
+
     assert ffmpeg_portable.promote(build, log) is None
-    assert "not overwriting" in log.text
-    assert (ffmpeg_portable.final_dir() / "existing.txt").exists()
+    assert (ffmpeg_portable.final_dir() / "leftover.txt").exists()
+    assert "put the previous build directory back" in log.text.lower()
 
 
 def test_a_second_acquisition_after_success_is_a_no_op_adoption(
@@ -833,10 +874,11 @@ def test_the_runtime_pin_is_not_a_provenance_claim(sandbox):
     directory = sandbox.tmp / "from-anywhere"
     _install_pair(directory)
 
-    proved = ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(directory), _Log(),
-                                      runner=_runner(True))
+    adopted = ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(directory), _Log(),
+                                       runner=_runner(True))
 
-    assert proved is not None
+    assert adopted.pinned
+    proved = adopted.pair
     text = ffmpeg_health.state_path().read_text(encoding="utf-8")
     payload = json.loads(text)
     # It records the *binaries* it executed, and nothing about an archive.
@@ -849,8 +891,9 @@ def test_the_runtime_pin_is_not_a_provenance_claim(sandbox):
 def test_the_pin_is_re_proved_later_rather_than_trusted_forever(sandbox):
     """ensure_ready still owns that; the pin is not a permanent guarantee."""
     _install_pair(ffmpeg_portable.final_bin_dir())
-    ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(ffmpeg_portable.final_bin_dir()),
-                             _Log(), runner=_runner(True))
+    assert ffmpeg_health.adopt_pair(
+        ffmpeg_health.pair_in(ffmpeg_portable.final_bin_dir()),
+        _Log(), runner=_runner(True)).pinned
 
     assert ffmpeg_health.ensure_ready(_Log(), runner=_runner(False)) is None
 
@@ -932,3 +975,364 @@ def test_no_archive_or_binary_is_tracked():
         assert not path.endswith((".exe", ".zip")), path
         assert "ffmpeg-staging" not in path
         assert not path.startswith("files/bin/")
+
+
+# --------------------------------------------------------------------------- #
+# K. Persistence is part of the pin (Phase 3 remediation, gap 1)
+#
+# adopt_pair used to prove the pair, call save_state -- which swallowed OSError
+# and returned nothing -- log "Verified", and hand the pair back. So a disk-full
+# or permission failure produced "acquisition succeeded, pair pinned" while
+# pinned_pair() still returned the incumbent, or None. Proving a pair and
+# durably recording it as the active one are different facts; only the second
+# makes it the runtime pin, and Phase 4 is about to make consumers trust exactly
+# that. Hence blocking rather than cosmetic.
+#
+# save_state also wrote straight over the live file, so a failure part-way
+# through could leave neither the old state nor the new one -- an attempt to
+# record a replacement destroying the record of a pair that worked.
+# --------------------------------------------------------------------------- #
+def _state_bytes() -> bytes:
+    return ffmpeg_health.state_path().read_bytes()
+
+
+def _fails(monkeypatch_ctx, attr: str, exc=OSError("simulated failure")):
+    """Make one os operation fail inside a scoped context."""
+    def boom(*a, **k):
+        raise exc
+    monkeypatch_ctx.setattr(ffmpeg_health.os, attr, boom)
+
+
+def test_a_write_failure_before_the_swap_is_reported_as_not_pinned(
+        sandbox, pinned_a):
+    """Gap 1, stated directly: proved, not persisted, therefore not pinned.
+
+    The failure is injected at ``fsync`` -- inside the temporary write, before
+    the atomic replace -- so this exercises the real persistence primitive
+    rather than stubbing ``save_state`` out.
+    """
+    before = _state_bytes()
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+    candidate = ffmpeg_health.pair_in(candidate_dir)
+
+    with pytest.MonkeyPatch.context() as inner:
+        _fails(inner, "fsync")
+        outcome = ffmpeg_health.adopt_pair(candidate, _Log(), runner=_runner(True))
+
+    assert not outcome.pinned
+    assert outcome.status == ffmpeg_health.ADOPT_NOT_PERSISTED
+    assert outcome.pair is None
+    assert outcome.proved is True          # the binaries did run; say so honestly
+    _assert_a_still_active(pinned_a)
+    assert _state_bytes() == before
+
+
+def test_a_failure_at_the_atomic_replace_is_reported_as_not_pinned(
+        sandbox, pinned_a):
+    """The temporary file wrote fine; making it live did not."""
+    before = _state_bytes()
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+    candidate = ffmpeg_health.pair_in(candidate_dir)
+
+    with pytest.MonkeyPatch.context() as inner:
+        _fails(inner, "replace")
+        outcome = ffmpeg_health.adopt_pair(candidate, _Log(), runner=_runner(True))
+
+    assert not outcome.pinned
+    assert outcome.status == ffmpeg_health.ADOPT_NOT_PERSISTED
+    _assert_a_still_active(pinned_a)
+    assert _state_bytes() == before
+
+
+def test_a_not_persisted_result_never_claims_success_in_the_log(sandbox, pinned_a):
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+    candidate = ffmpeg_health.pair_in(candidate_dir)
+    log = _Log()
+
+    with pytest.MonkeyPatch.context() as inner:
+        _fails(inner, "replace")
+        ffmpeg_health.adopt_pair(candidate, log, runner=_runner(True))
+
+    assert "Verified" not in log.text
+    assert "Not pinned" in log.text
+
+
+def test_a_successful_adoption_does_persist_and_resolve(sandbox, pinned_a):
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+    candidate = ffmpeg_health.pair_in(candidate_dir)
+
+    outcome = ffmpeg_health.adopt_pair(candidate, _Log(), runner=_runner(True))
+
+    assert outcome.pinned and outcome.pair is not None
+    active = ffmpeg_health.pinned_pair()
+    assert active is not None and active.directory == candidate_dir
+
+
+def test_the_live_state_is_never_the_file_being_written(sandbox, pinned_a):
+    """It is replaced into position, never written in place."""
+    moves: list = []
+    real_replace = os.replace
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+
+    with pytest.MonkeyPatch.context() as inner:
+        inner.setattr(ffmpeg_health.os, "replace",
+                      lambda src, dst: (moves.append((Path(src), Path(dst))),
+                                        real_replace(src, dst))[1])
+        ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(candidate_dir), _Log(),
+                                 runner=_runner(True))
+
+    assert len(moves) == 1
+    source, destination = moves[0]
+    assert destination == ffmpeg_health.state_path()
+    assert source.parent == ffmpeg_health.state_path().parent   # same filesystem
+    assert source != destination
+    assert source.name.endswith(".tmp")
+
+
+def test_no_temporary_state_file_survives_a_success(sandbox, pinned_a):
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+    ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(candidate_dir), _Log(),
+                             runner=_runner(True))
+
+    assert list(ffmpeg_health.state_path().parent.glob("*.tmp")) == []
+
+
+def test_an_abandoned_temporary_state_never_becomes_authoritative(sandbox, pinned_a):
+    """Only os.replace makes a state live; a stray sibling is inert."""
+    stray = ffmpeg_health.state_path().with_name(
+        ffmpeg_health.state_path().name + ".999999.tmp")
+    stray.write_text('{"proof_version": 1, "pair": null, "rejected": []}',
+                     encoding="utf-8")
+
+    active = ffmpeg_health.pinned_pair()
+
+    assert active is not None and active.directory == pinned_a.directory
+
+
+def test_a_partial_temporary_file_is_cleaned_up_on_failure(sandbox, pinned_a):
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+
+    with pytest.MonkeyPatch.context() as inner:
+        _fails(inner, "replace")
+        ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(candidate_dir), _Log(),
+                                 runner=_runner(True))
+
+    assert list(ffmpeg_health.state_path().parent.glob("*.tmp")) == []
+
+
+def test_failing_to_record_a_rejection_never_costs_the_incumbent(sandbox, pinned_a):
+    """Best-effort metadata must not be able to damage the active pin."""
+    before = _state_bytes()
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+
+    with pytest.MonkeyPatch.context() as inner:
+        _fails(inner, "replace")
+        outcome = ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(candidate_dir),
+                                           _Log(), runner=_runner(False))
+
+    assert outcome.status == ffmpeg_health.ADOPT_NOT_PROVED
+    _assert_a_still_active(pinned_a)
+    assert _state_bytes() == before
+
+
+def test_an_inability_to_record_a_rejection_is_not_evidence_against_the_incumbent(
+        sandbox, pinned_a):
+    log = _Log()
+    candidate_dir = sandbox.tmp / "candidate"
+    _install_pair(candidate_dir)
+
+    with pytest.MonkeyPatch.context() as inner:
+        inner.setattr(ffmpeg_health, "save_state", lambda state: False)
+        ffmpeg_health.adopt_pair(ffmpeg_health.pair_in(candidate_dir), log,
+                                 runner=_runner(False))
+
+    assert "could not record this rejection" in log.text
+    _assert_a_still_active(pinned_a)
+
+
+def test_acquisition_reports_failure_when_the_pin_cannot_be_written(
+        sandbox, monkeypatch, pinned_a):
+    """End to end: promoted and proved, but not pinned, so not success."""
+    payload = _archive_bytes()
+    _pin(monkeypatch, payload)
+
+    with pytest.MonkeyPatch.context() as inner:
+        inner.setattr(ffmpeg_health, "save_state", lambda state: False)
+        result = ffmpeg_portable.acquire(_Log(), opener=_opener(payload),
+                                         runner=_runner(True))
+
+    assert result is None
+    _assert_a_still_active(pinned_a)
+
+
+def test_a_build_promoted_but_unpinned_is_kept_for_the_next_run(
+        sandbox, monkeypatch, pinned_a):
+    """Case C: the files are good, the disk was not. Do not destroy them."""
+    payload = _archive_bytes()
+    _pin(monkeypatch, payload)
+
+    with pytest.MonkeyPatch.context() as inner:
+        inner.setattr(ffmpeg_health, "save_state", lambda state: False)
+        ffmpeg_portable.acquire(_Log(), opener=_opener(payload),
+                                runner=_runner(True))
+
+    assert (ffmpeg_portable.final_bin_dir() / _exe("ffmpeg")).is_file()
+
+    # Persistence recovers; the next run adopts it without downloading again.
+    def refuse(url):
+        pytest.fail("re-downloaded a build that was already installed and proved")
+
+    pinned = ffmpeg_portable.acquire(_Log(), opener=refuse, runner=_runner(True))
+
+    assert pinned is not None
+    assert pinned.directory == ffmpeg_portable.final_bin_dir()
+
+
+# --------------------------------------------------------------------------- #
+# L. An unusable installed build is repairable (Phase 3 remediation, gap 2)
+#
+# adopt_existing_final returned None for an incomplete or non-running build, so
+# acquire went on to download, extract and prove a fresh candidate -- and then
+# promote() refused the occupied destination and returned None. Every later
+# attempt did exactly the same thing. Fail-closed, but a dead end that only a
+# human deleting the directory could clear, which is the recovery this whole
+# drop exists to remove.
+# --------------------------------------------------------------------------- #
+def test_an_installed_build_missing_a_half_is_repaired(sandbox, monkeypatch):
+    half = ffmpeg_portable.final_bin_dir()
+    half.mkdir(parents=True)
+    (half / _exe("ffmpeg")).write_text("only half a build", encoding="utf-8")
+
+    pinned = _acquire(monkeypatch, _archive_bytes())
+
+    assert pinned is not None
+    assert pinned.directory == ffmpeg_portable.final_bin_dir()
+    assert (ffmpeg_portable.final_bin_dir() / _exe("ffprobe")).is_file()
+    assert not ffmpeg_portable._unusable_final_aside().exists()
+
+
+def _runner_rejecting(bad_marker: str):
+    """Refuse any executable whose bytes contain ``bad_marker``.
+
+    Keyed on content rather than call count on purpose: ``prove_pair``
+    short-circuits after the first half fails, so counting probes silently
+    describes a different scenario than the one the test names.
+    """
+    def run(executable):
+        try:
+            data = pathlib.Path(executable).read_text(encoding="utf-8",
+                                                      errors="replace")
+        except OSError:
+            return (False, "unreadable")
+        if bad_marker in data:
+            return (False, "blocked")
+        return (True, "ffmpeg version 9.0.1")
+    return run
+
+
+def test_an_installed_build_that_will_not_run_is_repaired(sandbox, monkeypatch):
+    """Present, complete, and refused by the machine. Still repairable."""
+    _install_pair(ffmpeg_portable.final_bin_dir())      # writes "a" / "b"
+    (ffmpeg_portable.final_bin_dir() / "stale.txt").write_text("old",
+                                                               encoding="utf-8")
+    payload = _archive_bytes()                          # writes "ffmpeg-bytes"
+    _pin(monkeypatch, payload)
+
+    pinned = ffmpeg_portable.acquire(_Log(), opener=_opener(payload),
+                                     runner=_runner_rejecting("a"))
+
+    assert pinned is not None
+    assert not (ffmpeg_portable.final_bin_dir() / "stale.txt").exists()
+    assert not ffmpeg_portable._unusable_final_aside().exists()
+
+
+def test_repairing_a_bad_build_is_idempotent_on_the_next_run(sandbox, monkeypatch):
+    """After the repair there is no stale blocking destination left."""
+    half = ffmpeg_portable.final_bin_dir()
+    half.mkdir(parents=True)
+    (half / _exe("ffmpeg")).write_text("only half", encoding="utf-8")
+    _acquire(monkeypatch, _archive_bytes())
+
+    def refuse(url):
+        pytest.fail("downloaded again after a successful repair")
+
+    again = ffmpeg_portable.acquire(_Log(), opener=refuse, runner=_runner(True))
+
+    assert again is not None
+    assert again.directory == ffmpeg_portable.final_bin_dir()
+
+
+def test_no_manual_deletion_is_ever_required_to_clear_a_bad_build(sandbox,
+                                                                  monkeypatch):
+    """The whole point: the user never has to delete a directory by hand."""
+    ffmpeg_portable.final_dir().mkdir(parents=True)
+    (ffmpeg_portable.final_dir() / "garbage.txt").write_text("x", encoding="utf-8")
+
+    first = _acquire(monkeypatch, _archive_bytes())
+
+    assert first is not None
+    assert not (ffmpeg_portable.final_dir() / "garbage.txt").exists()
+
+
+def test_a_bad_build_with_a_failed_staging_proof_is_left_alone(
+        sandbox, monkeypatch, pinned_a):
+    """Case A: nothing better exists yet, so nothing is disturbed."""
+    _install_pair(ffmpeg_portable.final_bin_dir())
+    (ffmpeg_portable.final_bin_dir() / "marker.txt").write_text("keep",
+                                                                encoding="utf-8")
+
+    result = _acquire(monkeypatch, _archive_bytes(), runner_ok=False)
+
+    assert result is None
+    assert (ffmpeg_portable.final_bin_dir() / "marker.txt").exists()
+    _assert_a_still_active(pinned_a)
+
+
+def test_a_working_pair_elsewhere_survives_a_failed_build_repair(
+        sandbox, monkeypatch, pinned_a):
+    """Case B: the repair cannot finish, and A is untouched throughout."""
+    _install_pair(ffmpeg_portable.final_bin_dir())      # unusable: bytes "a"/"b"
+    payload = _archive_bytes()
+    _pin(monkeypatch, payload)
+    real_replace = os.replace
+    failed = {"once": False}
+
+    def fail_the_install(src, dst):
+        # Transient: the install fails, the rollback that follows does not.
+        # A permanently broken filesystem would also block the restore, which
+        # is a different scenario and is reported rather than silently retried.
+        if Path(dst) == ffmpeg_portable.final_dir() and not failed["once"]:
+            failed["once"] = True
+            raise OSError("disk full")
+        return real_replace(src, dst)
+
+    with pytest.MonkeyPatch.context() as inner:
+        inner.setattr(ffmpeg_portable.os, "replace", fail_the_install)
+        result = ffmpeg_portable.acquire(
+            _Log(), opener=_opener(payload),
+            runner=_runner_rejecting("a"))
+
+    assert result is None
+    _assert_a_still_active(pinned_a)
+    # And the occupant was put back rather than lost.
+    assert (ffmpeg_portable.final_bin_dir() / _exe("ffmpeg")).is_file()
+
+
+def test_a_stale_pin_naming_a_dead_build_is_not_treated_as_working(
+        sandbox, monkeypatch):
+    """Stale JSON naming a directory is not evidence that it still runs."""
+    _install_pair(ffmpeg_portable.final_bin_dir())
+    assert ffmpeg_health.adopt_pair(
+        ffmpeg_health.pair_in(ffmpeg_portable.final_bin_dir()),
+        _Log(), runner=_runner(True)).pinned
+
+    # It stops running; the recorded pin still names it.
+    assert ffmpeg_health.ensure_ready(_Log(), runner=_runner(False)) is None
