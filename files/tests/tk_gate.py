@@ -30,7 +30,9 @@ place.
 from __future__ import annotations
 
 import atexit
+import gc
 import sys
+import threading
 
 import pytest
 
@@ -121,6 +123,170 @@ def _reset_root(root) -> None:
         pass
 
 
+#: Tk types whose ``__del__`` calls into Tcl, and the attribute that arms it.
+#: Widgets are absent on purpose — ``Misc`` has no finaliser, and ``_reset_root``
+#: already destroys every child.
+_ARMED_ATTRIBUTE = {"Variable": "_tk", "Image": "name"}
+
+
+def _disarm_variable(variable) -> bool:
+    """Do what ``Variable.__del__`` would do, here, and then make it a no-op.
+
+    The unset and the trace-command deletion happen on **this** thread, which is
+    the main one; then ``_tk`` is cleared. ``Variable.__del__`` starts with
+    ``if self._tk is None: return``, so once that reference is gone the object
+    is inert no matter which thread the cyclic collector later runs it on. That
+    is the whole guarantee: not "the finaliser will probably run somewhere
+    safe", but "there is no longer a finaliser that can call into Tcl at all".
+    """
+    interpreter = getattr(variable, "_tk", None)
+    if interpreter is None:
+        return False
+    name = getattr(variable, "_name", None)
+    try:
+        if name and interpreter.getboolean(
+                interpreter.call("info", "exists", name)):
+            interpreter.globalunsetvar(name)
+    except Exception:
+        # A variable whose interpreter has already gone is exactly the case
+        # this exists to make harmless; there is nothing left to clean up.
+        pass
+    for command in tuple(getattr(variable, "_tclCommands", None) or ()):
+        try:
+            interpreter.deletecommand(command)
+        except Exception:
+            pass
+    variable._tclCommands = None
+    variable._tk = None
+    return True
+
+
+def _disarm_image(image) -> bool:
+    """The same for ``Image``: delete the Tcl image here, then clear ``name``.
+
+    ``Image.__del__`` is guarded by ``if self.name``, so clearing it disarms the
+    object the same way.
+    """
+    name = getattr(image, "name", None)
+    if not name:
+        return False
+    try:
+        image.tk.call("image", "delete", name)
+    except Exception:
+        pass
+    image.name = None
+    return True
+
+
+def _live_types(tk):
+    """``(Variable, Image)`` for a real tkinter, or ``None`` for a stand-in.
+
+    Several modules hand their fixtures a fake ``tkinter`` — a ``FakeTk`` with
+    just the attributes that module needs — and the boundary must be a no-op for
+    those rather than an AttributeError. It has nothing to finalise there
+    anyway: a fake never created a Tcl interpreter.
+    """
+    variable = getattr(tk, "Variable", None)
+    image = getattr(tk, "Image", None)
+    if not isinstance(variable, type) or not isinstance(image, type):
+        return None
+    return variable, image
+
+
+def _instances_of(types):
+    """Live objects of the given types, tolerating whatever else is on the heap.
+
+    ``isinstance`` is deliberately **not** used. ``gc.get_objects()`` returns
+    everything, dead ``weakref.proxy`` objects included, and ``isinstance`` on a
+    proxy whose referent has gone raises ``ReferenceError`` — which is how the
+    first version of this boundary turned a thousand unrelated tests into setup
+    errors. ``type(obj)`` never dereferences anything, so asking whether that
+    type is a subclass is both equivalent here (neither class defines
+    ``__instancecheck__``) and safe on any object at all.
+    """
+    for obj in gc.get_objects():
+        if issubclass(type(obj), types):
+            yield obj
+
+
+def finalise_tk_objects(tk) -> int:
+    """Finalise every leftover Tk variable and image **on the main thread**.
+
+    **The defect (L2).** ``_reset_root`` destroys widgets, cancels ``after``
+    callbacks and unbinds events, but a ``tkinter.Variable`` is not owned by the
+    widget that used it: destroying a frame leaves its variables alive, still
+    holding a reference to the shared interpreter. Measured before this fix, one
+    short run of three UI modules ended with **90 live variables still armed**
+    and a live root. Each of those carries a ``__del__`` that calls into Tcl.
+
+    Nothing decides when that finaliser runs. Reference counting would run it
+    on whichever thread dropped the last reference — the main one, in a test —
+    but these variables sit inside reference cycles, so it is the **cyclic**
+    collector that eventually finalises them, on whichever thread happens to
+    allocate enough to trigger a collection. That can be a worker thread, and a
+    worker calling into Tcl is at best an ignored ``RuntimeError`` and at worst
+    a stall on the interpreter lock. The suite has already paid for this once:
+    a bounded five-second thread-start wait in ``test_job_ui.py`` timed out when
+    an unrelated change shifted when collection ran.
+
+    **The fix is not to avoid provoking it.** Phase 1 reduced the allocation
+    churn so collection was less likely to land badly, which is a smaller
+    probability rather than an invariant. This makes it deterministic: every
+    surviving Tk object is finalised *here*, at a module boundary, on the main
+    thread, and then disarmed — so any later cyclic collection, wherever it
+    runs, finds nothing that can call into Tcl.
+
+    Returns how many objects were disarmed, so a regression can assert on it.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError(
+            "the Tk finalisation boundary must run on the main thread; "
+            f"it was called from {threading.current_thread().name!r}")
+
+    types = _live_types(tk)
+    if types is None:
+        return 0
+    variable_type, image_type = types
+
+    # Collect first, so what is severed below is genuinely what survives rather
+    # than objects that were already unreachable and about to go anyway. This
+    # collection is on the main thread, which is the point.
+    gc.collect()
+
+    disarmed = 0
+    for obj in list(_instances_of(types)):
+        if issubclass(type(obj), variable_type):
+            disarmed += _disarm_variable(obj)
+        elif issubclass(type(obj), image_type):
+            disarmed += _disarm_image(obj)
+
+    # And again, so the now-inert cycles are cleared here rather than left for
+    # an arbitrary thread to trip over later.
+    gc.collect()
+    return disarmed
+
+
+def armed_tk_objects(tk) -> list:
+    """Every live Tk object that could still call into Tcl from a finaliser.
+
+    The measurement the regression asserts on, kept beside the fix so the two
+    cannot describe different things.
+    """
+    types = _live_types(tk)
+    if types is None:
+        return []
+    variable_type, image_type = types
+
+    armed = []
+    for obj in _instances_of(types):
+        if issubclass(type(obj), variable_type):
+            if getattr(obj, "_tk", None) is not None:
+                armed.append(obj)
+        elif getattr(obj, "name", None):
+            armed.append(obj)
+    return armed
+
+
 def shared_root(tk):
     """The one live root for this process, created on first use.
 
@@ -176,9 +342,15 @@ def tk_root_session(tk, *, before_destroy=None):
     """
     root = shared_root(tk)
     _reset_root(root)
+    finalise_tk_objects(tk)
     try:
         yield root
     finally:
         if before_destroy is not None:
             before_destroy()
         _reset_root(root)
+        # Widgets are gone by now; their variables are not, because a variable
+        # is not owned by the widget that used it. Finalise them here, on the
+        # main thread, rather than leaving them for whichever thread the cyclic
+        # collector next runs on. See :func:`finalise_tk_objects`.
+        finalise_tk_objects(tk)

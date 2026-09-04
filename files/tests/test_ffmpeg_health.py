@@ -41,6 +41,8 @@ from pathlib import Path
 
 import pytest
 
+import source_probe
+
 from shared import bootstrap
 from shared import ffmpeg_health
 from shared import ffmpeg_utils
@@ -797,14 +799,18 @@ def test_setup_no_longer_accepts_a_path_it_never_executed():
     PRE-PLAN-6 Phase 5 moved the sequence into ``repair_ffmpeg`` and made
     ``ensure_ffmpeg`` a thin call into it, so setup and every launch cannot
     drift into two behaviours. The assertion follows it there.
+
+    Phase 6 restated it as AST. The slice this replaced ran from ``def
+    repair_ffmpeg(`` to ``def ensure_ffmpeg(`` — which is a claim about the
+    order of two lines in a file, not about either function, and it had already
+    been rewritten once when Phase 5 moved them.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    body = source[source.index("def repair_ffmpeg("):
-                  source.index("def ensure_ffmpeg(")]
-    assert "ffmpeg_health.ensure_ready" in body
-    assert "_ffmpeg_on_path()" not in body
-    assert "_ffmpeg_in_bin()" not in body
+    body = source_probe.function("shared/bootstrap.py", "repair_ffmpeg")
+    called = source_probe.calls(body)
+
+    assert "ensure_ready" in called
+    assert "_ffmpeg_on_path" not in called
+    assert "_ffmpeg_in_bin" not in called
 
 
 def test_setup_reports_ready_only_when_a_pair_was_proven(monkeypatch, tmp_path):
@@ -837,33 +843,63 @@ def test_a_winget_install_is_accepted_without_waiting_for_path():
 
     Gating success on ``_ffmpeg_on_path()`` made setup abandon installs that had
     just succeeded and download a second, worse copy instead.
+
+    **This is the guard the drop named as the remaining structural weakness**,
+    and it is a good illustration of why. It used to slice the file from ``def
+    _winget_ffmpeg(`` to ``def _brew_ffmpeg(`` and assert a substring was
+    absent — so it broke the moment a *comment* inside that function explained
+    why the check had been removed, and it would have quietly stopped testing
+    anything at all if either neighbour were renamed or moved.
+
+    Stated as AST it says the actual invariant: this function does not call the
+    PATH probe, and neither does the route that decides on its result.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    winget = source[source.index("def _winget_ffmpeg("):
-                    source.index("def _brew_ffmpeg(")]
-    assert "_ffmpeg_on_path()" not in winget
+    for name in ("_winget_ffmpeg", "_brew_ffmpeg", "_install_ffmpeg"):
+        called = source_probe.calls(
+            source_probe.function("shared/bootstrap.py", name))
+        assert "_ffmpeg_on_path" not in called, name
+        assert "_ffmpeg_in_bin" not in called, name
+
+
+def test_the_winget_argv_is_the_pinned_package_in_user_scope():
+    """What the command *is*, read from the tree rather than from the text."""
+    argv = [a for a in source_probe.literal_lists(
+        source_probe.function("shared/bootstrap.py", "_winget_ffmpeg"))
+        if a and a[0] == "winget"]
+
+    assert len(argv) == 1, argv
+    command = argv[0]
+    assert command[:2] == ["winget", "install"]
+    assert "Gyan.FFmpeg" in command
+    assert command[command.index("--scope") + 1] == "user"
 
 
 def test_the_launch_fast_path_checks_ffmpeg_before_the_gui():
-    """**Structural.** The gap that let a broken pair reach a real conversion."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    body = source[source.index("def _launch_with_kokoro_healthcheck("):]
-    body = body[:body.index("def ")] if "def " in body[10:] else body
-    assert "ensure_ffmpeg_ready_for_launch()" in source
-    launch = source.index("def _launch_with_kokoro_healthcheck(")
-    check = source.index("ensure_ffmpeg_ready_for_launch()", launch)
-    gui = source.index("launch_gui(LOG)", launch)
-    assert check < gui, "the health check must run before the GUI is launched"
+    """**Structural.** The gap that let a broken pair reach a real conversion.
+
+    The old form searched the whole file for two substrings and compared their
+    offsets, so it was really asserting that one string appears earlier in
+    ``bootstrap.py`` than another — true of a docstring mentioning either name.
+    As AST it is the ordering of two calls inside one function, which is the
+    thing that actually has to hold.
+    """
+    launch = source_probe.function("shared/bootstrap.py",
+                                   "_launch_with_kokoro_healthcheck")
+    order = source_probe.call_order(
+        launch, ("ensure_ffmpeg_ready_for_launch", "launch_gui"))
+
+    assert order.count("ensure_ffmpeg_ready_for_launch") == 1
+    assert order.count("launch_gui") == 1
+    assert order.index("ensure_ffmpeg_ready_for_launch") < order.index("launch_gui"), \
+        "the audio tools must be settled before the GUI is launched"
 
 
 def test_the_launch_check_still_leaves_kokoro_and_requirements_alone():
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    body = source[source.index("def _launch_with_kokoro_healthcheck("):]
-    assert "requirements_are_current()" in body
-    assert "kokoro_is_healthy(venv_py)" in body
+    called = source_probe.calls(source_probe.function(
+        "shared/bootstrap.py", "_launch_with_kokoro_healthcheck"))
+
+    assert "requirements_are_current" in called
+    assert "kokoro_is_healthy" in called
 
 
 def test_a_launch_with_no_usable_ffmpeg_repairs_instead_of_warning(monkeypatch,

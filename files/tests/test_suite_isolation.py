@@ -213,3 +213,134 @@ def test_both_venv_records_are_checked_around_every_test():
     assert "the real requirements stamp" in per_test
     assert "the real import proof" in per_test
     assert "the real setup log directory" not in per_test
+
+
+# --------------------------------------------------------------------------- #
+# F. PRE-PLAN-6 Phase 6, row 17 — the FFmpeg state the guard used to miss
+#
+# Phases 3 to 5 gave the suite three more ways to write production state: the
+# runtime pin, an installed build under files/bin, and the staging tree. None of
+# them was guarded. That was not hypothetical — an intermediate Phase-5 run
+# created files/runtime-data/ffmpeg-staging/9.0.1 and the suite did not notice;
+# it was found by hand afterwards. The absence of those two trees is what
+# Phase 7's real acceptance runs against, so absence is the thing protected.
+# --------------------------------------------------------------------------- #
+def test_the_guard_watches_the_real_ffmpeg_pin():
+    assert (REPO_ROOT / "files" / "runtime-data" / "ffmpeg-state.json") in \
+        set(conftest._GUARDED_PATHS.values())
+
+
+def test_the_guard_watches_the_real_installed_build():
+    assert (REPO_ROOT / "files" / "bin") in set(conftest._GUARDED_PATHS.values())
+
+
+def test_the_guard_watches_the_real_staging_tree():
+    assert (REPO_ROOT / "files" / "runtime-data" / "ffmpeg-staging") in \
+        set(conftest._GUARDED_PATHS.values())
+
+
+def test_the_ffmpeg_paths_are_attributed_to_the_test_that_touched_them():
+    """Per-test, not per-session: a pin or a build has one culprit worth naming.
+
+    Affordable because on a machine in the preserved condition both trees are
+    absent, so the check is a single failed stat.
+    """
+    per_test = set(conftest._PER_TEST_GUARDED)
+    assert "the real FFmpeg pin" in per_test
+    assert "the real installed FFmpeg build" in per_test
+    assert "the real FFmpeg staging tree" in per_test
+
+
+def test_a_path_appearing_where_there_was_none_is_detected(tmp_path):
+    """Absence is a value, not a gap. Creating the tree must compare unequal.
+
+    This is the exact shape of the Phase-5 leak: nothing existed, then a
+    directory did.
+    """
+    absent = tmp_path / "ffmpeg-staging"
+    before = conftest._fingerprint(absent)
+    assert before is None
+
+    (absent / "9.0.1").mkdir(parents=True)
+
+    assert conftest._fingerprint(absent) != before
+
+
+def test_a_path_disappearing_is_detected(tmp_path):
+    """The other direction: a guard that only catches writes is half a guard."""
+    present = tmp_path / "bin"
+    (present / "ffmpeg" / "9.0.1" / "bin").mkdir(parents=True)
+    (present / "ffmpeg" / "9.0.1" / "bin" / "ffmpeg.exe").write_text(
+        "x", encoding="utf-8")
+    before = conftest._fingerprint(present)
+    assert before is not None
+
+    import shutil
+    shutil.rmtree(present)
+
+    assert conftest._fingerprint(present) != before
+
+
+def test_a_change_deep_in_a_versioned_tree_cannot_hide(tmp_path):
+    """``files/bin`` is ``ffmpeg/<version>/bin/ffmpeg.exe`` — three levels down.
+
+    A single-level listing of ``files/bin`` would report the same tuple whether
+    or not a whole FFmpeg build had appeared underneath it, because only the
+    ``ffmpeg`` directory name is visible at the top. That is why the fingerprint
+    recurses.
+    """
+    root = tmp_path / "bin"
+    (root / "ffmpeg" / "9.0.1" / "bin").mkdir(parents=True)
+    before = conftest._fingerprint(root)
+
+    (root / "ffmpeg" / "9.0.1" / "bin" / "ffmpeg.exe").write_text(
+        "binary", encoding="utf-8")
+
+    assert conftest._fingerprint(root) != before, \
+        "a build appearing three directories down was invisible to the guard"
+
+
+def test_an_emptied_directory_does_not_look_like_an_absent_one(tmp_path):
+    """Removing the only file must not fingerprint the same as never existing."""
+    root = tmp_path / "staging"
+    (root / "9.0.1").mkdir(parents=True)
+    (root / "9.0.1" / "part").write_text("x", encoding="utf-8")
+    populated = conftest._fingerprint(root)
+
+    (root / "9.0.1" / "part").unlink()
+    emptied = conftest._fingerprint(root)
+
+    assert emptied != populated
+    assert emptied is not None, "an existing empty tree read as absent"
+
+
+def test_a_nested_empty_directory_is_itself_recorded(tmp_path):
+    """A staging tree is created before anything lands in it, and that counts."""
+    root = tmp_path / "staging"
+    root.mkdir()
+    before = conftest._fingerprint(root)
+
+    (root / "9.0.1").mkdir()
+
+    assert conftest._fingerprint(root) != before
+
+
+def test_the_guard_reads_the_real_filesystem_not_a_patched_one(monkeypatch,
+                                                               tmp_path):
+    """A test that fakes ``os.scandir`` must not also fake what the guard sees.
+
+    ``conftest`` captures the real ``os.scandir``/``os.stat`` at import, before
+    any test can replace them. Without that, a module proving some walk
+    tolerates a vanishing file would blind the guard for the duration.
+    """
+    target = tmp_path / "tree"
+    target.mkdir()
+    (target / "a").write_text("x", encoding="utf-8")
+    expected = conftest._fingerprint(target)
+
+    def exploding(*args, **kwargs):
+        raise AssertionError("the guard used the monkeypatched os.scandir")
+
+    monkeypatch.setattr(os, "scandir", exploding)
+
+    assert conftest._fingerprint(target) == expected

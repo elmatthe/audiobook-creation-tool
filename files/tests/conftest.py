@@ -49,12 +49,35 @@ if str(SCRIPTS_ROOT) not in sys.path:
 #  trade-off is that a log leak is reported for the session rather than
 #  attributed to one test; the redirect above makes that the unlikely case.
 # --------------------------------------------------------------------------- #
+#  PRE-PLAN-6 Phase 6 (row 17) completed the set. Phases 3 to 5 gave the suite
+#  three more ways to write production state — an FFmpeg pin, an installed
+#  build, and a staging tree — and the guard did not cover any of them. That was
+#  not hypothetical: an intermediate Phase-5 run created
+#  ``files/runtime-data/ffmpeg-staging/9.0.1`` and nothing in the suite noticed.
+#  It was found by hand, afterwards. All three are now guarded, and the absence
+#  of the last two is itself the thing being protected, because Phase 7's real
+#  acceptance depends on this machine still having no FFmpeg.
 _GUARDED_PATHS = {
     "the real requirements stamp": REPO_ROOT / ".venv" / ".requirements-state.json",
     "the real import proof": REPO_ROOT / ".venv" / ".import-proof.json",
+    "the real FFmpeg pin": (REPO_ROOT / "files" / "runtime-data"
+                            / "ffmpeg-state.json"),
+    "the real installed FFmpeg build": REPO_ROOT / "files" / "bin",
+    "the real FFmpeg staging tree": (REPO_ROOT / "files" / "runtime-data"
+                                     / "ffmpeg-staging"),
     "the real setup log directory": REPO_ROOT / "files" / "runtime-data" / "logs",
 }
-_PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof")
+#  Everything except the log directory is checked around every test, so a
+#  violation names the test that caused it. That is affordable because each is
+#  either one small file or — for the two FFmpeg trees — a path that does not
+#  exist on a machine in the preserved condition, which costs a single failed
+#  stat. The log directory keeps its session-scoped check: ~80 entries either
+#  side of ~5500 tests is over ten thousand scans, and paying that per test is
+#  what previously perturbed the suite's timing enough to trip a bounded thread
+#  wait in test_job_ui.py.
+_PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof",
+                     "the real FFmpeg pin", "the real installed FFmpeg build",
+                     "the real FFmpeg staging tree")
 
 
 # Captured at import, before any test can monkeypatch them. The guard has to
@@ -81,16 +104,19 @@ def _fingerprint(path: Path):
     log tree around every test would be expensive for no gain, since a log that
     is written at all has changed size or timestamp.
 
+    **It does recurse, and that matters.** ``files/bin`` holds a versioned
+    layout — ``ffmpeg/<version>/bin/ffmpeg.exe`` — so a single-level listing
+    would let a whole installed build appear three directories down behind an
+    unchanged top level. The same is true of the staging tree. Recursion is what
+    makes "this path is absent" a claim about the tree rather than about its
+    root, and absence is precisely what Phase 7 needs preserved.
+
     ``os.scandir`` rather than ``Path.iterdir`` + ``Path.stat``: on Windows
     scandir carries size and timestamps back from the directory enumeration
     itself instead of paying a separate stat syscall per entry.
     """
     try:
-        with _REAL_SCANDIR(path) as entries:
-            return tuple(sorted(
-                (e.name, e.stat().st_size, e.stat().st_mtime_ns)
-                for e in entries if e.is_file()
-            ))
+        return tuple(sorted(_walk(path, "")))
     except NotADirectoryError:
         pass
     except OSError:
@@ -102,6 +128,26 @@ def _fingerprint(path: Path):
         return (stat.st_size, stat.st_mtime_ns, digest)
     except OSError:
         return None
+
+
+def _walk(directory: Path, prefix: str):
+    """Every file under ``directory``, recursively, as (relpath, size, mtime).
+
+    Raises ``NotADirectoryError`` for a file so :func:`_fingerprint` can fall
+    through to its content-hashing branch, and ``OSError`` for a missing path so
+    absence fingerprints as ``None``.
+    """
+    with _REAL_SCANDIR(directory) as entries:
+        for entry in entries:
+            name = f"{prefix}{entry.name}"
+            if entry.is_dir():
+                # A directory that exists but is empty still has to register,
+                # or an emptied tree would look identical to an absent one.
+                yield (name + "/", -1, -1)
+                yield from _walk(Path(entry.path), name + "/")
+            elif entry.is_file():
+                info = entry.stat()
+                yield (name, info.st_size, info.st_mtime_ns)
 
 
 @pytest.fixture
@@ -314,18 +360,28 @@ def _violations(before: dict) -> list[str]:
     ]
 
 
-_ADVICE = ("\nRedirect bootstrap.VENV_DIR / bootstrap.LOGS_DIR to tmp_path "
-           "instead of writing the developer's real environment.")
+_ADVICE = ("\nRedirect the writer to tmp_path before it runs — "
+           "bootstrap.VENV_DIR / bootstrap.LOGS_DIR for setup state, "
+           "ffmpeg_health.RESOURCES_DIR / ffmpeg_health.BIN_DIR for the FFmpeg "
+           "pin, installed build and staging tree — instead of writing the "
+           "developer's real environment.")
 
 
 @pytest.fixture(autouse=True)
 def _no_production_state_writes():
-    """Fail any test that mutates the real requirements stamp.
+    """Fail any test that mutates real production state.
 
-    Tests exercising setup, logging or environment stamping must redirect the
-    module-level paths (``bootstrap.VENV_DIR``, ``bootstrap.LOGS_DIR``) into
-    ``tmp_path`` first. If this fires, that redirect is missing — do not relax
-    the guard, and never repair the real environment to make it pass.
+    Tests exercising setup, logging, environment stamping or FFmpeg
+    acquisition must redirect the module-level paths first —
+    ``bootstrap.VENV_DIR``, ``bootstrap.LOGS_DIR``,
+    ``ffmpeg_health.RESOURCES_DIR``, ``ffmpeg_health.BIN_DIR`` — into
+    ``tmp_path``, **before the first write**. If this fires, that redirect is
+    missing or came too late.
+
+    Do not relax the guard, and never repair the real environment to make it
+    pass: the environment it is protecting is the input to Phase 7's real
+    acceptance, and a test that can quietly create ``files/bin`` or pin an
+    FFmpeg pair has spent that acceptance rather than merely made a mess.
     """
     before = {name: _fingerprint(_GUARDED_PATHS[name])
               for name in _PER_TEST_GUARDED}

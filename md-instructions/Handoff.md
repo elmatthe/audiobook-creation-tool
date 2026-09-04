@@ -2,6 +2,93 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 6 COMPLETE: the regression matrix is hardened (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-5 block's closing line
+> that "Phase 6 has not started". Everything else in it stands. Nothing below is deleted or
+> rewritten.**
+>
+> - **No production code changed.** Phase 6 is a test and harness phase: five test files modified,
+>   three added. The only behavioural fix (L2) belongs to the suite's own Tk lifecycle, and the
+>   evidence for that is below.
+> - **The matrix was audited before anything was written.** Of the eighteen rows, most were
+>   already covered strongly by Phases 1-5 and are listed as *coverage* rather than re-tested;
+>   duplicating them would have raised the count without raising the gate. Four real gaps were
+>   found: a stale pin whose build **moved**, a **repository** path with spaces, macOS repair
+>   through the **normal launch path**, and the production-state guard's blind spots.
+> - **Row 17 — the guard had already missed something real.** It watched the requirements stamp,
+>   the import proof and the log directory; it did not watch the FFmpeg pin, `files/bin`, or the
+>   staging tree. That is exactly how an intermediate Phase-5 run created
+>   `files/runtime-data/ffmpeg-staging/9.0.1` unnoticed — found by hand, afterwards. All three are
+>   guarded now. The fingerprint **recurses**, so a build three directories down cannot hide
+>   behind an unchanged `files/bin`; absence is a value, so a path appearing *or* disappearing
+>   both compare unequal; and the five small paths are checked per test (a violation names its
+>   culprit) while the 79-file log tree stays session-scoped for cost.
+> - **Row 18 — L2 is genuinely fixed.** Root cause, measured rather than assumed:
+>   `tk_gate._reset_root` destroys widgets but a `tkinter.Variable` is not owned by the widget
+>   that used it, so at `b59f562` **90 variables were still armed** at the end of three UI
+>   modules, each holding the live interpreter and each carrying a `__del__` that calls into Tcl.
+>   They sit in reference cycles, so the *cyclic* collector finalises them — on whichever thread
+>   happens to trigger a collection. Phase 1 made that land badly less often; it did not make it
+>   impossible.
+> - **The fix: `tk_gate.finalise_tk_objects`**, run at every module boundary, on the main thread
+>   (it raises if called from anywhere else). It does what each finaliser would have done and then
+>   clears the attribute that arms it — `Variable._tk`, `Image.name` — so afterwards there is no
+>   finaliser that *can* reach Tcl, wherever it later runs. **90 → 0 armed objects**, with the same
+>   262 tests passing on both sides. **No timeout was increased, no GC disabled, no timeout
+>   caught, no worker test serialised, nothing skipped or xfailed.** The process-wide
+>   single-interpreter rule is untouched and now asserted.
+> - **Reported honestly about the failure shape.** On this machine (CPython 3.12.10, Tcl/Tk 8.6)
+>   `_tkinter` guards the off-main-thread call and raises `RuntimeError: main thread is not in
+>   main loop`, swallowed as *Exception ignored* — it does not hang here. The finaliser is still
+>   being run from the wrong thread, which is the defect; the consequence is build-dependent. The
+>   fix removes the cause rather than relying on that guard. The historical reproduction is kept
+>   in a **bounded child process** so a build where it stalls cannot strand a run.
+> - **Structural hardening.** The drop's named remaining weakness —
+>   `test_a_winget_install_is_accepted_without_waiting_for_path`, which sliced `bootstrap.py`
+>   between two `def` markers — is AST now, together with five sibling guards in the same two
+>   modules. It was a good example of the problem: it had already broken once because a *comment*
+>   mentioned the symbol it forbade. New shared helper `files/tests/source_probe.py`, with its own
+>   self-checks against synthetic code, and a meta-test forbidding `.index("def …")` in the
+>   modules this phase touched. The `.bat` guards stay textual — a batch file has no AST.
+> - **My own new code had a defect and the broad gate caught it.** The first Tk boundary used
+>   `isinstance` over `gc.get_objects()`; a dead `weakref.proxy` raises `ReferenceError` on
+>   `isinstance`, which turned 1028 unrelated tests into setup errors. It now filters on
+>   `type(obj)`, which never dereferences, and no-ops for the fake `tkinter` modules some fixtures
+>   inject.
+> - **Gates.** Targeted (15 modules incl. the three new): **711 passed, 0 failed**. Broad slice —
+>   the full suite minus the 93 classified baseline nodes, deselected by **exact node ID** (listed
+>   in `files/dev-work/phase6/excluded-nodes.txt`, never a fuzzy `-k`): **5479 passed, 57 skipped,
+>   0 failed, 0 errors**. Full run: **17 failed / 5479 passed / 57 skipped / 76 errors**, the 93
+>   FAILED/ERROR node IDs **byte-identical** to Phase 5's, **+46 passed**.
+> - **Classification: A** = 76 `require_ffmpeg` errors across seven m4b modules (the fixture says
+>   "red gate, not a skip"); **B** = 16 Chatterbox failures (`PermissionError: [WinError 5]`
+>   spawning); **C** = 1 `test_plan3_boundaries` row caused by the protected untracked maintainer
+>   report; **D = 0**.
+> - **`verify.py`:** deps / docs / docnames / config **PASS**; pytest row red, truthfully, because
+>   this machine deliberately has no FFmpeg. Nothing was installed to change that.
+> - **Production state re-proved mechanically, not asserted.** `files/dev-work/phase6/snapshot.py`
+>   before and `compare.py` after every gate: requirements stamp, import proof, log tree,
+>   `ffmpeg-state.json` (still **no active pair**), `files/bin` (**absent**), `ffmpeg-staging`
+>   (**absent**), `.venv.replaced*` (none), `where ffmpeg` / `where ffprobe` (nothing), the WinGet
+>   `Gyan.FFmpeg` inventory (not installed), the PATH hash, and both protected untracked files —
+>   **16 keys, 0 differences.** `.venv` remains Python 3.12.10.
+> - **The real HOME-PC missing-FFmpeg acceptance condition remains unconsumed and reserved for
+>   Phase 7.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 7 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; the 2026-08-28 entry is intact, and
+>   `Decisions.md`, `Briefing.md` and `Changelog.md` were not touched.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 6).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `files/tests/conftest.py`; `files/tests/tk_gate.py`;
+> `files/tests/test_ffmpeg_health.py`; `files/tests/test_first_run_contract.py`;
+> `files/tests/test_suite_isolation.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: `files/tests/source_probe.py`;
+> `files/tests/test_hardening_matrix.py`; `files/tests/test_tk_finalisation.py`. Deleted: none.
+> No production module under `scripts/` was modified. All staged and committed together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 5 COMPLETE: a normal launch repairs itself (2026-09-04)
 >
 > **This block is the live state of the repository. It supersedes the Phase-4 blocks' closing

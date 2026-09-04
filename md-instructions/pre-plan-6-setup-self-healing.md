@@ -976,7 +976,69 @@ mocked/staged environments only.
 
 ---
 
-### PHASE 6 — automated regression / hardening matrix
+### PHASE 6 — automated regression / hardening matrix ✅ COMPLETE
+
+> **An audit first, then only the gaps.** Rows 1-5, 7-9, 11-15 and most of 6, 10 and 16 were
+> already covered — strongly — by what Phases 1-5 left behind, and re-testing them would have
+> inflated the count without improving the gate. Four genuine gaps were found and filled: a stale
+> pin whose build **moved** (bytes intact, path changed — a WinGet upgrade), a **repository** path
+> containing spaces (the interpreter side was covered, the repo side was not), macOS repair
+> reached through the **normal launch path** rather than a direct `repair_ffmpeg` call, and the
+> production-state guard's blind spots.
+>
+> **Row 17 — the guard was incomplete, and it had already missed something.** It watched the
+> requirements stamp, the import proof and the log directory. Phases 3-5 added three more ways to
+> write production state — the runtime pin, `files/bin`, the staging tree — and none was watched.
+> That is how an intermediate Phase-5 run created `files/runtime-data/ffmpeg-staging/9.0.1`
+> without the suite noticing; it was found by hand afterwards. All three are guarded now, the
+> fingerprint **recurses** (a build three directories down cannot hide behind an unchanged
+> `files/bin`), absence and reappearance are both detected, and the five small paths are checked
+> per test so a violation names its culprit while the 79-file log tree stays session-scoped for
+> cost.
+>
+> **Row 18 — L2 is fixed, not avoided.** Diagnosed first: `tk_gate._reset_root` destroys widgets,
+> cancels `after` callbacks and unbinds events, but a `tkinter.Variable` is not owned by the
+> widget that used it. Measured at `b59f562` over three UI modules, **90 variables were still
+> armed** at session end, each holding the live interpreter and each carrying a `__del__` that
+> calls into Tcl — and because they sit in reference cycles it is the *cyclic* collector that
+> finalises them, on whichever thread happens to trigger it. Phase 1 reduced allocation churn so
+> that landed badly less often; that is a probability, not an invariant.
+> `tk_gate.finalise_tk_objects` now runs at every module boundary, on the main thread (it raises
+> if called from anywhere else), does what each finaliser would have done, and then clears the
+> attribute that arms it — `Variable._tk`, `Image.name`. Afterwards there is no finaliser that
+> *can* reach Tcl, wherever it later runs. **Measured: 90 → 0**, same 262 tests passing on both
+> sides. No timeout was raised, no GC disabled, no test serialised, nothing skipped. The shared
+> single-interpreter rule is untouched and asserted.
+>
+> **Structural hardening.** The drop's named remaining weakness —
+> `test_a_winget_install_is_accepted_without_waiting_for_path`, which sliced `bootstrap.py`
+> between two `def` markers — is AST now, along with five sibling guards in the same two modules.
+> The shared helper is `files/tests/source_probe.py`, and it has its own self-checks against
+> synthetic code, because a structural guard that cannot fail reads as coverage while testing
+> nothing. A meta-test forbids `.index("def …")` in the modules this phase touched. The `.bat`
+> guards are deliberately left textual: a batch file has no AST and its ordering really is
+> positional.
+>
+> **My own new code had a defect, and the broad gate caught it.** The first version of the Tk
+> boundary used `isinstance` over `gc.get_objects()`; a dead `weakref.proxy` raises
+> `ReferenceError` on `isinstance`, which turned 1028 unrelated tests into setup errors. It now
+> filters on `type(obj)`, which never dereferences anything, and tolerates the fake `tkinter`
+> modules some fixtures inject.
+>
+> **Gate.** Targeted suites (15 modules incl. the three new ones): **711 passed, 0 failed**. Broad
+> slice — the full suite minus the 93 classified baseline nodes, deselected by exact node ID and
+> recorded in `files/dev-work/phase6/excluded-nodes.txt`: **5479 passed, 57 skipped, 0 failed, 0
+> errors**. Full run: 17 failed / 5479 passed / 57 skipped / 76 errors, the **93 FAILED/ERROR
+> node IDs byte-identical** to Phase 5's, +46 passed. A = 76 `require_ffmpeg` errors, B = 16
+> Chatterbox failures, C = 1 protected-report boundary, **D = 0**. `verify.py` deps/docs/docnames/
+> config PASS; the pytest row is the standing HOME-PC red baseline.
+>
+> **Production state re-proved mechanically**, not asserted: `snapshot.py` before and `compare.py`
+> after every gate — requirements stamp, import proof, log tree, `ffmpeg-state.json`, `files/bin`,
+> `ffmpeg-staging`, `.venv.replaced*`, `where ffmpeg`/`ffprobe`, the WinGet inventory, the PATH
+> hash and both protected untracked files: **16 keys, 0 differences**. No production code was
+> changed in this phase.
+
 
 **Scope:** complete the matrix. **All required Windows scenarios; structural/mockable macOS
 scenarios.** At minimum:

@@ -35,6 +35,8 @@ from pathlib import Path, PureWindowsPath
 
 import pytest
 
+import source_probe
+
 from shared import bootstrap
 from shared import ffmpeg_health
 
@@ -321,21 +323,13 @@ def test_the_windows_installer_prefers_the_stable_winget_package():
     package id is asserted where the command is built, and the preference is
     asserted where the sequence now lives.
     """
-    import ast
+    argv = source_probe.literal_lists(
+        source_probe.function("shared/bootstrap.py", "_winget_ffmpeg"))
+    assert any("Gyan.FFmpeg" in command for command in argv), argv
 
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    assert "Gyan.FFmpeg" in source[source.index("def _winget_ffmpeg("):
-                                   source.index("def _brew_ffmpeg(")]
-
-    tree = ast.parse(source)
-    orchestration = next(n for n in ast.walk(tree)
-                         if isinstance(n, ast.FunctionDef)
-                         and n.name == "repair_ffmpeg")
-    order = [n.func.id for n in ast.walk(orchestration)
-             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-             and n.func.id in ("_install_ffmpeg",
-                               "_download_portable_ffmpeg_windows")]
+    order = source_probe.call_order(
+        source_probe.function("shared/bootstrap.py", "repair_ffmpeg"),
+        ("_install_ffmpeg", "_download_portable_ffmpeg_windows"))
     assert order == ["_install_ffmpeg", "_download_portable_ffmpeg_windows"]
 
 
@@ -343,14 +337,20 @@ def test_the_user_is_never_told_to_fetch_ffmpeg_before_using_the_app():
     """A manual-download instruction may only ever be a last-resort message.
 
     It must not appear anywhere that a normal first run would reach.
+
+    Phase 6 restated this as AST. The slice it replaced happened to span
+    ``run_setup`` only because ``_install_ffmpeg`` was defined after it; Phase 5
+    moved that function, and the slice silently began covering a different range
+    of the file while still passing.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    setup = source[source.index("def run_setup("):source.index("def _install_ffmpeg(")]
-    for line in setup.splitlines():
-        if "ffmpeg.org/download" in line:
-            assert "could not be installed automatically" in setup, (
-                "a download link may only follow an automatic-install failure")
+    setup = source_probe.function("shared/bootstrap.py", "run_setup")
+    strings = source_probe.code_strings(setup)
+    links = [text for text in strings if "ffmpeg.org/download" in text]
+
+    if links:
+        assert any("could not be installed automatically" in text
+                   for text in strings), (
+            "a download link may only follow an automatic-install failure")
 
 
 # --------------------------------------------------------------------------- #
