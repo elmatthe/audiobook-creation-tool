@@ -141,6 +141,64 @@ def pinned_ffmpeg(monkeypatch, tmp_path):
     ffmpeg_utils.refresh()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_provisioning(monkeypatch):
+    """No test may install a real package or download the real FFmpeg archive.
+
+    PRE-PLAN-6 Phase 5 wires provisioning into the *normal launch*, which means
+    the orchestration a test drives can now reach ``winget install`` and the
+    ~251 MB Gyan download. Before this phase those calls sat behind a function
+    every relevant test happened to monkeypatch; that is not a guarantee, it is
+    a coincidence, and the cost of the coincidence failing is a real install on
+    the developer's machine — which would also destroy the preserved
+    no-FFmpeg condition Phase 7's acceptance depends on.
+
+    So the two seams are closed here instead of hoped about. A test that wants
+    a route exercised stubs it itself, and a function-scoped patch wins over
+    this one; a test that reaches either seam *without* stubbing gets a clear
+    failure naming the call rather than a package manager doing real work.
+
+    ``urllib.request.urlopen`` is the download seam because ``acquire`` takes an
+    explicit ``opener``: patching ``acquire`` itself would break the Phase-3
+    tests that legitimately drive the whole transaction with a fixture archive.
+    """
+    import urllib.request
+
+    def _refuse_download(*args, **kwargs):
+        raise AssertionError(
+            "a test tried to open a real network connection. Pass a stub "
+            "`opener=` to ffmpeg_portable.acquire/download_archive, or patch "
+            "the route you are exercising.")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _refuse_download)
+
+    bootstrap = _already_imported("shared.bootstrap")
+    if bootstrap is None:
+        return
+
+    def _refuse_portable(log=None):
+        raise AssertionError(
+            "a test reached bootstrap._download_portable_ffmpeg_windows "
+            "without stubbing it. That path acquires the real ~251 MB build "
+            "and creates files/runtime-data/ffmpeg-staging, which is part of "
+            "the preserved no-FFmpeg reproduction condition. Patch it, or "
+            "drive ffmpeg_portable.acquire directly with a fixture archive.")
+
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        _refuse_portable)
+    real_run = bootstrap._run
+
+    def _guarded_run(cmd, **kwargs):
+        head = Path(str(cmd[0])).name.lower() if cmd else ""
+        if head.split(".")[0] in ("winget", "brew"):
+            raise AssertionError(
+                f"a test tried to run a real package manager: {list(cmd)!r}. "
+                "Patch bootstrap._run (or the route function) in the test.")
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(bootstrap, "_run", _guarded_run)
+
+
 @pytest.fixture(scope="session")
 def _sandbox_logs_dir(tmp_path_factory):
     """One throwaway logs directory for the whole session."""

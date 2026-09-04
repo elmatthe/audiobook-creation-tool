@@ -2,6 +2,103 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 5 COMPLETE: a normal launch repairs itself (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-4 blocks' closing
+> line that "Phase 5 has not started", and the Phase-3 note that acquisition is deliberately
+> unreachable from a normal launch — that seal was Phase 3's, and Phase 5 opens it on purpose.
+> Everything else in those blocks stands. Nothing below is deleted or rewritten.**
+>
+> - **What changed for a person.** Double-clicking `Setup_and_Run` on a machine whose FFmpeg is
+>   missing or refused now **repairs it and launches**, instead of showing a modal and opening an
+>   app whose audio tools do not work. Phases 1-4 built every piece of that; none of it was
+>   reachable from the launch people actually perform.
+> - **C1 closed.** `ensure_ffmpeg_ready_for_launch()` used to detect the failure, call
+>   `show_warning_dialog`, and launch anyway. The provisioning route lived behind `run_setup`,
+>   which an existing installation never reaches. It now attempts the repair behind the existing
+>   progress window and returns an **`FFmpegRepair`** result rather than warning.
+> - **One orchestration, `repair_ffmpeg`**, shared by first-run setup and every launch, so the
+>   two cannot drift into different answers to "what happens when FFmpeg is missing?".
+>   Containment order: existing installations → user-scope package manager → the app's own
+>   verified build.
+> - **The fallback moved out of `_install_ffmpeg`, and that is the substantive fix.** While it
+>   lived inside, a WinGet run that exited 0 and left nothing provable **ended the repair** — the
+>   fallback had already been skipped inside the function that had just returned `True`. An
+>   installer's exit code now means only *the acquisition command appeared to complete*;
+>   `ffmpeg_health` is the only thing that can say **ready**.
+> - **A portable success is not followed by a second discovery.** `ffmpeg_portable.acquire`
+>   already proved the pair at its final paths and pinned it atomically. Re-running `establish`
+>   afterwards — which the old code did after every install — could pin a *different*
+>   installation, so the orchestration confirms **that** pair instead. `ffmpeg_portable.py` was
+>   not touched and its transaction semantics are unchanged.
+> - **M5 closed.** The Gyan.FFmpeg WinGet call now passes `--scope user` explicitly, as the
+>   Python one already did. A scope or elevation refusal is treated as *this route is
+>   unavailable* and falls through to the repo-local build; nothing ever requests machine scope
+>   or elevation. An **AST inventory** asserts every production `winget install` names user
+>   scope, so a future call site cannot quietly omit it, and the root `.bat`'s own Python
+>   fallback was verified rather than assumed.
+> - **M4 closed structurally.** An existing macOS `.venv` now reaches the existing Homebrew
+>   acquisition from a normal launch. Homebrew itself is **never installed** by a launch repair —
+>   that stays the first-run `.command`'s decision, made with a person watching — and a Mac
+>   without Homebrew gets a truthful, non-looping notice that names Homebrew and points at
+>   brew.sh. `brew` exiting 0 is not FFmpeg success: only a proved, pinned pair is, and
+>   `_ffmpeg_on_path()` is no longer consulted as an authority anywhere.
+> - **M3 closed.** Repair first → launch → **at most one** notice. Requirements, FFmpeg and
+>   Kokoro could each open a modal *before* the GUI existed; a messagebox is modal while shown,
+>   so a launcher double-clicked by someone who walked away sat on a warning with no window
+>   behind it. Those are collected and presented once, after `launch_gui` confirms the GUI
+>   started, and the text names **only the routes actually attempted**. Genuinely fatal
+>   environment failures still report pre-GUI, because there is no GUI to put them behind.
+> - **The retry loop is gone from active user-facing text.** `ffmpeg_health.describe_failure()`
+>   now says the app has already tried and that opening it again will not change the result, and
+>   still asks for an IT allowlist rather than suggesting anyone disable protection. A
+>   parametrised test asserts **no** module under `scripts/Universal/` tells a person to run the
+>   launcher again. Instructions that name a *different* action first (install Python, install Tk
+>   support) are left alone — they are not the loop.
+> - **Minimum-scope repair proved, not asserted.** AST proofs that no FFmpeg path reaches
+>   `repair_venv` / `create_venv`, that the requirements paths do not either, and that no launch
+>   routes through `run_setup`. Phase 3's reachability seal **narrowed rather than came off**:
+>   `--venv-check` (the Windows launcher's blocking pre-flight) and `repair_venv` still cannot
+>   reach acquisition.
+> - **The root launchers were not changed.** A test asserts they still know nothing of
+>   `ffmpeg_health`, `ffmpeg_portable`, `ffprobe`, `Gyan.FFmpeg` or the state file — they remain
+>   thin transport, and `--launch-only` under `pythonw` performs the bounded self-heal itself.
+>   The `--launch-only` help text and its call-site comment, which still said "skip all setup
+>   checks", were corrected.
+> - **A test-isolation hole was found and closed.** A new autouse conftest guard makes a real
+>   `winget`/`brew` invocation and a real `urlopen` impossible, and refuses
+>   `_download_portable_ffmpeg_windows` unless a test stubs it. Not theoretical: an intermediate
+>   run created `files/runtime-data/ffmpeg-staging/9.0.1` (empty — the download itself was
+>   refused). It was removed, the seam was closed, and the final run leaves the directory absent.
+> - **Red proof, for the defects it names.** Against `1e788db`: a normal launch never called the
+>   installer (`['warning', 'launch_gui']`); the warning preceded the GUI; an existing macOS venv
+>   never called `brew` with Homebrew available; the Gyan.FFmpeg argv had no `--scope`; and a
+>   WinGet exit 0 that proved nothing never reached the fallback. All hold on this tree.
+>   **Reported honestly:** the sixth probe — an FFmpeg failure never rebuilding the environment —
+>   is a `[control]` that passes on both trees and is not red evidence.
+> - **Gate: 17 failed / 5433 passed / 57 skipped / 76 errors.** The 93 FAILED/ERROR rows are
+>   **byte-identical** to the Phase-4-remediation run; the delta is **+93 passed**. `verify.py`
+>   deps / docs / docnames / config all PASS; the pytest row is the standing HOME-PC red
+>   baseline. **Phase-5-attributable failures: zero.**
+> - **Preserved HOME-PC state intact:** requirements stamp, import proof, log directory and
+>   `ffmpeg-state.json` unchanged **including content hashes** (still no active pair); `.venv`
+>   still Python 3.12.10; `files/bin` absent; no `ffmpeg-staging`; `where ffmpeg` finds nothing;
+>   no `Gyan.FFmpeg`; no `.venv.replaced*`; PATH unchanged. **The real no-FFmpeg reproduction
+>   condition is intact and still reserved for Phase 7.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 6 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; the 2026-08-28 entry is intact.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 5).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `scripts/Universal/shared/ffmpeg_health.py`; `files/tests/conftest.py`;
+> `files/tests/test_ffmpeg_health.py`; `files/tests/test_ffmpeg_portable.py`;
+> `files/tests/test_first_run_contract.py`; `files/tests/test_venv_recovery.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: `files/tests/test_launch_self_heal.py`. Deleted: none. All staged and committed
+> together.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 4 REMEDIATED: a sentinel with no path is still a command name (2026-09-04)
 >
 > **This block is the live state of the repository. It supersedes the Phase-4 claim below that

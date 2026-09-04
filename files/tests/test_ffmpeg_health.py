@@ -792,10 +792,16 @@ def test_both_commands_come_from_the_one_pinned_installation(monkeypatch, tmp_pa
 
 
 def test_setup_no_longer_accepts_a_path_it_never_executed():
-    """**Structural.** ``ensure_ffmpeg`` used to return on ``shutil.which`` alone."""
+    """**Structural.** ``ensure_ffmpeg`` used to return on ``shutil.which`` alone.
+
+    PRE-PLAN-6 Phase 5 moved the sequence into ``repair_ffmpeg`` and made
+    ``ensure_ffmpeg`` a thin call into it, so setup and every launch cannot
+    drift into two behaviours. The assertion follows it there.
+    """
     source = (REPO_ROOT / "scripts" / "Universal" / "shared"
               / "bootstrap.py").read_text(encoding="utf-8")
-    body = source[source.index("def ensure_ffmpeg("):source.index("def _install_ffmpeg(")]
+    body = source[source.index("def repair_ffmpeg("):
+                  source.index("def ensure_ffmpeg(")]
     assert "ffmpeg_health.ensure_ready" in body
     assert "_ffmpeg_on_path()" not in body
     assert "_ffmpeg_in_bin()" not in body
@@ -808,6 +814,8 @@ def test_setup_reports_ready_only_when_a_pair_was_proven(monkeypatch, tmp_path):
                         lambda pair, runner=None: ffmpeg_health.Proof(
                             ok=False, detail="blocked", failed="ffprobe"))
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", lambda log: False)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
     log = Log()
     assert bootstrap.ensure_ffmpeg(log) is False
 
@@ -824,7 +832,7 @@ def test_setup_installs_only_when_nothing_here_works(monkeypatch, tmp_path):
     assert installs == [], "a working machine was needlessly reinstalled"
 
 
-def test_a_winget_install_is_accepted_without_waiting_for_path(monkeypatch, tmp_path):
+def test_a_winget_install_is_accepted_without_waiting_for_path():
     """winget updates the user's PATH, not this process's.
 
     Gating success on ``_ffmpeg_on_path()`` made setup abandon installs that had
@@ -832,9 +840,9 @@ def test_a_winget_install_is_accepted_without_waiting_for_path(monkeypatch, tmp_
     """
     source = (REPO_ROOT / "scripts" / "Universal" / "shared"
               / "bootstrap.py").read_text(encoding="utf-8")
-    branch = source[source.index("def _install_ffmpeg("):]
-    winget = branch[branch.index("winget install"):branch.index("if IS_MAC")]
-    assert "and _ffmpeg_on_path()" not in winget
+    winget = source[source.index("def _winget_ffmpeg("):
+                    source.index("def _brew_ffmpeg(")]
+    assert "_ffmpeg_on_path()" not in winget
 
 
 def test_the_launch_fast_path_checks_ffmpeg_before_the_gui():
@@ -858,14 +866,31 @@ def test_the_launch_check_still_leaves_kokoro_and_requirements_alone():
     assert "kokoro_is_healthy(venv_py)" in body
 
 
-def test_a_launch_with_no_usable_ffmpeg_warns_but_still_opens(monkeypatch, tmp_path):
-    """Edge TTS does not need ffmpeg, so this is a warning, not a refusal."""
+def test_a_launch_with_no_usable_ffmpeg_repairs_instead_of_warning(monkeypatch,
+                                                                  tmp_path):
+    """PRE-PLAN-6 Phase 5 inverted this. It used to warn and give up.
+
+    Edge TTS does not need ffmpeg, so a failure here was never a refusal — but
+    it was also never a repair, and the modal it opened stood in front of a GUI
+    that did not exist yet. The gate now attempts the repair and returns a
+    result; the single notice, if one is needed at all, is the caller's and
+    comes after the GUI has started.
+    """
     warned: list = []
     monkeypatch.setattr(bootstrap, "show_warning_dialog",
                         lambda title, message: warned.append((title, message)))
+    monkeypatch.setattr(bootstrap, "show_repair_dialog",
+                        lambda work, **kwargs: work())
     monkeypatch.setattr(ffmpeg_health, "ensure_ready", lambda log=None, **kw: None)
-    assert bootstrap.ensure_ffmpeg_ready_for_launch() is False
-    assert warned and "audio tools" in warned[0][0]
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
+
+    result = bootstrap.ensure_ffmpeg_ready_for_launch()
+
+    assert result.ready is False
+    assert warned == [], "the gate warned instead of leaving that to the caller"
+    assert bootstrap.FFMPEG_ROUTE_EXISTING in result.routes
 
 
 def test_bootstrap_and_the_runtime_share_one_implementation():

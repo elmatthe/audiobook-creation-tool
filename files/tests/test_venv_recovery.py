@@ -217,8 +217,10 @@ def launch_spies(monkeypatch):
     seen = {"launched": 0, "ffmpeg": 0, "kokoro": 0}
     monkeypatch.setattr(bootstrap, "launch_gui",
                         lambda log: seen.__setitem__("launched", seen["launched"] + 1) or True)
-    monkeypatch.setattr(bootstrap, "ensure_ffmpeg_ready_for_launch",
-                        lambda: seen.__setitem__("ffmpeg", seen["ffmpeg"] + 1) or True)
+    monkeypatch.setattr(
+        bootstrap, "ensure_ffmpeg_ready_for_launch",
+        lambda: seen.__setitem__("ffmpeg", seen["ffmpeg"] + 1)
+        or bootstrap.FFmpegRepair(True, (bootstrap.FFMPEG_ROUTE_EXISTING,)))
     monkeypatch.setattr(bootstrap, "kokoro_is_healthy",
                         lambda py: (seen.__setitem__("kokoro", seen["kokoro"] + 1), (True, "ok"))[1])
     monkeypatch.setattr(bootstrap, "requirements_are_current", lambda: True)

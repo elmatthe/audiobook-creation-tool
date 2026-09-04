@@ -221,11 +221,33 @@ def installer(monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", do_install)
+    # PRE-PLAN-6 Phase 5 chooses the route before calling the installer, and it
+    # chooses on ``shutil.which``. These tests deliberately empty or poison
+    # PATH, so say plainly that this machine has a package manager rather than
+    # letting the answer fall out of a PATH the test is manipulating for an
+    # unrelated reason.
+    monkeypatch.setattr(bootstrap.shutil, "which",
+                        lambda name: f"/usr/bin/{name}"
+                        if name in ("winget", "brew") else None)
+    # The repo-local fallback now sits behind the installer instead of inside
+    # it. It exists and delivers nothing, so these tests still prove that the
+    # package-manager route is what succeeded.
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
     state["package"] = package
     return state
 
 
-def test_an_empty_machine_is_not_reported_as_ready(monkeypatch):
+@pytest.fixture()
+def no_package_manager(monkeypatch):
+    """A machine with neither winget nor brew, and no repo-local build either."""
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
+
+
+def test_an_empty_machine_is_not_reported_as_ready(monkeypatch,
+                                                   no_package_manager):
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", lambda log: False)
     assert bootstrap.ensure_ffmpeg(Log()) is False
     assert ffmpeg_health.pinned_pair() is None
@@ -276,7 +298,7 @@ def test_an_install_that_still_does_not_run_is_reported_as_failure(
                             ok=False, detail="blocked", failed="ffprobe"))
     log = Log()
     assert bootstrap.ensure_ffmpeg(log) is False
-    assert "could not be run" in log.text
+    assert "no pair here could be proved" in log.text
     assert ffmpeg_health.pinned_pair() is None
 
 
@@ -291,13 +313,30 @@ def test_setup_does_not_reinstall_when_a_healthy_pair_already_exists(
 
 
 def test_the_windows_installer_prefers_the_stable_winget_package():
-    """A moving nightly cannot accumulate the reputation an unsigned build needs."""
+    """A moving nightly cannot accumulate the reputation an unsigned build needs.
+
+    PRE-PLAN-6 Phase 5 moved the *ordering* out of the installer and into
+    ``repair_ffmpeg``, because the repo-local fallback has to remain reachable
+    after a package-manager install that exits 0 and proves nothing. So the
+    package id is asserted where the command is built, and the preference is
+    asserted where the sequence now lives.
+    """
+    import ast
+
     source = (REPO_ROOT / "scripts" / "Universal" / "shared"
               / "bootstrap.py").read_text(encoding="utf-8")
-    branch = source[source.index("def _install_ffmpeg("):]
-    windows = branch[:branch.index("if IS_MAC")]
-    assert "Gyan.FFmpeg" in windows
-    assert windows.index("Gyan.FFmpeg") < windows.index("_download_portable_ffmpeg_windows")
+    assert "Gyan.FFmpeg" in source[source.index("def _winget_ffmpeg("):
+                                   source.index("def _brew_ffmpeg(")]
+
+    tree = ast.parse(source)
+    orchestration = next(n for n in ast.walk(tree)
+                         if isinstance(n, ast.FunctionDef)
+                         and n.name == "repair_ffmpeg")
+    order = [n.func.id for n in ast.walk(orchestration)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id in ("_install_ffmpeg",
+                               "_download_portable_ffmpeg_windows")]
+    assert order == ["_install_ffmpeg", "_download_portable_ffmpeg_windows"]
 
 
 def test_the_user_is_never_told_to_fetch_ffmpeg_before_using_the_app():
@@ -327,7 +366,8 @@ def blocked(monkeypatch, tmp_path):
     return directory
 
 
-def test_a_blocked_installation_does_not_count_as_ready(monkeypatch, blocked):
+def test_a_blocked_installation_does_not_count_as_ready(monkeypatch, blocked,
+                                                       no_package_manager):
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", lambda log: False)
     monkeypatch.setattr(ffmpeg_health, "prove_pair",
                         lambda pair, runner=None: ffmpeg_health.Proof(
@@ -406,7 +446,7 @@ def test_a_later_launch_does_not_probe_the_blocked_installation_at_all(
         return ffmpeg_health.Proof(ok=True)
 
     monkeypatch.setattr(ffmpeg_health, "prove_pair", prove)
-    assert bootstrap.ensure_ffmpeg_ready_for_launch() is True
+    assert bootstrap.ensure_ffmpeg_ready_for_launch().ready is True
     assert seen == [os.path.normcase(str(healthy))], seen
 
 

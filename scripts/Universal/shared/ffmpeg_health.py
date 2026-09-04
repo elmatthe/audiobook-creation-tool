@@ -702,13 +702,20 @@ def describe_failure() -> str:
 
     Names no security product to disable, because disabling one is never the
     answer: on a managed machine the honest ask is an administrator allowlisting
-    the binary, and on an unmanaged one a reinstall through setup is.
+    the binary.
+
+    **It no longer tells the reader to open the launcher a second time.**
+    PRE-PLAN-6 Phase 5 made the normal launch attempt the repair itself, so that
+    instruction became an invitation to repeat a path that has already run and
+    already failed. Telling someone to retry an identical non-repairing action
+    is the loop this drop exists to remove.
     """
     return (
         "FFmpeg could not be verified on this computer. The audio tools need "
         "both ffmpeg and ffprobe to run, and every copy found here either could "
-        "not start or was refused by a Windows security policy.\n\n"
-        "Run Setup_and_Run again to install a known-good copy. If this computer "
-        "is managed by an organisation, its policy may need to allow FFmpeg — "
-        "ask your IT administrator to allow it rather than turning protection off."
+        "not start or was refused by a security policy.\n\n"
+        "The app has already tried to repair this automatically, so opening it "
+        "again will not change the result. If this computer is managed by an "
+        "organisation, its policy may need to allow FFmpeg — ask your IT "
+        "administrator to allow it rather than turning protection off."
     )

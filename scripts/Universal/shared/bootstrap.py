@@ -1818,82 +1818,227 @@ def _ffmpeg_in_bin() -> Optional[Path]:
     return exe if exe.exists() else None
 
 
-def ensure_ffmpeg(log: SetupLog) -> bool:
-    """Establish a **usable** ffmpeg + ffprobe pair. True only if one runs.
+# --- FFmpeg repair -----------------------------------------------------------
+#
+# Stable route keys. A limited-mode notice has to name what was *actually*
+# attempted: a machine with no WinGet must not be told WinGet was tried, and a
+# Mac with no Homebrew must be told that is why nothing could be repaired.
+FFMPEG_ROUTE_EXISTING = "existing"
+FFMPEG_ROUTE_WINGET = "winget-user"
+FFMPEG_ROUTE_HOMEBREW = "homebrew"
+FFMPEG_ROUTE_PORTABLE = "portable"
 
-    v0.6.2 Plan 5 Phase 15 rewrote this. It used to return ``True`` the moment
-    ``shutil.which("ffmpeg")`` answered — it never looked at ffprobe on that
-    path and never executed anything — so a machine whose first PATH entry was
-    an installation Windows refuses to run was declared ready, and the failure
-    surfaced in front of the user during a real conversion instead.
+_FFMPEG_ROUTE_WORDING = {
+    FFMPEG_ROUTE_EXISTING: "the FFmpeg copies already on this computer",
+    FFMPEG_ROUTE_WINGET: "a user-scope Gyan.FFmpeg install through WinGet",
+    FFMPEG_ROUTE_HOMEBREW: "a Homebrew install of ffmpeg",
+    FFMPEG_ROUTE_PORTABLE: "the app's own verified FFmpeg build",
+}
 
-    The order now is: try what is already here, and only install when nothing
-    here works. That keeps a working machine untouched and still repairs a
-    broken one. Proving the pair here is deliberately the same idea as the
-    Kokoro DLL pre-warm below — make Smart App Control judge the binary inside
-    setup, where a notification is explainable, rather than mid-job.
+
+class FFmpegRepair:
+    """The outcome of one FFmpeg repair attempt.
+
+    Two facts that used to be one. ``ready`` is true **only** when
+    ``ffmpeg_health`` holds a proved, persisted, still-running pair — an
+    installer's exit code never sets it, because winget can return 0 and leave
+    behind something this machine will not execute. ``routes`` records what was
+    actually tried, which is what lets the failure notice be true rather than a
+    hard-coded sentence claiming attempts that never happened.
     """
-    pair = ffmpeg_health.ensure_ready(log)
-    if pair is not None:
-        log.line(f"FFmpeg verified: {pair.directory}")
-        log.line(f"  {pair.version_text}")
+
+    __slots__ = ("ready", "routes", "detail")
+
+    def __init__(self, ready: bool, routes=(), detail: str = "") -> None:
+        self.ready = ready
+        self.routes = tuple(routes)
+        self.detail = detail
+
+    def attempted(self) -> str:
+        """The attempted routes as one human phrase, or ``""`` if none ran."""
+        words = [_FFMPEG_ROUTE_WORDING[route] for route in self.routes
+                 if route in _FFMPEG_ROUTE_WORDING]
+        if not words:
+            return ""
+        if len(words) == 1:
+            return words[0]
+        return ", ".join(words[:-1]) + " and " + words[-1]
+
+    def notice(self) -> str:
+        """One truthful limited-mode sentence, naming the routes that ran."""
+        parts = ["The audio tools (FFmpeg) could not be made available on this "
+                 "computer."]
+        attempted = self.attempted()
+        if attempted:
+            parts.append(f"The app tried {attempted}.")
+        if self.detail:
+            parts.append(self.detail)
+        parts.append("Edge TTS voices still work; the tools that need FFmpeg "
+                     "will say so rather than failing part-way through a job.")
+        return " ".join(parts)
+
+
+def _winget_ffmpeg(log: SetupLog) -> bool:
+    """Ask WinGet for Gyan.FFmpeg in **user scope**. Command result only.
+
+    User scope is explicit, not inherited from a package default that can
+    change under us. It is also the only scope that works on the machines this
+    has to run on: CSPW-PC is a Standard User with no administrator rights, so
+    a machine-wide install there prompts for a password nobody has. A scope or
+    elevation refusal is therefore not an error to report — it means *this
+    route is unavailable*, and the caller falls through to the repo-local one.
+    """
+    log.line("Installing ffmpeg via winget (Gyan.FFmpeg, user scope)…")
+    result = _run(["winget", "install", "--id", "Gyan.FFmpeg", "-e",
+                   "--scope", "user",
+                   "--silent", "--accept-source-agreements",
+                   "--accept-package-agreements"])
+    if result.returncode == 0:
+        # Deliberately **not** gated on finding ffmpeg on this process's
+        # PATH. winget updates the *user's* PATH, not the environment of a
+        # process already running, so that check failed on exactly the installs
+        # that had just succeeded — and sent setup off to fetch a second, worse
+        # copy. ``ffmpeg_health`` looks inside the WinGet package directory
+        # itself, so a stale PATH costs nothing.
+        log.line("  winget reported the ffmpeg install completed.")
         return True
+    log.line(f"  winget could not install ffmpeg in user scope "
+             f"(exit {result.returncode}) — treating that route as unavailable.")
+    return False
 
-    log.line("No usable ffmpeg/ffprobe pair found — installing one.")
-    if not _install_ffmpeg(log):
-        return False
 
-    # A fresh install is not on *this* process's PATH, and its package directory
-    # is not where it was a moment ago, so discovery has to run again.
-    pair = ffmpeg_health.establish(log)
-    if pair is None:
-        log.line("  ERROR: ffmpeg was installed but still could not be run.")
-        return False
-    log.line(f"FFmpeg verified after install: {pair.directory}")
-    return True
+def _brew_ffmpeg(log: SetupLog) -> bool:
+    """Ask Homebrew for ffmpeg. Command result only — never the authority."""
+    log.line("Installing ffmpeg via Homebrew…")
+    result = _run(["brew", "install", "ffmpeg"])
+    # A fresh brew install may not be on THIS process's PATH yet (Apple Silicon
+    # installs to /opt/homebrew/bin), so make it findable before proving.
+    _refresh_brew_path()
+    if result.returncode == 0:
+        log.line("  Homebrew reported the ffmpeg install completed.")
+        return True
+    log.line(f"  brew install ffmpeg problem: {result.stderr.strip()}")
+    return False
 
 
 def _install_ffmpeg(log: SetupLog) -> bool:
-    """Obtain ffmpeg through the platform's normal package route."""
+    """Run the platform package manager's ffmpeg install. **Not** an authority.
+
+    The return value means only *the acquisition command appeared to complete*.
+    Whether this computer now has a pair it will actually run is a separate
+    question, and ``ffmpeg_health`` is the only thing allowed to answer it —
+    see :func:`repair_ffmpeg`. The portable fallback deliberately does **not**
+    live in here any more: when it did, a winget run that exited 0 but left
+    nothing provable ended the repair, because the fallback had already been
+    skipped inside this function.
+    """
     if IS_WINDOWS:
-        if shutil.which("winget"):
-            log.line("Installing ffmpeg via winget (Gyan.FFmpeg)…")
-            r = _run(["winget", "install", "--id", "Gyan.FFmpeg", "-e",
-                      "--silent", "--accept-source-agreements",
-                      "--accept-package-agreements"])
-            if r.returncode == 0:
-                # Deliberately **not** gated on ``_ffmpeg_on_path()`` any more.
-                # winget updates the *user's* PATH, not the environment of a
-                # process already running, so that check failed on exactly the
-                # installs that had just succeeded — and sent setup off to
-                # download a second, worse copy. ``establish`` looks inside the
-                # WinGet package directory itself, so a stale PATH costs
-                # nothing.
-                log.line("  ffmpeg installed via winget.")
-                return True
-            log.line(f"  winget install failed (exit {r.returncode}) — "
-                     "falling back to a portable build.")
-        return _download_portable_ffmpeg_windows(log)
-
+        if not shutil.which("winget"):
+            log.line("  winget is not available on this computer.")
+            return False
+        return _winget_ffmpeg(log)
     if IS_MAC:
-        if shutil.which("brew"):
-            log.line("Installing ffmpeg via Homebrew…")
-            r = _run(["brew", "install", "ffmpeg"])
-            # A fresh brew install may not be on THIS process's PATH yet (Apple
-            # Silicon installs to /opt/homebrew/bin) — refresh, then re-check.
-            _refresh_brew_path()
-            if _ffmpeg_on_path():
-                log.line("  ffmpeg installed via Homebrew.")
-                return True
-            log.line(f"  brew install ffmpeg problem: {r.stderr.strip()}")
-        else:
-            log.line("  Homebrew not found — install it from https://brew.sh/ then "
-                     "re-run, or run: brew install ffmpeg")
-        return _ffmpeg_on_path() is not None
-
-    # Other (Linux) — best effort.
+        if not shutil.which("brew"):
+            log.line("  Homebrew is not installed, so that route is unavailable.")
+            return False
+        return _brew_ffmpeg(log)
     log.line("  Please install ffmpeg via your package manager (apt/dnf/pacman).")
-    return _ffmpeg_on_path() is not None
+    return False
+
+
+def _package_manager_route() -> Optional[str]:
+    """Which package-manager route this machine can attempt, if any."""
+    if IS_WINDOWS and shutil.which("winget"):
+        return FFMPEG_ROUTE_WINGET
+    if IS_MAC and shutil.which("brew"):
+        return FFMPEG_ROUTE_HOMEBREW
+    return None
+
+
+def _no_package_manager_detail() -> str:
+    """Why the package-manager route was skipped, in the user's terms."""
+    if IS_MAC:
+        return ("Homebrew is not installed on this Mac, so the automatic "
+                "repair had nothing to install with. Installing Homebrew "
+                "(https://brew.sh) would let the app repair this by itself.")
+    if IS_WINDOWS:
+        return "WinGet is not available on this computer."
+    return "No supported package manager is available on this computer."
+
+
+def repair_ffmpeg(log: SetupLog, *, assessed: bool = False) -> FFmpegRepair:
+    """ASSESS → REPAIR → PROVE → PIN for FFmpeg. The one implementation.
+
+    Setup and every normal launch both come here, so there is a single answer
+    to "what does this app do when FFmpeg is missing?" rather than one answer
+    for a first run and a different one for the launch that people actually
+    perform every day.
+
+    The order is containment order (§8.6): what is already here, then a
+    user-scope package-manager install, then the app's own verified build.
+
+    **Nothing short of a proved, persisted pair ends this.** The old code
+    stopped as soon as the winget command exited 0 and ``establish`` then
+    failed — an install that produced nothing runnable was a dead end with the
+    repo-local fallback sitting unused behind it, because the fallback lived
+    *inside* the installer function it had already returned from.
+
+    ``assessed=True`` says the caller has just run the same assessment and
+    found nothing, so step A is skipped rather than sweeping twice.
+    """
+    routes = [FFMPEG_ROUTE_EXISTING]
+
+    if not assessed:
+        pair = ffmpeg_health.ensure_ready(log)
+        if pair is not None:
+            log.line(f"FFmpeg verified: {pair.directory}")
+            log.line(f"  {pair.version_text}")
+            return FFmpegRepair(True, routes)
+
+    log.line("No usable ffmpeg/ffprobe pair on this computer — repairing.")
+
+    route = _package_manager_route()
+    if route is not None:
+        routes.append(route)
+        _install_ffmpeg(log)
+        # A fresh install is not on *this* process's PATH and its package
+        # directory is not where it was a moment ago, so discovery runs again —
+        # and its verdict, not the installer's, decides.
+        pair = ffmpeg_health.establish(log)
+        if pair is not None:
+            log.line(f"FFmpeg verified after install: {pair.directory}")
+            return FFmpegRepair(True, routes)
+        log.line("  The install finished but no pair here could be proved.")
+    else:
+        log.line(f"  {_no_package_manager_detail()}")
+
+    if IS_WINDOWS:
+        routes.append(FFMPEG_ROUTE_PORTABLE)
+        if _download_portable_ffmpeg_windows(log):
+            # ``ffmpeg_portable`` already proved the pair at its final paths
+            # and pinned it atomically. Re-running discovery here could replace
+            # that pin with a different installation, so confirm *that* pair
+            # instead of asking the machine again what it can find.
+            pair = ffmpeg_health.pinned_pair()
+            if pair is not None and ffmpeg_health.prove_pair(pair).ok:
+                log.line(f"FFmpeg verified after the app's own install: "
+                         f"{pair.directory}")
+                return FFmpegRepair(True, routes)
+            log.line("  The app's own build was installed but did not prove.")
+
+    detail = "" if route is not None else _no_package_manager_detail()
+    return FFmpegRepair(False, routes, detail)
+
+
+def ensure_ffmpeg(log: SetupLog) -> bool:
+    """First-run setup's FFmpeg step — the same orchestration as a launch.
+
+    v0.6.2 Plan 5 Phase 15 stopped this returning ``True`` the moment
+    ``shutil.which("ffmpeg")`` answered. PRE-PLAN-6 Phase 5 went further and
+    moved the whole sequence into :func:`repair_ffmpeg`, so first run and every
+    later launch cannot drift into two different repair behaviours.
+    """
+    return repair_ffmpeg(log).ready
 
 
 def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
@@ -2566,33 +2711,54 @@ def show_warning_dialog(title: str, message: str) -> None:
         LOG.line(f"[WARNING] {title}: {message}")
 
 
-def ensure_ffmpeg_ready_for_launch() -> bool:
-    """Confirm the audio tools before the GUI is presented as ready.
+def ensure_ffmpeg_ready_for_launch() -> FFmpegRepair:
+    """Assess the audio tools and, if they are not usable, **repair them**.
 
-    **The Phase 15 gap.** The fast path reconciled requirements and self-healed
-    Kokoro, and never looked at ffmpeg at all — so a machine whose ffmpeg had
-    become unusable launched cheerfully and failed inside the first conversion.
+    **The Phase 15 gap** was that the fast path never looked at ffmpeg at all,
+    so a machine whose ffmpeg had become unusable launched cheerfully and failed
+    inside the first conversion.
 
-    What this costs on a healthy machine is two ``-version`` calls of the pair
-    already proven, a few tens of milliseconds, and it touches **no other
-    candidate**: sweeping PATH here would be how a launch provokes a security
-    notification by poking a blocked stranger. Repair — which does look wider —
-    happens only once the pinned pair is gone or has stopped running.
+    **The PRE-PLAN-6 gap (C1)** was what happened next: this detected the
+    problem, showed a blocking warning, and launched anyway. Every repair route
+    setup already had was unreachable from the launch people actually perform,
+    so the app's advice amounted to running the same launcher again — the same
+    non-repairing path, with the same result.
 
-    Never blocks launch. A machine with no working ffmpeg can still use Edge
-    TTS, and the tools that do need it now say so honestly instead of implying
-    everything is fine.
+    So this now repairs. The assessment is unchanged and still costs a healthy
+    machine two ``-version`` calls of the pair already proven, touching no other
+    candidate: sweeping PATH here would be how a launch provokes a security
+    notification by poking a blocked stranger. Only once that pinned pair is
+    gone, or has stopped running, does the wider repair open — behind the
+    existing progress window, because it is real work with an end.
+
+    Never blocks launch, and never warns: the caller collects the result and
+    shows at most one notice *after* the GUI exists (§8.7).
     """
     pair = ffmpeg_health.ensure_ready(LOG)
     if pair is not None:
         LOG.line(f"FFmpeg health-check: verified {pair.directory}")
-        return True
+        return FFmpegRepair(True, (FFMPEG_ROUTE_EXISTING,))
 
-    LOG.line("FFmpeg health-check: no usable ffmpeg/ffprobe pair on this computer.")
-    show_warning_dialog("The audio tools are unavailable",
-                        ffmpeg_health.describe_failure()
-                        + f"\n\nSee log: {LOG.path}")
-    return False
+    LOG.line("FFmpeg health-check: no usable ffmpeg/ffprobe pair — repairing.")
+    outcome: dict = {}
+
+    def _repair() -> bool:
+        outcome["result"] = repair_ffmpeg(LOG, assessed=True)
+        return outcome["result"].ready
+
+    show_repair_dialog(
+        _repair,
+        title="Setting up the audio tools…",
+        detail="The audio tools this app uses for audio conversion are missing "
+               "or cannot run on this computer. They are being installed now; "
+               "nothing is being deleted and your settings are untouched.",
+    )
+    result = outcome.get("result") or FFmpegRepair(False, (FFMPEG_ROUTE_EXISTING,))
+    if result.ready:
+        LOG.line("FFmpeg repaired and verified before launch.")
+    else:
+        LOG.line("FFmpeg could not be repaired; launching in limited mode.")
+    return result
 
 
 def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int:
@@ -2601,8 +2767,18 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
     Runs on *every* launch (both the ``--launch-only`` fast path used by the
     ``.bat``/``.command`` and the ``venv_is_valid()`` path in ``main()``), so a
     partial first-run install or a manually-uninstalled ``kokoro`` is repaired
-    before the user ever hits a Kokoro batch. Never blocks launch: if the repair
-    fails, a clear warning is shown and the GUI still opens (Edge TTS works).
+    before the user ever hits a Kokoro batch. Never blocks launch: if a repair
+    fails, the GUI still opens (Edge TTS works) and one notice follows it.
+
+    **Repair first, then launch, then — at most once — say what is missing**
+    (§8.7). Recoverable failures used to open a modal each, before the GUI
+    existed: a stale environment, a missing FFmpeg and a broken Kokoro could
+    stack three of them in front of a person who had double-clicked a launcher
+    and walked away, with nothing on screen to explain them and no window
+    behind them. They are collected in ``notices`` now and presented as one
+    warning once ``launch_gui`` confirms the GUI actually started. A genuinely
+    fatal environment still stops here, because there is no GUI to put it
+    behind.
 
     The requirements reconciliation added in the v0.6.1 Plan 4 Phase 12
     remediation runs **first**, because a stale environment is exactly the case
@@ -2617,6 +2793,7 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
     replacing cannot be replaced from inside itself, so that case returns
     :data:`EXIT_VENV_REPAIR_REQUIRED` for the launcher to act on.
     """
+    notices: list[str] = []
     health = assess_venv_health(require_tk=True)
     LOG.line(f"Environment health: {health.state} ({health.reason})")
     if not allow_repair_handoff and health.state == VENV_REPAIRABLE:
@@ -2671,11 +2848,10 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
                    "deleted and your settings are untouched.",
         )
         if not requirements_are_current():
-            show_warning_dialog(
-                "Some components could not be updated",
-                outcome.get("message", "Some dependencies could not be installed.")
-                + f"\n\nSee log: {LOG.path}",
-            )
+            notices.append(
+                "Some of the app's components could not be updated: "
+                + outcome.get("message",
+                              "some dependencies could not be installed."))
     else:
         # The fingerprint says which pins this environment was built against. It
         # cannot say the packages are still here, and it cannot say they still
@@ -2728,14 +2904,14 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
                        "and your settings are untouched.",
             )
             if not import_proof_is_current():
-                show_warning_dialog(
-                    "Some components could not be restored",
-                    repair.get("message",
-                               "Some dependencies could not be installed.")
-                    + f"\n\nSee log: {LOG.path}",
-                )
+                notices.append(
+                    "Some of the app's components could not be restored: "
+                    + repair.get("message",
+                                 "some dependencies could not be installed."))
 
-    ensure_ffmpeg_ready_for_launch()
+    ffmpeg = ensure_ffmpeg_ready_for_launch()
+    if not ffmpeg.ready:
+        notices.append(ffmpeg.notice())
 
     ok, reason = kokoro_is_healthy(venv_py)
     LOG.line(f"Kokoro health-check: {reason}")
@@ -2754,17 +2930,19 @@ def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int
         ok2, reason2 = kokoro_is_healthy(venv_py)
         LOG.line(f"Kokoro health-check after repair: {reason2}")
         if not ok2:
-            show_warning_dialog(
-                "Kokoro is unavailable",
-                "The local AI voices could not be installed. Edge TTS voices "
-                "will still work.\n\n"
-                f"Reason: {reason2}\n\n"
-                "Manual fix:\n"
-                f'  "{venv_py}" -m pip install '
-                + " ".join(KOKORO_PKGS) + "\n\n"
-                f"See log: {LOG.path}"
-            )
+            notices.append(
+                "The local Kokoro AI voices could not be installed, so Edge TTS "
+                f"voices will be used instead. Reason: {reason2}. Manual fix: "
+                f'"{venv_py}" -m pip install ' + " ".join(KOKORO_PKGS) + ".")
+
     launched = launch_gui(LOG)
+    if launched and notices:
+        # One notice, and only now. A messagebox is modal while it is shown, so
+        # this is only acceptable once there is a window behind it.
+        show_warning_dialog(
+            "Some features are unavailable",
+            "\n\n".join(notices) + f"\n\nSee log: {LOG.path}",
+        )
     LOG.close()
     return 0 if launched else 1
 
@@ -2781,8 +2959,10 @@ def _platform_sane() -> bool:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Audiobook Creation Tool bootstrap")
     parser.add_argument("--launch-only", action="store_true",
-                        help="Skip all setup checks and just launch the GUI "
-                             "(used by the fast path once .venv exists).")
+                        help="Health-check the existing installation, repair "
+                             "only what is broken (packages, FFmpeg, Kokoro), "
+                             "then launch the GUI. The fast path used once "
+                             ".venv exists; it does not run first-run setup.")
     parser.add_argument("--skip-kokoro-download", action="store_true",
                         help="Default the first-run checkbox for the optional ~300 MB "
                              "Kokoro *model weights* pre-download to unchecked. The "
@@ -2824,8 +3004,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         return _repair_and_launch(headless=args.headless)
 
     if args.launch_only:
-        # Fast path from the .bat/.command. Self-heal Kokoro before launching so
-        # a broken/partial install is repaired on every launch, not just first run.
+        # Fast path from the .bat/.command. Bounded self-heal — environment,
+        # packages, FFmpeg, Kokoro — before launching, so a broken or partial
+        # install is repaired on every launch and not only on a first run.
         return _launch_with_kokoro_healthcheck()
 
     # Fast path: a valid venv already exists → health-check Kokoro, then launch.

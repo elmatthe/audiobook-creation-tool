@@ -944,19 +944,32 @@ def _reaches(entry: str, target: str) -> bool:
     return walk(entry)
 
 
-@pytest.mark.parametrize("entry", ["_venv_check", "_launch_with_kokoro_healthcheck",
-                                   "repair_venv", "_repair_and_launch"])
+@pytest.mark.parametrize("entry", ["_venv_check", "repair_venv"])
 @pytest.mark.parametrize("target", ["acquire", "_download_portable_ffmpeg_windows",
-                                    "_install_ffmpeg", "ensure_ffmpeg"])
-def test_no_ordinary_launch_path_reaches_acquisition(entry, target):
-    """Phase 5 wires provisioning into launches. Phase 3 must not have."""
+                                    "_install_ffmpeg", "ensure_ffmpeg",
+                                    "repair_ffmpeg"])
+def test_no_classification_or_venv_path_reaches_acquisition(entry, target):
+    """The seal narrowed in Phase 5; it did not come off.
+
+    Phase 3 kept acquisition off *every* launch path because nothing was
+    orchestrating it yet. Phase 5 deliberately opens the launch path — that is
+    C1 — but these two must stay closed for reasons of their own.
+    ``--venv-check`` is the Windows launcher's blocking pre-flight and has to
+    answer in milliseconds; ``repair_venv`` rebuilds Python, and a venv repair
+    that quietly downloaded 251 MB of FFmpeg would be the opposite of the
+    minimum-scope rule this drop is built on.
+    """
     assert not _reaches(entry, target), f"{entry} can reach {target}"
 
 
-def test_setup_still_owns_the_acquisition_route():
-    """The fallback is still reachable where it always was: explicit setup."""
-    assert _reaches("run_setup", "ensure_ffmpeg")
-    assert _reaches("_install_ffmpeg", "_download_portable_ffmpeg_windows")
+def test_the_acquisition_route_is_reachable_where_it_should_be():
+    """Setup and a normal launch share one orchestration, and it owns the fallback."""
+    assert _reaches("run_setup", "repair_ffmpeg")
+    assert _reaches("_launch_with_kokoro_healthcheck", "repair_ffmpeg")
+    assert _reaches("repair_ffmpeg", "_download_portable_ffmpeg_windows")
+    # The fallback must NOT live inside the installer any more: when it did, a
+    # winget run that exited 0 and proved nothing ended the repair.
+    assert not _reaches("_install_ffmpeg", "_download_portable_ffmpeg_windows")
 
 
 def test_bootstrap_has_exactly_one_portable_implementation():

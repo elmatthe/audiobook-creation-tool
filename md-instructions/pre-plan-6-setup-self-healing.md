@@ -886,7 +886,66 @@ that no normal launch path reaches the new code yet.
 
 ---
 
-### PHASE 5 — `Setup_and_Run` self-healing orchestration
+### PHASE 5 — `Setup_and_Run` self-healing orchestration ✅ COMPLETE
+
+> **The components finally became reachable from a double-click.** Phases 1-4 built an
+> environment assessment, an in-place requirements repair, a hash-verified repo-local FFmpeg
+> build and a fail-closed runtime. None of it was on the path a person actually takes.
+>
+> **C1.** `ensure_ffmpeg_ready_for_launch()` detected a dead FFmpeg, opened a modal, and
+> launched anyway; the only provisioning route sat behind `run_setup`, which an existing
+> installation never reaches. It now **repairs**, behind the existing progress window, and
+> returns a result instead of a warning.
+>
+> **The repair is one transactional orchestration, `repair_ffmpeg`**, shared by setup and every
+> launch so the two cannot drift. Containment order (§8.6): what is already here → a user-scope
+> package-manager install → the app's own verified build. Crucially the fallback moved **out of**
+> `_install_ffmpeg`: while it lived inside, a winget run that exited 0 and left nothing provable
+> ended the repair, because the fallback had already been skipped inside the function that had
+> just returned `True`. An installer's exit code now means only *the command appeared to
+> complete*; `ffmpeg_health` alone decides ready.
+>
+> **After a portable success, discovery is deliberately not re-run.** `ffmpeg_portable.acquire`
+> already proved the pair at its final paths and pinned it atomically; `establish` afterwards
+> could pin a different installation, so the orchestration confirms *that* pair.
+>
+> **M5.** The Gyan.FFmpeg WinGet call now passes `--scope user` explicitly, like the Python one
+> already did. A scope or elevation refusal is treated as *this route is unavailable* and falls
+> through. Nothing ever asks for machine scope. An AST inventory asserts **every** production
+> `winget install` names user scope, so a new call site cannot omit it.
+>
+> **M4.** macOS existing-venv launches reach the existing Homebrew acquisition. Homebrew is
+> never *installed* from a launch repair — that stays a first-run decision the `.command` makes
+> with a person watching — and a Mac without Homebrew gets a truthful, non-looping notice naming
+> Homebrew rather than a silent failure. `brew` exiting 0 is not success: only a proved, pinned
+> pair is.
+>
+> **M3 / §8.7.** Repair first, then launch, then at most **one** notice. Requirements, FFmpeg and
+> Kokoro could each open a pre-GUI modal — three blocking dialogs in front of a person who had
+> double-clicked and walked away, with no window behind them. They are collected and shown once,
+> after `launch_gui` confirms the GUI started, and the notice names only the routes actually
+> attempted. Genuinely fatal environment failures still report before the GUI, because there is
+> no GUI to put them behind. `describe_failure()` no longer tells anyone to open the launcher
+> again; a parametrised test asserts no active module in `scripts/Universal/` does.
+>
+> **Minimum scope held.** AST proofs that no FFmpeg path reaches `repair_venv`/`create_venv`, that
+> the requirements paths do not either, and that no launch routes through `run_setup`.
+> `--venv-check` and `repair_venv` remain sealed off from acquisition — Phase 3's seal narrowed,
+> it did not come off.
+>
+> **Test isolation.** A new autouse conftest guard makes a real `winget`/`brew` run and a real
+> `urlopen` impossible, and refuses `_download_portable_ffmpeg_windows` unless a test stubs it.
+> That was not theoretical: an intermediate run created `files/runtime-data/ffmpeg-staging/9.0.1`
+> (empty — the download was refused). It was removed and the seam closed.
+>
+> **Red proof:** against `1e788db`, five invariants break — no repair on a normal launch (C1),
+> warning before GUI (M3), no brew from an existing macOS venv (M4), no `--scope user` on the
+> Gyan.FFmpeg argv (M5), and a WinGet exit 0 that proves nothing never reaching the fallback. All
+> hold on this tree. The sixth is a `[control]` that passes both sides.
+>
+> **Gate:** 17 failed / 5433 passed / 57 skipped / 76 errors — the 93 FAILED/ERROR rows identical
+> to Phase 4's, +93 passed. Phase-5-attributable failures: **zero**. Nothing was installed or
+> downloaded; the HOME-PC no-FFmpeg condition is untouched and still reserved for Phase 7.
 
 **Fixes:** C1, M3, M4, M5. This is where user-visible behaviour changes.
 
