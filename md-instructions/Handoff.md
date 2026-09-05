@@ -2,6 +2,105 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 8 COMPLETE: the same promise kept on macOS (2026-09-05)
+>
+> **This block is the live state of the repository. It supersedes the Phase-7 block's closing
+> line that "Phase 8 has not started". Everything else in the blocks below stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **The manual gate passed.** On 2026-09-05 the maintainer double-clicked
+>   `Setup_and_Run-audiobook-creation-tool.command` from Finder on HOME-MacOS, in the prepared
+>   condition: healthy existing `.venv`, no usable ffmpeg/ffprobe anywhere on the machine. The
+>   first launch repaired itself and reached the GUI; the app was closed normally; a second
+>   double-click reached the GUI again. **No manual `.venv` deletion, no manual intervention.**
+>   This is HOME-MacOS *targeted* validation, not Plan-9 fresh-machine certification.
+> - **The route, from the logs rather than from assumption.** RUN 1 at `13:38:55`:
+>   `Environment health: healthy (ok)` → `Re-proving that the required packages still import…` →
+>   `All required packages import cleanly (Python 3.12.13).` → `FFmpeg health-check: no usable
+>   ffmpeg/ffprobe pair — repairing.` → `Installing ffmpeg via Homebrew…` → `Homebrew reported the
+>   ffmpeg install completed.` → `Checking /opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin…` → `Verified:
+>   ffmpeg version 9.0.1` → `FFmpeg verified after install` → `Launching launcher.py`. The
+>   installer's exit code was **not** the answer; `ffmpeg_health` proved the pair independently,
+>   exactly as `_brew_ffmpeg` → `establish` is built to.
+> - **The pin.** `/opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin/{ffmpeg,ffprobe}` — one directory, one
+>   installation, both executing and reporting **9.0.1**. Written at `13:39:29`, one second before
+>   the GUI launched at `13:39:30`. `ffmpeg_cmd()`/`ffprobe_cmd()` resolve to exactly that pair and
+>   `status_line()` reads "FFmpeg verified and ready." **`files/bin` and the staging tree were
+>   never created**: the portable fallback was correctly never reached on macOS.
+> - **Minimum scope held.** `.venv` still **Python 3.12.13 arm64**, ssl (OpenSSL 3.6.3) and
+>   **Tcl/Tk 9.0.3** healthy; **no `.venv.replaced*`**, so no rebuild; `bin`/`lib`/`include`/`share`
+>   mtimes unchanged from 2026-08-20. The requirements stamp is **byte-identical** (`249c3ab2…`,
+>   still 2026-08-31), so **no pip reconciliation**. `.venv/.import-proof.json` — absent before the
+>   gate — was established at `13:39:04` recording the **same** `requirements_sha256` as the
+>   untouched stamp: an *import re-proof*, not an install.
+> - **The second launch did nothing it should not.** RUN 2 at `13:39:43` holds `FFmpeg
+>   health-check: verified /opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin` and no "repairing" line, no
+>   `brew install`, no venv work, no repair loop, and — unlike the first — no import re-proof,
+>   because the proof was already valid. `Installing ffmpeg via Homebrew` appears **exactly once**
+>   in the whole day's log.
+> - **The precondition could not be reached without touching user-owned software, and that is
+>   recorded rather than smoothed over.** `brew uses --installed ffmpeg` named `gpac 2.4.0_3` —
+>   installed on request, with a hard runtime `depends_on "ffmpeg"` and `libgpac.dylib` linking the
+>   ffmpeg dylibs directly. Uninstalling ffmpeg under `--ignore-dependencies` would have knowingly
+>   broken it, and `brew unlink` would have left the pinned Cellar files present and the pin valid,
+>   testing nothing. On the maintainer's disposition GPAC was **temporarily** removed first (proved
+>   a leaf beforehand), then ffmpeg was removed by a plain `brew uninstall`.
+> - **A deviation discovered after the fact, not hidden.** That plain `brew uninstall ffmpeg`
+>   **autoremoved 64 dependency-only formulae by itself** — Homebrew 6.0.8 does this inside
+>   `uninstall` unless `HOMEBREW_NO_AUTOREMOVE` is set, and it was unset. No `brew autoremove` or
+>   `brew cleanup` was ever invoked, and no `--ignore-dependencies`. **No user-requested formula
+>   was lost**: `espeak`, `gh`, `openjdk@17`, `python@3.12`, `python-tk@3.12`, `python-tk@3.13` and
+>   `tcl-tk` all remained installed and were verified working. Ten of the 64 returned with
+>   `brew install ffmpeg`; the other 54 are simply not required by ffmpeg 9.0.1, whose runtime
+>   dependency set is 14 rather than 92.
+> - **GPAC restored, and the version difference named.** `HOMEBREW_NO_AUTO_UPDATE=1
+>   HOMEBREW_NO_AUTOREMOVE=1 brew install gpac`. GPAC was restored through normal Homebrew;
+>   **version advanced from the previously installed outdated 2.4.0_3 to 26.07.0_1** as a
+>   consequence of restoring the currently supported formula — restoration of user-owned Homebrew
+>   software, **not** an application update. `MP4Box` reports `GPAC version 26.07-revrelease`,
+>   `brew linkage --test gpac` is clean, and every ffmpeg dylib it references resolves.
+> - **Restoring GPAC did not weaken the app's FFmpeg authority.** It upgraded eleven shared
+>   dependencies (including `openssl@3` 3.6.3 → 3.6.4) but left the ffmpeg keg alone: the pin is
+>   byte-identical, `still_matches()` is True, `discover_pairs()` finds exactly one pair, and both
+>   pinned binaries were re-executed and reported 9.0.1. **Nothing re-proved by hand, nothing
+>   hand-edited.** `.venv` re-verified healthy after the upgrade.
+> - **A second Homebrew fact worth recording.** Homebrew itself went **6.0.8 → 6.0.22** during the
+>   maintainer's run, because the supported repair calls a plain `brew install ffmpeg` without
+>   `HOMEBREW_NO_AUTO_UPDATE`. That is product behaviour on the acceptance path, not an agent
+>   action, and it is why the repair installed **9.0.1_1** rather than the 8.0 that had been there.
+> - **Gates.** Targeted Phase-8 suites (19 files): **625 passed, 2 failed, 17 skipped, 0 errors**.
+>   Full macOS suite: **5586 passed, 2 failed, 57 skipped, 0 errors** (3m44s). `verify.py`:
+>   **deps / docs / docnames / config PASS**; the pytest row is red truthfully, for the same two
+>   tests. There is no `test_plan3_boundaries` row here — that protected report does not exist on
+>   this Mac, and its 129/129 tracked-tree proof stands from Phase 7.
+> - **Both red nodes are test-only, and neither is Phase-8-attributable. Category C = 0.**
+>   `test_an_existing_mac_venv_reaches_the_homebrew_repair` — the `sandbox` fixture empties PATH
+>   and stubs `_brew_dirs()`, but production `_refresh_brew_path()` re-adds the real
+>   `/opt/homebrew/bin` to `os.environ["PATH"]`, and `candidate_directories()` orders `_path_dirs()`
+>   **ahead of** `_brew_dirs()`, so the machine's real ffmpeg is discovered and pinned instead of
+>   the fixture's. Proved by re-running the identical fixtures with `_refresh_brew_path`
+>   neutralised, where the assertion holds. It can only pass while no Homebrew ffmpeg exists — which
+>   was already false before Phase 8 began, when ffmpeg 8.0 was installed.
+>   `test_a_repair_recovers_before_starting_a_new_transaction` — seeds the set-aside environment
+>   with a **Windows** layout (`aside/Scripts/<python>`) that macOS's `.venv/bin/python` can never
+>   satisfy; production restored the aside correctly (`Restored the previous environment; nothing
+>   was lost.`) and only the test's own premise fails. It fails on any Mac at any commit.
+>   **Neither is a production defect, and both were deliberately left unfixed** — fixing them would
+>   broaden this phase. **They are owed maintainer disposition.**
+> - **Production state unchanged across every gate** — **23 critical keys, 0 differences**, before
+>   and after the targeted run, the full run and `verify.py`: requirements stamp, import proof,
+>   `ffmpeg-state.json`, both pinned paths and their stat identity, `files/bin` (absent), staging
+>   (absent), `.venv` top level, `.venv.replaced*` (none), `pyvenv.cfg`, all four venv subdirectory
+>   mtimes, the venv Python identity, the Homebrew ffmpeg/gpac/leaves inventory and formula count,
+>   PATH, and the eight untracked user screenshots. **The log tree did not change at all.**
+> - **Zero production code changed. Zero test code changed.** Only `Handoff.md` and
+>   `pre-plan-6-setup-self-healing.md`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 9 has not started. Phase 10 has not started. Plan 6 has not
+>   begun.** The additive superseding FFmpeg ADR remains owed at Phase 10; `Decisions.md`,
+>   `Briefing.md` and `Changelog.md` were not touched.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 7 COMPLETE: the machine repaired itself (2026-09-04)
 >
 > **This block is the live state of the repository. It supersedes the Phase-6 block's closing

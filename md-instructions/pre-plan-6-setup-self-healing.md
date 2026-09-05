@@ -1164,7 +1164,60 @@ in a manual test log under `files/test-logs/` per `AI-WORKSPACE.md`.
 
 ---
 
-### PHASE 8 — HOME-MacOS targeted validation
+### PHASE 8 — HOME-MacOS targeted validation ✅ COMPLETE
+
+> **The promise held on the second platform, and the precondition cost more to build than the
+> acceptance did to run.** On 2026-09-05 the maintainer double-clicked
+> `Setup_and_Run-audiobook-creation-tool.command` from Finder on HOME-MacOS with a healthy
+> existing `.venv` and no usable ffmpeg/ffprobe anywhere. The first run detected it, installed
+> **ffmpeg via Homebrew**, proved the pair by executing it rather than trusting the installer's
+> exit code, pinned `/opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin/{ffmpeg,ffprobe}` at 13:39:29, and
+> launched the GUI at 13:39:30. The second double-click read `FFmpeg health-check: verified …`
+> and launched with no install, no repair loop and no import re-proof. `Installing ffmpeg via
+> Homebrew` appears exactly once in the day's log.
+>
+> **Minimum scope held.** `.venv` stayed **Python 3.12.13 arm64** with ssl and **Tcl/Tk 9.0.3**
+> healthy, no `.venv.replaced*` was created, the requirements stamp is byte-identical and no pip
+> reconciliation ran. The import proof — absent before the gate — was re-established recording the
+> *same* `requirements_sha256` as the untouched stamp: an import re-proof, not an install.
+> `files/bin` and the staging tree were never created; the portable fallback was correctly never
+> reached.
+>
+> **The precondition required temporarily removing user-owned software, recorded as execution
+> evidence and not as a relaxation of this phase's contract.** `brew uses --installed ffmpeg`
+> named `gpac 2.4.0_3`, installed on request, with a hard runtime `depends_on "ffmpeg"` and
+> `libgpac.dylib` linking the ffmpeg dylibs directly. `--ignore-dependencies` would have knowingly
+> broken it; `brew unlink` would have left the pinned Cellar files present and the pin valid,
+> testing nothing. On the maintainer's disposition GPAC was removed first (proved a leaf
+> beforehand), then ffmpeg by a plain `brew uninstall`, and GPAC was restored after the gate —
+> version advanced from the outdated **2.4.0_3** to **26.07.0_1** as a consequence of restoring
+> the currently supported formula, with `MP4Box` and `brew linkage --test gpac` verified.
+> Restoring it upgraded eleven shared dependencies but left the ffmpeg keg alone: the pin stayed
+> byte-identical and `still_matches()` stayed True, so nothing was re-proved or hand-edited.
+>
+> **A deviation found after the command, not hidden.** That plain `brew uninstall ffmpeg`
+> autoremoved **64 dependency-only formulae by itself** — Homebrew 6.0.8 does this inside
+> `uninstall` unless `HOMEBREW_NO_AUTOREMOVE` is set, and it was unset. No `brew autoremove` or
+> `brew cleanup` was invoked. No user-requested formula was lost and every remaining one was
+> verified working. Homebrew itself also moved 6.0.8 → 6.0.22 during the maintainer's run, because
+> the supported repair calls a plain `brew install ffmpeg`; that is why 9.0.1_1 was installed
+> rather than the 8.0 that had been there.
+>
+> **Gates.** Targeted Phase-8 suites: **625 passed / 2 failed / 17 skipped / 0 errors**. Full
+> macOS suite: **5586 passed / 2 failed / 57 skipped / 0 errors**. `verify.py`: deps, docs,
+> docnames and config **PASS**, pytest red for the same two nodes. **Category C = 0.** Both reds
+> are test-only and neither is Phase-8-attributable:
+> `test_an_existing_mac_venv_reaches_the_homebrew_repair` fails because production
+> `_refresh_brew_path()` re-adds the real `/opt/homebrew/bin` to PATH after the `sandbox` fixture
+> emptied it, and `candidate_directories()` orders `_path_dirs()` ahead of the fixture-controlled
+> `_brew_dirs()` — proved by re-running the identical fixtures with `_refresh_brew_path`
+> neutralised, where the assertion holds; it could only ever pass while no Homebrew ffmpeg
+> existed, which was already false before this phase began.
+> `test_a_repair_recovers_before_starting_a_new_transaction` seeds a **Windows** `Scripts/` layout
+> that macOS's `.venv/bin/python` cannot satisfy, while production restored the aside correctly.
+> **Both were deliberately left unfixed — fixing them would broaden this phase — and are owed
+> maintainer disposition.** Production state was unchanged across every gate: **23 keys, 0
+> differences**, with the log tree untouched.
 
 **Not** full Plan-9 fresh-machine certification. Prove at minimum:
 
@@ -1175,8 +1228,8 @@ in a manual test log under `files/test-logs/` per `AI-WORKSPACE.md`.
 - a second normal launch is healthy and a no-op;
 - **no manual `.venv` deletion** anywhere in the recovery.
 
-**Manual gate:** **YES — maintainer runs it on HOME-MacOS and approves.**
-**Ends with:** commit + push + STOP + report.
+**Manual gate:** **YES — maintainer runs it on HOME-MacOS and approves.** ✅ passed 2026-09-05.
+**Ends with:** commit + push + STOP + report. ✅ **Phase 9 NOT STARTED.**
 
 ---
 
