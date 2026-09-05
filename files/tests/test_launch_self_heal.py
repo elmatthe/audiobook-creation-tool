@@ -90,6 +90,18 @@ def sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_health, "_winget_package_dirs", lambda: [])
     monkeypatch.setattr(ffmpeg_health, "_brew_dirs", lambda: [])
     monkeypatch.setenv("PATH", "")
+    # Emptying PATH is not enough on a Mac. ``_brew_ffmpeg`` calls
+    # ``_refresh_brew_path``, which puts ``/opt/homebrew/bin`` and
+    # ``/usr/local/bin`` *back* — by design, because a fresh ``brew install``
+    # is not on an already-running process's PATH. ``candidate_directories()``
+    # then searches PATH **before** the ``_brew_dirs`` seam these tests
+    # control, so on a developer Mac that has Homebrew's own FFmpeg the
+    # "sandbox" discovered and pinned the host's real pair and the module's
+    # result depended on what was installed on the machine running it.
+    # Production keeps its behaviour; the simulated install stays reachable
+    # through ``_brew_dirs``. ``test_hardening_matrix``'s ``mac_launch``
+    # fixture already isolates itself the same way.
+    monkeypatch.setattr(bootstrap, "_refresh_brew_path", lambda: None)
     ffmpeg_utils.refresh()
     yield tmp_path
     ffmpeg_utils.refresh()
@@ -506,6 +518,38 @@ def test_an_existing_mac_venv_reaches_the_homebrew_repair(
     assert result.routes == (bootstrap.FFMPEG_ROUTE_EXISTING,
                              bootstrap.FFMPEG_ROUTE_HOMEBREW)
     assert ffmpeg_health.pinned_pair().directory == cellar
+
+
+def test_the_mac_repair_never_escapes_into_the_host_homebrew(
+        sandbox, macos, tools, commands, installs_when_run, proves_everything,
+        monkeypatch):
+    """Row 2 again, but guarding the *isolation* rather than the route.
+
+    This module used to pass or fail according to what the machine running it
+    happened to have installed: green on a Mac with no Homebrew FFmpeg, red on
+    the same Mac once one existed. Nothing in a sandboxed repair may look
+    outside ``tmp_path`` — not PATH, not ``/opt/homebrew/bin``, not
+    ``/usr/local/bin``, not a real Cellar — so the sweep itself is asserted on
+    rather than only its result.
+    """
+    tools.add("brew")
+    searched: list[Path] = []
+    sweep = ffmpeg_health.candidate_directories
+
+    def recording_sweep():
+        directories = sweep()
+        searched.extend(directories)
+        return directories
+
+    monkeypatch.setattr(ffmpeg_health, "candidate_directories", recording_sweep)
+
+    result = bootstrap.repair_ffmpeg(Log())
+
+    assert result.ready
+    assert searched, "the repair must actually have swept for candidates"
+    escaped = [d for d in searched if not d.is_relative_to(sandbox)]
+    assert escaped == [], f"the sandbox searched host directories: {escaped}"
+    assert ffmpeg_health.pinned_pair().directory == installs_when_run
 
 
 def test_brew_succeeding_is_not_ffmpeg_succeeding(

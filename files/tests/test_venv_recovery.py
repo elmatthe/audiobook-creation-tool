@@ -82,6 +82,23 @@ def _fake_interpreter(env) -> Path:
     return py
 
 
+def _seed_interpreter(root: Path) -> Path:
+    """Put an interpreter under ``root`` at the layout *this* platform uses.
+
+    Derived from ``venv_python()`` relative to ``VENV_DIR`` rather than spelled
+    out, because that relative path is ``Scripts/python.exe`` on Windows and
+    ``bin/python`` on macOS and Linux. Seeding a set-aside environment with a
+    hard-coded ``Scripts`` produced an aside that production restored correctly
+    and ``assess_venv_health`` then classified ``absent``, because the
+    interpreter it looks for was not where the test had put it — so a test
+    written to be cross-platform could only ever pass on Windows.
+    """
+    interpreter = root / bootstrap.venv_python().relative_to(bootstrap.VENV_DIR)
+    interpreter.parent.mkdir(parents=True, exist_ok=True)
+    interpreter.write_bytes(b"interpreter")
+    return interpreter
+
+
 def _probe(version=(3, 12), ssl=True, tk=True):
     return {"version": version, "ssl": ssl, "tk": tk}
 
@@ -1040,14 +1057,34 @@ def test_an_unproven_candidate_loses_to_the_preserved_environment(env, monkeypat
 def _interrupted_both(env, *, proved: bool = True) -> Path:
     """Both directories present: a preserved environment and a candidate."""
     aside = bootstrap._venv_aside_path()
-    (aside / "Scripts").mkdir(parents=True)
-    (aside / "Scripts" / bootstrap.venv_python().name).write_bytes(b"interpreter")
+    _seed_interpreter(aside)
     (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
     _fake_interpreter(env)
     (env.venv / "candidate.txt").write_text("candidate", encoding="utf-8")
     if proved:
         bootstrap.record_import_proof("3.12.10")
     return aside
+
+
+def test_an_interrupted_aside_is_seeded_with_this_platform_s_venv_layout(env):
+    """The recovery fixtures must describe *this* platform's venv, not Windows'.
+
+    ``aside / "Scripts" / <python>`` is where a Windows venv keeps its
+    interpreter; on macOS and Linux it is ``bin/``. Seeding the Windows shape on
+    a Mac produced an aside that production restored perfectly — the log says
+    "Restored the previous environment; nothing was lost." — and that
+    ``assess_venv_health`` then called ``absent``, because the interpreter was
+    not where ``venv_python()`` looks. The repair therefore reported failure for
+    a reason that existed only in the test. Asserted behaviourally: after a real
+    restore, production must find its interpreter.
+    """
+    aside = _interrupted_both(env)
+
+    assert (aside / bootstrap.venv_python().relative_to(bootstrap.VENV_DIR)).is_file()
+
+    assert bootstrap._restore_venv(aside, _Log()) is True
+    assert bootstrap.venv_python().is_file(), \
+        "a restored aside must satisfy the interpreter production looks for"
 
 
 def test_a_proved_and_launchable_candidate_supersedes_the_preserved_environment(
@@ -1186,8 +1223,7 @@ def test_no_new_success_marker_file_was_introduced(env, monkeypatch):
 def test_a_repair_recovers_before_starting_a_new_transaction(env, monkeypatch):
     """Interruption A, then the next repair: no manual deletion anywhere."""
     aside = bootstrap._venv_aside_path()
-    (aside / "Scripts").mkdir(parents=True)
-    (aside / "Scripts" / bootstrap.venv_python().name).write_bytes(b"interpreter")
+    _seed_interpreter(aside)
     (aside / "keepsake.txt").write_text("previous", encoding="utf-8")
     monkeypatch.setattr(bootstrap, "find_suitable_python",
                         lambda log, prefer_tk=True: ["py", "-3.12"])

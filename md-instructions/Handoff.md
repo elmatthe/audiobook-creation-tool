@@ -2,6 +2,86 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — POST-PHASE-8 TEST-HARNESS REMEDIATION (2026-09-05)
+>
+> **This block is the live state of the repository. Phase 8 itself is unchanged and remains
+> COMPLETE at `592a72b`; its manual acceptance was *not* repeated and is not reopened. This
+> checkpoint only closes the two test-only nodes that phase left red. Everything below stands.**
+>
+> - **Both red nodes were test-harness defects, and both are now green.** Neither implicated
+>   production code, and none was changed. The pre-fix red proof was captured against
+>   `592a72b90886a33bf03172fab39409b786af9dc5` before anything was edited, with each failure
+>   showing its own named cause rather than a bare assertion.
+> - **Defect 1 — the macOS repair sandbox could reach the host's Homebrew.**
+>   `test_launch_self_heal.py`'s `sandbox` fixture promises "every FFmpeg state path inside
+>   `tmp_path`, and nothing on PATH", and emptied PATH to get it. But `_brew_ffmpeg` calls
+>   `_refresh_brew_path`, which deliberately puts `/opt/homebrew/bin` and `/usr/local/bin` *back* —
+>   that is the M2/H3 behaviour Phase 4 built, because a fresh `brew install` is not on an
+>   already-running process's PATH — and `candidate_directories()` searches PATH **before** the
+>   `_brew_dirs` seam the fixture controls. On a Mac with Homebrew's own FFmpeg the "sandbox"
+>   therefore discovered and pinned the host's real pair: the red proof shows
+>   `pinned_pair().directory` as `/opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin` where the fixture's
+>   `package-manager-install` was expected. The module's result depended on what was installed on
+>   the machine running it — green on this Mac only during the deliberately FFmpeg-less gate window.
+> - **Fixed in the fixture, not in production.** `_refresh_brew_path` is neutralised inside
+>   `sandbox`, so the fixture's documented isolation is actually true; production keeps its
+>   behaviour and its candidate ordering untouched, and the simulated install stays reachable
+>   through `_brew_dirs`. This is the same isolation `test_hardening_matrix`'s `mac_launch` fixture
+>   has always applied — which is exactly why its sibling macOS repair test never failed here.
+>   Two further macOS tests (`test_brew_succeeding_is_not_ffmpeg_succeeding` and
+>   `test_no_portable_route_exists_on_macos`) reached the same leak latently, passing only because
+>   their assertions were about failure; they are isolated now too.
+> - **Defect 2 — a cross-platform recovery test seeded a Windows venv.**
+>   `test_venv_recovery.py` built the interrupted set-aside environment at
+>   `aside / "Scripts" / <interpreter>`, which is where a *Windows* venv keeps its interpreter. On
+>   macOS `venv_python()` is `.venv/bin/python`, so after production restored the aside correctly —
+>   the log line is `Restored the previous environment; nothing was lost.` — `assess_venv_health`
+>   classified it `absent` and the repair reported failure for a reason that existed only in the
+>   test. It could only ever pass on Windows.
+> - **Fixed by deriving the layout instead of spelling it.** A `_seed_interpreter` helper places the
+>   interpreter at `venv_python()` *relative to* `VENV_DIR`, so the seeding is whatever this
+>   platform actually uses. Applied to the failing test and to the shared `_interrupted_both`
+>   helper its neighbours use, which carried the identical assumption. The remaining bare
+>   `Scripts/` directories in that module are filler content proving a directory is moved wholesale
+>   — no interpreter, no platform meaning — and were deliberately left alone rather than churned.
+> - **Both fixes are mutation-proved.** Reverting only the `sandbox` isolation turns the new guard
+>   `test_the_mac_repair_never_escapes_into_the_host_homebrew` **and** the original node red;
+>   reverting only the derived layout turns the new guard
+>   `test_an_interrupted_aside_is_seeded_with_this_platform_s_venv_layout` **and** its original node
+>   red. Both guards assert behaviour: the first records every directory the repair actually sweeps
+>   and requires all of them inside `tmp_path`; the second restores a real aside and requires
+>   production to then find its own interpreter.
+> - **Gates.** The two formerly failing nodes individually: **2 passed**. Their modules: **177
+>   passed, 4 skipped**. Isolation/health coverage (`test_suite_isolation`, `test_ffmpeg_health`,
+>   `test_hardening_matrix`, `test_first_run_contract`): **151 passed**. The full Phase-8 targeted
+>   family: **629 passed, 17 skipped, 0 failed, 0 errors** (was 625 passed / 2 failed). Full macOS
+>   suite: **5590 passed, 57 skipped, 0 failed, 0 errors**. **`verify.py`: pytest / deps / docs /
+>   docnames / config all PASS — RESULT PASS**, the first genuinely clean Mac gate of this drop.
+> - **One transient, recorded rather than smoothed over.** The first `verify.py` run reported
+>   `1 failed, 5589 passed` without naming the node, because `verify.py` keeps only pytest's last
+>   summary line. Three other complete runs of the identical command — two direct, one through
+>   `verify.py` — were fully green, and both remediated nodes passed in every run including
+>   individually, so the transient is not attributable to this work. Its identity could not be
+>   recovered after the fact; that `verify.py` discards failing node IDs is a real gap worth closing
+>   separately, and was not changed here. (`.pytest_cache/v/cache/lastfailed` is stale — its mtime
+>   does not move through green runs — so it is not evidence about this.)
+> - **Production state unchanged across every gate** — 23 critical keys, **0 differences**, before
+>   and after four full suites and two `verify.py` runs: requirements stamp, import proof,
+>   `ffmpeg-state.json`, both pinned paths and their stat identity, `files/bin` (absent), staging
+>   (absent), `.venv` top level and all four subdirectory mtimes, `pyvenv.cfg`, `.venv.replaced*`
+>   (none), the venv Python identity, the Homebrew ffmpeg/gpac/leaves inventory and formula count,
+>   PATH, and the eight untracked user screenshots. **The log tree did not change at all.**
+> - **The accepted machine state is untouched.** FFmpeg 9.0.1_1 still proved and pinned at
+>   `/opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin`, GPAC 26.07.0_1 and MP4Box still working, `.venv`
+>   still healthy Python 3.12.13 with Tcl/Tk 9.0.3. No launcher acceptance was re-run.
+> - **Zero production code changed.** Two test files: `files/tests/test_launch_self_heal.py`,
+>   `files/tests/test_venv_recovery.py`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 9 has not started. Phase 10 has not started. Plan 6 has not
+>   begun.** The additive superseding FFmpeg ADR remains owed at Phase 10; `Decisions.md`,
+>   `Briefing.md` and `Changelog.md` were not touched.
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 8 COMPLETE: the same promise kept on macOS (2026-09-05)
 >
 > **This block is the live state of the repository. It supersedes the Phase-7 block's closing

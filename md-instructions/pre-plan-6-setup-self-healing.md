@@ -1231,6 +1231,32 @@ in a manual test log under `files/test-logs/` per `AI-WORKSPACE.md`.
 **Manual gate:** **YES — maintainer runs it on HOME-MacOS and approves.** ✅ passed 2026-09-05.
 **Ends with:** commit + push + STOP + report. ✅ **Phase 9 NOT STARTED.**
 
+> **Post-phase test-harness remediation (2026-09-05, after `592a72b`).** Phase 8 closed with two
+> red nodes it had correctly classified as test-only and non-attributable. They were fixed in a
+> separate bounded checkpoint rather than left permanently red, with the manual acceptance **not**
+> repeated and no production code touched.
+>
+> `test_an_existing_mac_venv_reaches_the_homebrew_repair` — the `sandbox` fixture emptied PATH, but
+> `_brew_ffmpeg`'s `_refresh_brew_path` deliberately restores `/opt/homebrew/bin`, and
+> `candidate_directories()` searches PATH before the fixture's `_brew_dirs` seam, so a Mac holding
+> Homebrew's own FFmpeg had its real pair discovered and pinned inside the "sandbox". Neutralising
+> `_refresh_brew_path` **inside the fixture** — the same isolation `test_hardening_matrix`'s
+> `mac_launch` fixture already applied — makes the fixture's documented contract true while leaving
+> production behaviour and candidate ordering untouched. Two further macOS tests reached the same
+> leak latently and are isolated now too.
+>
+> `test_a_repair_recovers_before_starting_a_new_transaction` — seeded the interrupted aside at
+> `Scripts/<interpreter>`, a Windows layout, so on macOS production restored the aside correctly and
+> `assess_venv_health` then called it `absent`. A `_seed_interpreter` helper now derives the path
+> from `venv_python()` relative to `VENV_DIR`; applied to the shared `_interrupted_both` helper as
+> well, which carried the same assumption.
+>
+> Both fixes are mutation-proved: reverting either turns both its new guard and its original node
+> red. Result: full macOS suite **5590 passed / 57 skipped / 0 failed / 0 errors** and `verify.py`
+> **RESULT PASS** on all five rows — the first fully clean Mac gate of this drop. Production state
+> unchanged, 23 keys, 0 differences. One unnamed transient in the first `verify.py` run is recorded
+> in `Handoff.md`; three other full runs were green and both remediated nodes passed in every one.
+
 ---
 
 ### PHASE 9 — CSPW-PC non-admin targeted validation
