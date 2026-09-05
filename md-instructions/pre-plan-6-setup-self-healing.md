@@ -1081,7 +1081,62 @@ preserved real environment still makes FFmpeg-dependent tests red on this machin
 
 ---
 
-### PHASE 7 — real HOME-PC self-repair acceptance
+### PHASE 7 — real HOME-PC self-repair acceptance ✅ COMPLETE
+
+> **The preserved condition has been spent, and it bought exactly what it was kept for.** The
+> maintainer double-clicked `Setup_and_Run-audiobook-creation-tool.bat` from Explorer on
+> 2026-09-04. The first run detected that no usable pair existed, installed **Gyan.FFmpeg in
+> user scope via WinGet**, checked the package directory **directly rather than waiting for
+> PATH**, proved the pair, pinned it, and launched. The app has run on this machine ever since
+> against `…\WinGet\Packages\Gyan.FFmpeg_…\ffmpeg-9.0.1-full_build\bin\{ffmpeg,ffprobe}.exe`.
+>
+> **Minimum scope held.** `.venv` stayed Python 3.12.10, no `.venv.replaced*` was created, the
+> requirements stamp is byte-identical, and no pip reconciliation ran. The import proof was
+> re-established — an import re-proof, recording the *same* `requirements_sha256` as the
+> untouched stamp, not an install. `files/bin` and the staging tree were never created: the
+> portable fallback was correctly never reached. The second double-click re-proved the active
+> pin and launched; no reinstall, no download, no repair loop.
+>
+> **The post-repair gate did not close on the first attempt, and that was worth more than a
+> clean pass.** Two defects that the *absence* of FFmpeg had been hiding turned red the moment a
+> real pair existed. Both were test-only; no production module was implicated, and the
+> generated Unicode book plus the production probe were proved sound against the real pair
+> before anything was touched.
+>
+> **Defect 1 — a `pytestmark` that could not be opted out of.** `test_m4b_probe_encoding` applied
+> the sandbox `pinned_ffmpeg` pair to its whole module, including the three tests whose entire
+> purpose is to run a *real* ffmpeg against a *real* generated book. They were handed a stub text
+> file. The sandbox is now opted into one test at a time — fourteen command-building tests that
+> genuinely need a pinned pair, because `probe_source` builds its argv from `ffprobe_cmd()`
+> *before* it consults an injected runner; five pure payload/AST tests need nothing; the three
+> media tests get the real pair.
+>
+> **Defect 2 — pydub's configuration is process-wide, and nothing gave it back.**
+> `configure_pydub()` writes absolute paths into `pydub.AudioSegment` and rebinds
+> `pydub.utils.get_prober_name`. Those are a third-party package's module globals: not something
+> `monkeypatch` ever patched, and not something `refresh()` rewrites — refresh clears
+> `ffmpeg_utils`' own caches and lowers `_pydub_configured`, leaving the rewrite to the next
+> `configure_pydub()` call, which a consumer like `kokoro_synth` never makes. So a test that
+> pinned a sandbox pair left pydub pointing inside its own `tmp_path`, which pytest then deleted,
+> and two `test_kokoro_timing_wiring` tests inherited it. An autouse guard in `conftest.py` now
+> snapshots and restores those four settings around every test, treating **absence as a value**
+> (`AudioSegment.ffprobe` does not exist until `configure_pydub()` creates it, so a guard that
+> only reassigns would leave it behind).
+>
+> **A correction worth recording.** The remediation brief proposed that the leak was a stale
+> `ffmpeg_utils` cache caused by `pinned_ffmpeg` refreshing before `monkeypatch` restored. That
+> mechanism was tested and **does not exist**: `refresh()` only clears its lru_caches, so the next
+> resolution happens lazily and correctly after restoration. The reproduction asserts that
+> explicitly, and that assertion passes at `bec7050` as well as after the fix. The real leak was
+> pydub's, and the fix follows the evidence rather than the hypothesis.
+>
+> **Red proof against `bec7050`, both defects.** Seven of the ten new permanent regressions fail
+> on the pre-fix tree and pass after. Final gate: **two consecutive full runs, each 1 failed /
+> 5630 passed / 14 skipped / 0 errors**, the single failure being the known local-only
+> `test_plan3_boundaries` row caused by the protected untracked maintainer report — proved green
+> at 129/129 from a clean `git archive` tree. All 76 Category-A missing-FFmpeg errors are gone,
+> Category B did not reproduce, Category D is zero, and the 23 `ttk/winTheme` transients did not
+> recur in either run. Production state was unchanged across every gate, 21 keys, 0 differences.
 
 **This is the first phase allowed to consume the preserved broken condition.**
 
@@ -1104,8 +1159,8 @@ equality), also provide a **clean repo-local snapshot/gate under `files/dev-work
 
 **Gate:** the real acceptance run above, plus the full Windows automated gate post-repair, recorded
 in a manual test log under `files/test-logs/` per `AI-WORKSPACE.md`.
-**Manual gate:** **YES — maintainer runs the double-click and approves.**
-**Ends with:** commit + push + STOP + report.
+**Manual gate:** **YES — maintainer runs the double-click and approves.** ✅ passed 2026-09-04.
+**Ends with:** commit + push + STOP + report. ✅ **Phase 8 NOT STARTED.**
 
 ---
 

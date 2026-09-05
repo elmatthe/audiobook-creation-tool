@@ -2,6 +2,106 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 7 COMPLETE: the machine repaired itself (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-6 block's closing
+> line that "the real HOME-PC missing-FFmpeg acceptance condition remains unconsumed and reserved
+> for Phase 7" — Phase 7 has now spent it, on purpose, and that spending *is* the acceptance.
+> Everything else in the blocks below stands. Nothing below is deleted or rewritten.**
+>
+> - **The manual gate passed.** On 2026-09-04 the maintainer double-clicked
+>   `Setup_and_Run-audiobook-creation-tool.bat` from Windows Explorer on HOME-PC, in the preserved
+>   condition: healthy `.venv`, no usable ffmpeg/ffprobe anywhere. The first launch repaired
+>   itself and reached the GUI; the app was closed normally; a second double-click reached the GUI
+>   again. **No manual `.venv` deletion, no manual intervention** — which is the entire product
+>   promise this drop exists to keep. That gate was not repeated in remediation.
+> - **The route, from the logs rather than from assumption.** `FFmpeg health-check: no usable
+>   ffmpeg/ffprobe pair — repairing.` → `Installing ffmpeg via winget (Gyan.FFmpeg, user scope)…`
+>   → `Checking C:\…\Gyan.FFmpeg_…\ffmpeg-9.0.1-full_build\bin…` → `Verified: ffmpeg version
+>   9.0.1-full_build` → pinned → `Launching launcher.py`. It **checked the package directory
+>   directly instead of waiting for PATH**, which is exactly the M2/H3 behaviour Phase 4 built and
+>   what `test_a_winget_install_is_accepted_without_waiting_for_path` guards.
+> - **The pin.** `…\WinGet\Packages\Gyan.FFmpeg_…\ffmpeg-9.0.1-full_build\bin\ffmpeg.exe` and
+>   its `ffprobe.exe` sibling — same directory, one installation, both executing and reporting
+>   `9.0.1-full_build-www.gyan.dev`. `ffmpeg_cmd()`/`ffprobe_cmd()` resolve to exactly that pair;
+>   `status_line()` reads "FFmpeg verified and ready." **`files/bin` and the staging tree were
+>   never created**: the portable fallback was correctly never reached.
+> - **Minimum scope held.** `.venv` still Python 3.12.10, ssl and Tk healthy; **no
+>   `.venv.replaced*`**, so no rebuild; the requirements stamp is **byte-identical** (still
+>   2026-09-03), so **no pip reconciliation**. `.venv/.import-proof.json` was re-established at
+>   17:26:45 — an *import re-proof* recording the **same** `requirements_sha256` as the untouched
+>   stamp, not an install. The log tree went 79 → 81: four files written by the two real runs,
+>   two pruned by the app's own `_prune_old_logs`. Accounted exactly.
+> - **The second launch did nothing it should not.** Its log holds `FFmpeg health-check: verified
+>   …` and no "repairing" line, no winget call, no download, no venv replacement, and — unlike the
+>   first — no import re-proof, because the proof was already valid.
+> - **The first post-repair gate did not close, and that was worth more than a clean pass.** Two
+>   defects the *absence* of FFmpeg had been hiding turned red the moment a real pair existed.
+>   Both were **test-only**: no production module was implicated. Before touching either, the
+>   generated Unicode book and the production probe were proved sound against the real pair —
+>   8/8 checks, exact Unicode chapter titles, `CHAPTERED` usability — so the media, FFmpeg 9.0.1
+>   and `m4b_probe` were all ruled out first.
+> - **Defect 1 — a `pytestmark` nobody could opt out of.** `test_m4b_probe_encoding` sandboxed its
+>   whole module, handing the stub `pinned_ffmpeg` pair to the three tests whose entire purpose is
+>   to run a *real* ffmpeg against a *real* book. The sandbox is now opted into **one test at a
+>   time**: fourteen command-building tests that genuinely need a pinned pair (because
+>   `probe_source` builds its argv from `ffprobe_cmd()` *before* it consults an injected runner),
+>   five pure payload/AST tests that need nothing, and the three media tests left on the real pair.
+> - **Defect 2 — pydub's configuration is process-wide, and nothing gave it back.**
+>   `configure_pydub()` writes absolute paths into `pydub.AudioSegment` and rebinds
+>   `pydub.utils.get_prober_name` — a third-party package's module globals, never patched by
+>   `monkeypatch` and deliberately not rewritten by `refresh()`, which clears `ffmpeg_utils`' own
+>   caches and leaves the rewrite to the next `configure_pydub()` call. `kokoro_synth` never makes
+>   one; it calls `AudioSegment.export` and inherits whatever is there. So a test that pinned a
+>   sandbox pair left pydub pointing inside its `tmp_path`, which pytest then deleted, and two
+>   `test_kokoro_timing_wiring` tests tried to spawn it. An **autouse guard in `conftest.py`** now
+>   snapshots and restores those four settings around every test, with **absence as a value** —
+>   `AudioSegment.ffprobe` does not exist until `configure_pydub()` creates it, so a guard that
+>   only reassigned would leave an invented attribute behind.
+> - **A correction, recorded rather than quietly absorbed.** The remediation brief proposed that
+>   the leak was a stale `ffmpeg_utils` cache caused by `pinned_ffmpeg` refreshing *before*
+>   `monkeypatch` restored. That was tested and **does not exist** — `refresh()` only clears its
+>   lru_caches, so the next resolution happens lazily and correctly after restoration. The
+>   reproduction asserts it explicitly and that assertion passes at `bec7050` too. The real leak
+>   was pydub's; the fix follows the evidence, not the hypothesis.
+> - **Red proof against `bec7050`.** **Seven of the ten** new permanent regressions fail on the
+>   pre-fix tree and pass after — three for the fixture-scope defect, four for the pydub guard.
+>   The standalone reproduction fails at `bec7050` and passes now, using the identical script.
+> - **Final gate: two consecutive full runs, each `1 failed / 5630 passed / 14 skipped / 0
+>   errors`**, byte-identical node sets. **Category A (missing-FFmpeg / stub contamination) = 0** —
+>   all 76 original errors gone, including the three generated-media and two Kokoro nodes.
+>   **Category B** (16 Chatterbox) did not reproduce. **Category C** = the single
+>   `test_plan3_boundaries` row caused by the protected untracked maintainer report, proved green
+>   at **129/129** from a clean `git archive` tracked tree. **Category D = 0.** The 23
+>   `ttk/winTheme` transients did **not** recur in either run.
+> - **Focused gate: 1163 passed, 3 skipped, 0 failed** across 24 modules (was 1153 before the ten
+>   new regressions). `verify.py`: **deps / docs / docnames / config PASS**; the pytest row is red
+>   truthfully, and solely because of the protected local file.
+> - **Production state unchanged across every gate** — 21 keys, **0 differences**, before and
+>   after both full runs and `verify.py`: requirements stamp, import proof, log tree,
+>   `ffmpeg-state.json`, the active pin and both pinned paths, `files/bin` (absent), staging
+>   (absent), the WinGet inventory, `.venv.replaced*` (none), PATH hash, `.venv` Python, and both
+>   protected untracked files. **The accepted FFmpeg pair is still proved and pinned.**
+> - **Note on PATH.** The Gyan installer added its `bin` to the *persisted user* PATH. A terminal
+>   opened before the install still shows `where ffmpeg` finding nothing; that is not a defect, and
+>   it is why pydub emits its import-time warning in the first launch log but not the second. The
+>   app executes the pinned absolute pair regardless.
+> - **Zero production code changed.** Three test files: `files/tests/conftest.py`,
+>   `files/tests/test_m4b_probe_encoding.py`, `files/tests/test_suite_isolation.py`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 8 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; `Decisions.md`, `Briefing.md` and
+>   `Changelog.md` were not touched.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 7).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `files/tests/conftest.py`;
+> `files/tests/test_m4b_probe_encoding.py`; `files/tests/test_suite_isolation.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: none. Deleted: none. No production module under `scripts/` was modified. Manual QA log
+> at `files/test-logs/v0.6.2_pre-plan-6-phase7-acceptance.md` (gitignored, not committed);
+> evidence under `files/dev-work/phase7/` (gitignored, not committed).
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 6 COMPLETE: the regression matrix is hardened (2026-09-04)
 >
 > **This block is the live state of the repository. It supersedes the Phase-5 block's closing line

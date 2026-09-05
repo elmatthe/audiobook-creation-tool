@@ -23,9 +23,13 @@ that has quietly become a no-op is worse than none, because it reads as coverage
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
+import sys
 from pathlib import Path
+
+import pytest
 
 from shared import bootstrap, paths
 
@@ -344,3 +348,249 @@ def test_the_guard_reads_the_real_filesystem_not_a_patched_one(monkeypatch,
     monkeypatch.setattr(os, "scandir", exploding)
 
     assert conftest._fingerprint(target) == expected
+
+
+# --------------------------------------------------------------------------- #
+#  PRE-PLAN-6 Phase 7 — a fixture must not outlive itself
+#
+#  Phase 7 spent the preserved missing-FFmpeg condition, and two test-only
+#  defects that the absence had been hiding turned red the moment a real pair
+#  existed. Both are the same shape as the production-state defects above: state
+#  that is process-wide, written by one test, and never given back.
+#
+#  1. ``test_m4b_probe_encoding`` sandboxed its whole module with a
+#     ``pytestmark``, so the three tests whose entire purpose is to run a REAL
+#     ffmpeg against a REAL generated book were handed a stub text file instead.
+#  2. ``configure_pydub()`` writes into pydub's own module globals. Nothing
+#     restored them, so a test that pinned a sandbox pair left pydub pointing
+#     inside its ``tmp_path`` — which pytest then deleted — and the next consumer
+#     to call ``AudioSegment.export`` inherited it. That consumer was
+#     ``kokoro_synth``, which never calls ``configure_pydub()`` itself.
+# --------------------------------------------------------------------------- #
+
+PROBE_ENCODING = Path(__file__).parent / "test_m4b_probe_encoding.py"
+
+#: The tests in that module that must run against the REAL proved pair.
+REAL_MEDIA_TESTS = frozenset({
+    "test_the_generated_book_really_defeats_the_ansi_codepage",
+    "test_the_production_probe_reads_a_real_book_with_unicode_titles",
+    "test_a_real_unicode_book_is_usable_rather_than_refused",
+})
+
+
+def _probe_encoding_tree() -> ast.Module:
+    return ast.parse(PROBE_ENCODING.read_text(encoding="utf-8"))
+
+
+def _sandbox_marks(node: ast.FunctionDef) -> list[str]:
+    """Decorators on *node* that apply the sandbox pair, however they spell it.
+
+    AST rather than substring matching, per the Phase-6 rule: the module-level
+    alias means the mark can legitimately appear as a bare ``@sandboxed`` or as
+    the full ``@pytest.mark.usefixtures("pinned_ffmpeg")``, and a docstring that
+    merely mentions either is not a decorator.
+    """
+    found = []
+    for decorator in node.decorator_list:
+        if isinstance(decorator, ast.Name) and decorator.id == "sandboxed":
+            found.append("sandboxed")
+        elif isinstance(decorator, ast.Call):
+            args = [a.value for a in decorator.args
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            if "pinned_ffmpeg" in args:
+                found.append(ast.unparse(decorator.func))
+    return found
+
+
+def test_the_probe_module_does_not_sandbox_itself_wholesale():
+    """No module-level mark may apply the sandbox pair to every test in the file.
+
+    This is the defect exactly: a ``pytestmark`` cannot be opted out of, so every
+    real-media test added to that module afterwards is silently captured.
+    """
+    offenders = []
+    for node in _probe_encoding_tree().body:
+        if not isinstance(node, ast.Assign):
+            continue
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if "pytestmark" not in names:
+            continue
+        if "pinned_ffmpeg" in ast.unparse(node.value):
+            offenders.append(ast.unparse(node))
+    assert offenders == [], (
+        "test_m4b_probe_encoding applies the sandbox pair module-wide again: "
+        f"{offenders}")
+
+
+def _module_level_sandbox() -> list[str]:
+    """Any module-level ``pytestmark`` that applies the sandbox pair.
+
+    Counted as applying to *every* test in the file, because that is what pytest
+    does with it — which is the whole reason the original defect was invisible.
+    """
+    marks = []
+    for node in _probe_encoding_tree().body:
+        if (isinstance(node, ast.Assign)
+                and any(t.id == "pytestmark" for t in node.targets
+                        if isinstance(t, ast.Name))
+                and "pinned_ffmpeg" in ast.unparse(node.value)):
+            marks.append(ast.unparse(node))
+    return marks
+
+
+def test_the_real_media_tests_are_not_handed_a_stub():
+    """The three generated-media tests must not receive the sandbox pair.
+
+    Checked against both routes it can arrive by — a decorator on the test, and a
+    module-level mark that reaches it without naming it.
+    """
+    captured = {}
+    module_wide = _module_level_sandbox()
+    for node in ast.walk(_probe_encoding_tree()):
+        if isinstance(node, ast.FunctionDef) and node.name in REAL_MEDIA_TESTS:
+            marks = _sandbox_marks(node) + module_wide
+            if marks:
+                captured[node.name] = marks
+    assert captured == {}, (
+        f"generated-media tests were handed the sandbox pair: {captured}")
+
+
+def test_every_real_media_test_is_actually_present():
+    """Guards the guard: a rename must not silently empty the set above."""
+    defined = {node.name for node in ast.walk(_probe_encoding_tree())
+               if isinstance(node, ast.FunctionDef)}
+    missing = REAL_MEDIA_TESTS - defined
+    assert missing == set(), f"REAL_MEDIA_TESTS names tests that no longer exist: {missing}"
+
+
+def test_the_command_building_tests_still_get_a_pinned_pair():
+    """Narrowing the scope must not have removed the pair the others need.
+
+    ``probe_source`` builds its argv from ``ffprobe_cmd()`` before it consults an
+    injected runner, so every test that reaches it needs *a* pinned pair even
+    though it executes nothing. Those must still opt in explicitly.
+    """
+    unsandboxed = []
+    for node in ast.walk(_probe_encoding_tree()):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not node.name.startswith("test_") or node.name in REAL_MEDIA_TESTS:
+            continue
+        calls = {sub.func.attr for sub in ast.walk(node)
+                 if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)}
+        if "probe_source" in calls and not _sandbox_marks(node):
+            unsandboxed.append(node.name)
+    assert unsandboxed == [], (
+        "these build a probe command line but were left without a pinned pair: "
+        f"{unsandboxed}")
+
+
+def test_the_runtime_trust_boundary_is_still_pinned_only():
+    """Narrowing fixture scope must not have reopened a bare-name fallback."""
+    from shared import ffmpeg_utils as trust
+
+    source = ast.parse(Path(trust.__file__).read_text(encoding="utf-8"))
+    pair = next(node for node in ast.walk(source)
+                if isinstance(node, ast.FunctionDef) and node.name == "_executable_pair")
+    called = {sub.func.attr for sub in ast.walk(pair)
+              if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)}
+    assert "pinned_pair" in called
+    assert "which" not in called and "discover_pairs" not in called
+
+
+# --- the pydub guard, proved behaviourally ---------------------------------- #
+
+_SANDBOX_SEEN: dict = {}
+
+
+def _pydub_now() -> dict:
+    from pydub import AudioSegment
+    from pydub import utils as pydub_utils
+
+    return {name: getattr(AudioSegment, name, None)
+            for name in ("converter", "ffmpeg", "ffprobe")} | {
+        "prober": pydub_utils.get_prober_name()}
+
+
+def test_a_sandbox_pair_is_authoritative_while_its_fixture_is_active(pinned_ffmpeg):
+    """Ordered first on purpose: it pollutes, the next test proves the cleanup."""
+    from shared import ffmpeg_utils as trust
+
+    _SANDBOX_SEEN["dir"] = str(Path(pinned_ffmpeg))
+    trust.configure_pydub()
+    assert Path(trust.ffmpeg_cmd()).parent == Path(pinned_ffmpeg)
+    assert all(_SANDBOX_SEEN["dir"] in str(v) for v in _pydub_now().values())
+
+
+def test_no_authority_still_points_into_the_torn_down_sandbox():
+    """The whole defect, in one assertion, for both authorities at once."""
+    from shared import ffmpeg_utils as trust
+
+    sandbox = _SANDBOX_SEEN.get("dir")
+    assert sandbox, "the polluting test above must run first"
+
+    resolved = trust.ffmpeg_path()
+    assert resolved is None or sandbox not in resolved, (
+        f"ffmpeg_utils still resolves the torn-down sandbox: {resolved}")
+
+    stale = {k: v for k, v in _pydub_now().items() if v and sandbox in str(v)}
+    assert stale == {}, f"pydub still points into the torn-down sandbox: {stale}"
+
+
+def test_the_pydub_guard_restores_absence_as_well_as_values(tmp_path):
+    """Driving the guard directly, so it cannot pass by luck of ordering.
+
+    ``AudioSegment.ffprobe`` does not exist until ``configure_pydub()`` creates
+    it, so a guard that only reassigns attributes would leave it behind. Absence
+    has to round-trip as its own answer — the same rule the production-state
+    fingerprint above follows.
+    """
+    from pydub import AudioSegment
+
+    guard = conftest._restore_pydub_configuration.__wrapped__
+    had_ffprobe = hasattr(AudioSegment, "ffprobe")
+    if had_ffprobe:
+        del AudioSegment.ffprobe
+    before = AudioSegment.converter
+    try:
+        generator = guard()
+        next(generator)
+        AudioSegment.converter = str(tmp_path / "bin" / "ffmpeg.exe")
+        AudioSegment.ffprobe = str(tmp_path / "bin" / "ffprobe.exe")
+        with pytest.raises(StopIteration):
+            next(generator)
+        assert AudioSegment.converter == before
+        assert not hasattr(AudioSegment, "ffprobe"), (
+            "the guard reassigns but never removes, so an attribute a test "
+            "invented survives it")
+    finally:
+        AudioSegment.converter = before
+        if had_ffprobe:
+            AudioSegment.ffprobe = before
+
+
+def test_the_pydub_guard_is_autouse_so_no_test_has_to_remember_it():
+    """A guard every test must opt into is a guard someone will forget."""
+    fixture = conftest._restore_pydub_configuration
+    # pytest 8 exposes the marker on a FixtureFunctionDefinition; older releases
+    # attached it to the function itself. Ask for both rather than pin a version.
+    marker = getattr(fixture, "_fixture_function_marker",
+                     getattr(fixture, "_pytestfixturefunction", None))
+    assert marker is not None, "the pydub guard is no longer a pytest fixture"
+    assert marker.autouse is True
+    assert marker.scope == "function"
+
+
+def test_a_stand_in_pydub_is_left_alone():
+    """Some fixtures inject a fake pydub; the guard must no-op for those."""
+    sentinel = object()
+    saved = sys.modules.get("pydub.utils")
+    sys.modules["pydub.utils"] = sentinel  # type: ignore[assignment]
+    try:
+        assert conftest._pydub_modules() is None
+        assert conftest._pydub_snapshot() is None
+    finally:
+        if saved is None:
+            del sys.modules["pydub.utils"]
+        else:
+            sys.modules["pydub.utils"] = saved

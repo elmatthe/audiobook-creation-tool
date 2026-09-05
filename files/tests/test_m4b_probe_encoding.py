@@ -50,11 +50,20 @@ from shared import ffmpeg_utils
 from test_m4b_metadata import require_ffmpeg  # noqa: E402
 
 # PRE-PLAN-6 Phase 4 closed the runtime trust boundary: ``ffprobe_cmd()``
-# resolves only a proved, pinned pair and refuses otherwise. These tests build
-# and parse real probe command lines without executing anything, so they need a
-# pinned pair to build from -- modelled honestly with a sandbox pair rather than
-# by relaxing the production contract.
-pytestmark = pytest.mark.usefixtures("pinned_ffmpeg")
+# resolves only a proved, pinned pair and refuses otherwise. ``probe_source``
+# builds its argv from ``ffprobe_cmd()`` *before* it consults the injected
+# runner, so a test that never executes anything still needs a pinned pair to
+# build from -- modelled honestly with a sandbox pair rather than by relaxing the
+# production contract.
+#
+# **Applied per test, never module-wide.** PRE-PLAN-6 Phase 7 found this as a
+# ``pytestmark``, which silently handed the sandbox stub to the generated-media
+# tests at the bottom of this file -- the three tests whose entire purpose is to
+# run a REAL ffmpeg against a REAL book. They were invisible for as long as this
+# machine had no FFmpeg at all. Opting in one test at a time is what stops a
+# future real-media test from being captured the same way; a marker that has to
+# be removed is a marker someone will forget to remove.
+sandboxed = pytest.mark.usefixtures("pinned_ffmpeg")
 
 #: The exact character that broke the real book, and three that cp1252 would
 #: have silently mangled rather than refused.
@@ -119,6 +128,7 @@ def test_cp1252_would_silently_corrupt_the_characters_it_does_not_reject():
 # --------------------------------------------------------------------------- #
 
 
+@sandboxed
 def test_a_payload_the_ansi_codepage_cannot_decode_is_read_successfully():
     """The whole report in one assertion: a valid book stops being refused."""
     found = m4b_probe.probe_source(
@@ -127,6 +137,7 @@ def test_a_payload_the_ansi_codepage_cannot_decode_is_read_successfully():
     assert found.probe.duration == pytest.approx(48123.239909)
 
 
+@sandboxed
 def test_unicode_chapter_titles_survive_exactly():
     found = m4b_probe.probe_source(
         "book.m4b", runner=runner_returning(as_bytes(payload())))
@@ -136,6 +147,7 @@ def test_unicode_chapter_titles_survive_exactly():
     assert "â€" not in found.probe.chapters[0].title, "never mojibake"
 
 
+@sandboxed
 def test_unicode_metadata_survives_exactly_into_the_source_tags():
     found = m4b_probe.probe_source(
         "book.m4b", runner=runner_returning(as_bytes(payload())))
@@ -144,6 +156,7 @@ def test_unicode_metadata_survives_exactly_into_the_source_tags():
     assert found.tags.track == 4, "the /5 total is still discarded"
 
 
+@sandboxed
 def test_every_non_ascii_character_round_trips_untouched():
     """Character by character, so a partial corruption cannot hide in a pass."""
     exotic = "—‘’“”éü日本\U0001f4d6"
@@ -158,6 +171,7 @@ def test_every_non_ascii_character_round_trips_untouched():
 # --------------------------------------------------------------------------- #
 
 
+@sandboxed
 def test_a_str_returning_runner_is_still_accepted():
     """The injected seam predates this change and is not being migrated."""
     found = m4b_probe.probe_source(
@@ -188,6 +202,7 @@ def test_a_str_returning_runner_is_still_accepted():
     pytest.param(payload(duration=None), id="no-duration"),
     pytest.param(payload(chapters=[]), id="chapterless"),
 ])
+@sandboxed
 def test_bytes_and_str_deliver_an_identical_report(doc):
     """The one invariant that keeps this change from altering any other answer.
 
@@ -203,6 +218,7 @@ def test_bytes_and_str_deliver_an_identical_report(doc):
     assert from_bytes == from_str
 
 
+@sandboxed
 def test_the_xhe_classification_is_untouched_by_the_decoding_change():
     doc = payload(streams=[{"index": 0, "codec_type": "audio", "codec_name": "aac",
                             "profile": "xHE-AAC", "duration": "35199.62"}])
@@ -215,6 +231,7 @@ def test_the_xhe_classification_is_untouched_by_the_decoding_change():
     assert found.codec_name == "aac"
 
 
+@sandboxed
 def test_an_ordinary_aac_lc_source_is_still_ordinary():
     found = m4b_probe.probe_source(
         "book.m4b", runner=runner_returning(as_bytes(payload())))
@@ -222,6 +239,7 @@ def test_an_ordinary_aac_lc_source_is_still_ordinary():
     assert found.codec_name == "aac"
 
 
+@sandboxed
 def test_the_single_cover_is_still_selected_by_absolute_index():
     doc = payload(streams=[
         {"index": 0, "codec_type": "audio", "codec_name": "aac", "profile": "LC",
@@ -242,12 +260,14 @@ def test_the_single_cover_is_still_selected_by_absolute_index():
     pytest.param("not json at all", id="str-garbage"),
     pytest.param(b"[1, 2, 3]", id="json-but-not-an-object"),
 ])
+@sandboxed
 def test_unparseable_output_still_fails_closed(bad):
     found = m4b_probe.probe_source("book.m4b", runner=runner_returning(bad))
     assert found.probe.status is ProbeStatus.PROBE_FAILED
     assert found.probe.detail
 
 
+@sandboxed
 def test_truly_undecodable_bytes_still_fail_closed_rather_than_being_repaired():
     """Bytes that are not valid UTF-8 must still be refused, not salvaged."""
     def runner(argv):
@@ -257,6 +277,7 @@ def test_truly_undecodable_bytes_still_fail_closed_rather_than_being_repaired():
     assert found.probe.status is ProbeStatus.PROBE_FAILED
 
 
+@sandboxed
 def test_a_runner_that_raises_is_still_probe_failed():
     def runner(argv):
         raise subprocess.CalledProcessError(1, argv)
@@ -266,6 +287,7 @@ def test_a_runner_that_raises_is_still_probe_failed():
     assert "CalledProcessError" in found.probe.detail
 
 
+@sandboxed
 def test_no_audio_and_no_duration_keep_their_own_statuses():
     no_audio = m4b_probe.probe_source(
         "book.m4b", runner=runner_returning(as_bytes(payload(streams=[]))))
@@ -302,6 +324,7 @@ def test_the_production_probe_never_asks_for_locale_text_decoding(banned):
         f"{banned}= reintroduces host-locale decoding of ffprobe's JSON")
 
 
+@sandboxed
 def test_the_production_call_survives_a_check_output_that_honours_the_codepage(
         monkeypatch):
     """The behavioural half of the guard above, with no media and no ffprobe.

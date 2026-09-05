@@ -187,6 +187,140 @@ def pinned_ffmpeg(monkeypatch, tmp_path):
     ffmpeg_utils.refresh()
 
 
+# --------------------------------------------------------------------------- #
+#  pydub's configuration is process-wide  (PRE-PLAN-6 Phase 7)
+# --------------------------------------------------------------------------- #
+
+#: The three ``AudioSegment`` class attributes ``configure_pydub()`` writes.
+_PYDUB_ATTRIBUTES = ("converter", "ffmpeg", "ffprobe")
+
+#: Sentinel for "this attribute did not exist", which is different from "it was
+#: None" and must round-trip as its own answer.
+_ABSENT = object()
+
+#: pydub's import-time configuration, captured the first time it is seen. Used
+#: only for a test that is itself the first thing to import pydub: there is no
+#: per-test "before" to go back to in that case, and leaving the test's own
+#: answer installed is the thing this guard exists to prevent.
+_PYDUB_BASELINE: dict | None = None
+
+
+def _pydub_modules():
+    """``(audio_segment, utils)`` for the real pydub, or ``None``.
+
+    ``None`` covers both "not imported yet" and "some fixture injected a
+    stand-in", the same way ``tk_gate._live_types`` tolerates a fake ``tkinter``.
+    A stand-in has nothing process-wide to restore.
+    """
+    segment = sys.modules.get("pydub.audio_segment")
+    utils = sys.modules.get("pydub.utils")
+    if segment is None or utils is None:
+        return None
+    if not hasattr(segment, "AudioSegment") or not hasattr(utils, "get_prober_name"):
+        return None
+    return segment, utils
+
+
+def _pydub_snapshot() -> dict | None:
+    """The four process-wide settings, plus the modules they were read from.
+
+    The module objects travel with the values so a restore always writes back to
+    the same objects it read: a test that swaps a stand-in into ``sys.modules``
+    must not redirect the restore onto the stand-in it is about to discard.
+    """
+    modules = _pydub_modules()
+    if modules is None:
+        return None
+    segment, utils = modules
+    state = {"segment": segment, "utils": utils,
+             "get_prober_name": utils.get_prober_name}
+    for name in _PYDUB_ATTRIBUTES:
+        state[name] = getattr(segment.AudioSegment, name, _ABSENT)
+    return state
+
+
+def _pydub_restore(state: dict) -> None:
+    segment, utils = state["segment"], state["utils"]
+    for name in _PYDUB_ATTRIBUTES:
+        value = state[name]
+        if value is _ABSENT:
+            # Absence is a value here, not a gap: ``ffprobe`` does not exist on
+            # a freshly imported AudioSegment -- configure_pydub() creates it --
+            # so restoring by assignment alone would leave the attribute behind
+            # and quietly change what a later test sees.
+            if hasattr(segment.AudioSegment, name):
+                delattr(segment.AudioSegment, name)
+        else:
+            setattr(segment.AudioSegment, name, value)
+    utils.get_prober_name = state["get_prober_name"]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _pydub_baseline():
+    """Record pydub's own import-time configuration once, before any test runs.
+
+    Without this there is a hole exactly one test wide: the first test to import
+    pydub is also the first that can configure it, so the per-test guard below
+    would have no "before" to return to and would have to leave that test's
+    answer installed -- which, if it is a sandbox path, is the whole defect.
+    Importing pydub here is not a cost the suite avoids anyway; it is a declared
+    dependency that most of these tests reach eventually.
+    """
+    global _PYDUB_BASELINE
+    try:
+        import pydub.audio_segment  # noqa: F401
+        import pydub.utils  # noqa: F401
+    except Exception:  # pragma: no cover - pydub absent is not this file's problem
+        return
+    if _PYDUB_BASELINE is None:
+        _PYDUB_BASELINE = _pydub_snapshot()
+
+
+@pytest.fixture(autouse=True)
+def _restore_pydub_configuration():
+    """No test may leave its own ffmpeg paths installed in pydub.
+
+    ``ffmpeg_utils.configure_pydub()`` writes absolute paths into
+    ``pydub.AudioSegment`` and rebinds ``pydub.utils.get_prober_name``. Those are
+    **module globals of a third-party package** — nothing pytest knows how to
+    undo, and nothing ``monkeypatch`` ever patched. So a test that pins a sandbox
+    pair and then configures pydub leaves those globals pointing inside its own
+    ``tmp_path``, which pytest deletes moments later.
+
+    ``refresh()`` does not close this. It clears ``ffmpeg_utils``' own caches and
+    lowers ``_pydub_configured``, and rewriting pydub is deliberately the *next*
+    ``configure_pydub()`` call's job — but a consumer like ``kokoro_synth`` never
+    makes one. It calls ``AudioSegment.export`` and inherits whatever is there.
+
+    That is precisely how Phase 7 found two ``test_kokoro_timing_wiring`` tests
+    trying to spawn a deleted temporary directory. It was invisible for as long
+    as this machine had no FFmpeg, because those tests were failing earlier for a
+    different reason; consuming the missing-FFmpeg condition is what exposed it.
+
+    Restoring rather than clearing is the point: the next test observes exactly
+    the configuration that existed before this one ran, whatever that was.
+    """
+    global _PYDUB_BASELINE
+    before = _pydub_snapshot()
+    if before is not None and _PYDUB_BASELINE is None:
+        _PYDUB_BASELINE = before
+    yield
+    after = _pydub_snapshot()
+    if after is None:
+        return
+    # ``before`` when this test inherited a configuration; the session baseline
+    # when this test is the one that first imported pydub.
+    target = before if before is not None else _PYDUB_BASELINE
+    if target is None or after == target:
+        return
+    _pydub_restore(target)
+    # The paths pydub holds and the pair ffmpeg_utils would hand out next must
+    # agree; refresh() is the supported way to say "resolve again from scratch".
+    from shared import ffmpeg_utils
+
+    ffmpeg_utils.refresh()
+
+
 @pytest.fixture(autouse=True)
 def _no_real_provisioning(monkeypatch):
     """No test may install a real package or download the real FFmpeg archive.
