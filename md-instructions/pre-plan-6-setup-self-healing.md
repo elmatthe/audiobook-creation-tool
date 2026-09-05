@@ -1259,13 +1259,42 @@ in a manual test log under `files/test-logs/` per `AI-WORKSPACE.md`.
 
 ---
 
-### PHASE 9 — CSPW-PC non-admin targeted validation
+### PHASE 9 — CSPW-PC non-admin targeted validation — WAIVED / NOT APPLICABLE
 
-Prove the new repair contract under the **actual Standard User restriction**, with **no admin
-installation** where user-scope or repo-local repair is available.
+> **Maintainer disposition, 2026-09-05: WAIVED / NOT APPLICABLE.** The maintainer has decided that
+> the Audiobook Creation Tool **will not be used or deployed on CSPW-PC**. With no CSPW-PC target,
+> the phase's contract below no longer describes a machine this project must satisfy.
+>
+> **This is a deployment-scope waiver, not a validation success.** Phase 9 was **not tested** and
+> did **not pass**. No acceptance run of any kind was performed for it.
+>
+> - **No CSPW-PC acceptance was run.** The Standard-User, no-admin repair contract stated below
+>   remains **unproven**, and is recorded as unproven rather than as satisfied.
+> - **No HOME-PC substitution was used.** HOME-PC was deliberately *not* re-run to stand in for
+>   this phase. It could not prove the condition anyway: HOME-PC is Windows 11 like CSPW-PC, but
+>   its normal maintainer account holds **Administrator** membership, so a run there exercises the
+>   elevated path, not the Standard-User restriction Phase 9 was designed to test. Claiming it as
+>   equivalent would be manufactured evidence.
+> - **Phase 7 remains the accepted Windows target-machine evidence.** HOME-PC Windows acceptance
+>   (Phase 7) is complete and unchanged, and it covers the Windows environment this application is
+>   actually deployed into. Phase 8 (HOME-MacOS) and its post-phase test-harness remediation
+>   likewise stand unchanged.
+> - **Residual risk, named.** `M5` (§4) — neither WinGet invocation passes an explicit `--scope` —
+>   was flagged as untested against the CSPW-PC Standard User constraint. It stays untested. That
+>   is acceptable only because CSPW-PC is out of scope; should a non-admin Windows target ever be
+>   reintroduced, this phase's contract must be reinstated and actually run.
+>
+> **Next phase:** Phase 10 — maintenance closeout. Its §9 requirement that "waivers [be] named as
+> waivers" applies directly to this entry.
 
-**Manual / remote-agent gate as appropriate.**
-**Ends with:** commit + push + STOP + report.
+**Original Phase-9 contract, retained for the record** (not deleted, so the reason for the waiver
+stays legible):
+
+> Prove the new repair contract under the **actual Standard User restriction**, with **no admin
+> installation** where user-scope or repo-local repair is available.
+>
+> **Manual / remote-agent gate as appropriate.**
+> **Ends with:** commit + push + STOP + report.
 
 ---
 
@@ -1356,7 +1385,7 @@ force-add ignored developer material.
 | 0–6 | none — automated only | — |
 | **7** | **required** — HOME-PC double-click self-repair, then a second clean launch | maintainer |
 | **8** | **required** — HOME-MacOS `.command` repair + second launch | maintainer |
-| **9** | **required** — CSPW-PC Standard User repair without admin | maintainer / remote agent |
+| **9** | **WAIVED / NOT APPLICABLE** (2026-09-05) — CSPW-PC is no longer a deployment target; the original gate was "**required** — CSPW-PC Standard User repair without admin". Not run, not passed. | — |
 | **10** | closeout records sign-off | maintainer |
 
 Manual logs live in `files/test-logs/` (gitignored, kept between sessions), named by version and

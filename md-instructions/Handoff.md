@@ -2,6 +2,48 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PHASE 9 WAIVED / NOT APPLICABLE BY MAINTAINER DECISION (2026-09-05)
+>
+> **This block is the live state of the repository. It supersedes only the preceding block's
+> closing line that "Phase 9 has not started". Nothing below is deleted, rewritten or reopened —
+> the Phase-7, Phase-8 and post-Phase-8 remediation records stand exactly as written.**
+>
+> - **This is a scope decision, not a test result.** **Phase 9 was NOT tested and did NOT pass.**
+>   No acceptance run, on any machine, was performed for it. It is recorded as **WAIVED / NOT
+>   APPLICABLE**, and must never be summarised as a pass.
+> - **The maintainer has decided the application will not be used or deployed on CSPW-PC.** With
+>   CSPW-PC removed as a deployment target, the Phase-9 contract — "CSPW-PC non-admin targeted
+>   validation", proving the repair contract under the actual Standard User restriction — no longer
+>   describes a machine this project must satisfy.
+> - **No substitute evidence was manufactured.** HOME-PC was deliberately **not** re-run to stand
+>   in for CSPW-PC, and no HOME-PC result is being claimed as Phase-9 coverage. Two reasons, both
+>   sufficient: Phase 7 already performed the real Windows `Setup_and_Run` self-healing acceptance
+>   on that machine, so re-running it would prove nothing new; and HOME-PC's normal maintainer
+>   account holds **Administrator** membership, so — although both machines are Windows 11 — a run
+>   there exercises the elevated path and cannot demonstrate the Standard-User restriction Phase 9
+>   existed to test.
+> - **Existing acceptance coverage is unchanged and still valid.** **Phase 7 — HOME-PC Windows
+>   acceptance: COMPLETE.** **Phase 8 — HOME-MacOS acceptance: COMPLETE.** **Post-Phase-8 macOS
+>   test-harness remediation: COMPLETE**, with the first fully clean Mac `verify.py` gate of this
+>   drop. Phase 7 remains the accepted Windows target-machine evidence.
+> - **Residual risk, named rather than closed.** `M5` — neither WinGet invocation passes an
+>   explicit `--scope` — was raised as untested against the CSPW-PC Standard User constraint and
+>   **stays untested**. That is acceptable only for as long as no non-admin Windows target exists;
+>   if one is ever reintroduced, the Phase-9 contract must be reinstated and actually run. The
+>   original contract text was preserved in the drop file rather than deleted, so the reason for
+>   the waiver stays legible.
+> - **Documentation-only checkpoint.** **Zero production code and zero tests changed.** Exactly two
+>   tracked files: `md-instructions/Handoff.md` and
+>   `md-instructions/pre-plan-6-setup-self-healing.md`. No manual launcher acceptance was re-run,
+>   no FFmpeg change, no `.venv` change, nothing installed or uninstalled. `Decisions.md`,
+>   `Briefing.md` and `Changelog.md` were **not** touched — the additive superseding FFmpeg /
+>   self-healing ADR remains owed at Phase 10.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 10 has NOT started. Plan 6 has NOT begun.** Next step is
+>   PRE-PLAN-6 **Phase 10 — maintenance closeout**, whose scope already requires that waivers be
+>   named as waivers; this entry is that waiver.
+
 > ## ⟢ CURRENT STATE — POST-PHASE-8 TEST-HARNESS REMEDIATION (2026-09-05)
 >
 > **This block is the live state of the repository. Phase 8 itself is unchanged and remains
