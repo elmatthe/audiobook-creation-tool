@@ -2,6 +2,49 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 10 CLOSEOUT PREPARED, AWAITING MAINTAINER SIGN-OFF (2026-09-05)
+>
+> **This block is the live state of the repository. It supersedes the preceding block's closing line
+> that "Phase 10 has NOT started". Nothing below is deleted, rewritten or reopened — the Phase-7,
+> Phase-8, post-Phase-8 remediation and Phase-9 waiver records stand exactly as written.**
+>
+> - **PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing maintenance has completed all
+>   implementation, acceptance and documentation requirements, pending ONLY the Phase-10 maintainer
+>   records sign-off and the subsequent commit.** The closeout diff is deliberately left **unstaged
+>   and uncommitted** for that review. Nothing is staged, committed or pushed.
+> - **Phases 0–8 COMPLETE.** Post-Phase-8 macOS test-harness remediation **COMPLETE**.
+> - **Phase 9 — WAIVED / NOT APPLICABLE.** CSPW-PC was removed as a deployment target. It was **not
+>   tested and did not pass**, and **no HOME-PC substitute evidence** was used or claimed. A waiver
+>   stays a waiver.
+> - **M5 implementation is CLOSED.** Every production `winget install` names `--scope user`; nothing
+>   requests machine scope and there is no `runas`/elevation fallback. What remains unperformed is the
+>   **real non-admin Windows target-machine acceptance** — automated coverage proves the argv and the
+>   route, not a live Standard-User run. If such a target returns, Phase 9 must be reinstated and run.
+> - **The permanent superseding ADR is prepared** in `Decisions.md` (2026-09-05, *"observation is not
+>   permission, and a launch owns its own readiness"*). It supersedes **only** the
+>   `have_ffmpeg()`-versus-`verified_ffmpeg()` paragraph of the 2026-08-28 entry; that entry is
+>   otherwise **intact** and its pinning and security rules stand.
+> - **The temporary drop is prepared for retirement** — `md-instructions/pre-plan-6-setup-self-healing.md`
+>   is deleted in the candidate diff, with its durable content moved into `Decisions.md`,
+>   `Changelog.md`, `Briefing.md` and this file. No permanent tracked document depends on it.
+> - **`Changelog.md`** carries a new entry under **`[Unreleased]`**; **no `[0.6.2]` release heading was
+>   created**. **`Briefing.md`** received three minimum durable corrections, because it still described
+>   FFmpeg as installed *system-wide*, the launcher fast path as gated on `.venv` merely *existing*, and
+>   `ffmpeg_utils.py` as resolving `files/bin/` → **PATH** — all three now materially wrong.
+> - **Gates.** Full HOME-PC suite: **5632 passed, 1 failed, 14 skipped, 0 errors** — the single red is
+>   the established protected-boundary condition (`test_plan3_boundaries.py::test_the_canonical_documents_and_protected_references_keep_their_exact_names`),
+>   caused solely by the maintainer-owned untracked evidence file in `md-instructions/don't-delete/`.
+>   It is **not** Phase-10-attributable and that file must never be moved or deleted to make the suite
+>   green. Against a clean candidate tree containing the exact intended Phase-10 result, `verify.py`
+>   returned **RESULT: PASS** on all five rows. Production runtime state was captured before and after
+>   every gate: **24 keys, 0 differences**.
+> - **Version identity remains `0.6.2`, UNRELEASED**; latest published release remains **`v0.4.0`**. No
+>   PR, no merge, no tag, no release, no package, no `release.py`. **Plan 6 has NOT started.**
+> - **Next step after Phase 10 is committed — and it is NOT Plan 6:** an **independent READ-ONLY
+>   integration-readiness review**. Only if that review returns **READY** does PR creation and review
+>   follow, and **merge only after explicit maintainer authorization**. **Plan 6 may begin only after
+>   this maintenance work is integrated into `master`.**
+
 > ## ⟢ CURRENT STATE — PHASE 9 WAIVED / NOT APPLICABLE BY MAINTAINER DECISION (2026-09-05)
 >
 > **This block is the live state of the repository. It supersedes only the preceding block's

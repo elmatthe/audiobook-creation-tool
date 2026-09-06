@@ -15,6 +15,41 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — **Setup and launch now repair themselves** (v0.6.2 PRE-PLAN-6, 2026-09-05)
+
+Double-clicking `Setup_and_Run` on an installation whose prerequisites have gone missing or broken now
+**fixes it and carries on**, instead of warning and continuing in a broken state or telling you to run
+the same thing again. This applies to ordinary launches, not just a first run.
+
+- **An existing environment is checked, not trusted because it is there.** A launch assesses the
+  interpreter, the Python version, `ssl`, Tk when the GUI needs it, the installed requirements and a
+  real import proof. Previously a `.venv` folder simply existing was treated as a working one.
+- **"Installed" is never assumed from an installer's exit code.** Package installs are re-checked by
+  actually running what they claimed to install, so a command that reports success but leaves nothing
+  usable is caught rather than recorded as working.
+- **Requirements can no longer be marked successful before they import.** The success record is written
+  only after the install succeeds *and* the required packages genuinely import, so a half-installed
+  environment can never be stamped healthy and skipped forever afterwards.
+- **Repairing a damaged environment is transactional, and you never have to delete `.venv` yourself.**
+  The old environment is set aside rather than destroyed, and an interrupted repair restores it.
+- **Windows FFmpeg repair installs for your user account**, with no administrator prompt and no
+  elevation fallback. If that route is unavailable or refused, the app falls back to a repo-local
+  portable FFmpeg pinned to a specific approved build and verified by checksum before it is used.
+- **macOS repairs through Homebrew** on a normal launch when Homebrew is present. The app does not
+  install Homebrew itself; it tells you what installing it would enable.
+- **Audio work only ever runs an FFmpeg that this machine has actually proved.** There is no longer any
+  fallback to whatever `ffmpeg` happens to be on your `PATH`, so the two halves can never come from
+  different installations, and an unverified copy cannot be used by accident.
+- **Messages are truthful, and none of them ask you to repeat an action that cannot work.** Where a
+  capability genuinely cannot be established, you get one clear notice rather than a blocking loop
+  before the window even appears.
+- **Verified on real machines.** Windows and macOS were each accepted by repairing a genuinely broken
+  installation from an ordinary double-click and launching successfully, twice in a row, with the
+  existing environment preserved. Repair on a **non-admin Windows** account was **not** manually
+  accepted, because that target machine was removed from scope; the user-scope behaviour it would have
+  exercised is covered by automated tests only.
+- **Internal:** test isolation hardened so the suite cannot alter a real installation's recorded state.
+
 ### Changed — **The M4B Converter is rebuilt** (v0.6.2 Plan 5, 2026-08-31)
 
 The Converter now turns an M4B audiobook into MP3s either as **one whole book** or **split by

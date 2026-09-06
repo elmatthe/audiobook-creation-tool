@@ -4,6 +4,129 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-05 — PRE-PLAN-6 closeout: observation is not permission, and a launch owns its own readiness
+
+**Decision (v0.6.2 PRE-PLAN-6 maintenance closeout, Phase 10).** `Setup_and_Run` is now responsible
+for the state it launches into, on both platforms. These are the durable rules that outlive the
+maintenance drop that carried them; that drop is deleted at this closeout.
+
+**This entry supersedes exactly one paragraph of the 2026-08-28 entry below** — *"Why `have_ffmpeg()`
+did not simply become 'verified'"*, which recorded that `have_ffmpeg()` means only *a coherent pair is
+available* and that the strong claim lives separately in `verified_ffmpeg()`. That compromise existed
+so a machine which had never run setup could still use the tools. A launch now repairs and proves
+instead, so the weaker meaning has no remaining purpose — and the split it created was a trap, because
+the weak name is the one every consumer gate in the app was written against.
+
+**Everything else in the 2026-08-28 entry stands and is not reopened:** ffmpeg and ffprobe are one
+coherent sibling pair; a candidate must actually be executed to count; the winning pair is pinned
+**where it lives** and is never copied into `files/bin/` merely to centralise it; a package-manager or
+system installation stays owned by the manager that installed it; identity is path + size + mtime with
+SHA-256 kept as durable evidence rather than as a per-launch check; rejected and blocked candidates are
+remembered and not executed again; and path existence or resolvability is never readiness. That entry's
+security boundary is untouched — nothing here weakens, disables or routes around Smart App Control,
+Defender, WDAC or any endpoint policy.
+
+### Observation is not permission
+
+1. **`shared/ffmpeg_health.py` remains the sole health and proof authority.** Nothing else decides
+   whether FFmpeg is usable.
+2. **Discovery is observational only.** `discovered_ffmpeg()` may report that a coherent pair *appears*
+   to exist. It enumerates, executes nothing, and never authorises execution — so drawing a status line
+   cannot raise the Windows Security prompt that executing a blocked binary raises.
+3. **`have_ffmpeg()` now carries the same strong meaning as `verified_ffmpeg()`:** a proved, durably
+   pinned, still-matching coherent ffmpeg + ffprobe pair is active. A gate written against either name
+   is therefore safe. The older, weaker question moved to `discovered_ffmpeg()`, under a name that
+   cannot be mistaken for permission.
+4. **`ffmpeg_path()` / `ffprobe_path()` return only the pinned pair**, or `None`.
+5. **`ffmpeg_cmd()` / `ffprobe_cmd()` return only absolute paths** to that one accepted sibling pair.
+6. **There is no bare `"ffmpeg"` / `"ffprobe"` fallback anywhere.** When no accepted pair exists the
+   command APIs raise `FFmpegUnavailable`. A refusal the caller can see beats a command line that
+   quietly runs whatever `PATH` offers, with two halves that need not even be the same installation.
+7. **pydub is explicitly configured to the accepted absolute pair.** Left unconfigured it shells out to
+   the bare names, which was the one audio route no consumer gate sat in front of. With nothing pinned
+   it is pointed at a sentinel directory path that no process API will execute, so an operation that
+   slips past a gate fails immediately and visibly instead of quietly running something unproved.
+8. **A normal launch owns readiness: ASSESS → REPAIR → PROVE → PIN → LAUNCH.**
+9. **An installer's exit status is never readiness.** WinGet and Homebrew can return 0 and leave nothing
+   usable, so the resulting pair is always proved independently before it is pinned.
+10. **A healthy installation does the minimum.** A launch that finds everything already proved is a
+    no-op, not a reinstall.
+
+### The setup / bootstrap self-healing contract
+
+**Venv health.** The existence of `.venv` is not health, and treating it as health is the defect this
+maintenance existed to remove. A normal launch assesses interpreter liveness, a supported Python,
+`ssl`, Tk when the GUI needs it, requirements state, and an import proof. The full-feature Python
+contract is **`>=3.11,<3.13`**, expressed in exactly one place; the preference order is **3.12, then a
+healthy 3.11**; and **3.13+ is not a fully healthy full-feature setup** under the current pins. No
+unrelated interpreter is uninstalled or modified.
+
+**Requirements success cannot be claimed before it is proved.** A requirements success stamp is written
+only after reconciliation or install succeeds **and** the required imports actually succeed — pip
+exiting 0 proves nothing, since a partial wheel, an ABI mismatch or a clobbered install all exit 0. The
+real-import proof is recorded separately and is bounded, so a rebuilt environment cannot inherit an
+older one. **A false success stamp is forbidden**, because nothing re-probes afterwards.
+
+**Venv recovery is transactional.** Replacing a broken environment sets the old one aside rather than
+destroying it; an interrupted repair preserves or restores the last-known-good state, and an existing
+aside is never overwritten. **No normal recovery requires the user to delete `.venv` by hand.**
+
+**Windows package acquisition — user scope, explicitly.** Every production `winget install` names
+**`--scope user`**: the Python install, the `Gyan.FFmpeg` install, and the root `.bat`'s Python
+fallback. **Nothing requests machine scope, and there is no `runas` or elevation fallback.** Scope is
+stated rather than inherited from a package default that can change underneath us. A scope or elevation
+refusal is not an error to report — it means *this route is unavailable*, and the caller falls through
+to the repo-local portable build. That portable fallback stays pinned to the approved **Gyan 9.0.1**
+artifact by exact URL **and** exact SHA-256, verified before extraction, staged, proved in staging, and
+promoted by a single same-volume rename into a versioned destination before it can ever be active.
+
+**macOS acquisition.** A normal launch with an existing venv can reach the Homebrew FFmpeg repair, and
+the application may call `brew install ffmpeg` when Homebrew is present. **It does not install Homebrew
+itself** — it points at `https://brew.sh` and says what that would enable. Homebrew reporting success is
+not readiness: the resulting pair is still proved and pinned like any other.
+
+**Failure UX.** A repairable prerequisite failure must not trap the user in a blocking pre-GUI "run it
+again" loop, which is advice to repeat an identical non-repairing action. Attempt the repair first,
+launch where that is safe, and give at most one truthful limited-mode notice when a capability genuinely
+cannot be established.
+
+**Test isolation is part of the contract.** Automated tests must not mutate the real `.venv`
+requirements or import state, the production `ffmpeg-state.json`, production `files/bin`, production
+setup logs, or package-manager state. Two issues found while accepting macOS were **test-harness
+defects, not production defects**: a repair sandbox that could reach the host's real Homebrew, because
+production deliberately restores the brew directories to `PATH` and candidate discovery searches `PATH`
+before the seam the fixture controlled; and a cross-platform recovery test that seeded a Windows
+`Scripts/` venv layout. Both were fixed in the harness, leaving production behaviour and candidate
+ordering untouched.
+
+### Accepted real-machine evidence, and one named waiver
+
+**HOME-PC (Windows).** A healthy existing `.venv`, with FFmpeg missing. The first ordinary Explorer
+double-click **repaired itself** with no manual intervention, through the user-scope WinGet
+`Gyan.FFmpeg` route; the resulting pair was independently proved and pinned, and the GUI launched. A
+second launch was healthy, with no repair loop. `.venv` was preserved throughout and never deleted by
+hand.
+
+**HOME-MacOS.** A healthy existing `.venv`, with FFmpeg genuinely absent. The first ordinary Finder
+`.command` double-click repaired through Homebrew; the resulting pair was proved and pinned, and the GUI
+launched. A second launch was healthy with no repair loop, and `.venv` was preserved. The specific
+Homebrew and GPAC build numbers present on that machine are incidental evidence, **not** architectural
+requirements.
+
+**Phase 9 — CSPW-PC non-admin validation: WAIVED / NOT APPLICABLE.** The maintainer decided that CSPW-PC
+is no longer a deployment target, so this was **not tested and did not pass**, and **no HOME-PC
+substitute evidence was used or claimed** — HOME-PC's account is an Administrator, so a run there
+exercises the elevated path and cannot demonstrate the Standard-User restriction. Automated coverage
+proves the explicit user-scope argv and the fallback route, including an AST inventory that stops a new
+call site from omitting the scope; **that is not a substitute for a real Standard-User target-machine
+acceptance**, which remains unperformed. **If a non-admin Windows deployment target is ever
+reintroduced, that validation must be reinstated and actually run.** A waiver stays a waiver.
+
+*Recorded 2026-09-05 by Claude Code, at the maintainer's direction, during the PRE-PLAN-6 Phase-10
+maintenance closeout. Version identity remains 0.6.2, UNRELEASED.*
+
+---
+
 ## 2026-09-01 — D4 clarified: Strip writes no split-fragment metadata at all
 
 **Decision (post-closeout documentation remediation).** The split-fragment metadata rule recorded as
