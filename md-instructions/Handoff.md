@@ -2,6 +2,70 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 COMPLETE AND CLOSED; INTEGRATION RECORDS REMEDIATED; AWAITING A READ-ONLY RECHECK (2026-09-05)
+>
+> **This block is the live state of the repository.** It supersedes the block below it on every point
+> where that block speaks in the present tense about Phase 10 being *unsigned, unstaged, uncommitted
+> and unpushed*, and about the temporary drop being *prepared for* retirement. Those statements were
+> true when written, before the maintainer sign-off, and are false now. That block is kept verbatim
+> beneath this one as the dated record of the pre-sign-off position. Nothing else below is deleted,
+> rewritten or reopened — the Phase-7, Phase-8, post-Phase-8 remediation and Phase-9 waiver records
+> stand exactly as written.
+>
+> - **The PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing maintenance is COMPLETE and CLOSED.**
+>   Phases 0–10 are done. The Phase-10 closeout was **approved by the maintainer, committed and
+>   pushed** — it is **not** awaiting sign-off and **not** uncommitted.
+> - **Phase-10 closeout commit:** **`a170e41b71168f33247471be79110b871f88cb3d`**
+>   (parent **`68416604014f06779cd8bd1492627ad78c1cf920`**), on branch
+>   `maintenance/0.6.2-setup-self-healing`, pushed to `origin`. Documentation only — zero production
+>   code, zero tests.
+> - **The temporary drop was ACTUALLY RETIRED, not merely prepared for retirement.**
+>   `md-instructions/pre-plan-6-setup-self-healing.md` was **deleted** in that commit, its durable
+>   content having moved into `Decisions.md`, `Changelog.md`, `Briefing.md`, `README.md` and this file.
+>   **No permanent `don't-delete/` record was deleted, moved or renamed** by the closeout or by this
+>   remediation.
+> - **Phase 9 remains WAIVED / NOT APPLICABLE — it was never converted to PASS.** CSPW-PC was removed
+>   as a deployment target. It was **not tested and did not pass**, and **no HOME-PC substitute
+>   evidence** was used or claimed. HOME-PC Phase 7 remains the accepted Windows evidence and
+>   HOME-MacOS Phase 8 the accepted macOS evidence. **Real non-admin Windows target-machine acceptance
+>   remains UNPERFORMED**; if such a target returns, Phase 9 must be reinstated and actually run. M5 is
+>   closed in implementation only — every production `winget install` names `--scope user`, with no
+>   machine scope and no elevation fallback.
+> - **The first post-closeout integration-readiness review has been performed** — independent and
+>   READ-ONLY, over the full 19-commit delta `e36ab7d…a170e41`. **It returned NOT READY, on
+>   records/provenance grounds only.** It judged the **implementation, security contract, test quality
+>   and the clean exact-HEAD gate SOUND**: a candidate built by `git archive` at exactly `a170e41` and
+>   verified blob-by-blob against the commit objects returned **5632 passed, 15 skipped, 0 failed,
+>   0 errors** and `verify.py` **RESULT: PASS** on all five rows, with production runtime state
+>   unchanged (**24 keys, 0 differences**). It found **no production, runtime or security defect**.
+> - **This commit is that bounded records/provenance remediation, and nothing more.** It changes
+>   exactly three tracked documents — this file, `Decisions.md`, and the permanent
+>   `don't-delete/…-Master-Implementation-Plan-Index.md` — and **zero production code and zero tests**.
+>   It resolves the three blockers the review raised: the master index's §15/§5 still naming the
+>   completed PRE-PLAN-6 work as the *current next action*; this file's stale preparation-state block;
+>   and the provenance of two historical commits.
+> - **Provenance, recorded honestly.** Two commits in this series —
+>   **`592a72b90886a33bf03172fab39409b786af9dc5`** (Phase 8) and
+>   **`e916cb1128cb71c6fbe3de10f1d54238d5bfa345`** (macOS test isolation) — carry
+>   `Co-Authored-By: Claude …` and `Claude-Session: …` trailers, which **violate** the standing
+>   2026-07-07 decision *"No AI co-author trailers in commit messages, ever"*. **They are not
+>   reclassified as compliant.** The maintainer chose to **preserve the already-pushed, already-reviewed
+>   history rather than rewrite the series and every descendant SHA**, and granted a **one-time,
+>   closed-set exception covering only those two named commits** — recorded as a signed ADR in
+>   `Decisions.md` (2026-09-05). It **sets no precedent**, authorizes **no** trailer on this commit or
+>   any future commit, and authorizes **no** amend, rebase, squash or force-push. **The 2026-07-07 rule
+>   remains fully binding for all future work.**
+> - **Version identity remains `0.6.2`, UNRELEASED**; the published GitHub release remains **`v0.4.0`**.
+>   **No PR, no merge, no tag, no release, no package and no `release.py` run** has occurred for this
+>   maintenance branch. `origin/master` is untouched by it. **Plan 6 has NOT started**, and is **not**
+>   authorized merely because PRE-PLAN-6 closed.
+> - **NEXT ACTION — and it is NOT Plan 6, NOT a PR and NOT a merge:** **ONE new independent READ-ONLY
+>   integration-readiness recheck** of this branch, covering this remediation commit as well.
+>   **READY is not assumed** and must not be inferred from this block — it has to be returned by that
+>   recheck. **PR creation remains unauthorized until it does**, merge remains a separate explicit
+>   maintainer authorization after that, and **Plan 6 may begin only once this maintenance is
+>   integrated into `master`.**
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 10 CLOSEOUT PREPARED, AWAITING MAINTAINER SIGN-OFF (2026-09-05)
 >
 > **This block is the live state of the repository. It supersedes the preceding block's closing line

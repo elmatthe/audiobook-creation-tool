@@ -4,6 +4,64 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-05 — Two already-pushed commits keep their AI co-author trailers: a one-time historical exception, not a change of rule
+
+**Status: historical waiver. This entry does NOT supersede, weaken or amend the 2026-07-07 decision
+*"No AI co-author trailers in commit messages, ever"*, which remains fully binding for all future
+work.** It disposes of two commits that already exist and already violate it.
+
+**The facts, verified mechanically rather than asserted.** Two commits on the pushed branch
+`maintenance/0.6.2-setup-self-healing` carry authorship trailers:
+
+| Commit | Subject | Offending trailers |
+|---|---|---|
+| `592a72b90886a33bf03172fab39409b786af9dc5` | v0.6.2 PRE-PLAN-6 Phase 8: accept macOS self-repair | `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>` and `Claude-Session: …` |
+| `e916cb1128cb71c6fbe3de10f1d54238d5bfa345` | v0.6.2 PRE-PLAN-6: fix macOS test isolation | `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>` and `Claude-Session: …` |
+
+Both were authored on the macOS machine during Phase 8 and the macOS test-isolation checkpoint. The
+2026-07-07 rule forbids not only the `Co-Authored-By` line but **trailers of any kind**, so each of
+these commits violates it twice. The remaining seventeen commits of the nineteen-commit maintenance
+series comply.
+
+**These commits are NOT reclassified as compliant.** They were and remain violations of the standing
+policy. Nothing here makes them correct, and nothing here says Claude is an author of anything:
+under the 2026-07-07 decision the maintainer is the sole author and sole committer of this
+repository, and that is unchanged. What follows is a decision about *what to do now*, not a
+re-reading of what happened.
+
+**Decision (maintainer, 2026-09-05): preserve the history. Grant a one-time, closed-set exception
+covering exactly the two commits named above, and nothing else.**
+
+**Why.** The only way to remove a trailer from a commit is to rewrite that commit, which rewrites
+every descendant SHA. Both commits are already pushed, and both sit in the middle of a nineteen-commit
+series that an independent READ-ONLY integration-readiness review has already read end to end at
+`a170e41b71168f33247471be79110b871f88cb3d`. Rewriting would invalidate every SHA that review cites,
+including the Phase-10 closeout commit recorded across `Handoff.md`, `Changelog.md` and the master
+plan index, and would force a force-push over a branch whose contents have been reviewed and found
+sound. The maintainer judged the cost of destroying a reviewed, cited history higher than the cost of
+recording two historical trailers truthfully and leaving them in place. Honest provenance is the
+point of the rule; erasing the evidence to satisfy it would serve the letter and defeat the purpose.
+
+**The exception is deliberately narrow. It:**
+
+- applies **only** to the continued existence of those two already-created commits;
+- is a **closed set of two named SHAs** — it cannot be extended by analogy to any other commit;
+- **sets no precedent** and grants no discretion to a future session;
+- does **not** authorize an AI co-author or session trailer on the remediation commit that carries
+  this entry, or on any future commit;
+- does **not** authorize any history rewrite, amend, rebase, squash, cherry-pick or force-push — the
+  point of the exception is precisely that history is left alone.
+
+**What every future agent must still do.** Write plain commit messages with **no `Co-Authored-By`
+line, no session or provenance trailer, and no other authorship trailer of any kind**, exactly as the
+2026-07-07 decision requires. If a coding-agent environment appends one automatically, remove it from
+the still-unpushed commit before pushing rather than treating this entry as cover. Only the maintainer
+may create a new decision that changes this.
+
+— Disposition ruled by the maintainer (Elijah Matthew), recorded by Claude Code, 2026-09-05
+
+---
+
 ## 2026-09-05 — PRE-PLAN-6 closeout: observation is not permission, and a launch owns its own readiness
 
 **Decision (v0.6.2 PRE-PLAN-6 maintenance closeout, Phase 10).** `Setup_and_Run` is now responsible
