@@ -26,12 +26,28 @@
 >   acceptance: COMPLETE.** **Phase 8 — HOME-MacOS acceptance: COMPLETE.** **Post-Phase-8 macOS
 >   test-harness remediation: COMPLETE**, with the first fully clean Mac `verify.py` gate of this
 >   drop. Phase 7 remains the accepted Windows target-machine evidence.
-> - **Residual risk, named rather than closed.** `M5` — neither WinGet invocation passes an
->   explicit `--scope` — was raised as untested against the CSPW-PC Standard User constraint and
->   **stays untested**. That is acceptable only for as long as no non-admin Windows target exists;
->   if one is ever reintroduced, the Phase-9 contract must be reinstated and actually run. The
->   original contract text was preserved in the drop file rather than deleted, so the reason for
->   the waiver stays legible.
+> - **CORRECTION (2026-09-05) — M5 is closed, not open.** As first written, the bullet here said
+>   `M5` "stays untested" in a way that read as a present-day defect: that neither WinGet
+>   invocation passes an explicit `--scope`. **That was false**, and it contradicted this file's
+>   own Phase-5 entry below ("**M5 closed.** The Gyan.FFmpeg WinGet call now passes `--scope user`
+>   explicitly…"). It is corrected here so the false claim cannot be copied into the permanent
+>   Phase-10 records. Verified mechanically against the current tree, not from memory: **all three**
+>   production `winget install` call sites name **`--scope user`** — the Python call and the root
+>   `.bat` fallback (closed in Phase 2, `5919723`) and the `Gyan.FFmpeg` call (closed in Phase 5,
+>   `b59f562`) — **nothing requests `--scope machine`** and nothing uses `runas`. Five permanent
+>   guards in `files/tests/test_launch_self_heal.py` hold it (argv-level at runtime, an **AST
+>   inventory** so a new call site cannot omit the scope, the `.bat` verified rather than assumed,
+>   and machine scope/elevation forbidden): **5 passed**.
+> - **The truthful residual risk is the real machine, not the argv.** The already-implemented
+>   user-scope / portable-fallback Windows repair contract **was never manually exercised on a real
+>   non-admin Windows deployment target**, because CSPW-PC was removed as a target before Phase 9
+>   ran. Automated coverage proves the argv and the route; it does **not** substitute for a
+>   Standard-User target-machine acceptance, since a real non-admin machine can still refuse scope
+>   or elevation in ways only a live run would show. If a non-admin Windows target is ever
+>   reintroduced, **Phase 9 must be reinstated and actually run**. The original Phase-9 contract
+>   text remains preserved in the drop file rather than deleted, so the reason for the waiver stays
+>   legible, and the **historical** M5 defect row in §4.3 — accurate about what was wrong *before*
+>   the fix — was deliberately left intact.
 > - **Documentation-only checkpoint.** **Zero production code and zero tests changed.** Exactly two
 >   tracked files: `md-instructions/Handoff.md` and
 >   `md-instructions/pre-plan-6-setup-self-healing.md`. No manual launcher acceptance was re-run,

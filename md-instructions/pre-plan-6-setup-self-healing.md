@@ -1279,10 +1279,32 @@ in a manual test log under `files/test-logs/` per `AI-WORKSPACE.md`.
 >   (Phase 7) is complete and unchanged, and it covers the Windows environment this application is
 >   actually deployed into. Phase 8 (HOME-MacOS) and its post-phase test-harness remediation
 >   likewise stand unchanged.
-> - **Residual risk, named.** `M5` (§4) — neither WinGet invocation passes an explicit `--scope` —
->   was flagged as untested against the CSPW-PC Standard User constraint. It stays untested. That
->   is acceptable only because CSPW-PC is out of scope; should a non-admin Windows target ever be
->   reintroduced, this phase's contract must be reinstated and actually run.
+> - **Residual risk, stated correctly** *(corrected 2026-09-05 — see the note below)*. The residual
+>   risk is **not** that WinGet omits a scope. **M5's implementation requirement is closed.** Every
+>   production `winget install` names **`--scope user`** explicitly: the Python call
+>   (`bootstrap.py`, closed in Phase 2 `5919723`), the `Gyan.FFmpeg` call (`bootstrap.py`, closed in
+>   Phase 5 `b59f562`), and the root `.bat`'s Python fallback (`5919723`). **Nothing requests
+>   `--scope machine`** and nothing uses `runas`. Five permanent guards in
+>   `files/tests/test_launch_self_heal.py` hold that contract — two assert the real argv at runtime,
+>   an **AST inventory** requires every production call site to name user scope so a new one cannot
+>   omit it, one verifies the `.bat` rather than assuming it, and one forbids machine scope and
+>   elevation.
+> - **What genuinely remains untested is the real machine, not the argv.** The user-scope /
+>   portable-fallback Windows repair contract **was never manually exercised on a real non-admin
+>   Windows deployment target**, because CSPW-PC was removed as a target before Phase 9 ran.
+>   Automated coverage proves the argv and the route; it is **not** a substitute for a Standard-User
+>   target-machine acceptance — a real non-admin machine can still refuse scope or elevation in
+>   ways only a live run would reveal. If a non-admin Windows deployment target is ever
+>   reintroduced, this phase's real-machine validation must be **reinstated and actually run**.
+>
+> **Correction, 2026-09-05.** As first written, this waiver said M5 "stays untested" in a way that
+> read as a present-day implementation defect — that neither WinGet invocation passes an explicit
+> `--scope`. **That was false**, and it contradicted this drop's own Phase-5 record above ("**M5.**
+> The Gyan.FFmpeg WinGet call now passes `--scope user` explicitly…"). The claim was corrected
+> before it could be copied into the permanent Phase-10 records. The **historical** M5 defect row in
+> §4.3 is accurate as written — it describes what was wrong *before* the fix — and is deliberately
+> left intact, as are the Phase-2-era records noting the FFmpeg half was still open at that time.
+> Nothing else about this waiver changed: Phase 9 is still **not tested and not passed**.
 >
 > **Next phase:** Phase 10 — maintenance closeout. Its §9 requirement that "waivers [be] named as
 > waivers" applies directly to this entry.
@@ -1443,7 +1465,11 @@ purpose, using the `[ ]` / `[x]` / `[~]` / `[-]` markers and an Issues Found tab
 - [ ] Nothing weakens or routes around a security policy.
 - [ ] A full test run writes **no** production environment state — no real `.venv` stamp, no
       production setup log, no `ffmpeg-state.json`, no `files/bin`.
-- [ ] Phases 7, 8 and 9 have maintainer-approved real-machine evidence.
+- [ ] Phases 7 and 8 have maintainer-approved real-machine evidence, and Phase 9 has a
+      maintainer-approved **disposition**. Phase 9 originally required CSPW-PC real-machine
+      evidence; on 2026-09-05 it was **waived as NOT APPLICABLE** because CSPW-PC is no longer
+      a deployment target (§9 Phase 9). The waiver, not a pass, is what satisfies this line —
+      if a non-admin Windows deployment target returns, Phase 9 becomes required again.
 - [ ] The superseding ADR is recorded; the 2026-08-28 entry is intact.
 - [ ] Coordination records are accurate; this drop is deleted.
 - [ ] Version identity is still **0.6.2**, **UNRELEASED**; latest published release still
