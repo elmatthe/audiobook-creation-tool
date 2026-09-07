@@ -2,6 +2,74 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PLANNING IS OPEN; THE STANDALONE RECONCILIATION REVIEW WAS WAIVED (2026-09-07)
+>
+> **This block is the live state of the repository.** It supersedes the block below it on exactly two
+> points, both of which an explicit maintainer instruction has overtaken: that "THE CURRENT NEXT
+> ACTION is ONE independent, READ-ONLY integration-readiness review of this reconciliation branch",
+> and that "PLAN 6 HAS NOT STARTED, and this reconciliation does not start it or authorize it".
+> Everything else in that block — and every dated block beneath it — stands exactly as written, is
+> still accurate, and is **not** rewritten, reopened or deleted here.
+>
+> - **The maintainer elected to SKIP the standalone integration-readiness review of
+>   `maintenance/0.6.2-post-merge-record-reconciliation`.** That review was **never performed**, and
+>   it is **withdrawn as a requirement** rather than left outstanding: no reader should treat it as
+>   pending work. The maintainer's stated reason is that another full review cycle is not worth
+>   spending on a documentation-only reconciliation.
+> - **The required sanity/repository review was folded into the opening audit for Plan 6** and
+>   performed as part of Plan 6 plan creation on **2026-09-07**. **No separate review cycle was run,
+>   no integration-readiness report or checkpoint was produced, and no READY verdict was produced,
+>   claimed or implied.** The audit re-verified, mechanically: the working tree clean; the ancestry
+>   `10a03ed` → `7072695` → `83a2bfc`; that `origin/master` had **not** advanced past `83a2bfc`; that
+>   no Plan 6 branch or drop existed on any branch or in any history; that `md-instructions/` held no
+>   active temporary drop; and that both reconciliation commits are documentation-only and carry no
+>   AI authorship trailer. It found **no contradiction** that invalidates the Plan 6 ownership map.
+> - **PLAN 6 PLANNING IS NOW OPEN. PRODUCTION IMPLEMENTATION HAS NOT STARTED.** Nothing in Plan 6
+>   has been implemented: no `shared/book_workspace.py`, no `shared/numbering.py`, no
+>   `shared/book_workspace_ui.py`, no harness, no test, and no change to any production panel. This
+>   checkpoint created a **plan**, not a feature.
+> - **The active temporary implementation drop is
+>   `md-instructions/0.6.3-drop1-shared-multi-book-workspace.md`**, and it is the only one. It is
+>   `v0.6.3 Drop 1 — Plan 6: Shared multi-book workspace foundation`, an eleven-phase drop
+>   (Phases 0–10) covering the book-job data model, Add/Duplicate/Remove Book, Previous/Next and
+>   `Book X of Y`, folder-to-book creation, Shared Metadata precedence, frozen effective-value
+>   snapshots, success-only numbering, and book-level Retry Failed.
+> - **The branch is `feature/0.6.3-drop1-shared-multi-book-workspace`**, created from the verified
+>   Plan 6 planning baseline **`10a03ed66480d396d65881eea84cb8ae4bfe452e`** — the final
+>   reconciliation commit — so both reconciliation commits are **carried forward, not lost**. They
+>   were **not** rewritten, squashed, rebased, amended, cherry-picked or force-pushed, and they will
+>   ride naturally into whatever integration Plan 6 eventually receives.
+> - **Three Plan 6 architecture decisions were settled by the maintainer at plan creation**, and the
+>   drop encodes them: (1) frozen run capture composes **one Plan 3 `job_control.RunSnapshot` per
+>   book**, so book-level retry is literally Plan 3's own `RunResult.retry()` → `RetryRequest` and no
+>   parallel snapshot framework is invented; (2) success-only numbering is **promoted**, not
+>   duplicated — `mp3_tools/m4b_numbering.py` moves to `shared/numbering.py` behind a re-export shim,
+>   under a blocking gate that `test_m4b_numbering.py` passes unchanged and `m4b_converter.py` stays
+>   byte-identical; (3) the Tk adapter is proved by a **developer-only harness** on the Plan 3
+>   precedent, adopted by **no production panel**, so `m4b_maker.py` stays byte-identical for Plan 7.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 0 ONLY, AND IT REQUIRES EXPLICIT MAINTAINER APPROVAL FIRST.**
+>   Phase 0 is baseline recording, source-audit re-verification and regression-contract mapping, and
+>   it writes **no production code**. No phase may be chained into the next; each needs its own
+>   approval, as every plan's phases do.
+> - **This checkpoint changed documentation only.** Exactly three tracked files: the new drop, this
+>   file, and the permanent `don't-delete/…-Master-Implementation-Plan-Index.md`. **Zero production
+>   code, zero tests, zero configuration, zero launcher or setup files.** `Briefing.md`,
+>   `Changelog.md`, `Decisions.md`, `README.md`, `config.toml` and `version.py` were deliberately not
+>   touched — planning is not product behaviour, and the audit found no permanent-record requirement.
+> - **Restated and unchanged.** Plan 5 remains COMPLETE, APPROVED, CLOSED and INTEGRATED at
+>   `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`. PRE-PLAN-6 remains COMPLETE, CLOSED and INTEGRATED at
+>   its merge anchor `83a2bfc7de25dbe5a599b48fd73fe306695e490d`; the branch
+>   `maintenance/0.6.2-setup-self-healing` stays **retained** at `d7452a2b`, and every prior feature
+>   branch is likewise retained. **Phase 9 remains WAIVED / NOT APPLICABLE and was never a passed
+>   test**; real non-admin Windows target-machine acceptance remains **UNPERFORMED**. The two
+>   historical AI-trailer commits keep their closed-set exception, remain policy violations, and set
+>   **no precedent** — this commit carries no authorship, session or provenance trailer of any kind.
+>   Version identity remains **`0.6.2`** and **UNRELEASED**: no `[0.6.2]` and no `[0.6.3]` changelog
+>   heading, **no tag, no GitHub release, no package, no `release.py` run**, and the **published
+>   GitHub release remains `v0.4.0`**. **Plan 9 still owns release hardening and publication.**
+> - **Plans 7, 8 and 9 remain undrafted**, the nine-plan structure is unchanged, and no plan was
+>   reordered, renamed or added.
+>
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 IS MERGED AND INTEGRATED; POST-MERGE RECORD RECONCILIATION (2026-09-07)
 >
 > **This block is the live state of the repository.** It supersedes the block below it on exactly the
