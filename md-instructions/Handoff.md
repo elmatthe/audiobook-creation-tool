@@ -25,8 +25,12 @@
 >   and parent 2 **`d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`** (the approved maintenance head). Cite
 >   that merge commit, which is permanent. **The literal current tip of `master` is deliberately not
 >   asserted here** — it is queried from Git, because a branch tip moves and a written one goes stale.
-> - **The complete maintenance head is an ancestor of `master`.** Every one of the nineteen commits of
->   the series is reachable from the merge; nothing was dropped, squashed or rewritten to get there.
+> - **The complete maintenance head is an ancestor of `master`.** All **twenty** commits of the series
+>   — the full `e36ab7d…d7452a2` delta — are reachable from the merge; nothing was dropped, squashed
+>   or rewritten to get there. *(The **19**-commit figure in the dated blocks below was accurate when
+>   written: it counted the series through the Phase-10 closeout `a170e41`, before the final
+>   records-remediation commit `d7452a2` was added. Those blocks are correct as history and are not
+>   rewritten here.)*
 > - **The maintenance branch is RETAINED, not deleted.** `maintenance/0.6.2-setup-self-healing` still
 >   exists on `origin` at **`d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`**, unchanged.
 > - **Phase 9 remains WAIVED / NOT APPLICABLE — it was never converted to PASS, and merging did not
@@ -51,12 +55,18 @@
 >   `[0.6.2]` changelog heading, **no tag, no GitHub release, no package, no `release.py` run**. The
 >   **published GitHub release remains `v0.4.0`** (verified against the repository's release list), and
 >   **Plan 9 still owns release hardening and publication**.
-> - **THIS commit is the current bounded checkpoint: a post-merge integration-record reconciliation,
+> - **THIS BRANCH is the current bounded checkpoint: a post-merge integration-record reconciliation,
 >   and nothing more.** It exists because the two live coordination records still described the
 >   recheck, the pull request and the merge as *future* work after they had all actually occurred. It
 >   changes exactly two tracked documents — this file and the permanent
 >   `don't-delete/…-Master-Implementation-Plan-Index.md` — and **zero production code, zero tests, zero
 >   configuration and zero launcher/setup files**. It is documentation and provenance only.
+> - **THE CURRENT NEXT ACTION is ONE independent, READ-ONLY integration-readiness review of this
+>   reconciliation branch**, `maintenance/0.6.2-post-merge-record-reconciliation`. **It has not been
+>   performed, and READY is not assumed or inferable from this block** — it has to be returned by that
+>   review, independently. **No pull request is authorized until it returns READY**, PR review follows
+>   only after that, and **merge remains a separate, explicit maintainer authorization**. §15 of the
+>   master index carries the same statement.
 > - **PLAN 6 HAS NOT STARTED, and this reconciliation does not start it or authorize it.** The
 >   integration gate the earlier blocks placed in front of Plan 6 — *"Plan 6 may begin only once this
 >   maintenance is integrated into `master`"* — is now satisfied, but a satisfied gate is not an

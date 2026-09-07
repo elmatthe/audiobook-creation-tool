@@ -441,12 +441,19 @@ below it remains dated history and must not be read as instructions.**
   `[0.6.2]` changelog heading, **no tag, no GitHub release, no package, no `release.py` run**. The
   **published GitHub release remains `v0.4.0`**, and **Plan 9 still owns release hardening and
   publication**.
-- **THE CURRENT NEXT ACTION is the bounded post-merge integration-record reconciliation that carries
-  this entry — and it is now done.** It exists only because this section and §5 still described the
-  recheck, the pull request and the merge as future work after all three had happened. It touches
-  exactly two tracked documents — `Handoff.md` and this index — and **zero production code, zero
-  tests, zero configuration and zero launcher/setup files**. It is a documentation and provenance
-  checkpoint, nothing more.
+- **This entry is carried by a bounded post-merge integration-record reconciliation** on branch
+  `maintenance/0.6.2-post-merge-record-reconciliation`. It exists only because this section and §5
+  still described the recheck, the pull request and the merge as future work after all three had
+  happened. It touches exactly two tracked documents — `Handoff.md` and this index — and **zero
+  production code, zero tests, zero configuration and zero launcher/setup files**. It is a
+  documentation and provenance checkpoint, nothing more.
+- **THE CURRENT NEXT ACTION is ONE independent, READ-ONLY integration-readiness review of that
+  reconciliation branch.** It has **not** been performed. **READY is not assumed and must not be
+  inferred from this entry** — it has to be returned by that review, independently, exactly as the
+  same discipline was applied to Plan 5 and to PRE-PLAN-6 itself. **No pull request is authorized
+  until that review returns READY**; an independent PR review follows only after that; and **merge
+  remains a separate, explicit maintainer authorization**. **Plan 6 must not be drafted or
+  implemented before that sequence completes.**
 - **PLAN 6 HAS NOT STARTED, and nothing here starts or authorizes it.** The gate that the earlier
   blocks placed in front of Plan 6 — that this maintenance must first reach `master` — is now
   satisfied, but **a satisfied gate is not an approval**. Plan 6 keeps its defined place in the
