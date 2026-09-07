@@ -728,7 +728,9 @@ def test_the_windows_launcher_still_rebuilds_a_missing_environment():
     text = (REPO_ROOT / "Setup_and_Run-audiobook-creation-tool.bat").read_text(
         encoding="utf-8", errors="replace"
     )
-    assert 'if exist ".venv\\Scripts\\pythonw.exe"' in text
+    # Phase 2: the gate is bootstrap's health verdict, not a file's existence.
+    # A cleanup that removed the environment still lands on first-run setup.
+    assert 'if not exist ".venv\\Scripts\\python.exe" goto firstrun' in text
     assert "--launch-only" in text
     assert '"%PYCMD%" "%BOOTSTRAP%"' in text
 

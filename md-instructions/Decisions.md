@@ -4,6 +4,187 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-05 — Two already-pushed commits keep their AI co-author trailers: a one-time historical exception, not a change of rule
+
+**Status: historical waiver. This entry does NOT supersede, weaken or amend the 2026-07-07 decision
+*"No AI co-author trailers in commit messages, ever"*, which remains fully binding for all future
+work.** It disposes of two commits that already exist and already violate it.
+
+**The facts, verified mechanically rather than asserted.** Two commits on the pushed branch
+`maintenance/0.6.2-setup-self-healing` carry authorship trailers:
+
+| Commit | Subject | Offending trailers |
+|---|---|---|
+| `592a72b90886a33bf03172fab39409b786af9dc5` | v0.6.2 PRE-PLAN-6 Phase 8: accept macOS self-repair | `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>` and `Claude-Session: …` |
+| `e916cb1128cb71c6fbe3de10f1d54238d5bfa345` | v0.6.2 PRE-PLAN-6: fix macOS test isolation | `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>` and `Claude-Session: …` |
+
+Both were authored on the macOS machine during Phase 8 and the macOS test-isolation checkpoint. The
+2026-07-07 rule forbids not only the `Co-Authored-By` line but **trailers of any kind**, so each of
+these commits violates it twice. The remaining seventeen commits of the nineteen-commit maintenance
+series comply.
+
+**These commits are NOT reclassified as compliant.** They were and remain violations of the standing
+policy. Nothing here makes them correct, and nothing here says Claude is an author of anything:
+under the 2026-07-07 decision the maintainer is the sole author and sole committer of this
+repository, and that is unchanged. What follows is a decision about *what to do now*, not a
+re-reading of what happened.
+
+**Decision (maintainer, 2026-09-05): preserve the history. Grant a one-time, closed-set exception
+covering exactly the two commits named above, and nothing else.**
+
+**Why.** The only way to remove a trailer from a commit is to rewrite that commit, which rewrites
+every descendant SHA. Both commits are already pushed, and both sit in the middle of a nineteen-commit
+series that an independent READ-ONLY integration-readiness review has already read end to end at
+`a170e41b71168f33247471be79110b871f88cb3d`. Rewriting would invalidate every SHA that review cites,
+including the Phase-10 closeout commit recorded across `Handoff.md`, `Changelog.md` and the master
+plan index, and would force a force-push over a branch whose contents have been reviewed and found
+sound. The maintainer judged the cost of destroying a reviewed, cited history higher than the cost of
+recording two historical trailers truthfully and leaving them in place. Honest provenance is the
+point of the rule; erasing the evidence to satisfy it would serve the letter and defeat the purpose.
+
+**The exception is deliberately narrow. It:**
+
+- applies **only** to the continued existence of those two already-created commits;
+- is a **closed set of two named SHAs** — it cannot be extended by analogy to any other commit;
+- **sets no precedent** and grants no discretion to a future session;
+- does **not** authorize an AI co-author or session trailer on the remediation commit that carries
+  this entry, or on any future commit;
+- does **not** authorize any history rewrite, amend, rebase, squash, cherry-pick or force-push — the
+  point of the exception is precisely that history is left alone.
+
+**What every future agent must still do.** Write plain commit messages with **no `Co-Authored-By`
+line, no session or provenance trailer, and no other authorship trailer of any kind**, exactly as the
+2026-07-07 decision requires. If a coding-agent environment appends one automatically, remove it from
+the still-unpushed commit before pushing rather than treating this entry as cover. Only the maintainer
+may create a new decision that changes this.
+
+— Disposition ruled by the maintainer (Elijah Matthew), recorded by Claude Code, 2026-09-05
+
+---
+
+## 2026-09-05 — PRE-PLAN-6 closeout: observation is not permission, and a launch owns its own readiness
+
+**Decision (v0.6.2 PRE-PLAN-6 maintenance closeout, Phase 10).** `Setup_and_Run` is now responsible
+for the state it launches into, on both platforms. These are the durable rules that outlive the
+maintenance drop that carried them; that drop is deleted at this closeout.
+
+**This entry supersedes exactly one paragraph of the 2026-08-28 entry below** — *"Why `have_ffmpeg()`
+did not simply become 'verified'"*, which recorded that `have_ffmpeg()` means only *a coherent pair is
+available* and that the strong claim lives separately in `verified_ffmpeg()`. That compromise existed
+so a machine which had never run setup could still use the tools. A launch now repairs and proves
+instead, so the weaker meaning has no remaining purpose — and the split it created was a trap, because
+the weak name is the one every consumer gate in the app was written against.
+
+**Everything else in the 2026-08-28 entry stands and is not reopened:** ffmpeg and ffprobe are one
+coherent sibling pair; a candidate must actually be executed to count; the winning pair is pinned
+**where it lives** and is never copied into `files/bin/` merely to centralise it; a package-manager or
+system installation stays owned by the manager that installed it; identity is path + size + mtime with
+SHA-256 kept as durable evidence rather than as a per-launch check; rejected and blocked candidates are
+remembered and not executed again; and path existence or resolvability is never readiness. That entry's
+security boundary is untouched — nothing here weakens, disables or routes around Smart App Control,
+Defender, WDAC or any endpoint policy.
+
+### Observation is not permission
+
+1. **`shared/ffmpeg_health.py` remains the sole health and proof authority.** Nothing else decides
+   whether FFmpeg is usable.
+2. **Discovery is observational only.** `discovered_ffmpeg()` may report that a coherent pair *appears*
+   to exist. It enumerates, executes nothing, and never authorises execution — so drawing a status line
+   cannot raise the Windows Security prompt that executing a blocked binary raises.
+3. **`have_ffmpeg()` now carries the same strong meaning as `verified_ffmpeg()`:** a proved, durably
+   pinned, still-matching coherent ffmpeg + ffprobe pair is active. A gate written against either name
+   is therefore safe. The older, weaker question moved to `discovered_ffmpeg()`, under a name that
+   cannot be mistaken for permission.
+4. **`ffmpeg_path()` / `ffprobe_path()` return only the pinned pair**, or `None`.
+5. **`ffmpeg_cmd()` / `ffprobe_cmd()` return only absolute paths** to that one accepted sibling pair.
+6. **There is no bare `"ffmpeg"` / `"ffprobe"` fallback anywhere.** When no accepted pair exists the
+   command APIs raise `FFmpegUnavailable`. A refusal the caller can see beats a command line that
+   quietly runs whatever `PATH` offers, with two halves that need not even be the same installation.
+7. **pydub is explicitly configured to the accepted absolute pair.** Left unconfigured it shells out to
+   the bare names, which was the one audio route no consumer gate sat in front of. With nothing pinned
+   it is pointed at a sentinel directory path that no process API will execute, so an operation that
+   slips past a gate fails immediately and visibly instead of quietly running something unproved.
+8. **A normal launch owns readiness: ASSESS → REPAIR → PROVE → PIN → LAUNCH.**
+9. **An installer's exit status is never readiness.** WinGet and Homebrew can return 0 and leave nothing
+   usable, so the resulting pair is always proved independently before it is pinned.
+10. **A healthy installation does the minimum.** A launch that finds everything already proved is a
+    no-op, not a reinstall.
+
+### The setup / bootstrap self-healing contract
+
+**Venv health.** The existence of `.venv` is not health, and treating it as health is the defect this
+maintenance existed to remove. A normal launch assesses interpreter liveness, a supported Python,
+`ssl`, Tk when the GUI needs it, requirements state, and an import proof. The full-feature Python
+contract is **`>=3.11,<3.13`**, expressed in exactly one place; the preference order is **3.12, then a
+healthy 3.11**; and **3.13+ is not a fully healthy full-feature setup** under the current pins. No
+unrelated interpreter is uninstalled or modified.
+
+**Requirements success cannot be claimed before it is proved.** A requirements success stamp is written
+only after reconciliation or install succeeds **and** the required imports actually succeed — pip
+exiting 0 proves nothing, since a partial wheel, an ABI mismatch or a clobbered install all exit 0. The
+real-import proof is recorded separately and is bounded, so a rebuilt environment cannot inherit an
+older one. **A false success stamp is forbidden**, because nothing re-probes afterwards.
+
+**Venv recovery is transactional.** Replacing a broken environment sets the old one aside rather than
+destroying it; an interrupted repair preserves or restores the last-known-good state, and an existing
+aside is never overwritten. **No normal recovery requires the user to delete `.venv` by hand.**
+
+**Windows package acquisition — user scope, explicitly.** Every production `winget install` names
+**`--scope user`**: the Python install, the `Gyan.FFmpeg` install, and the root `.bat`'s Python
+fallback. **Nothing requests machine scope, and there is no `runas` or elevation fallback.** Scope is
+stated rather than inherited from a package default that can change underneath us. A scope or elevation
+refusal is not an error to report — it means *this route is unavailable*, and the caller falls through
+to the repo-local portable build. That portable fallback stays pinned to the approved **Gyan 9.0.1**
+artifact by exact URL **and** exact SHA-256, verified before extraction, staged, proved in staging, and
+promoted by a single same-volume rename into a versioned destination before it can ever be active.
+
+**macOS acquisition.** A normal launch with an existing venv can reach the Homebrew FFmpeg repair, and
+the application may call `brew install ffmpeg` when Homebrew is present. **It does not install Homebrew
+itself** — it points at `https://brew.sh` and says what that would enable. Homebrew reporting success is
+not readiness: the resulting pair is still proved and pinned like any other.
+
+**Failure UX.** A repairable prerequisite failure must not trap the user in a blocking pre-GUI "run it
+again" loop, which is advice to repeat an identical non-repairing action. Attempt the repair first,
+launch where that is safe, and give at most one truthful limited-mode notice when a capability genuinely
+cannot be established.
+
+**Test isolation is part of the contract.** Automated tests must not mutate the real `.venv`
+requirements or import state, the production `ffmpeg-state.json`, production `files/bin`, production
+setup logs, or package-manager state. Two issues found while accepting macOS were **test-harness
+defects, not production defects**: a repair sandbox that could reach the host's real Homebrew, because
+production deliberately restores the brew directories to `PATH` and candidate discovery searches `PATH`
+before the seam the fixture controlled; and a cross-platform recovery test that seeded a Windows
+`Scripts/` venv layout. Both were fixed in the harness, leaving production behaviour and candidate
+ordering untouched.
+
+### Accepted real-machine evidence, and one named waiver
+
+**HOME-PC (Windows).** A healthy existing `.venv`, with FFmpeg missing. The first ordinary Explorer
+double-click **repaired itself** with no manual intervention, through the user-scope WinGet
+`Gyan.FFmpeg` route; the resulting pair was independently proved and pinned, and the GUI launched. A
+second launch was healthy, with no repair loop. `.venv` was preserved throughout and never deleted by
+hand.
+
+**HOME-MacOS.** A healthy existing `.venv`, with FFmpeg genuinely absent. The first ordinary Finder
+`.command` double-click repaired through Homebrew; the resulting pair was proved and pinned, and the GUI
+launched. A second launch was healthy with no repair loop, and `.venv` was preserved. The specific
+Homebrew and GPAC build numbers present on that machine are incidental evidence, **not** architectural
+requirements.
+
+**Phase 9 — CSPW-PC non-admin validation: WAIVED / NOT APPLICABLE.** The maintainer decided that CSPW-PC
+is no longer a deployment target, so this was **not tested and did not pass**, and **no HOME-PC
+substitute evidence was used or claimed** — HOME-PC's account is an Administrator, so a run there
+exercises the elevated path and cannot demonstrate the Standard-User restriction. Automated coverage
+proves the explicit user-scope argv and the fallback route, including an AST inventory that stops a new
+call site from omitting the scope; **that is not a substitute for a real Standard-User target-machine
+acceptance**, which remains unperformed. **If a non-admin Windows deployment target is ever
+reintroduced, that validation must be reinstated and actually run.** A waiver stays a waiver.
+
+*Recorded 2026-09-05 by Claude Code, at the maintainer's direction, during the PRE-PLAN-6 Phase-10
+maintenance closeout. Version identity remains 0.6.2, UNRELEASED.*
+
+---
+
 ## 2026-09-01 — D4 clarified: Strip writes no split-fragment metadata at all
 
 **Decision (post-closeout documentation remediation).** The split-fragment metadata rule recorded as

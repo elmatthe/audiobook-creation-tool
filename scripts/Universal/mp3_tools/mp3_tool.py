@@ -78,7 +78,13 @@ def _remembered_dir(key: str) -> Path:
 
 
 def ensure_ffmpeg_available() -> bool:
-    return ffmpeg_utils.have_ffmpeg()
+    """True only when a proved, pinned pair is active.
+
+    Every FFmpeg-backed operation in this tool -- concat, duration probing,
+    normalisation, silence generation, time edits -- is gated on this. A merely
+    discovered pair is not enough: it was never executed.
+    """
+    return ffmpeg_utils.verified_ffmpeg()
 
 
 def run_ff(args: List[str]) -> Tuple[int, str, str]:

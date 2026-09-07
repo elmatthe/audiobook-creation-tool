@@ -244,6 +244,32 @@ def _winget_package_dirs() -> list[Path]:
     return list(reversed(found))
 
 
+#: Repo-local portable installs live under ``files/bin/ffmpeg/<version>/bin``.
+#: A dedicated subtree, not ``files/bin`` itself, so the generic bin directory
+#: is never owned or replaced by one dependency.
+PORTABLE_ROOT_NAME = "ffmpeg"
+
+
+def portable_root() -> Path:
+    return BIN_DIR / PORTABLE_ROOT_NAME
+
+
+def _portable_dirs() -> list[Path]:
+    """Repo-local versioned portable builds, newest-looking first.
+
+    Bounded on purpose: exactly one level of version directories under
+    ``files/bin/ffmpeg``, each contributing only its own ``bin``. It never
+    recurses into ``files/bin`` generally and never walks a drive — enumeration
+    is not discovery, and nothing here executes anything. Sorted for a
+    deterministic order, reversed so a newer version wins a tie.
+    """
+    try:
+        versions = sorted(p for p in portable_root().iterdir() if p.is_dir())
+    except OSError:
+        return []
+    return [v / "bin" for v in reversed(versions) if (v / "bin").is_dir()]
+
+
 def _brew_dirs() -> list[Path]:
     return [Path(p) for p in ("/opt/homebrew/bin", "/usr/local/bin")] if IS_MAC else []
 
@@ -261,7 +287,8 @@ def candidate_directories() -> list[Path]:
     when it never reached PATH -- which is a real case, because a fresh
     ``winget install`` does not update the PATH of an already-running process.
     """
-    ordered = [BIN_DIR, *_path_dirs(), *_winget_package_dirs(), *_brew_dirs()]
+    ordered = [BIN_DIR, *_portable_dirs(), *_path_dirs(),
+               *_winget_package_dirs(), *_brew_dirs()]
     seen: set[str] = set()
     unique: list[Path] = []
     for directory in ordered:
@@ -421,8 +448,25 @@ def load_state() -> HealthState:
     return HealthState(pair=pair, rejected=tuple(rejected))
 
 
-def save_state(state: HealthState) -> None:
-    """Persist the state. Failing to write is never fatal -- it costs a re-proof."""
+def save_state(state: HealthState) -> bool:
+    """Persist the state atomically. Returns whether it was actually committed.
+
+    **Returns a bool because the caller has to know.** This used to swallow
+    ``OSError`` and return nothing, so a disk-full or permission failure was
+    indistinguishable from success — and ``adopt_pair`` went on to report a pair
+    as pinned that no later run would ever see. Proving a pair and durably
+    recording it as the active one are two different facts, and only the second
+    makes it the runtime pin.
+
+    **And it writes through a temporary sibling.** A direct ``write_text`` over
+    the live file can truncate it: a failure part-way through leaves neither the
+    old state nor the new one, so an attempt to *record* a replacement could
+    destroy the record of a pair that was working. The complete JSON is
+    serialised first, written to a uniquely-named sibling in the same directory
+    (same filesystem, so the rename is atomic), and only then does one
+    ``os.replace`` make it the live state. Failing anywhere before that leaves
+    the previous state byte-for-byte intact.
+    """
     payload: dict = {
         "proof_version": PROOF_VERSION,
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -443,11 +487,25 @@ def save_state(state: HealthState) -> None:
             "ffprobe": {"path": ffprobe_identity[0], "size": ffprobe_identity[1],
                         "mtime_ns": ffprobe_identity[2]},
         })
+    # Serialise before touching anything on disk: a payload that cannot even be
+    # rendered must not cost the existing state.
+    text = json.dumps(payload, indent=2)
+    target = state_path()
+    temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp")
     try:
-        state_path().parent.mkdir(parents=True, exist_ok=True)
-        state_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(temporary, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        return True
     except OSError:
-        pass
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass  # nothing more to do; the live state is still whatever it was
+        return False
 
 
 def pinned_pair() -> Optional[Pair]:
@@ -502,7 +560,12 @@ def establish(log=None, *, runner=None, candidates: Iterable[Pair] | None = None
                 version_text=proof.version_text,
                 proven_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
             )
-            save_state(HealthState(pair=proven, rejected=tuple(rejected)))
+            if not save_state(HealthState(pair=proven, rejected=tuple(rejected))):
+                # Same distinction as ``adopt_pair``: it ran, but it is not the
+                # recorded active pair, so do not hand it back as one.
+                log.line(f"  {pair.directory} runs, but the result could not be "
+                         "recorded as the active pair. Not pinned.")
+                return None
             log.line(f"  Verified: {proof.version_text or pair.directory}")
             return proven
         identity = (pair.ffmpeg.identity(), pair.ffprobe.identity())
@@ -512,6 +575,106 @@ def establish(log=None, *, runner=None, candidates: Iterable[Pair] | None = None
 
     save_state(HealthState(pair=None, rejected=tuple(rejected)))
     return None
+
+
+#: ``adopt_pair`` outcomes. Four, not two, because "it did not become the active
+#: pair" has genuinely different causes and the caller acts differently on them:
+#: a pair that will not run is a bad candidate, while a pair that ran and could
+#: not be recorded is a good candidate and a bad disk.
+ADOPT_PINNED = "pinned"
+ADOPT_INCOHERENT = "incoherent"
+ADOPT_NOT_PROVED = "not-proved"
+ADOPT_NOT_PERSISTED = "not-persisted"
+
+
+@dataclass(frozen=True)
+class Adoption:
+    """What happened when a candidate was offered as the active pair.
+
+    ``pair`` is set only when the pair is genuinely pinned. Truthiness follows
+    that, so ``if adopt_pair(...)`` means "this is now the active runtime pair"
+    and nothing weaker.
+    """
+
+    status: str
+    pair: Optional[Pair] = None
+    detail: str = ""
+
+    @property
+    def pinned(self) -> bool:
+        return self.status == ADOPT_PINNED
+
+    @property
+    def proved(self) -> bool:
+        """The binaries ran — true even when recording them failed."""
+        return self.status in (ADOPT_PINNED, ADOPT_NOT_PERSISTED)
+
+    def __bool__(self) -> bool:
+        return self.pinned
+
+
+def adopt_pair(pair: Pair, log=None, *, runner=None) -> Adoption:
+    """Prove **one** coherent candidate and pin it only if it actually runs.
+
+    ``establish`` is the wrong primitive for adopting a single known candidate.
+    It is a discovery loop, and when nothing proves it ends by writing
+    ``pair=None`` — so handing it one candidate that fails would erase a pinned
+    pair that is working perfectly well. A replacement that cannot be proved
+    must cost nothing but the attempt.
+
+    So this is deliberately narrow:
+
+    * the candidate must be coherent — one sibling pair, as everywhere else;
+    * both halves are **executed** here, by this module. A caller cannot assert
+      a pair is good and have it pinned on its word;
+    * on success the active pin becomes this pair, with the usual durable
+      evidence: absolute paths, size/mtime identity, SHA-256 of both binaries,
+      and the ``-version`` text;
+    * on failure the previous active pair is left exactly as it was. The
+      candidate is remembered as rejected, which is what stops a blocked binary
+      being re-executed later, but remembering a rejection never costs the pin.
+
+    Returns an :class:`Adoption` describing exactly which of those happened.
+    """
+    log = log or _NullLog()
+    if not pair.is_coherent():
+        log.line("  Refusing to adopt a pair whose halves are not siblings.")
+        return Adoption(ADOPT_INCOHERENT, detail="halves are not siblings")
+
+    state = load_state()
+    proof = prove_pair(pair, runner=runner)
+    if not proof.ok:
+        identity = (pair.ffmpeg.identity(), pair.ffprobe.identity())
+        rejected = list(state.rejected)
+        if identity not in rejected:
+            rejected.append(identity)
+        # Keep whatever was already pinned. This is the whole point of the
+        # helper: a failed replacement is not evidence against the incumbent.
+        # And failing to *record* the rejection is not evidence either — the
+        # atomic write leaves the incumbent intact, and the worst outcome is
+        # that this candidate gets probed again another day.
+        if not save_state(HealthState(pair=state.pair, rejected=tuple(rejected))):
+            log.line("  (could not record this rejection; it may be re-probed later)")
+        log.line(f"  Not usable ({proof.failed}): {proof.detail}")
+        return Adoption(ADOPT_NOT_PROVED, detail=proof.detail)
+
+    proven = replace(
+        pair,
+        ffmpeg=replace(pair.ffmpeg, sha256=sha256_of(pair.ffmpeg.as_path)),
+        ffprobe=replace(pair.ffprobe, sha256=sha256_of(pair.ffprobe.as_path)),
+        version_text=proof.version_text,
+        proven_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+    )
+    if not save_state(HealthState(pair=proven, rejected=state.rejected)):
+        # The binaries ran — that much is true and worth saying. What did not
+        # happen is the part that makes them the runtime pin, so this is not
+        # adoption and must not be reported as it. The previous active pair is
+        # untouched and the whole operation stays retryable.
+        log.line(f"  Both executables ran, but the result could not be recorded "
+                 f"as the active pair (see {state_path()}). Not pinned.")
+        return Adoption(ADOPT_NOT_PERSISTED, detail="the active state could not be written")
+    log.line(f"  Verified: {proof.version_text or pair.directory}")
+    return Adoption(ADOPT_PINNED, pair=proven)
 
 
 def ensure_ready(log=None, *, runner=None) -> Optional[Pair]:
@@ -539,13 +702,20 @@ def describe_failure() -> str:
 
     Names no security product to disable, because disabling one is never the
     answer: on a managed machine the honest ask is an administrator allowlisting
-    the binary, and on an unmanaged one a reinstall through setup is.
+    the binary.
+
+    **It no longer tells the reader to open the launcher a second time.**
+    PRE-PLAN-6 Phase 5 made the normal launch attempt the repair itself, so that
+    instruction became an invitation to repeat a path that has already run and
+    already failed. Telling someone to retry an identical non-repairing action
+    is the loop this drop exists to remove.
     """
     return (
         "FFmpeg could not be verified on this computer. The audio tools need "
         "both ffmpeg and ffprobe to run, and every copy found here either could "
-        "not start or was refused by a Windows security policy.\n\n"
-        "Run Setup_and_Run again to install a known-good copy. If this computer "
-        "is managed by an organisation, its policy may need to allow FFmpeg — "
-        "ask your IT administrator to allow it rather than turning protection off."
+        "not start or was refused by a security policy.\n\n"
+        "The app has already tried to repair this automatically, so opening it "
+        "again will not change the result. If this computer is managed by an "
+        "organisation, its policy may need to allow FFmpeg — ask your IT "
+        "administrator to allow it rather than turning protection off."
     )

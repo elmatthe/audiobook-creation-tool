@@ -2,6 +2,1334 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 COMPLETE AND CLOSED; INTEGRATION RECORDS REMEDIATED; AWAITING A READ-ONLY RECHECK (2026-09-05)
+>
+> **This block is the live state of the repository.** It supersedes the block below it on every point
+> where that block speaks in the present tense about Phase 10 being *unsigned, unstaged, uncommitted
+> and unpushed*, and about the temporary drop being *prepared for* retirement. Those statements were
+> true when written, before the maintainer sign-off, and are false now. That block is kept verbatim
+> beneath this one as the dated record of the pre-sign-off position. Nothing else below is deleted,
+> rewritten or reopened — the Phase-7, Phase-8, post-Phase-8 remediation and Phase-9 waiver records
+> stand exactly as written.
+>
+> - **The PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing maintenance is COMPLETE and CLOSED.**
+>   Phases 0–10 are done. The Phase-10 closeout was **approved by the maintainer, committed and
+>   pushed** — it is **not** awaiting sign-off and **not** uncommitted.
+> - **Phase-10 closeout commit:** **`a170e41b71168f33247471be79110b871f88cb3d`**
+>   (parent **`68416604014f06779cd8bd1492627ad78c1cf920`**), on branch
+>   `maintenance/0.6.2-setup-self-healing`, pushed to `origin`. Documentation only — zero production
+>   code, zero tests.
+> - **The temporary drop was ACTUALLY RETIRED, not merely prepared for retirement.**
+>   `md-instructions/pre-plan-6-setup-self-healing.md` was **deleted** in that commit, its durable
+>   content having moved into `Decisions.md`, `Changelog.md`, `Briefing.md`, `README.md` and this file.
+>   **No permanent `don't-delete/` record was deleted, moved or renamed** by the closeout or by this
+>   remediation.
+> - **Phase 9 remains WAIVED / NOT APPLICABLE — it was never converted to PASS.** CSPW-PC was removed
+>   as a deployment target. It was **not tested and did not pass**, and **no HOME-PC substitute
+>   evidence** was used or claimed. HOME-PC Phase 7 remains the accepted Windows evidence and
+>   HOME-MacOS Phase 8 the accepted macOS evidence. **Real non-admin Windows target-machine acceptance
+>   remains UNPERFORMED**; if such a target returns, Phase 9 must be reinstated and actually run. M5 is
+>   closed in implementation only — every production `winget install` names `--scope user`, with no
+>   machine scope and no elevation fallback.
+> - **The first post-closeout integration-readiness review has been performed** — independent and
+>   READ-ONLY, over the full 19-commit delta `e36ab7d…a170e41`. **It returned NOT READY, on
+>   records/provenance grounds only.** It judged the **implementation, security contract, test quality
+>   and the clean exact-HEAD gate SOUND**: a candidate built by `git archive` at exactly `a170e41` and
+>   verified blob-by-blob against the commit objects returned **5632 passed, 15 skipped, 0 failed,
+>   0 errors** and `verify.py` **RESULT: PASS** on all five rows, with production runtime state
+>   unchanged (**24 keys, 0 differences**). It found **no production, runtime or security defect**.
+> - **This commit is that bounded records/provenance remediation, and nothing more.** It changes
+>   exactly three tracked documents — this file, `Decisions.md`, and the permanent
+>   `don't-delete/…-Master-Implementation-Plan-Index.md` — and **zero production code and zero tests**.
+>   It resolves the three blockers the review raised: the master index's §15/§5 still naming the
+>   completed PRE-PLAN-6 work as the *current next action*; this file's stale preparation-state block;
+>   and the provenance of two historical commits.
+> - **Provenance, recorded honestly.** Two commits in this series —
+>   **`592a72b90886a33bf03172fab39409b786af9dc5`** (Phase 8) and
+>   **`e916cb1128cb71c6fbe3de10f1d54238d5bfa345`** (macOS test isolation) — carry
+>   `Co-Authored-By: Claude …` and `Claude-Session: …` trailers, which **violate** the standing
+>   2026-07-07 decision *"No AI co-author trailers in commit messages, ever"*. **They are not
+>   reclassified as compliant.** The maintainer chose to **preserve the already-pushed, already-reviewed
+>   history rather than rewrite the series and every descendant SHA**, and granted a **one-time,
+>   closed-set exception covering only those two named commits** — recorded as a signed ADR in
+>   `Decisions.md` (2026-09-05). It **sets no precedent**, authorizes **no** trailer on this commit or
+>   any future commit, and authorizes **no** amend, rebase, squash or force-push. **The 2026-07-07 rule
+>   remains fully binding for all future work.**
+> - **Version identity remains `0.6.2`, UNRELEASED**; the published GitHub release remains **`v0.4.0`**.
+>   **No PR, no merge, no tag, no release, no package and no `release.py` run** has occurred for this
+>   maintenance branch. `origin/master` is untouched by it. **Plan 6 has NOT started**, and is **not**
+>   authorized merely because PRE-PLAN-6 closed.
+> - **NEXT ACTION — and it is NOT Plan 6, NOT a PR and NOT a merge:** **ONE new independent READ-ONLY
+>   integration-readiness recheck** of this branch, covering this remediation commit as well.
+>   **READY is not assumed** and must not be inferred from this block — it has to be returned by that
+>   recheck. **PR creation remains unauthorized until it does**, merge remains a separate explicit
+>   maintainer authorization after that, and **Plan 6 may begin only once this maintenance is
+>   integrated into `master`.**
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 10 CLOSEOUT PREPARED, AWAITING MAINTAINER SIGN-OFF (2026-09-05)
+>
+> **This block is the live state of the repository. It supersedes the preceding block's closing line
+> that "Phase 10 has NOT started". Nothing below is deleted, rewritten or reopened — the Phase-7,
+> Phase-8, post-Phase-8 remediation and Phase-9 waiver records stand exactly as written.**
+>
+> - **PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing maintenance has completed all
+>   implementation, acceptance and documentation requirements, pending ONLY the Phase-10 maintainer
+>   records sign-off and the subsequent commit.** The closeout diff is deliberately left **unstaged
+>   and uncommitted** for that review. Nothing is staged, committed or pushed.
+> - **Phases 0–8 COMPLETE.** Post-Phase-8 macOS test-harness remediation **COMPLETE**.
+> - **Phase 9 — WAIVED / NOT APPLICABLE.** CSPW-PC was removed as a deployment target. It was **not
+>   tested and did not pass**, and **no HOME-PC substitute evidence** was used or claimed. A waiver
+>   stays a waiver.
+> - **M5 implementation is CLOSED.** Every production `winget install` names `--scope user`; nothing
+>   requests machine scope and there is no `runas`/elevation fallback. What remains unperformed is the
+>   **real non-admin Windows target-machine acceptance** — automated coverage proves the argv and the
+>   route, not a live Standard-User run. If such a target returns, Phase 9 must be reinstated and run.
+> - **The permanent superseding ADR is prepared** in `Decisions.md` (2026-09-05, *"observation is not
+>   permission, and a launch owns its own readiness"*). It supersedes **only** the
+>   `have_ffmpeg()`-versus-`verified_ffmpeg()` paragraph of the 2026-08-28 entry; that entry is
+>   otherwise **intact** and its pinning and security rules stand.
+> - **The temporary drop is prepared for retirement** — `md-instructions/pre-plan-6-setup-self-healing.md`
+>   is deleted in the candidate diff, with its durable content moved into `Decisions.md`,
+>   `Changelog.md`, `Briefing.md` and this file. No permanent tracked document depends on it.
+> - **`Changelog.md`** carries a new entry under **`[Unreleased]`**; **no `[0.6.2]` release heading was
+>   created**. **`Briefing.md`** received three minimum durable corrections, because it still described
+>   FFmpeg as installed *system-wide*, the launcher fast path as gated on `.venv` merely *existing*, and
+>   `ffmpeg_utils.py` as resolving `files/bin/` → **PATH** — all three now materially wrong.
+> - **Gates.** Full HOME-PC suite: **5632 passed, 1 failed, 14 skipped, 0 errors** — the single red is
+>   the established protected-boundary condition (`test_plan3_boundaries.py::test_the_canonical_documents_and_protected_references_keep_their_exact_names`),
+>   caused solely by the maintainer-owned untracked evidence file in `md-instructions/don't-delete/`.
+>   It is **not** Phase-10-attributable and that file must never be moved or deleted to make the suite
+>   green. Against a clean candidate tree containing the exact intended Phase-10 result, `verify.py`
+>   returned **RESULT: PASS** on all five rows. Production runtime state was captured before and after
+>   every gate: **24 keys, 0 differences**.
+> - **Version identity remains `0.6.2`, UNRELEASED**; latest published release remains **`v0.4.0`**. No
+>   PR, no merge, no tag, no release, no package, no `release.py`. **Plan 6 has NOT started.**
+> - **Next step after Phase 10 is committed — and it is NOT Plan 6:** an **independent READ-ONLY
+>   integration-readiness review**. Only if that review returns **READY** does PR creation and review
+>   follow, and **merge only after explicit maintainer authorization**. **Plan 6 may begin only after
+>   this maintenance work is integrated into `master`.**
+
+> ## ⟢ CURRENT STATE — PHASE 9 WAIVED / NOT APPLICABLE BY MAINTAINER DECISION (2026-09-05)
+>
+> **This block is the live state of the repository. It supersedes only the preceding block's
+> closing line that "Phase 9 has not started". Nothing below is deleted, rewritten or reopened —
+> the Phase-7, Phase-8 and post-Phase-8 remediation records stand exactly as written.**
+>
+> - **This is a scope decision, not a test result.** **Phase 9 was NOT tested and did NOT pass.**
+>   No acceptance run, on any machine, was performed for it. It is recorded as **WAIVED / NOT
+>   APPLICABLE**, and must never be summarised as a pass.
+> - **The maintainer has decided the application will not be used or deployed on CSPW-PC.** With
+>   CSPW-PC removed as a deployment target, the Phase-9 contract — "CSPW-PC non-admin targeted
+>   validation", proving the repair contract under the actual Standard User restriction — no longer
+>   describes a machine this project must satisfy.
+> - **No substitute evidence was manufactured.** HOME-PC was deliberately **not** re-run to stand
+>   in for CSPW-PC, and no HOME-PC result is being claimed as Phase-9 coverage. Two reasons, both
+>   sufficient: Phase 7 already performed the real Windows `Setup_and_Run` self-healing acceptance
+>   on that machine, so re-running it would prove nothing new; and HOME-PC's normal maintainer
+>   account holds **Administrator** membership, so — although both machines are Windows 11 — a run
+>   there exercises the elevated path and cannot demonstrate the Standard-User restriction Phase 9
+>   existed to test.
+> - **Existing acceptance coverage is unchanged and still valid.** **Phase 7 — HOME-PC Windows
+>   acceptance: COMPLETE.** **Phase 8 — HOME-MacOS acceptance: COMPLETE.** **Post-Phase-8 macOS
+>   test-harness remediation: COMPLETE**, with the first fully clean Mac `verify.py` gate of this
+>   drop. Phase 7 remains the accepted Windows target-machine evidence.
+> - **CORRECTION (2026-09-05) — M5 is closed, not open.** As first written, the bullet here said
+>   `M5` "stays untested" in a way that read as a present-day defect: that neither WinGet
+>   invocation passes an explicit `--scope`. **That was false**, and it contradicted this file's
+>   own Phase-5 entry below ("**M5 closed.** The Gyan.FFmpeg WinGet call now passes `--scope user`
+>   explicitly…"). It is corrected here so the false claim cannot be copied into the permanent
+>   Phase-10 records. Verified mechanically against the current tree, not from memory: **all three**
+>   production `winget install` call sites name **`--scope user`** — the Python call and the root
+>   `.bat` fallback (closed in Phase 2, `5919723`) and the `Gyan.FFmpeg` call (closed in Phase 5,
+>   `b59f562`) — **nothing requests `--scope machine`** and nothing uses `runas`. Five permanent
+>   guards in `files/tests/test_launch_self_heal.py` hold it (argv-level at runtime, an **AST
+>   inventory** so a new call site cannot omit the scope, the `.bat` verified rather than assumed,
+>   and machine scope/elevation forbidden): **5 passed**.
+> - **The truthful residual risk is the real machine, not the argv.** The already-implemented
+>   user-scope / portable-fallback Windows repair contract **was never manually exercised on a real
+>   non-admin Windows deployment target**, because CSPW-PC was removed as a target before Phase 9
+>   ran. Automated coverage proves the argv and the route; it does **not** substitute for a
+>   Standard-User target-machine acceptance, since a real non-admin machine can still refuse scope
+>   or elevation in ways only a live run would show. If a non-admin Windows target is ever
+>   reintroduced, **Phase 9 must be reinstated and actually run**. The original Phase-9 contract
+>   text remains preserved in the drop file rather than deleted, so the reason for the waiver stays
+>   legible, and the **historical** M5 defect row in §4.3 — accurate about what was wrong *before*
+>   the fix — was deliberately left intact.
+> - **Documentation-only checkpoint.** **Zero production code and zero tests changed.** Exactly two
+>   tracked files: `md-instructions/Handoff.md` and
+>   `md-instructions/pre-plan-6-setup-self-healing.md`. No manual launcher acceptance was re-run,
+>   no FFmpeg change, no `.venv` change, nothing installed or uninstalled. `Decisions.md`,
+>   `Briefing.md` and `Changelog.md` were **not** touched — the additive superseding FFmpeg /
+>   self-healing ADR remains owed at Phase 10.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 10 has NOT started. Plan 6 has NOT begun.** Next step is
+>   PRE-PLAN-6 **Phase 10 — maintenance closeout**, whose scope already requires that waivers be
+>   named as waivers; this entry is that waiver.
+
+> ## ⟢ CURRENT STATE — POST-PHASE-8 TEST-HARNESS REMEDIATION (2026-09-05)
+>
+> **This block is the live state of the repository. Phase 8 itself is unchanged and remains
+> COMPLETE at `592a72b`; its manual acceptance was *not* repeated and is not reopened. This
+> checkpoint only closes the two test-only nodes that phase left red. Everything below stands.**
+>
+> - **Both red nodes were test-harness defects, and both are now green.** Neither implicated
+>   production code, and none was changed. The pre-fix red proof was captured against
+>   `592a72b90886a33bf03172fab39409b786af9dc5` before anything was edited, with each failure
+>   showing its own named cause rather than a bare assertion.
+> - **Defect 1 — the macOS repair sandbox could reach the host's Homebrew.**
+>   `test_launch_self_heal.py`'s `sandbox` fixture promises "every FFmpeg state path inside
+>   `tmp_path`, and nothing on PATH", and emptied PATH to get it. But `_brew_ffmpeg` calls
+>   `_refresh_brew_path`, which deliberately puts `/opt/homebrew/bin` and `/usr/local/bin` *back* —
+>   that is the M2/H3 behaviour Phase 4 built, because a fresh `brew install` is not on an
+>   already-running process's PATH — and `candidate_directories()` searches PATH **before** the
+>   `_brew_dirs` seam the fixture controls. On a Mac with Homebrew's own FFmpeg the "sandbox"
+>   therefore discovered and pinned the host's real pair: the red proof shows
+>   `pinned_pair().directory` as `/opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin` where the fixture's
+>   `package-manager-install` was expected. The module's result depended on what was installed on
+>   the machine running it — green on this Mac only during the deliberately FFmpeg-less gate window.
+> - **Fixed in the fixture, not in production.** `_refresh_brew_path` is neutralised inside
+>   `sandbox`, so the fixture's documented isolation is actually true; production keeps its
+>   behaviour and its candidate ordering untouched, and the simulated install stays reachable
+>   through `_brew_dirs`. This is the same isolation `test_hardening_matrix`'s `mac_launch` fixture
+>   has always applied — which is exactly why its sibling macOS repair test never failed here.
+>   Two further macOS tests (`test_brew_succeeding_is_not_ffmpeg_succeeding` and
+>   `test_no_portable_route_exists_on_macos`) reached the same leak latently, passing only because
+>   their assertions were about failure; they are isolated now too.
+> - **Defect 2 — a cross-platform recovery test seeded a Windows venv.**
+>   `test_venv_recovery.py` built the interrupted set-aside environment at
+>   `aside / "Scripts" / <interpreter>`, which is where a *Windows* venv keeps its interpreter. On
+>   macOS `venv_python()` is `.venv/bin/python`, so after production restored the aside correctly —
+>   the log line is `Restored the previous environment; nothing was lost.` — `assess_venv_health`
+>   classified it `absent` and the repair reported failure for a reason that existed only in the
+>   test. It could only ever pass on Windows.
+> - **Fixed by deriving the layout instead of spelling it.** A `_seed_interpreter` helper places the
+>   interpreter at `venv_python()` *relative to* `VENV_DIR`, so the seeding is whatever this
+>   platform actually uses. Applied to the failing test and to the shared `_interrupted_both`
+>   helper its neighbours use, which carried the identical assumption. The remaining bare
+>   `Scripts/` directories in that module are filler content proving a directory is moved wholesale
+>   — no interpreter, no platform meaning — and were deliberately left alone rather than churned.
+> - **Both fixes are mutation-proved.** Reverting only the `sandbox` isolation turns the new guard
+>   `test_the_mac_repair_never_escapes_into_the_host_homebrew` **and** the original node red;
+>   reverting only the derived layout turns the new guard
+>   `test_an_interrupted_aside_is_seeded_with_this_platform_s_venv_layout` **and** its original node
+>   red. Both guards assert behaviour: the first records every directory the repair actually sweeps
+>   and requires all of them inside `tmp_path`; the second restores a real aside and requires
+>   production to then find its own interpreter.
+> - **Gates.** The two formerly failing nodes individually: **2 passed**. Their modules: **177
+>   passed, 4 skipped**. Isolation/health coverage (`test_suite_isolation`, `test_ffmpeg_health`,
+>   `test_hardening_matrix`, `test_first_run_contract`): **151 passed**. The full Phase-8 targeted
+>   family: **629 passed, 17 skipped, 0 failed, 0 errors** (was 625 passed / 2 failed). Full macOS
+>   suite: **5590 passed, 57 skipped, 0 failed, 0 errors**. **`verify.py`: pytest / deps / docs /
+>   docnames / config all PASS — RESULT PASS**, the first genuinely clean Mac gate of this drop.
+> - **One transient, recorded rather than smoothed over.** The first `verify.py` run reported
+>   `1 failed, 5589 passed` without naming the node, because `verify.py` keeps only pytest's last
+>   summary line. Three other complete runs of the identical command — two direct, one through
+>   `verify.py` — were fully green, and both remediated nodes passed in every run including
+>   individually, so the transient is not attributable to this work. Its identity could not be
+>   recovered after the fact; that `verify.py` discards failing node IDs is a real gap worth closing
+>   separately, and was not changed here. (`.pytest_cache/v/cache/lastfailed` is stale — its mtime
+>   does not move through green runs — so it is not evidence about this.)
+> - **Production state unchanged across every gate** — 23 critical keys, **0 differences**, before
+>   and after four full suites and two `verify.py` runs: requirements stamp, import proof,
+>   `ffmpeg-state.json`, both pinned paths and their stat identity, `files/bin` (absent), staging
+>   (absent), `.venv` top level and all four subdirectory mtimes, `pyvenv.cfg`, `.venv.replaced*`
+>   (none), the venv Python identity, the Homebrew ffmpeg/gpac/leaves inventory and formula count,
+>   PATH, and the eight untracked user screenshots. **The log tree did not change at all.**
+> - **The accepted machine state is untouched.** FFmpeg 9.0.1_1 still proved and pinned at
+>   `/opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin`, GPAC 26.07.0_1 and MP4Box still working, `.venv`
+>   still healthy Python 3.12.13 with Tcl/Tk 9.0.3. No launcher acceptance was re-run.
+> - **Zero production code changed.** Two test files: `files/tests/test_launch_self_heal.py`,
+>   `files/tests/test_venv_recovery.py`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 9 has not started. Phase 10 has not started. Plan 6 has not
+>   begun.** The additive superseding FFmpeg ADR remains owed at Phase 10; `Decisions.md`,
+>   `Briefing.md` and `Changelog.md` were not touched.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 8 COMPLETE: the same promise kept on macOS (2026-09-05)
+>
+> **This block is the live state of the repository. It supersedes the Phase-7 block's closing
+> line that "Phase 8 has not started". Everything else in the blocks below stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **The manual gate passed.** On 2026-09-05 the maintainer double-clicked
+>   `Setup_and_Run-audiobook-creation-tool.command` from Finder on HOME-MacOS, in the prepared
+>   condition: healthy existing `.venv`, no usable ffmpeg/ffprobe anywhere on the machine. The
+>   first launch repaired itself and reached the GUI; the app was closed normally; a second
+>   double-click reached the GUI again. **No manual `.venv` deletion, no manual intervention.**
+>   This is HOME-MacOS *targeted* validation, not Plan-9 fresh-machine certification.
+> - **The route, from the logs rather than from assumption.** RUN 1 at `13:38:55`:
+>   `Environment health: healthy (ok)` → `Re-proving that the required packages still import…` →
+>   `All required packages import cleanly (Python 3.12.13).` → `FFmpeg health-check: no usable
+>   ffmpeg/ffprobe pair — repairing.` → `Installing ffmpeg via Homebrew…` → `Homebrew reported the
+>   ffmpeg install completed.` → `Checking /opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin…` → `Verified:
+>   ffmpeg version 9.0.1` → `FFmpeg verified after install` → `Launching launcher.py`. The
+>   installer's exit code was **not** the answer; `ffmpeg_health` proved the pair independently,
+>   exactly as `_brew_ffmpeg` → `establish` is built to.
+> - **The pin.** `/opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin/{ffmpeg,ffprobe}` — one directory, one
+>   installation, both executing and reporting **9.0.1**. Written at `13:39:29`, one second before
+>   the GUI launched at `13:39:30`. `ffmpeg_cmd()`/`ffprobe_cmd()` resolve to exactly that pair and
+>   `status_line()` reads "FFmpeg verified and ready." **`files/bin` and the staging tree were
+>   never created**: the portable fallback was correctly never reached on macOS.
+> - **Minimum scope held.** `.venv` still **Python 3.12.13 arm64**, ssl (OpenSSL 3.6.3) and
+>   **Tcl/Tk 9.0.3** healthy; **no `.venv.replaced*`**, so no rebuild; `bin`/`lib`/`include`/`share`
+>   mtimes unchanged from 2026-08-20. The requirements stamp is **byte-identical** (`249c3ab2…`,
+>   still 2026-08-31), so **no pip reconciliation**. `.venv/.import-proof.json` — absent before the
+>   gate — was established at `13:39:04` recording the **same** `requirements_sha256` as the
+>   untouched stamp: an *import re-proof*, not an install.
+> - **The second launch did nothing it should not.** RUN 2 at `13:39:43` holds `FFmpeg
+>   health-check: verified /opt/homebrew/Cellar/ffmpeg/9.0.1_1/bin` and no "repairing" line, no
+>   `brew install`, no venv work, no repair loop, and — unlike the first — no import re-proof,
+>   because the proof was already valid. `Installing ffmpeg via Homebrew` appears **exactly once**
+>   in the whole day's log.
+> - **The precondition could not be reached without touching user-owned software, and that is
+>   recorded rather than smoothed over.** `brew uses --installed ffmpeg` named `gpac 2.4.0_3` —
+>   installed on request, with a hard runtime `depends_on "ffmpeg"` and `libgpac.dylib` linking the
+>   ffmpeg dylibs directly. Uninstalling ffmpeg under `--ignore-dependencies` would have knowingly
+>   broken it, and `brew unlink` would have left the pinned Cellar files present and the pin valid,
+>   testing nothing. On the maintainer's disposition GPAC was **temporarily** removed first (proved
+>   a leaf beforehand), then ffmpeg was removed by a plain `brew uninstall`.
+> - **A deviation discovered after the fact, not hidden.** That plain `brew uninstall ffmpeg`
+>   **autoremoved 64 dependency-only formulae by itself** — Homebrew 6.0.8 does this inside
+>   `uninstall` unless `HOMEBREW_NO_AUTOREMOVE` is set, and it was unset. No `brew autoremove` or
+>   `brew cleanup` was ever invoked, and no `--ignore-dependencies`. **No user-requested formula
+>   was lost**: `espeak`, `gh`, `openjdk@17`, `python@3.12`, `python-tk@3.12`, `python-tk@3.13` and
+>   `tcl-tk` all remained installed and were verified working. Ten of the 64 returned with
+>   `brew install ffmpeg`; the other 54 are simply not required by ffmpeg 9.0.1, whose runtime
+>   dependency set is 14 rather than 92.
+> - **GPAC restored, and the version difference named.** `HOMEBREW_NO_AUTO_UPDATE=1
+>   HOMEBREW_NO_AUTOREMOVE=1 brew install gpac`. GPAC was restored through normal Homebrew;
+>   **version advanced from the previously installed outdated 2.4.0_3 to 26.07.0_1** as a
+>   consequence of restoring the currently supported formula — restoration of user-owned Homebrew
+>   software, **not** an application update. `MP4Box` reports `GPAC version 26.07-revrelease`,
+>   `brew linkage --test gpac` is clean, and every ffmpeg dylib it references resolves.
+> - **Restoring GPAC did not weaken the app's FFmpeg authority.** It upgraded eleven shared
+>   dependencies (including `openssl@3` 3.6.3 → 3.6.4) but left the ffmpeg keg alone: the pin is
+>   byte-identical, `still_matches()` is True, `discover_pairs()` finds exactly one pair, and both
+>   pinned binaries were re-executed and reported 9.0.1. **Nothing re-proved by hand, nothing
+>   hand-edited.** `.venv` re-verified healthy after the upgrade.
+> - **A second Homebrew fact worth recording.** Homebrew itself went **6.0.8 → 6.0.22** during the
+>   maintainer's run, because the supported repair calls a plain `brew install ffmpeg` without
+>   `HOMEBREW_NO_AUTO_UPDATE`. That is product behaviour on the acceptance path, not an agent
+>   action, and it is why the repair installed **9.0.1_1** rather than the 8.0 that had been there.
+> - **Gates.** Targeted Phase-8 suites (19 files): **625 passed, 2 failed, 17 skipped, 0 errors**.
+>   Full macOS suite: **5586 passed, 2 failed, 57 skipped, 0 errors** (3m44s). `verify.py`:
+>   **deps / docs / docnames / config PASS**; the pytest row is red truthfully, for the same two
+>   tests. There is no `test_plan3_boundaries` row here — that protected report does not exist on
+>   this Mac, and its 129/129 tracked-tree proof stands from Phase 7.
+> - **Both red nodes are test-only, and neither is Phase-8-attributable. Category C = 0.**
+>   `test_an_existing_mac_venv_reaches_the_homebrew_repair` — the `sandbox` fixture empties PATH
+>   and stubs `_brew_dirs()`, but production `_refresh_brew_path()` re-adds the real
+>   `/opt/homebrew/bin` to `os.environ["PATH"]`, and `candidate_directories()` orders `_path_dirs()`
+>   **ahead of** `_brew_dirs()`, so the machine's real ffmpeg is discovered and pinned instead of
+>   the fixture's. Proved by re-running the identical fixtures with `_refresh_brew_path`
+>   neutralised, where the assertion holds. It can only pass while no Homebrew ffmpeg exists — which
+>   was already false before Phase 8 began, when ffmpeg 8.0 was installed.
+>   `test_a_repair_recovers_before_starting_a_new_transaction` — seeds the set-aside environment
+>   with a **Windows** layout (`aside/Scripts/<python>`) that macOS's `.venv/bin/python` can never
+>   satisfy; production restored the aside correctly (`Restored the previous environment; nothing
+>   was lost.`) and only the test's own premise fails. It fails on any Mac at any commit.
+>   **Neither is a production defect, and both were deliberately left unfixed** — fixing them would
+>   broaden this phase. **They are owed maintainer disposition.**
+> - **Production state unchanged across every gate** — **23 critical keys, 0 differences**, before
+>   and after the targeted run, the full run and `verify.py`: requirements stamp, import proof,
+>   `ffmpeg-state.json`, both pinned paths and their stat identity, `files/bin` (absent), staging
+>   (absent), `.venv` top level, `.venv.replaced*` (none), `pyvenv.cfg`, all four venv subdirectory
+>   mtimes, the venv Python identity, the Homebrew ffmpeg/gpac/leaves inventory and formula count,
+>   PATH, and the eight untracked user screenshots. **The log tree did not change at all.**
+> - **Zero production code changed. Zero test code changed.** Only `Handoff.md` and
+>   `pre-plan-6-setup-self-healing.md`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 9 has not started. Phase 10 has not started. Plan 6 has not
+>   begun.** The additive superseding FFmpeg ADR remains owed at Phase 10; `Decisions.md`,
+>   `Briefing.md` and `Changelog.md` were not touched.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 7 COMPLETE: the machine repaired itself (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-6 block's closing
+> line that "the real HOME-PC missing-FFmpeg acceptance condition remains unconsumed and reserved
+> for Phase 7" — Phase 7 has now spent it, on purpose, and that spending *is* the acceptance.
+> Everything else in the blocks below stands. Nothing below is deleted or rewritten.**
+>
+> - **The manual gate passed.** On 2026-09-04 the maintainer double-clicked
+>   `Setup_and_Run-audiobook-creation-tool.bat` from Windows Explorer on HOME-PC, in the preserved
+>   condition: healthy `.venv`, no usable ffmpeg/ffprobe anywhere. The first launch repaired
+>   itself and reached the GUI; the app was closed normally; a second double-click reached the GUI
+>   again. **No manual `.venv` deletion, no manual intervention** — which is the entire product
+>   promise this drop exists to keep. That gate was not repeated in remediation.
+> - **The route, from the logs rather than from assumption.** `FFmpeg health-check: no usable
+>   ffmpeg/ffprobe pair — repairing.` → `Installing ffmpeg via winget (Gyan.FFmpeg, user scope)…`
+>   → `Checking C:\…\Gyan.FFmpeg_…\ffmpeg-9.0.1-full_build\bin…` → `Verified: ffmpeg version
+>   9.0.1-full_build` → pinned → `Launching launcher.py`. It **checked the package directory
+>   directly instead of waiting for PATH**, which is exactly the M2/H3 behaviour Phase 4 built and
+>   what `test_a_winget_install_is_accepted_without_waiting_for_path` guards.
+> - **The pin.** `…\WinGet\Packages\Gyan.FFmpeg_…\ffmpeg-9.0.1-full_build\bin\ffmpeg.exe` and
+>   its `ffprobe.exe` sibling — same directory, one installation, both executing and reporting
+>   `9.0.1-full_build-www.gyan.dev`. `ffmpeg_cmd()`/`ffprobe_cmd()` resolve to exactly that pair;
+>   `status_line()` reads "FFmpeg verified and ready." **`files/bin` and the staging tree were
+>   never created**: the portable fallback was correctly never reached.
+> - **Minimum scope held.** `.venv` still Python 3.12.10, ssl and Tk healthy; **no
+>   `.venv.replaced*`**, so no rebuild; the requirements stamp is **byte-identical** (still
+>   2026-09-03), so **no pip reconciliation**. `.venv/.import-proof.json` was re-established at
+>   17:26:45 — an *import re-proof* recording the **same** `requirements_sha256` as the untouched
+>   stamp, not an install. The log tree went 79 → 81: four files written by the two real runs,
+>   two pruned by the app's own `_prune_old_logs`. Accounted exactly.
+> - **The second launch did nothing it should not.** Its log holds `FFmpeg health-check: verified
+>   …` and no "repairing" line, no winget call, no download, no venv replacement, and — unlike the
+>   first — no import re-proof, because the proof was already valid.
+> - **The first post-repair gate did not close, and that was worth more than a clean pass.** Two
+>   defects the *absence* of FFmpeg had been hiding turned red the moment a real pair existed.
+>   Both were **test-only**: no production module was implicated. Before touching either, the
+>   generated Unicode book and the production probe were proved sound against the real pair —
+>   8/8 checks, exact Unicode chapter titles, `CHAPTERED` usability — so the media, FFmpeg 9.0.1
+>   and `m4b_probe` were all ruled out first.
+> - **Defect 1 — a `pytestmark` nobody could opt out of.** `test_m4b_probe_encoding` sandboxed its
+>   whole module, handing the stub `pinned_ffmpeg` pair to the three tests whose entire purpose is
+>   to run a *real* ffmpeg against a *real* book. The sandbox is now opted into **one test at a
+>   time**: fourteen command-building tests that genuinely need a pinned pair (because
+>   `probe_source` builds its argv from `ffprobe_cmd()` *before* it consults an injected runner),
+>   five pure payload/AST tests that need nothing, and the three media tests left on the real pair.
+> - **Defect 2 — pydub's configuration is process-wide, and nothing gave it back.**
+>   `configure_pydub()` writes absolute paths into `pydub.AudioSegment` and rebinds
+>   `pydub.utils.get_prober_name` — a third-party package's module globals, never patched by
+>   `monkeypatch` and deliberately not rewritten by `refresh()`, which clears `ffmpeg_utils`' own
+>   caches and leaves the rewrite to the next `configure_pydub()` call. `kokoro_synth` never makes
+>   one; it calls `AudioSegment.export` and inherits whatever is there. So a test that pinned a
+>   sandbox pair left pydub pointing inside its `tmp_path`, which pytest then deleted, and two
+>   `test_kokoro_timing_wiring` tests tried to spawn it. An **autouse guard in `conftest.py`** now
+>   snapshots and restores those four settings around every test, with **absence as a value** —
+>   `AudioSegment.ffprobe` does not exist until `configure_pydub()` creates it, so a guard that
+>   only reassigned would leave an invented attribute behind.
+> - **A correction, recorded rather than quietly absorbed.** The remediation brief proposed that
+>   the leak was a stale `ffmpeg_utils` cache caused by `pinned_ffmpeg` refreshing *before*
+>   `monkeypatch` restored. That was tested and **does not exist** — `refresh()` only clears its
+>   lru_caches, so the next resolution happens lazily and correctly after restoration. The
+>   reproduction asserts it explicitly and that assertion passes at `bec7050` too. The real leak
+>   was pydub's; the fix follows the evidence, not the hypothesis.
+> - **Red proof against `bec7050`.** **Seven of the ten** new permanent regressions fail on the
+>   pre-fix tree and pass after — three for the fixture-scope defect, four for the pydub guard.
+>   The standalone reproduction fails at `bec7050` and passes now, using the identical script.
+> - **Final gate: two consecutive full runs, each `1 failed / 5630 passed / 14 skipped / 0
+>   errors`**, byte-identical node sets. **Category A (missing-FFmpeg / stub contamination) = 0** —
+>   all 76 original errors gone, including the three generated-media and two Kokoro nodes.
+>   **Category B** (16 Chatterbox) did not reproduce. **Category C** = the single
+>   `test_plan3_boundaries` row caused by the protected untracked maintainer report, proved green
+>   at **129/129** from a clean `git archive` tracked tree. **Category D = 0.** The 23
+>   `ttk/winTheme` transients did **not** recur in either run.
+> - **Focused gate: 1163 passed, 3 skipped, 0 failed** across 24 modules (was 1153 before the ten
+>   new regressions). `verify.py`: **deps / docs / docnames / config PASS**; the pytest row is red
+>   truthfully, and solely because of the protected local file.
+> - **Production state unchanged across every gate** — 21 keys, **0 differences**, before and
+>   after both full runs and `verify.py`: requirements stamp, import proof, log tree,
+>   `ffmpeg-state.json`, the active pin and both pinned paths, `files/bin` (absent), staging
+>   (absent), the WinGet inventory, `.venv.replaced*` (none), PATH hash, `.venv` Python, and both
+>   protected untracked files. **The accepted FFmpeg pair is still proved and pinned.**
+> - **Note on PATH.** The Gyan installer added its `bin` to the *persisted user* PATH. A terminal
+>   opened before the install still shows `where ffmpeg` finding nothing; that is not a defect, and
+>   it is why pydub emits its import-time warning in the first launch log but not the second. The
+>   app executes the pinned absolute pair regardless.
+> - **Zero production code changed.** Three test files: `files/tests/conftest.py`,
+>   `files/tests/test_m4b_probe_encoding.py`, `files/tests/test_suite_isolation.py`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 8 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; `Decisions.md`, `Briefing.md` and
+>   `Changelog.md` were not touched.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 7).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `files/tests/conftest.py`;
+> `files/tests/test_m4b_probe_encoding.py`; `files/tests/test_suite_isolation.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: none. Deleted: none. No production module under `scripts/` was modified. Manual QA log
+> at `files/test-logs/v0.6.2_pre-plan-6-phase7-acceptance.md` (gitignored, not committed);
+> evidence under `files/dev-work/phase7/` (gitignored, not committed).
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 6 COMPLETE: the regression matrix is hardened (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-5 block's closing line
+> that "Phase 6 has not started". Everything else in it stands. Nothing below is deleted or
+> rewritten.**
+>
+> - **No production code changed.** Phase 6 is a test and harness phase: five test files modified,
+>   three added. The only behavioural fix (L2) belongs to the suite's own Tk lifecycle, and the
+>   evidence for that is below.
+> - **The matrix was audited before anything was written.** Of the eighteen rows, most were
+>   already covered strongly by Phases 1-5 and are listed as *coverage* rather than re-tested;
+>   duplicating them would have raised the count without raising the gate. Four real gaps were
+>   found: a stale pin whose build **moved**, a **repository** path with spaces, macOS repair
+>   through the **normal launch path**, and the production-state guard's blind spots.
+> - **Row 17 — the guard had already missed something real.** It watched the requirements stamp,
+>   the import proof and the log directory; it did not watch the FFmpeg pin, `files/bin`, or the
+>   staging tree. That is exactly how an intermediate Phase-5 run created
+>   `files/runtime-data/ffmpeg-staging/9.0.1` unnoticed — found by hand, afterwards. All three are
+>   guarded now. The fingerprint **recurses**, so a build three directories down cannot hide
+>   behind an unchanged `files/bin`; absence is a value, so a path appearing *or* disappearing
+>   both compare unequal; and the five small paths are checked per test (a violation names its
+>   culprit) while the 79-file log tree stays session-scoped for cost.
+> - **Row 18 — L2 is genuinely fixed.** Root cause, measured rather than assumed:
+>   `tk_gate._reset_root` destroys widgets but a `tkinter.Variable` is not owned by the widget
+>   that used it, so at `b59f562` **90 variables were still armed** at the end of three UI
+>   modules, each holding the live interpreter and each carrying a `__del__` that calls into Tcl.
+>   They sit in reference cycles, so the *cyclic* collector finalises them — on whichever thread
+>   happens to trigger a collection. Phase 1 made that land badly less often; it did not make it
+>   impossible.
+> - **The fix: `tk_gate.finalise_tk_objects`**, run at every module boundary, on the main thread
+>   (it raises if called from anywhere else). It does what each finaliser would have done and then
+>   clears the attribute that arms it — `Variable._tk`, `Image.name` — so afterwards there is no
+>   finaliser that *can* reach Tcl, wherever it later runs. **90 → 0 armed objects**, with the same
+>   262 tests passing on both sides. **No timeout was increased, no GC disabled, no timeout
+>   caught, no worker test serialised, nothing skipped or xfailed.** The process-wide
+>   single-interpreter rule is untouched and now asserted.
+> - **Reported honestly about the failure shape.** On this machine (CPython 3.12.10, Tcl/Tk 8.6)
+>   `_tkinter` guards the off-main-thread call and raises `RuntimeError: main thread is not in
+>   main loop`, swallowed as *Exception ignored* — it does not hang here. The finaliser is still
+>   being run from the wrong thread, which is the defect; the consequence is build-dependent. The
+>   fix removes the cause rather than relying on that guard. The historical reproduction is kept
+>   in a **bounded child process** so a build where it stalls cannot strand a run.
+> - **Structural hardening.** The drop's named remaining weakness —
+>   `test_a_winget_install_is_accepted_without_waiting_for_path`, which sliced `bootstrap.py`
+>   between two `def` markers — is AST now, together with five sibling guards in the same two
+>   modules. It was a good example of the problem: it had already broken once because a *comment*
+>   mentioned the symbol it forbade. New shared helper `files/tests/source_probe.py`, with its own
+>   self-checks against synthetic code, and a meta-test forbidding `.index("def …")` in the
+>   modules this phase touched. The `.bat` guards stay textual — a batch file has no AST.
+> - **My own new code had a defect and the broad gate caught it.** The first Tk boundary used
+>   `isinstance` over `gc.get_objects()`; a dead `weakref.proxy` raises `ReferenceError` on
+>   `isinstance`, which turned 1028 unrelated tests into setup errors. It now filters on
+>   `type(obj)`, which never dereferences, and no-ops for the fake `tkinter` modules some fixtures
+>   inject.
+> - **Gates.** Targeted (15 modules incl. the three new): **711 passed, 0 failed**. Broad slice —
+>   the full suite minus the 93 classified baseline nodes, deselected by **exact node ID** (listed
+>   in `files/dev-work/phase6/excluded-nodes.txt`, never a fuzzy `-k`): **5479 passed, 57 skipped,
+>   0 failed, 0 errors**. Full run: **17 failed / 5479 passed / 57 skipped / 76 errors**, the 93
+>   FAILED/ERROR node IDs **byte-identical** to Phase 5's, **+46 passed**.
+> - **Classification: A** = 76 `require_ffmpeg` errors across seven m4b modules (the fixture says
+>   "red gate, not a skip"); **B** = 16 Chatterbox failures (`PermissionError: [WinError 5]`
+>   spawning); **C** = 1 `test_plan3_boundaries` row caused by the protected untracked maintainer
+>   report; **D = 0**.
+> - **`verify.py`:** deps / docs / docnames / config **PASS**; pytest row red, truthfully, because
+>   this machine deliberately has no FFmpeg. Nothing was installed to change that.
+> - **Production state re-proved mechanically, not asserted.** `files/dev-work/phase6/snapshot.py`
+>   before and `compare.py` after every gate: requirements stamp, import proof, log tree,
+>   `ffmpeg-state.json` (still **no active pair**), `files/bin` (**absent**), `ffmpeg-staging`
+>   (**absent**), `.venv.replaced*` (none), `where ffmpeg` / `where ffprobe` (nothing), the WinGet
+>   `Gyan.FFmpeg` inventory (not installed), the PATH hash, and both protected untracked files —
+>   **16 keys, 0 differences.** `.venv` remains Python 3.12.10.
+> - **The real HOME-PC missing-FFmpeg acceptance condition remains unconsumed and reserved for
+>   Phase 7.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 7 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; the 2026-08-28 entry is intact, and
+>   `Decisions.md`, `Briefing.md` and `Changelog.md` were not touched.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 6).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `files/tests/conftest.py`; `files/tests/tk_gate.py`;
+> `files/tests/test_ffmpeg_health.py`; `files/tests/test_first_run_contract.py`;
+> `files/tests/test_suite_isolation.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: `files/tests/source_probe.py`;
+> `files/tests/test_hardening_matrix.py`; `files/tests/test_tk_finalisation.py`. Deleted: none.
+> No production module under `scripts/` was modified. All staged and committed together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 5 COMPLETE: a normal launch repairs itself (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-4 blocks' closing
+> line that "Phase 5 has not started", and the Phase-3 note that acquisition is deliberately
+> unreachable from a normal launch — that seal was Phase 3's, and Phase 5 opens it on purpose.
+> Everything else in those blocks stands. Nothing below is deleted or rewritten.**
+>
+> - **What changed for a person.** Double-clicking `Setup_and_Run` on a machine whose FFmpeg is
+>   missing or refused now **repairs it and launches**, instead of showing a modal and opening an
+>   app whose audio tools do not work. Phases 1-4 built every piece of that; none of it was
+>   reachable from the launch people actually perform.
+> - **C1 closed.** `ensure_ffmpeg_ready_for_launch()` used to detect the failure, call
+>   `show_warning_dialog`, and launch anyway. The provisioning route lived behind `run_setup`,
+>   which an existing installation never reaches. It now attempts the repair behind the existing
+>   progress window and returns an **`FFmpegRepair`** result rather than warning.
+> - **One orchestration, `repair_ffmpeg`**, shared by first-run setup and every launch, so the
+>   two cannot drift into different answers to "what happens when FFmpeg is missing?".
+>   Containment order: existing installations → user-scope package manager → the app's own
+>   verified build.
+> - **The fallback moved out of `_install_ffmpeg`, and that is the substantive fix.** While it
+>   lived inside, a WinGet run that exited 0 and left nothing provable **ended the repair** — the
+>   fallback had already been skipped inside the function that had just returned `True`. An
+>   installer's exit code now means only *the acquisition command appeared to complete*;
+>   `ffmpeg_health` is the only thing that can say **ready**.
+> - **A portable success is not followed by a second discovery.** `ffmpeg_portable.acquire`
+>   already proved the pair at its final paths and pinned it atomically. Re-running `establish`
+>   afterwards — which the old code did after every install — could pin a *different*
+>   installation, so the orchestration confirms **that** pair instead. `ffmpeg_portable.py` was
+>   not touched and its transaction semantics are unchanged.
+> - **M5 closed.** The Gyan.FFmpeg WinGet call now passes `--scope user` explicitly, as the
+>   Python one already did. A scope or elevation refusal is treated as *this route is
+>   unavailable* and falls through to the repo-local build; nothing ever requests machine scope
+>   or elevation. An **AST inventory** asserts every production `winget install` names user
+>   scope, so a future call site cannot quietly omit it, and the root `.bat`'s own Python
+>   fallback was verified rather than assumed.
+> - **M4 closed structurally.** An existing macOS `.venv` now reaches the existing Homebrew
+>   acquisition from a normal launch. Homebrew itself is **never installed** by a launch repair —
+>   that stays the first-run `.command`'s decision, made with a person watching — and a Mac
+>   without Homebrew gets a truthful, non-looping notice that names Homebrew and points at
+>   brew.sh. `brew` exiting 0 is not FFmpeg success: only a proved, pinned pair is, and
+>   `_ffmpeg_on_path()` is no longer consulted as an authority anywhere.
+> - **M3 closed.** Repair first → launch → **at most one** notice. Requirements, FFmpeg and
+>   Kokoro could each open a modal *before* the GUI existed; a messagebox is modal while shown,
+>   so a launcher double-clicked by someone who walked away sat on a warning with no window
+>   behind it. Those are collected and presented once, after `launch_gui` confirms the GUI
+>   started, and the text names **only the routes actually attempted**. Genuinely fatal
+>   environment failures still report pre-GUI, because there is no GUI to put them behind.
+> - **The retry loop is gone from active user-facing text.** `ffmpeg_health.describe_failure()`
+>   now says the app has already tried and that opening it again will not change the result, and
+>   still asks for an IT allowlist rather than suggesting anyone disable protection. A
+>   parametrised test asserts **no** module under `scripts/Universal/` tells a person to run the
+>   launcher again. Instructions that name a *different* action first (install Python, install Tk
+>   support) are left alone — they are not the loop.
+> - **Minimum-scope repair proved, not asserted.** AST proofs that no FFmpeg path reaches
+>   `repair_venv` / `create_venv`, that the requirements paths do not either, and that no launch
+>   routes through `run_setup`. Phase 3's reachability seal **narrowed rather than came off**:
+>   `--venv-check` (the Windows launcher's blocking pre-flight) and `repair_venv` still cannot
+>   reach acquisition.
+> - **The root launchers were not changed.** A test asserts they still know nothing of
+>   `ffmpeg_health`, `ffmpeg_portable`, `ffprobe`, `Gyan.FFmpeg` or the state file — they remain
+>   thin transport, and `--launch-only` under `pythonw` performs the bounded self-heal itself.
+>   The `--launch-only` help text and its call-site comment, which still said "skip all setup
+>   checks", were corrected.
+> - **A test-isolation hole was found and closed.** A new autouse conftest guard makes a real
+>   `winget`/`brew` invocation and a real `urlopen` impossible, and refuses
+>   `_download_portable_ffmpeg_windows` unless a test stubs it. Not theoretical: an intermediate
+>   run created `files/runtime-data/ffmpeg-staging/9.0.1` (empty — the download itself was
+>   refused). It was removed, the seam was closed, and the final run leaves the directory absent.
+> - **Red proof, for the defects it names.** Against `1e788db`: a normal launch never called the
+>   installer (`['warning', 'launch_gui']`); the warning preceded the GUI; an existing macOS venv
+>   never called `brew` with Homebrew available; the Gyan.FFmpeg argv had no `--scope`; and a
+>   WinGet exit 0 that proved nothing never reached the fallback. All hold on this tree.
+>   **Reported honestly:** the sixth probe — an FFmpeg failure never rebuilding the environment —
+>   is a `[control]` that passes on both trees and is not red evidence.
+> - **Gate: 17 failed / 5433 passed / 57 skipped / 76 errors.** The 93 FAILED/ERROR rows are
+>   **byte-identical** to the Phase-4-remediation run; the delta is **+93 passed**. `verify.py`
+>   deps / docs / docnames / config all PASS; the pytest row is the standing HOME-PC red
+>   baseline. **Phase-5-attributable failures: zero.**
+> - **Preserved HOME-PC state intact:** requirements stamp, import proof, log directory and
+>   `ffmpeg-state.json` unchanged **including content hashes** (still no active pair); `.venv`
+>   still Python 3.12.10; `files/bin` absent; no `ffmpeg-staging`; `where ffmpeg` finds nothing;
+>   no `Gyan.FFmpeg`; no `.venv.replaced*`; PATH unchanged. **The real no-FFmpeg reproduction
+>   condition is intact and still reserved for Phase 7.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 6 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; the 2026-08-28 entry is intact.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 5).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `scripts/Universal/shared/ffmpeg_health.py`; `files/tests/conftest.py`;
+> `files/tests/test_ffmpeg_health.py`; `files/tests/test_ffmpeg_portable.py`;
+> `files/tests/test_first_run_contract.py`; `files/tests/test_venv_recovery.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: `files/tests/test_launch_self_heal.py`. Deleted: none. All staged and committed
+> together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 4 REMEDIATED: a sentinel with no path is still a command name (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-4 claim below that
+> pydub "cannot fall back to a bare PATH ffmpeg" — on macOS it still could. Everything else in
+> that block stands. Nothing below is deleted or rewritten.**
+>
+> - **The gap.** Phase 4 pointed unconfigured pydub at `UNVERIFIED_PYDUB_SENTINEL`, whose value
+>   was `"<no-verified-ffmpeg>"`. That string has no absolute path and **no path separator**, and
+>   process creation treats an argv[0] with no separator as a **command name** — it searches
+>   PATH for it. So the value was not a fail-closed target at all; it was a bare command token
+>   with a self-explaining name.
+> - **Why it looked safe.** On Windows `<` and `>` are illegal in a filename, so the PATH lookup
+>   can never match anything and the call fails. That is an accident of NTFS naming rules, not
+>   an invariant. **This project also supports macOS**, where `<` and `>` are ordinary filename
+>   characters: a PATH directory may legally contain an executable named exactly
+>   `<no-verified-ffmpeg>`, and pydub would execute it. Unverified PATH execution — the precise
+>   thing Phase 4 declares impossible.
+> - **The fix is one line of value.** `UNVERIFIED_PYDUB_SENTINEL` is now
+>   `str(Path(__file__).resolve().parent)`: this package's own absolute directory. **Absolute**,
+>   so there is nothing for process creation to search. **A directory**, so no process API on
+>   any supported platform can execute it as the FFmpeg binary.
+> - **Why a directory rather than an absolute nonexistent file.** An absolute nonexistent path
+>   would also have closed the PATH route and would have been much better than the old value.
+>   But *"no process API will execute a directory"* is a property of the operating system, while
+>   *"this file does not exist"* is a property of the filesystem at one moment — one that anyone
+>   can change by creating the file. The directory necessarily exists (the module was imported
+>   from it) and necessarily is not an ffmpeg binary. **No dummy executable and no sentinel file
+>   were created**, and nothing was written to disk.
+> - **The approved Phase-4 model is untouched.** `discovered_ffmpeg()` is still observation only;
+>   `have_ffmpeg()` is still `verified_ffmpeg()`; `ffmpeg_path`/`ffprobe_path` still expose only
+>   the pin; `ffmpeg_cmd`/`ffprobe_cmd` still raise `FFmpegUnavailable`; `status_line()` is still
+>   the single wording authority and still executes nothing; the consumer gates and the central
+>   fail-closed accessor are unchanged. `ffmpeg_health.py` and `ffmpeg_portable.py` were **not**
+>   touched.
+> - **pydub configuration is unchanged in shape.** Unpinned, all four settings — `converter`,
+>   `ffmpeg`, `ffprobe` and `pydub_utils.get_prober_name` — resolve to the fail-closed absolute
+>   directory. Pinned, all four are the real absolute sibling paths, exactly as before.
+>   `refresh()` still clears the flag so a later pin replaces the fail-closed target.
+> - **Red proof, for the defect it names.** Against `c96d566`, four of five new regressions
+>   fail: the sentinel is not absolute (so it *would* be resolved through PATH), it is not a
+>   directory, `get_prober_name()` is not absolute either, and an unverified pydub run is handed
+>   a bare token while a real ffmpeg sits on PATH. All pass on this tree. **Reported honestly:**
+>   the fifth, `test_pinning_replaces_the_fail_closed_target_everywhere`, asserts that pinned
+>   behaviour is *not* regressed; it passes on both trees and is not red evidence.
+> - **The test asserts the cross-platform property, not a faked filesystem.** It does not create
+>   a file named with `<` or `>` — Windows cannot represent the macOS case, and faking it would
+>   prove nothing about the platform where the defect actually bites.
+> - **Gate: 17 failed / 5340 passed / 57 skipped / 76 errors.** The 93 FAILED/ERROR rows are
+>   **byte-identical** to the Phase-4 run; the delta is **+5 passed**, exactly the five new
+>   tests. `verify.py` deps / docs / docnames / config all PASS; the pytest row is the standing
+>   HOME-PC red baseline. **Remediation-attributable failures: zero.**
+> - **Preserved HOME-PC state intact:** requirements stamp, import proof, log directory and
+>   `ffmpeg-state.json` unchanged **including content hashes** (`ffmpeg-state.json` still has no
+>   active pair); `.venv` still Python 3.12.10; `files/bin` absent; no `ffmpeg-staging`;
+>   `where ffmpeg` finds nothing; no `Gyan.FFmpeg`; no `.venv.replaced*`; PATH unchanged. No
+>   download, no install.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 5 has not started. Plan 6 has not begun.** The additive
+>   superseding FFmpeg ADR remains owed at Phase 10; the 2026-08-28 entry is intact.
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 4 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/ffmpeg_utils.py`;
+> `files/tests/test_ffmpeg_runtime_trust.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: none. Deleted: none. All staged and committed together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 4 COMPLETE: runtime FFmpeg trust closure (2026-09-04)
+>
+> **This block is the live state of the repository. It supersedes the Phase-3 blocks' closing
+> line that "Phase 4 has not started". Everything else in them stands. Nothing below is deleted
+> or rewritten.**
+>
+> - **The new invariant, in one sentence: *observation is not permission.*** Two coherent
+>   sibling executables on disk is a fact about the filesystem. Being allowed to run them is a
+>   fact about `ffmpeg_health` having actually executed **both halves**. Before this phase the
+>   first was silently reported as the second, and Phase 3's pin work would have been wasted on
+>   consumers that never consulted it.
+> - **Defect H3 closed — `have_ffmpeg()` no longer blesses an unproved pair.** It is now exactly
+>   `verified_ffmpeg()`. The observation half moved to a separate, honestly-named
+>   `discovered_ffmpeg()`, whose only consumer is `status_line()` wording. `ffmpeg_path` /
+>   `ffprobe_path` expose the pinned pair or nothing.
+> - **Defect M2 closed — there is no bare-name fallback.** `ffmpeg_cmd()` / `ffprobe_cmd()`
+>   resolve **only** `ffmpeg_health.pinned_pair()` and raise **`FFmpegUnavailable`** otherwise.
+>   Returning `None` as `argv[0]` was rejected in favour of raising: a `None` propagates to a
+>   confusing `TypeError` deep inside `subprocess`, whereas the exception names the condition at
+>   the boundary where it is true. The two halves can no longer be resolved independently,
+>   because there is no independent resolution left.
+> - **The central API is fail-closed, rather than ~20 duplicated gates.** Making the accessor
+>   raise means every deep consumer — `m4b_maker` (×6), `m4b_probe`, `mp3_tool` (×9), `metadata`
+>   (×3), `chatterbox_synth`, `epub2tts_edge`, `m4b_converter:1745` — inherits the boundary
+>   without a call site being able to forget it. The three headline user-facing gates
+>   (`m4b_converter.py:650` status wording, `m4b_converter.py:963` conversion start,
+>   `mp3_tool.ensure_ffmpeg_available`) were still moved to `verified_ffmpeg()` explicitly, so
+>   the user is told *why* rather than meeting an exception.
+> - **pydub was the one route with no gate in front of it.** Left unconfigured it shells out to
+>   whatever `PATH` resolves — the exact escape M2 describes, reached without touching
+>   `ffmpeg_cmd()` at all. `configure_pydub()` now **always** sets `converter` / `ffmpeg` /
+>   `ffprobe` and `pydub_utils.get_prober_name`, pointing them at `UNVERIFIED_PYDUB_SENTINEL`
+>   (`<no-verified-ffmpeg>`) when nothing is pinned, so an unverified machine fails visibly
+>   instead of silently running an unproved binary. `refresh()` clears the configured flag so a
+>   later pin replaces the sentinel.
+> - **`status_line()` is still the single place the found / verified / absent distinction is
+>   worded**, now with three states — and a test proves that *drawing a status line executes
+>   nothing*, which is the whole point of separating observation from execution.
+> - **Red proof, for the defects it names.** Against `fd6c8b2`, five invariants break: an
+>   unproved pair reported runtime-ready (H3), that pair exposed as executable (H3), the MP3 Tool
+>   gate authorising every FFmpeg-backed operation on it (H3), `ffmpeg_cmd()`/`ffprobe_cmd()`
+>   returning the bare names (M2), and pydub defaulting to a bare `PATH` ffmpeg (M2). All hold on
+>   this tree. **Reported honestly:** the sixth probe — *a pinned pair is what execution uses* —
+>   is a positive invariant labelled `[control]`; it passes pre-fix too and is not red evidence.
+> - **The two old-contract tests were rewritten, not deleted**, so the change of contract stays
+>   legible in the file that used to bless the old one:
+>   `test_have_ffmpeg_is_true_for_an_unproven_but_coherent_pair` →
+>   `test_an_unproven_coherent_pair_is_not_runtime_ready`, and
+>   `test_the_bare_name_fallback_survives_for_command_building` →
+>   `test_there_is_no_bare_name_fallback_for_command_building`.
+> - **New `files/tests/test_ffmpeg_runtime_trust.py` (26 tests)** covers observation-vs-execution,
+>   the fail-closed command API, pydub trust including the sentinel, the consumer gates (AST
+>   assertions that only `verified_ffmpeg` is asked), a **structural inventory** (no bare
+>   `["ffmpeg", …]` argv head, no runtime `shutil.which("ffmpeg")`), cache/refresh behaviour, and
+>   that `ffmpeg_utils` never proves, pins or provisions.
+> - **Two allowlist entries, each with a companion proof rather than a bare exemption.**
+>   `epub2tts_edge.py` builds `["ffmpeg", …]` lists but always routes them through `_run_ffmpeg`,
+>   which rewrites `argv[0]` via `ffmpeg_cmd()` — two tests prove the rewrite exists and that it
+>   inherits the refusal. `bootstrap.py`'s `shutil.which("ffmpeg")` is **setup-layer detection**,
+>   not runtime execution, and is excluded on that basis.
+> - **Four test modules needed a pinned pair, and got one instead of a weakened production API.**
+>   A new non-autouse `pinned_ffmpeg` conftest fixture builds a real sandbox pair inside
+>   `tmp_path`, proves it through `establish` with a stub runner, and redirects every state path.
+>   Two hazards surfaced and were fixed at the source: `test_mp3_concat_paths.py` called
+>   `ffmpeg_cmd()` at **module scope** (now lazy, guarded by `verified_ffmpeg()`), and
+>   `test_m4b_execution.py` **hung forever** because the new gate opened a real Tk `showerror`
+>   modal — the shared `install_conversion_stubs` now patches `verified_ffmpeg` too.
+> - **Gate: 17 failed / 5335 passed / 57 skipped / 76 errors.** The 93 FAILED/ERROR rows are
+>   **byte-identical** to the Phase-3-remediation run, +31 passed. `verify.py` deps / docs /
+>   docnames / config all PASS; the pytest row is the standing HOME-PC red baseline (no FFmpeg).
+>   **Phase-4-attributable failures: zero.**
+> - **Preserved HOME-PC state intact**, verified after the run: requirements stamp, import proof,
+>   log directory and `ffmpeg-state.json` unchanged **including content hashes**; `.venv` still
+>   Python 3.12.10; `files/bin` still absent; no `ffmpeg-staging`; `where ffmpeg` finds nothing;
+>   no `Gyan.FFmpeg` package; no `.venv.replaced*`. No download, no install.
+> - **`scripts/Universal/shared/ffmpeg_portable.py` was NOT touched**, and the **2026-08-28 ADR
+>   is intact**. The **additive superseding ADR is owed at Phase 10** — the runtime contract it
+>   describes has changed in code, and `Decisions.md` must say so additively rather than by
+>   editing history.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 5 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-04 (Phase 4).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/ffmpeg_utils.py`;
+> `scripts/Universal/mp3_tools/m4b_converter.py`; `scripts/Universal/mp3_tools/mp3_tool.py`;
+> `files/tests/conftest.py`; `files/tests/test_ffmpeg_health.py`;
+> `files/tests/test_m4b_conversion_plan.py`; `files/tests/test_m4b_probe_encoding.py`;
+> `files/tests/test_mp3_concat_paths.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: `files/tests/test_ffmpeg_runtime_trust.py`.
+> Deleted: none. All staged and committed together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 3 REMEDIATED: persistence is part of the pin (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the Phase-3 claim below that
+> a build was "proved and pinned" — the pin could fail to persist and still be reported as
+> success. Everything else in that block stands. Nothing below is deleted or rewritten.**
+>
+> - **Gap 1 — a failed state write was reported as a successful pin.** `save_state` swallowed
+>   `OSError` and returned nothing, so `adopt_pair` proved the pair, failed to record it, logged
+>   *"Verified"* and handed it back. A disk-full or permission failure therefore produced
+>   *"acquisition succeeded, pair pinned"* while `pinned_pair()` still resolved the incumbent —
+>   or nothing. **Phase 4 is about to make consumers trust exactly that pin**, which is why this
+>   was blocking rather than cosmetic.
+> - **Fixed by separating two facts that were collapsed into one.** `save_state` now returns
+>   whether it committed, and `adopt_pair` returns an **`Adoption`** with four outcomes —
+>   `pinned`, `not-proved`, `not-persisted`, `incoherent` — plus a `proved` property, so *the
+>   binaries ran* and *this is the active runtime pair* can be stated separately and truthfully.
+>   `establish` was made truthful the same way. A `not-persisted` result logs that the
+>   executables ran and that it is **not pinned**, leaves the incumbent active, and stays
+>   retryable.
+> - **State writes are now atomic.** The complete JSON is serialised first, written to a
+>   uniquely-named sibling in the same directory, `fsync`ed, and swapped in with one
+>   `os.replace`. The live file is never the file being written, so a failure part-way through
+>   can no longer leave neither the old state nor the new one — an attempt to *record* a
+>   replacement destroying the record of a pair that worked.
+> - **Rejection metadata cannot cost the pin.** Failing to record a rejection is logged and
+>   otherwise ignored: the atomic write leaves the incumbent intact, and the only consequence is
+>   that the candidate may be probed again another day. Inability to record a rejection is not
+>   evidence against the incumbent.
+> - **Gap 2 — an unusable installed build was a permanent dead end.** An incomplete or
+>   non-running `files/bin/ffmpeg/9.0.1` made `adopt_existing_final` return nothing, so
+>   `acquire` downloaded, extracted and proved a fresh candidate — and then `promote` refused
+>   the occupied destination and returned `None`. Every later attempt did exactly the same. Fail
+>   closed, but clearable only by a human deleting the directory, which is precisely the
+>   recovery this drop exists to remove.
+> - **Fixed with the same discipline as the venv transaction.** `promote` is only ever reached
+>   once a fresh candidate has been hash-verified, safely extracted and **proved**, so the
+>   occupant is known to be the worse of the two. It is moved aside — not deleted — replaced
+>   wholesale, restored if the install fails, and discarded only once the replacement is in
+>   place. Three cases are distinguished: *usable* (adopt it, no download), *unusable* (repair
+>   it), and *proved but unrecorded* (**leave the files exactly where they are** — they are
+>   good, the disk was not, and the next run adopts them without downloading again).
+> - **Red proof, each for its named reason.** Against `a457765`: *"adopt_pair reported B as
+>   adopted while pinned_pair still resolves A — false success"*, and *"acquire() returned None
+>   twice: promote() refuses the occupied destination, so the dead end persists until a human
+>   deletes the directory"*. Both hold on the remediated tree. **Reported honestly:** the third
+>   probe — that a failed write cannot damage the incumbent — *already held* at `a457765`,
+>   because the injection fails before writing rather than mid-write. The atomic write removes
+>   the possibility of a torn write, which that injection cannot simulate; it is a real
+>   hardening, not a demonstrated pre-existing corruption.
+> - **One pre-existing test was rewritten, deliberately.**
+>   `test_an_unwritable_state_directory_is_not_fatal` asserted that `establish` still returns
+>   the pair on a write failure, "because losing the record only costs a re-proof". That is the
+>   conflation this remediation exists to remove. It now asserts the truthful contract — not
+>   fatal, not crashing, still retryable, but **not a pin** — with a companion test proving the
+>   run pins normally once writing works.
+> - **Gate: 17 failed / 5304 passed / 57 skipped / 76 errors.** Failure and error rows identical
+>   to the Phase-3 run, +21 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-3-attributable failures: zero.**
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10;
+>   requirements stamp, import proof, log directory and `ffmpeg-state.json` all unchanged
+>   including content hashes; `files/bin` still absent; no `ffmpeg-staging`; no stray `.tmp`
+>   state siblings; nothing on PATH; no `Gyan.FFmpeg` package. No download, no install — fixture
+>   archives and a stubbed fetcher inside `tmp_path` throughout.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 4 has not started. Plan 6 has not begun.** The superseding
+>   FFmpeg ADR remains owed at Phase 10.
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 3 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/ffmpeg_health.py`;
+> `scripts/Universal/shared/ffmpeg_portable.py`; `files/tests/test_ffmpeg_health.py`;
+> `files/tests/test_ffmpeg_portable.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. All staged and
+> committed together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 3 COMPLETE: safe portable FFmpeg acquisition (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "Phase 3 has not started"
+> line in the block below it; everything else there still stands. Nothing below is deleted or
+> rewritten.**
+>
+> - **Provenance was re-verified before the pin was written**, independently, against both
+>   authorities — not taken from `Handoff.md` or the drop:
+>   - **GyanD/codexffmpeg release `9.0.1`** (GitHub API): asset `ffmpeg-9.0.1-full_build.zip`,
+>     size **251427729**, digest **sha256:2e8e28af97c2ae338ccef92e36da9b2a4cd21d0cad9dde093545606cb07f5b00**,
+>     `draft: false`, `prerelease: false`, published 2026-08-12.
+>   - **microsoft/winget-pkgs** `manifests/g/Gyan/FFmpeg/9.0.1/Gyan.FFmpeg.installer.yaml`:
+>     `PackageIdentifier: Gyan.FFmpeg`, `PackageVersion: 9.0.1`, the same `InstallerUrl`, the
+>     same `InstallerSha256`, and the sibling layout
+>     `ffmpeg-9.0.1-full_build\bin\{ffmpeg,ffprobe}.exe`.
+>   - **No mismatch.** Evidence recorded in `files/dev-work/phase3/provenance.txt`. The 251 MB
+>     asset was **not** downloaded — metadata suffices because the production download enforces
+>     the hard-coded digest.
+> - **Defect H1 is closed.** The old fallback fetched BtbN's `master-latest` — floating on two
+>   axes — with `urlretrieve` straight into the live `files/bin`, verified nothing, wrote
+>   `ffmpeg.exe` and `ffprobe.exe` there as two independent writes, and reported success if
+>   `ffmpeg.exe` merely existed. It is gone, replaced rather than left as a second route.
+> - **Two pins, deliberately kept apart.** `shared/ffmpeg_portable.py` owns the **source** pin —
+>   version, asset, exact URL, expected SHA-256 — asserting only *these bytes are the reviewed
+>   Gyan 9.0.1 build*. `shared/ffmpeg_health.py` remains the sole **runtime** authority,
+>   asserting only *these sibling executables were actually executed*. Neither substitutes for
+>   the other; `ensure_ready` still re-proves the active pair on later launches. Tests state
+>   both the positive and the negative of each claim.
+> - **The transaction:** stream to `….part` → SHA-256 computed as bytes land → compared at EOF,
+>   with **nothing extracted** unless it matches → whole member set validated (traversal,
+>   absolute POSIX, drive-absolute, UNC, backslash traversal, symlink, per-member and total size
+>   bounds) **before** any payload is written → sibling pair required via `pair_in` in the
+>   deterministic `ffmpeg-9.0.1-full_build/bin` → **both halves proved in staging** → the
+>   complete build promoted with **one** `os.replace` into `files/bin/ffmpeg/9.0.1` → proved
+>   **again** at the final absolute paths → pinned.
+> - **`ffmpeg_health.adopt_pair` is new, and small, because `establish` was the wrong
+>   primitive.** `establish` is a discovery loop that writes `pair=None` when nothing proves —
+>   handing it one failing candidate would have erased a perfectly good pin. `adopt_pair` proves
+>   one coherent candidate itself (a caller cannot assert a pair is good), pins only on success,
+>   and on failure records the rejection **without** touching the incumbent. Every pre-commit
+>   failure mode is tested against an already-pinned pair A: download, hash, unsafe archive,
+>   missing ffprobe, staging proof, final proof. A survives all of them.
+> - **Interruption after promotion is idempotent.** A promoted-but-unpinned build is re-proved
+>   and adopted without re-downloading; an existing final directory is never overwritten or
+>   merged into; an existing-but-unusable one is never mistaken for success. A verified staged
+>   archive is reused only after being **re-hashed** — a filename is not evidence — and a stale
+>   extraction can never merge into a retry.
+> - **Discovery** gained exactly one bounded level: `files/bin/ffmpeg/<version>/bin`, one level
+>   deep, sorted deterministically, no drive scanning, no execution from enumeration. The
+>   generic `files/bin` is never owned or replaced.
+> - **Not reachable from an ordinary launch.** Asserted over bootstrap's call graph:
+>   `--venv-check`, `--launch-only`, `repair_venv` and `--repair-venv` reach neither
+>   `ensure_ffmpeg` nor the acquirer. Explicit first-run setup keeps the route it always had.
+>   **Phase 5 owns wiring provisioning into launches.**
+> - **Gate: 17 failed / 5283 passed / 57 skipped / 76 errors.** Failure and error rows identical
+>   to the Phase-2 run, +80 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-3-attributable failures: zero.** One pre-existing boundary guard in
+>   `test_cleanup_worker.py` correctly caught the new module's use of `rmtree`; its allowlist
+>   was extended with the same justification it already applies to `bootstrap.py` and
+>   `metadata.py` — the module clears only its own staging, never a catalog-derived path, and
+>   the assertions that pin *that* are unchanged.
+> - **Red proof:** six invariants, each demonstrated broken against `e112fa7` for its own
+>   reason — floating source; no expected digest anywhere; a deliberately wrong archive
+>   **accepted and reported as success**; executables written loose into the live `files/bin`;
+>   no member validation at all; and `establish()` writing `pair=None` and **erasing a working
+>   pinned pair**. All six hold on the Phase-3 tree.
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10;
+>   requirements stamp, import proof, log directory and `ffmpeg-state.json` all unchanged
+>   including content hashes (`pair` still `None`); **`files/bin` still absent**; no
+>   `ffmpeg-staging`; nothing on PATH; **no `Gyan.FFmpeg` package installed**. No archive was
+>   downloaded and no FFmpeg was installed — every test used fixture ZIPs of a few hundred bytes
+>   and a stubbed fetcher, inside `tmp_path`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 4 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 3).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `scripts/Universal/shared/ffmpeg_health.py`; `files/tests/test_cleanup_worker.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: `scripts/Universal/shared/ffmpeg_portable.py`;
+> `files/tests/test_ffmpeg_portable.py`. Deleted: none. The launchers, `ffmpeg_utils`, the
+> converter and `mp3_tool` were **not** touched. All staged and committed together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 2 FINAL remediation: interrupted recovery replays the real commit condition (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the interrupted-recovery
+> claim in the block below it, which said the import proof "is exactly the commit condition".
+> It is not — it is one of eight. Everything else in that block still stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **The gap.** The live transaction commits only after: candidate exists → interpreter and
+>   capability checks pass → `reconcile_requirements` succeeds → required imports are really
+>   proved → the proof is recorded → `assess_venv_health` runs against the **actual** resulting
+>   venv → `can_launch` is True → `txn.commit()`. Recovery, however, discarded the preserved
+>   environment on the strength of `import_proof_is_current()` alone. There is a real
+>   interruption window between those two points: pip succeeded, the imports were proved, the
+>   proof was written, and the process died before the final health check ever ran. On restart,
+>   a working environment was deleted for a candidate nobody had confirmed could launch.
+> - **The fix.** `recover_interrupted_replacement` now re-establishes **both** halves before an
+>   aside may be discarded: a current, interpreter-matching real-import proof **and** the actual
+>   candidate passing `assess_venv_health(...)`, using the same authority and the same
+>   `can_launch` meaning `repair_venv` uses immediately before `commit`. A candidate whose proof
+>   is valid but whose environment cannot run no longer wins — the preserved environment is
+>   restored and the repair stays retryable.
+> - **Headless context is carried, not assumed.** The function takes `require_tk`, and both
+>   callers pass `not headless`, so an interrupted headless repair is never judged against a GUI
+>   standard it never claimed to meet. Worth recording honestly: with no better base available a
+>   Tk-less environment is *degraded*, and degraded still launches — so today that context
+>   changes the state that is **reported**, not whether the candidate may commit. It is threaded
+>   through so recovery evaluates the identical call to the one the transaction makes; a test
+>   states exactly that rather than implying more.
+> - **No new marker file.** The exact final condition is re-evaluated from the authorities that
+>   already exist. Nothing durable was added, and a test asserts recovery writes nothing into
+>   the candidate.
+> - **Red proof, for the stated reason.** Against `9dcbe5a` the new
+>   `test_a_proved_but_unlaunchable_candidate_does_not_win` fails with
+>   `FileNotFoundError: ....venv\keepsake.txt` — the preserved environment's own file is gone,
+>   because the old code discarded the aside on the proof alone. That is the defect, observed
+>   rather than asserted. Six of the new tests fail there; the other 74 pass, so no approved
+>   Phase-2 behaviour was disturbed.
+> - **Gate: 17 failed / 5203 passed / 57 skipped / 76 errors.** Failure and error rows identical
+>   to the previous run, +8 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-2-attributable failures: zero.**
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10, not
+>   deleted or rebuilt; **no `.venv.replaced*` beside the real venv**; requirements stamp, import
+>   proof, log directory and `ffmpeg-state.json` all unchanged including content hashes;
+>   `files/bin` absent; nothing on PATH; **no `Gyan.FFmpeg` package installed**. Every
+>   transaction scenario ran in `tmp_path`.
+> - **Phase-3 provenance, recorded only.** ChatGPT re-verified, immediately before this
+>   checkpoint: Gyan release tag **9.0.1**, asset **ffmpeg-9.0.1-full_build.zip**, URL
+>   `https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-full_build.zip`,
+>   asset size **251427729** bytes, digest
+>   **sha256:2e8e28af97c2ae338ccef92e36da9b2a4cd21d0cad9dde093545606cb07f5b00**; the
+>   `winget-pkgs` manifest for `Gyan.FFmpeg` **9.0.1** carries the same URL and the same
+>   `InstallerSha256`. **Informational only — Phase 3 was NOT started and no FFmpeg code,
+>   URL or hash was touched.** Phase 3 must still re-verify these facts itself at its own start,
+>   as the drop requires.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 3 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 2 final remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/test_venv_recovery.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. The launchers were
+> **not** changed. All staged and committed together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 2 REMEDIATED after review (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the Phase-2 rollback claim
+> in the block below it, which was correct about the health model and the handoff and
+> overstated the replacement transaction. Everything else there still stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **What review found.** The Phase-2 health model, launcher handoff and ~169.7 ms
+>   `--venv-check` cost were accepted. Four correctness gaps inside the replacement
+>   transaction were not, and all four were confirmed in the committed code rather than
+>   argued:
+>   1. **Tk-only repair was not rollback-safe.** A Tk-broken environment passes
+>      `venv_is_valid` (interpreter + ssl), so it was never set aside — and the recreate step
+>      then `rmtree`d it outright. If the rebuild failed, a CLI-capable environment was gone.
+>   2. **The aside was discarded too early.** It was released when the candidate's
+>      *capabilities* passed, but `repair_venv` runs `reconcile_requirements` afterwards — so
+>      a pip or import failure left no way back.
+>   3. **Two compatibility predicates.** The replace decision used `_is_kokoro_compatible`
+>      (floor 3.10) while the health model used `is_full_feature_python` (floor 3.11), so a
+>      3.10 environment could be called incompatible by one and kept by the other.
+>   4. **The report read the base, not the result.** `_interp_version_argv(py_argv)` names the
+>      interpreter that was *selected*, not the one the environment ended up with.
+> - **The transaction is now explicit and caller-owned.** `VenvReplacement` holds the previous
+>   environment; `repair_venv` owns commit and rollback across the whole proof — create →
+>   capabilities → pip → **real imports** → resulting-venv health — and commits only at the
+>   end. `_create_validated_venv` still owns the transaction when nobody else does, so
+>   first-run setup is unchanged.
+> - **Nothing destroys an environment it did not create.** The recreate step only ever
+>   discards a candidate built moments earlier; anything worth keeping is already aside, and
+>   anything not worth replacing was left alone.
+> - **One compatibility authority.** The replace decision goes through `assess_venv_health`
+>   with the base interpreter's own compatibility, so it cannot disagree with the health
+>   verdict. A 3.10 environment with a 3.12 base is now actually replaced; with no better base
+>   it is degraded, not falsely healthy. Both predicates still exist and still mean what they
+>   say — the bug was using the wrong one.
+> - **The outcome is read from the environment that exists.** A repair reports full health
+>   only when the resulting venv is itself fully healthy; base 3.12 with a venv still on 3.10
+>   reports limits, and a repair that leaves an unusable venv is a failure with rollback.
+> - **Interrupted repairs have a deterministic answer.** `recover_interrupted_replacement`
+>   runs before any new transaction and at the start of `run_setup`: an aside with no venv is
+>   **restored** (without this, the next launch would see no environment and fall into a full
+>   first-run install, having thrown away one that worked); with both present, the candidate
+>   wins only if it recorded a valid import proof for the current pins on its own interpreter
+>   — which is exactly the commit condition — and otherwise the preserved environment is put
+>   back. An aside is **never** blindly deleted; if one somehow survives, a second gets a
+>   unique name rather than overwriting it.
+> - **Rollback is never claimed falsely.** `VenvReplacement.rollback` returns False when there
+>   was nothing to restore *or* when restoring failed, and the message distinguishes the two.
+> - **Windows exit-code rule reviewed, not redesigned.** `if errorlevel 1 goto needsrepair`
+>   stays: cmd cannot distinguish "bootstrap returned 3" from "the interpreter could not
+>   start", and the second is precisely the case bootstrap cannot report. That is safe
+>   *because* a repair request is no longer destructive — `--repair-venv` re-asks the health
+>   authority and keeps a healthy environment. A test holds that property in place.
+> - **Gate: 17 failed / 5195 passed / 57 skipped / 76 errors.** Failure and error rows
+>   identical to the Phase-2 run, +27 passed. `verify.py` deps/docs/docnames/config all PASS.
+>   **Phase-2-attributable failures: zero.** 17 of the new tests fail against `5919723`.
+> - **Preserved HOME-PC state intact**, verified after the run: `.venv` on Python 3.12.10, not
+>   deleted or rebuilt, no `.venv.replaced*` anywhere; requirements stamp, import proof, log
+>   directory and `ffmpeg-state.json` all unchanged including content hashes; no `files/bin`,
+>   nothing on PATH, no FFmpeg pin. Every destructive scenario was exercised in `tmp_path`.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published
+>   release remains **`v0.4.0`**. **Phase 3 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 2 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/test_venv_recovery.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. The launchers were
+> **not** changed — no remediation test proved it necessary. All staged and committed
+> together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 PHASE 2 COMPLETE (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "Phase 2 has not
+> started" line in the block below it; everything else there still stands. Nothing below is
+> deleted or rewritten.**
+>
+> - **Defect H2 is closed.** The Windows launcher decided the environment was fine by asking
+>   whether `.venv\Scripts\pythonw.exe` existed, and macOS by asking whether
+>   `.venv/bin/python` was executable. Both are questions about a *file*. An environment
+>   whose Python no longer runs, that lost `ssl`, or that sits on a Python too new for the
+>   pinned voice engines still has that file — and `bootstrap.main` returned from
+>   `--launch-only` before `venv_is_valid()` was ever consulted, so every recovery path the
+>   setup code already owned was structurally unreachable from a normal launch.
+> - **One health authority.** `assess_venv_health` returns a `VenvHealth` over four states —
+>   healthy, repairable, degraded, absent — with a reason and a sentence fit to show a user.
+>   It costs **one** subprocess (~58 ms measured; `probe_capabilities`' four cost ~190 ms).
+>   The launchers know nothing about Python versions, ssl or Tk.
+> - **The handoff.** A venv cannot replace itself: Windows locks the running `python.exe`,
+>   so neither a delete nor a rename of its directory can succeed. Bootstrap therefore asks,
+>   with `EXIT_VENV_REPAIR_REQUIRED = 3` — a distinct code, because overloading 1 or 2 would
+>   make an ordinary failure indistinguishable from a request — and the launcher re-enters
+>   bootstrap on a base interpreter with `--repair-venv`. Windows asks first via
+>   `--venv-check` (**169.7 ms** measured on the real healthy environment) because it starts
+>   the GUI detached and cannot wait; macOS reads the same code from the `--launch-only`
+>   call it already waited on, and separately notices an interpreter that is present but not
+>   runnable, which bootstrap cannot report because it never starts.
+> - **The healthy steady state is unchanged**: still `start "" pythonw.exe … --launch-only`,
+>   detached and console-free.
+> - **Phase 3's surface stayed sealed.** Recovery goes through a bounded `repair_venv` —
+>   locate a base interpreter, replace the venv, reconcile packages, stop — and never through
+>   `run_setup`, which reaches `ensure_ffmpeg` and the portable fallback. Guarded both
+>   structurally (AST: `repair_venv` and `_repair_and_launch` call neither `ensure_ffmpeg`
+>   nor `run_setup`) and behaviourally (a repair run with both spied installs nothing).
+> - **Rebuilds are now rollback-safe.** `_create_validated_venv` used to `rmtree` the
+>   environment and only then try to build one; a failing `create_venv` left a machine that
+>   had been working a moment earlier with nothing at all. The old environment is renamed
+>   aside on the same volume, restored if the replacement fails or cannot import `ssl`, and
+>   discarded only once the replacement is proved.
+> - **Degraded is a state, not a loop.** A 3.13-only machine with no obtainable 3.12, or a
+>   Tk-less environment with no better base, launches and says so instead of being destroyed
+>   on every run. A repair never asks for a second repair.
+> - **Minimum scope preserved:** requirements drift still reconciles in place, a missing or
+>   broken package is still repaired in place, Kokoro still self-heals in the venv, and a
+>   missing FFmpeg still triggers **no** venv rebuild and **no** provisioning.
+> - **Import proof now carries interpreter identity** (path, size, mtime_ns), so a proof
+>   cannot survive the interpreter being replaced. The 7-day window is untouched and remains
+>   one named constant.
+> - **WinGet scope:** the **Python** install is now explicitly `--scope user` in both
+>   bootstrap and the `.bat`, since an ordinary repair can reach it and CSPW-PC has no admin
+>   rights. The **FFmpeg** WinGet command is deliberately untouched — that half of M5 is
+>   later work, and a test asserts it stayed alone.
+> - **Gate: 17 failed / 5168 passed / 57 skipped / 76 errors.** The failure and error rows
+>   are **identical** to the Phase-1 remediation run, with +45 passed from the new tests.
+>   `verify.py` deps/docs/docnames/config all PASS. **Phase-2-attributable failures: zero.**
+>   35 of the new tests fail against `9e080a2`.
+> - **Preserved HOME-PC acceptance condition intact**, verified after the run: `.venv` on
+>   Python 3.12.10, not deleted or rebuilt, no `.venv.replaced` left behind; requirements
+>   stamp, import proof, log directory and `ffmpeg-state.json` all **unchanged including
+>   content hashes**; **no `files/bin`, nothing on PATH, no `Gyan.FFmpeg` package, no FFmpeg
+>   pin.** Nothing was installed, provisioned or promoted.
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published
+>   release remains **`v0.4.0`**. **Phase 3 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 2).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `Setup_and_Run-audiobook-creation-tool.bat`;
+> `Setup_and_Run-audiobook-creation-tool.command`; `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/conftest.py`; `files/tests/test_first_run_contract.py`;
+> `files/tests/test_bootstrap_setup_cancel.py`; `files/tests/test_cleanup_state.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this
+> block). Added: `files/tests/test_venv_recovery.py`. Deleted: none. All staged and
+> committed together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 Phase 1 REMEDIATED after review (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the Phase-1 completion
+> claim in the block below it, which was correct about everything it listed but incomplete:
+> one contract gap survived. Everything else in that block still stands. Nothing below is
+> deleted or rewritten.**
+>
+> - **The gap independent review found.** Phase 1 closed "current pins + module absent" with a
+>   `find_spec` presence probe. It did **not** close "current pins + spec resolves + the import
+>   actually raises" — a damaged native extension, a missing DLL dependency, a package whose
+>   import-time initialisation fails. None of those changes `requirements.txt`, so the
+>   fingerprint matched, presence said yes, and the environment stayed classified healthy
+>   indefinitely. The code correctly *said* `find_spec` is not importability proof; the launch
+>   path did not act on that.
+> - **Demonstrated, not argued.** Against commit `01dd93b` a scripted scenario — matching pins,
+>   a real package whose module body raises — reports `requirements_are_current() = True` and
+>   `required_modules_present() = True`, with nothing in the lifecycle able to notice. The same
+>   scenario on the remediated tree re-proves, catches `BROKEN:… ImportError`, and routes into
+>   repair. 15 of the new tests fail against `01dd93b`.
+> - **The design, chosen after measuring rather than assuming.** Per-module real import cost on
+>   this venv (median of five, net of a 30 ms interpreter start): **chatterbox ~5 895 ms** —
+>   torch — then `nltk` ~994, `edge_tts` ~500, `fitz` ~66, `pydub` ~26, `mutagen` ~14, `PIL` ~1.
+>   All seven together in one subprocess: ~6 763 ms. Putting that on every healthy launch was
+>   not acceptable, so: the cheap presence probe still runs every launch as a decisive negative,
+>   and a **real import proof** (`prove_required_imports`) is recorded in
+>   `.venv/.import-proof.json` and re-established once it is older than
+>   `IMPORT_PROOF_MAX_AGE_DAYS` (7). Steady state is unchanged — ~32 ms plus one small file read.
+>   A broken import is now caught within a week instead of never.
+> - **No second package system.** The proof reuses `REQUIRED_IMPORTS`; diagnosis and repair reuse
+>   `validate_installed_packages` and `reconcile_requirements`, which remains the single owner of
+>   pip → proof → stamp. The proof record is deliberately separate from the requirements stamp:
+>   the stamp says which pins this environment was reconciled against, the proof says the modules
+>   were really imported. Overloading one record with both questions is what caused the original
+>   defect.
+> - **Isolation guard hardened.** The per-test fingerprint for the two small `.venv` records now
+>   includes a **SHA-256 of their content**, not just `(size, mtime_ns)`. Proved: a stamp rewritten
+>   to a different `requirements_sha256` of the same length with its timestamp restored is
+>   **missed** by the old metadata-only fingerprint and **caught** by the new one — which is
+>   exactly the shape a falsified success stamp would take. The log-directory fingerprint stays
+>   metadata-only and session-scoped; hashing a growing log tree per test would cost much and
+>   prove nothing.
+> - **Tk finalisation (L2) — recorded, deliberately not fixed.** A cyclic collection landing on a
+>   non-main thread finalises a leftover `tkinter.Variable`, and `Variable.__del__` stalls in Tcl
+>   off the main thread. It is latent in the suite, predates this drop, and was only ever
+>   *exposed* by fixture allocation timing. **No production or test behaviour was changed for
+>   it**; it is now Phase 6 matrix row 18 and defect L2 in the drop, to be fixed properly rather
+>   than by widening a timeout.
+> - **Gate: 17 failed / 5123 passed / 57 skipped / 76 errors.** The failure and error lists are
+>   **identical** to the committed Phase-1 run — not merely equal in count — with +21 passed from
+>   the new tests. `verify.py` deps/docs/docnames/config all PASS. **Phase-1-attributable
+>   failures: zero.**
+> - **Preserved HOME-PC acceptance condition intact**, verified after the run: `.venv` on Python
+>   3.12.10, not deleted or rebuilt; the real requirements stamp **unchanged including its content
+>   hash**; no real import-proof file created; the real log directory unchanged; **no `files/bin`,
+>   nothing on PATH, no `Gyan.FFmpeg` package, no FFmpeg pin.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no release, no
+>   package, no `release.py`. Identity remains **`0.6.2`, UNRELEASED**; latest published release
+>   remains **`v0.4.0`**. **Phase 2 has not started. Plan 6 has not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 1 remediation).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/conftest.py`; `files/tests/test_bootstrap_requirements_state.py`;
+> `files/tests/test_suite_isolation.py`; `md-instructions/pre-plan-6-setup-self-healing.md`;
+> `md-instructions/Handoff.md` (this block). Added: none. Deleted: none. All staged and committed
+> together.
+
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 maintenance drop, PHASE 1 COMPLETE (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "STATUS: Phase 0 only is
+> complete" line in the block below it; everything else in that block still stands. Nothing below
+> is deleted or rewritten.**
+>
+> - **Phase 1 of `md-instructions/pre-plan-6-setup-self-healing.md` is complete**, on
+>   `maintenance/0.6.2-setup-self-healing`. Phases 2–10 have **not** started.
+> - **Defect C2 is closed.** `run_setup` used to call `validate_installed_packages`, discard the
+>   boolean, and stamp the environment unconditionally — so a first run whose package installed but
+>   did not import was recorded as healthy permanently. There is now exactly **one** owner of
+>   pip → real import proof → stamp, `reconcile_requirements`, and an AST guard asserts it is the
+>   only caller of `record_requirements_state`. The drift path already obeyed the invariant and was
+>   not weakened.
+> - **Defect M1 is closed.** Interpreter candidates are structured argv sequences
+>   (`list[list[str]]`) from creation, so `C:\Program Files\Python312\python.exe` and account or
+>   repository paths containing spaces survive to the probe as one argument instead of being split
+>   and silently dropped.
+> - **The Python contract is enforced through one predicate.** `is_full_feature_python` states the
+>   project range `>=3.11,<3.13`, deliberately distinct from `_is_kokoro_compatible` (Kokoro's own
+>   `>=3.10`) so the project floor is not widened to 3.10 by reusing the wrong test. 3.13+ is never
+>   returned as the preferred fully-compatible result; it is a labelled degraded fallback, and a
+>   setup that lands on one no longer reports a plain "Setup complete."
+> - **A matching fingerprint is no longer a health claim.** The launch path now runs a cheap
+>   *presence* probe of the required imports when the pins already match, and enters the existing
+>   repair-and-prove path when something is missing. Measured on this machine, median of five:
+>   presence of all seven in one subprocess **~32 ms**; a real import of the same seven **~6 970 ms**
+>   (torch, through chatterbox). Presence is explicitly documented as *not* proof of importability.
+> - **The test-isolation defect (L1) is fixed and its cause was traced, not guessed.** Three tests
+>   drove `run_setup` with the install steps stubbed but `VENV_DIR` still pointing at the real
+>   checkout, so C2's unconditional stamp rewrote the developer's real
+>   `.venv/.requirements-state.json`. Separately `bootstrap` opened the dated setup log at *import*
+>   time, and `shared.logging_setup` wrote real `session_*.log` files. `SetupLog` now opens on first
+>   use, the log directories are redirected for the session, and a conftest guard fails any test that
+>   mutates the real stamp. Proven behaviourally: a full run leaves the real stamp byte-identical
+>   (same `mtime_ns`) and the real log directory unchanged.
+> - **Gate: 17 failed / 5102 passed / 57 skipped / 76 errors.** Failures, errors and skips all equal
+>   the pre-existing baseline; the only delta is **+41 passed** from the new tests.
+>   **Phase-1-attributable failures: zero.** The 16 chatterbox failures and all 76 errors are the
+>   preserved missing-FFmpeg condition; the one `test_plan3_boundaries` failure is the preserved
+>   untracked maintainer report. A clean `e36ab7d` worktree under `files/dev-work/` was used to
+>   establish that baseline and was removed afterwards.
+> - **The preserved HOME-PC acceptance condition is intact.** Existing healthy `.venv` on Python
+>   3.12.10, not deleted or rebuilt; `.requirements-state.json` byte-identical to its pre-phase
+>   baseline; **no `files/bin`, nothing on PATH, no `Gyan.FFmpeg` package, no FFmpeg pin.** Nothing
+>   was installed, repaired or promoted. **Phase 7 remains the first phase allowed to spend it.**
+> - **Nothing downstream is authorized:** no merge, no pull request, no tag, no GitHub release, no
+>   package, no `release.py` run. Version identity remains **`0.6.2`, UNRELEASED**; the latest
+>   published release remains **`v0.4.0`**. **Plan 6 has still not begun.**
+>
+> **Session sync log — HOME-PC, 2026-09-03 (Phase 1).** Changed on
+> `maintenance/0.6.2-setup-self-healing`: `scripts/Universal/shared/bootstrap.py`;
+> `files/tests/conftest.py`; `files/tests/test_bootstrap_requirements_state.py`;
+> `files/tests/test_bootstrap_setup_cancel.py`; `files/tests/test_bootstrap_setup_logging.py`;
+> `files/tests/test_chatterbox_bootstrap.py`; `files/tests/test_first_run_contract.py`;
+> `md-instructions/pre-plan-6-setup-self-healing.md`; `md-instructions/Handoff.md` (this block).
+> Added: `files/tests/test_bootstrap_python_selection.py`;
+> `files/tests/test_suite_isolation.py`. Deleted: none. All are staged and committed together.
+
+> ## ⟢ CURRENT STATE — the PRE-PLAN-6 `Setup_and_Run` self-healing maintenance drop is now ACTIVE (2026-09-03)
+>
+> **This block is the live state of the repository. It supersedes the "THE NEXT ACTION is ONE
+> separate bounded PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing remediation" wording in the
+> block below it — that remediation has now been scoped and started. Everything else in that block
+> stands. Nothing below is deleted or rewritten.**
+>
+> - **The PRE-PLAN-6 remediation named as the next action below is now underway**, on its own
+>   maintenance branch, as ONE bounded drop. It is **not** part of Plan 5 and it is **not** Plan 6.
+> - **Branch:** `maintenance/0.6.2-setup-self-healing`, created from **PR #8 /
+>   `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c`** — the exact verified `master` baseline at the time
+>   of the checkpoint. Per the durable-anchor rule established by PR #8, that is a permanent merge
+>   commit, not a claim about where `master` points today.
+> - **Drop:** `md-instructions/pre-plan-6-setup-self-healing.md` — temporary, deleted at closeout.
+>   It carries the full contract: eleven bounded phases (0–10), the Python `>=3.11,<3.13`
+>   full-feature contract, the requirements/import-validation invariant, the FFmpeg health contract,
+>   the resolved Gyan **9.0.1** portable-fallback provenance pin, the staging/promotion design, the
+>   user-scope portability rules, the failure-UX contract, verification rules and manual gates.
+> - **Two read-only investigations preceded it and agree independently.** A Claude Code
+>   investigation on `e36ab7d` **reproduced the defect live on HOME-PC** and traced it in source;
+>   the maintainer's preserved Codex report reaches the same primary conclusion. The defect is
+>   confirmed, not hypothesised: with an existing `.venv`, `--launch-only` **detects** a missing or
+>   broken ffmpeg/ffprobe pair but **cannot provision one**, then tells the user to re-run
+>   `Setup_and_Run`, which repeats the identical non-repairing path. A second instance of the same
+>   shape exists on the requirements success stamp.
+> - **STATUS: Phase 0 only is complete** — this branch, this drop, and this entry. **Zero production
+>   and zero test code has changed.** `Setup_and_Run-*`, `scripts/**`, `files/tests/**`,
+>   `requirements.txt`, `config.toml`, `release.py` and packaging are all untouched.
+> - **The preserved HOME-PC acceptance condition is intact and must stay intact:** an existing
+>   healthy root `.venv` (Python 3.12.10) **plus no usable ffmpeg/ffprobe pair anywhere**. Phases
+>   1–6 must not repair or disturb it. **Phase 7 is the first phase permitted to spend it**, and
+>   spending it is the acceptance test.
+> - **Nothing downstream is authorized:** no merge to `master`, no pull request, no tag, no GitHub
+>   release, no package, no `release.py` run. Version identity remains **`0.6.2`, UNRELEASED**; the
+>   latest published release remains **`v0.4.0`**.
+> - **Plan 6 has still NOT begun** and may begin only after this maintenance work is dispositioned
+>   **and integrated into `master`**.
+> - **Known local-only test failure, unchanged and deliberately not fixed:**
+>   `test_plan3_boundaries.py` asserts the contents of `md-instructions/don't-delete/` with strict
+>   set equality, so this machine's preserved **untracked**
+>   `Codex-Investigation-Report-batch-launcher.md` fails it here. That file is absent from the Git
+>   tree, cannot affect a clean checkout, and must never be deleted, moved or staged to make a suite
+>   green.
+>
+> **Session sync log — HOME-PC, 2026-09-03.** Added on `maintenance/0.6.2-setup-self-healing`:
+> `md-instructions/pre-plan-6-setup-self-healing.md` (new). Changed: `md-instructions/Handoff.md`
+> (this block). No other tracked file added, changed or deleted. Both are staged and committed in
+> the same commit as this entry.
+
 > ## ⟢ CURRENT STATE — v0.6.2 Plan 5 is MERGED into master via PR #6 (2026-09-02)
 >
 > **This block is the live state of the repository. It supersedes every "next action", "not

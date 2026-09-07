@@ -28,8 +28,19 @@ class _FakeWarmupPopen:
         return 0
 
 
-def _stub_setup_steps(monkeypatch):
-    """Stub every run_setup stage so it reaches the Kokoro warmup call."""
+def _stub_setup_steps(monkeypatch, tmp_path):
+    """Stub every run_setup stage so it reaches the Kokoro warmup call.
+
+    ``VENV_DIR`` and ``LOGS_DIR`` are redirected into ``tmp_path`` because
+    ``run_setup`` ends by stamping the environment it just built. Without the
+    redirect this test wrote the developer's **real**
+    ``.venv/.requirements-state.json`` and appended to the **real**
+    ``files/runtime-data/logs/setup_<date>.log`` — production state, rewritten by
+    a unit test. That was traced mechanically in PRE-PLAN-6 Phase 1 (finding
+    L1b); the shared guard in ``conftest.py`` now fails any test that does it.
+    """
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(bootstrap, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(bootstrap, "find_suitable_python",
                         lambda log, prefer_tk=True: [sys.executable])
     monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda argv: (3, 12))
@@ -45,16 +56,22 @@ def _stub_setup_steps(monkeypatch):
     monkeypatch.setattr(bootstrap.subprocess, "Popen", _FakeWarmupPopen)
 
 
-def test_run_setup_reaches_kokoro_warmup_without_typeerror(monkeypatch):
+def test_run_setup_reaches_kokoro_warmup_without_typeerror(monkeypatch, tmp_path):
     """run_setup must invoke the warmup with the logger it actually holds.
 
     With the pre-fix code (``warmup_kokoro_pipeline(venv_python(), log)``)
     this raises ``TypeError: 'SetupLog' object is not callable``.
+
+    A fresh ``SetupLog`` rather than the shared module-level ``LOG``: the shared
+    one may already have resolved its path against the real logs directory
+    earlier in the session, and this test redirects ``LOGS_DIR``. It exercises
+    the same interface — the bug was in how the logger is *called*, not in which
+    instance is passed.
     """
-    _stub_setup_steps(monkeypatch)
+    _stub_setup_steps(monkeypatch, tmp_path)
     ok, msg = bootstrap.run_setup(download_kokoro=True,
                                   progress=lambda step, text: None,
-                                  log=bootstrap.LOG)
+                                  log=bootstrap.SetupLog())
     assert ok is True
     assert msg == "Setup complete."
 

@@ -89,6 +89,15 @@ BOOTSTRAP="scripts/Universal/shared/bootstrap.py"
 # point at the log instead of closing silently (that silent close was the old
 # "Terminal flashes, no window" symptom).
 # ---------------------------------------------------------------------------
+# The executable bit is a necessary condition, never a sufficient one: an
+# environment whose Python no longer runs, that lost ssl, or that sits on an
+# incompatible version still has an executable file there. Bootstrap decides
+# what "healthy" means — this script deliberately knows nothing about Python
+# versions, ssl or Tk — and exit code 3 is it asking for the environment to be
+# rebuilt, which cannot be done from inside the environment being replaced.
+VENV_REPAIR_REQUIRED=3
+NEEDS_VENV_REPAIR=""
+
 if [ -x ".venv/bin/python" ]; then
     if ".venv/bin/python" "$BOOTSTRAP" --launch-only; then
         # The GUI is up and detached. Auto-close THIS Terminal window WITHOUT the
@@ -104,13 +113,33 @@ if [ -x ".venv/bin/python" ]; then
         disown 2>/dev/null || true
         exit 0
     fi
+    rc=$?
+    if [ "$rc" -eq "$VENV_REPAIR_REQUIRED" ]; then
+        NEEDS_VENV_REPAIR=1
+    else
+        echo
+        echo "The app window did not start. Details are in:"
+        echo "  files/runtime-data/logs/launch_$(date +%Y-%m-%d).log"
+        echo
+        read -n 1 -s -r -p "Press any key to close..."
+        echo
+        exit 1
+    fi
+elif [ -e ".venv/bin/python" ]; then
+    # Present but not runnable at all. Bootstrap cannot report this from inside
+    # itself, because it never gets to start, so the launcher has to notice.
+    NEEDS_VENV_REPAIR=1
+fi
+
+if [ -n "$NEEDS_VENV_REPAIR" ]; then
+    echo "============================================================"
+    echo "  Audiobook Creation Tool - repairing the app environment"
+    echo "============================================================"
     echo
-    echo "The app window did not start. Details are in:"
-    echo "  files/runtime-data/logs/launch_$(date +%Y-%m-%d).log"
+    echo "The app's Python environment needs to be rebuilt."
+    echo "Your settings and your audiobooks are not touched."
+    echo "This can take a few minutes."
     echo
-    read -n 1 -s -r -p "Press any key to close..."
-    echo
-    exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -198,9 +227,17 @@ if [ -z "$PYBIN" ]; then
 fi
 
 echo "Using Python: $PYBIN ($("$PYBIN" --version 2>&1))"
-echo "Starting setup..."
-echo
-"$PYBIN" "$BOOTSTRAP" $HEADLESS_FLAG
+if [ -n "$NEEDS_VENV_REPAIR" ]; then
+    # Environment repair only: rebuild the private Python environment and its
+    # packages, then launch. Deliberately NOT the full first-run install.
+    echo "Repairing..."
+    echo
+    "$PYBIN" "$BOOTSTRAP" --repair-venv $HEADLESS_FLAG
+else
+    echo "Starting setup..."
+    echo
+    "$PYBIN" "$BOOTSTRAP" $HEADLESS_FLAG
+fi
 RC=$?
 
 if [ "$RC" -ne 0 ]; then

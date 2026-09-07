@@ -46,17 +46,24 @@ flashing during use.
   `requirements.txt` comment so restoration is mechanical. `setuptools` is deliberately held at
   `80.9.0` (not the newer `82.0.1`) as recorded compatibility debt: `resemble-perth`, which
   Chatterbox pulls in, imports the `pkg_resources` that `82.0.1` removed.
-- **External binaries:** ffmpeg + ffprobe — installed system-wide by the bootstrap (winget
-  `Gyan.FFmpeg` / Homebrew) or dropped as a portable build into `files/bin/`.
+- **External binaries:** ffmpeg + ffprobe — acquired by the bootstrap **in user scope**
+  (winget `Gyan.FFmpeg` with an explicit `--scope user`, never machine scope and never elevated;
+  Homebrew on macOS), or, when that route is unavailable or refused, a repo-local portable build
+  pinned by exact URL and SHA-256 and extracted into its own versioned subtree under
+  `files/bin/ffmpeg/<version>/bin`. Whichever wins is **proved by execution and pinned where it
+  lives** — never copied into `files/bin/` to centralise it.
 - **Platform:** cross-platform Windows + macOS from a **single code tree**
   (`scripts/Universal/`); platform differences are `sys.platform` branches inside shared code.
 
 ## Architecture
 
 - **Entry point (users):** `Setup_and_Run-audiobook-creation-tool.bat` (Windows) / `.command`
-  (macOS) at the repo root — the only files a user ever touches. Fast path: if `.venv` exists,
-  launch via `pythonw.exe` (Windows — no console) / detached (macOS). First run hands off to the
-  bootstrap.
+  (macOS) at the repo root — the only files a user ever touches. Fast path: the launcher **asks
+  bootstrap whether the environment is healthy** (`--venv-check`, ~150 ms) rather than trusting that
+  a `.venv` folder exists — an environment whose Python no longer runs, that lost `ssl`, or that sits
+  on an unsupported version still has the file. Healthy launches via `pythonw.exe` (Windows — no
+  console) / detached (macOS); anything else hands control back for a **repair**, and the launcher
+  itself knows nothing about Python versions, `ssl` or Tk. First run hands off to the bootstrap.
 - **`scripts/Universal/shared/bootstrap.py`** — single cross-platform setup + launch brain
   (stdlib + Tk only; runs before the venv exists). Locates/installs Python 3.12, creates the
   repo-root `.venv`, pip-installs pinned requirements, ensures ffmpeg, optionally pre-downloads
@@ -82,8 +89,10 @@ flashing during use.
   from the shell.
 - **`scripts/Universal/shared/`** — `paths.py` (single source of truth for every project
   path — everything derives from `REPO_ROOT`), `subprocess_utils.py` (hidden-console subprocess
-  wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (resolves ffmpeg/ffprobe:
-  `files/bin/` → PATH; pins pydub to the resolved binaries; xHE-AAC decoder selection),
+  wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (**consumes only the proved,
+  pinned pair** recorded by `ffmpeg_health.py` — there is no `PATH` fallback and no bare
+  `"ffmpeg"`/`"ffprobe"` name; the command APIs raise `FFmpegUnavailable` when nothing is pinned, and
+  pydub is pointed at that absolute pair or at a non-executable sentinel; xHE-AAC decoder selection),
   `config.py` (the typed effective-configuration core — see *Configuration* below),
   `preferences_ui.py` (the Preferences & Data dialog and the once-per-launch configuration
   warning — presentation only, see *Preferences & Data* below),

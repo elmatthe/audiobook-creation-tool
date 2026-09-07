@@ -7,30 +7,68 @@ REM  (a private Python environment + audio libraries + ffmpeg) using a small
 REM  setup window. EVERY time after that it just opens the app instantly with
 REM  no console window. All the real work lives in:
 REM      scripts\Universal\shared\bootstrap.py
+REM
+REM  This file deliberately knows nothing about Python versions, ssl or Tk.
+REM  Deciding whether the environment is healthy is bootstrap's job; all this
+REM  does is ask, then either launch or hand control back for a repair.
 REM ============================================================================
 
 setlocal EnableExtensions
 cd /d "%~dp0"
 
 set "BOOTSTRAP=scripts\Universal\shared\bootstrap.py"
+set "REPAIR="
 
 REM ---------------------------------------------------------------------------
-REM  Fast path: the environment is already set up. Launch via pythonw.exe so no
-REM  console window appears, then exit immediately.
+REM  Fast path: the environment is already set up.
+REM
+REM  This used to be "if pythonw.exe exists, start it and quit", which cannot
+REM  tell a working environment from a wrecked one. An environment whose Python
+REM  no longer runs, that lost ssl, or that sits on an incompatible version
+REM  still has the file - so the launcher happily started something that could
+REM  not work, and every recovery path bootstrap already owned was unreachable.
+REM
+REM  So ask bootstrap first. It answers in about 150ms with an exit code:
+REM      0 = healthy enough to launch      3 = this environment needs rebuilding
+REM  The check runs on python.exe because cmd waits for a console program; the
+REM  real launch still goes through pythonw.exe detached, so the healthy steady
+REM  state is the same instant, console-free start it always was.
 REM ---------------------------------------------------------------------------
-if exist ".venv\Scripts\pythonw.exe" (
-    start "" ".venv\Scripts\pythonw.exe" "%BOOTSTRAP%" --launch-only
-    exit /b 0
-)
+if not exist ".venv\Scripts\python.exe" goto firstrun
 
-REM ---------------------------------------------------------------------------
-REM  First run: we need *some* Python just to run the setup window. The setup
-REM  script itself will locate or install the correct Python 3.12 for the app.
-REM ---------------------------------------------------------------------------
+".venv\Scripts\python.exe" "%BOOTSTRAP%" --venv-check >nul 2>nul
+if errorlevel 1 goto needsrepair
+
+start "" ".venv\Scripts\pythonw.exe" "%BOOTSTRAP%" --launch-only
+exit /b 0
+
+:needsrepair
+REM Any non-zero answer means repair - including the interpreter failing to
+REM start at all, which is precisely the case bootstrap cannot report from
+REM inside. The repair must run on a different interpreter: Windows locks a
+REM running python.exe, so a venv can never replace itself.
+set "REPAIR=1"
+echo ============================================================
+echo   Audiobook Creation Tool - repairing the app environment
+echo ============================================================
+echo.
+echo The app's Python environment needs to be rebuilt.
+echo Your settings and your audiobooks are not touched.
+echo This can take a few minutes.
+echo.
+goto findpython
+
+:firstrun
 echo ============================================================
 echo   Audiobook Creation Tool - first-time setup
 echo ============================================================
 echo.
+
+REM ---------------------------------------------------------------------------
+REM  First run, or an environment repair: we need *some* Python outside the venv.
+REM  The setup script itself locates or installs the correct Python 3.12.
+REM ---------------------------------------------------------------------------
+:findpython
 echo Looking for Python...
 
 set "PYCMD="
@@ -40,9 +78,11 @@ if not defined PYCMD (
 )
 
 REM No Python at all - try to install it with winget, then look again.
+REM --scope user on purpose: this can now be reached by an ordinary repair on a
+REM machine whose owner has no administrator rights.
 if not defined PYCMD (
     echo Python was not found. Attempting to install Python 3.12 via winget...
-    where winget >nul 2>nul && winget install --id Python.Python.3.12 -e --silent --accept-source-agreements --accept-package-agreements
+    where winget >nul 2>nul && winget install --id Python.Python.3.12 -e --scope user --silent --accept-source-agreements --accept-package-agreements
     REM winget installs per-user here; PATH may not refresh this session, so
     REM check the known install location directly.
     if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYCMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
@@ -63,9 +103,21 @@ if not defined PYCMD (
 )
 
 echo Using Python: %PYCMD%
+if defined REPAIR goto runrepair
+
 echo Starting setup...
 echo.
 "%PYCMD%" "%BOOTSTRAP%"
+goto finished
+
+:runrepair
+REM Environment repair only. This rebuilds the private Python environment and
+REM its packages and then launches; it is NOT the full first-run install.
+echo Repairing...
+echo.
+"%PYCMD%" "%BOOTSTRAP%" --repair-venv
+
+:finished
 set "RC=%errorlevel%"
 
 REM Exit code 2 means the user closed the setup window without starting it.

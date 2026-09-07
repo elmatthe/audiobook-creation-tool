@@ -128,6 +128,21 @@ Do not draft or implement Plans 6–9 while an earlier plan is active. A later p
 
 *Superseded (kept for the record): this line previously read “Do not draft or implement Plans 5–9 while an earlier plan is active,” and before that “Do not draft or implement Plans 4–9 while Plan 3 is active.” Plans 3, 4 and 5 are all complete, approved and closed; Plan 6 is the next unopened plan and has not been drafted or started.*
 
+**Status note (2026-09-05, PRE-PLAN-6 maintenance closed). This is the current §5 status.** It
+supersedes the 2026-09-02 note below on one point only: that note closed by saying **"Plan 6 has NOT
+begun — see §15 for the one action that comes first"**, and the action it meant was the PRE-PLAN-6
+`Setup_and_Run` / bootstrap self-healing remediation. **That remediation is now COMPLETE and CLOSED**,
+its Phase-10 closeout committed at **`a170e41b71168f33247471be79110b871f88cb3d`** on branch
+`maintenance/0.6.2-setup-self-healing`, with its temporary drop retired. Every Plan 5 fact in the note
+below still stands. **PRE-PLAN-6 is therefore no longer the action that comes first**, and no reader
+should treat it as outstanding work. **The action that comes first now is ONE independent READ-ONLY
+integration-readiness recheck of that maintenance branch** — see §15, whose newest block is the
+current next-action record. **The maintenance is not yet merged**: `0.6.2` remains **unreleased** with
+no tag, no GitHub release, no package and no `release.py` run, the published GitHub release remains
+**`v0.4.0`**, and **the literal current tip of `master` is still not asserted here** — it is queried
+from Git. **Phase 9 remains WAIVED / NOT APPLICABLE and was never a passed test.** **Plan 6 has NOT
+begun** and is not authorized by the closure of PRE-PLAN-6.
+
 **Status note (2026-09-02, Plan 5 integration complete). This is the current §5 status; every dated note below it is a historical snapshot, and any statement in them that Plan 5 is unmerged, that no pull request exists, or that integration review is outstanding is superseded here.** **`v0.6.2` Plan 5 — M4B Converter is COMPLETE, APPROVED, CLOSED and MERGED.** The final independent integration-readiness recheck returned **READY**, the independent review of pull request **#6** returned **READY TO MERGE**, and the maintainer-authorized merge completed on **2026-09-02** as a **normal two-parent merge commit** — not a squash, not a rebase. Plan 5's **production integration anchor** is that merge, **`7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`** (parents `81c9c0600ca74a42a22bd09d367a702bee9708fe` and `393a5625f0bce90cb4f9f4313196017acf958f56`); the follow-up **records reconciliation** was integrated through **PR #7 / `e8c6635673fd95ed5e0a3842e480ab5a3d9c8c0a`** (documentation only). Both are permanent commits in `master`'s history. **The literal current tip of `master` is not asserted here** — it is queried from Git. The feature branch `feature/0.6.2-m4b-converter-upgrade` is **retained** at `393a5625`. **The merge published nothing:** `0.6.2` remains **unreleased** with no `[0.6.2]` changelog heading, no tag, no GitHub release, no package and no `release.py` run, and the **published GitHub release remains `v0.4.0`**. **Plan 6 has NOT begun** — see §15 for the one action that comes first.
 
 **Status note (2026-09-01, post-closeout documentation remediation).** The first **integration-readiness review has now been performed** — READ-ONLY — and it returned **NOT READY** on documentation-only grounds; its verdict on the implementation itself was **sound**. This supersedes, in the Plan-5 row above and in the 2026-08-31 note below, only the statement that *integration review is outstanding*: what is outstanding now is a separate **READ-ONLY integration-readiness recheck**, and READY is not assumed until that recheck returns it. Everything else in both remains accurate — still **no pull request, merge, tag, release, package or `release.py` run**, identity is still **`0.6.2`** and unreleased, and the published GitHub release remains **`v0.4.0`**. See §15 for the current next action.
@@ -368,6 +383,54 @@ Do not absorb these into an unrelated plan:
 | Open Issue #2: CLI-only `kokoro_synth.py` cp1252 `UnicodeEncodeError` | Separate issue; do not fold into Plan 2 |
 
 ## 15. Immediate next action
+
+**Updated 2026-09-05, after the PRE-PLAN-6 maintenance closed. This block is the current
+next-action record. It supersedes the 2026-09-02 block below on ONE point only — that block named the
+PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing remediation as THE NEXT ACTION and gated Plan 6 on
+its disposition. That remediation has since been performed and closed, so those two statements no
+longer control. Everything else in that block, including every Plan 5 integration fact, still stands.
+Every block below it remains dated history and must not be read as instructions.**
+
+- **v0.6.2 Plan 5 remains COMPLETE, APPROVED, CLOSED and INTEGRATED.** Nothing about it is reopened
+  or changed here; its merge anchor is still pull request **#6** / `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`.
+- **The PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing maintenance is COMPLETE and CLOSED.** It
+  ran as a bounded maintenance series on branch `maintenance/0.6.2-setup-self-healing` and was **not**
+  part of Plan 5 and **not** Plan 6. Its Phase-10 closeout was committed at
+  **`a170e41b71168f33247471be79110b871f88cb3d`**, which retired the temporary execution drop
+  `md-instructions/pre-plan-6-setup-self-healing.md` and moved the durable record into `Decisions.md`,
+  `Changelog.md`, `Briefing.md`, `README.md` and `Handoff.md`. The carry-forward defect that motivated
+  it — a launch that could detect a missing or broken FFmpeg but not provision one — is closed: an
+  ordinary launch now assesses, repairs the minimum prerequisite, proves it by execution, pins it and
+  only then starts.
+- **Real-machine acceptance, stated exactly as it stands.** **HOME-PC Phase 7 remains the accepted
+  Windows self-healing evidence** and **HOME-MacOS Phase 8 remains the accepted macOS self-healing
+  evidence**. **Phase 9 (CSPW-PC Standard-User validation) was WAIVED / NOT APPLICABLE** because
+  CSPW-PC was removed as a deployment target. **That waiver was not a passed test**, and **HOME-PC was
+  not substituted for a real Standard-User acceptance run**. **Real non-admin Windows target-machine
+  acceptance therefore remains UNPERFORMED**, and Phase 9 must be reinstated and actually run if such a
+  target is ever reintroduced. M5 is closed *in implementation only* — every production
+  `winget install` names `--scope user`, with no machine scope and no elevation fallback.
+- **The maintenance published nothing.** Version identity remains **`0.6.2`** and **UNRELEASED**: no
+  `[0.6.2]` changelog heading, **no tag, no GitHub release, no package, no `release.py` run**. The
+  **published GitHub release remains `v0.4.0`**, and **Plan 9 still owns release hardening and
+  publication**.
+- **THE CURRENT NEXT ACTION is ONE independent, READ-ONLY integration-readiness recheck of the
+  maintenance branch.** The first such review was performed over `a170e41` and returned **NOT READY**
+  on records/provenance grounds only — it judged the implementation, security contract, test quality
+  and the clean exact-HEAD gate **sound**. This records remediation addresses those record blockers.
+  **READY is not assumed and must not be inferred from this entry**: it has to be returned by that new
+  recheck, independently.
+- **No pull request is authorized until that recheck independently returns READY**, and **no merge is
+  authorized by this remediation or by that recheck alone** — merge remains a separate, explicit
+  maintainer authorization.
+- **Plan 6 has NOT started, and is NOT authorized merely because PRE-PLAN-6 closed.** The gate that
+  the 2026-09-02 block placed in front of Plan 6 is satisfied only in the sense that the remediation is
+  now dispositioned; Plan 6 still requires this maintenance to reach `master` and still needs separate
+  explicit maintainer approval before it opens, as every plan does. **Plans 6-9 remain undrafted.**
+
+*(The block below is retained verbatim as the dated record of the 2026-09-02 position. It is
+superseded here only on its "next action" and "Plan 6 must wait" points, both of which the completed
+PRE-PLAN-6 maintenance has overtaken.)*
 
 **Updated 2026-09-02, after Plan 5 was merged. This block is the current next-action record and
 supersedes every block below it on the points of integration status and next action — all of those

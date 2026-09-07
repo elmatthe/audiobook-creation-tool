@@ -256,8 +256,15 @@ def install_conversion_stubs(monkeypatch, state: dict) -> dict:
     state.setdefault("outcome", None)
 
     monkeypatch.setattr(m4b_converter.threading, "Thread", StubThread)
+    # PRE-PLAN-6 Phase 4: the converter's gate now asks whether a pair was
+    # *proved*, not merely found, so the stub has to answer the question the
+    # production code actually asks. Left as ``have_ffmpeg`` it would fall
+    # through to a real Tk error dialog and hang the suite -- which is the gate
+    # working, on a machine with no verified FFmpeg.
+    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "verified_ffmpeg", lambda: True)
     monkeypatch.setattr(m4b_converter.ffmpeg_utils, "have_ffmpeg", lambda: True)
-    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "ffmpeg_cmd", lambda: "ffmpeg")
+    monkeypatch.setattr(m4b_converter.ffmpeg_utils, "ffmpeg_cmd",
+                        lambda: "/sandbox/ffmpeg")
     monkeypatch.setattr(m4b_converter.sp, "reveal_in_file_manager", lambda target: None)
     # Nothing real was encoded, so nothing real can be measured. The drift guard
     # is exercised against actual media in the Phase 11 module instead.
@@ -1718,7 +1725,7 @@ def test_a_file_that_is_not_media_is_probe_failed(real_books):
     assert found.detail if False else found.probe.detail
 
 
-def test_a_missing_file_is_probe_failed(tmp_path):
+def test_a_missing_file_is_probe_failed(tmp_path, pinned_ffmpeg):
     found = m4b_probe.probe_source(tmp_path / "nothing-here.m4b")
     assert found.probe.status is ProbeStatus.PROBE_FAILED
 

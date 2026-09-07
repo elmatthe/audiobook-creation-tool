@@ -41,6 +41,8 @@ from pathlib import Path
 
 import pytest
 
+import source_probe
+
 from shared import bootstrap
 from shared import ffmpeg_health
 from shared import ffmpeg_utils
@@ -522,14 +524,42 @@ def test_the_state_file_is_local_disposable_and_not_tracked():
 
 
 def test_an_unwritable_state_directory_is_not_fatal(monkeypatch, tmp_path):
-    """Losing the record costs a re-proof next launch. It must not lose the run."""
+    """It must not crash, and it must not claim a pin it could not record.
+
+    This previously asserted that ``establish`` still returned the pair — on the
+    reasoning that losing the record only costs a re-proof. That conflated two
+    facts. *Both binaries ran* is true; *this is now the active runtime pair* is
+    not, when nothing could be written. Phase 4 makes consumers trust the active
+    pin, so returning an unrecorded pair as one would let the app act on a pin
+    that no later run can see. Not fatal, still retryable, but not a pin.
+    """
     directory = install(tmp_path / "good")
     blocker = tmp_path / "blocker"
     blocker.write_text("this is a file, not a directory", encoding="utf-8")
     monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", blocker / "runtime-data")
     monkeypatch.setenv("PATH", str(directory))
+
     pair = ffmpeg_health.establish(runner=runner_for(healthy=both(directory)))
-    assert pair is not None, "a state write failure must not lose the proof"
+
+    assert pair is None, "an unrecorded proof must not be reported as pinned"
+    assert ffmpeg_health.pinned_pair() is None
+
+
+def test_a_state_write_failure_leaves_the_run_retryable(monkeypatch, tmp_path):
+    """The other half of "not fatal": once writing works, it pins normally."""
+    directory = install(tmp_path / "good")
+    monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", tmp_path / "state")
+    monkeypatch.setenv("PATH", str(directory))
+    runner = runner_for(healthy=both(directory))
+
+    monkeypatch.setattr(ffmpeg_health, "save_state", lambda state: False)
+    assert ffmpeg_health.establish(runner=runner) is None
+
+    monkeypatch.undo()
+    monkeypatch.setattr(ffmpeg_health, "RESOURCES_DIR", tmp_path / "state")
+    monkeypatch.setenv("PATH", str(directory))
+    assert ffmpeg_health.establish(runner=runner_for(healthy=both(directory))) \
+        is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -600,12 +630,21 @@ def test_the_failure_message_names_no_security_product_to_disable():
 
 
 def test_both_halves_always_come_from_the_same_installation(monkeypatch, tmp_path):
-    lonely = install(tmp_path / "lonely", ffprobe=False)
+    """One installation or none -- now proved through the pinned pair.
+
+    A lonely ffmpeg first on PATH and a complete pair after it used to be
+    resolvable as an executable answer. Nothing on PATH is executable now, so
+    the guarantee is stated where execution actually comes from.
+    """
+    install(tmp_path / "lonely", ffprobe=False)
     complete = install(tmp_path / "complete")
-    monkeypatch.setenv("PATH", os.pathsep.join([str(lonely), str(complete)]))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(tmp_path / "lonely"),
+                                                str(complete)]))
+    pin(monkeypatch, complete)
     ffmpeg_utils.refresh()
 
-    assert Path(ffmpeg_utils.ffmpeg_path()).parent == Path(ffmpeg_utils.ffprobe_path()).parent
+    assert Path(ffmpeg_utils.ffmpeg_path()).parent == \
+        Path(ffmpeg_utils.ffprobe_path()).parent == complete
 
 
 def test_have_ffmpeg_is_false_when_no_coherent_pair_exists(monkeypatch, tmp_path):
@@ -616,25 +655,74 @@ def test_have_ffmpeg_is_false_when_no_coherent_pair_exists(monkeypatch, tmp_path
     assert ffmpeg_utils.ffmpeg_path() is None
 
 
-def test_have_ffmpeg_is_true_for_an_unproven_but_coherent_pair(monkeypatch, tmp_path):
-    """Still not a claim that it runs — that is ``verified_ffmpeg``."""
+def test_an_unproven_coherent_pair_is_not_runtime_ready(monkeypatch, tmp_path):
+    """PRE-PLAN-6 Phase 4: the contract this test used to assert is superseded.
+
+    It previously read ``have_ffmpeg() is True`` for a pair nobody had ever
+    executed, on the reasoning that "have" was weaker than "verified". But every
+    consumer gate in the application was written against ``have``, so the weaker
+    word was doing the work of permission -- and the machine that started all of
+    this had a perfectly coherent pair Windows refused to run. Coherence is a
+    property of paths; it is not evidence.
+
+    The pair may still be *observed*, which is what a status line needs.
+    """
     directory = install(tmp_path / "found")
     monkeypatch.setenv("PATH", str(directory))
     ffmpeg_utils.refresh()
-    assert ffmpeg_utils.have_ffmpeg() is True
-    assert ffmpeg_utils.verified_ffmpeg() is False
+
+    assert ffmpeg_utils.discovered_ffmpeg() is True     # observation
+    assert ffmpeg_utils.verified_ffmpeg() is False      # not proved
+    assert ffmpeg_utils.have_ffmpeg() is False          # therefore not usable
+    assert ffmpeg_utils.ffmpeg_path() is None
+    assert ffmpeg_utils.ffprobe_path() is None
+
+
+def test_have_ffmpeg_means_the_same_thing_as_verified(monkeypatch, tmp_path):
+    """Two names, one trust boundary, so no gate can pick the weaker one."""
+    directory = install(tmp_path / "found")
+    monkeypatch.setenv("PATH", str(directory))
+    ffmpeg_utils.refresh()
+    assert ffmpeg_utils.have_ffmpeg() is ffmpeg_utils.verified_ffmpeg() is False
+
+    pin(monkeypatch, directory)
+    ffmpeg_utils.refresh()
+    assert ffmpeg_utils.have_ffmpeg() is ffmpeg_utils.verified_ffmpeg() is True
 
 
 def test_the_status_line_distinguishes_found_from_verified(monkeypatch, tmp_path):
     directory = install(tmp_path / "found")
     monkeypatch.setenv("PATH", str(directory))
     ffmpeg_utils.refresh()
-    assert "not yet verified" in ffmpeg_utils.status_line()
+    found = ffmpeg_utils.status_line()
+    assert "found" in found.lower()
+    assert "not" in found.lower()
+    # The middle state must not read as permission to convert.
+    assert "not available yet" in found
 
     pin(monkeypatch, directory)
     ffmpeg_utils.refresh()
     assert ffmpeg_utils.status_line() == "FFmpeg verified and ready."
 
+
+def test_the_status_line_is_truthful_when_nothing_is_there(monkeypatch, tmp_path):
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    ffmpeg_utils.refresh()
+    assert ffmpeg_utils.status_line() == "FFmpeg is not available."
+
+
+def test_drawing_a_status_line_executes_nothing(monkeypatch, tmp_path):
+    """Phase 15's rule: enumeration must never raise a security prompt."""
+    directory = install(tmp_path / "found")
+    monkeypatch.setenv("PATH", str(directory))
+    ffmpeg_utils.refresh()
+    monkeypatch.setattr(ffmpeg_health, "_run_version",
+                        lambda exe: pytest.fail("status executed a candidate"))
+    monkeypatch.setattr(ffmpeg_health, "prove_pair",
+                        lambda *a, **k: pytest.fail("status proved a candidate"))
+
+    ffmpeg_utils.status_line()
+    ffmpeg_utils.discovered_ffmpeg()
 
 def test_nothing_says_ffmpeg_detected_any_more():
     """**Structural.** The exact sentence that misled the maintainer."""
@@ -653,17 +741,51 @@ def test_nothing_says_ffmpeg_detected_any_more():
 def test_the_commands_still_receive_plain_strings(monkeypatch, tmp_path):
     """Every consumer builds argv lists; a Path here would change their shape."""
     directory = install(tmp_path / "good")
-    monkeypatch.setenv("PATH", str(directory))
+    pin(monkeypatch, directory)
     ffmpeg_utils.refresh()
     assert isinstance(ffmpeg_utils.ffmpeg_cmd(), str)
     assert isinstance(ffmpeg_utils.ffprobe_cmd(), str)
+    assert Path(ffmpeg_utils.ffmpeg_cmd()).is_absolute()
 
 
-def test_the_bare_name_fallback_survives_for_command_building(monkeypatch):
+def test_there_is_no_bare_name_fallback_for_command_building(monkeypatch):
+    """PRE-PLAN-6 Phase 4: superseded on purpose.
+
+    This used to assert ``ffmpeg_cmd() == "ffmpeg"`` when nothing resolved. That
+    is a command line escaping the health authority entirely -- run whatever the
+    PATH offers, with each half resolved independently, so the two need not even
+    be the same installation. A caller about to execute something must be told
+    there is nothing safe to give it, not handed a name.
+    """
     monkeypatch.setenv("PATH", "")
     ffmpeg_utils.refresh()
-    assert ffmpeg_utils.ffmpeg_cmd() == "ffmpeg"
-    assert ffmpeg_utils.ffprobe_cmd() == "ffprobe"
+
+    with pytest.raises(ffmpeg_utils.FFmpegUnavailable):
+        ffmpeg_utils.ffmpeg_cmd()
+    with pytest.raises(ffmpeg_utils.FFmpegUnavailable):
+        ffmpeg_utils.ffprobe_cmd()
+
+
+def test_an_unproven_pair_cannot_become_a_command(monkeypatch, tmp_path):
+    """Discoverable, coherent, and still not executable."""
+    directory = install(tmp_path / "found")
+    monkeypatch.setenv("PATH", str(directory))
+    ffmpeg_utils.refresh()
+
+    assert ffmpeg_utils.discovered_ffmpeg() is True
+    with pytest.raises(ffmpeg_utils.FFmpegUnavailable):
+        ffmpeg_utils.ffmpeg_cmd()
+
+
+def test_both_commands_come_from_the_one_pinned_installation(monkeypatch, tmp_path):
+    other = install(tmp_path / "other")
+    directory = install(tmp_path / "good")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(other), str(directory)]))
+    pin(monkeypatch, directory)
+    ffmpeg_utils.refresh()
+
+    assert Path(ffmpeg_utils.ffmpeg_cmd()).parent == directory
+    assert Path(ffmpeg_utils.ffprobe_cmd()).parent == directory
 
 
 # --------------------------------------------------------------------------- #
@@ -672,13 +794,23 @@ def test_the_bare_name_fallback_survives_for_command_building(monkeypatch):
 
 
 def test_setup_no_longer_accepts_a_path_it_never_executed():
-    """**Structural.** ``ensure_ffmpeg`` used to return on ``shutil.which`` alone."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    body = source[source.index("def ensure_ffmpeg("):source.index("def _install_ffmpeg(")]
-    assert "ffmpeg_health.ensure_ready" in body
-    assert "_ffmpeg_on_path()" not in body
-    assert "_ffmpeg_in_bin()" not in body
+    """**Structural.** ``ensure_ffmpeg`` used to return on ``shutil.which`` alone.
+
+    PRE-PLAN-6 Phase 5 moved the sequence into ``repair_ffmpeg`` and made
+    ``ensure_ffmpeg`` a thin call into it, so setup and every launch cannot
+    drift into two behaviours. The assertion follows it there.
+
+    Phase 6 restated it as AST. The slice this replaced ran from ``def
+    repair_ffmpeg(`` to ``def ensure_ffmpeg(`` — which is a claim about the
+    order of two lines in a file, not about either function, and it had already
+    been rewritten once when Phase 5 moved them.
+    """
+    body = source_probe.function("shared/bootstrap.py", "repair_ffmpeg")
+    called = source_probe.calls(body)
+
+    assert "ensure_ready" in called
+    assert "_ffmpeg_on_path" not in called
+    assert "_ffmpeg_in_bin" not in called
 
 
 def test_setup_reports_ready_only_when_a_pair_was_proven(monkeypatch, tmp_path):
@@ -688,6 +820,8 @@ def test_setup_reports_ready_only_when_a_pair_was_proven(monkeypatch, tmp_path):
                         lambda pair, runner=None: ffmpeg_health.Proof(
                             ok=False, detail="blocked", failed="ffprobe"))
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", lambda log: False)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
     log = Log()
     assert bootstrap.ensure_ffmpeg(log) is False
 
@@ -704,48 +838,95 @@ def test_setup_installs_only_when_nothing_here_works(monkeypatch, tmp_path):
     assert installs == [], "a working machine was needlessly reinstalled"
 
 
-def test_a_winget_install_is_accepted_without_waiting_for_path(monkeypatch, tmp_path):
+def test_a_winget_install_is_accepted_without_waiting_for_path():
     """winget updates the user's PATH, not this process's.
 
     Gating success on ``_ffmpeg_on_path()`` made setup abandon installs that had
     just succeeded and download a second, worse copy instead.
+
+    **This is the guard the drop named as the remaining structural weakness**,
+    and it is a good illustration of why. It used to slice the file from ``def
+    _winget_ffmpeg(`` to ``def _brew_ffmpeg(`` and assert a substring was
+    absent — so it broke the moment a *comment* inside that function explained
+    why the check had been removed, and it would have quietly stopped testing
+    anything at all if either neighbour were renamed or moved.
+
+    Stated as AST it says the actual invariant: this function does not call the
+    PATH probe, and neither does the route that decides on its result.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    branch = source[source.index("def _install_ffmpeg("):]
-    winget = branch[branch.index("winget install"):branch.index("if IS_MAC")]
-    assert "and _ffmpeg_on_path()" not in winget
+    for name in ("_winget_ffmpeg", "_brew_ffmpeg", "_install_ffmpeg"):
+        called = source_probe.calls(
+            source_probe.function("shared/bootstrap.py", name))
+        assert "_ffmpeg_on_path" not in called, name
+        assert "_ffmpeg_in_bin" not in called, name
+
+
+def test_the_winget_argv_is_the_pinned_package_in_user_scope():
+    """What the command *is*, read from the tree rather than from the text."""
+    argv = [a for a in source_probe.literal_lists(
+        source_probe.function("shared/bootstrap.py", "_winget_ffmpeg"))
+        if a and a[0] == "winget"]
+
+    assert len(argv) == 1, argv
+    command = argv[0]
+    assert command[:2] == ["winget", "install"]
+    assert "Gyan.FFmpeg" in command
+    assert command[command.index("--scope") + 1] == "user"
 
 
 def test_the_launch_fast_path_checks_ffmpeg_before_the_gui():
-    """**Structural.** The gap that let a broken pair reach a real conversion."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    body = source[source.index("def _launch_with_kokoro_healthcheck("):]
-    body = body[:body.index("def ")] if "def " in body[10:] else body
-    assert "ensure_ffmpeg_ready_for_launch()" in source
-    launch = source.index("def _launch_with_kokoro_healthcheck(")
-    check = source.index("ensure_ffmpeg_ready_for_launch()", launch)
-    gui = source.index("launch_gui(LOG)", launch)
-    assert check < gui, "the health check must run before the GUI is launched"
+    """**Structural.** The gap that let a broken pair reach a real conversion.
+
+    The old form searched the whole file for two substrings and compared their
+    offsets, so it was really asserting that one string appears earlier in
+    ``bootstrap.py`` than another — true of a docstring mentioning either name.
+    As AST it is the ordering of two calls inside one function, which is the
+    thing that actually has to hold.
+    """
+    launch = source_probe.function("shared/bootstrap.py",
+                                   "_launch_with_kokoro_healthcheck")
+    order = source_probe.call_order(
+        launch, ("ensure_ffmpeg_ready_for_launch", "launch_gui"))
+
+    assert order.count("ensure_ffmpeg_ready_for_launch") == 1
+    assert order.count("launch_gui") == 1
+    assert order.index("ensure_ffmpeg_ready_for_launch") < order.index("launch_gui"), \
+        "the audio tools must be settled before the GUI is launched"
 
 
 def test_the_launch_check_still_leaves_kokoro_and_requirements_alone():
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    body = source[source.index("def _launch_with_kokoro_healthcheck("):]
-    assert "requirements_are_current()" in body
-    assert "kokoro_is_healthy(venv_py)" in body
+    called = source_probe.calls(source_probe.function(
+        "shared/bootstrap.py", "_launch_with_kokoro_healthcheck"))
+
+    assert "requirements_are_current" in called
+    assert "kokoro_is_healthy" in called
 
 
-def test_a_launch_with_no_usable_ffmpeg_warns_but_still_opens(monkeypatch, tmp_path):
-    """Edge TTS does not need ffmpeg, so this is a warning, not a refusal."""
+def test_a_launch_with_no_usable_ffmpeg_repairs_instead_of_warning(monkeypatch,
+                                                                  tmp_path):
+    """PRE-PLAN-6 Phase 5 inverted this. It used to warn and give up.
+
+    Edge TTS does not need ffmpeg, so a failure here was never a refusal — but
+    it was also never a repair, and the modal it opened stood in front of a GUI
+    that did not exist yet. The gate now attempts the repair and returns a
+    result; the single notice, if one is needed at all, is the caller's and
+    comes after the GUI has started.
+    """
     warned: list = []
     monkeypatch.setattr(bootstrap, "show_warning_dialog",
                         lambda title, message: warned.append((title, message)))
+    monkeypatch.setattr(bootstrap, "show_repair_dialog",
+                        lambda work, **kwargs: work())
     monkeypatch.setattr(ffmpeg_health, "ensure_ready", lambda log=None, **kw: None)
-    assert bootstrap.ensure_ffmpeg_ready_for_launch() is False
-    assert warned and "audio tools" in warned[0][0]
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
+
+    result = bootstrap.ensure_ffmpeg_ready_for_launch()
+
+    assert result.ready is False
+    assert warned == [], "the gate warned instead of leaving that to the caller"
+    assert bootstrap.FFMPEG_ROUTE_EXISTING in result.routes
 
 
 def test_bootstrap_and_the_runtime_share_one_implementation():

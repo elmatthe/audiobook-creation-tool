@@ -41,8 +41,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -84,6 +82,7 @@ LAUNCHER_FALLBACK = SCRIPTS_DIR / "tts" / "epub2tts_gui.py"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 from shared import ffmpeg_health  # noqa: E402
+from shared import ffmpeg_portable  # noqa: E402
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
@@ -101,46 +100,91 @@ for _stream in (sys.stdout, sys.stderr):
 PREFERRED_PY = ("3.12", "3.11")
 WINGET_PYTHON_ID = "Python.Python.3.12"
 
+# The project's full-feature range, in one place. 3.11 is the floor the project
+# supports; 3.13 is excluded because the pinned Kokoro/Chatterbox wheels require
+# <3.13. Every "is this interpreter a fully supported target?" question goes
+# through ``is_full_feature_python`` so a future 3.13 unlock is one edit here.
+FULL_FEATURE_MIN = (3, 11)
+FULL_FEATURE_BELOW = (3, 13)
+
+
+def is_full_feature_python(ver: tuple[int, int] | None) -> bool:
+    """True for an interpreter the project fully supports: >=3.11, <3.13.
+
+    Deliberately *not* the same predicate as ``_is_kokoro_compatible``. That one
+    states Kokoro's own wheel range, whose floor is 3.10; the project's floor is
+    3.11 and must not be widened to 3.10 by reusing the wrong test. Both exist
+    because they answer different questions about the same interpreter.
+    """
+    return ver is not None and FULL_FEATURE_MIN <= ver < FULL_FEATURE_BELOW
+
 
 def _is_kokoro_compatible(ver: tuple[int, int] | None) -> bool:
     """Kokoro's PyPI wheels require >=3.10,<3.13."""
     return ver is not None and (3, 10) <= ver < (3, 13)
 
-# Portable ffmpeg fallback (Windows only) — used if winget is unavailable.
-FFMPEG_WIN_ZIP_URL = (
-    "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/"
-    "ffmpeg-master-latest-win64-gpl.zip"
-)
+# Portable ffmpeg fallback (Windows only) — used if winget is unavailable. The
+# source pin lives in ``shared/ffmpeg_portable.py``: one authoritative set of
+# constants, verified against the Gyan release and Microsoft's winget-pkgs
+# manifest, rather than a URL floating on "latest" as this used to be.
 
 
 # ===========================================================================
 #  Logging
 # ===========================================================================
 class SetupLog:
-    """Tee setup output to a dated log file and an optional UI callback."""
+    """Tee setup output to a dated log file and an optional UI callback.
+
+    **The file is opened on first use, never at construction.** Creating a
+    ``SetupLog`` -- which importing this module does, for the shared ``LOG`` --
+    used to create ``files/runtime-data/logs/`` and append a run header
+    immediately. Every test that imported ``bootstrap`` therefore wrote into the
+    production setup log, interleaving pytest temp paths with real runs and
+    making a user-supplied log harder to trust when diagnosing a real failure.
+
+    Deferring the open changes nothing a user sees: the header is still the first
+    thing in the file, still written before any other line, and still mirrored to
+    stdout but not to the UI sink -- it is emitted the moment the log is actually
+    used rather than the moment it is constructed.
+    """
 
     def __init__(self) -> None:
-        LOGS_DIR.mkdir(parents=True, exist_ok=True)
-        self.path = LOGS_DIR / f"setup_{datetime.now():%Y-%m-%d}.log"
-        self._fh = open(self.path, "a", encoding="utf-8")
+        self._fh = None
+        self._path: Optional[Path] = None
+        self._header_written = False
         self._ui: Optional[Callable[[str], None]] = None
-        self.line(f"\n===== Setup run {datetime.now():%Y-%m-%d %H:%M:%S} =====")
-        self.line(f"Repo root: {REPO_ROOT}")
 
-    def set_ui_sink(self, sink: Optional[Callable[[str], None]]) -> None:
-        self._ui = sink
+    @property
+    def path(self) -> Path:
+        """The dated log path, resolved on first request and then fixed."""
+        if self._path is None:
+            self._path = LOGS_DIR / f"setup_{datetime.now():%Y-%m-%d}.log"
+        return self._path
 
-    def line(self, msg: str) -> None:
+    def _handle(self):
+        if self._fh is None:
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            self._fh = open(self.path, "a", encoding="utf-8")
+        return self._fh
+
+    def _write_header_once(self) -> None:
+        if self._header_written:
+            return
+        self._header_written = True  # set first: a failed write must not retry forever
+        for msg in (f"\n===== Setup run {datetime.now():%Y-%m-%d %H:%M:%S} =====",
+                    f"Repo root: {REPO_ROOT}"):
+            self._to_file(msg)
+            self._to_stdout(msg)
+
+    def _to_file(self, msg: str) -> None:
         try:
-            self._fh.write(msg + "\n")
-            self._fh.flush()
+            fh = self._handle()
+            fh.write(msg + "\n")
+            fh.flush()
         except Exception:
             pass
-        if self._ui is not None:
-            try:
-                self._ui(msg)
-            except Exception:
-                pass
+
+    def _to_stdout(self, msg: str) -> None:
         # Mirror to stdout when one exists. Under pythonw.exe (the fast-path
         # launcher) sys.stdout is None, and the console codepage may not encode
         # every character — both are swallowed rather than allowed to crash the
@@ -151,11 +195,27 @@ class SetupLog:
         except Exception:
             pass
 
+    def set_ui_sink(self, sink: Optional[Callable[[str], None]]) -> None:
+        self._ui = sink
+
+    def line(self, msg: str) -> None:
+        self._write_header_once()
+        self._to_file(msg)
+        if self._ui is not None:
+            try:
+                self._ui(msg)
+            except Exception:
+                pass
+        self._to_stdout(msg)
+
     def close(self) -> None:
         try:
-            self._fh.close()
+            if self._fh is not None:
+                self._fh.close()
         except Exception:
             pass
+        finally:
+            self._fh = None
 
 
 LOG = SetupLog()
@@ -203,6 +263,24 @@ def venv_pip() -> list[str]:
 #: Filename of the per-environment requirements stamp, inside the venv.
 REQUIREMENTS_STATE_NAME = ".requirements-state.json"
 
+#: Filename of the per-environment *import proof*, inside the venv. Deliberately
+#: a separate record from the requirements stamp, because it answers a different
+#: question. The stamp says "this environment was reconciled against these pins";
+#: the proof says "every required module was actually imported, successfully, at
+#: this moment". A stamp can be true while the proof has gone stale — that is the
+#: whole point of keeping them apart.
+IMPORT_PROOF_NAME = ".import-proof.json"
+
+#: How long a real-import proof is trusted before it is re-established.
+#:
+#: This is the bound on the one thing a content hash cannot see. ``requirements.txt``
+#: does not change when a native extension is damaged, a DLL dependency goes
+#: missing, or an antivirus quarantines a file inside an installed package — so a
+#: fingerprint match can hide a genuinely broken import. Re-proving on a schedule
+#: means such a break is caught within a week rather than never, without paying
+#: the proof's cost on every launch.
+IMPORT_PROOF_MAX_AGE_DAYS = 7
+
 #: Exit code meaning "the user chose not to install", as distinct from "the
 #: install broke".
 #:
@@ -216,6 +294,16 @@ REQUIREMENTS_STATE_NAME = ".requirements-state.json"
 #: 2 is deliberately neither 0 (which would hide a real problem) nor 1 (the
 #: failure code). A genuine error still exits 1.
 EXIT_SETUP_CANCELLED = 2
+
+#: "This environment needs rebuilding, and I cannot do it from in here."
+#:
+#: A bootstrap running *on* the venv interpreter cannot replace that venv: on
+#: Windows the running ``python.exe`` is locked, so neither a delete nor a
+#: rename of its directory can succeed. The launcher therefore has to be told,
+#: rather than guessing, and it re-enters bootstrap on a base interpreter.
+#: A distinct code because overloading 1 ("something failed") or 2 ("the user
+#: cancelled") would make an ordinary failure indistinguishable from a request.
+EXIT_VENV_REPAIR_REQUIRED = 3
 
 
 def setup_exit_code(*, started: bool, done: bool, ok: bool) -> int:
@@ -243,6 +331,75 @@ def setup_exit_code(*, started: bool, done: bool, ok: bool) -> int:
 
 def requirements_state_path() -> Path:
     return VENV_DIR / REQUIREMENTS_STATE_NAME
+
+
+def import_proof_path() -> Path:
+    return VENV_DIR / IMPORT_PROOF_NAME
+
+
+def _interpreter_identity() -> Optional[list]:
+    """``[path, size, mtime_ns]`` of the venv interpreter, or None.
+
+    Cheap enough (one ``stat``) to check on every launch, and specific enough
+    that a rebuilt or replaced environment cannot inherit an older proof: a new
+    venv writes a new ``python.exe``, so size and timestamp both move.
+    """
+    py = venv_python()
+    try:
+        stat = py.stat()
+        return [str(py), stat.st_size, stat.st_mtime_ns]
+    except OSError:
+        return None
+
+
+def record_import_proof(python_version: str = "") -> None:
+    """Record that every required module was just really imported.
+
+    **Only ever call immediately after a successful real import proof.** Same
+    discipline as the requirements stamp: evidence of success, never an intention.
+    """
+    fingerprint = requirements_fingerprint()
+    try:
+        import_proof_path().parent.mkdir(parents=True, exist_ok=True)
+        import_proof_path().write_text(
+            json.dumps({
+                "requirements_sha256": fingerprint,
+                "python_version": python_version,
+                "interpreter": _interpreter_identity(),
+                "proved_at": time.time(),
+                "proved_at_human": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # an unproved environment re-proves next launch; safe, not fatal
+
+
+def import_proof_is_current() -> bool:
+    """True when a real-import proof for these pins is on file and still fresh.
+
+    Costs one small file read and no subprocess, so the healthy launch pays
+    nothing for it. Anything unexpected — missing, unreadable, malformed, for
+    different pins, or simply old — means the same thing: prove it again. None of
+    those is evidence that the environment still imports.
+    """
+    try:
+        payload = json.loads(import_proof_path().read_text(encoding="utf-8"))
+        if payload.get("requirements_sha256") != requirements_fingerprint():
+            return False
+        # A proof belongs to the interpreter that produced it. Phase 2 can
+        # replace the venv underneath an otherwise-matching stamp, and a proof
+        # carried over from the interpreter that was there before would be a
+        # claim about a Python that no longer exists. A record written before
+        # this field existed has no identity to match and is simply re-proved.
+        if payload.get("interpreter") != _interpreter_identity():
+            return False
+        age = time.time() - float(payload["proved_at"])
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+    # A clock moved backwards makes ``age`` negative; treat that as stale too
+    # rather than trusting a proof that appears to come from the future.
+    return 0 <= age <= IMPORT_PROOF_MAX_AGE_DAYS * 86400
 
 
 def requirements_fingerprint() -> str:
@@ -293,6 +450,48 @@ def record_requirements_state() -> None:
         pass  # an unstamped environment reconciles again; that is safe, not fatal
 
 
+# Outcomes of ``reconcile_requirements``. Callers word them for their own
+# context — a first-run setup dialog and a launch-time repair say different
+# things about the same technical fact.
+RECONCILE_OK = "ok"
+RECONCILE_PIP_FAILED = "pip"
+RECONCILE_IMPORT_FAILED = "import"
+
+
+def reconcile_requirements(log: "SetupLog") -> tuple[bool, str]:
+    """Install the pins, prove they import, and **only then** stamp success.
+
+    This is the single owner of the pip → validate → stamp sequence, and the only
+    place in this module that calls ``record_requirements_state``. It exists
+    because the sequence was previously written out twice: correctly in the drift
+    path, and incorrectly in ``run_setup``, which called
+    ``validate_installed_packages`` for its side effects, discarded the boolean
+    and stamped unconditionally. A first run whose package installed but did not
+    import was then recorded as healthy permanently — the fingerprint matched on
+    every later launch, so nothing ever re-probed the imports.
+
+    The invariant, in one place so a future call site cannot restate it wrongly:
+    **a success stamp is written if and only if pip succeeded and every required
+    import was proved.** Either failure writes nothing, so the next invocation
+    retries rather than remembering a failure as success.
+
+    Returns ``(ok, reason)`` where ``reason`` is one of the ``RECONCILE_*``
+    constants.
+    """
+    if not pip_install_requirements(log):
+        return False, RECONCILE_PIP_FAILED
+    # pip exiting 0 is not proof that anything imports — a partial wheel, an ABI
+    # mismatch or a clobbered install all exit 0. Prove it by importing.
+    if not validate_installed_packages(log):
+        return False, RECONCILE_IMPORT_FAILED
+    record_requirements_state()
+    # ``validate_installed_packages`` just imported every required module for
+    # real, so this environment is proved as of now. Recording that here is what
+    # stops a freshly reconciled machine from re-proving on its very next launch.
+    record_import_proof()
+    return True, RECONCILE_OK
+
+
 def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
     """Reconcile this environment with ``requirements.txt`` if the pins changed.
 
@@ -309,17 +508,40 @@ def ensure_requirements_current(log: "SetupLog") -> tuple[bool, str]:
 
     log.line("Dependencies have changed since this environment was set up — "
              "reconciling it with scripts/requirements.txt…")
-    if not pip_install_requirements(log):
-        return False, ("Some dependencies could not be installed. The application "
-                       "will still open, but features needing them may be "
-                       "unavailable.")
-    if not validate_installed_packages(log):
-        return False, ("Some dependencies installed but could not be imported. The "
-                       "application will still open, but features needing them may "
-                       "be unavailable.")
-    record_requirements_state()
+    ok, reason = reconcile_requirements(log)
+    if not ok:
+        return False, _reconcile_launch_message(reason)
     log.line("  Dependencies reconciled; this environment is now up to date.")
     return True, "Dependencies reconciled."
+
+
+def repair_missing_requirements(log: "SetupLog", missing: str) -> tuple[bool, str]:
+    """Reconcile an environment whose fingerprint matches but whose packages don't.
+
+    The fingerprint answers *"which pins was this environment built against?"* —
+    not *"are those packages still here and still importable?"*. A required
+    package that was never installed, or that stopped importing, leaves the
+    fingerprint untouched, so the drift path's own gate would skip the repair
+    forever. This route deliberately bypasses that gate; the proof and the stamp
+    rules are unchanged, because both live in ``reconcile_requirements``.
+    """
+    log.line(f"Required packages are missing from this environment: {missing}")
+    ok, reason = reconcile_requirements(log)
+    if not ok:
+        return False, _reconcile_launch_message(reason)
+    log.line("  Required packages reinstalled and proved to import.")
+    return True, "Dependencies repaired."
+
+
+def _reconcile_launch_message(reason: str) -> str:
+    """Launch-context wording for a reconciliation failure."""
+    if reason == RECONCILE_IMPORT_FAILED:
+        return ("Some dependencies installed but could not be imported. The "
+                "application will still open, but features needing them may "
+                "be unavailable.")
+    return ("Some dependencies could not be installed. The application "
+            "will still open, but features needing them may be "
+            "unavailable.")
 
 
 def venv_is_valid() -> bool:
@@ -329,6 +551,9 @@ def venv_is_valid() -> bool:
     import it is broken (a known failure mode when the base Python was built
     without OpenSSL). Treating such a venv as invalid sends the bootstrap down
     the recreate path instead of launching a half-working app.
+
+    Kept as the narrow yes/no it always was. :func:`assess_venv_health` is the
+    richer answer; this remains the one-bit version several callers still want.
     """
     py = venv_python()
     if not py.exists():
@@ -344,6 +569,168 @@ def venv_is_valid() -> bool:
         return r.returncode == 0
     except Exception:
         return False
+
+
+# ===========================================================================
+#  Venv health — one authority
+# ===========================================================================
+#: The venv is fine and the app should just start.
+VENV_HEALTHY = "healthy"
+#: The venv is unusable or wrong, and something better can be built.
+VENV_REPAIRABLE = "repairable"
+#: The venv works for real work but is not a fully healthy setup, and nothing
+#: better is currently obtainable. It must launch — and must NOT be rebuilt on
+#: every launch in the hope that this time will differ.
+VENV_DEGRADED = "degraded"
+#: There is no venv at all. First run.
+VENV_ABSENT = "absent"
+
+
+class VenvHealth:
+    """What is actually true about the virtual environment.
+
+    Deliberately a small structured result rather than a bare boolean. The
+    launcher used to ask "does ``pythonw.exe`` exist?", which conflates *present*
+    with *usable* and had no way to express "runs, but on the wrong Python" or
+    "works except the GUI". Those distinctions decide whether to launch, repair,
+    or launch-and-say-so, and each needs a different answer.
+    """
+
+    __slots__ = ("state", "reason", "detail", "version", "ssl", "tk", "executes")
+
+    def __init__(self, state: str, reason: str, detail: str, *,
+                 version: Optional[tuple] = None, ssl: bool = False,
+                 tk: bool = False, executes: bool = False) -> None:
+        self.state = state
+        self.reason = reason
+        self.detail = detail
+        self.version = version
+        self.ssl = ssl
+        self.tk = tk
+        self.executes = executes
+
+    @property
+    def can_launch(self) -> bool:
+        """True when the app should start on this environment as it stands."""
+        return self.state in (VENV_HEALTHY, VENV_DEGRADED)
+
+    @property
+    def is_fully_healthy(self) -> bool:
+        return self.state == VENV_HEALTHY
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return (f"VenvHealth({self.state!r}, {self.reason!r}, "
+                f"version={self.version!r}, ssl={self.ssl}, tk={self.tk})")
+
+
+_VENV_PROBE = (
+    "import json, sys\n"
+    "d = {'version': list(sys.version_info[:3])}\n"
+    "try:\n"
+    "    import ssl  # noqa: F401\n"
+    "    d['ssl'] = True\n"
+    "except Exception:\n"
+    "    d['ssl'] = False\n"
+    "try:\n"
+    "    import tkinter\n"
+    "    tkinter.Tcl()\n"
+    "    d['tk'] = True\n"
+    "except Exception:\n"
+    "    d['tk'] = False\n"
+    "print(json.dumps(d))\n"
+)
+
+
+def probe_venv(venv_py: Path) -> Optional[dict]:
+    """Version, ssl and *functional* Tk from the venv, in one subprocess.
+
+    One spawn rather than :func:`probe_capabilities`' four, because this runs on
+    the launch path: measured on HOME-PC, ~58 ms against ~190 ms. ``None`` means
+    the interpreter did not execute at all, which is itself the answer.
+
+    Tk is proved by initialising ``Tcl()``, never by importing ``tkinter`` — the
+    import succeeds on a Homebrew ``python@3.12`` with no ``python-tk@3.12``,
+    and the app then dies opening its window.
+    """
+    try:
+        r = subprocess.run([str(venv_py), "-c", _VENV_PROBE],
+                           capture_output=True, text=True, timeout=120, **_hidden())
+        if r.returncode != 0:
+            return None
+        payload = json.loads((r.stdout or "").strip())
+        return {
+            "version": tuple(payload["version"][:2]),
+            "ssl": bool(payload["ssl"]),
+            "tk": bool(payload["tk"]),
+        }
+    except Exception:
+        return None
+
+
+def assess_venv_health(*, require_tk: bool = True,
+                       compatible_base_available: Optional[bool] = None
+                       ) -> VenvHealth:
+    """Classify the existing virtual environment. The single authority.
+
+    ``compatible_base_available`` answers "could we build something better?" and
+    is what separates *repairable* from *degraded*. It is a callable question
+    (it spawns interpreters), so it is only ever asked when the venv is already
+    known not to be fully healthy — a healthy launch never pays for it.
+    """
+    py = venv_python()
+    if not py.exists():
+        return VenvHealth(VENV_ABSENT, "no-venv",
+                          "No virtual environment has been created yet.")
+
+    caps = probe_venv(py)
+    if caps is None:
+        return VenvHealth(
+            VENV_REPAIRABLE, "interpreter-dead",
+            "The environment's Python cannot run. It has to be rebuilt.")
+
+    version, has_ssl, has_tk = caps["version"], caps["ssl"], caps["tk"]
+
+    if not has_ssl:
+        # pip and Edge TTS both need ssl; this is a real failure, not a nuisance.
+        return VenvHealth(
+            VENV_REPAIRABLE, "no-ssl",
+            "The environment's Python cannot import ssl, so downloads and Edge "
+            "voices cannot work. It has to be rebuilt.",
+            version=version, ssl=False, tk=has_tk, executes=True)
+
+    if not is_full_feature_python(version):
+        shown = f"{version[0]}.{version[1]}"
+        if compatible_base_available is None or compatible_base_available:
+            return VenvHealth(
+                VENV_REPAIRABLE, "incompatible-python",
+                f"The environment runs Python {shown}, which cannot install the "
+                "local Kokoro and Chatterbox voices. A compatible Python is "
+                "available, so it can be rebuilt.",
+                version=version, ssl=True, tk=has_tk, executes=True)
+        return VenvHealth(
+            VENV_DEGRADED, "incompatible-python-no-base",
+            f"The environment runs Python {shown} and no compatible Python "
+            f"({FULL_FEATURE_MIN[0]}.{FULL_FEATURE_MIN[1]}–"
+            f"{FULL_FEATURE_BELOW[0]}.{FULL_FEATURE_BELOW[1] - 1}) could be "
+            "obtained. Edge TTS and the audio tools work; the local voices do not.",
+            version=version, ssl=True, tk=has_tk, executes=True)
+
+    if require_tk and not has_tk:
+        if compatible_base_available is None or compatible_base_available:
+            return VenvHealth(
+                VENV_REPAIRABLE, "no-tk",
+                "The environment cannot open a window (Tcl/Tk does not start). "
+                "It can be rebuilt from a Python that has Tk.",
+                version=version, ssl=True, tk=False, executes=True)
+        return VenvHealth(
+            VENV_DEGRADED, "no-tk-unfixable",
+            "The environment cannot open a window (Tcl/Tk does not start) and no "
+            "Python with working Tk could be found. The command-line tools still "
+            "work.",
+            version=version, ssl=True, tk=False, executes=True)
+
+    return VenvHealth(VENV_HEALTHY, "ok", "The environment is healthy.",
+                      version=version, ssl=True, tk=has_tk, executes=True)
 
 
 # ===========================================================================
@@ -708,31 +1095,67 @@ def preflight_report(py, log: "SetupLog") -> dict:
 # ===========================================================================
 #  Locate / install a suitable Python interpreter for the venv
 # ===========================================================================
-def _candidate_interpreters() -> list[str]:
-    """Build an ordered list of interpreter commands to probe."""
-    cands: list[str] = []
+def _candidate_interpreters() -> list[list[str]]:
+    """Build an ordered list of interpreter **argv sequences** to probe.
+
+    Each candidate is a real argv from the moment it is created — a one-element
+    list for an executable (whose single element may legitimately contain
+    spaces) or ``["py", "-3.12"]`` for a launcher invocation. Nothing downstream
+    re-parses a command string, which is what used to shatter
+    ``C:\\Program Files\\Python312\\python.exe`` into two arguments and make a
+    machine-scope Python undiscoverable.
+    """
+    cands: list[list[str]] = []
     if IS_WINDOWS:
         # The py launcher can target an exact version.
         for ver in PREFERRED_PY:
-            cands.append(f"py -{ver}")
+            cands.append(["py", f"-{ver}"])
         # Common per-user winget / python.org install locations.
         local = os.environ.get("LOCALAPPDATA", "")
         progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
         for ver in PREFERRED_PY:
             tag = ver.replace(".", "")
             if local:
-                cands.append(str(Path(local) / "Programs" / "Python" / f"Python{tag}" / "python.exe"))
-            cands.append(str(Path(progfiles) / f"Python{tag}" / "python.exe"))
-        cands.append("python")
+                cands.append([str(Path(local) / "Programs" / "Python"
+                                  / f"Python{tag}" / "python.exe")])
+            cands.append([str(Path(progfiles) / f"Python{tag}" / "python.exe")])
+        cands.append(["python"])
     else:
         for ver in PREFERRED_PY:
-            cands.append(f"python{ver}")
+            cands.append([f"python{ver}"])
         # Homebrew locations (Apple Silicon + Intel).
         for ver in PREFERRED_PY:
-            cands.append(f"/opt/homebrew/bin/python{ver}")
-            cands.append(f"/usr/local/bin/python{ver}")
-        cands.append("python3")
+            cands.append([f"/opt/homebrew/bin/python{ver}"])
+            cands.append([f"/usr/local/bin/python{ver}"])
+        cands.append(["python3"])
     return cands
+
+
+def _is_path_like(token: str) -> bool:
+    """True when a token names a location rather than a command on PATH."""
+    return os.sep in token or (os.altsep is not None and os.altsep in token)
+
+
+def _candidate_is_worth_probing(argv: list[str]) -> bool:
+    """Cheap pre-spawn filter, applied to the argv itself.
+
+    Three cases, each decided on structure rather than on whether some string
+    happened to contain a space:
+
+    * a launcher invocation (``py -3.12``) is worth probing only when the
+      launcher itself resolves — HOME-PC has no ``py``, and spawning it once per
+      preferred version is pure waste;
+    * a path candidate is worth probing only if the file is actually there;
+    * a bare command is worth probing only if it resolves on PATH.
+    """
+    if not argv:
+        return False
+    head = argv[0]
+    if len(argv) > 1:
+        return shutil.which(head) is not None
+    if _is_path_like(head):
+        return Path(head).exists()
+    return shutil.which(head) is not None
 
 
 def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]:
@@ -757,55 +1180,61 @@ def find_suitable_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list
     #    accept <3.13 here so we never silently pick 3.13 over an available 3.12
     #    (3.13 loses Kokoro); a 3.13-only system still falls through to step 4.
     cur_ver = sys.version_info[:2]
-    if sys.executable and (3, 11) <= cur_ver < (3, 13):
+    if sys.executable and is_full_feature_python(cur_ver):
         if not prefer_tk or _tcl_tk_ok([sys.executable]):
             log.line(f"  Using the current interpreter: {sys.executable} "
                      f"(Python {cur_ver[0]}.{cur_ver[1]})")
             return [sys.executable]
 
-    best_any: Optional[list[str]] = None      # any >=3.11 fallback
-    pref_no_tk: Optional[list[str]] = None     # a 3.12/3.11 that lacks Tk
-    for cand in _candidate_interpreters():
-        argv = cand.split() if " " in cand else [cand]
-        # Skip absolute paths that don't exist (cheap check before spawning).
-        if len(argv) == 1 and ("/" in cand or "\\" in cand) and not Path(cand).exists():
+    best_any: Optional[list[str]] = None      # a >=3.11 but out-of-range fallback
+    pref_no_tk: Optional[list[str]] = None    # a full-feature Python that lacks Tk
+    for argv in _candidate_interpreters():
+        if not _candidate_is_worth_probing(argv):
             continue
-        if len(argv) == 1 and not (("/" in cand or "\\" in cand)) and shutil.which(argv[0]) is None:
-            # Bare command not on PATH (except the 'py' launcher handled above).
-            if argv[0] != "py":
-                continue
         ver = _interp_version_argv(argv)
         if ver is None:
             continue
         ver_str = f"{ver[0]}.{ver[1]}"
-        if ver_str in PREFERRED_PY:
+        if is_full_feature_python(ver):
             if not prefer_tk or _tcl_tk_ok(argv):
-                log.line(f"  Found GUI-capable Python {ver_str}: {' '.join(argv)}")
+                log.line(f"  Found GUI-capable Python {ver_str}: {_shown(argv)}")
                 return argv
             if pref_no_tk is None:
                 pref_no_tk = argv
-        elif ver >= (3, 11) and best_any is None:
+        elif ver >= FULL_FEATURE_MIN and best_any is None:
             best_any = argv
 
-    # 3. A preferred-version Python exists but has no Tk. On macOS we can fix it.
+    # 3. A full-feature Python exists but has no Tk. On macOS we can fix it.
     if pref_no_tk is not None:
         if prefer_tk and IS_MAC and shutil.which("brew"):
             _brew_install_python_tk(log)
             if _tcl_tk_ok(pref_no_tk):
-                log.line(f"  Tk support installed; using {' '.join(pref_no_tk)}")
+                log.line(f"  Tk support installed; using {_shown(pref_no_tk)}")
                 return pref_no_tk
             log.line("  Tk still unavailable after python-tk install.")
-        log.line(f"  Using {' '.join(pref_no_tk)} (GUI may be unavailable; the "
+        log.line(f"  Using {_shown(pref_no_tk)} (GUI may be unavailable; the "
                  "command line still works).")
         return pref_no_tk
 
     if best_any is not None:
         bv = _interp_version_argv(best_any)
-        log.line(f"  No 3.12/3.11 found; using Python {bv[0]}.{bv[1]} "
-                 "(note: Kokoro local voices require <3.13).")
+        # Returned, but never as the preferred fully-compatible answer: outside
+        # >=3.11,<3.13 the pinned Kokoro/Chatterbox wheels do not install, so
+        # this is a degraded target that setup then tries to replace with 3.12.
+        shown = f"{bv[0]}.{bv[1]}" if bv else "unknown"
+        log.line(f"  No fully compatible Python ({FULL_FEATURE_MIN[0]}."
+                 f"{FULL_FEATURE_MIN[1]}–{FULL_FEATURE_BELOW[0]}."
+                 f"{FULL_FEATURE_BELOW[1] - 1}) found; Python {shown} is a "
+                 "degraded fallback — local Kokoro/Chatterbox voices are "
+                 "unavailable on it.")
         return best_any
     log.line("  No suitable Python found on this system.")
     return None
+
+
+def _shown(argv: list[str]) -> str:
+    """Render an argv for a log line without pretending it is a command string."""
+    return " ".join(argv)
 
 
 def _interp_version_argv(argv: list[str]) -> Optional[tuple[int, int]]:
@@ -825,7 +1254,14 @@ def install_python(log: SetupLog, prefer_tk: bool = True) -> Optional[list[str]]
     if IS_WINDOWS:
         if shutil.which("winget"):
             log.line(f"Installing {WINGET_PYTHON_ID} via winget (this can take a few minutes)…")
+            # Explicit user scope. Phase 2 makes this reachable from an ordinary
+            # launcher repair rather than only from a first run the user started
+            # deliberately, and CSPW-PC is a Standard User with no admin rights:
+            # a machine-wide install there would prompt for a password nobody
+            # has. Saying "user" out loud also stops the answer depending on a
+            # package default that can change under us.
             r = _run(["winget", "install", "--id", WINGET_PYTHON_ID, "-e",
+                      "--scope", "user",
                       "--silent", "--accept-source-agreements",
                       "--accept-package-agreements"])
             log.line(r.stdout.strip() or "")
@@ -862,49 +1298,243 @@ def create_venv(py_argv: list[str], log: SetupLog) -> bool:
     return True
 
 
-def _create_validated_venv(py_argv: list[str], log: SetupLog,
-                           headless: bool) -> bool:
-    """Create the venv and confirm it is actually usable.
+#: Where a previous environment waits while its replacement is being proved.
+VENV_ASIDE_SUFFIX = ".replaced"
 
-    A Tk-capable *base* Python must produce a Tk-capable *venv*; if it doesn't,
-    or the venv cannot import ssl, the venv is broken — delete and recreate once
-    (the self-healing recovery path). Returns False only if a working venv (ssl
-    at minimum) cannot be produced.
+
+def _venv_aside_path() -> Path:
+    return VENV_DIR.with_name(VENV_DIR.name + VENV_ASIDE_SUFFIX)
+
+
+def _move_venv_aside(log: SetupLog) -> Optional[Path]:
+    """Rename the current venv out of the way. Returns the aside path, or None.
+
+    A rename, not a delete, and on the same volume so it is atomic and cheap.
+    The old environment is the only thing standing between the user and a
+    machine with nothing on it, so it is not destroyed until its replacement has
+    been proved to work.
+
+    An aside that somehow still exists is **never** overwritten — it would be
+    someone's last-known-good environment from an interrupted repair. A unique
+    name is used instead, so the worst case is disk to clean rather than an
+    environment nobody can get back. :func:`recover_interrupted_replacement`
+    normally resolves that state before this is reached.
     """
-    if VENV_DIR.exists():
-        # A venv built on >=3.13 can never install Kokoro. If the chosen base
-        # is Kokoro-compatible (<3.13), rebuild on it rather than reusing the
-        # incompatible venv forever.
-        venv_ver = _interp_version_argv([str(venv_python())])
-        base_ver = _interp_version_argv(py_argv)
-        if (venv_ver is not None and not _is_kokoro_compatible(venv_ver)
-                and _is_kokoro_compatible(base_ver)):
-            log.line(f"  Existing venv is Python {venv_ver[0]}.{venv_ver[1]} "
-                     f"(no Kokoro support) but Python {base_ver[0]}.{base_ver[1]} "
-                     "is available — rebuilding the venv on it.")
-            shutil.rmtree(VENV_DIR, ignore_errors=True)
+    if not VENV_DIR.exists():
+        return None
+    aside = _venv_aside_path()
+    if aside.exists():
+        aside = aside.with_name(f"{aside.name}-{int(time.time())}")
+    try:
+        os.replace(VENV_DIR, aside)
+        return aside
+    except OSError as exc:
+        # Typically the running interpreter is inside it (Windows locks it).
+        log.line(f"  Could not set the existing environment aside: {exc}")
+        return None
 
-    if VENV_DIR.exists() and not venv_is_valid():
-        log.line("  Existing virtual environment is broken — removing it first.")
-        shutil.rmtree(VENV_DIR, ignore_errors=True)
+
+def _restore_venv(aside: Optional[Path], log: SetupLog) -> bool:
+    """Put a set-aside environment back. Returns True if the venv is restored."""
+    if aside is None or not aside.exists():
+        return False
+    shutil.rmtree(VENV_DIR, ignore_errors=True)
+    try:
+        os.replace(aside, VENV_DIR)
+        log.line("  Restored the previous environment; nothing was lost.")
+        return True
+    except OSError as exc:
+        log.line(f"  [!!] Could not restore the previous environment: {exc}")
+        return False
+
+
+def _discard_venv_aside(aside: Optional[Path]) -> None:
+    if aside is not None:
+        shutil.rmtree(aside, ignore_errors=True)
+
+
+class VenvReplacement:
+    """The previous environment, held safe while its replacement is proved.
+
+    Replacing an environment is a transaction, and the thing that makes it one
+    is that the old environment stays recoverable until the new one has passed
+    **every** check needed to take over — not merely until it can import ``ssl``.
+    A venv that starts but whose packages will not install is not a replacement;
+    committing at the capability check and only then discovering that would
+    leave the user with nothing to go back to.
+
+    So the caller driving the whole repair owns ``commit`` and ``rollback``, and
+    the create-and-validate step only reports what it did. ``_create_validated_venv``
+    still owns the transaction when nobody else does, which keeps first-run
+    setup behaving exactly as before.
+    """
+
+    __slots__ = ("aside", "committed")
+
+    def __init__(self, aside: Optional[Path] = None) -> None:
+        self.aside = aside
+        self.committed = False
+
+    @property
+    def has_previous(self) -> bool:
+        return self.aside is not None and self.aside.exists()
+
+    def commit(self) -> None:
+        """Accept the replacement and discard the environment it replaced."""
+        _discard_venv_aside(self.aside)
+        self.aside = None
+        self.committed = True
+
+    def rollback(self, log: SetupLog) -> bool:
+        """Put the previous environment back. True if it is in place again.
+
+        Returns False when there was nothing to restore *or* when restoring
+        failed — the caller must not report a successful rollback it did not get.
+        """
+        if not self.has_previous:
+            return False
+        restored = _restore_venv(self.aside, log)
+        if restored:
+            self.aside = None
+        return restored
+
+
+def recover_interrupted_replacement(log: SetupLog, *,
+                                    require_tk: bool = True) -> None:
+    """Resolve a replacement that a previous run never finished.
+
+    A repair can be interrupted at any point — the process killed, the machine
+    restarted — and it leaves evidence: an aside directory that was never
+    committed or rolled back. Two states are possible, and both get a
+    deterministic answer rather than a guess:
+
+    * **aside only, no venv** — interrupted between the rename and a working
+      replacement. The aside *is* the last-known-good environment, so it goes
+      back. Without this the next launch would see no environment at all and
+      fall into a full first-run install, and the user's working environment
+      would have been thrown away by a repair that existed to protect it.
+
+    * **both present** — a candidate exists but the transaction never committed.
+      It may only supersede the aside if recovery can establish the *same*
+      facts the transaction itself requires before committing.
+
+    **The commit condition is not the import proof alone**, and treating it that
+    way was wrong: a real interruption window exists where pip succeeded, the
+    imports were proved, the proof was written — and the process died before the
+    final health check ever ran. Recovery would then have deleted a working
+    environment on the strength of a proof about a candidate nobody had yet
+    confirmed could launch. So both halves are re-established here, using the
+    same authority and the same ``can_launch`` meaning ``repair_venv`` uses
+    immediately before ``commit``:
+
+    1. a current, interpreter-matching real-import proof, and
+    2. the actual candidate environment passing ``assess_venv_health``.
+
+    ``require_tk`` carries the caller's context, because an interrupted headless
+    repair must not be judged against a GUI standard it never claimed to meet.
+
+    Nothing here deletes an aside that has not been positively superseded.
+    """
+    aside = _venv_aside_path()
+    if not aside.exists():
+        return
 
     if not VENV_DIR.exists():
+        log.line("A previous environment repair was interrupted — restoring the "
+                 "environment it had set aside.")
+        _restore_venv(aside, log)
+        return
+
+    if import_proof_is_current():
+        health = assess_venv_health(require_tk=require_tk,
+                                    compatible_base_available=False)
+        if health.can_launch:
+            log.line("A previous environment repair had reached its commit "
+                     "condition — discarding the environment it replaced.")
+            _discard_venv_aside(aside)
+            return
+        log.line("A previous environment repair proved its packages but left an "
+                 f"environment that cannot run ({health.detail}) — restoring the "
+                 "environment it had set aside.")
+        _restore_venv(aside, log)
+        return
+
+    log.line("A previous environment repair was interrupted before it finished — "
+             "restoring the environment it had set aside.")
+    _restore_venv(aside, log)
+
+
+def _create_validated_venv(py_argv: list[str], log: SetupLog, headless: bool,
+                           txn: Optional[VenvReplacement] = None) -> bool:
+    """Create the venv and confirm it is actually usable.
+
+    Returns False only if a working venv (ssl at minimum) cannot be produced.
+
+    **Whether to replace is one question, asked of one authority.** It used to be
+    decided here by ``_is_kokoro_compatible``, whose floor is Kokoro's 3.10 and
+    not the project's 3.11 — so a 3.10 environment that the health model had
+    already called incompatible could arrive here and be kept, and the repair
+    would report success having changed nothing. It now asks
+    :func:`assess_venv_health` with the base interpreter's own compatibility, so
+    the replace decision and the health verdict cannot disagree. A *degraded*
+    environment — one nothing better can replace — is deliberately left alone.
+
+    **Nothing destroys an environment this function did not create.** The Tk
+    recreate step used to ``rmtree`` an existing venv outright, and because a
+    Tk-broken environment still passes ``venv_is_valid`` (interpreter + ssl) it
+    had never been set aside — so a CLI-capable environment could be destroyed
+    and, if the rebuild then failed, be unrecoverable. The recreate now only ever
+    discards a candidate created moments earlier.
+
+    ``txn`` lets the caller own commit and rollback, because the full proof a
+    replacement must pass — packages installed, real imports proved — happens
+    *after* this returns. Without a ``txn`` the transaction is owned here, which
+    is what first-run setup wants.
+    """
+    own_txn = txn is None
+    if txn is None:
+        txn = VenvReplacement()
+
+    if VENV_DIR.exists():
+        base_ver = _interp_version_argv(py_argv)
+        health = assess_venv_health(
+            require_tk=not headless,
+            compatible_base_available=is_full_feature_python(base_ver))
+        if health.state == VENV_REPAIRABLE:
+            log.line(f"  Replacing the existing environment: {health.detail}")
+            txn.aside = _move_venv_aside(log)
+        else:
+            log.line(f"  Keeping the existing environment ({health.state}).")
+
+    created = False
+    if not VENV_DIR.exists():
         if not create_venv(py_argv, log):
+            if own_txn:
+                txn.rollback(log)
             return False
+        created = True
 
     caps = probe_capabilities(venv_python())
     needs_recreate = (not caps["ssl"]) or (not headless and not caps["tcl_tk_functional"])
-    if needs_recreate:
+    if needs_recreate and created:
+        # Only ever a candidate built moments ago: anything worth keeping is
+        # already aside, and anything not worth replacing was left alone above.
         reason = "cannot import ssl" if not caps["ssl"] else "cannot initialize Tcl/Tk"
         log.line(f"  [!!] New venv {reason} — recreating once from scratch.")
         shutil.rmtree(VENV_DIR, ignore_errors=True)
         if not create_venv(py_argv, log):
+            if own_txn:
+                txn.rollback(log)
             return False
         caps = probe_capabilities(venv_python())
 
     if not caps["ssl"]:
         log.line("  ERROR: the virtual environment still cannot import ssl after a "
                  "recreate. pip and Edge TTS will not work.")
+        # A replacement that cannot import ssl is worse than what was there
+        # before, so hand the previous environment back rather than keeping it.
+        if own_txn:
+            txn.rollback(log)
         return False
     if not headless and not caps["tcl_tk_functional"]:
         # ssl works (so setup can proceed), but the GUI base lost Tk. Don't abort —
@@ -912,6 +1542,8 @@ def _create_validated_venv(py_argv: list[str], log: SetupLog,
         log.line("  [!!] The virtual environment cannot initialize Tcl/Tk, so the "
                  "app window may not open. Setup will finish; install Tk support "
                  "(macOS: brew install python-tk@3.12) and re-run to enable the GUI.")
+    if own_txn:
+        txn.commit()
     log.line(f"  venv ready (ssl={caps['ssl']}, tkinter={caps['tcl_tk_functional']}).")
     return True
 
@@ -964,6 +1596,191 @@ def validate_installed_packages(log: SetupLog) -> bool:
     return True
 
 
+def required_modules_present(venv_py: Path) -> tuple[bool, str]:
+    """Cheap **presence** probe of ``REQUIRED_IMPORTS``. Returns ``(ok, detail)``.
+
+    This is deliberately *not* proof of importability, and must never be
+    described as such. ``importlib.util.find_spec`` answers "is there something
+    here to import?"; a package with a broken native extension, a missing DLL or
+    an ABI mismatch still has a spec and still raises on import. What the probe
+    gives is a **decisive negative**: a module with no spec cannot possibly
+    import, so its absence is enough, on its own, to send the launch into repair.
+
+    It is therefore one half of the launch-time check and never the whole of it.
+    The other half is ``prove_required_imports``, which really imports and is
+    re-established on a schedule; between them, absence is caught immediately and
+    breakage is caught within a bounded window. Neither replaces the other.
+
+    Why presence is the half that runs every time — measured on HOME-PC against
+    the real 3.12.10 venv, median of five runs, net of a 30 ms interpreter start:
+
+    * this probe (all seven, one subprocess): **~32 ms** total;
+    * a real ``import`` of the same seven: **~6 763 ms**, of which
+      ``chatterbox`` alone is **~5 895 ms** (it pulls in torch). The other six
+      together cost ~1 430 ms: ``nltk`` ~994, ``edge_tts`` ~500, ``fitz`` ~66,
+      ``pydub`` ~26, ``mutagen`` ~14, ``PIL`` ~1.
+
+    The version gate is evaluated *inside* the probe from the venv's own
+    ``sys.version_info`` so this stays one subprocess rather than two.
+    """
+    probe = (
+        "import importlib.util as u, sys; "
+        f"mods = {list(REQUIRED_IMPORTS)!r}; "
+        f"gated = {sorted(_GATED_BELOW_313)!r}; "
+        "keep = sys.version_info[:2] < (3, 13); "
+        "mods = [m for m in mods if keep or m not in gated]; "
+        "missing = [m for m in mods if u.find_spec(m) is None]; "
+        "print('MISSING:' + ','.join(missing) if missing else 'OK'); "
+        "sys.exit(0 if not missing else 1)"
+    )
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-c", probe],
+            capture_output=True, text=True, timeout=60, **_hidden(),
+        )
+        out = (r.stdout or "").strip()
+        if r.returncode == 0 and out == "OK":
+            return True, "ok"
+        return False, out or (r.stderr or "").strip() or "unknown"
+    except Exception as exc:
+        # A probe that cannot run is not evidence that anything is missing.
+        return True, f"probe unavailable: {exc!r}"
+
+
+def prove_required_imports(venv_py: Path) -> tuple[Optional[bool], str, str]:
+    """Really import every required module. Returns ``(ok, detail, version)``.
+
+    ``ok`` is tri-state on purpose: ``True`` proved, ``False`` proved broken, and
+    ``None`` when the probe itself could not run. The third is not a finding —
+    repairing a machine whose only problem was that a subprocess would not start
+    would be worse than doing nothing.
+
+    This is the authority that ``required_modules_present`` deliberately is not.
+    ``find_spec`` answers "is there something here to import" and cannot answer
+    "does importing it work": a damaged native extension, a missing DLL
+    dependency and a package whose import-time initialisation raises all keep a
+    perfectly good spec. Those are exactly the breakages a ``requirements.txt``
+    hash cannot see either, because the file did not change.
+
+    One subprocess for the whole set rather than one per module — 6.8 s measured
+    together against 7.5 s apart, and this is a proof, not a diagnosis. When it
+    fails, the existing ``validate_installed_packages`` does the per-module work
+    of naming and repairing the culprit, so there is no second mechanism here.
+
+    The ``<3.13`` gate is evaluated inside the child from its own
+    ``sys.version_info``, keeping this to a single spawn.
+    """
+    probe = (
+        "import sys\n"
+        f"mods = {list(REQUIRED_IMPORTS)!r}\n"
+        f"gated = {sorted(_GATED_BELOW_313)!r}\n"
+        "keep = sys.version_info[:2] < (3, 13)\n"
+        "mods = [m for m in mods if keep or m not in gated]\n"
+        "bad = []\n"
+        "for m in mods:\n"
+        "    try:\n"
+        "        __import__(m)\n"
+        "    except BaseException as exc:\n"
+        "        bad.append('%s (%s: %s)' % (m, type(exc).__name__, exc))\n"
+        "if bad:\n"
+        "    print('BROKEN:' + '; '.join(bad))\n"
+        "    sys.exit(1)\n"
+        "print('OK %d.%d.%d' % sys.version_info[:3])\n"
+    )
+    try:
+        r = subprocess.run(
+            [str(venv_py), "-c", probe],
+            capture_output=True, text=True, timeout=600, **_hidden(),
+        )
+        out = (r.stdout or "").strip()
+        if r.returncode == 0 and out.startswith("OK"):
+            return True, "ok", out[2:].strip()
+        return False, out or (r.stderr or "").strip() or "unknown", ""
+    except Exception as exc:
+        return None, f"probe unavailable: {exc!r}", ""
+
+
+def repair_venv(log: SetupLog, *, headless: bool = False) -> tuple[bool, str]:
+    """Rebuild the Python environment, and **only** the Python environment.
+
+    This is the bounded recovery route an ordinary launcher run may reach when
+    :func:`assess_venv_health` says the venv is repairable. It is deliberately
+    *not* ``run_setup``: that owns general first-run installation and reaches
+    ``ensure_ffmpeg`` and, through it, FFmpeg provisioning. Making a normal
+    launch fall into that would put the portable-FFmpeg acquisition on the
+    launch path a whole phase before it has been made safe to run — so this
+    function locates a base interpreter, replaces the venv, reconciles the
+    Python packages, and stops. FFmpeg detection on the launch path is unchanged
+    and still never installs.
+
+    Must be called from an interpreter that is **not** the one inside the venv;
+    see :data:`EXIT_VENV_REPAIR_REQUIRED`.
+    """
+    log.line("Repairing the Python environment (packages only — no other setup)…")
+
+    # A previous attempt may have been interrupted mid-transaction. Resolve that
+    # before starting a new one, so an aside is never treated as scrap. Same Tk
+    # context this repair will judge its own result by.
+    recover_interrupted_replacement(log, require_tk=not headless)
+
+    py_argv = find_suitable_python(log, prefer_tk=not headless)
+    if py_argv is not None and not is_full_feature_python(_interp_version_argv(py_argv)):
+        log.line("  The Python found is not fully compatible — trying to obtain 3.12…")
+        better = install_python(log, prefer_tk=not headless)
+        if better is not None and is_full_feature_python(_interp_version_argv(better)):
+            py_argv = better
+    if py_argv is None:
+        py_argv = install_python(log, prefer_tk=not headless)
+    if py_argv is None:
+        return False, ("No suitable Python could be found or installed, so the "
+                       "app's environment could not be repaired.")
+
+    # One transaction, spanning the whole proof. The replacement does not take
+    # over until its packages install *and* really import — a venv whose
+    # interpreter starts but whose dependencies will not install is not a
+    # replacement, and discovering that after the old environment had been
+    # deleted would leave nothing to go back to.
+    txn = VenvReplacement()
+    failure: Optional[str] = None
+
+    if not _create_validated_venv(py_argv, log, headless, txn=txn):
+        failure = "The app's Python environment could not be rebuilt."
+    else:
+        ok, reason = reconcile_requirements(log)
+        if not ok:
+            failure = (
+                "The environment was rebuilt but its packages could not be "
+                "imported." if reason == RECONCILE_IMPORT_FAILED else
+                "The environment was rebuilt but its packages could not be "
+                "installed.")
+
+    if failure is None:
+        # Judge the environment that now exists, never the base interpreter that
+        # was selected to build it. Those are different claims, and reporting the
+        # base's version would hide a replacement that silently did not happen.
+        health = assess_venv_health(require_tk=not headless,
+                                    compatible_base_available=False)
+        if not health.can_launch:
+            failure = f"The rebuilt environment is still not usable: {health.detail}"
+
+    if failure is not None:
+        restored = txn.rollback(log)
+        if restored:
+            return False, (f"{failure} The previous environment was put back, and "
+                           "this will be retried next time.")
+        if txn.aside is not None:
+            return False, (f"{failure} The previous environment could not be put "
+                           "back either — see the log.")
+        return False, f"{failure} It will be retried next time."
+
+    txn.commit()
+    if not health.is_fully_healthy:
+        return True, (f"The environment was rebuilt, with limits: {health.detail}")
+    shown = (f"{health.version[0]}.{health.version[1]}"
+             if health.version else "unknown")
+    return True, f"The app's Python environment was repaired (Python {shown})."
+
+
 def pip_install_requirements(log: SetupLog) -> bool:
     pip = venv_pip()
     log.line("Upgrading pip…")
@@ -1001,124 +1818,252 @@ def _ffmpeg_in_bin() -> Optional[Path]:
     return exe if exe.exists() else None
 
 
-def ensure_ffmpeg(log: SetupLog) -> bool:
-    """Establish a **usable** ffmpeg + ffprobe pair. True only if one runs.
+# --- FFmpeg repair -----------------------------------------------------------
+#
+# Stable route keys. A limited-mode notice has to name what was *actually*
+# attempted: a machine with no WinGet must not be told WinGet was tried, and a
+# Mac with no Homebrew must be told that is why nothing could be repaired.
+FFMPEG_ROUTE_EXISTING = "existing"
+FFMPEG_ROUTE_WINGET = "winget-user"
+FFMPEG_ROUTE_HOMEBREW = "homebrew"
+FFMPEG_ROUTE_PORTABLE = "portable"
 
-    v0.6.2 Plan 5 Phase 15 rewrote this. It used to return ``True`` the moment
-    ``shutil.which("ffmpeg")`` answered — it never looked at ffprobe on that
-    path and never executed anything — so a machine whose first PATH entry was
-    an installation Windows refuses to run was declared ready, and the failure
-    surfaced in front of the user during a real conversion instead.
+_FFMPEG_ROUTE_WORDING = {
+    FFMPEG_ROUTE_EXISTING: "the FFmpeg copies already on this computer",
+    FFMPEG_ROUTE_WINGET: "a user-scope Gyan.FFmpeg install through WinGet",
+    FFMPEG_ROUTE_HOMEBREW: "a Homebrew install of ffmpeg",
+    FFMPEG_ROUTE_PORTABLE: "the app's own verified FFmpeg build",
+}
 
-    The order now is: try what is already here, and only install when nothing
-    here works. That keeps a working machine untouched and still repairs a
-    broken one. Proving the pair here is deliberately the same idea as the
-    Kokoro DLL pre-warm below — make Smart App Control judge the binary inside
-    setup, where a notification is explainable, rather than mid-job.
+
+class FFmpegRepair:
+    """The outcome of one FFmpeg repair attempt.
+
+    Two facts that used to be one. ``ready`` is true **only** when
+    ``ffmpeg_health`` holds a proved, persisted, still-running pair — an
+    installer's exit code never sets it, because winget can return 0 and leave
+    behind something this machine will not execute. ``routes`` records what was
+    actually tried, which is what lets the failure notice be true rather than a
+    hard-coded sentence claiming attempts that never happened.
     """
-    pair = ffmpeg_health.ensure_ready(log)
-    if pair is not None:
-        log.line(f"FFmpeg verified: {pair.directory}")
-        log.line(f"  {pair.version_text}")
+
+    __slots__ = ("ready", "routes", "detail")
+
+    def __init__(self, ready: bool, routes=(), detail: str = "") -> None:
+        self.ready = ready
+        self.routes = tuple(routes)
+        self.detail = detail
+
+    def attempted(self) -> str:
+        """The attempted routes as one human phrase, or ``""`` if none ran."""
+        words = [_FFMPEG_ROUTE_WORDING[route] for route in self.routes
+                 if route in _FFMPEG_ROUTE_WORDING]
+        if not words:
+            return ""
+        if len(words) == 1:
+            return words[0]
+        return ", ".join(words[:-1]) + " and " + words[-1]
+
+    def notice(self) -> str:
+        """One truthful limited-mode sentence, naming the routes that ran."""
+        parts = ["The audio tools (FFmpeg) could not be made available on this "
+                 "computer."]
+        attempted = self.attempted()
+        if attempted:
+            parts.append(f"The app tried {attempted}.")
+        if self.detail:
+            parts.append(self.detail)
+        parts.append("Edge TTS voices still work; the tools that need FFmpeg "
+                     "will say so rather than failing part-way through a job.")
+        return " ".join(parts)
+
+
+def _winget_ffmpeg(log: SetupLog) -> bool:
+    """Ask WinGet for Gyan.FFmpeg in **user scope**. Command result only.
+
+    User scope is explicit, not inherited from a package default that can
+    change under us. It is also the only scope that works on the machines this
+    has to run on: CSPW-PC is a Standard User with no administrator rights, so
+    a machine-wide install there prompts for a password nobody has. A scope or
+    elevation refusal is therefore not an error to report — it means *this
+    route is unavailable*, and the caller falls through to the repo-local one.
+    """
+    log.line("Installing ffmpeg via winget (Gyan.FFmpeg, user scope)…")
+    result = _run(["winget", "install", "--id", "Gyan.FFmpeg", "-e",
+                   "--scope", "user",
+                   "--silent", "--accept-source-agreements",
+                   "--accept-package-agreements"])
+    if result.returncode == 0:
+        # Deliberately **not** gated on finding ffmpeg on this process's
+        # PATH. winget updates the *user's* PATH, not the environment of a
+        # process already running, so that check failed on exactly the installs
+        # that had just succeeded — and sent setup off to fetch a second, worse
+        # copy. ``ffmpeg_health`` looks inside the WinGet package directory
+        # itself, so a stale PATH costs nothing.
+        log.line("  winget reported the ffmpeg install completed.")
         return True
+    log.line(f"  winget could not install ffmpeg in user scope "
+             f"(exit {result.returncode}) — treating that route as unavailable.")
+    return False
 
-    log.line("No usable ffmpeg/ffprobe pair found — installing one.")
-    if not _install_ffmpeg(log):
-        return False
 
-    # A fresh install is not on *this* process's PATH, and its package directory
-    # is not where it was a moment ago, so discovery has to run again.
-    pair = ffmpeg_health.establish(log)
-    if pair is None:
-        log.line("  ERROR: ffmpeg was installed but still could not be run.")
-        return False
-    log.line(f"FFmpeg verified after install: {pair.directory}")
-    return True
+def _brew_ffmpeg(log: SetupLog) -> bool:
+    """Ask Homebrew for ffmpeg. Command result only — never the authority."""
+    log.line("Installing ffmpeg via Homebrew…")
+    result = _run(["brew", "install", "ffmpeg"])
+    # A fresh brew install may not be on THIS process's PATH yet (Apple Silicon
+    # installs to /opt/homebrew/bin), so make it findable before proving.
+    _refresh_brew_path()
+    if result.returncode == 0:
+        log.line("  Homebrew reported the ffmpeg install completed.")
+        return True
+    log.line(f"  brew install ffmpeg problem: {result.stderr.strip()}")
+    return False
 
 
 def _install_ffmpeg(log: SetupLog) -> bool:
-    """Obtain ffmpeg through the platform's normal package route."""
+    """Run the platform package manager's ffmpeg install. **Not** an authority.
+
+    The return value means only *the acquisition command appeared to complete*.
+    Whether this computer now has a pair it will actually run is a separate
+    question, and ``ffmpeg_health`` is the only thing allowed to answer it —
+    see :func:`repair_ffmpeg`. The portable fallback deliberately does **not**
+    live in here any more: when it did, a winget run that exited 0 but left
+    nothing provable ended the repair, because the fallback had already been
+    skipped inside this function.
+    """
     if IS_WINDOWS:
-        if shutil.which("winget"):
-            log.line("Installing ffmpeg via winget (Gyan.FFmpeg)…")
-            r = _run(["winget", "install", "--id", "Gyan.FFmpeg", "-e",
-                      "--silent", "--accept-source-agreements",
-                      "--accept-package-agreements"])
-            if r.returncode == 0:
-                # Deliberately **not** gated on ``_ffmpeg_on_path()`` any more.
-                # winget updates the *user's* PATH, not the environment of a
-                # process already running, so that check failed on exactly the
-                # installs that had just succeeded — and sent setup off to
-                # download a second, worse copy. ``establish`` looks inside the
-                # WinGet package directory itself, so a stale PATH costs
-                # nothing.
-                log.line("  ffmpeg installed via winget.")
-                return True
-            log.line(f"  winget install failed (exit {r.returncode}) — "
-                     "falling back to a portable build.")
-        return _download_portable_ffmpeg_windows(log)
-
+        if not shutil.which("winget"):
+            log.line("  winget is not available on this computer.")
+            return False
+        return _winget_ffmpeg(log)
     if IS_MAC:
-        if shutil.which("brew"):
-            log.line("Installing ffmpeg via Homebrew…")
-            r = _run(["brew", "install", "ffmpeg"])
-            # A fresh brew install may not be on THIS process's PATH yet (Apple
-            # Silicon installs to /opt/homebrew/bin) — refresh, then re-check.
-            _refresh_brew_path()
-            if _ffmpeg_on_path():
-                log.line("  ffmpeg installed via Homebrew.")
-                return True
-            log.line(f"  brew install ffmpeg problem: {r.stderr.strip()}")
-        else:
-            log.line("  Homebrew not found — install it from https://brew.sh/ then "
-                     "re-run, or run: brew install ffmpeg")
-        return _ffmpeg_on_path() is not None
-
-    # Other (Linux) — best effort.
+        if not shutil.which("brew"):
+            log.line("  Homebrew is not installed, so that route is unavailable.")
+            return False
+        return _brew_ffmpeg(log)
     log.line("  Please install ffmpeg via your package manager (apt/dnf/pacman).")
-    return _ffmpeg_on_path() is not None
+    return False
+
+
+def _package_manager_route() -> Optional[str]:
+    """Which package-manager route this machine can attempt, if any."""
+    if IS_WINDOWS and shutil.which("winget"):
+        return FFMPEG_ROUTE_WINGET
+    if IS_MAC and shutil.which("brew"):
+        return FFMPEG_ROUTE_HOMEBREW
+    return None
+
+
+def _no_package_manager_detail() -> str:
+    """Why the package-manager route was skipped, in the user's terms."""
+    if IS_MAC:
+        return ("Homebrew is not installed on this Mac, so the automatic "
+                "repair had nothing to install with. Installing Homebrew "
+                "(https://brew.sh) would let the app repair this by itself.")
+    if IS_WINDOWS:
+        return "WinGet is not available on this computer."
+    return "No supported package manager is available on this computer."
+
+
+def repair_ffmpeg(log: SetupLog, *, assessed: bool = False) -> FFmpegRepair:
+    """ASSESS → REPAIR → PROVE → PIN for FFmpeg. The one implementation.
+
+    Setup and every normal launch both come here, so there is a single answer
+    to "what does this app do when FFmpeg is missing?" rather than one answer
+    for a first run and a different one for the launch that people actually
+    perform every day.
+
+    The order is containment order (§8.6): what is already here, then a
+    user-scope package-manager install, then the app's own verified build.
+
+    **Nothing short of a proved, persisted pair ends this.** The old code
+    stopped as soon as the winget command exited 0 and ``establish`` then
+    failed — an install that produced nothing runnable was a dead end with the
+    repo-local fallback sitting unused behind it, because the fallback lived
+    *inside* the installer function it had already returned from.
+
+    ``assessed=True`` says the caller has just run the same assessment and
+    found nothing, so step A is skipped rather than sweeping twice.
+    """
+    routes = [FFMPEG_ROUTE_EXISTING]
+
+    if not assessed:
+        pair = ffmpeg_health.ensure_ready(log)
+        if pair is not None:
+            log.line(f"FFmpeg verified: {pair.directory}")
+            log.line(f"  {pair.version_text}")
+            return FFmpegRepair(True, routes)
+
+    log.line("No usable ffmpeg/ffprobe pair on this computer — repairing.")
+
+    route = _package_manager_route()
+    if route is not None:
+        routes.append(route)
+        _install_ffmpeg(log)
+        # A fresh install is not on *this* process's PATH and its package
+        # directory is not where it was a moment ago, so discovery runs again —
+        # and its verdict, not the installer's, decides.
+        pair = ffmpeg_health.establish(log)
+        if pair is not None:
+            log.line(f"FFmpeg verified after install: {pair.directory}")
+            return FFmpegRepair(True, routes)
+        log.line("  The install finished but no pair here could be proved.")
+    else:
+        log.line(f"  {_no_package_manager_detail()}")
+
+    if IS_WINDOWS:
+        routes.append(FFMPEG_ROUTE_PORTABLE)
+        if _download_portable_ffmpeg_windows(log):
+            # ``ffmpeg_portable`` already proved the pair at its final paths
+            # and pinned it atomically. Re-running discovery here could replace
+            # that pin with a different installation, so confirm *that* pair
+            # instead of asking the machine again what it can find.
+            pair = ffmpeg_health.pinned_pair()
+            if pair is not None and ffmpeg_health.prove_pair(pair).ok:
+                log.line(f"FFmpeg verified after the app's own install: "
+                         f"{pair.directory}")
+                return FFmpegRepair(True, routes)
+            log.line("  The app's own build was installed but did not prove.")
+
+    detail = "" if route is not None else _no_package_manager_detail()
+    return FFmpegRepair(False, routes, detail)
+
+
+def ensure_ffmpeg(log: SetupLog) -> bool:
+    """First-run setup's FFmpeg step — the same orchestration as a launch.
+
+    v0.6.2 Plan 5 Phase 15 stopped this returning ``True`` the moment
+    ``shutil.which("ffmpeg")`` answered. PRE-PLAN-6 Phase 5 went further and
+    moved the whole sequence into :func:`repair_ffmpeg`, so first run and every
+    later launch cannot drift into two different repair behaviours.
+    """
+    return repair_ffmpeg(log).ready
 
 
 def _download_portable_ffmpeg_windows(log: SetupLog) -> bool:
-    """Download a portable ffmpeg build into files/bin (Windows last resort).
+    """Install the pinned portable FFmpeg build (Windows last resort).
 
-    **Kept, but demoted, and worth understanding.** This pulls BtbN's
-    ``master-latest`` build, whose bytes change on every upstream commit. Under
-    reputation-based enforcement — Smart App Control being the case Phase 15 hit
-    — a binary whose hash is new every time never accumulates the cloud
-    reputation that lets an unsigned executable run, so this route is
-    *structurally* more likely to be refused than the stable WinGet package
-    above. That is why it now runs only when winget is unavailable or failed,
-    and why whatever it produces is still put through the same proof as every
-    other candidate rather than being trusted because it is ours.
+    The work lives in :mod:`shared.ffmpeg_portable`, which owns the *source*
+    pin — version, asset, exact URL and expected SHA-256 — and performs the
+    whole transaction: stream, verify the digest before extracting anything,
+    validate every archive member, prove the pair in staging, promote the
+    complete build with one directory rename into a versioned destination,
+    prove it again at its final paths, and only then pin it through
+    ``ffmpeg_health``.
 
-    Replacing it with a pinned, reputable, redistributable Windows build is
-    release work; it belongs with the signing/distribution question in Plan 9.
+    The name is kept because the call site above reads well, and because this is
+    still exactly what it says: the fallback for when winget is unavailable or
+    failed. What changed is that it can no longer trade a working FFmpeg for a
+    broken one — every failure before the final pin leaves whatever was already
+    pinned untouched.
     """
-    try:
-        BIN_DIR.mkdir(parents=True, exist_ok=True)
-        zip_path = BIN_DIR / "ffmpeg_portable.zip"
-        log.line(f"Downloading portable ffmpeg from {FFMPEG_WIN_ZIP_URL}…")
-        log.line("  (~80 MB, one-time. This may take a minute.)")
-        urllib.request.urlretrieve(FFMPEG_WIN_ZIP_URL, zip_path)
-        log.line("  Extracting…")
-        with zipfile.ZipFile(zip_path) as zf:
-            members = zf.namelist()
-            wanted = [m for m in members
-                      if m.endswith("/bin/ffmpeg.exe") or m.endswith("/bin/ffprobe.exe")]
-            for m in wanted:
-                data = zf.read(m)
-                (BIN_DIR / Path(m).name).write_bytes(data)
-        zip_path.unlink(missing_ok=True)
-        if _ffmpeg_in_bin():
-            log.line(f"  Portable ffmpeg ready in {BIN_DIR}.")
-            return True
-        log.line("  ERROR: ffmpeg.exe not found inside the downloaded archive.")
+    pinned = ffmpeg_portable.acquire(log)
+    if pinned is None:
+        log.line("  Could not install a portable FFmpeg build.")
         return False
-    except Exception as exc:  # network error, etc.
-        log.line(f"  ERROR downloading portable ffmpeg: {exc}")
-        log.line("  Manual install: https://github.com/BtbN/FFmpeg-Builds/releases")
-        return False
+    ffmpeg_portable.cleanup_staging()
+    return True
 
 
 def predownload_kokoro(log: SetupLog) -> None:
@@ -1329,6 +2274,11 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         steps.append("Downloading Chatterbox voice model")
     total = len(steps)
 
+    # An interrupted repair can leave no ``.venv`` at all, which looks exactly
+    # like a fresh machine and would land here. Put the environment it set aside
+    # back first, so a first run never starts by discarding one that worked.
+    recover_interrupted_replacement(log, require_tk=not headless)
+
     progress(0, "Locating a suitable Python…")
     py_argv = find_suitable_python(log, prefer_tk=not headless)
     if py_argv is not None:
@@ -1361,15 +2311,17 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
         return False, "Failed to create a working virtual environment (see the log)."
 
     progress(2, "Installing packages (largest step — please wait)…")
-    if not pip_install_requirements(log):
+    # One owner for pip → real import proof → stamp, shared with the drift path.
+    # The environment is bound to the pins it was just built from only once those
+    # pins are proved to import, so a later release that changes requirements.txt
+    # is detected instead of ignored, and a broken install is never remembered as
+    # a success.
+    ok_req, reason = reconcile_requirements(log)
+    if not ok_req:
+        if reason == RECONCILE_IMPORT_FAILED:
+            return False, ("Python packages installed but could not be imported "
+                           "(see the log). Setup did not complete.")
         return False, "Failed to install Python packages (see the log)."
-
-    # pip exiting 0 isn't proof the packages import — verify explicitly.
-    validate_installed_packages(log)
-
-    # Bind this environment to the pins it was just built from, so a later
-    # release that changes requirements.txt is detected instead of ignored.
-    record_requirements_state()
 
     progress(3, "Setting up ffmpeg…")
     if not ensure_ffmpeg(log):
@@ -1395,6 +2347,17 @@ def run_setup(download_kokoro: bool, progress: Callable[[int, str], None],
             warmup_chatterbox(venv_python(), log.line)
 
     progress(total, "Setup complete.")
+    # An out-of-range base builds a working venv but cannot install the pinned
+    # Kokoro/Chatterbox wheels, so reporting a plain success would overstate what
+    # this machine got. Setup already tried to obtain 3.12 above and could not;
+    # say so rather than let "Setup complete." stand for a degraded install.
+    if not is_full_feature_python(_interp_version_argv(py_argv)):
+        return True, ("Setup finished with limits: no fully compatible Python "
+                      f"({FULL_FEATURE_MIN[0]}.{FULL_FEATURE_MIN[1]}–"
+                      f"{FULL_FEATURE_BELOW[0]}.{FULL_FEATURE_BELOW[1] - 1}) "
+                      "could be installed, so the local Kokoro and Chatterbox "
+                      "voices are unavailable. Edge TTS and the audio tools "
+                      "work normally.")
     return True, "Setup complete."
 
 
@@ -1748,49 +2711,124 @@ def show_warning_dialog(title: str, message: str) -> None:
         LOG.line(f"[WARNING] {title}: {message}")
 
 
-def ensure_ffmpeg_ready_for_launch() -> bool:
-    """Confirm the audio tools before the GUI is presented as ready.
+def ensure_ffmpeg_ready_for_launch() -> FFmpegRepair:
+    """Assess the audio tools and, if they are not usable, **repair them**.
 
-    **The Phase 15 gap.** The fast path reconciled requirements and self-healed
-    Kokoro, and never looked at ffmpeg at all — so a machine whose ffmpeg had
-    become unusable launched cheerfully and failed inside the first conversion.
+    **The Phase 15 gap** was that the fast path never looked at ffmpeg at all,
+    so a machine whose ffmpeg had become unusable launched cheerfully and failed
+    inside the first conversion.
 
-    What this costs on a healthy machine is two ``-version`` calls of the pair
-    already proven, a few tens of milliseconds, and it touches **no other
-    candidate**: sweeping PATH here would be how a launch provokes a security
-    notification by poking a blocked stranger. Repair — which does look wider —
-    happens only once the pinned pair is gone or has stopped running.
+    **The PRE-PLAN-6 gap (C1)** was what happened next: this detected the
+    problem, showed a blocking warning, and launched anyway. Every repair route
+    setup already had was unreachable from the launch people actually perform,
+    so the app's advice amounted to running the same launcher again — the same
+    non-repairing path, with the same result.
 
-    Never blocks launch. A machine with no working ffmpeg can still use Edge
-    TTS, and the tools that do need it now say so honestly instead of implying
-    everything is fine.
+    So this now repairs. The assessment is unchanged and still costs a healthy
+    machine two ``-version`` calls of the pair already proven, touching no other
+    candidate: sweeping PATH here would be how a launch provokes a security
+    notification by poking a blocked stranger. Only once that pinned pair is
+    gone, or has stopped running, does the wider repair open — behind the
+    existing progress window, because it is real work with an end.
+
+    Never blocks launch, and never warns: the caller collects the result and
+    shows at most one notice *after* the GUI exists (§8.7).
     """
     pair = ffmpeg_health.ensure_ready(LOG)
     if pair is not None:
         LOG.line(f"FFmpeg health-check: verified {pair.directory}")
-        return True
+        return FFmpegRepair(True, (FFMPEG_ROUTE_EXISTING,))
 
-    LOG.line("FFmpeg health-check: no usable ffmpeg/ffprobe pair on this computer.")
-    show_warning_dialog("The audio tools are unavailable",
-                        ffmpeg_health.describe_failure()
-                        + f"\n\nSee log: {LOG.path}")
-    return False
+    LOG.line("FFmpeg health-check: no usable ffmpeg/ffprobe pair — repairing.")
+    outcome: dict = {}
+
+    def _repair() -> bool:
+        outcome["result"] = repair_ffmpeg(LOG, assessed=True)
+        return outcome["result"].ready
+
+    show_repair_dialog(
+        _repair,
+        title="Setting up the audio tools…",
+        detail="The audio tools this app uses for audio conversion are missing "
+               "or cannot run on this computer. They are being installed now; "
+               "nothing is being deleted and your settings are untouched.",
+    )
+    result = outcome.get("result") or FFmpegRepair(False, (FFMPEG_ROUTE_EXISTING,))
+    if result.ready:
+        LOG.line("FFmpeg repaired and verified before launch.")
+    else:
+        LOG.line("FFmpeg could not be repaired; launching in limited mode.")
+    return result
 
 
-def _launch_with_kokoro_healthcheck() -> int:
+def _launch_with_kokoro_healthcheck(*, allow_repair_handoff: bool = True) -> int:
     """Reconcile dependencies, probe Kokoro health, self-heal, then launch the GUI.
 
     Runs on *every* launch (both the ``--launch-only`` fast path used by the
     ``.bat``/``.command`` and the ``venv_is_valid()`` path in ``main()``), so a
     partial first-run install or a manually-uninstalled ``kokoro`` is repaired
-    before the user ever hits a Kokoro batch. Never blocks launch: if the repair
-    fails, a clear warning is shown and the GUI still opens (Edge TTS works).
+    before the user ever hits a Kokoro batch. Never blocks launch: if a repair
+    fails, the GUI still opens (Edge TTS works) and one notice follows it.
+
+    **Repair first, then launch, then — at most once — say what is missing**
+    (§8.7). Recoverable failures used to open a modal each, before the GUI
+    existed: a stale environment, a missing FFmpeg and a broken Kokoro could
+    stack three of them in front of a person who had double-clicked a launcher
+    and walked away, with nothing on screen to explain them and no window
+    behind them. They are collected in ``notices`` now and presented as one
+    warning once ``launch_gui`` confirms the GUI actually started. A genuinely
+    fatal environment still stops here, because there is no GUI to put it
+    behind.
 
     The requirements reconciliation added in the v0.6.1 Plan 4 Phase 12
     remediation runs **first**, because a stale environment is exactly the case
     where Kokoro's own probe would otherwise be the only thing checked. When the
     pins are unchanged it is one file hash and costs nothing.
+
+    Before any of that, the environment itself is assessed. The launcher used to
+    decide this by asking whether ``pythonw.exe`` existed, which cannot tell a
+    working environment from a wrecked one, and ``--launch-only`` returned here
+    without ever calling ``venv_is_valid`` — so every recovery path the setup
+    code already had was unreachable from a normal launch. A venv that needs
+    replacing cannot be replaced from inside itself, so that case returns
+    :data:`EXIT_VENV_REPAIR_REQUIRED` for the launcher to act on.
     """
+    notices: list[str] = []
+    health = assess_venv_health(require_tk=True)
+    LOG.line(f"Environment health: {health.state} ({health.reason})")
+    if not allow_repair_handoff and health.state == VENV_REPAIRABLE:
+        # A repair has just run. Asking for another one would be a loop, and the
+        # honest reading of "still repairable" after a completed repair is that
+        # this machine cannot do better — so launch anyway if the environment
+        # can carry the app at all, and say what is wrong.
+        LOG.line(f"  Still not fully healthy after a repair: {health.detail}")
+        if not health.executes or not health.ssl:
+            show_warning_dialog("The app's environment is not usable",
+                                f"{health.detail}\n\nSee log: {LOG.path}")
+            return 1
+        LOG.line("  Launching with limits rather than repairing again.")
+    elif health.state == VENV_REPAIRABLE:
+        # Confirm against a real base before asking for a rebuild: "repairable"
+        # was decided without knowing whether anything better is obtainable, and
+        # for the version/Tk cases the honest answer may be "no, this is as good
+        # as this machine gets" — which is a degraded launch, not a rebuild loop.
+        if health.reason in ("incompatible-python", "no-tk"):
+            base = find_suitable_python(LOG, prefer_tk=True)
+            better = base is not None and is_full_feature_python(
+                _interp_version_argv(base))
+            health = assess_venv_health(require_tk=True,
+                                        compatible_base_available=better)
+            LOG.line(f"Environment health after checking for a better Python: "
+                     f"{health.state} ({health.reason})")
+        if health.state == VENV_REPAIRABLE:
+            LOG.line(f"  {health.detail}")
+            LOG.line("  Handing back to the launcher for an environment repair.")
+            return EXIT_VENV_REPAIR_REQUIRED
+    if health.state == VENV_ABSENT and allow_repair_handoff:
+        return EXIT_VENV_REPAIR_REQUIRED
+    if health.state == VENV_DEGRADED:
+        LOG.line(f"  Launching with limits: {health.detail}")
+
     venv_py = venv_python()
 
     if not requirements_are_current():
@@ -1810,13 +2848,70 @@ def _launch_with_kokoro_healthcheck() -> int:
                    "deleted and your settings are untouched.",
         )
         if not requirements_are_current():
-            show_warning_dialog(
-                "Some components could not be updated",
-                outcome.get("message", "Some dependencies could not be installed.")
-                + f"\n\nSee log: {LOG.path}",
-            )
+            notices.append(
+                "Some of the app's components could not be updated: "
+                + outcome.get("message",
+                              "some dependencies could not be installed."))
+    else:
+        # The fingerprint says which pins this environment was built against. It
+        # cannot say the packages are still here, and it cannot say they still
+        # import. Two different blind spots, so two different checks:
+        #
+        #   1. a cheap presence probe (~32 ms) every launch — a module with no
+        #      spec at all cannot import, so absence is decisive immediately;
+        #   2. a real import proof, re-established on a bounded schedule — the
+        #      only thing that catches a module whose spec is fine but whose
+        #      import raises (damaged native extension, missing DLL, broken
+        #      import-time initialisation). None of those changes
+        #      requirements.txt, so without this a fingerprint match would hide
+        #      them for as long as the pins stayed still.
+        #
+        # The proof costs ~6.8 s and is therefore not on every launch; the
+        # recorded proof makes the steady state a single small file read.
+        broken = ""
+        present, detail = required_modules_present(venv_py)
+        if not present:
+            LOG.line(f"Required packages missing despite matching pins: {detail}")
+            broken = detail
+        elif not import_proof_is_current():
+            LOG.line("Re-proving that the required packages still import…")
+            proved, proof_detail, version = prove_required_imports(venv_py)
+            if proved:
+                record_import_proof(version)
+                LOG.line(f"  All required packages import cleanly (Python {version}).")
+            elif proved is None:
+                # Could not run the probe. Not a finding; record nothing so the
+                # next launch tries again rather than repairing on no evidence.
+                LOG.line(f"  Import proof could not run: {proof_detail}")
+            else:
+                LOG.line(f"Required packages are present but do not import: "
+                         f"{proof_detail}")
+                broken = proof_detail
 
-    ensure_ffmpeg_ready_for_launch()
+        if broken:
+            repair: dict = {}
+
+            def _repair_missing() -> bool:
+                ok_fix, message = repair_missing_requirements(LOG, broken)
+                repair["message"] = message
+                return ok_fix
+
+            show_repair_dialog(
+                _repair_missing,
+                title="Restoring the app's components…",
+                detail="Some components this app needs are missing or damaged. "
+                       "They are being reinstalled now; nothing is being deleted "
+                       "and your settings are untouched.",
+            )
+            if not import_proof_is_current():
+                notices.append(
+                    "Some of the app's components could not be restored: "
+                    + repair.get("message",
+                                 "some dependencies could not be installed."))
+
+    ffmpeg = ensure_ffmpeg_ready_for_launch()
+    if not ffmpeg.ready:
+        notices.append(ffmpeg.notice())
 
     ok, reason = kokoro_is_healthy(venv_py)
     LOG.line(f"Kokoro health-check: {reason}")
@@ -1835,17 +2930,19 @@ def _launch_with_kokoro_healthcheck() -> int:
         ok2, reason2 = kokoro_is_healthy(venv_py)
         LOG.line(f"Kokoro health-check after repair: {reason2}")
         if not ok2:
-            show_warning_dialog(
-                "Kokoro is unavailable",
-                "The local AI voices could not be installed. Edge TTS voices "
-                "will still work.\n\n"
-                f"Reason: {reason2}\n\n"
-                "Manual fix:\n"
-                f'  "{venv_py}" -m pip install '
-                + " ".join(KOKORO_PKGS) + "\n\n"
-                f"See log: {LOG.path}"
-            )
+            notices.append(
+                "The local Kokoro AI voices could not be installed, so Edge TTS "
+                f"voices will be used instead. Reason: {reason2}. Manual fix: "
+                f'"{venv_py}" -m pip install ' + " ".join(KOKORO_PKGS) + ".")
+
     launched = launch_gui(LOG)
+    if launched and notices:
+        # One notice, and only now. A messagebox is modal while it is shown, so
+        # this is only acceptable once there is a window behind it.
+        show_warning_dialog(
+            "Some features are unavailable",
+            "\n\n".join(notices) + f"\n\nSee log: {LOG.path}",
+        )
     LOG.close()
     return 0 if launched else 1
 
@@ -1862,8 +2959,10 @@ def _platform_sane() -> bool:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Audiobook Creation Tool bootstrap")
     parser.add_argument("--launch-only", action="store_true",
-                        help="Skip all setup checks and just launch the GUI "
-                             "(used by the fast path once .venv exists).")
+                        help="Health-check the existing installation, repair "
+                             "only what is broken (packages, FFmpeg, Kokoro), "
+                             "then launch the GUI. The fast path used once "
+                             ".venv exists; it does not run first-run setup.")
     parser.add_argument("--skip-kokoro-download", action="store_true",
                         help="Default the first-run checkbox for the optional ~300 MB "
                              "Kokoro *model weights* pre-download to unchecked. The "
@@ -1875,6 +2974,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--self-test", action="store_true",
                         help="Run detection logic only — no installs, no GUI. "
                              "For developer verification.")
+    parser.add_argument("--venv-check", action="store_true",
+                        help="Classify the existing environment and exit. Used by "
+                             "the Windows launcher, which cannot wait for the "
+                             "detached GUI launch and so asks first. No installs, "
+                             "no GUI, no launch.")
+    parser.add_argument("--repair-venv", action="store_true",
+                        help="Rebuild the Python environment and its packages, "
+                             "then launch. Must be run from a base interpreter, "
+                             "never from inside the venv being replaced. Repairs "
+                             "the environment only — it never installs ffmpeg.")
     args = parser.parse_args(argv)
 
     if not _platform_sane():
@@ -1888,9 +2997,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.self_test:
         return _self_test()
 
+    if args.venv_check:
+        return _venv_check()
+
+    if args.repair_venv:
+        return _repair_and_launch(headless=args.headless)
+
     if args.launch_only:
-        # Fast path from the .bat/.command. Self-heal Kokoro before launching so
-        # a broken/partial install is repaired on every launch, not just first run.
+        # Fast path from the .bat/.command. Bounded self-heal — environment,
+        # packages, FFmpeg, Kokoro — before launching, so a broken or partial
+        # install is repaired on every launch and not only on a first run.
         return _launch_with_kokoro_healthcheck()
 
     # Fast path: a valid venv already exists → health-check Kokoro, then launch.
@@ -1902,6 +3018,49 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.headless:
         return _run_headless(skip_kokoro=args.skip_kokoro_download)
     return run_with_gui(skip_kokoro_default=args.skip_kokoro_download)
+
+
+def _venv_check() -> int:
+    """Classify the environment for the launcher and exit. Never installs.
+
+    Windows cannot use the launch path's own answer: it starts the GUI bootstrap
+    detached so the console does not linger, which means the batch file is gone
+    long before that process could report anything. So it asks this first — one
+    bootstrap start plus one probe, ~150 ms measured — and only then starts the
+    real launch. macOS already runs its launch synchronously and reads the same
+    codes straight from it.
+    """
+    health = assess_venv_health(require_tk=True)
+    if health.state in ("repairable", "absent"):
+        # Only spend interpreter probes once the cheap answer says something is
+        # wrong, and only for the two reasons where "is anything better even
+        # available?" changes the verdict from repair to degraded-but-usable.
+        if health.reason in ("incompatible-python", "no-tk"):
+            base = find_suitable_python(LOG, prefer_tk=True)
+            better = base is not None and is_full_feature_python(
+                _interp_version_argv(base))
+            health = assess_venv_health(require_tk=True,
+                                        compatible_base_available=better)
+    LOG.line(f"[venv-check] {health.state}: {health.detail}")
+    if health.can_launch:
+        return 0
+    return EXIT_VENV_REPAIR_REQUIRED
+
+
+def _repair_and_launch(headless: bool) -> int:
+    """Bounded environment repair, then the normal launch health path.
+
+    Reached only from a launcher that was told :data:`EXIT_VENV_REPAIR_REQUIRED`,
+    and running on a base interpreter rather than the venv's own.
+    """
+    ok, message = repair_venv(LOG, headless=headless)
+    LOG.line(message)
+    if not ok:
+        show_warning_dialog("The app's environment could not be repaired",
+                            f"{message}\n\nSee log: {LOG.path}")
+        return 1
+    # No second handoff: a repair has just run, so another request would loop.
+    return _launch_with_kokoro_healthcheck(allow_repair_handoff=False)
 
 
 def _run_headless(skip_kokoro: bool) -> int:

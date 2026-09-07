@@ -251,8 +251,23 @@ def test_the_kokoro_checkbox_default_is_untouched():
     assert '"download_kokoro": tk.BooleanVar(value=not skip_kokoro_default)' in src
 
 
-def test_run_setup_skips_the_chatterbox_steps_when_not_requested(monkeypatch):
+def _isolate_environment(monkeypatch, tmp_path):
+    """Point run_setup's environment state at tmp_path, not the real repo.
+
+    ``run_setup`` ends by stamping the environment it just built. These two tests
+    stub every install *step* but left ``VENV_DIR``/``LOGS_DIR`` pointing at the
+    real checkout, so each run rewrote the developer's real
+    ``.venv/.requirements-state.json`` and appended to the real setup log —
+    traced mechanically in PRE-PLAN-6 Phase 1 (finding L1b). The shared guard in
+    ``conftest.py`` now fails any test that touches production state.
+    """
+    monkeypatch.setattr(bootstrap, "VENV_DIR", tmp_path / ".venv")
+    monkeypatch.setattr(bootstrap, "LOGS_DIR", tmp_path / "logs")
+
+
+def test_run_setup_skips_the_chatterbox_steps_when_not_requested(monkeypatch, tmp_path):
     calls: list[str] = []
+    _isolate_environment(monkeypatch, tmp_path)
     monkeypatch.setattr(bootstrap, "find_suitable_python", lambda *a, **k: ["py"])
     monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda a: (3, 12))
     monkeypatch.setattr(bootstrap, "preflight_report", lambda *a, **k: {})
@@ -269,8 +284,9 @@ def test_run_setup_skips_the_chatterbox_steps_when_not_requested(monkeypatch):
     assert calls == []
 
 
-def test_run_setup_downloads_chatterbox_only_when_asked(monkeypatch):
+def test_run_setup_downloads_chatterbox_only_when_asked(monkeypatch, tmp_path):
     calls: list[str] = []
+    _isolate_environment(monkeypatch, tmp_path)
     monkeypatch.setattr(bootstrap, "find_suitable_python", lambda *a, **k: ["py"])
     monkeypatch.setattr(bootstrap, "_interp_version_argv", lambda a: (3, 12))
     monkeypatch.setattr(bootstrap, "preflight_report", lambda *a, **k: {})

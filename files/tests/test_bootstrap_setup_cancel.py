@@ -140,10 +140,16 @@ def test_cancelling_never_writes_a_requirements_stamp(monkeypatch, tmp_path):
 def test_the_stamp_is_only_written_from_a_path_that_just_succeeded():
     """Proves no dialog path can stamp an environment.
 
-    Exactly two writers are correct and intended: ``run_setup`` stamps after
-    ``validate_installed_packages``, and ``ensure_requirements_current`` stamps
-    after a successful pip + validate. Neither is reachable from a cancelled
-    dialog, because Cancel never starts either one.
+    There is now exactly **one** writer: ``reconcile_requirements``, which owns
+    pip → real import proof → stamp and is the only function that calls
+    ``record_requirements_state``. Both routes that used to hold their own copy
+    of that sequence (``run_setup`` and ``ensure_requirements_current``) now go
+    through it, which is what closed PRE-PLAN-6 defect C2 — ``run_setup``
+    discarded the validation result and stamped unconditionally.
+
+    Narrowing this list from two writers to one is the point: a second writer is
+    how the bypass was reintroduced last time. Neither route is reachable from a
+    cancelled dialog, because Cancel never starts either one.
     """
     enclosing = sorted(
         n.name for n in ast.walk(ast.parse(SRC))
@@ -152,7 +158,7 @@ def test_the_stamp_is_only_written_from_a_path_that_just_succeeded():
                 and c.func.id == "record_requirements_state"
                 for c in ast.walk(n))
     )
-    assert enclosing == ["ensure_requirements_current", "run_setup"]
+    assert enclosing == ["reconcile_requirements"]
     assert "record_requirements_state" not in _run_with_gui_source()
 
 
@@ -199,10 +205,17 @@ def test_the_bat_says_setup_was_cancelled():
 # --------------------------------------------------------------------------- #
 # F. Everything else about the launcher is untouched
 # --------------------------------------------------------------------------- #
-def test_the_daily_fast_path_is_unchanged():
+def test_the_daily_fast_path_still_launches_detached_and_console_free():
+    """Phase 2 changed how the fast path is *chosen*, not how it launches.
+
+    The gate moved from "does pythonw.exe exist" to bootstrap's own health
+    verdict, but the healthy steady state still starts the GUI detached through
+    ``pythonw.exe`` so no console lingers.
+    """
     text = _bat_text()
-    assert 'if exist ".venv\\Scripts\\pythonw.exe"' in text
+    assert 'start "" ".venv\\Scripts\\pythonw.exe"' in text
     assert "--launch-only" in text
+    assert "--venv-check" in text
 
 
 def test_first_run_defaults_are_unchanged():

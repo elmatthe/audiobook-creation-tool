@@ -35,6 +35,8 @@ from pathlib import Path, PureWindowsPath
 
 import pytest
 
+import source_probe
+
 from shared import bootstrap
 from shared import ffmpeg_health
 
@@ -68,14 +70,25 @@ def bat_text() -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_launcher_takes_the_fast_path_only_when_the_venv_exists(bat_text):
-    assert r'if exist ".venv\Scripts\pythonw.exe"' in bat_text
+def test_the_launcher_takes_the_fast_path_only_when_the_venv_is_healthy(bat_text):
+    """Existence is not health (PRE-PLAN-6 Phase 2).
+
+    This used to assert ``if exist ".venv\\Scripts\\pythonw.exe"``, which is a
+    question about a file. An environment whose Python cannot run, that lost
+    ssl, or that sits on a version too new for the pinned voice engines still
+    has that file, so the launcher started something that could not work and
+    bootstrap's own recovery paths were unreachable. The gate is now bootstrap's
+    verdict. Behavioural coverage lives in ``test_venv_recovery.py``, which runs
+    this launcher against sandbox trees.
+    """
+    assert "--venv-check" in bat_text
     assert "--launch-only" in bat_text
+    assert r'if exist ".venv\Scripts\pythonw.exe"' not in bat_text
 
 
 def test_a_freshly_extracted_tree_therefore_runs_first_run_setup(bat_text):
-    """No ``.venv`` means the fast path cannot be taken, so setup runs."""
-    fast = bat_text.index(r'if exist ".venv\Scripts\pythonw.exe"')
+    """No ``.venv`` means the health gate cannot be reached, so setup runs."""
+    fast = bat_text.index(r'if not exist ".venv\Scripts\python.exe" goto firstrun')
     first_run = bat_text.index("first-time setup")
     assert fast < first_run
 
@@ -144,13 +157,18 @@ def test_the_bootstrap_probes_the_winget_user_scope_python_location(monkeypatch)
     # ``PureWindowsPath.parts`` — so the old raw ``str.endswith`` was really
     # asserting which host ran the suite. On Windows this compares exactly the
     # value it always did; the contract itself is unchanged and no weaker.
-    user_scope = [PureWindowsPath(c) for c in candidates
+    # Candidates are structured argv sequences (PRE-PLAN-6 Phase 1): a path
+    # candidate is a one-element list whose single element may contain spaces,
+    # and a launcher candidate is ["py", "-3.12"]. Only the single-token path
+    # candidates can name a user-scope install.
+    paths = [argv[0] for argv in candidates if len(argv) == 1]
+    user_scope = [PureWindowsPath(c) for c in paths
                   if PureWindowsPath(c).parts[-4:]
                   == ("Programs", "Python", "Python312", "python.exe")]
     assert user_scope, candidates
     assert user_scope[0] == PureWindowsPath(
         r"C:\Users\someone\AppData\Local\Programs\Python\Python312\python.exe")
-    assert "py -3.12" in candidates
+    assert ["py", "-3.12"] in candidates
 
 
 def test_installing_python_re_probes_even_if_winget_reports_a_problem(monkeypatch):
@@ -205,11 +223,33 @@ def installer(monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", do_install)
+    # PRE-PLAN-6 Phase 5 chooses the route before calling the installer, and it
+    # chooses on ``shutil.which``. These tests deliberately empty or poison
+    # PATH, so say plainly that this machine has a package manager rather than
+    # letting the answer fall out of a PATH the test is manipulating for an
+    # unrelated reason.
+    monkeypatch.setattr(bootstrap.shutil, "which",
+                        lambda name: f"/usr/bin/{name}"
+                        if name in ("winget", "brew") else None)
+    # The repo-local fallback now sits behind the installer instead of inside
+    # it. It exists and delivers nothing, so these tests still prove that the
+    # package-manager route is what succeeded.
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
     state["package"] = package
     return state
 
 
-def test_an_empty_machine_is_not_reported_as_ready(monkeypatch):
+@pytest.fixture()
+def no_package_manager(monkeypatch):
+    """A machine with neither winget nor brew, and no repo-local build either."""
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+    monkeypatch.setattr(bootstrap, "_download_portable_ffmpeg_windows",
+                        lambda log: False)
+
+
+def test_an_empty_machine_is_not_reported_as_ready(monkeypatch,
+                                                   no_package_manager):
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", lambda log: False)
     assert bootstrap.ensure_ffmpeg(Log()) is False
     assert ffmpeg_health.pinned_pair() is None
@@ -260,7 +300,7 @@ def test_an_install_that_still_does_not_run_is_reported_as_failure(
                             ok=False, detail="blocked", failed="ffprobe"))
     log = Log()
     assert bootstrap.ensure_ffmpeg(log) is False
-    assert "could not be run" in log.text
+    assert "no pair here could be proved" in log.text
     assert ffmpeg_health.pinned_pair() is None
 
 
@@ -275,27 +315,42 @@ def test_setup_does_not_reinstall_when_a_healthy_pair_already_exists(
 
 
 def test_the_windows_installer_prefers_the_stable_winget_package():
-    """A moving nightly cannot accumulate the reputation an unsigned build needs."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    branch = source[source.index("def _install_ffmpeg("):]
-    windows = branch[:branch.index("if IS_MAC")]
-    assert "Gyan.FFmpeg" in windows
-    assert windows.index("Gyan.FFmpeg") < windows.index("_download_portable_ffmpeg_windows")
+    """A moving nightly cannot accumulate the reputation an unsigned build needs.
+
+    PRE-PLAN-6 Phase 5 moved the *ordering* out of the installer and into
+    ``repair_ffmpeg``, because the repo-local fallback has to remain reachable
+    after a package-manager install that exits 0 and proves nothing. So the
+    package id is asserted where the command is built, and the preference is
+    asserted where the sequence now lives.
+    """
+    argv = source_probe.literal_lists(
+        source_probe.function("shared/bootstrap.py", "_winget_ffmpeg"))
+    assert any("Gyan.FFmpeg" in command for command in argv), argv
+
+    order = source_probe.call_order(
+        source_probe.function("shared/bootstrap.py", "repair_ffmpeg"),
+        ("_install_ffmpeg", "_download_portable_ffmpeg_windows"))
+    assert order == ["_install_ffmpeg", "_download_portable_ffmpeg_windows"]
 
 
 def test_the_user_is_never_told_to_fetch_ffmpeg_before_using_the_app():
     """A manual-download instruction may only ever be a last-resort message.
 
     It must not appear anywhere that a normal first run would reach.
+
+    Phase 6 restated this as AST. The slice it replaced happened to span
+    ``run_setup`` only because ``_install_ffmpeg`` was defined after it; Phase 5
+    moved that function, and the slice silently began covering a different range
+    of the file while still passing.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
-              / "bootstrap.py").read_text(encoding="utf-8")
-    setup = source[source.index("def run_setup("):source.index("def _install_ffmpeg(")]
-    for line in setup.splitlines():
-        if "ffmpeg.org/download" in line:
-            assert "could not be installed automatically" in setup, (
-                "a download link may only follow an automatic-install failure")
+    setup = source_probe.function("shared/bootstrap.py", "run_setup")
+    strings = source_probe.code_strings(setup)
+    links = [text for text in strings if "ffmpeg.org/download" in text]
+
+    if links:
+        assert any("could not be installed automatically" in text
+                   for text in strings), (
+            "a download link may only follow an automatic-install failure")
 
 
 # --------------------------------------------------------------------------- #
@@ -311,7 +366,8 @@ def blocked(monkeypatch, tmp_path):
     return directory
 
 
-def test_a_blocked_installation_does_not_count_as_ready(monkeypatch, blocked):
+def test_a_blocked_installation_does_not_count_as_ready(monkeypatch, blocked,
+                                                       no_package_manager):
     monkeypatch.setattr(bootstrap, "_install_ffmpeg", lambda log: False)
     monkeypatch.setattr(ffmpeg_health, "prove_pair",
                         lambda pair, runner=None: ffmpeg_health.Proof(
@@ -390,7 +446,7 @@ def test_a_later_launch_does_not_probe_the_blocked_installation_at_all(
         return ffmpeg_health.Proof(ok=True)
 
     monkeypatch.setattr(ffmpeg_health, "prove_pair", prove)
-    assert bootstrap.ensure_ffmpeg_ready_for_launch() is True
+    assert bootstrap.ensure_ffmpeg_ready_for_launch().ready is True
     assert seen == [os.path.normcase(str(healthy))], seen
 
 
