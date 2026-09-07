@@ -128,6 +128,30 @@ Do not draft or implement Plans 6–9 while an earlier plan is active. A later p
 
 *Superseded (kept for the record): this line previously read “Do not draft or implement Plans 5–9 while an earlier plan is active,” and before that “Do not draft or implement Plans 4–9 while Plan 3 is active.” Plans 3, 4 and 5 are all complete, approved and closed; Plan 6 is the next unopened plan and has not been drafted or started.*
 
+**Status note (2026-09-07, PRE-PLAN-6 MERGED and integrated). This is the current §5 status.** It
+supersedes the 2026-09-05 note below on the two points where that note describes the integration
+sequence as still ahead of the project: that "the action that comes first now is ONE independent
+READ-ONLY integration-readiness recheck of that maintenance branch", and that "the maintenance is not
+yet merged". **The recheck was performed, pull request #9 was opened and reviewed, and the maintainer
+merged it.** Every other fact in that note, and every Plan 5 fact in the notes below it, still stands.
+**The PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing maintenance is COMPLETE, CLOSED and
+INTEGRATED into `master`**, through **pull request #9** — *"v0.6.2 PRE-PLAN-6: self-healing setup and
+verified FFmpeg readiness"* — merged on **2026-09-06** as a **normal two-parent merge commit**, not a
+squash and not a rebase. **PRE-PLAN-6's stable integration anchor is that merge commit,
+`83a2bfc7de25dbe5a599b48fd73fe306695e490d`** (parent 1 `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c`,
+parent 2 the approved maintenance head `d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`); the whole
+maintenance head is an ancestor of `master`, and the branch
+`maintenance/0.6.2-setup-self-healing` is **retained** at `d7452a2b`, not deleted. **As everywhere
+else in this file, the literal current tip of `master` is not asserted here** — it is queried from
+Git; cite the permanent merge commit instead. **Plan 5 remains COMPLETE, APPROVED, CLOSED and
+INTEGRATED**, unchanged, at its own anchor `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`. **The merge
+published nothing:** `0.6.2` remains **UNRELEASED** with no `[0.6.2]` changelog heading, no tag, no
+GitHub release, no package and no `release.py` run, and the **published GitHub release remains
+`v0.4.0`**. **Phase 9 remains WAIVED / NOT APPLICABLE and was never a passed test** — merging did not
+convert it. **Plan 6 has NOT begun.** Its integration precondition is now satisfied, but a satisfied
+precondition is not an authorization: Plan 6 is still undrafted, still needs separate explicit
+maintainer approval, and Plans 6–9 all remain unopened. See §15 for the current next-action record.
+
 **Status note (2026-09-05, PRE-PLAN-6 maintenance closed). This is the current §5 status.** It
 supersedes the 2026-09-02 note below on one point only: that note closed by saying **"Plan 6 has NOT
 begun — see §15 for the one action that comes first"**, and the action it meant was the PRE-PLAN-6
@@ -383,6 +407,54 @@ Do not absorb these into an unrelated plan:
 | Open Issue #2: CLI-only `kokoro_synth.py` cp1252 `UnicodeEncodeError` | Separate issue; do not fold into Plan 2 |
 
 ## 15. Immediate next action
+
+**Updated 2026-09-07, after PRE-PLAN-6 was merged. This block is the current next-action record. It
+supersedes the 2026-09-05 block below on the points where that block places the integration sequence
+in the future — it named "ONE independent, READ-ONLY integration-readiness recheck" as THE CURRENT
+NEXT ACTION, stated that "no pull request is authorized until that recheck independently returns
+READY", and held merge open as "a separate, explicit maintainer authorization". The recheck was
+performed, pull request #9 was opened and reviewed, and the maintainer merged it, so those three
+statements no longer control. Everything else in that block still stands — in particular its
+real-machine acceptance paragraph and its Phase 9 waiver, which are NOT changed here. Every block
+below it remains dated history and must not be read as instructions.**
+
+- **v0.6.2 Plan 5 remains COMPLETE, APPROVED, CLOSED and INTEGRATED.** Nothing about it is reopened
+  or changed here; its merge anchor is still pull request **#6** / `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`.
+- **PRE-PLAN-6 is now COMPLETE, CLOSED and INTEGRATED into `master`.** The bounded `Setup_and_Run` /
+  bootstrap self-healing maintenance on branch `maintenance/0.6.2-setup-self-healing` reached `master`
+  through **pull request #9**, *"v0.6.2 PRE-PLAN-6: self-healing setup and verified FFmpeg
+  readiness"*, merged on **2026-09-06** as a **normal two-parent merge commit** — not a squash, not a
+  rebase.
+- **PRE-PLAN-6's stable integration anchor is that merge commit,
+  `83a2bfc7de25dbe5a599b48fd73fe306695e490d`**, whose two parents are
+  `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c` (parent 1) and
+  `d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a` (parent 2, the approved maintenance head). The complete
+  maintenance head is therefore an ancestor of `master`. The branch
+  `maintenance/0.6.2-setup-self-healing` is **retained** at `d7452a2b`, not deleted. Following this
+  file's standing convention, **cite that permanent merge commit, not a live branch tip** — the
+  literal current tip of `master` is not asserted here and is queried from Git.
+- **Phase 9 remains WAIVED / NOT APPLICABLE, and the merge did not convert it to PASS.** CSPW-PC was
+  removed as a deployment target; it was not tested and did not pass, and HOME-PC was not substituted
+  for it. **Real non-admin Windows target-machine acceptance remains UNPERFORMED.** The 2026-09-05
+  block's real-machine acceptance paragraph stands in full.
+- **The merge published nothing.** Version identity remains **`0.6.2`** and **UNRELEASED**: no
+  `[0.6.2]` changelog heading, **no tag, no GitHub release, no package, no `release.py` run**. The
+  **published GitHub release remains `v0.4.0`**, and **Plan 9 still owns release hardening and
+  publication**.
+- **THE CURRENT NEXT ACTION is the bounded post-merge integration-record reconciliation that carries
+  this entry — and it is now done.** It exists only because this section and §5 still described the
+  recheck, the pull request and the merge as future work after all three had happened. It touches
+  exactly two tracked documents — `Handoff.md` and this index — and **zero production code, zero
+  tests, zero configuration and zero launcher/setup files**. It is a documentation and provenance
+  checkpoint, nothing more.
+- **PLAN 6 HAS NOT STARTED, and nothing here starts or authorizes it.** The gate that the earlier
+  blocks placed in front of Plan 6 — that this maintenance must first reach `master` — is now
+  satisfied, but **a satisfied gate is not an approval**. Plan 6 keeps its defined place in the
+  approved nine-plan structure as the **v0.6.3 Drop 1 shared multi-book workspace foundation**
+  (temporary drop `0.6.3-drop1-shared-multi-book-workspace.md`, depending on Plans 1–3), and it is
+  still **Planned; not drafted**: no execution drop exists and no branch exists. It requires
+  **separate explicit maintainer approval** before it opens, as every plan does. **Plans 6–9 all
+  remain undrafted**, and the nine-plan structure is unchanged — no plan reordered, renamed or added.
 
 **Updated 2026-09-05, after the PRE-PLAN-6 maintenance closed. This block is the current
 next-action record. It supersedes the 2026-09-02 block below on ONE point only — that block named the

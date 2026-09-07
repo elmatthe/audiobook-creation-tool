@@ -2,6 +2,72 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 IS MERGED AND INTEGRATED; POST-MERGE RECORD RECONCILIATION (2026-09-07)
+>
+> **This block is the live state of the repository.** It supersedes the block below it on exactly the
+> points where that block speaks in the present tense about the integration sequence still being
+> *ahead* of the project: that a recheck is "the next action", that "no pull request is authorized",
+> that merge is "a separate explicit maintainer authorization" still to come, and that "`origin/master`
+> is untouched by it". Those statements were true when written, before the recheck, the pull request
+> and the merge. **All three have since happened.** That block is kept verbatim beneath this one as the
+> dated record of the pre-merge position. Nothing else below is deleted, rewritten or reopened — the
+> Phase-7, Phase-8, post-Phase-8 remediation, Phase-9 waiver and records-remediation entries stand
+> exactly as written.
+>
+> - **PRE-PLAN-6 IS MERGED. The `Setup_and_Run` / bootstrap self-healing maintenance is COMPLETE,
+>   CLOSED and INTEGRATED into `master`.** It reached `master` through **pull request #9**,
+>   *"v0.6.2 PRE-PLAN-6: self-healing setup and verified FFmpeg readiness"*, merged by the maintainer
+>   on **2026-09-06** (2026-09-07 UTC) as a **normal two-parent merge commit — not a squash, not a
+>   rebase**.
+> - **The stable PRE-PLAN-6 integration anchor is that merge commit:**
+>   **`83a2bfc7de25dbe5a599b48fd73fe306695e490d`**, with exactly two parents —
+>   parent 1 **`e36ab7d9236e210a5dfd8aaf69f25a158ca0908c`** (the `master` tip the branch merged into)
+>   and parent 2 **`d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`** (the approved maintenance head). Cite
+>   that merge commit, which is permanent. **The literal current tip of `master` is deliberately not
+>   asserted here** — it is queried from Git, because a branch tip moves and a written one goes stale.
+> - **The complete maintenance head is an ancestor of `master`.** Every one of the nineteen commits of
+>   the series is reachable from the merge; nothing was dropped, squashed or rewritten to get there.
+> - **The maintenance branch is RETAINED, not deleted.** `maintenance/0.6.2-setup-self-healing` still
+>   exists on `origin` at **`d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`**, unchanged.
+> - **Phase 9 remains WAIVED / NOT APPLICABLE — it was never converted to PASS, and merging did not
+>   convert it.** CSPW-PC was removed as a deployment target. It was **not tested and did not pass**,
+>   and **no HOME-PC substitute evidence** was used or claimed. HOME-PC Phase 7 remains the accepted
+>   Windows evidence and HOME-MacOS Phase 8 the accepted macOS evidence. **Real non-admin Windows
+>   target-machine acceptance remains UNPERFORMED**; if such a target returns, Phase 9 must be
+>   reinstated and actually run. M5 is closed in implementation only — every production
+>   `winget install` names `--scope user`, with no machine scope and no elevation fallback.
+> - **The two historical AI-trailer violations are unchanged and are still violations.**
+>   **`592a72b90886a33bf03172fab39409b786af9dc5`** (Phase 8) and
+>   **`e916cb1128cb71c6fbe3de10f1d54238d5bfa345`** (macOS test isolation) carry `Co-Authored-By: Claude …`
+>   and `Claude-Session: …` trailers that **violate** the standing 2026-07-07 decision *"No AI co-author
+>   trailers in commit messages, ever"*. **Merging them into `master` did not make them compliant and
+>   reclassifies nothing.** The maintainer's **one-time, closed-set historical exception covering only
+>   those two named commits** — a signed ADR in `Decisions.md` (2026-09-05) — stands exactly as ruled:
+>   it **sets no precedent**, authorizes **no** trailer on this commit or any future commit, and
+>   authorizes **no** amend, rebase, squash, cherry-pick or force-push. **The 2026-07-07 rule remains
+>   fully binding for all future work**, and this commit carries no authorship, session or provenance
+>   trailer of any kind.
+> - **The merge published nothing.** Version identity remains **`0.6.2`** and **UNRELEASED**: no
+>   `[0.6.2]` changelog heading, **no tag, no GitHub release, no package, no `release.py` run**. The
+>   **published GitHub release remains `v0.4.0`** (verified against the repository's release list), and
+>   **Plan 9 still owns release hardening and publication**.
+> - **THIS commit is the current bounded checkpoint: a post-merge integration-record reconciliation,
+>   and nothing more.** It exists because the two live coordination records still described the
+>   recheck, the pull request and the merge as *future* work after they had all actually occurred. It
+>   changes exactly two tracked documents — this file and the permanent
+>   `don't-delete/…-Master-Implementation-Plan-Index.md` — and **zero production code, zero tests, zero
+>   configuration and zero launcher/setup files**. It is documentation and provenance only.
+> - **PLAN 6 HAS NOT STARTED, and this reconciliation does not start it or authorize it.** The
+>   integration gate the earlier blocks placed in front of Plan 6 — *"Plan 6 may begin only once this
+>   maintenance is integrated into `master`"* — is now satisfied, but a satisfied gate is not an
+>   authorization. Plan 6 (v0.6.3 Drop 1, the shared multi-book workspace foundation) is still
+>   **undrafted**: no execution drop exists, no branch exists, and it needs **separate explicit
+>   maintainer approval** before it opens, as every plan does. **Plans 6–9 all remain undrafted.**
+> - **`md-instructions/pre-plan-6-setup-self-healing.md` was retired at closeout and must NOT be
+>   recreated.** Its durable content lives in `Decisions.md`, `Changelog.md`, `Briefing.md`,
+>   `README.md`, this file and the master index. There is currently **no active temporary
+>   implementation drop.**
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 COMPLETE AND CLOSED; INTEGRATION RECORDS REMEDIATED; AWAITING A READ-ONLY RECHECK (2026-09-05)
 >
 > **This block is the live state of the repository.** It supersedes the block below it on every point
