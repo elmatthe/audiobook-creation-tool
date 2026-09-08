@@ -2,6 +2,51 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 1 COMPLETE; PHASE 2 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> says production implementation has not started and names **Phase 1** as the next action. Phase 1 is
+> now done. Everything else in it, and every dated block beneath it, stands as written.
+>
+> - **Plan 6 Phase 1 — Book Job Vocabulary is COMPLETE.** `scripts/Universal/shared/book_workspace.py`
+>   now exists: the frozen `BookJob` (stable opaque `book_id` minted through Plan 3's `IdFactory`, a
+>   configuration deep-frozen by Plan 3's `freeze_options`, and one `ImportedFileSnapshot`), the frozen
+>   `WorkspaceSnapshot` value, four typed errors, and `FIELD_ROLES`/`field_role` — Decision 49A's
+>   configuration-versus-inputs split, stated in exactly one place and pinned against the dataclass so
+>   no later field can escape classification.
+> - **Phase 2 has NOT started.** There is no Add, Duplicate, Remove, Previous, Next, Select, Replace or
+>   meaningful-work predicate, and no Shared Metadata, run capture, numbering, retry, adapter or
+>   harness. Their absence is **proved** by `test_plan6_boundaries.py`, not merely untested.
+> - **`ADOPTED` was widened by exactly one module**, `shared/book_workspace.py`, after proving the
+>   widening was mechanically required (two guards were red without it). `shared/numbering.py` and
+>   `shared/book_workspace_ui.py` were **not** pre-authorised. **Four** tied assertions were updated,
+>   not the three the Phase 0 map predicted: the fourth is
+>   `test_tool_output_integration.PLAN3_ADOPTERS`, a second spelling of the same list, found by the
+>   repository's own drift guard rather than by inspection. That map gap is recorded in drop
+>   section 34.6, and a repository-wide search confirmed those two are the only spellings.
+> - **Gate: 5,791 collected / 5,777 passed / 14 skipped / 0 failed**, up from the Phase 0 baseline of
+>   5,647 by exactly 144 — 85 + 58 new tests plus **1** inherited automatically by an existing
+>   `test_launch_self_heal.py` parametrization over every `scripts/Universal/*.py`. **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six Phase 0 protected hashes
+>   byte-identical; production runtime state unchanged.
+> - **Red proof:** at the pre-Phase-1 commit `0aa48d2`, the new tests fail because the module does not
+>   exist (`ImportError: cannot import name 'book_workspace'`, and 15 of the boundary guards red). New
+>   functionality being red is **not** claimed as a pre-existing defect.
+> - **Two first-draft defects were found and fixed, and are recorded rather than hidden** (drop
+>   section 34.10): a `book_id` containing a path separator was wrongly accepted, caught by this
+>   phase's own test; and two test-side bugs (a per-call `IdFactory` that made two books collide, and
+>   an immutability assertion that expected the wrong exception for a frozen **slots** dataclass).
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in both full
+>   runs and under `verify.py`. It remains **not fixed and is not called fixed**; Phase 1 touched
+>   nothing in its dependency path.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 2 — WORKSPACE CONTROLLER. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 0 COMPLETE; PHASE 1 NOT STARTED (2026-09-07)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block

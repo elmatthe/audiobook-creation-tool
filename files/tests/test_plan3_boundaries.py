@@ -101,7 +101,7 @@ PANELS = (
 #: pins the tuple against the tree so it cannot drift.
 ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
-            "mp3_tools/m4b_plan.py")
+            "mp3_tools/m4b_plan.py", "shared/book_workspace.py")
 
 
 def relative_name(path: Path) -> str:
@@ -655,7 +655,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_five_production_modules_are_authorized_to_adopt():
+def test_exactly_these_six_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -680,11 +680,29 @@ def test_exactly_five_production_modules_are_authorized_to_adopt():
     so it reads each occurrence's identity, source root and root-relative
     path to decide where that book's outputs go. It consumes the foundation
     and defines none of it, which is what the guards below measure.
+
+    v0.6.3 Plan 6 Phase 1 adds the **sixth**, and it is the first that is neither a
+    panel nor a tool module: ``shared/book_workspace.py`` is the multi-book data
+    layer, so it necessarily names ``IdFactory``, ``Revision``,
+    ``ImportedFileSnapshot`` and ``freeze_options`` — reusing the one identifier
+    factory, the one revision stamp, the one file-list type and the one deep-freeze
+    instead of growing a second of each. It defines none of them, which is exactly
+    what ``test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it``
+    measures, and ``files/tests/test_plan6_boundaries.py`` holds it to the rest of
+    its own boundaries. **This entry authorises that one module and nothing else:**
+    Plan 6's ``shared/numbering.py`` (Phase 6) and ``shared/book_workspace_ui.py``
+    (Phase 8) do not exist yet, and whether either needs declaring is decided when
+    it is written, by this guard measuring the tree — never assumed in advance.
+
+    The name says "these six" rather than "five" because the count is part of what
+    is pinned: a widening that did not have to rename this test would be a widening
+    nobody had to think about.
     """
     assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
                        "mp3_tools/m4b_converter.py",
                        "mp3_tools/m4b_destinations.py",
-                       "mp3_tools/m4b_plan.py")
+                       "mp3_tools/m4b_plan.py",
+                       "shared/book_workspace.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/mp3_tool.py",
@@ -742,7 +760,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 5, importers
+    assert len(importers) == 6, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():

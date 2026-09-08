@@ -806,9 +806,15 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: panel, so neither matches anything in ``TOOL_MODULES``; they are listed here
 #: only so this spelling of the adopter list stays in step with ``ADOPTED``,
 #: which is what the assertion below protects.
+#: v0.6.3 Plan 6 Phase 1 adds ``shared.book_workspace`` as the sixth, for exactly
+#: that reason and no other: it is the multi-book data layer, not a tool, so it
+#: matches nothing in ``TOOL_MODULES`` and is excluded from no guard by being
+#: named here. It is listed **only** to keep the two spellings in step. The drift
+#: assertion below is what caught this file when the Phase 1 widening first
+#: updated ``ADOPTED`` alone.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
-                  "mp3_tools.m4b_plan")
+                  "mp3_tools.m4b_plan", "shared.book_workspace")
 
 
 def _tool_path(relative: str) -> Path:
