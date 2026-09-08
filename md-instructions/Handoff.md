@@ -2,6 +2,43 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 0 COMPLETE; PHASE 1 NOT STARTED (2026-09-07)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> says "PRODUCTION IMPLEMENTATION HAS NOT STARTED" and names **Phase 0** as the next action; Phase 0
+> has now been performed. Everything else in it, and every dated block beneath it, stands exactly as
+> written and is not rewritten here.
+>
+> - **Plan 6 Phase 0 — Baseline and Contract Map is COMPLETE**, committed on
+>   `feature/0.6.3-drop1-shared-multi-book-workspace`. It was read / inspect / map / record only.
+> - **PRODUCTION IMPLEMENTATION HAS STILL NOT STARTED.** Phase 0 created **no** production module, no
+>   test module and no harness; it widened no `ADOPTED`, moved no file, and changed no production
+>   source, test, configuration, version or dependency. The twelve Plan 6 files remain absent.
+> - **No architecture-affecting contradiction was found.** All 71 named Plan 3 symbols, all 28 frozen
+>   records, the `ACT.Shared.*` resources and all ten section 8.2 "does not exist" findings were
+>   re-verified **by AST**. The approved plan stands unchanged; only an evidence section (section 33)
+>   was appended to the drop.
+> - **Implementation baseline: 5,647 collected / 5,633 passed / 14 skipped / 0 failed**, identical to
+>   the planning baseline with no loss of collected tests. `verify.py` **RESULT: PASS**;
+>   `compileall` exit 0 over `scripts/` and `files/tests/`. Phase 0 reference SHA-256 hashes for the
+>   three consumer panels, the Converter, `m4b_numbering.py` and `test_m4b_numbering.py` are recorded
+>   in drop section 33.3 as the byte-identity gates for later phases.
+> - **Two non-blocking observations, recorded not fixed** (drop section 33.6): (1) a **pre-existing,
+>   intermittent** failure of `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates`
+>   was seen **once** and then passed in isolation, with its module, on an immediate second full run
+>   and under `verify.py` — it is a Plan 5 test with filesystem/order sensitivity, Phase 0 may not
+>   modify an existing test, and it is **not** recorded as a pass or as fixed; (2) a draft substring
+>   guard produced a false positive on `m4b_maker.py` (the log string *"retrying in Safe Mode"* is the
+>   Fast-first fallback, **not** Retry Failed), re-confirming that Plan 6's structural guards must be
+>   AST-based.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 1 — BOOK JOB VOCABULARY. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval. Phase 1 must widen `ADOPTED` and its two count pins in the
+>   same commit that first names a Plan 3 symbol (drop section 33.8).
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, no GitHub release, no package, no `release.py` run, no PR and no merge; the
+>   **published GitHub release remains `v0.4.0`**; `origin/master` is unmoved at `83a2bfc`; every
+>   branch is retained; and this commit carries no AI authorship, session or provenance trailer.
+>
 > ## ⟢ CURRENT STATE — PLAN 6 PLANNING IS OPEN; THE STANDALONE RECONCILIATION REVIEW WAS WAIVED (2026-09-07)
 >
 > **This block is the live state of the repository.** It supersedes the block below it on exactly two
