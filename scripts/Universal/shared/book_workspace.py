@@ -33,12 +33,17 @@ and :func:`effective_metadata` resolve precedence without storing anything; and
 :func:`disabled_fields` projects the controls a consumer must disable. The raw
 per-book value is never rewritten, so clearing a shared field restores it exactly.
 
+Phase 5 added Decision 9A for a workspace: :func:`effective_run_options` resolves
+what one book's run will consume, and :func:`capture_workspace_run` freezes a whole
+workspace into a :class:`BookRunSnapshot` — **one existing Plan 3 ``RunSnapshot``
+per eligible book**, composed, never replaced. After capture the run never consults
+the workspace again.
+
 What deliberately does **not** live here
 ---------------------------------------
-No run capture, no ``RunSnapshot``, no numbering, no dispositions, no Retry Failed
-and no Tk. Those are Plan 6 Phases 5–8 of the active drop. **Effective values here
-are live projections**; freezing them into a run is Phase 5's, and a structural
-guard proves that has not been pulled forward.
+No numbering, no dispositions, no Retry Failed, no ``JobController`` and no Tk.
+Those are Plan 6 Phases 6–8 of the active drop, and structural guards prove they
+have not been pulled forward. Phase 5 **captures**; it runs nothing.
 
 No thread, no lock, no queue, no clock, no subprocess, no network, and no filesystem
 access of any kind. A ``Path`` reaches this module only as data already inside a
@@ -67,7 +72,7 @@ cannot be constructed at all — there is no "validate later" path to forget.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -79,10 +84,12 @@ from shared.importing import (
     IdFactory,
     ImportedFile,
     ImportedFileSnapshot,
+    ImportOptions,
     Revision,
+    SupportedTypeCatalog,
     natural_key,
 )
-from shared.job_control import freeze_options
+from shared.job_control import RunSnapshot, capture_run, freeze_options
 
 __all__ = [
     "BookContractError",
@@ -122,6 +129,10 @@ __all__ = [
     "effective_metadata",
     "disabled_fields",
     "set_shared_metadata",
+    "RUN_ID_KIND",
+    "effective_run_options",
+    "BookRunSnapshot",
+    "capture_workspace_run",
 ]
 
 
@@ -1134,3 +1145,237 @@ def set_shared_metadata(workspace: WorkspaceSnapshot,
         return _unchanged(WorkspaceOperation.SHARED_METADATA, space)
     return _changed(WorkspaceOperation.SHARED_METADATA, space,
                     space.books, space.current_book_id, shared=shared)
+
+
+# --------------------------------------------------------------------------- #
+# Frozen effective values — Decision 9A for a workspace
+#
+# Phase 5 **captures**; it runs nothing. Each eligible book gets exactly one
+# Plan 3 ``RunSnapshot``, built by the existing ``job_control.capture_run``, and
+# Plan 6 does nothing but compose them. There is deliberately no second snapshot
+# type, no second freeze, no second id scheme and no controller here: a book's
+# snapshot is a real Plan 3 snapshot, so ``FailureLog``, ``RunResult`` and
+# ``RetryRequest`` stay naturally scoped to it and Phase 7's retry can be
+# literally ``RunResult.retry()``.
+# --------------------------------------------------------------------------- #
+
+#: The ``kind`` this module asks ``IdFactory`` for when naming a book's run.
+#: Distinct from :data:`BOOK_ID_KIND` so a snapshot id can never read as a book id.
+RUN_ID_KIND = "run"
+
+#: A consumer's own validity rule, asked once per non-empty book during capture.
+#: ``None`` means every structurally valid non-empty book is eligible.
+BookValidityCheck = Callable[[BookJob], bool]
+
+
+def effective_run_options(book: BookJob,
+                          shared: SharedMetadata) -> dict[str, Any]:
+    """What one book's run will actually consume — Decision 20B, resolved.
+
+    The book's own configuration, with **every declared Shared Metadata field
+    overlaid by its effective value**. Non-metadata configuration keys are carried
+    through untouched, because a run needs a bitrate or a destination mode just as
+    much as it needs a title.
+
+    Neither raw source is modified. The book's ``configuration`` and the
+    workspace's ``SharedMetadata`` are values; this builds a *third* mapping from
+    them, which is the only place the override is ever "applied". That is what lets
+    a shared field be cleared afterwards and the per-book value simply be there
+    again — the override was never written down.
+
+    Returned as a plain ``dict`` on purpose: it is handed straight to
+    ``capture_run``, whose ``RunSnapshot`` deep-freezes it through the project's one
+    ``freeze_options``. Freezing it here as well would be a second freeze doing the
+    same job.
+    """
+    if not isinstance(book, BookJob):
+        raise BookContractError(f"book must be a BookJob, got {type(book).__name__}")
+    if not isinstance(shared, SharedMetadata):
+        raise SharedMetadataError(
+            f"shared must be a SharedMetadata, got {type(shared).__name__}")
+    options: dict[str, Any] = dict(book.configuration)
+    for name in shared.fields:
+        options[name] = effective_value(shared, book, name)
+    return options
+
+
+@dataclass(frozen=True, slots=True)
+class BookRunSnapshot:
+    """One workspace run, frozen: the books it will attempt and the ones it will not.
+
+    ``runs`` is an ordered tuple of ``(book_id, job_control.RunSnapshot)`` pairs, in
+    workspace order. Each snapshot is the object ``capture_run`` returned — held by
+    identity, not copied — so the book identity and the Plan 3 run identity stay tied
+    together without either being encoded inside the other.
+
+    ``skipped_book_ids`` records the books this run will not attempt, by stable id.
+    At Phase 5 that is capture eligibility and nothing more: an empty book is not a
+    failure, and the disposition vocabulary that says what *became* of a book is
+    Phase 7's.
+
+    ``shared`` is the Shared Metadata that was in force at capture. It is kept so the
+    run can report what it resolved against; the effective values themselves are
+    already frozen inside each snapshot's ``tool_options``, so **the run never needs
+    to resolve precedence again**.
+
+    Deliberately absent: no success counter or next number (Phase 6 — a counter is a
+    fact about one attempt's execution, the opposite of a frozen plan), no
+    disposition, failure, ``RunResult`` or ``RetryRequest`` (Phase 7), no
+    ``JobController`` (one per run, and the consumer owns it), and no output path
+    (Plan 2's, always).
+    """
+
+    runs: tuple[tuple[str, RunSnapshot], ...] = ()
+    skipped_book_ids: tuple[str, ...] = ()
+    shared: SharedMetadata = NO_SHARED_METADATA
+
+    def __post_init__(self) -> None:
+        if isinstance(self.runs, (str, bytes)) or not isinstance(self.runs, Iterable):
+            raise WorkspaceContractError("runs must be an iterable of pairs")
+        pairs: list[tuple[str, RunSnapshot]] = []
+        attempted: set[str] = set()
+        for entry in self.runs:
+            if isinstance(entry, (str, bytes)) or not isinstance(entry, Iterable):
+                raise WorkspaceContractError(
+                    "each run must be a (book_id, RunSnapshot) pair")
+            items = tuple(entry)
+            if len(items) != 2:
+                raise WorkspaceContractError(
+                    f"each run must be a (book_id, RunSnapshot) pair, got {len(items)} values")
+            book_id, snapshot = items
+            book_id = _require_identifier("book_id", book_id, error=BookIdentityError)
+            if not isinstance(snapshot, RunSnapshot):
+                raise WorkspaceContractError(
+                    "each run must carry a job_control.RunSnapshot, got "
+                    f"{type(snapshot).__name__}")
+            if book_id in attempted:
+                raise BookIdentityError(f"duplicate attempted book_id {book_id!r}")
+            attempted.add(book_id)
+            pairs.append((book_id, snapshot))
+        object.__setattr__(self, "runs", tuple(pairs))
+
+        if isinstance(self.skipped_book_ids, (str, bytes)) or not isinstance(
+                self.skipped_book_ids, Iterable):
+            raise WorkspaceContractError("skipped_book_ids must be an iterable of ids")
+        skipped: list[str] = []
+        seen: set[str] = set()
+        for book_id in self.skipped_book_ids:
+            clean = _require_identifier("book_id", book_id, error=BookIdentityError)
+            if clean in seen:
+                raise BookIdentityError(f"duplicate skipped book_id {clean!r}")
+            if clean in attempted:
+                # A book is attempted or skipped. Both would make "what did this run
+                # do with book X" have two answers.
+                raise BookIdentityError(
+                    f"book_id {clean!r} is both attempted and skipped")
+            seen.add(clean)
+            skipped.append(clean)
+        object.__setattr__(self, "skipped_book_ids", tuple(skipped))
+
+        if not isinstance(self.shared, SharedMetadata):
+            raise WorkspaceContractError(
+                f"shared must be a SharedMetadata, got {type(self.shared).__name__}")
+
+    @property
+    def attempted_book_ids(self) -> tuple[str, ...]:
+        """The books this run will attempt, in order."""
+        return tuple(book_id for book_id, _snapshot in self.runs)
+
+    @property
+    def count(self) -> int:
+        """How many books this run attempts."""
+        return len(self.runs)
+
+    @property
+    def skipped_count(self) -> int:
+        return len(self.skipped_book_ids)
+
+    def snapshot_for(self, book_id: str) -> RunSnapshot | None:
+        """That book's frozen run, or ``None`` — a lookup, never a capture."""
+        wanted = _require_identifier("book_id", book_id, error=BookIdentityError)
+        for candidate, snapshot in self.runs:
+            if candidate == wanted:
+                return snapshot
+        return None
+
+
+def capture_workspace_run(workspace: WorkspaceSnapshot, *,
+                          catalog: SupportedTypeCatalog,
+                          import_options: ImportOptions,
+                          effective_config: Any,
+                          id_factory: IdFactory,
+                          created_at: float = 0.0,
+                          is_valid: BookValidityCheck | None = None
+                          ) -> BookRunSnapshot:
+    """Freeze one workspace into one run. Decision 9A, per book.
+
+    Synchronous, on the caller's thread, before any worker exists. Every eligible
+    book is captured through the **existing** ``job_control.capture_run`` — exactly
+    once, with its own snapshot id, its own ``ImportedFileSnapshot`` passed straight
+    through, and its effective run options (section 15 resolved by
+    :func:`effective_run_options`). Plan 6 constructs no ``RunSnapshot`` itself.
+
+    **Eligibility.** A book with no imported files is skipped: Decision 13A says an
+    empty job is identified clearly and skipped safely, and a zero-file run snapshot
+    would be a run that cannot do anything. *Validity* beyond that is the consumer's,
+    because the shared foundation has no business knowing what makes an M4B or an
+    MP3 job valid — so ``is_valid`` is an optional predicate, asked synchronously
+    here and **never stored, never frozen and never handed to a worker**. With no
+    predicate, every non-empty book is eligible.
+
+    **Capture reads the workspace and changes nothing.** No revision moves, no
+    selection shifts and no ``BookMutation`` is returned, because capturing is an
+    observation rather than an edit.
+
+    **Identity consumption.** Everything this function owns is validated, and every
+    book's options are computed, *before* the first id is minted. What it cannot
+    pre-validate is ``effective_config``, which ``capture_run`` is the authority on —
+    so a bad one surfaces from the first call and consumes at most one id. Giving
+    ``IdFactory`` a rollback to close that last gap is not this phase's to do, and
+    the returned value is all-or-nothing either way: an exception yields no partially
+    built :class:`BookRunSnapshot`.
+    """
+    space = _require_workspace(workspace)
+    if not isinstance(id_factory, IdFactory):
+        raise BookIdentityError(
+            "snapshot ids are minted by an importing.IdFactory, got "
+            f"{type(id_factory).__name__}")
+    if not isinstance(catalog, SupportedTypeCatalog):
+        raise WorkspaceContractError(
+            "catalog must be an importing.SupportedTypeCatalog, got "
+            f"{type(catalog).__name__}")
+    if not isinstance(import_options, ImportOptions):
+        raise WorkspaceContractError(
+            "import_options must be an importing.ImportOptions, got "
+            f"{type(import_options).__name__}")
+    if is_valid is not None and not callable(is_valid):
+        raise WorkspaceContractError(
+            f"is_valid must be callable or None, got {type(is_valid).__name__}")
+
+    # Classify and resolve first, mint second. Nothing below this point can turn a
+    # book from eligible to skipped, so no id is spent on a book that is not run.
+    eligible: list[tuple[BookJob, dict[str, Any]]] = []
+    skipped: list[str] = []
+    for book in space.books:
+        if book.is_empty or (is_valid is not None and not is_valid(book)):
+            skipped.append(book.book_id)
+            continue
+        eligible.append((book, effective_run_options(book, space.shared)))
+
+    runs = tuple(
+        (
+            book.book_id,
+            capture_run(
+                snapshot_id=id_factory.next_id(RUN_ID_KIND),
+                files=book.files,
+                catalog=catalog,
+                import_options=import_options,
+                effective_config=effective_config,
+                tool_options=options,
+                created_at=created_at,
+            ),
+        )
+        for book, options in eligible
+    )
+    return BookRunSnapshot(runs=runs, skipped_book_ids=tuple(skipped),
+                           shared=space.shared)

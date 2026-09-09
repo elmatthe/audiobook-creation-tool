@@ -1243,20 +1243,21 @@ def test_a_rejected_operation_consumes_no_identity():
 
 
 # --------------------------------------------------------------------------- #
-# Phase 5 must remain absent
+# Phase 6 must remain absent
 #
-# Phase 4 delivered Decision 20B, so Shared Metadata now exists and is covered in
-# ``test_shared_metadata.py``. The absence boundary moves forward with the plan
-# rather than being retired: freezing effective values into a run is Phase 5's.
+# Phase 5 delivered the frozen run, so capture now exists and is covered in
+# ``test_book_run_snapshot.py``. The absence boundary moves forward with the plan
+# rather than being retired: numbering is Phase 6's, and dispositions and retry
+# are Phase 7's.
 # --------------------------------------------------------------------------- #
 
 
-def test_no_run_capture_exists_yet():
-    """Phase 5 owns freezing. Absence is proved, not merely untested."""
+def test_no_numbering_or_disposition_exists_yet():
+    """Phases 6 and 7 own these. Absence is proved, not merely untested."""
     from shared import book_workspace as module
-    for later in ("capture_run", "BookRunSnapshot", "BookRunResult",
-                  "capture_workspace_run", "RunSnapshot", "RunResult",
-                  "RetryRequest"):
+    for later in ("SuccessNumbers", "Tentative", "NumberingError",
+                  "BookRunResult", "BookDisposition", "retry_failed_books",
+                  "RunResult", "RetryRequest"):
         assert not hasattr(module, later), later
 
 

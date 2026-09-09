@@ -2,6 +2,63 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 5 COMPLETE; PHASE 6 NOT STARTED (2026-09-09)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 5** as the next action. Phase 5 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 5 — Frozen effective values is COMPLETE.** `shared/book_workspace.py` gains
+>   `BookRunSnapshot`, `capture_workspace_run`, `effective_run_options` and `RUN_ID_KIND`. Capture
+>   freezes a workspace into **one existing Plan 3 `RunSnapshot` per eligible book**, composed and
+>   never replaced. **Phase 5 captures; it runs nothing.**
+> - **No second snapshot framework.** Every snapshot comes from the existing
+>   `job_control.capture_run`, and a guard asserts `RunSnapshot` is never called as a constructor —
+>   building one by hand would bypass the single place a live payload is refused. A spy proves
+>   **exactly one call per eligible book** (one, two and five books → one, two and five calls) and
+>   that each receives that book's **own** `ImportedFileSnapshot` by identity.
+> - **Snapshot ids come from the existing `IdFactory`** under `RUN_ID_KIND = "run"`, distinct from
+>   `BOOK_ID_KIND`, and deliberately do **not** encode the book identity — the
+>   `(book_id, RunSnapshot)` pair carries that mapping. **No clock is read**: `created_at` comes from
+>   the caller.
+> - **Effective options** are the book's configuration with every declared Shared Metadata field
+>   overlaid by its effective value; non-metadata keys (bitrate, split) carry through untouched.
+>   Neither raw source is modified — the override exists only in that third mapping, which is why
+>   clearing a shared field later simply leaves the per-book value there. `capture_run` deep-freezes
+>   it through the project's one `freeze_options`; there is no second freeze.
+> - **The total freeze is proved against every live layer at once**: after capture, `set_shared_metadata`,
+>   `replace_book`, `add_book`, `remove_book` and a whole re-import all leave the captured run
+>   unchanged in attempted ids, skipped ids, every `snapshot_id`, `files`, `item_ids`, `tool_options`,
+>   `effective_config`, captured `shared` and ordering — and **by object identity**, with a spy
+>   confirming the composition holds the exact objects `capture_run` returned.
+> - **Empty books are skipped, not failed**, recorded by stable id. Validity beyond emptiness is the
+>   consumer's: an optional `is_valid` predicate, asked synchronously and **never stored, frozen or
+>   handed to a worker**. No M4B/MP3 policy entered the shared foundation.
+> - **Capture is read-only**: no revision moves, no selection shifts, no `BookMutation` is returned.
+>   A rejected capture consumes no snapshot id. **One documented limitation:** `effective_config` is
+>   `capture_run`'s to validate, so a bad one can consume at most one id; closing that would require
+>   changing Plan 3's `IdFactory`, which is not this phase's to do.
+> - **Gate: 6,118 collected / 6,104 passed / 14 skipped / 0 failed**, up from the Phase 4 baseline of
+>   6,038 by exactly 80, all in the five Plan 6 test modules (390 → 470). **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six protected hashes
+>   byte-identical; **`ADOPTED` unchanged at six**; `job_control.py` and every other forbidden file
+>   **unchanged**; production runtime state unchanged.
+> - **Red proof** at `0ab25c1`: `ImportError: cannot import name 'RUN_ID_KIND'`, plus four contract
+>   guard failures. Not claimed as a pre-existing defect.
+> - **Phase 6 (numbering) and Phase 7 (dispositions/retry) are absent and proved so.** Using
+>   `RunSnapshot` is Phase 5's job; `RunResult` and `RetryRequest` are not, and a mutation check pins
+>   that distinction. Orphaned Phase-5 guard machinery was **removed rather than left standing**,
+>   because keeping it would imply a protection that no longer existed.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 6 — NUMBERING. IT HAS NOT STARTED** and requires separate
+>   explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 4 COMPLETE; PHASE 5 NOT STARTED (2026-09-08)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block

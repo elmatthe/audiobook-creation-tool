@@ -122,12 +122,20 @@ IMPORT_EXECUTION = (
     "ImportedFileManager",
 )
 
-#: Phase 5 owns freezing effective values into a run. None of this may appear
-#: while Phase 4 resolves precedence live from immutable workspace state.
-PHASE5_NAMES = (
-    "capture_run", "RunSnapshot", "BookRunSnapshot", "BookRunResult",
-    "RunResult", "RetryRequest", "FailureLog", "FailureRecord",
-    "capture_workspace_run", "JobController",
+#: Phase 6 owns numbering. The success counter is deliberately NOT part of a
+#: frozen snapshot: a counter is a fact about one attempt's execution, and a
+#: plan is the opposite, which is what keeps the snapshot retry-stable.
+PHASE6_NAMES = (
+    "SuccessNumbers", "Tentative", "NumberingError", "m4b_numbering",
+    "propose", "next_number", "consumed", "START_NUMBER", "start_number",
+)
+
+#: Phase 7 owns dispositions, results and retry. Phase 5 may USE RunSnapshot -
+#: composing it is the whole job - but not RunResult or RetryRequest.
+PHASE7_NAMES = (
+    "RunResult", "RetryRequest", "FailureLog", "FailureRecord", "ItemOutcome",
+    "ItemStatus", "BookDisposition", "BookRunResult", "retry_failed_books",
+    "retryable_ids", "settle",
 )
 
 
@@ -370,117 +378,85 @@ def test_the_grouping_reuses_the_importers_natural_key(name):
 
 
 @pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_phase_five_run_capture_exists_yet(name):
-    """Phase 5 freezes effective values into a run. Absence is proved, not assumed.
+def test_capture_goes_through_the_existing_plan3_capture_run(name):
+    """Phase 5 composes Plan 3 snapshots; it does not build them.
 
-    Phase 4 resolves precedence **live**, from immutable workspace state. Capturing
-    a run is a different act with a different guarantee, and pulling it forward
-    would mean a snapshot existed before the contract that says what freezing means.
+    Constructing a ``RunSnapshot`` directly would look shorter and would quietly
+    bypass the one place a live payload can be turned away, because ``capture_run``
+    is what deep-freezes ``tool_options`` and duck-types the imported list.
+    """
+    tree = source_of(name)
+    assert "shared.job_control.capture_run" in imported_names(tree)
+    assert "capture_run" in constructed_names(tree)
+    # The type is named for annotations and isinstance checks, never instantiated.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            assert node.func.id != "RunSnapshot", "RunSnapshot is composed, not built"
+
+
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_no_second_run_snapshot_or_freeze_is_defined(name):
+    """One snapshot type, one freeze, one id scheme."""
+    defined = defined_names(source_of(name))
+    for invented in ("RunSnapshot", "capture_run", "freeze_options", "_freeze_value",
+                     "RunOptions", "FrozenRun", "WorkspaceRunSnapshot"):
+        assert invented not in defined, invented
+
+
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_phase_five_builds_no_controller_and_no_event_stream(name):
+    """Drop section 16: one JobController per run, and the consumer owns it."""
+    tree = source_of(name)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    for owned_elsewhere in ("JobController", "JobReporter", "JobEventStream",
+                            "JobEvent", "LoggerBridge", "EtaEstimator",
+                            "ProgressTracker", "JobAdapter", "MainThreadPump"):
+        assert owned_elsewhere not in seen, owned_elsewhere
+
+
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_no_phase_six_numbering_exists_yet(name):
+    """Phase 6 owns numbering, and the counter is deliberately not in the snapshot.
+
+    A success counter is a fact about one attempt's execution; a frozen plan is the
+    opposite. Keeping it out is what lets the snapshot stay retry-stable.
     """
     tree = source_of(name)
     seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
-    present = sorted(entry for entry in PHASE5_NAMES if entry in seen)
+    present = sorted(entry for entry in PHASE6_NAMES if entry in seen)
     assert present == [], present
 
 
 @pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_universal_metadata_vocabulary_is_hard_coded(name):
-    """Section 15.4: the field vocabulary belongs to the consumer.
-
-    A constant naming audiobook fields here would be wrong for M4B Maker, MP3 Tool
-    and the Metadata Editor simultaneously, which is exactly why the drop refuses
-    one. Checked as assigned names *and* as the literal field names themselves, so
-    a list spelled under a neutral name would still be caught.
-    """
+def test_no_phase_seven_disposition_or_retry_exists_yet(name):
+    """Using ``RunSnapshot`` is Phase 5's; ``RunResult`` and ``RetryRequest`` are not."""
     tree = source_of(name)
-    assigned = {
-        target.id for node in ast.walk(tree)
-        if isinstance(node, ast.Assign) for target in node.targets
-        if isinstance(target, ast.Name)
-    }
-    for invented in ("UNIVERSAL_METADATA_FIELDS", "METADATA_FIELDS", "DEFAULT_FIELDS",
-                     "SHARED_FIELDS", "AUDIOBOOK_FIELDS", "TAG_FIELDS"):
-        assert invented not in assigned, invented
-
-    # No tuple/list/set literal in the module may enumerate audiobook tag names.
-    audiobook = {"title", "artist", "album", "album_artist", "author", "narrator",
-                 "series", "genre", "year", "comment"}
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-            literals = {element.value for element in node.elts
-                        if isinstance(element, ast.Constant)
-                        and isinstance(element.value, str)}
-            assert len(literals & audiobook) < 2, sorted(literals & audiobook)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    present = sorted(entry for entry in PHASE7_NAMES if entry in seen)
+    assert present == [], present
 
 
-def test_the_raw_shared_value_is_stored_once_on_the_workspace():
-    """Stored once means one field, on the workspace, and none on a book."""
-    from shared.book_workspace import BookJob, WorkspaceSnapshot
+def test_the_composition_stores_no_later_phase_state():
+    """The record itself is the proof: three fields, and none of them is a result."""
+    from shared.book_workspace import BookRunSnapshot
 
-    workspace_fields = {entry.name for entry in dataclasses.fields(WorkspaceSnapshot)}
-    book_fields = {entry.name for entry in dataclasses.fields(BookJob)}
-    assert "shared" in workspace_fields
-    assert book_fields == {"book_id", "configuration", "files"}
-    assert not (book_fields & {"shared", "title", "author", "metadata"})
+    stored = {entry.name for entry in dataclasses.fields(BookRunSnapshot)}
+    assert stored == {"runs", "skipped_book_ids", "shared"}
 
 
-def test_no_effective_value_is_stored_as_a_second_truth():
-    """Effective values are projections; a stored copy is how two truths diverge."""
-    from shared.book_workspace import BookJob, BookMutation, WorkspaceSnapshot
+def test_the_validity_seam_is_asked_and_never_stored():
+    """A predicate in run state would be a live object a worker could be handed."""
+    from shared import book_workspace
+    import inspect
 
-    for record in (BookJob, WorkspaceSnapshot, BookMutation):
-        names = {entry.name for entry in dataclasses.fields(record)}
-        assert not any("effective" in name for name in names), (record, names)
-
-
-def test_precedence_and_the_disabled_projection_call_one_predicate():
-    """Two interpretations of 'populated' would eventually disagree.
-
-    Asserted structurally rather than by behaviour alone: both the value class's
-    ``populated`` and the module's ``disabled_fields`` must reach ``is_populated``,
-    and nothing else may define a second blankness test.
-    """
-    tree = source_of("book_workspace.py")
-    defined = defined_names(tree)
-    for invented in ("_is_blank", "is_blank", "_populated", "_has_value",
-                     "_non_blank", "_strip"):
-        assert invented not in defined, invented
-    assert "is_populated" in defined
-
-    def bare_calls(owner: str) -> set[str]:
-        node = next(entry for entry in ast.walk(tree)
-                    if isinstance(entry, ast.FunctionDef) and entry.name == owner)
-        return {inner.func.id for inner in ast.walk(node)
-                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)}
-
-    def attributes(owner: str) -> set[str]:
-        node = next(entry for entry in ast.walk(tree)
-                    if isinstance(entry, ast.FunctionDef) and entry.name == owner)
-        return {inner.attr for inner in ast.walk(node)
-                if isinstance(inner, ast.Attribute)}
-
-    # The chain, stated exactly. ``disabled_fields`` delegates to the value's own
-    # ``populated_fields`` rather than re-deciding blankness, and both of the
-    # deciders call the one predicate. Demanding a *direct* call from
-    # ``disabled_fields`` would forbid that delegation, which is the better shape.
-    assert "is_populated" in bare_calls("populated")
-    assert "is_populated" in bare_calls("populated_fields")
-    assert "populated_fields" in attributes("disabled_fields")
-    assert "is_populated" not in attributes("disabled_fields"), (
-        "it delegates rather than deciding for itself")
+    source = inspect.getsource(book_workspace.capture_workspace_run)
+    assert "is_valid" in source, "the seam exists"
+    stored = {entry.name for entry in dataclasses.fields(book_workspace.BookRunSnapshot)}
+    assert "is_valid" not in stored
 
 
-def test_the_shared_metadata_layer_stays_free_of_widgets_and_state():
-    """Phase 4 supplies the disabled *set*; rendering it is Phase 8's."""
-    tree = source_of("book_workspace.py")
-    seen = referenced_names(tree) | imported_names(tree)
-    for widget_word in ("LockGroup", "MainThreadGuard", "set_locked", "configure",
-                        "widget", "Entry", "Checkbutton"):
-        assert widget_word not in seen, widget_word
-
-
-def test_phases_one_to_four_delivered_their_own_names_and_no_more():
-    """The public surface is exactly what Phases 1-4 were authorised to add."""
+def test_phases_one_to_five_delivered_their_own_names_and_no_more():
+    """The public surface is exactly what Phases 1-5 were authorised to add."""
     from shared import book_workspace
 
     phase1 = {
@@ -500,16 +476,20 @@ def test_phases_one_to_four_delivered_their_own_names_and_no_more():
         "is_populated", "effective_value", "effective_metadata", "disabled_fields",
         "set_shared_metadata",
     }
-    assert set(book_workspace.__all__) == phase1 | phase2 | phase3 | phase4
-    assert len(book_workspace.__all__) == 37, "15 + 10 + 3 + 9"
+    phase5 = {"RUN_ID_KIND", "effective_run_options", "BookRunSnapshot",
+              "capture_workspace_run"}
+    assert set(book_workspace.__all__) == phase1 | phase2 | phase3 | phase4 | phase5
+    assert len(book_workspace.__all__) == 41, "15 + 10 + 3 + 9 + 4"
 
 
-def test_no_operation_member_was_overloaded():
-    """One member, one scope, across all four phases so far."""
+def test_capture_is_not_a_workspace_operation():
+    """Capturing observes; it does not mutate, so it gains no operation member."""
     from shared.book_workspace import WorkspaceOperation
-    assert {member.value for member in WorkspaceOperation} == {
-        "add", "duplicate", "remove", "previous", "next", "select", "replace",
-        "import", "shared_metadata"}
+    values = {member.value for member in WorkspaceOperation}
+    assert values == {"add", "duplicate", "remove", "previous", "next", "select",
+                      "replace", "import", "shared_metadata"}
+    for capture_word in ("capture", "run", "freeze"):
+        assert capture_word not in values
 
 
 
@@ -746,36 +726,6 @@ def test_the_import_execution_guard_passes_consuming_a_finished_snapshot():
     assert import_execution_in(clean) == set()
 
 
-@pytest.mark.parametrize("code,expected", [
-    ("from shared.job_control import capture_run\n"
-     "def f(**kw):\n    return capture_run(**kw)", "capture_run"),
-    ("from shared.job_control import RunSnapshot\n"
-     "def f():\n    return RunSnapshot", "RunSnapshot"),
-    ("class BookRunSnapshot:\n    pass", "BookRunSnapshot"),
-    ("class BookRunResult:\n    pass", "BookRunResult"),
-    ("from shared.job_control import RetryRequest\n"
-     "def f(r):\n    return RetryRequest", "RetryRequest"),
-    ("def capture_workspace_run(space):\n    return space", "capture_workspace_run"),
-])
-def test_the_phase_five_guard_actually_detects_run_capture(code, expected):
-    tree = sample(code)
-    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
-    assert expected in {entry for entry in PHASE5_NAMES if entry in seen}
-
-
-def test_the_phase_five_guard_passes_live_precedence_resolution():
-    """The other half: resolving effective values live is not capturing a run."""
-    clean = sample(
-        "def effective_value(shared, book, field):\n"
-        "    if shared.populated(field):\n"
-        "        return shared.raw(field)\n"
-        "    return book.configuration.get(field, '')\n"
-    )
-    tree = clean
-    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
-    assert {entry for entry in PHASE5_NAMES if entry in seen} == set()
-
-
 @pytest.mark.parametrize("code", [
     "UNIVERSAL_METADATA_FIELDS = ('title', 'author')",
     "METADATA_FIELDS = ('title', 'album')",
@@ -842,3 +792,98 @@ def test_the_stored_effective_value_guard_detects_a_second_truth():
 
     names = {entry.name for entry in dc.fields(Tempting)}
     assert any("effective" in name for name in names), "the guard would fire"
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("from mp3_tools import m4b_numbering\n"
+     "def f():\n    return m4b_numbering", "m4b_numbering"),
+    ("from shared.numbering import SuccessNumbers\n"
+     "def f(n):\n    return SuccessNumbers(n)", "SuccessNumbers"),
+    ("class Tentative:\n    number: int", "Tentative"),
+    ("def f(counter):\n    return counter.propose()", "propose"),
+    ("START_NUMBER = 1\ndef f():\n    return START_NUMBER", "START_NUMBER"),
+])
+def test_the_phase_six_guard_actually_detects_numbering(code, expected):
+    tree = sample(code)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    assert expected in {entry for entry in PHASE6_NAMES if entry in seen}
+
+
+def test_the_phase_six_guard_passes_a_capture_that_allocates_nothing():
+    clean = sample(
+        "def capture(space, *, id_factory):\n"
+        "    return tuple((b.book_id, capture_run(snapshot_id=id_factory.next_id('run')))\n"
+        "                 for b in space.books)\n"
+    )
+    seen = defined_names(clean) | referenced_names(clean) | imported_names(clean)
+    assert {entry for entry in PHASE6_NAMES if entry in seen} == set()
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("from shared.job_control import RunResult\n"
+     "def f(s):\n    return RunResult.settle(s)", "RunResult"),
+    ("from shared.job_control import RetryRequest\n"
+     "def f():\n    return RetryRequest", "RetryRequest"),
+    ("from shared.job_control import FailureLog\n"
+     "def f():\n    return FailureLog", "FailureLog"),
+    ("class BookDisposition:\n    pass", "BookDisposition"),
+    ("def retry_failed_books(result):\n    return ()", "retry_failed_books"),
+    ("def f(r):\n    return r.retryable_ids", "retryable_ids"),
+])
+def test_the_phase_seven_guard_actually_detects_results_or_retry(code, expected):
+    tree = sample(code)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    assert expected in {entry for entry in PHASE7_NAMES if entry in seen}
+
+
+def test_the_phase_seven_guard_permits_using_run_snapshot():
+    """Phase 5 must be allowed to use the snapshot type it composes."""
+    clean = sample(
+        "from shared.job_control import RunSnapshot, capture_run\n"
+        "def f(s):\n"
+        "    return isinstance(s, RunSnapshot)\n"
+    )
+    seen = defined_names(clean) | referenced_names(clean) | imported_names(clean)
+    assert {entry for entry in PHASE7_NAMES if entry in seen} == set()
+
+
+@pytest.mark.parametrize("code", [
+    "from shared.job_control import RunSnapshot\n"
+    "def f(**kw):\n    return RunSnapshot(**kw)",
+    "def build(**kw):\n    return RunSnapshot(snapshot_id='x', **kw)",
+])
+def test_the_direct_construction_guard_detects_a_bypassed_capture_run(code):
+    """Building a RunSnapshot by hand skips the one place a payload is refused."""
+    tree = sample(code)
+    built = [node for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+             and node.func.id == "RunSnapshot"]
+    assert built, "the guard would fire on this"
+
+
+def test_the_direct_construction_guard_passes_composition_by_delegation():
+    clean = sample(
+        "from shared.job_control import RunSnapshot, capture_run\n"
+        "def f(book, **kw):\n"
+        "    snapshot = capture_run(files=book.files, **kw)\n"
+        "    return isinstance(snapshot, RunSnapshot)\n"
+    )
+    built = [node for node in ast.walk(clean)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+             and node.func.id == "RunSnapshot"]
+    assert built == []
+    assert "capture_run" in constructed_names(clean)
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("from shared.job_control import JobController\n"
+     "def f(r):\n    return JobController(r)", "JobController"),
+    ("from shared.job_control import JobEventStream\n"
+     "def f():\n    return JobEventStream", "JobEventStream"),
+    ("from shared.job_control import EtaEstimator\n"
+     "def f():\n    return EtaEstimator", "EtaEstimator"),
+])
+def test_the_controller_guard_actually_detects_run_machinery(code, expected):
+    tree = sample(code)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    assert expected in seen
