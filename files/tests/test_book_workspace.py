@@ -649,9 +649,11 @@ def test_the_predicate_is_the_only_place_the_question_is_answered():
 # --------------------------------------------------------------------------- #
 
 
-def test_the_operation_enum_is_plan6_specific_and_names_the_seven_operations():
+def test_the_operation_enum_is_plan6_specific_and_names_every_operation():
+    """Seven from Phase 2, plus Phase 3's whole-workspace ``import``."""
     assert {member.value for member in WorkspaceOperation} == {
-        "add", "duplicate", "remove", "previous", "next", "select", "replace"}
+        "add", "duplicate", "remove", "previous", "next", "select", "replace",
+        "import"}
 
 
 def test_the_operation_enum_is_not_plan3s_manager_operation():
@@ -1241,13 +1243,25 @@ def test_a_rejected_operation_consumes_no_identity():
 
 
 # --------------------------------------------------------------------------- #
-# Phase 3 must remain absent
+# Phase 4 must remain absent
+#
+# Phase 3 delivered Decision 12A, so folder-to-book grouping now exists and is
+# covered in ``test_book_grouping.py``. The absence boundary moves forward with
+# the plan rather than being retired: Shared Metadata is Phase 4's.
 # --------------------------------------------------------------------------- #
 
 
-def test_no_folder_to_book_grouping_exists_yet():
-    """Decision 12A is Phase 3's. Absence is proved, not merely untested."""
+def test_no_shared_metadata_exists_yet():
+    """Phase 4 owns precedence. Absence is proved, not merely untested."""
     from shared import book_workspace as module
-    for later in ("book_groups", "group_by_directory", "books_from_snapshot",
-                  "from_import", "group_files"):
+    for later in ("SharedMetadata", "shared_metadata", "effective_metadata",
+                  "effective_value", "disabled_fields", "shared_disabled_fields"):
         assert not hasattr(module, later), later
+
+
+def test_a_books_configuration_is_still_its_own_with_no_shared_layer():
+    """Until Phase 4 there is one value per field, not a raw/shared/effective trio."""
+    entry = book(configuration={"title": "Only"})
+    assert entry.configuration["title"] == "Only"
+    assert not hasattr(entry, "effective_configuration")
+    assert not hasattr(entry, "shared")

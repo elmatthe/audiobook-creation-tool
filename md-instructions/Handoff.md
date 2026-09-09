@@ -2,6 +2,59 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 3 COMPLETE; PHASE 4 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 3** as the next action. Phase 3 is now done, and its open judgement call was accepted
+> by the maintainer. Everything else in it, and every dated block beneath it, stands as written.
+>
+> - **Plan 6 Phase 3 — Folder-to-book construction is COMPLETE, and Decision 12A is implemented.**
+>   `shared/book_workspace.py` gains `book_groups`, `books_from_import` and
+>   `replace_workspace_from_import`. Every directory that **directly contains** imported files is one
+>   book; distinct directories are never combined; group order follows first appearance; files inside
+>   each book are natural-ordered. It is a **projection, not an import** — the Plan 3 importer still
+>   owns scanning, traversal, cancellation, commits and occurrence identity, and nothing here reads a
+>   disk.
+> - **The Phase 2 judgement call is ACCEPTED and applied unchanged**, not re-decided: removing a sole
+>   *already pristine* book stays a no-op, and an empty import onto an already-pristine workspace
+>   follows the same rule. A sole *meaningful* book is still replaced by a fresh pristine one.
+> - **`planning_groups` was neither used nor modified and the stop gate was never triggered.** Phase
+>   0's conclusion held: it buckets on `source_root.root_id`, so reusing it would turn one selected
+>   folder of twelve audiobooks into one book — a test asserts twelve. `importing.py`,
+>   `import_coordination.py`, `job_control.py`, `job_ui.py` and `ui_theme.py` are unchanged, proved by
+>   line-ending-normalised hashing and by AST-comparing `planning_groups`, `scan_roots` and
+>   `validate_direct_files`.
+> - **No platform branch was needed for directory identity.** `Path` equality and hashing already
+>   apply the running system's own rules — verified empirically before relying on it — so grouping
+>   folds case where the platform folds and does not where it does not, without this layer naming a
+>   platform or asking the filesystem anything.
+> - **Grouped snapshots keep the source snapshot's `Revision`**, decided from existing contracts
+>   rather than guessed: a revision stamps which manager state a list came from, and
+>   `INITIAL_REVISION` is what `NO_FILES` uses to mean *never imported*, so resetting it would make an
+>   imported book indistinguishable from a pristine one. Drop section 36.6 carries the evidence.
+> - **`WorkspaceOperation.IMPORT` was added rather than overloading `REPLACE`**, which means "swap one
+>   book"; an import replaces every book and the selection. The revision advances **once for the
+>   replacement, not once per book**.
+> - **Gate: 5,936 collected / 5,922 passed / 14 skipped / 0 failed**, up from the Phase 2 baseline of
+>   5,874 by exactly 62, all in the three Plan 6 test modules (226 → 288). **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six protected hashes
+>   byte-identical; **`ADOPTED` unchanged at six**; production runtime state unchanged.
+> - **Red proof** at `e481008`: `ImportError: cannot import name 'book_groups'`, plus five further
+>   contract failures. Not claimed as a pre-existing defect.
+> - **The Phase 4 absence boundary moved forward rather than being retired**: the guard that forbade
+>   the grouping mechanism was replaced by stricter purity guards (no filesystem call of any kind, no
+>   `planning_groups`, no import execution, one sort key), and Shared Metadata is now what must be
+>   absent. Every new guard is mutation-checked against synthetic samples.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 4 — SHARED METADATA (Decision 20B). IT HAS NOT STARTED** and
+>   requires separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 2 COMPLETE; PHASE 3 NOT STARTED (2026-09-08)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block

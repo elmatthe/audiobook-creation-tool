@@ -97,22 +97,34 @@ FORBIDDEN_CALLS = (
 #: appearance difference lives in the adapter, which asks the theme instead.
 PLATFORM_NAMES = ("platform", "uname", "win32", "darwin")
 
-#: Phase 3 owns Decision 12A. The boundary is not a list of function names — a
-#: later phase could group files under any name — it is the **mechanism**: turning
-#: imported files into books requires looking at where each file sits, and Phase 2
-#: has no business doing that. These are the ways a module reaches a file's place
-#: in a directory tree, or buckets a flat sequence into groups.
-GROUPING_MECHANISMS = (
-    "parent", "parents", "relative_parent", "mirroring_root",
-    "planning_groups", "PlanningGroups", "groupby", "defaultdict",
-    "natural_key", "relative_to", "as_posix",
+#: Phase 3 implements Decision 12A, so reaching a file's own parent is now
+#: legitimate. What stays forbidden is the **Plan 3 grouping primitive**: the drop
+#: established that ``planning_groups`` buckets on ``source_root.root_id`` — the
+#: folder the user selected — which is the right key for mirroring an output tree
+#: and the wrong one for "one directory of files is one book". Plan 6 must neither
+#: consume it nor reinterpret it.
+FORBIDDEN_GROUPING = ("planning_groups", "PlanningGroups")
+
+#: Every way this layer could reach a disk. Phase 3 projects an already-committed
+#: snapshot; the importer did the scanning, and none of this may reappear here.
+FILESYSTEM_CALLS = (
+    "glob", "rglob", "walk", "listdir", "scandir", "iterdir",
+    "stat", "lstat", "exists", "is_file", "is_dir", "is_symlink",
+    "resolve", "absolute", "cwd", "home", "expanduser", "samefile",
+    "touch", "mkdir", "makedirs", "rmdir", "chmod", "readlink",
 )
 
-#: Names that would mean the grouping arrived under an obvious spelling. Checked
-#: as well as the mechanism above, never instead of it.
-PHASE3_NAMES = (
-    "book_groups", "group_by_directory", "books_from_snapshot",
-    "from_import", "group_files", "books_for_snapshot",
+#: Plan 3 owns running an import. Plan 6 is handed the finished value.
+IMPORT_EXECUTION = (
+    "ImportCoordinator", "ImportPoller", "ImportCancellation",
+    "scan_roots", "validate_direct_files", "plan_transaction",
+    "ImportedFileManager",
+)
+
+#: Phase 4 owns Shared Metadata. None of this may appear before it is authorised.
+PHASE4_NAMES = (
+    "SharedMetadata", "shared_metadata", "effective_metadata", "effective_value",
+    "disabled_fields", "shared_disabled_fields", "precedence", "override_fields",
 )
 
 
@@ -158,16 +170,25 @@ def platform_branching_in(tree: ast.Module) -> set[str]:
     return referenced_names(tree) & set(PLATFORM_NAMES)
 
 
-def grouping_mechanisms_in(tree: ast.Module) -> set[str]:
-    """Any way this module could reach a file's place in a directory tree.
+def forbidden_grouping_in(tree: ast.Module) -> set[str]:
+    """Use of Plan 3's ``planning_groups`` — the wrong key for Decision 12A."""
+    return (referenced_names(tree) | imported_names(tree)) & set(FORBIDDEN_GROUPING)
 
-    Deliberately about the mechanism rather than a function name. Phase 3 may call
-    its entry point anything; what it cannot avoid is asking where a file sits, so
-    that is what is watched. ``ast.Attribute``/``ast.Name`` only, so a docstring
-    that discusses parent directories is invisible — which matters here, because
-    this module's own prose discusses exactly that.
+
+def filesystem_calls_in(tree: ast.Module) -> set[str]:
+    """Any call that would reach a disk, by callee name.
+
+    ``ast.Call`` only, so a *field* named ``stat`` or a docstring mentioning
+    ``exists`` contributes nothing — the question is whether something is invoked.
     """
-    return referenced_names(tree) & set(GROUPING_MECHANISMS)
+    return constructed_names(tree) & set(FILESYSTEM_CALLS)
+
+
+def import_execution_in(tree: ast.Module) -> set[str]:
+    """Any sign this module runs an import rather than consuming one."""
+    return (referenced_names(tree) | imported_names(tree)) & set(IMPORT_EXECUTION)
+
+
 
 
 def widget_classes_in(tree: ast.Module) -> set[str]:
@@ -304,24 +325,66 @@ def test_the_data_layer_reuses_the_one_file_list_type_and_defines_no_second():
 
 
 @pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_phase_three_grouping_mechanism_exists_yet(name):
-    """Decision 12A is Phase 3's, and the guard watches the mechanism.
+def test_the_grouping_reaches_no_filesystem(name):
+    """Decision 12A is a **projection**, not an import.
 
-    A module that never asks where a file sits cannot be grouping files by
-    directory, whatever it calls its functions.
+    Phase 3 groups a snapshot the importer already committed. The moment this layer
+    calls ``exists``, ``stat``, ``scandir`` or ``resolve`` it has stopped projecting
+    a value and started asking the disk a question that the importer already
+    answered — and answered under cancellation, link refusal and hidden-folder rules
+    this module does not implement.
     """
-    assert grouping_mechanisms_in(source_of(name)) == set()
+    assert filesystem_calls_in(source_of(name)) == set()
 
 
 @pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_phase_three_grouping_entry_point_exists_yet(name):
-    """The obvious spellings too — as well as the mechanism, not instead of it."""
-    defined = defined_names(source_of(name))
-    assert sorted(entry for entry in PHASE3_NAMES if entry in defined) == []
+def test_plan6_neither_consumes_nor_reinterprets_planning_groups(name):
+    """The stop gate the drop names, kept live as an assertion.
+
+    ``planning_groups`` buckets on the selected root; Decision 12A needs the file's
+    own parent. Reusing it would silently turn one folder of twelve audiobooks into
+    one book, which is the exact defect Phase 0 identified.
+    """
+    assert forbidden_grouping_in(source_of(name)) == set()
 
 
-def test_phases_one_and_two_delivered_their_own_names_and_no_more():
-    """The public surface is exactly what Phases 1 and 2 were authorised to add."""
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_plan6_consumes_an_import_but_never_runs_one(name):
+    """Scanning, traversal, cancellation and commits stay Plan 3's."""
+    assert import_execution_in(source_of(name)) == set()
+    modules = imported_names(source_of(name))
+    assert not any("import_coordination" in entry for entry in modules), modules
+
+
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_the_grouping_reuses_the_importers_natural_key(name):
+    """One sort key in the project, applied where the importer applies it."""
+    tree = source_of(name)
+    assert "shared.importing.natural_key" in imported_names(tree)
+    defined = defined_names(tree)
+    for invented in ("natural_key", "_natural_key", "_sort_key", "natural_sort"):
+        assert invented not in defined, invented
+
+
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_no_phase_four_shared_metadata_exists_yet(name):
+    """Shared Metadata is Phase 4's. Absence is proved, not merely untested."""
+    tree = source_of(name)
+    present = sorted(entry for entry in PHASE4_NAMES
+                     if entry in defined_names(tree) | referenced_names(tree))
+    assert present == [], present
+
+
+def test_a_newly_grouped_book_carries_no_speculative_configuration():
+    """Books built by an import start pristine; Phase 4 populates nothing early."""
+    from shared import book_workspace
+    import inspect
+    source = inspect.getsource(book_workspace.books_from_import)
+    assert "configuration=" not in source, "configuration is left at its default"
+
+
+def test_phases_one_to_three_delivered_their_own_names_and_no_more():
+    """The public surface is exactly what Phases 1-3 were authorised to add."""
     from shared import book_workspace
 
     phase1 = {
@@ -335,8 +398,19 @@ def test_phases_one_and_two_delivered_their_own_names_and_no_more():
         "add_book", "duplicate_book", "remove_book",
         "previous_book", "next_book", "select_book", "replace_book",
     }
-    assert set(book_workspace.__all__) == phase1 | phase2
-    assert len(book_workspace.__all__) == 25, "15 from Phase 1, 10 from Phase 2"
+    phase3 = {"book_groups", "books_from_import", "replace_workspace_from_import"}
+    assert set(book_workspace.__all__) == phase1 | phase2 | phase3
+    assert len(book_workspace.__all__) == 28, "15 + 10 + 3"
+
+
+def test_the_import_operation_did_not_overload_an_existing_member():
+    """One member, one scope: REPLACE swaps a book, IMPORT rebuilds the workspace."""
+    from shared.book_workspace import WorkspaceOperation
+    assert {member.value for member in WorkspaceOperation} == {
+        "add", "duplicate", "remove", "previous", "next", "select", "replace",
+        "import"}
+
+
 
 
 def test_exactly_one_place_advances_the_workspace_revision():
@@ -492,57 +566,95 @@ def test_the_widget_guard_passes_a_plain_record():
 
 
 @pytest.mark.parametrize("code,expected", [
-    # The mechanism, however it is spelled or named.
-    ("def f(entry):\n    return entry.path.parent", "parent"),
-    ("def anything_at_all(e):\n    return e.path.parents[0]", "parents"),
-    ("def f(e):\n    return e.relative_parent", "relative_parent"),
-    ("def f(e):\n    return e.mirroring_root", "mirroring_root"),
+    ("from pathlib import Path\ndef f(p):\n    return p.exists()", "exists"),
+    ("def f(p):\n    return p.stat().st_size", "stat"),
+    ("def f(p):\n    return list(p.iterdir())", "iterdir"),
+    ("def f(p):\n    return list(p.glob('*.mp3'))", "glob"),
+    ("def f(p):\n    return list(p.rglob('*.mp3'))", "rglob"),
+    ("import os\ndef f(p):\n    return os.scandir(p)", "scandir"),
+    ("import os\ndef f(p):\n    return os.listdir(p)", "listdir"),
+    ("def f(p):\n    return p.resolve()", "resolve"),
+    ("def f(p):\n    return p.is_dir()", "is_dir"),
+    ("def f(p):\n    p.mkdir()", "mkdir"),
+])
+def test_the_filesystem_guard_actually_detects_a_disk_call(code, expected):
+    assert expected in filesystem_calls_in(sample(code))
+
+
+def test_the_filesystem_guard_passes_a_purely_lexical_projection():
+    """The other half: taking a parent and sorting names touches no disk."""
+    clean = sample(
+        "def book_groups(snapshot):\n"
+        "    buckets = {}\n"
+        "    for entry in snapshot.files:\n"
+        "        buckets.setdefault(entry.path.parent, []).append(entry)\n"
+        "    return tuple(buckets.items())\n"
+    )
+    assert filesystem_calls_in(clean) == set()
+
+
+def test_the_filesystem_guard_is_not_fooled_by_a_field_named_like_a_call():
+    """``stat`` as a value, and prose about exists(), are not disk access."""
+    prose = sample(
+        '"""Never calls exists() or scandir()."""\n'
+        "# resolve, glob, rglob\n"
+        "def f(record):\n"
+        "    return record.stat\n"
+    )
+    assert filesystem_calls_in(prose) == set()
+
+
+@pytest.mark.parametrize("code,expected", [
     ("from shared.importing import planning_groups\n"
      "def f(s):\n    return planning_groups(s)", "planning_groups"),
-    ("from itertools import groupby\n"
-     "def f(x):\n    return groupby(x)", "groupby"),
-    ("from collections import defaultdict\n"
-     "def f():\n    return defaultdict(list)", "defaultdict"),
-    ("from shared.importing import natural_key\n"
-     "def f(x):\n    return sorted(x, key=natural_key)", "natural_key"),
-    ("def f(p, root):\n    return p.relative_to(root)", "relative_to"),
+    ("from shared.importing import PlanningGroups\n"
+     "def f():\n    return PlanningGroups()", "PlanningGroups"),
 ])
-def test_the_grouping_guard_actually_detects_the_mechanism(code, expected):
-    """Not overfitted to a name: each sample locates or groups without saying so."""
-    assert expected in grouping_mechanisms_in(sample(code))
+def test_the_planning_groups_guard_actually_detects_reuse(code, expected):
+    assert expected in forbidden_grouping_in(sample(code))
 
 
-def test_the_grouping_guard_is_not_fooled_by_prose_about_directories():
-    """This very module's docstrings discuss parent directories at length."""
+def test_the_planning_groups_guard_is_not_fooled_by_prose():
     prose = sample(
-        '"""Phase 3 will group by the directly-containing parent directory."""\n'
-        "# parents, relative_parent, planning_groups, natural_key\n"
-        "NOTE = 'grouping by parent directory is Phase 3'\n"
+        '"""This is not importing.planning_groups; PlanningGroups is Plan 3\'s."""\n'
+        "# planning_groups buckets on source_root.root_id\n"
     )
-    assert grouping_mechanisms_in(prose) == set()
+    assert forbidden_grouping_in(prose) == set()
 
 
-def test_the_grouping_guard_passes_the_phase_two_controller():
-    """The other half: it must accept what Phase 2 legitimately does."""
+@pytest.mark.parametrize("code,expected", [
+    ("from shared.import_coordination import ImportCoordinator\n"
+     "def f(m):\n    return ImportCoordinator(m)", "ImportCoordinator"),
+    ("from shared.importing import scan_roots\n"
+     "def f(r):\n    return scan_roots(r)", "scan_roots"),
+    ("from shared.importing import validate_direct_files\n"
+     "def f(p):\n    return validate_direct_files(p)", "validate_direct_files"),
+    ("from shared.importing import ImportedFileManager\n"
+     "def f():\n    return ImportedFileManager()", "ImportedFileManager"),
+])
+def test_the_import_execution_guard_actually_detects_running_an_import(code, expected):
+    assert expected in import_execution_in(sample(code))
+
+
+def test_the_import_execution_guard_passes_consuming_a_finished_snapshot():
     clean = sample(
-        "def add_book(space, *, id_factory):\n"
-        "    return space.books + (make(id_factory),)\n"
-        "def select(space, book_id):\n"
-        "    return space.book_ids.index(book_id)\n"
+        "from shared.importing import ImportedFileSnapshot, natural_key\n"
+        "def f(snapshot):\n"
+        "    return sorted(snapshot.files, key=lambda e: natural_key(e.name))\n"
     )
-    assert grouping_mechanisms_in(clean) == set()
+    assert import_execution_in(clean) == set()
 
 
-def test_the_phase_three_name_guard_actually_detects_an_obvious_spelling():
-    early = sample(
-        "def book_groups(snapshot):\n"
-        "    return ()\n"
-        "def group_by_directory(snapshot):\n"
-        "    return ()\n"
-    )
-    defined = defined_names(early)
-    assert sorted(entry for entry in PHASE3_NAMES if entry in defined) == [
-        "book_groups", "group_by_directory"]
+@pytest.mark.parametrize("code,expected", [
+    ("class SharedMetadata:\n    pass", "SharedMetadata"),
+    ("def effective_metadata(book, shared):\n    return {}", "effective_metadata"),
+    ("def disabled_fields(shared):\n    return frozenset()", "disabled_fields"),
+])
+def test_the_phase_four_guard_actually_detects_shared_metadata(code, expected):
+    tree = sample(code)
+    found = {entry for entry in PHASE4_NAMES
+             if entry in defined_names(tree) | referenced_names(tree)}
+    assert expected in found
 
 
 def test_the_hash_gate_actually_detects_a_changed_file(tmp_path):

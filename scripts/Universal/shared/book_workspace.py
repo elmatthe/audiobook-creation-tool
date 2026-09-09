@@ -21,13 +21,17 @@ predicate. There is no controller *object*: a caller holds one snapshot, calls a
 operation, and receives a new one. Nothing here is stateful, and nothing mutates its
 argument.
 
+Phase 3 added Decision 12A: :func:`book_groups`, :func:`books_from_import` and
+:func:`replace_workspace_from_import` turn one already-committed
+``ImportedFileSnapshot`` into books, one per directory that directly contains
+imported files. It is a **projection**: the importer still owns scanning, traversal,
+cancellation, commits and occurrence identity, and nothing here reads a disk.
+
 What deliberately does **not** live here
 ---------------------------------------
-No folder-to-book grouping; no Shared Metadata precedence; no effective-value
-resolution; no run capture; no numbering; no dispositions; no Retry Failed; and no
-Tk. Those are Plan 6 Phases 3–8 of the active drop. In particular **this module never
-looks at a file's parent directory** — turning imported files into books is Decision
-12A and Phase 3's, and a structural guard proves the mechanism is absent.
+No Shared Metadata precedence; no effective-value resolution; no run capture; no
+numbering; no dispositions; no Retry Failed; and no Tk. Those are Plan 6 Phases 4–8
+of the active drop.
 
 No thread, no lock, no queue, no clock, no subprocess, no network, and no filesystem
 access of any kind. A ``Path`` reaches this module only as data already inside a
@@ -59,14 +63,17 @@ import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from shared.importing import (
     INITIAL_REVISION,
     IdFactory,
+    ImportedFile,
     ImportedFileSnapshot,
     Revision,
+    natural_key,
 )
 from shared.job_control import freeze_options
 
@@ -96,6 +103,9 @@ __all__ = [
     "next_book",
     "select_book",
     "replace_book",
+    "book_groups",
+    "books_from_import",
+    "replace_workspace_from_import",
 ]
 
 
@@ -435,6 +445,11 @@ class WorkspaceOperation(Enum):
     NEXT = "next"
     SELECT = "select"
     REPLACE = "replace"
+    #: Phase 3. Deliberately its own member rather than reusing ``REPLACE``, which
+    #: means "swap one book's value, identified by the id it carries". A whole
+    #: workspace rebuilt from an import replaces every book *and* the selection, so
+    #: reporting it as ``REPLACE`` would make one member mean two different scopes.
+    IMPORT = "import"
 
 
 @dataclass(frozen=True, slots=True)
@@ -716,3 +731,145 @@ def replace_book(workspace: WorkspaceSnapshot, book: BookJob) -> BookMutation:
     books = space.books[:position] + (book,) + space.books[position + 1:]
     return _changed(WorkspaceOperation.REPLACE, space, books,
                     space.current_book_id)
+
+
+# --------------------------------------------------------------------------- #
+# Decision 12A — folder to book construction
+#
+# This is a **projection**, not an import. The Plan 3 importer still owns
+# scanning, compatible-file detection, traversal, cancellation, commits,
+# occurrence identity and source identity; everything below reads one already
+# committed ``ImportedFileSnapshot`` and touches no disk at all.
+# --------------------------------------------------------------------------- #
+
+
+def book_groups(
+    snapshot: ImportedFileSnapshot,
+) -> tuple[tuple[Path, tuple[ImportedFile, ...]], ...]:
+    """Group an imported list by the directory that **directly contains** each file.
+
+    Decision 12A: every directory holding one or more imported compatible files is
+    exactly one book, and two distinct directories are never silently combined.
+
+    **This is not ``importing.planning_groups``, and it must not become it.** That
+    function buckets on ``source_root.root_id`` — the folder the *user selected* —
+    which is the right key for reproducing a tree under an output root and the wrong
+    key for this. Selecting one folder of twelve audiobooks has to yield twelve
+    books, not one, and only the file's own parent can say that.
+
+    **The key is the file's own parent path**, taken lexically. ``Path.parent``
+    reads no disk, and ``Path`` equality and hashing already apply the running
+    system's directory-identity rules — case-folding where the platform folds,
+    case-sensitive where it does not — so grouping inherits the correct semantics
+    without this module ever naming a platform or asking the filesystem a question.
+    ``…/SeriesA/Book1`` and ``…/Archive/Book1`` stay two books because their paths
+    differ, not because their basenames were compared.
+
+    **Order.** Groups come back in the order each directory *first appears* in the
+    snapshot, so the traversal order the user actually saw survives into the book
+    order; the directories are deliberately **not** sorted against each other.
+    Within a group, files are natural-ordered by name — ``1, 2, 10``, never
+    ``1, 10, 2`` — using the importer's own :func:`~shared.importing.natural_key`
+    applied to the same value ``scan_roots`` applies it to.
+
+    That sort is not redundant. ``scan_roots`` already natural-orders a directory's
+    files during traversal, but ``validate_direct_files`` deliberately preserves the
+    order the user picked files in and sorts nothing, so a snapshot built through
+    Add Files arrives unordered. Sorting here makes one guarantee that holds
+    whichever entry path produced the snapshot.
+
+    Returns an empty tuple for an empty snapshot: a workspace can never hold zero
+    books, but a *grouping* legitimately finds none. Keeping those two facts apart
+    is what lets :func:`replace_workspace_from_import` stay honest.
+    """
+    if not isinstance(snapshot, ImportedFileSnapshot):
+        raise BookContractError(
+            "snapshot must be an importing.ImportedFileSnapshot, got "
+            f"{type(snapshot).__name__}")
+
+    # ``dict`` preserves insertion order, which is exactly the first-appearance
+    # order Decision 12A asks for, so no second ordering structure is needed.
+    buckets: dict[Path, list[ImportedFile]] = {}
+    for entry in snapshot.files:
+        buckets.setdefault(entry.path.parent, []).append(entry)
+
+    return tuple(
+        (directory, tuple(sorted(entries, key=lambda item: natural_key(item.name))))
+        for directory, entries in buckets.items()
+    )
+
+
+def books_from_import(snapshot: ImportedFileSnapshot, *,
+                      id_factory: IdFactory) -> tuple[BookJob, ...]:
+    """One pristine-configuration :class:`BookJob` per Decision 12A group.
+
+    The imported files are **carried, not rebuilt**: each group's snapshot holds the
+    very same immutable ``ImportedFile`` objects, so every occurrence id, source
+    root, root-relative path, supported type and source identity the importer
+    established survives untouched. Nothing here mints an occurrence id — that is
+    the importer's to own, and a second one would make two ids for one file.
+
+    **Each group's snapshot keeps the source snapshot's ``Revision``.** A revision
+    stamps *which version of the imported-file manager* a list came from, so
+    carrying it forward is what records that these books came from that import.
+    Resetting it to ``INITIAL_REVISION`` would be worse than arbitrary: that is the
+    revision :data:`NO_FILES` uses to mean *nothing was ever imported*, and reusing
+    it here would make a book full of imported files indistinguishable from a
+    pristine one.
+
+    Configuration starts empty. Populating it is Phase 4's Shared Metadata work and
+    is deliberately not anticipated here.
+    """
+    groups = book_groups(snapshot)
+    # Every group is validated before a single identity is minted, so a snapshot
+    # this refuses costs the factory nothing.
+    return tuple(
+        BookJob(
+            book_id=new_book_id(id_factory),
+            files=ImportedFileSnapshot(revision=snapshot.revision, files=entries),
+        )
+        for _directory, entries in groups
+    )
+
+
+def replace_workspace_from_import(workspace: WorkspaceSnapshot,
+                                  snapshot: ImportedFileSnapshot, *,
+                                  id_factory: IdFactory) -> BookMutation:
+    """Replace the whole workspace with the books one import implies. Atomically.
+
+    This is the Plan 6 half of the flow the drop describes: a consumer commits an
+    import through the existing ``ImportCoordinator`` and hands the committed
+    snapshot here. **Nothing in this module calls the coordinator, starts a scan or
+    reads a disk** — it is handed a finished value and projects it.
+
+    Every book is derived and validated *first*, then one new workspace is built, so
+    a rejected call leaves the old workspace exactly as it was and the revision moves
+    **once for the replacement** rather than once per book.
+
+    An import that finds nothing still has to leave a usable workspace, because a
+    workspace is never empty. It therefore ends at exactly one pristine book — and
+    when the workspace is *already* a single pristine book that is observably the
+    same value, so it is reported as a no-op, spending neither an identity nor a
+    revision. That is the disposition already accepted for :func:`remove_book`,
+    applied unchanged rather than re-decided.
+    """
+    space = _require_workspace(workspace)
+    # Grouping validates the snapshot, and it mints nothing.
+    groups = book_groups(snapshot)
+
+    if not groups:
+        if space.count == 1 and not has_meaningful_work(space.books[0]):
+            return _unchanged(WorkspaceOperation.IMPORT, space)
+        fresh = BookJob(book_id=new_book_id(id_factory))
+        return _changed(WorkspaceOperation.IMPORT, space,
+                        (fresh,), fresh.book_id, removed=space.books)
+
+    books = tuple(
+        BookJob(
+            book_id=new_book_id(id_factory),
+            files=ImportedFileSnapshot(revision=snapshot.revision, files=entries),
+        )
+        for _directory, entries in groups
+    )
+    return _changed(WorkspaceOperation.IMPORT, space,
+                    books, books[0].book_id, removed=space.books)
