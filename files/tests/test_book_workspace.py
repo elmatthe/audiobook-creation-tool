@@ -4,10 +4,11 @@ Stable book identity, the deep-frozen configuration, one imported-file snapshot 
 book, Decision 49A's configuration/input split, and the immutable workspace value
 Phase 2 will replace.
 
-**There is no controller here, and there must not be one yet.** Add, Duplicate,
-Remove, Previous, Next, Select and Replace are Phase 2's, so nothing below drives
-them; the structural guard in ``test_plan6_boundaries.py`` proves they are absent
-rather than merely untested.
+Phase 2 added the controller below: Add, Duplicate, Remove, Previous, Next, Select
+and Replace as pure functions over that value, plus Decision 50A's meaningful-work
+predicate. **Phase 3's folder-to-book grouping is still absent**, and its absence is
+proved rather than merely untested — here and structurally in
+``test_plan6_boundaries.py``.
 
 Nothing here builds a Tk widget, starts a thread or touches a disk: the whole
 surface is platform-neutral by design.
@@ -30,6 +31,7 @@ from shared.book_workspace import (
     BookContractError,
     BookIdentityError,
     BookJob,
+    BookMutation,
     EMPTY_CONFIGURATION,
     FIELD_ROLES,
     NO_FILES,
@@ -37,9 +39,18 @@ from shared.book_workspace import (
     ROLE_IDENTITY,
     ROLE_INPUTS,
     WorkspaceContractError,
+    WorkspaceOperation,
     WorkspaceSnapshot,
+    add_book,
+    duplicate_book,
     field_role,
+    has_meaningful_work,
     new_book_id,
+    next_book,
+    previous_book,
+    remove_book,
+    replace_book,
+    select_book,
 )
 from shared.importing import (
     INITIAL_REVISION,
@@ -563,3 +574,680 @@ def test_two_workspaces_over_the_same_books_are_equal_values():
     assert one == two
     three = WorkspaceSnapshot(books=entries, current_book_id=entries[1].book_id)
     assert one != three, "a different selection is a different value"
+
+
+# =========================================================================== #
+# Phase 2 — the workspace controller
+#
+# Pure functions over the Phase 1 value: hold a snapshot, call an operation, get
+# a new snapshot back. Nothing below builds a widget, starts a thread or touches
+# a disk, and no operation mutates its argument.
+# =========================================================================== #
+
+
+def workspace(count: int = 1, maker: IdFactory | None = None,
+              **kwargs) -> WorkspaceSnapshot:
+    """A workspace of *count* pristine books, selected on the first."""
+    ids = maker or IdFactory("w-")
+    books = tuple(BookJob(book_id=new_book_id(ids)) for _ in range(count))
+    return WorkspaceSnapshot(books=books, current_book_id=books[0].book_id, **kwargs)
+
+
+# --------------------------------------------------------------------------- #
+# Decision 50A — the meaningful-work predicate
+# --------------------------------------------------------------------------- #
+
+
+def test_a_pristine_book_holds_no_meaningful_work():
+    assert has_meaningful_work(book()) is False
+
+
+def test_one_imported_file_makes_a_book_meaningful():
+    assert has_meaningful_work(book(files=files(1))) is True
+
+
+def test_one_configuration_value_makes_a_book_meaningful():
+    assert has_meaningful_work(book(configuration={"title": "T"})) is True
+
+
+def test_both_inputs_and_configuration_make_a_book_meaningful():
+    assert has_meaningful_work(book(configuration={"title": "T"}, files=files(2))) is True
+
+
+def test_the_predicate_covers_every_combination_exactly():
+    """The whole truth table, so no cell is decided by accident."""
+    table = {
+        (False, False): False,
+        (True, False): True,
+        (False, True): True,
+        (True, True): True,
+    }
+    for (has_config, has_files), expected in table.items():
+        entry = book(configuration={"k": 1} if has_config else {},
+                     files=files(1) if has_files else NO_FILES)
+        assert has_meaningful_work(entry) is expected, (has_config, has_files)
+
+
+def test_the_predicate_refuses_anything_that_is_not_a_book():
+    for wrong in (None, "book", 3, workspace()):
+        with pytest.raises(BookContractError):
+            has_meaningful_work(wrong)
+
+
+def test_the_predicate_is_the_only_place_the_question_is_answered():
+    """Decision 50A in one place: removal must not grow a second opinion."""
+    import inspect
+    from shared import book_workspace as module
+    source = inspect.getsource(module.remove_book)
+    assert "has_meaningful_work" in source
+    # No second inline test of emptiness beside the predicate.
+    assert "configuration)" not in source and "is_empty" not in source
+
+
+# --------------------------------------------------------------------------- #
+# The operation / result vocabulary
+# --------------------------------------------------------------------------- #
+
+
+def test_the_operation_enum_is_plan6_specific_and_names_the_seven_operations():
+    assert {member.value for member in WorkspaceOperation} == {
+        "add", "duplicate", "remove", "previous", "next", "select", "replace"}
+
+
+def test_the_operation_enum_is_not_plan3s_manager_operation():
+    """Overloading ``ManagerOperation`` would make one symbol mean two things.
+
+    The two vocabularies both have a *remove*, and that is exactly the point: the
+    strings overlap, so only distinct **types** keep "remove a file from a list"
+    and "remove a book from a workspace" apart. A result therefore refuses a
+    member of the other enum outright.
+    """
+    from shared.importing import ManagerOperation
+    assert WorkspaceOperation is not ManagerOperation
+    assert not issubclass(WorkspaceOperation, ManagerOperation)
+    assert {m.name for m in WorkspaceOperation} != {m.name for m in ManagerOperation}
+    with pytest.raises(WorkspaceContractError):
+        BookMutation(operation=ManagerOperation.REMOVE, changed=False,
+                     workspace=workspace())
+
+
+def test_a_mutation_is_a_frozen_slotted_record():
+    assert BookMutation.__dataclass_params__.frozen is True
+    assert "__slots__" in BookMutation.__dict__
+    result = add_book(workspace(), id_factory=IdFactory("m-"))
+    with pytest.raises(FrozenInstanceError):
+        result.changed = False
+    assert not hasattr(result, "__dict__")
+
+
+def test_a_mutation_derives_selection_and_revision_rather_than_storing_them():
+    """Two copies of one fact can disagree; one cannot."""
+    stored = {entry.name for entry in dataclasses.fields(BookMutation)}
+    assert stored == {"operation", "changed", "workspace", "removed"}
+    result = add_book(workspace(), id_factory=IdFactory("m-"))
+    assert result.revision is result.workspace.revision
+    assert result.current_book_id == result.workspace.current_book_id
+    assert result.current is result.workspace.current
+
+
+@pytest.mark.parametrize("field_name,bad", [
+    ("operation", "add"), ("changed", 1), ("workspace", None), ("removed", ("x",)),
+])
+def test_a_mutation_refuses_a_malformed_field(field_name, bad):
+    space = workspace()
+    good = {"operation": WorkspaceOperation.ADD, "changed": True,
+            "workspace": space, "removed": ()}
+    good[field_name] = bad
+    with pytest.raises((WorkspaceContractError, BookContractError)):
+        BookMutation(**good)
+
+
+def test_every_operation_reports_which_operation_it_was():
+    maker = IdFactory("op-")
+    space = workspace(3, maker)
+    assert add_book(space, id_factory=maker).operation is WorkspaceOperation.ADD
+    assert duplicate_book(space, id_factory=maker).operation is WorkspaceOperation.DUPLICATE
+    assert remove_book(space, id_factory=maker).operation is WorkspaceOperation.REMOVE
+    assert previous_book(space).operation is WorkspaceOperation.PREVIOUS
+    assert next_book(space).operation is WorkspaceOperation.NEXT
+    assert select_book(space, space.book_ids[1]).operation is WorkspaceOperation.SELECT
+    assert replace_book(space, space.current).operation is WorkspaceOperation.REPLACE
+
+
+@pytest.mark.parametrize("call", [
+    lambda s, m: add_book(s, id_factory=m),
+    lambda s, m: duplicate_book(s, id_factory=m),
+    lambda s, m: remove_book(s, id_factory=m),
+    lambda s, m: previous_book(s),
+    lambda s, m: next_book(s),
+])
+def test_every_operation_refuses_something_that_is_not_a_workspace(call):
+    maker = IdFactory("bad-")
+    for wrong in (None, "workspace", 3, book()):
+        with pytest.raises(WorkspaceContractError):
+            call(wrong, maker)
+
+
+# --------------------------------------------------------------------------- #
+# Add Book (Decision 13A)
+# --------------------------------------------------------------------------- #
+
+
+def test_add_appends_a_pristine_book_and_selects_it():
+    maker = IdFactory("a-")
+    space = workspace(2, maker)
+    result = add_book(space, id_factory=maker)
+
+    assert result.changed is True
+    assert result.workspace.count == 3
+    added = result.workspace.books[-1]
+    assert result.workspace.current_book_id == added.book_id
+    assert added.is_empty is True
+    assert dict(added.configuration) == {}
+    assert result.workspace.current_position == 3
+
+
+def test_add_leaves_every_existing_book_untouched():
+    maker = IdFactory("a-")
+    space = WorkspaceSnapshot(
+        books=(BookJob(book_id=new_book_id(maker), configuration={"n": 1}),
+               BookJob(book_id=new_book_id(maker), files=files(2))),
+        current_book_id="a-book-000001")
+    result = add_book(space, id_factory=maker)
+    assert result.workspace.books[:2] == space.books, "same objects, same order"
+
+
+def test_add_advances_the_revision_exactly_once():
+    space = workspace(1, revision=Revision(4))
+    result = add_book(space, id_factory=IdFactory("a-"))
+    assert result.revision == Revision(5)
+
+
+def test_add_mints_a_fresh_identity_that_is_not_derived_from_the_index():
+    maker = IdFactory("a-")
+    space = workspace(1, maker)
+    first = add_book(space, id_factory=maker).workspace.books[-1].book_id
+    second = add_book(space, id_factory=maker).workspace.books[-1].book_id
+    assert first != second, "two adds from one workspace do not collide"
+    assert not first.endswith("-2"), "not derived from a position"
+
+
+def test_add_does_not_mutate_the_workspace_it_was_given():
+    space = workspace(2)
+    before = (space.books, space.current_book_id, space.revision)
+    add_book(space, id_factory=IdFactory("a-"))
+    assert (space.books, space.current_book_id, space.revision) == before
+
+
+# --------------------------------------------------------------------------- #
+# Duplicate Book (Decisions 13A + 49A)
+# --------------------------------------------------------------------------- #
+
+
+def duplicated(config=None, file_count=2):
+    maker = IdFactory("d-")
+    source = BookJob(book_id=new_book_id(maker),
+                     configuration=config if config is not None else {"title": "Source"},
+                     files=files(file_count))
+    other = BookJob(book_id=new_book_id(maker))
+    space = WorkspaceSnapshot(books=(source, other), current_book_id=source.book_id)
+    return source, space, duplicate_book(space, id_factory=maker)
+
+
+def test_duplicate_copies_every_configuration_key_and_value():
+    payload = {"title": "T", "parts": [1, 2], "nested": {"deep": "v"}}
+    source, _space, result = duplicated(config=payload)
+    copy = result.workspace.current
+    assert copy.configuration == source.configuration
+    assert copy.configuration_keys == source.configuration_keys
+    assert copy.configuration["parts"] == (1, 2)
+
+
+def test_duplicate_starts_with_the_canonical_empty_snapshot():
+    """Decision 49A: configuration travels, imported inputs do not."""
+    _source, _space, result = duplicated()
+    copy = result.workspace.current
+    assert copy.files == NO_FILES
+    assert copy.files.revision == INITIAL_REVISION
+    assert copy.is_empty is True
+    assert copy.file_count == 0
+
+
+def test_duplicate_leaves_the_source_input_snapshot_untouched():
+    source, _space, result = duplicated(file_count=3)
+    still = result.workspace.book_for(source.book_id)
+    assert still is source
+    assert still.file_count == 3
+
+
+def test_the_duplicate_gets_a_new_identity():
+    source, _space, result = duplicated()
+    copy = result.workspace.current
+    assert copy.book_id != source.book_id
+    assert len(set(result.workspace.book_ids)) == result.workspace.count
+
+
+def test_duplicate_inserts_immediately_after_its_source_and_selects_it():
+    source, space, result = duplicated()
+    ids = result.workspace.book_ids
+    assert ids.index(result.workspace.current_book_id) == ids.index(source.book_id) + 1
+    assert result.workspace.count == space.count + 1
+    assert result.changed is True
+
+
+def test_duplicate_obeys_the_central_split_rather_than_restating_it():
+    """If a field were added to BookJob, this would have to be classified."""
+    import inspect
+    from shared import book_workspace as module
+    source = inspect.getsource(module.duplicate_book)
+    assert "FIELD_ROLES" in source and "field_role" in source
+    assert "ROLE_CONFIGURATION" in source
+
+
+def test_the_two_books_share_no_mutable_state_afterwards():
+    """Replacing one later must not reach the other."""
+    source, _space, result = duplicated(config={"title": "Original"})
+    space = result.workspace
+    copy = space.current
+    edited = BookJob(book_id=copy.book_id, configuration={"title": "Edited"},
+                     files=files(1))
+    after = replace_book(space, edited).workspace
+    assert after.book_for(source.book_id).configuration["title"] == "Original"
+    assert after.book_for(source.book_id).file_count == 2
+    assert after.book_for(copy.book_id).configuration["title"] == "Edited"
+
+
+def test_duplicate_advances_the_revision_exactly_once():
+    maker = IdFactory("d-")
+    space = workspace(1, maker, revision=Revision(2))
+    assert duplicate_book(space, id_factory=maker).revision == Revision(3)
+
+
+# --------------------------------------------------------------------------- #
+# Remove Book (Decisions 13A + 50A)
+# --------------------------------------------------------------------------- #
+
+
+def test_remove_the_first_of_several_selects_the_one_that_took_its_slot():
+    maker = IdFactory("r-")
+    space = workspace(3, maker)
+    result = remove_book(space, id_factory=maker)
+    assert result.workspace.count == 2
+    assert result.workspace.book_ids == space.book_ids[1:]
+    assert result.workspace.current_book_id == space.book_ids[1]
+    assert result.workspace.current_position == 1
+    assert result.removed == (space.books[0],)
+
+
+def test_remove_a_middle_book_selects_the_one_that_took_its_slot():
+    maker = IdFactory("r-")
+    space = select_book(workspace(3, maker), None or "r-book-000002").workspace
+    result = remove_book(space, id_factory=maker)
+    assert result.workspace.book_ids == ("r-book-000001", "r-book-000003")
+    assert result.workspace.current_book_id == "r-book-000003"
+    assert result.workspace.current_position == 2
+
+
+def test_remove_the_last_of_several_selects_the_new_last_book():
+    maker = IdFactory("r-")
+    space = select_book(workspace(3, maker), "r-book-000003").workspace
+    result = remove_book(space, id_factory=maker)
+    assert result.workspace.book_ids == ("r-book-000001", "r-book-000002")
+    assert result.workspace.current_book_id == "r-book-000002"
+    assert result.workspace.current_position == 2
+
+
+def test_removing_the_sole_meaningful_book_leaves_one_pristine_book():
+    """Never empty, and the work really is discarded."""
+    maker = IdFactory("r-")
+    only = BookJob(book_id=new_book_id(maker),
+                   configuration={"title": "Gone"}, files=files(2))
+    space = WorkspaceSnapshot(books=(only,), current_book_id=only.book_id)
+    result = remove_book(space, id_factory=maker)
+
+    assert result.changed is True
+    assert result.workspace.count == 1
+    replacement = result.workspace.current
+    assert replacement.book_id != only.book_id
+    assert replacement.is_empty is True
+    assert dict(replacement.configuration) == {}
+    assert has_meaningful_work(replacement) is False
+    assert result.removed == (only,)
+    assert result.workspace.current_position == 1
+
+
+def test_removing_a_sole_pristine_book_is_a_no_op():
+    """Nothing to lose, nothing visibly changes: no revision, no consumed id."""
+    maker = IdFactory("r-")
+    space = workspace(1, maker, revision=Revision(3))
+    result = remove_book(space, id_factory=maker)
+
+    assert result.changed is False
+    assert result.workspace is space
+    assert result.revision == Revision(3)
+    assert result.removed == ()
+    assert new_book_id(maker) == "r-book-000002", "no identity was consumed"
+
+
+def test_removal_never_produces_a_zero_book_workspace():
+    maker = IdFactory("r-")
+    space = workspace(3, maker)
+    for _ in range(6):
+        space = remove_book(space, id_factory=maker).workspace
+        assert space.count >= 1
+        assert 1 <= space.current_position <= space.count
+
+
+def test_remove_advances_the_revision_exactly_once_when_it_changes_anything():
+    maker = IdFactory("r-")
+    space = workspace(2, maker, revision=Revision(9))
+    assert remove_book(space, id_factory=maker).revision == Revision(10)
+
+
+def test_the_meaningful_work_answer_is_separate_from_removal_semantics():
+    """Phase 2 supplies the answer; it does not decide to ask, and shows no dialog."""
+    maker = IdFactory("r-")
+    loaded = BookJob(book_id=new_book_id(maker), files=files(1))
+    empty = BookJob(book_id=new_book_id(maker))
+    space = WorkspaceSnapshot(books=(loaded, empty), current_book_id=loaded.book_id)
+
+    assert has_meaningful_work(space.current) is True
+    # Removal itself proceeds regardless; confirming is the consumer's job.
+    assert remove_book(space, id_factory=maker).changed is True
+
+    space = select_book(space, empty.book_id).workspace
+    assert has_meaningful_work(space.current) is False
+    assert remove_book(space, id_factory=maker).changed is True
+
+
+# --------------------------------------------------------------------------- #
+# Previous / Next — non-wrapping
+# --------------------------------------------------------------------------- #
+
+
+def test_previous_at_the_first_book_is_a_no_op():
+    space = workspace(3, revision=Revision(2))
+    result = previous_book(space)
+    assert result.changed is False
+    assert result.workspace is space
+    assert result.revision == Revision(2)
+
+
+def test_next_at_the_last_book_is_a_no_op():
+    maker = IdFactory("n-")
+    space = select_book(workspace(3, maker), "n-book-000003").workspace
+    result = next_book(space)
+    assert result.changed is False
+    assert result.workspace is space
+
+
+def test_navigation_moves_exactly_one_book():
+    maker = IdFactory("n-")
+    space = workspace(4, maker)
+    for expected in (2, 3, 4):
+        space = next_book(space).workspace
+        assert space.current_position == expected
+    for expected in (3, 2, 1):
+        space = previous_book(space).workspace
+        assert space.current_position == expected
+
+
+def test_navigation_never_rearranges_the_books():
+    maker = IdFactory("n-")
+    space = workspace(4, maker)
+    order = space.book_ids
+    space = next_book(space).workspace
+    space = next_book(space).workspace
+    space = previous_book(space).workspace
+    assert space.book_ids == order
+    assert space.count == 4
+
+
+def test_navigating_away_and_back_returns_the_exact_independent_book_state():
+    """The state lives in the model, not in widgets, so this is structural."""
+    maker = IdFactory("n-")
+    first = BookJob(book_id=new_book_id(maker),
+                    configuration={"title": "First"}, files=files(3))
+    second = BookJob(book_id=new_book_id(maker),
+                     configuration={"title": "Second"}, files=files(1))
+    space = WorkspaceSnapshot(books=(first, second), current_book_id=first.book_id)
+
+    away = next_book(space).workspace
+    back = previous_book(away).workspace
+
+    assert back.current is first
+    assert back.current.configuration["title"] == "First"
+    assert back.current.file_count == 3
+    assert away.book_for(second.book_id) is second
+    assert back.books == space.books, "the same book objects throughout"
+
+
+def test_navigation_changes_only_the_selection_and_the_revision():
+    space = workspace(3, revision=Revision(1))
+    result = next_book(space)
+    assert result.workspace.books == space.books
+    assert result.workspace.current_book_id != space.current_book_id
+    assert result.revision == Revision(2)
+
+
+# --------------------------------------------------------------------------- #
+# Select by identity
+# --------------------------------------------------------------------------- #
+
+
+def test_select_moves_to_an_existing_book_and_advances_the_revision():
+    maker = IdFactory("s-")
+    space = workspace(3, maker, revision=Revision(5))
+    result = select_book(space, "s-book-000003")
+    assert result.changed is True
+    assert result.workspace.current_book_id == "s-book-000003"
+    assert result.workspace.current_position == 3
+    assert result.revision == Revision(6)
+    assert result.workspace.books == space.books
+
+
+def test_selecting_the_already_current_book_is_a_no_op():
+    space = workspace(3, revision=Revision(7))
+    result = select_book(space, space.current_book_id)
+    assert result.changed is False
+    assert result.workspace is space
+    assert result.revision == Revision(7)
+
+
+def test_selecting_an_unknown_identity_is_rejected_atomically():
+    space = workspace(3, revision=Revision(2))
+    before = (space.books, space.current_book_id, space.revision)
+    with pytest.raises(BookIdentityError):
+        select_book(space, "s-book-999999")
+    assert (space.books, space.current_book_id, space.revision) == before
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "book 1", "books/1", None, 5])
+def test_selecting_a_malformed_identity_is_rejected(bad):
+    space = workspace(2)
+    with pytest.raises(BookIdentityError):
+        select_book(space, bad)
+
+
+def test_selection_never_accepts_a_list_index_as_an_identity():
+    """An index is a display position, not an identity."""
+    space = workspace(3)
+    for index in (0, 1, 2, "0", "1"):
+        with pytest.raises(BookIdentityError):
+            select_book(space, index)
+
+
+# --------------------------------------------------------------------------- #
+# Replace
+# --------------------------------------------------------------------------- #
+
+
+def test_replace_swaps_one_value_in_place_and_keeps_order_and_selection():
+    maker = IdFactory("p-")
+    space = workspace(3, maker)
+    space = select_book(space, "p-book-000002").workspace
+    target = space.book_for("p-book-000003")
+    updated = BookJob(book_id=target.book_id, configuration={"title": "New"})
+
+    result = replace_book(space, updated)
+    assert result.changed is True
+    assert result.workspace.book_ids == space.book_ids, "order preserved"
+    assert result.workspace.current_book_id == "p-book-000002", "selection preserved"
+    assert result.workspace.book_for(target.book_id) is updated
+
+
+def test_replace_identifies_its_target_by_the_identity_it_carries():
+    maker = IdFactory("p-")
+    space = workspace(2, maker)
+    updated = BookJob(book_id="p-book-000002", files=files(1))
+    assert replace_book(space, updated).workspace.book_for("p-book-000002") is updated
+
+
+def test_a_replacement_carrying_a_foreign_identity_is_rejected_atomically():
+    """Otherwise an ordinary edit would silently become a remove-and-add."""
+    space = workspace(2, revision=Revision(4))
+    before = (space.books, space.current_book_id, space.revision)
+    stranger = BookJob(book_id=new_book_id(IdFactory("other-")))
+    with pytest.raises(BookIdentityError):
+        replace_book(space, stranger)
+    assert (space.books, space.current_book_id, space.revision) == before
+
+
+def test_replacing_with_an_equal_value_is_a_no_op():
+    space = workspace(2, revision=Revision(3))
+    same = BookJob(book_id=space.current_book_id)
+    assert same == space.current
+    result = replace_book(space, same)
+    assert result.changed is False
+    assert result.workspace is space
+    assert result.revision == Revision(3)
+
+
+def test_replace_refuses_anything_that_is_not_a_book():
+    space = workspace(2)
+    for wrong in (None, "book", 3, space):
+        with pytest.raises(WorkspaceContractError):
+            replace_book(space, wrong)
+
+
+def test_there_is_no_partial_replacement_primitive():
+    """One primitive that swaps a whole value cannot disagree with itself."""
+    from shared import book_workspace as module
+    for invented in ("replace_configuration", "replace_files", "replace_metadata",
+                     "update_configuration", "set_files"):
+        assert not hasattr(module, invented), invented
+
+
+# --------------------------------------------------------------------------- #
+# Revision, Book X of Y, and atomicity across every operation
+# --------------------------------------------------------------------------- #
+
+
+def test_a_no_op_never_advances_the_revision():
+    maker = IdFactory("v-")
+    space = workspace(1, maker, revision=Revision(6))
+    for result in (previous_book(space),
+                   next_book(space),
+                   select_book(space, space.current_book_id),
+                   replace_book(space, space.current),
+                   remove_book(space, id_factory=maker)):
+        assert result.changed is False, result.operation
+        assert result.revision == Revision(6), result.operation
+        assert result.workspace is space, result.operation
+
+
+def test_every_real_change_advances_the_revision_exactly_once():
+    maker = IdFactory("v-")
+    space = workspace(3, maker, revision=Revision(0))
+    steps = [
+        lambda s: add_book(s, id_factory=maker),
+        # Duplicate leaves the copy selected and last, so Previous is the step
+        # that genuinely moves here; Next would correctly be a no-op.
+        lambda s: duplicate_book(s, id_factory=maker),
+        lambda s: previous_book(s),
+        lambda s: select_book(s, s.book_ids[0]),
+        lambda s: remove_book(s, id_factory=maker),
+        lambda s: replace_book(s, BookJob(book_id=s.current_book_id,
+                                          configuration={"n": s.count})),
+    ]
+    expected = 0
+    for step in steps:
+        result = step(space)
+        assert result.changed is True, result.operation
+        expected += 1
+        assert result.revision == Revision(expected), result.operation
+        space = result.workspace
+
+
+def test_book_x_of_y_stays_valid_after_every_operation():
+    maker = IdFactory("x-")
+    space = workspace(2, maker)
+    operations = [
+        lambda s: add_book(s, id_factory=maker),
+        lambda s: duplicate_book(s, id_factory=maker),
+        lambda s: previous_book(s),
+        lambda s: next_book(s),
+        lambda s: select_book(s, s.book_ids[0]),
+        lambda s: remove_book(s, id_factory=maker),
+        lambda s: replace_book(s, BookJob(book_id=s.current_book_id)),
+    ]
+    for step in operations:
+        space = step(space).workspace
+        assert space.count >= 1, "Y >= 1"
+        assert 1 <= space.current_position <= space.count, "1 <= X <= Y"
+        assert space.current_book_id in space.book_ids
+
+
+def test_the_selected_book_identity_survives_every_operation_that_does_not_remove_it():
+    maker = IdFactory("k-")
+    space = workspace(3, maker)
+    space = select_book(space, "k-book-000002").workspace
+    kept = space.current_book_id
+
+    for step in (lambda s: add_book(s, id_factory=maker),
+                 lambda s: replace_book(s, BookJob(book_id=s.current_book_id,
+                                                   configuration={"n": 1}))):
+        after = step(space).workspace
+        if after.current_book_id != kept:
+            # Add deliberately selects the new book; the old one still exists.
+            assert kept in after.book_ids
+        else:
+            assert after.current_book_id == kept
+
+
+def test_no_operation_mutates_the_workspace_it_was_given():
+    maker = IdFactory("i-")
+    space = workspace(3, maker)
+    snapshot = (space.books, space.current_book_id, space.revision)
+    add_book(space, id_factory=maker)
+    duplicate_book(space, id_factory=maker)
+    remove_book(space, id_factory=maker)
+    previous_book(space)
+    next_book(space)
+    select_book(space, space.book_ids[2])
+    replace_book(space, BookJob(book_id=space.current_book_id))
+    assert (space.books, space.current_book_id, space.revision) == snapshot
+
+
+def test_a_rejected_operation_consumes_no_identity():
+    """Validation happens before the factory is asked."""
+    maker = IdFactory("z-")
+    for call in (lambda: add_book("not a workspace", id_factory=maker),
+                 lambda: duplicate_book(None, id_factory=maker),
+                 lambda: remove_book(7, id_factory=maker)):
+        with pytest.raises(WorkspaceContractError):
+            call()
+    assert new_book_id(maker) == "z-book-000001", "nothing was minted"
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3 must remain absent
+# --------------------------------------------------------------------------- #
+
+
+def test_no_folder_to_book_grouping_exists_yet():
+    """Decision 12A is Phase 3's. Absence is proved, not merely untested."""
+    from shared import book_workspace as module
+    for later in ("book_groups", "group_by_directory", "books_from_snapshot",
+                  "from_import", "group_files"):
+        assert not hasattr(module, later), later

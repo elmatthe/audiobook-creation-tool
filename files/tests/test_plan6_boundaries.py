@@ -97,11 +97,22 @@ FORBIDDEN_CALLS = (
 #: appearance difference lives in the adapter, which asks the theme instead.
 PLATFORM_NAMES = ("platform", "uname", "win32", "darwin")
 
-#: Phase 2 owns every one of these. Phase 1 must not pull them forward.
-PHASE2_OPERATIONS = (
-    "add_book", "duplicate_book", "remove_book", "select_book",
-    "next_book", "previous_book", "replace_book", "has_meaningful_work",
-    "BookWorkspace", "BookMutation",
+#: Phase 3 owns Decision 12A. The boundary is not a list of function names — a
+#: later phase could group files under any name — it is the **mechanism**: turning
+#: imported files into books requires looking at where each file sits, and Phase 2
+#: has no business doing that. These are the ways a module reaches a file's place
+#: in a directory tree, or buckets a flat sequence into groups.
+GROUPING_MECHANISMS = (
+    "parent", "parents", "relative_parent", "mirroring_root",
+    "planning_groups", "PlanningGroups", "groupby", "defaultdict",
+    "natural_key", "relative_to", "as_posix",
+)
+
+#: Names that would mean the grouping arrived under an obvious spelling. Checked
+#: as well as the mechanism above, never instead of it.
+PHASE3_NAMES = (
+    "book_groups", "group_by_directory", "books_from_snapshot",
+    "from_import", "group_files", "books_for_snapshot",
 )
 
 
@@ -145,6 +156,18 @@ def forbidden_calls_in(tree: ast.Module) -> set[str]:
 
 def platform_branching_in(tree: ast.Module) -> set[str]:
     return referenced_names(tree) & set(PLATFORM_NAMES)
+
+
+def grouping_mechanisms_in(tree: ast.Module) -> set[str]:
+    """Any way this module could reach a file's place in a directory tree.
+
+    Deliberately about the mechanism rather than a function name. Phase 3 may call
+    its entry point anything; what it cannot avoid is asking where a file sits, so
+    that is what is watched. ``ast.Attribute``/``ast.Name`` only, so a docstring
+    that discusses parent directories is invisible — which matters here, because
+    this module's own prose discusses exactly that.
+    """
+    return referenced_names(tree) & set(GROUPING_MECHANISMS)
 
 
 def widget_classes_in(tree: ast.Module) -> set[str]:
@@ -280,29 +303,59 @@ def test_the_data_layer_reuses_the_one_file_list_type_and_defines_no_second():
 # --------------------------------------------------------------------------- #
 
 
-def test_no_phase_two_workspace_operation_exists_yet():
-    """The controller is Phase 2's. Absence is proved, not merely untested."""
-    defined = defined_names(source_of("book_workspace.py"))
-    present = sorted(name for name in PHASE2_OPERATIONS if name in defined)
-    assert present == [], present
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_no_phase_three_grouping_mechanism_exists_yet(name):
+    """Decision 12A is Phase 3's, and the guard watches the mechanism.
+
+    A module that never asks where a file sits cannot be grouping files by
+    directory, whatever it calls its functions.
+    """
+    assert grouping_mechanisms_in(source_of(name)) == set()
 
 
-def test_phase_one_delivered_its_own_names_and_no_more():
-    """The public surface is exactly what Phase 1 was authorised to add."""
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_no_phase_three_grouping_entry_point_exists_yet(name):
+    """The obvious spellings too — as well as the mechanism, not instead of it."""
+    defined = defined_names(source_of(name))
+    assert sorted(entry for entry in PHASE3_NAMES if entry in defined) == []
+
+
+def test_phases_one_and_two_delivered_their_own_names_and_no_more():
+    """The public surface is exactly what Phases 1 and 2 were authorised to add."""
     from shared import book_workspace
 
-    assert set(book_workspace.__all__) == {
+    phase1 = {
         "BookContractError", "BookIdentityError", "BookConfigurationError",
         "WorkspaceContractError", "BOOK_ID_KIND", "new_book_id", "NO_FILES",
         "EMPTY_CONFIGURATION", "FIELD_ROLES", "ROLE_IDENTITY", "ROLE_CONFIGURATION",
         "ROLE_INPUTS", "field_role", "BookJob", "WorkspaceSnapshot",
     }
+    phase2 = {
+        "has_meaningful_work", "WorkspaceOperation", "BookMutation",
+        "add_book", "duplicate_book", "remove_book",
+        "previous_book", "next_book", "select_book", "replace_book",
+    }
+    assert set(book_workspace.__all__) == phase1 | phase2
+    assert len(book_workspace.__all__) == 25, "15 from Phase 1, 10 from Phase 2"
 
 
-def test_the_workspace_value_advances_no_revision():
-    """Phase 2 replaces the value; a value that could advance itself is a controller."""
+def test_exactly_one_place_advances_the_workspace_revision():
+    """Two callers of ``advance`` is two places a revision could move differently.
+
+    The value itself still advances nothing — Phase 2 builds a *new* snapshot — and
+    every operation routes through one helper, so "a real change moves the revision
+    exactly once" is enforced by there being one caller rather than by discipline.
+    """
     tree = source_of("book_workspace.py")
-    assert "advance" not in constructed_names(tree)
+    advancers = [
+        node.name for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Attribute)
+                and inner.func.attr == "advance"
+                for inner in ast.walk(node))
+    ]
+    assert advancers == ["_changed"], advancers
 
 
 # --------------------------------------------------------------------------- #
@@ -438,16 +491,58 @@ def test_the_widget_guard_passes_a_plain_record():
     assert widget_classes_in(clean) == set()
 
 
-def test_the_phase_two_guard_actually_detects_a_pulled_forward_operation():
+@pytest.mark.parametrize("code,expected", [
+    # The mechanism, however it is spelled or named.
+    ("def f(entry):\n    return entry.path.parent", "parent"),
+    ("def anything_at_all(e):\n    return e.path.parents[0]", "parents"),
+    ("def f(e):\n    return e.relative_parent", "relative_parent"),
+    ("def f(e):\n    return e.mirroring_root", "mirroring_root"),
+    ("from shared.importing import planning_groups\n"
+     "def f(s):\n    return planning_groups(s)", "planning_groups"),
+    ("from itertools import groupby\n"
+     "def f(x):\n    return groupby(x)", "groupby"),
+    ("from collections import defaultdict\n"
+     "def f():\n    return defaultdict(list)", "defaultdict"),
+    ("from shared.importing import natural_key\n"
+     "def f(x):\n    return sorted(x, key=natural_key)", "natural_key"),
+    ("def f(p, root):\n    return p.relative_to(root)", "relative_to"),
+])
+def test_the_grouping_guard_actually_detects_the_mechanism(code, expected):
+    """Not overfitted to a name: each sample locates or groups without saying so."""
+    assert expected in grouping_mechanisms_in(sample(code))
+
+
+def test_the_grouping_guard_is_not_fooled_by_prose_about_directories():
+    """This very module's docstrings discuss parent directories at length."""
+    prose = sample(
+        '"""Phase 3 will group by the directly-containing parent directory."""\n'
+        "# parents, relative_parent, planning_groups, natural_key\n"
+        "NOTE = 'grouping by parent directory is Phase 3'\n"
+    )
+    assert grouping_mechanisms_in(prose) == set()
+
+
+def test_the_grouping_guard_passes_the_phase_two_controller():
+    """The other half: it must accept what Phase 2 legitimately does."""
+    clean = sample(
+        "def add_book(space, *, id_factory):\n"
+        "    return space.books + (make(id_factory),)\n"
+        "def select(space, book_id):\n"
+        "    return space.book_ids.index(book_id)\n"
+    )
+    assert grouping_mechanisms_in(clean) == set()
+
+
+def test_the_phase_three_name_guard_actually_detects_an_obvious_spelling():
     early = sample(
-        "def add_book(space):\n"
-        "    return space\n"
-        "class BookWorkspace:\n"
-        "    pass\n"
+        "def book_groups(snapshot):\n"
+        "    return ()\n"
+        "def group_by_directory(snapshot):\n"
+        "    return ()\n"
     )
     defined = defined_names(early)
-    assert sorted(name for name in PHASE2_OPERATIONS if name in defined) == [
-        "BookWorkspace", "add_book"]
+    assert sorted(entry for entry in PHASE3_NAMES if entry in defined) == [
+        "book_groups", "group_by_directory"]
 
 
 def test_the_hash_gate_actually_detects_a_changed_file(tmp_path):

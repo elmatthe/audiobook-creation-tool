@@ -13,13 +13,21 @@ the selected book, as one immutable value. ``new_book_id`` — identity minted t
 the existing Plan 3 ``IdFactory``. ``FIELD_ROLES`` / :func:`field_role` — Decision
 49A's configuration-versus-imported-input split, stated in exactly one place.
 
+Phase 2 added the workspace controller, as **pure functions over that value**:
+:func:`add_book`, :func:`duplicate_book`, :func:`remove_book`, :func:`previous_book`,
+:func:`next_book`, :func:`select_book` and :func:`replace_book`, each returning a
+frozen :class:`BookMutation`; plus :func:`has_meaningful_work`, Decision 50A's single
+predicate. There is no controller *object*: a caller holds one snapshot, calls an
+operation, and receives a new one. Nothing here is stateful, and nothing mutates its
+argument.
+
 What deliberately does **not** live here
 ---------------------------------------
-No Add, Duplicate, Remove, Previous, Next, Select or Replace; no meaningful-work
-predicate; no folder-to-book grouping; no Shared Metadata precedence; no
-effective-value resolution; no run capture; no numbering; no dispositions; no Retry
-Failed; and no Tk. Those are Plan 6 Phases 2–8 of the active drop. Phase 2 mutates a
-workspace by **replacing** this value, which is why nothing here advances a revision.
+No folder-to-book grouping; no Shared Metadata precedence; no effective-value
+resolution; no run capture; no numbering; no dispositions; no Retry Failed; and no
+Tk. Those are Plan 6 Phases 3–8 of the active drop. In particular **this module never
+looks at a file's parent directory** — turning imported files into books is Decision
+12A and Phase 3's, and a structural guard proves the mechanism is absent.
 
 No thread, no lock, no queue, no clock, no subprocess, no network, and no filesystem
 access of any kind. A ``Path`` reaches this module only as data already inside a
@@ -50,6 +58,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
@@ -77,6 +86,16 @@ __all__ = [
     "field_role",
     "BookJob",
     "WorkspaceSnapshot",
+    "has_meaningful_work",
+    "WorkspaceOperation",
+    "BookMutation",
+    "add_book",
+    "duplicate_book",
+    "remove_book",
+    "previous_book",
+    "next_book",
+    "select_book",
+    "replace_book",
 ]
 
 
@@ -367,3 +386,333 @@ class WorkspaceSnapshot:
             if entry.book_id == wanted:
                 return entry
         return None
+
+# --------------------------------------------------------------------------- #
+# Decision 50A — the one meaningful-work predicate
+# --------------------------------------------------------------------------- #
+
+
+def has_meaningful_work(book: BookJob) -> bool:
+    """Would removing *book* lose work the user did? Decision 50A, stated once.
+
+    True when the book has any imported file **or** any configuration value; false
+    for a pristine book. Remove Book consults only this, and a consumer's own
+    confirmation dialog consults only Remove Book — so the question is answered in
+    one place instead of three panels each inventing their own idea of "empty".
+
+    On "a default the model supplied": section 13.3 distinguishes a value the user
+    set from one the model supplied. **This vocabulary supplies none** — a pristine
+    book's configuration is literally empty (:data:`EMPTY_CONFIGURATION`), so the
+    minimal rule is the correct one and a defaults-tracking framework would be a
+    second truth invented to answer a question nothing is asking yet. If a later
+    phase genuinely introduces model-supplied defaults, this predicate is the single
+    place that changes.
+    """
+    if not isinstance(book, BookJob):
+        raise BookContractError(
+            f"book must be a BookJob, got {type(book).__name__}")
+    return not book.files.is_empty or bool(book.configuration)
+
+
+# --------------------------------------------------------------------------- #
+# The workspace operations and their frozen result
+# --------------------------------------------------------------------------- #
+
+
+class WorkspaceOperation(Enum):
+    """Which workspace mutation a :class:`BookMutation` describes.
+
+    Deliberately **not** ``importing.ManagerOperation``: that enum names file-list
+    mutations (``APPEND``, ``MOVE_UP``, …) and overloading it would make one symbol
+    mean two different things depending on who is reading. Two vocabularies, each
+    saying exactly what it means.
+    """
+
+    ADD = "add"
+    DUPLICATE = "duplicate"
+    REMOVE = "remove"
+    PREVIOUS = "previous"
+    NEXT = "next"
+    SELECT = "select"
+    REPLACE = "replace"
+
+
+@dataclass(frozen=True, slots=True)
+class BookMutation:
+    """The frozen outcome of one workspace operation, including the no-ops.
+
+    Shaped after ``importing.MutationResult``, which reports its own no-ops the same
+    way: an operation that changed nothing still returns a result, so a caller never
+    has to tell "nothing happened" apart from "something went wrong" by inspecting a
+    return of ``None``.
+
+    ``removed`` carries the books that are gone, so a consumer can name them without
+    having kept the previous workspace. Everything else a caller needs — the
+    revision, the selection, the selected book — is **derived** from ``workspace``
+    rather than stored beside it, because two copies of one fact can disagree and
+    one cannot.
+    """
+
+    operation: WorkspaceOperation
+    changed: bool
+    workspace: WorkspaceSnapshot
+    removed: tuple[BookJob, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.operation, WorkspaceOperation):
+            raise WorkspaceContractError(
+                "operation must be a WorkspaceOperation, got "
+                f"{type(self.operation).__name__}")
+        if not isinstance(self.changed, bool):
+            raise WorkspaceContractError(
+                f"changed must be a bool, got {type(self.changed).__name__}")
+        if not isinstance(self.workspace, WorkspaceSnapshot):
+            raise WorkspaceContractError(
+                "workspace must be a WorkspaceSnapshot, got "
+                f"{type(self.workspace).__name__}")
+        removed = tuple(self.removed)
+        for entry in removed:
+            if not isinstance(entry, BookJob):
+                raise WorkspaceContractError(
+                    f"removed must be BookJob, got {type(entry).__name__}")
+        object.__setattr__(self, "removed", removed)
+
+    @property
+    def revision(self) -> Revision:
+        """Derived from the workspace — two counters cannot disagree if there is one."""
+        return self.workspace.revision
+
+    @property
+    def current_book_id(self) -> str:
+        return self.workspace.current_book_id
+
+    @property
+    def current(self) -> BookJob:
+        return self.workspace.current
+
+
+# --------------------------------------------------------------------------- #
+# Shared helpers for the operations
+# --------------------------------------------------------------------------- #
+
+
+def _require_workspace(workspace: object) -> WorkspaceSnapshot:
+    """Validate the argument **before** anything else happens.
+
+    Ordering matters: every operation checks this first, so an operation that is
+    going to be rejected has not yet asked the factory for an identity. See
+    :func:`add_book` on why that is the best this can do without touching Plan 3.
+    """
+    if not isinstance(workspace, WorkspaceSnapshot):
+        raise WorkspaceContractError(
+            f"workspace must be a WorkspaceSnapshot, got {type(workspace).__name__}")
+    return workspace
+
+
+def _unchanged(operation: WorkspaceOperation,
+               workspace: WorkspaceSnapshot) -> BookMutation:
+    """A no-op: the same value back, and **the revision does not move**."""
+    return BookMutation(operation=operation, changed=False, workspace=workspace)
+
+
+def _changed(operation: WorkspaceOperation,
+             workspace: WorkspaceSnapshot,
+             books: tuple[BookJob, ...],
+             current_book_id: str,
+             removed: tuple[BookJob, ...] = ()) -> BookMutation:
+    """A real change: one new frozen value, revision advanced exactly once."""
+    return BookMutation(
+        operation=operation,
+        changed=True,
+        workspace=WorkspaceSnapshot(
+            books=books,
+            current_book_id=current_book_id,
+            revision=workspace.revision.advance(),
+        ),
+        removed=removed,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Add and Duplicate (Decisions 13A, 49A)
+# --------------------------------------------------------------------------- #
+
+
+def add_book(workspace: WorkspaceSnapshot, *, id_factory: IdFactory) -> BookMutation:
+    """Append a new pristine book and select it. Decision 13A.
+
+    Every existing book comes through untouched — the same objects, in the same
+    order — because a workspace is a value and adding to it copies no state.
+
+    **On identity consumption.** The workspace is validated before the factory is
+    asked, so a rejected call consumes no id. Once a valid workspace is in hand the
+    remaining construction cannot fail: the new book is pristine and the new
+    snapshot is the old tuple plus one. Making this transactional in the harder
+    sense would mean giving ``IdFactory`` a rollback, and Plan 3's factory is not
+    this phase's to change.
+    """
+    space = _require_workspace(workspace)
+    fresh = BookJob(book_id=new_book_id(id_factory))
+    return _changed(WorkspaceOperation.ADD, space,
+                    space.books + (fresh,), fresh.book_id)
+
+
+def duplicate_book(workspace: WorkspaceSnapshot, *,
+                   id_factory: IdFactory) -> BookMutation:
+    """Copy the current book's configuration into a new book, and select it.
+
+    **Decision 49A is not re-stated here; it is obeyed.** The split lives in
+    :data:`FIELD_ROLES`, and this function reads it rather than hard-coding which
+    fields travel: the *identity* field is minted fresh, the *configuration* field
+    is carried, and the *inputs* field is reset to :data:`NO_FILES`. A field added
+    to :class:`BookJob` later cannot be silently forgotten here, because
+    :func:`field_role` refuses to classify anything the table does not name.
+
+    The copy is inserted immediately after its source, where a user who just asked
+    for "another one like this" will look for it.
+    """
+    space = _require_workspace(workspace)
+    source = space.current
+
+    carried = {
+        name: getattr(source, name)
+        for name in FIELD_ROLES
+        if field_role(name) == ROLE_CONFIGURATION
+    }
+    copy = BookJob(book_id=new_book_id(id_factory), files=NO_FILES, **carried)
+
+    position = space.book_ids.index(source.book_id)
+    books = space.books[:position + 1] + (copy,) + space.books[position + 1:]
+    return _changed(WorkspaceOperation.DUPLICATE, space, books, copy.book_id)
+
+
+# --------------------------------------------------------------------------- #
+# Remove (Decisions 13A, 50A)
+# --------------------------------------------------------------------------- #
+
+
+def remove_book(workspace: WorkspaceSnapshot, *,
+                id_factory: IdFactory) -> BookMutation:
+    """Remove the current book. **The workspace is never empty.**
+
+    With more than one book, the removed slot is taken over by whatever falls into
+    it — the next book along, or the new last book when the removed one was last.
+    That is what a user watching the list expects, and it keeps ``Book X of Y``
+    reading sensibly without a special case.
+
+    With only one book, Decision 13A's "begin with one book job" is preserved by
+    replacing it with a **fresh pristine book** rather than briefly holding zero:
+    there is no zero-book state, not even internally. Meaningful configuration and
+    imported files are genuinely discarded, because the user asked to remove them.
+
+    **A judgement call, recorded rather than hidden.** When the only book is already
+    pristine there is nothing to lose and nothing would visibly change, so this
+    reports a no-op: the value is returned untouched, the revision does not move and
+    no identity is consumed. The observable invariant the drop states — *removing
+    the last book leaves one pristine book* — holds either way, and treating it as a
+    change would spend an id and a revision to replace a book with an identical one.
+
+    This function shows no dialog. Whether a consumer should confirm first is
+    :func:`has_meaningful_work`'s answer, asked before calling this.
+    """
+    space = _require_workspace(workspace)
+    victim = space.current
+
+    if space.count == 1:
+        if not has_meaningful_work(victim):
+            return _unchanged(WorkspaceOperation.REMOVE, space)
+        fresh = BookJob(book_id=new_book_id(id_factory))
+        return _changed(WorkspaceOperation.REMOVE, space,
+                        (fresh,), fresh.book_id, removed=(victim,))
+
+    position = space.book_ids.index(victim.book_id)
+    books = space.books[:position] + space.books[position + 1:]
+    successor = books[position] if position < len(books) else books[-1]
+    return _changed(WorkspaceOperation.REMOVE, space,
+                    books, successor.book_id, removed=(victim,))
+
+
+# --------------------------------------------------------------------------- #
+# Navigation and selection
+# --------------------------------------------------------------------------- #
+
+
+def _step(workspace: WorkspaceSnapshot, operation: WorkspaceOperation,
+          offset: int) -> BookMutation:
+    """One non-wrapping step. At an end the action is simply unavailable."""
+    space = _require_workspace(workspace)
+    target = space.book_ids.index(space.current_book_id) + offset
+    if not 0 <= target < space.count:
+        return _unchanged(operation, space)
+    return _changed(operation, space, space.books, space.books[target].book_id)
+
+
+def previous_book(workspace: WorkspaceSnapshot) -> BookMutation:
+    """Select the book one to the left. **Navigation does not wrap.**
+
+    No book is reordered and no book's own state is touched — only the selection
+    moves, which is why navigating away and back returns exactly what was left
+    behind.
+    """
+    return _step(workspace, WorkspaceOperation.PREVIOUS, -1)
+
+
+def next_book(workspace: WorkspaceSnapshot) -> BookMutation:
+    """Select the book one to the right. **Navigation does not wrap.**"""
+    return _step(workspace, WorkspaceOperation.NEXT, 1)
+
+
+def select_book(workspace: WorkspaceSnapshot, book_id: str) -> BookMutation:
+    """Select a book by its stable identity. Never by index.
+
+    An index is a display position and moves when a neighbour is removed; the
+    identity does not. An unknown identity is refused outright rather than clamped
+    or ignored, because silently selecting *something* is how a user ends up editing
+    the wrong book.
+    """
+    space = _require_workspace(workspace)
+    wanted = _require_identifier("book_id", book_id, error=BookIdentityError)
+    if wanted not in space.book_ids:
+        raise BookIdentityError(
+            f"book_id {wanted!r} is not one of this workspace's books")
+    if wanted == space.current_book_id:
+        return _unchanged(WorkspaceOperation.SELECT, space)
+    return _changed(WorkspaceOperation.SELECT, space, space.books, wanted)
+
+
+# --------------------------------------------------------------------------- #
+# Replace — the primitive every later phase edits a book through
+# --------------------------------------------------------------------------- #
+
+
+def replace_book(workspace: WorkspaceSnapshot, book: BookJob) -> BookMutation:
+    """Swap one book's value for a new one, in place, keeping order and selection.
+
+    **The replacement identifies its own target.** ``book.book_id`` names the book
+    being replaced, so a replacement can never carry a different identity than the
+    book it replaces — which is exactly how an ordinary metadata or file edit would
+    otherwise turn into a silent remove-and-add, losing the book's place in the
+    order and any frozen run that refers to it. An identity that is not in this
+    workspace is refused.
+
+    Replacing a book with an equal value is a no-op and moves no revision. Phases
+    4–7 edit a book by building the new immutable value and calling this; there is
+    deliberately no ``replace_configuration`` or ``replace_files`` beside it,
+    because one primitive that swaps a whole immutable value cannot disagree with
+    itself about what a partial update means.
+    """
+    space = _require_workspace(workspace)
+    if not isinstance(book, BookJob):
+        raise WorkspaceContractError(
+            f"book must be a BookJob, got {type(book).__name__}")
+    if book.book_id not in space.book_ids:
+        raise BookIdentityError(
+            f"book_id {book.book_id!r} is not one of this workspace's books; a "
+            "replacement carries the identity of the book it replaces")
+
+    position = space.book_ids.index(book.book_id)
+    if space.books[position] == book:
+        return _unchanged(WorkspaceOperation.REPLACE, space)
+    books = space.books[:position] + (book,) + space.books[position + 1:]
+    return _changed(WorkspaceOperation.REPLACE, space, books,
+                    space.current_book_id)

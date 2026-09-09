@@ -2,6 +2,56 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 2 COMPLETE; PHASE 3 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 2** as the next action. Phase 2 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 2 — Workspace Controller is COMPLETE.** `shared/book_workspace.py` now carries the
+>   controller as **pure functions over the Phase 1 value**: `add_book`, `duplicate_book`,
+>   `remove_book`, `previous_book`, `next_book`, `select_book`, `replace_book`, each returning a
+>   frozen `BookMutation`; the `WorkspaceOperation` enum; and `has_meaningful_work`, Decision 50A's
+>   single predicate. There is **no controller object** — hold a snapshot, call an operation, get a
+>   new one back. No new production module, so **`ADOPTED` was not widened** and
+>   `test_plan3_boundaries.py` / `test_tool_output_integration.py` were not touched.
+> - **Phase 3 has NOT started.** No folder-to-book grouping exists, and the guard watches the
+>   **mechanism** rather than a name: a module that never asks where a file sits cannot be grouping by
+>   directory, whatever it calls its functions. Eleven mutation samples prove the guard fires, one
+>   proves prose about parent directories does not fool it, and one proves it accepts the Phase 2
+>   controller.
+> - **Contracts as delivered:** non-wrapping navigation; selection by stable `book_id`, never index;
+>   Duplicate carries configuration and resets inputs by **reading `FIELD_ROLES`** rather than
+>   restating Decision 49A; Remove never yields a zero-book workspace and replaces a sole meaningful
+>   book with a fresh pristine one; Replace identifies its own target by the id it carries, so an edit
+>   cannot become a silent remove-and-add; `1 <= X <= Y` after all seven operations; and the revision
+>   advances exactly once per real change, enforced by `_changed` being the **only** caller of
+>   `advance()`.
+> - **One judgement call, recorded for your disposition** (drop section 35.6): removing the sole book
+>   when it is **already pristine** is reported as a no-op, since the invariant "removing the last book
+>   leaves one pristine book" already holds and treating it as a change would spend an identity and a
+>   revision to replace a book with an identical one. A sole book that *does* hold work is replaced and
+>   the work discarded. Both paths are tested; if you prefer unconditional replacement it is one line.
+> - **Gate: 5,874 collected / 5,860 passed / 14 skipped / 0 failed**, up from the Phase 1 baseline of
+>   5,791 by exactly 83 — +71 in `test_book_workspace.py` and +12 in `test_plan6_boundaries.py`, with
+>   no other module's count moving. **No baseline test disappeared.** `verify.py` **RESULT: PASS**;
+>   `compileall` exit 0; all six protected hashes byte-identical; production runtime state unchanged.
+> - **Red proof:** at the pre-Phase-2 commit `cd11181` the new tests fail because the controller does
+>   not exist (`ImportError: cannot import name 'BookMutation'`, plus the two Phase 2 contract guards
+>   red). Not claimed as a pre-existing defect.
+> - **Identity consumption on a rejected operation** is avoided by ordering — validate the workspace
+>   before asking the factory — not by rollback; perfect non-consumption would require changing Plan
+>   3's `IdFactory`, which Phase 2 may not do. The **workspace state itself is fully atomic**.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 3 — FOLDER-TO-BOOK CONSTRUCTION (Decision 12A). IT HAS NOT
+>   STARTED** and requires separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 1 COMPLETE; PHASE 2 NOT STARTED (2026-09-08)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block
