@@ -650,10 +650,10 @@ def test_the_predicate_is_the_only_place_the_question_is_answered():
 
 
 def test_the_operation_enum_is_plan6_specific_and_names_every_operation():
-    """Seven from Phase 2, plus Phase 3's whole-workspace ``import``."""
+    """Seven from Phase 2, Phase 3's ``import``, and Phase 4's ``shared_metadata``."""
     assert {member.value for member in WorkspaceOperation} == {
         "add", "duplicate", "remove", "previous", "next", "select", "replace",
-        "import"}
+        "import", "shared_metadata"}
 
 
 def test_the_operation_enum_is_not_plan3s_manager_operation():
@@ -1243,25 +1243,28 @@ def test_a_rejected_operation_consumes_no_identity():
 
 
 # --------------------------------------------------------------------------- #
-# Phase 4 must remain absent
+# Phase 5 must remain absent
 #
-# Phase 3 delivered Decision 12A, so folder-to-book grouping now exists and is
-# covered in ``test_book_grouping.py``. The absence boundary moves forward with
-# the plan rather than being retired: Shared Metadata is Phase 4's.
+# Phase 4 delivered Decision 20B, so Shared Metadata now exists and is covered in
+# ``test_shared_metadata.py``. The absence boundary moves forward with the plan
+# rather than being retired: freezing effective values into a run is Phase 5's.
 # --------------------------------------------------------------------------- #
 
 
-def test_no_shared_metadata_exists_yet():
-    """Phase 4 owns precedence. Absence is proved, not merely untested."""
+def test_no_run_capture_exists_yet():
+    """Phase 5 owns freezing. Absence is proved, not merely untested."""
     from shared import book_workspace as module
-    for later in ("SharedMetadata", "shared_metadata", "effective_metadata",
-                  "effective_value", "disabled_fields", "shared_disabled_fields"):
+    for later in ("capture_run", "BookRunSnapshot", "BookRunResult",
+                  "capture_workspace_run", "RunSnapshot", "RunResult",
+                  "RetryRequest"):
         assert not hasattr(module, later), later
 
 
-def test_a_books_configuration_is_still_its_own_with_no_shared_layer():
-    """Until Phase 4 there is one value per field, not a raw/shared/effective trio."""
+def test_a_book_still_stores_only_its_own_raw_values():
+    """Precedence resolves live; nothing frozen or effective is stored on a book."""
     entry = book(configuration={"title": "Only"})
     assert entry.configuration["title"] == "Only"
     assert not hasattr(entry, "effective_configuration")
     assert not hasattr(entry, "shared")
+    names = {item.name for item in dataclasses.fields(BookJob)}
+    assert names == {"book_id", "configuration", "files"}

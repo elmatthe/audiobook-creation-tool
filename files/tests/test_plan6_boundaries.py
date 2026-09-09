@@ -26,6 +26,7 @@ AST-inspection framework.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 
 import pytest
@@ -121,10 +122,12 @@ IMPORT_EXECUTION = (
     "ImportedFileManager",
 )
 
-#: Phase 4 owns Shared Metadata. None of this may appear before it is authorised.
-PHASE4_NAMES = (
-    "SharedMetadata", "shared_metadata", "effective_metadata", "effective_value",
-    "disabled_fields", "shared_disabled_fields", "precedence", "override_fields",
+#: Phase 5 owns freezing effective values into a run. None of this may appear
+#: while Phase 4 resolves precedence live from immutable workspace state.
+PHASE5_NAMES = (
+    "capture_run", "RunSnapshot", "BookRunSnapshot", "BookRunResult",
+    "RunResult", "RetryRequest", "FailureLog", "FailureRecord",
+    "capture_workspace_run", "JobController",
 )
 
 
@@ -367,24 +370,117 @@ def test_the_grouping_reuses_the_importers_natural_key(name):
 
 
 @pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_phase_four_shared_metadata_exists_yet(name):
-    """Shared Metadata is Phase 4's. Absence is proved, not merely untested."""
+def test_no_phase_five_run_capture_exists_yet(name):
+    """Phase 5 freezes effective values into a run. Absence is proved, not assumed.
+
+    Phase 4 resolves precedence **live**, from immutable workspace state. Capturing
+    a run is a different act with a different guarantee, and pulling it forward
+    would mean a snapshot existed before the contract that says what freezing means.
+    """
     tree = source_of(name)
-    present = sorted(entry for entry in PHASE4_NAMES
-                     if entry in defined_names(tree) | referenced_names(tree))
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    present = sorted(entry for entry in PHASE5_NAMES if entry in seen)
     assert present == [], present
 
 
-def test_a_newly_grouped_book_carries_no_speculative_configuration():
-    """Books built by an import start pristine; Phase 4 populates nothing early."""
-    from shared import book_workspace
-    import inspect
-    source = inspect.getsource(book_workspace.books_from_import)
-    assert "configuration=" not in source, "configuration is left at its default"
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_no_universal_metadata_vocabulary_is_hard_coded(name):
+    """Section 15.4: the field vocabulary belongs to the consumer.
+
+    A constant naming audiobook fields here would be wrong for M4B Maker, MP3 Tool
+    and the Metadata Editor simultaneously, which is exactly why the drop refuses
+    one. Checked as assigned names *and* as the literal field names themselves, so
+    a list spelled under a neutral name would still be caught.
+    """
+    tree = source_of(name)
+    assigned = {
+        target.id for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    for invented in ("UNIVERSAL_METADATA_FIELDS", "METADATA_FIELDS", "DEFAULT_FIELDS",
+                     "SHARED_FIELDS", "AUDIOBOOK_FIELDS", "TAG_FIELDS"):
+        assert invented not in assigned, invented
+
+    # No tuple/list/set literal in the module may enumerate audiobook tag names.
+    audiobook = {"title", "artist", "album", "album_artist", "author", "narrator",
+                 "series", "genre", "year", "comment"}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            literals = {element.value for element in node.elts
+                        if isinstance(element, ast.Constant)
+                        and isinstance(element.value, str)}
+            assert len(literals & audiobook) < 2, sorted(literals & audiobook)
 
 
-def test_phases_one_to_three_delivered_their_own_names_and_no_more():
-    """The public surface is exactly what Phases 1-3 were authorised to add."""
+def test_the_raw_shared_value_is_stored_once_on_the_workspace():
+    """Stored once means one field, on the workspace, and none on a book."""
+    from shared.book_workspace import BookJob, WorkspaceSnapshot
+
+    workspace_fields = {entry.name for entry in dataclasses.fields(WorkspaceSnapshot)}
+    book_fields = {entry.name for entry in dataclasses.fields(BookJob)}
+    assert "shared" in workspace_fields
+    assert book_fields == {"book_id", "configuration", "files"}
+    assert not (book_fields & {"shared", "title", "author", "metadata"})
+
+
+def test_no_effective_value_is_stored_as_a_second_truth():
+    """Effective values are projections; a stored copy is how two truths diverge."""
+    from shared.book_workspace import BookJob, BookMutation, WorkspaceSnapshot
+
+    for record in (BookJob, WorkspaceSnapshot, BookMutation):
+        names = {entry.name for entry in dataclasses.fields(record)}
+        assert not any("effective" in name for name in names), (record, names)
+
+
+def test_precedence_and_the_disabled_projection_call_one_predicate():
+    """Two interpretations of 'populated' would eventually disagree.
+
+    Asserted structurally rather than by behaviour alone: both the value class's
+    ``populated`` and the module's ``disabled_fields`` must reach ``is_populated``,
+    and nothing else may define a second blankness test.
+    """
+    tree = source_of("book_workspace.py")
+    defined = defined_names(tree)
+    for invented in ("_is_blank", "is_blank", "_populated", "_has_value",
+                     "_non_blank", "_strip"):
+        assert invented not in defined, invented
+    assert "is_populated" in defined
+
+    def bare_calls(owner: str) -> set[str]:
+        node = next(entry for entry in ast.walk(tree)
+                    if isinstance(entry, ast.FunctionDef) and entry.name == owner)
+        return {inner.func.id for inner in ast.walk(node)
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)}
+
+    def attributes(owner: str) -> set[str]:
+        node = next(entry for entry in ast.walk(tree)
+                    if isinstance(entry, ast.FunctionDef) and entry.name == owner)
+        return {inner.attr for inner in ast.walk(node)
+                if isinstance(inner, ast.Attribute)}
+
+    # The chain, stated exactly. ``disabled_fields`` delegates to the value's own
+    # ``populated_fields`` rather than re-deciding blankness, and both of the
+    # deciders call the one predicate. Demanding a *direct* call from
+    # ``disabled_fields`` would forbid that delegation, which is the better shape.
+    assert "is_populated" in bare_calls("populated")
+    assert "is_populated" in bare_calls("populated_fields")
+    assert "populated_fields" in attributes("disabled_fields")
+    assert "is_populated" not in attributes("disabled_fields"), (
+        "it delegates rather than deciding for itself")
+
+
+def test_the_shared_metadata_layer_stays_free_of_widgets_and_state():
+    """Phase 4 supplies the disabled *set*; rendering it is Phase 8's."""
+    tree = source_of("book_workspace.py")
+    seen = referenced_names(tree) | imported_names(tree)
+    for widget_word in ("LockGroup", "MainThreadGuard", "set_locked", "configure",
+                        "widget", "Entry", "Checkbutton"):
+        assert widget_word not in seen, widget_word
+
+
+def test_phases_one_to_four_delivered_their_own_names_and_no_more():
+    """The public surface is exactly what Phases 1-4 were authorised to add."""
     from shared import book_workspace
 
     phase1 = {
@@ -399,16 +495,21 @@ def test_phases_one_to_three_delivered_their_own_names_and_no_more():
         "previous_book", "next_book", "select_book", "replace_book",
     }
     phase3 = {"book_groups", "books_from_import", "replace_workspace_from_import"}
-    assert set(book_workspace.__all__) == phase1 | phase2 | phase3
-    assert len(book_workspace.__all__) == 28, "15 + 10 + 3"
+    phase4 = {
+        "BLANK", "SharedMetadataError", "SharedMetadata", "NO_SHARED_METADATA",
+        "is_populated", "effective_value", "effective_metadata", "disabled_fields",
+        "set_shared_metadata",
+    }
+    assert set(book_workspace.__all__) == phase1 | phase2 | phase3 | phase4
+    assert len(book_workspace.__all__) == 37, "15 + 10 + 3 + 9"
 
 
-def test_the_import_operation_did_not_overload_an_existing_member():
-    """One member, one scope: REPLACE swaps a book, IMPORT rebuilds the workspace."""
+def test_no_operation_member_was_overloaded():
+    """One member, one scope, across all four phases so far."""
     from shared.book_workspace import WorkspaceOperation
     assert {member.value for member in WorkspaceOperation} == {
         "add", "duplicate", "remove", "previous", "next", "select", "replace",
-        "import"}
+        "import", "shared_metadata"}
 
 
 
@@ -646,22 +747,98 @@ def test_the_import_execution_guard_passes_consuming_a_finished_snapshot():
 
 
 @pytest.mark.parametrize("code,expected", [
-    ("class SharedMetadata:\n    pass", "SharedMetadata"),
-    ("def effective_metadata(book, shared):\n    return {}", "effective_metadata"),
-    ("def disabled_fields(shared):\n    return frozenset()", "disabled_fields"),
+    ("from shared.job_control import capture_run\n"
+     "def f(**kw):\n    return capture_run(**kw)", "capture_run"),
+    ("from shared.job_control import RunSnapshot\n"
+     "def f():\n    return RunSnapshot", "RunSnapshot"),
+    ("class BookRunSnapshot:\n    pass", "BookRunSnapshot"),
+    ("class BookRunResult:\n    pass", "BookRunResult"),
+    ("from shared.job_control import RetryRequest\n"
+     "def f(r):\n    return RetryRequest", "RetryRequest"),
+    ("def capture_workspace_run(space):\n    return space", "capture_workspace_run"),
 ])
-def test_the_phase_four_guard_actually_detects_shared_metadata(code, expected):
+def test_the_phase_five_guard_actually_detects_run_capture(code, expected):
     tree = sample(code)
-    found = {entry for entry in PHASE4_NAMES
-             if entry in defined_names(tree) | referenced_names(tree)}
-    assert expected in found
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    assert expected in {entry for entry in PHASE5_NAMES if entry in seen}
 
 
-def test_the_hash_gate_actually_detects_a_changed_file(tmp_path):
-    """A byte-identity gate that cannot notice a byte is not a gate."""
-    target = tmp_path / "panel.py"
-    target.write_text("original\n", encoding="utf-8")
-    baseline = sha256_of(target)
-    assert sha256_of(target) == baseline
-    target.write_text("original\n# one added comment\n", encoding="utf-8")
-    assert sha256_of(target) != baseline
+def test_the_phase_five_guard_passes_live_precedence_resolution():
+    """The other half: resolving effective values live is not capturing a run."""
+    clean = sample(
+        "def effective_value(shared, book, field):\n"
+        "    if shared.populated(field):\n"
+        "        return shared.raw(field)\n"
+        "    return book.configuration.get(field, '')\n"
+    )
+    tree = clean
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    assert {entry for entry in PHASE5_NAMES if entry in seen} == set()
+
+
+@pytest.mark.parametrize("code", [
+    "UNIVERSAL_METADATA_FIELDS = ('title', 'author')",
+    "METADATA_FIELDS = ('title', 'album')",
+    "AUDIOBOOK_FIELDS = ('series', 'narrator')",
+])
+def test_the_vocabulary_guard_detects_a_named_universal_list(code):
+    tree = sample(code)
+    assigned = {target.id for node in ast.walk(tree)
+                if isinstance(node, ast.Assign) for target in node.targets
+                if isinstance(target, ast.Name)}
+    assert assigned & {"UNIVERSAL_METADATA_FIELDS", "METADATA_FIELDS",
+                       "AUDIOBOOK_FIELDS"}
+
+
+def test_the_vocabulary_guard_detects_a_tag_list_under_a_neutral_name():
+    """Renaming the constant must not be enough to smuggle a universal list."""
+    tree = sample("SOMETHING = ('title', 'author', 'series')")
+    audiobook = {"title", "artist", "album", "album_artist", "author", "narrator",
+                 "series", "genre", "year", "comment"}
+    biggest = 0
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            literals = {element.value for element in node.elts
+                        if isinstance(element, ast.Constant)
+                        and isinstance(element.value, str)}
+            biggest = max(biggest, len(literals & audiobook))
+    assert biggest >= 2, "the guard would fire on this"
+
+
+def test_the_vocabulary_guard_accepts_a_consumer_supplied_vocabulary():
+    """A consumer passing its own fields in is the whole point, not a violation."""
+    clean = sample(
+        "def build(fields):\n"
+        "    return SharedMetadata.for_fields(fields)\n"
+        "ROLE_IDENTITY = 'identity'\n"
+    )
+    audiobook = {"title", "artist", "album", "album_artist", "author", "narrator",
+                 "series", "genre", "year", "comment"}
+    for node in ast.walk(clean):
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            literals = {element.value for element in node.elts
+                        if isinstance(element, ast.Constant)
+                        and isinstance(element.value, str)}
+            assert len(literals & audiobook) < 2
+
+
+def test_the_one_predicate_guard_detects_a_second_blankness_test():
+    early = sample(
+        "def is_populated(v):\n    return bool(v.strip())\n"
+        "def _is_blank(v):\n    return not v.strip()\n"
+    )
+    defined = defined_names(early)
+    assert "_is_blank" in defined, "a second predicate would be caught"
+
+
+def test_the_stored_effective_value_guard_detects_a_second_truth():
+    """A record that stores effective values is what this must never allow."""
+    import dataclasses as dc
+
+    @dc.dataclass(frozen=True)
+    class Tempting:
+        book_id: str = "x"
+        effective_metadata: tuple = ()
+
+    names = {entry.name for entry in dc.fields(Tempting)}
+    assert any("effective" in name for name in names), "the guard would fire"

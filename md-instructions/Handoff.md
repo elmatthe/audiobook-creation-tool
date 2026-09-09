@@ -2,6 +2,63 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 4 COMPLETE; PHASE 5 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 4** as the next action. Phase 4 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 4 — Shared Metadata is COMPLETE, and Decision 20B is implemented in the pure
+>   model.** `shared/book_workspace.py` gains `SharedMetadata` (the consumer's declared fields plus
+>   the raw shared values), `is_populated`, `effective_value`, `effective_metadata`,
+>   `disabled_fields`, `set_shared_metadata`, `NO_SHARED_METADATA`, `BLANK` and
+>   `SharedMetadataError`. **Effective values are live projections, stored nowhere.**
+> - **The three values are kept apart**: the raw per-book value stays in `BookJob.configuration` and
+>   is **never rewritten**; the raw shared value is stored **once** on the workspace; the effective
+>   value is computed. `BookJob` gained no field, and a guard asserts no record anywhere stores an
+>   "effective" value — a stored copy is how two truths come to disagree.
+> - **The full section 15.2 lifecycle is one test**: shared blank → per-book effective; shared set →
+>   shared effective and the field projected disabled; **the book's raw value still reads its own
+>   text**; shared cleared → the per-book value is effective again and the field re-enabled. That
+>   restoration works because nothing was ever overwritten.
+> - **One predicate drives both precedence and the disabled projection**, asserted structurally: no
+>   second blankness helper may exist, and `disabled_fields` must reach `is_populated` by delegating
+>   to `populated_fields` rather than deciding for itself. Two interpretations would eventually
+>   disagree, and the symptom would be a control the user can still type into whose value is silently
+>   discarded.
+> - **The field vocabulary belongs to the consumer** (section 15.4). No universal list exists, and the
+>   guard checks it twice: no constant named like one, **and** no literal anywhere enumerating two or
+>   more audiobook tag names, so renaming is not enough to smuggle one in.
+> - **A recorded finding:** non-string shared values are **refused**. Section 15.2 defines
+>   populatedness for text, so refusing keeps Phase 4 from inventing semantics nobody specified; every
+>   shareable metadata field reads back as a string, and the one integer (`track`) belongs to
+>   numbering, not Shared Metadata. A future non-text shared field would be a new decision.
+> - **Every earlier operation preserves the shared value** — add, duplicate, remove, previous, next,
+>   select, replace and import — because the one `_changed` constructor carries it forward. An import
+>   therefore cannot silently discard what the user shared across books. Decision 49A is untouched:
+>   Duplicate copies the book's own configuration and **not** the shared state.
+> - **`WorkspaceOperation.SHARED_METADATA` is its own member**, because the update changes neither the
+>   books nor the selection; reporting it as `REPLACE` or `IMPORT` would misdescribe what moved.
+> - **Gate: 6,038 collected / 6,024 passed / 14 skipped / 0 failed**, up from the Phase 3 baseline of
+>   5,936 by exactly 102, all in the four Plan 6 test modules (288 → 390). **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six protected hashes
+>   byte-identical; **`ADOPTED` unchanged at six**; `shared/metadata.py` **not modified**; production
+>   runtime state unchanged.
+> - **Red proof** at `ae7e777`: `ImportError: cannot import name 'BLANK'`, plus five further contract
+>   failures. Not claimed as a pre-existing defect.
+> - **One of my own new guards was wrong and was corrected rather than loosened** — it demanded a
+>   direct call where the code correctly delegates; the guard now asserts the real chain, which is a
+>   stronger statement. The Phase 5 absence boundary moved forward rather than being retired.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 5 — FROZEN EFFECTIVE VALUES. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 3 COMPLETE; PHASE 4 NOT STARTED (2026-09-08)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block

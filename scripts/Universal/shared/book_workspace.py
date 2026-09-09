@@ -27,11 +27,18 @@ Phase 3 added Decision 12A: :func:`book_groups`, :func:`books_from_import` and
 imported files. It is a **projection**: the importer still owns scanning, traversal,
 cancellation, commits and occurrence identity, and nothing here reads a disk.
 
+Phase 4 added Decision 20B: :class:`SharedMetadata` holds the consumer's declared
+fields and the raw shared values, once, on the workspace; :func:`effective_value`
+and :func:`effective_metadata` resolve precedence without storing anything; and
+:func:`disabled_fields` projects the controls a consumer must disable. The raw
+per-book value is never rewritten, so clearing a shared field restores it exactly.
+
 What deliberately does **not** live here
 ---------------------------------------
-No Shared Metadata precedence; no effective-value resolution; no run capture; no
-numbering; no dispositions; no Retry Failed; and no Tk. Those are Plan 6 Phases 4–8
-of the active drop.
+No run capture, no ``RunSnapshot``, no numbering, no dispositions, no Retry Failed
+and no Tk. Those are Plan 6 Phases 5–8 of the active drop. **Effective values here
+are live projections**; freezing them into a run is Phase 5's, and a structural
+guard proves that has not been pulled forward.
 
 No thread, no lock, no queue, no clock, no subprocess, no network, and no filesystem
 access of any kind. A ``Path`` reaches this module only as data already inside a
@@ -106,6 +113,15 @@ __all__ = [
     "book_groups",
     "books_from_import",
     "replace_workspace_from_import",
+    "BLANK",
+    "SharedMetadataError",
+    "SharedMetadata",
+    "NO_SHARED_METADATA",
+    "is_populated",
+    "effective_value",
+    "effective_metadata",
+    "disabled_fields",
+    "set_shared_metadata",
 ]
 
 
@@ -134,6 +150,10 @@ class BookConfigurationError(BookContractError):
 
 class WorkspaceContractError(BookContractError):
     """A workspace value would break one of its own construction invariants."""
+
+
+class SharedMetadataError(BookContractError):
+    """A Shared Metadata value names an undeclared field or a value it cannot hold."""
 
 
 # --------------------------------------------------------------------------- #
@@ -313,6 +333,146 @@ class BookJob:
 
 
 # --------------------------------------------------------------------------- #
+# Decision 20B — Shared Metadata
+#
+# Three values are kept apart and never conflated: the **raw per-book** value,
+# which lives in ``BookJob.configuration`` and is never rewritten; the **raw
+# shared** value, stored once on the workspace; and the **effective** value,
+# which is computed here and stored nowhere. A fourth stored truth is exactly
+# what would let two consumers disagree about what a run is going to write.
+# --------------------------------------------------------------------------- #
+
+#: What an unset field resolves to. Blank is a value, not an error: the drop
+#: leaves what blank *means* to the consumer that eventually writes a tag.
+BLANK = ""
+
+
+def is_populated(value: object) -> bool:
+    """Whether a metadata value counts as set. **The one predicate.**
+
+    Non-blank after stripping surrounding whitespace, exactly as the drop states —
+    a field holding only spaces is blank, because a user cannot tell it apart from
+    an empty one.
+
+    Precedence and the disabled-control projection both ask *this* function. Two
+    predicates would eventually disagree, and the disagreement would show up as a
+    control the user can still type into whose value is silently discarded — the
+    precise failure Decision 20B exists to prevent.
+
+    Stripping happens **here, for the question only**. Nothing strips the stored
+    value: raw stays raw.
+    """
+    if value is None:
+        return False
+    if not isinstance(value, str):
+        # A non-string per-book value is somebody's deliberate configuration entry,
+        # not text this predicate can judge. It is populated because it is there.
+        return True
+    return bool(value.strip())
+
+
+@dataclass(frozen=True, slots=True)
+class SharedMetadata:
+    """The workspace's declared metadata fields and their raw shared values.
+
+    **The vocabulary belongs to the consumer.** There is no universal field list
+    here, deliberately: ``shared/metadata.py`` has no public field constants and the
+    shared importer has no universal media list — each tool supplies its own
+    ``SupportedTypeCatalog``, and Plan 6 follows that precedent. A hard-coded list
+    would be wrong for M4B Maker, MP3 Tool and the Metadata Editor simultaneously.
+
+    ``fields`` is the declared vocabulary, in the consumer's own order. ``values``
+    holds only raw shared values, only for declared fields, and is deep-frozen
+    through the project's one freeze so a caller's dictionary cannot be edited
+    afterwards to reach in here.
+
+    An inconsistent state is refused at construction rather than tidied away: a
+    value for an undeclared field raises instead of being dropped, so narrowing the
+    vocabulary while a raw value still exists for the removed field fails loudly
+    rather than silently discarding what the user typed.
+    """
+
+    fields: tuple[str, ...] = ()
+    values: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.fields, (str, bytes)) or not isinstance(self.fields, Iterable):
+            raise SharedMetadataError("fields must be an iterable of field names")
+        declared: list[str] = []
+        seen: set[str] = set()
+        for name in self.fields:
+            clean = _require_identifier("field name", name, error=SharedMetadataError)
+            if clean in seen:
+                raise SharedMetadataError(f"duplicate declared field {clean!r}")
+            seen.add(clean)
+            declared.append(clean)
+        object.__setattr__(self, "fields", tuple(declared))
+
+        if not isinstance(self.values, Mapping):
+            raise SharedMetadataError(
+                f"values must be a mapping, got {type(self.values).__name__}")
+        for name, value in self.values.items():
+            if name not in seen:
+                raise SharedMetadataError(
+                    f"{name!r} is not a declared field; declared: {declared}")
+            if not isinstance(value, str):
+                # The drop defines populatedness as "non-blank after stripping",
+                # which is a statement about text. Refusing anything else keeps this
+                # from inventing populatedness for a type nobody has specified.
+                raise SharedMetadataError(
+                    f"shared value for {name!r} must be a string, got "
+                    f"{type(value).__name__}")
+        try:
+            object.__setattr__(self, "values", freeze_options(dict(self.values)))
+        except ValueError as exc:  # pragma: no cover - defensive
+            raise SharedMetadataError(f"shared values cannot be frozen: {exc}") from exc
+
+    @classmethod
+    def for_fields(cls, fields: Iterable[str]) -> "SharedMetadata":
+        """A declared vocabulary with nothing shared yet."""
+        return cls(fields=tuple(fields), values={})
+
+    def declares(self, field_name: str) -> bool:
+        return _require_identifier(
+            "field name", field_name, error=SharedMetadataError) in self.fields
+
+    def raw(self, field_name: str) -> str:
+        """The raw shared value for a declared field, or :data:`BLANK`.
+
+        Raw means raw: whatever the user typed, spaces and all. Only
+        :func:`is_populated` strips, and only to answer its own question.
+        """
+        name = self._require_declared(field_name)
+        return self.values.get(name, BLANK)
+
+    def populated(self, field_name: str) -> bool:
+        """Whether this shared field overrides. Asks :func:`is_populated`."""
+        return is_populated(self.raw(field_name))
+
+    @property
+    def populated_fields(self) -> tuple[str, ...]:
+        """Declared fields carrying a shared value, in declaration order."""
+        return tuple(name for name in self.fields if is_populated(self.raw(name)))
+
+    @property
+    def is_empty(self) -> bool:
+        """True when nothing is shared, whatever is declared."""
+        return not self.populated_fields
+
+    def _require_declared(self, field_name: str) -> str:
+        name = _require_identifier(
+            "field name", field_name, error=SharedMetadataError)
+        if name not in self.fields:
+            raise SharedMetadataError(
+                f"{name!r} is not a declared field; declared: {list(self.fields)}")
+        return name
+
+
+#: The shared metadata a workspace has before a consumer declares anything.
+NO_SHARED_METADATA: SharedMetadata = SharedMetadata()
+
+
+# --------------------------------------------------------------------------- #
 # The workspace, as one immutable value
 # --------------------------------------------------------------------------- #
 
@@ -334,6 +494,8 @@ class WorkspaceSnapshot:
     books: tuple[BookJob, ...]
     current_book_id: str
     revision: Revision = INITIAL_REVISION
+    #: Decision 20B. Stored **once**, here, and never copied into a BookJob.
+    shared: SharedMetadata = NO_SHARED_METADATA
 
     def __post_init__(self) -> None:
         if isinstance(self.books, (str, bytes)) or not isinstance(self.books, Iterable):
@@ -364,6 +526,10 @@ class WorkspaceSnapshot:
             raise WorkspaceContractError(
                 f"revision must be an importing.Revision, got "
                 f"{type(self.revision).__name__}")
+
+        if not isinstance(self.shared, SharedMetadata):
+            raise WorkspaceContractError(
+                f"shared must be a SharedMetadata, got {type(self.shared).__name__}")
 
     @property
     def count(self) -> int:
@@ -450,6 +616,9 @@ class WorkspaceOperation(Enum):
     #: workspace rebuilt from an import replaces every book *and* the selection, so
     #: reporting it as ``REPLACE`` would make one member mean two different scopes.
     IMPORT = "import"
+    #: Phase 4. Its own member because it changes neither the books nor the
+    #: selection, so reporting it as anything else would misdescribe what moved.
+    SHARED_METADATA = "shared_metadata"
 
 
 @dataclass(frozen=True, slots=True)
@@ -534,8 +703,16 @@ def _changed(operation: WorkspaceOperation,
              workspace: WorkspaceSnapshot,
              books: tuple[BookJob, ...],
              current_book_id: str,
-             removed: tuple[BookJob, ...] = ()) -> BookMutation:
-    """A real change: one new frozen value, revision advanced exactly once."""
+             removed: tuple[BookJob, ...] = (),
+             shared: SharedMetadata | None = None) -> BookMutation:
+    """A real change: one new frozen value, revision advanced exactly once.
+
+    Shared Metadata is **carried forward** unless an operation explicitly replaces
+    it. Because every operation builds its result here, that preservation is a
+    property of the one constructor rather than something each of the eight has to
+    remember - which is why importing a new set of books cannot silently discard
+    what the user shared across them.
+    """
     return BookMutation(
         operation=operation,
         changed=True,
@@ -543,6 +720,7 @@ def _changed(operation: WorkspaceOperation,
             books=books,
             current_book_id=current_book_id,
             revision=workspace.revision.advance(),
+            shared=workspace.shared if shared is None else shared,
         ),
         removed=removed,
     )
@@ -873,3 +1051,86 @@ def replace_workspace_from_import(workspace: WorkspaceSnapshot,
     )
     return _changed(WorkspaceOperation.IMPORT, space,
                     books, books[0].book_id, removed=space.books)
+
+
+# --------------------------------------------------------------------------- #
+# Effective values — computed, never stored
+# --------------------------------------------------------------------------- #
+
+
+def effective_value(shared: SharedMetadata, book: BookJob, field_name: str):
+    """The value a run would use for one field of one book. Decision 20B.
+
+    If the shared value is populated it wins — **even when the per-book value is
+    also populated**, which is the whole point. Otherwise the book's own raw value
+    is used, read straight out of its frozen configuration.
+
+    Nothing is written back. The per-book raw value survives being overridden
+    untouched, so clearing the shared field later restores it exactly; that is a
+    property of never having destroyed it, not of restoring it afterwards.
+    """
+    if not isinstance(shared, SharedMetadata):
+        raise SharedMetadataError(
+            f"shared must be a SharedMetadata, got {type(shared).__name__}")
+    if not isinstance(book, BookJob):
+        raise BookContractError(f"book must be a BookJob, got {type(book).__name__}")
+    name = shared._require_declared(field_name)
+    if shared.populated(name):
+        return shared.raw(name)
+    return book.configuration.get(name, BLANK)
+
+
+def effective_metadata(shared: SharedMetadata, book: BookJob) -> Mapping[str, object]:
+    """Every declared field's effective value for one book, frozen.
+
+    A projection, deliberately returned rather than stored: an ``effective``
+    attribute on a book or a workspace would be a second truth that a later edit
+    could leave stale, and Phase 5 freezes these values into a run precisely
+    *because* they are not frozen here.
+    """
+    if not isinstance(shared, SharedMetadata):
+        raise SharedMetadataError(
+            f"shared must be a SharedMetadata, got {type(shared).__name__}")
+    if not isinstance(book, BookJob):
+        raise BookContractError(f"book must be a BookJob, got {type(book).__name__}")
+    return MappingProxyType(
+        {name: effective_value(shared, book, name) for name in shared.fields})
+
+
+def disabled_fields(shared: SharedMetadata) -> frozenset[str]:
+    """The fields whose per-book control must be disabled — and nothing else.
+
+    Exactly the declared fields whose shared value is populated. The UI layer
+    *renders* this set; it does not compute it and never decides precedence for
+    itself, which is what makes the requirement true in behaviour rather than only
+    in appearance: the control is disabled by the same fact that makes its value
+    ignored, because both ask :func:`is_populated`.
+    """
+    if not isinstance(shared, SharedMetadata):
+        raise SharedMetadataError(
+            f"shared must be a SharedMetadata, got {type(shared).__name__}")
+    return frozenset(shared.populated_fields)
+
+
+# --------------------------------------------------------------------------- #
+# Changing the workspace's shared metadata
+# --------------------------------------------------------------------------- #
+
+
+def set_shared_metadata(workspace: WorkspaceSnapshot,
+                        shared: SharedMetadata) -> BookMutation:
+    """Replace the workspace's raw Shared Metadata. Books are untouched.
+
+    Every book comes through as the same object, the selection does not move, and
+    only the workspace-level shared value changes — which is what "stored once"
+    means in practice. Setting the same value again is a no-op and moves no
+    revision.
+    """
+    space = _require_workspace(workspace)
+    if not isinstance(shared, SharedMetadata):
+        raise SharedMetadataError(
+            f"shared must be a SharedMetadata, got {type(shared).__name__}")
+    if shared == space.shared:
+        return _unchanged(WorkspaceOperation.SHARED_METADATA, space)
+    return _changed(WorkspaceOperation.SHARED_METADATA, space,
+                    space.books, space.current_book_id, shared=shared)
