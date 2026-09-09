@@ -46,9 +46,30 @@ from test_plan3_boundaries import (
 # What Plan 6 owns so far
 # --------------------------------------------------------------------------- #
 
-#: The pure data layer. Phase 6 adds ``numbering.py`` and Phase 8 adds
-#: ``book_workspace_ui.py``; neither exists yet and neither is assumed here.
+#: The pure data layer. Phase 8 adds ``book_workspace_ui.py``; it does not exist yet
+#: and is not assumed here.
 DATA_LAYER = ("book_workspace.py",)
+
+#: Phase 6's promoted allocator. It is deliberately **not** in ``DATA_LAYER``: the
+#: guard it answers to (``test_the_promoted_allocator_is_pure``) is stricter than
+#: every DATA_LAYER guard combined — an import allowlist of exactly two stdlib names
+#: forbids Tk, threading, subprocess, the filesystem and a clock by construction,
+#: rather than one forbidden name at a time.
+ALLOCATOR = "numbering.py"
+
+#: The original Plan 5 allowlist, moved here with the implementation at Phase 6.
+#: ``files/tests/test_m4b_numbering.py`` asserted exactly this against
+#: ``mp3_tools/m4b_numbering.py`` while that file *was* the allocator.
+ALLOCATOR_IMPORTS = {"__future__", "dataclasses"}
+
+#: Also moved unchanged from the Plan 5 guard: vocabulary that would mean the
+#: allocator had learned about the UI, the filesystem, a subprocess or the
+#: Converter's plan objects. A counter that knows what a book is is not a counter.
+ALLOCATOR_FORBIDDEN = (
+    "Tk", "StringVar", "Path", "open", "run", "popen",
+    "ConversionPlan", "SegmentPlan", "ItemPlan",
+    "whole_book_tags", "segment_tags", "ffmpeg_cmd",
+)
 
 #: Phase 0 recorded these SHA-256 values as the byte-identity gates for the
 #: consumer panels Plan 6 must not touch. Plan 7 converts M4B Maker; Plan 8 the
@@ -63,16 +84,33 @@ PHASE0_PANEL_HASHES = {
         "310b27f6d46668782305b54434f5b9bd00f4611e077f6772f3410adb5ffdd180",
 }
 
-#: Also recorded at Phase 0. The Converter and the numbering allocator are Plan 5's;
-#: Phase 6's promotion is the only authorised change to the last two, and it has not
-#: happened, so all four must still match.
+#: Recorded at Phase 0 and **still enforced**. The Converter is Plan 5's, it is the
+#: consumer the promotion had to leave alone, and Phase 6 did not touch one byte of
+#: it. A difference here is a stop gate, not a value to update.
 PHASE0_PLAN5_HASHES = {
     "scripts/Universal/mp3_tools/m4b_converter.py":
         "a44418853b3f8e38f9f78829c2f388bc0cb85b29bf35dcbc64d7d5ec9ab60880",
+}
+
+#: Phase 0's hash of ``mp3_tools/m4b_numbering.py`` **while it was the allocator**.
+#: Kept as the evidence that the file genuinely changed at Phase 6 rather than as a
+#: gate: the promotion is the one authorised change to it, and it has now happened.
+PHASE0_ALLOCATOR_HASH = \
+    "a26cd25954c5ad21d16c350642025e768538c60f9df0475c71385191a9f9fb98"
+
+#: The state the authorised Phase 6 promotion left behind, pinned so that any
+#: *later* change to the shim, the promoted allocator or the Plan 5 regression suite
+#: has to be a deliberate act rather than a quiet one. The maintainer's Phase 6
+#: ruling authorised exactly one narrowly scoped edit to ``test_m4b_numbering.py``
+#: (its obsolete standalone-module purity assertion, replaced by a stricter one);
+#: these values close that authorisation again behind it.
+PHASE6_PROMOTION_HASHES = {
+    "scripts/Universal/shared/numbering.py":
+        "a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b",
     "scripts/Universal/mp3_tools/m4b_numbering.py":
-        "a26cd25954c5ad21d16c350642025e768538c60f9df0475c71385191a9f9fb98",
+        "628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9",
     "files/tests/test_m4b_numbering.py":
-        "787f5dfc54509412ad14f3d7de6b8a819d4326777187201a93d4dbadda247dbb",
+        "cf9f48a0d8d25e922921138e82ca0783c67eed74b0e47f266f80171f1c46069f",
 }
 
 #: Module names the data layer may never import, by the drop section that forbids
@@ -122,9 +160,11 @@ IMPORT_EXECUTION = (
     "ImportedFileManager",
 )
 
-#: Phase 6 owns numbering. The success counter is deliberately NOT part of a
-#: frozen snapshot: a counter is a fact about one attempt's execution, and a
-#: plan is the opposite, which is what keeps the snapshot retry-stable.
+#: Phase 6 delivered numbering — in ``shared/numbering.py``, and nowhere else. The
+#: success counter is deliberately NOT part of the frozen data layer: a counter is a
+#: fact about one attempt's execution, and a plan is the opposite, which is what
+#: keeps the snapshot retry-stable. Phase 6 *shipping* the allocator did not relax
+#: that; it is the reason the list below still has a job.
 PHASE6_NAMES = (
     "SuccessNumbers", "Tentative", "NumberingError", "m4b_numbering",
     "propose", "next_number", "consumed", "START_NUMBER", "start_number",
@@ -200,6 +240,53 @@ def import_execution_in(tree: ast.Module) -> set[str]:
     return (referenced_names(tree) | imported_names(tree)) & set(IMPORT_EXECUTION)
 
 
+
+
+def import_roots_in(tree: ast.Module) -> set[str]:
+    """Every top-level package this module depends on.
+
+    The Plan 5 purity guard's own shape, moved here with the allocator. Relative
+    imports are rejected outright rather than counted: ``from ..shared import x``
+    has no root to compare, and would hide the dependency from this allowlist.
+    """
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            assert node.level == 0, "absolute imports only"
+            roots.add((node.module or "").split(".")[0])
+    return roots
+
+
+def import_sources_in(tree: ast.Module) -> dict[str, set[str]]:
+    """Dotted module path -> the names taken from it. Full path, not just the root.
+
+    ``{"shared"}`` would license a dependency on any shared module; the shim is
+    allowed exactly ``shared.numbering``, so the guard has to see the whole path.
+    """
+    sources: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                sources.setdefault(alias.name, set())
+        elif isinstance(node, ast.ImportFrom):
+            assert node.level == 0, "absolute imports only"
+            sources.setdefault(node.module or "", set()).update(
+                alias.name for alias in node.names)
+    return sources
+
+
+def top_level_declarations_in(tree: ast.Module) -> set[str]:
+    """Only the module's own classes and functions, not their methods.
+
+    ``defined_names`` walks the whole tree — which is what the re-export guard
+    wants, because a class hidden inside a factory is still a second
+    implementation. This is the other question: what does this module *offer*.
+    """
+    return {node.name for node in tree.body
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef))}
 
 
 def widget_classes_in(tree: ast.Module) -> set[str]:
@@ -415,16 +502,108 @@ def test_phase_five_builds_no_controller_and_no_event_stream(name):
 
 
 @pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_phase_six_numbering_exists_yet(name):
-    """Phase 6 owns numbering, and the counter is deliberately not in the snapshot.
+def test_the_frozen_data_layer_still_holds_no_success_counter(name):
+    """Phase 6 shipped the allocator; the data layer still must not name it.
 
-    A success counter is a fact about one attempt's execution; a frozen plan is the
-    opposite. Keeping it out is what lets the snapshot stay retry-stable.
+    Before Phase 6 this was an absence guard — numbering did not exist yet. It is
+    now the opposite kind of claim and a stronger one: the allocator *does* exist,
+    one import away, and ``book_workspace.py`` still refuses it. A success counter
+    is a fact about one attempt's execution; a frozen plan is the opposite, and
+    keeping the counter out is what lets a snapshot stay retry-stable.
     """
     tree = source_of(name)
     seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
     present = sorted(entry for entry in PHASE6_NAMES if entry in seen)
     assert present == [], present
+
+
+# --------------------------------------------------------------------------- #
+# Phase 6 — the promotion (drop section 17.1)
+#
+# The allocator that was ``mp3_tools/m4b_numbering.py`` is now
+# ``shared/numbering.py``, with the old path left as a compatibility re-export so
+# the M4B Converter's import keeps working. The contract is that this is a MOVE:
+# one implementation with two spellings, never two implementations.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_promoted_allocator_is_pure():
+    """The original Plan 5 purity property, moved here with the implementation.
+
+    ``files/tests/test_m4b_numbering.py`` asserted exactly this — import roots
+    within ``{"__future__", "dataclasses"}``, and none of the forbidden
+    integration vocabulary — for as long as ``mp3_tools/m4b_numbering.py`` was the
+    allocator. Phase 6 moved the allocator, so the property moved with it. It was
+    **not** retired, and it was not weakened: the same allowlist and the same
+    forbidden list, now pointed at the file that actually implements the counter.
+    """
+    tree = parse(SHARED / ALLOCATOR)
+
+    assert import_roots_in(tree) <= ALLOCATOR_IMPORTS, import_roots_in(tree)
+
+    named = referenced_names(tree)
+    for forbidden in ALLOCATOR_FORBIDDEN:
+        assert forbidden not in named, forbidden
+
+
+def test_the_promoted_allocator_knows_nothing_about_plan6():
+    """It is handed an integer. Numbering must not learn what a book is."""
+    tree = parse(SHARED / ALLOCATOR)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    for owned in ("BookJob", "WorkspaceSnapshot", "BookRunSnapshot", "book_workspace",
+                  "SharedMetadata", "RunSnapshot", "capture_run", "book_id"):
+        assert owned not in seen, owned
+
+
+def test_the_allocator_declares_exactly_the_three_promoted_names():
+    """Three declarations moved, and nothing was invented on the way across.
+
+    ``shared/numbering.py`` has no ``__all__`` because the file it was moved from
+    had none: the promotion changed the module docstring and nothing else. The
+    shim, which is a new file, does declare one.
+    """
+    from mp3_tools import m4b_numbering
+
+    promoted = {"NumberingError", "Tentative", "SuccessNumbers"}
+    assert top_level_declarations_in(parse(SHARED / ALLOCATOR)) == promoted
+    assert list(m4b_numbering.__all__) == ["NumberingError", "Tentative",
+                                           "SuccessNumbers"]
+
+
+def test_the_legacy_path_is_a_re_export_and_not_a_second_implementation():
+    """A wrapper or a subclass would be a fork with a shared docstring."""
+    tree = parse(UNIVERSAL / "mp3_tools/m4b_numbering.py")
+
+    assert defined_names(tree) == set(), defined_names(tree)
+    sources = import_sources_in(tree)
+
+    # Exactly ``shared.numbering`` — the module, not merely the ``shared`` root,
+    # which would have licensed a dependency on any shared module at all.
+    assert set(sources) == {"__future__", "shared.numbering"}, sources
+    assert sources["shared.numbering"] == {
+        "NumberingError", "Tentative", "SuccessNumbers"}, sources
+
+
+def test_both_import_paths_reach_the_very_same_objects():
+    from mp3_tools import m4b_numbering
+    from shared import numbering
+
+    for name in ("NumberingError", "Tentative", "SuccessNumbers"):
+        assert getattr(m4b_numbering, name) is getattr(numbering, name), name
+
+
+def test_the_promotion_changed_the_legacy_file_and_left_the_converter_alone():
+    """The move happened, and it stopped exactly where it was authorised to stop."""
+    legacy = sha256_of(UNIVERSAL / "mp3_tools/m4b_numbering.py")
+    assert legacy != PHASE0_ALLOCATOR_HASH, "the promotion did not happen"
+    assert (sha256_of(UNIVERSAL / "mp3_tools/m4b_converter.py")
+            == PHASE0_PLAN5_HASHES["scripts/Universal/mp3_tools/m4b_converter.py"])
+
+
+@pytest.mark.parametrize("relative", sorted(PHASE6_PROMOTION_HASHES))
+def test_the_promoted_state_is_pinned_where_the_promotion_left_it(relative):
+    """Re-closes the maintainer's one-time authorisation behind the change."""
+    assert sha256_of(REPO_ROOT / relative) == PHASE6_PROMOTION_HASHES[relative]
 
 
 @pytest.mark.parametrize("name", DATA_LAYER)
@@ -455,8 +634,13 @@ def test_the_validity_seam_is_asked_and_never_stored():
     assert "is_valid" not in stored
 
 
-def test_phases_one_to_five_delivered_their_own_names_and_no_more():
-    """The public surface is exactly what Phases 1-5 were authorised to add."""
+def test_phases_one_to_six_delivered_their_own_names_and_no_more():
+    """The public surface is exactly what Phases 1-6 were authorised to add.
+
+    **Phase 6 added nothing to it**, and that is the assertion, not an omission: the
+    allocator is its own module because numbering is not part of the workspace
+    vocabulary. A ``SuccessNumbers`` re-exported from here would have made it one.
+    """
     from shared import book_workspace
 
     phase1 = {
@@ -478,8 +662,10 @@ def test_phases_one_to_five_delivered_their_own_names_and_no_more():
     }
     phase5 = {"RUN_ID_KIND", "effective_run_options", "BookRunSnapshot",
               "capture_workspace_run"}
-    assert set(book_workspace.__all__) == phase1 | phase2 | phase3 | phase4 | phase5
-    assert len(book_workspace.__all__) == 41, "15 + 10 + 3 + 9 + 4"
+    phase6: set[str] = set()          # numbering lives in its own module, by design
+    assert (set(book_workspace.__all__)
+            == phase1 | phase2 | phase3 | phase4 | phase5 | phase6)
+    assert len(book_workspace.__all__) == 41, "15 + 10 + 3 + 9 + 4 + 0"
 
 
 def test_capture_is_not_a_workspace_operation():
@@ -525,8 +711,8 @@ def test_the_consumer_panels_are_byte_identical_to_the_phase_zero_baseline(relat
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PLAN5_HASHES))
-def test_the_plan5_numbering_and_converter_are_untouched_before_phase_six(relative):
-    """The Phase 6 promotion is the only authorised change, and it has not run."""
+def test_the_plan5_converter_is_byte_identical_to_the_phase_zero_baseline(relative):
+    """The consumer the promotion existed to leave alone. Still not one byte moved."""
     assert sha256_of(REPO_ROOT / relative) == PHASE0_PLAN5_HASHES[relative]
 
 
@@ -817,6 +1003,108 @@ def test_the_phase_six_guard_passes_a_capture_that_allocates_nothing():
     )
     seen = defined_names(clean) | referenced_names(clean) | imported_names(clean)
     assert {entry for entry in PHASE6_NAMES if entry in seen} == set()
+
+
+# --- the promoted-allocator purity guard ---------------------------------- #
+
+
+@pytest.mark.parametrize("code", [
+    "import threading\n",
+    "from pathlib import Path\n",
+    "import subprocess\n",
+    "from shared.book_workspace import BookJob\n",
+    "import dataclasses\nimport time\n",
+    "from __future__ import annotations\nimport tkinter as tk\n",
+])
+def test_the_allocator_purity_guard_actually_detects_a_widened_dependency(code):
+    assert not import_roots_in(sample(code)) <= ALLOCATOR_IMPORTS
+
+
+def test_the_allocator_purity_guard_passes_the_real_allowlist():
+    clean = sample("from __future__ import annotations\n"
+                   "from dataclasses import dataclass\n"
+                   "import dataclasses\n")
+    assert import_roots_in(clean) <= ALLOCATOR_IMPORTS
+
+
+def test_the_allocator_purity_guard_refuses_a_relative_import_outright():
+    """A relative spelling has no root to compare, so it must not slip through."""
+    with pytest.raises(AssertionError):
+        import_roots_in(sample("from ..shared.numbering import SuccessNumbers\n"))
+
+
+def test_the_allocator_purity_guard_is_not_fooled_by_a_docstring():
+    """Prose about a Path or a subprocess is not a dependency on one."""
+    clean = sample('"""Numbers only. It never opens a Path or runs a subprocess."""\n'
+                   "from dataclasses import dataclass\n")
+    assert import_roots_in(clean) <= ALLOCATOR_IMPORTS
+    assert not set(ALLOCATOR_FORBIDDEN) & referenced_names(clean)
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("import tkinter as tk\ndef f():\n    return tk.Tk()", "Tk"),
+    ("def f(p):\n    return Path(p)", "Path"),
+    ("def f(name):\n    return open(name)", "open"),
+    ("def f(plan):\n    return ConversionPlan(plan)", "ConversionPlan"),
+    ("def f(t):\n    return ffmpeg_cmd(t)", "ffmpeg_cmd"),
+])
+def test_the_allocator_vocabulary_guard_actually_detects_integration_code(
+        code, expected):
+    assert expected in referenced_names(sample(code)) & set(ALLOCATOR_FORBIDDEN)
+
+
+# --- the re-export guard --------------------------------------------------- #
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("from shared.numbering import SuccessNumbers as _S\n"
+     "class SuccessNumbers(_S):\n    pass\n", "SuccessNumbers"),
+    ("class SuccessNumbers:\n"
+     "    def propose(self):\n        return 1\n", "SuccessNumbers"),
+    ("def make():\n"
+     "    class SuccessNumbers:\n        pass\n"
+     "    return SuccessNumbers\n", "SuccessNumbers"),
+    ("def propose(counter):\n    return counter.propose()\n", "propose"),
+])
+def test_the_re_export_guard_actually_detects_a_second_implementation(
+        code, expected):
+    """A subclass, a rewrite, a wrapper, even one hidden inside a factory."""
+    assert expected in defined_names(sample(code))
+
+
+def test_the_re_export_guard_passes_a_genuine_re_export():
+    clean = sample("from __future__ import annotations\n"
+                   "from shared.numbering import NumberingError, SuccessNumbers, "
+                   "Tentative\n"
+                   '__all__ = ["NumberingError", "Tentative", "SuccessNumbers"]\n')
+    assert defined_names(clean) == set()
+    assert set(import_sources_in(clean)) == {"__future__", "shared.numbering"}
+
+
+@pytest.mark.parametrize("code", [
+    "from shared import numbering\n",
+    "import shared.numbering\nimport shared.book_workspace\n",
+    "from shared.numbering import SuccessNumbers\n"
+    "from shared.metadata import something\n",
+])
+def test_the_re_export_guard_rejects_anything_broader_than_the_one_module(code):
+    """``shared`` is not the allowed dependency; ``shared.numbering`` is."""
+    assert set(import_sources_in(sample(code))) != {"__future__", "shared.numbering"}
+
+
+def test_the_re_export_guard_sees_the_full_dotted_path_not_just_the_root():
+    """The distinction the whole guard rests on, asserted directly."""
+    broad = import_sources_in(sample("from shared import numbering\n"))
+    assert set(broad) == {"shared"}, "the root, which is exactly what is NOT allowed"
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("from shared.numbering import SuccessNumbers\n", {"SuccessNumbers"}),
+    ("from shared.numbering import NumberingError, SuccessNumbers, Tentative\n",
+     {"NumberingError", "SuccessNumbers", "Tentative"}),
+])
+def test_the_re_export_guard_records_which_names_were_taken(code, expected):
+    assert import_sources_in(sample(code))["shared.numbering"] == expected
 
 
 @pytest.mark.parametrize("code,expected", [

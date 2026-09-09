@@ -2,6 +2,86 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 6 COMPLETE; PHASE 7 NOT STARTED (2026-09-09)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 6** as the next action. Phase 6 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 6 — Numbering is COMPLETE**, in two parts: the promotion (drop section 17.1) and
+>   the book-level contract (17.2).
+> - **A BLOCKING GATE FIRED AND WAS RESOLVED BY A BINDING MAINTAINER RULING, NOT BY JUDGEMENT.**
+>   Read **drop section 39.1** before reading section 17.1. Section 17.1 required
+>   `files/tests/test_m4b_numbering.py` to pass **unchanged**. The first Phase 6 attempt promoted the
+>   allocator, hit `test_the_allocator_is_pure` at **50/51**
+>   (`AssertionError: {'__future__', 'shared'}`), **stopped and fully reverted the tree**, exactly as
+>   instructed. Every honest re-export spelling was proved to fail that assertion — the absolute form
+>   records the `shared` root; the relative form raises *"attempted relative import beyond top-level
+>   package"* because `scripts/Universal/` has no `__init__.py`; `importlib` records itself. The one
+>   spelling that would have slipped past, `__import__('shared.numbering')`, passes only by **hiding**
+>   the dependency from the AST and was **rejected as evasion and never written.** The maintainer then
+>   authorised a narrowly scoped transition of that one assertion.
+> - **THIS IS NOT A PLAN 5 DEFECT, AND NOT A WEAKENING.** The Plan 5 guard was correct about Plan 5's
+>   architecture and it is the reason the promotion could not happen quietly. It was retired from that
+>   file **only because the property it protected moved to a different file.** Its replacement is
+>   **stricter**: the legacy file must declare **no allocator of its own**, its dependencies must be
+>   **exactly** `{"__future__", "shared.numbering"}` — the module, **not merely the `shared` root** —
+>   it must take exactly the three public names, those objects must **be** the shared ones by
+>   identity, and the original twelve-name forbidden list is unchanged.
+> - **The original purity property moved with the implementation.** `test_plan6_boundaries.py` now
+>   asserts `shared/numbering.py` has import roots within `{"__future__", "dataclasses"}` and names
+>   none of `Tk`, `StringVar`, `Path`, `open`, `run`, `popen`, `ConversionPlan`, `SegmentPlan`,
+>   `ItemPlan`, `whole_book_tags`, `segment_tags`, `ffmpeg_cmd`. Same allowlist, same list, pointed at
+>   the file that actually implements the counter.
+> - **Exactly one test function changed, proved mechanically**: 66 top-level declarations before and
+>   after, none added, none removed, `changed == ['test_the_allocator_is_pure']`, **behavioural
+>   expectations altered: NONE**. `test_m4b_numbering.py` still collects and passes **51**.
+> - **The allocator was MOVED, not copied.** `NumberingError`, `Tentative` and `SuccessNumbers` are
+>   **unparsed-AST identical** between `1ac0e05:mp3_tools/m4b_numbering.py` and
+>   `shared/numbering.py`; only the module docstring differs. `mp3_tools/m4b_numbering.py` is now a
+>   re-export declaring nothing, so `mp3_tools.m4b_numbering.SuccessNumbers` **is**
+>   `shared.numbering.SuccessNumbers` — **one implementation, not two**, asserted by `is`.
+> - **`m4b_converter.py` is byte-identical**, along with `m4b_maker.py`, `mp3_tool.py`,
+>   `m4b_metadata_editor.py`, `job_control.py`, `importing.py`, `config.py`, `metadata.py`,
+>   `import_coordination.py`, `job_ui.py`, `ui_theme.py`, `launcher.py`, `test_plan3_boundaries.py`,
+>   `test_tool_output_integration.py`, `config.toml` and `version.py`. **`ADOPTED` stays at six** —
+>   `shared/numbering.py` imports no Plan 3 module, as Phase 0 predicted.
+> - **`shared/book_workspace.py` was not modified**; `__all__` stays at **41**. That is the design:
+>   numbering is not part of the workspace vocabulary, which is what putting the allocator in its own
+>   module says. A guard asserts the data layer still names no counter — now the *stronger* claim,
+>   since the allocator exists one import away and is refused anyway.
+> - **Decisions 21A / 28A / 48A proved at book level** by `files/tests/test_book_numbering.py` (35
+>   tests) driving the shared allocator **directly** — no second state machine. The start is read from
+>   the **frozen** `tool_options`, so editing the live book or the shared metadata after capture
+>   cannot move the attempt. The canonical sequence holds: A commits 1; B proposes 2 and **fails
+>   without committing**; C receives **2**; final `(1, 2)`, `consumed == 2`, `next_number == 3` — and
+>   at start 7 it is **`(7, 8)`, not `(7, 9)`**. Empty and consumer-invalid books never reach the
+>   allocator at all. The counter appears in **no** frozen record and `capture_workspace_run`
+>   constructs no `SuccessNumbers`.
+> - **Gate: 6,187 collected / 6,173 passed / 14 skipped / 0 failed**, up from the Phase 5 baseline of
+>   6,118 by exactly **69**: `test_book_numbering.py` +35, `test_plan6_boundaries.py` 113 → 145,
+>   `test_plan3_boundaries.py` +1 and `test_launch_self_heal.py` +1 (both parametrise over every
+>   `scripts/Universal/**.py`). **No baseline test disappeared.** `verify.py` **RESULT: PASS**;
+>   `compileall` exit 0; `git diff --check` clean; production runtime state fingerprinted before and
+>   after over 174,065 files — **no change**.
+> - **Red proof** at `1ac0e05` in a fresh `files/dev-work/phase6-redproof/` worktree, since removed:
+>   `ModuleNotFoundError: No module named 'shared.numbering'` at collection, plus **10 boundary
+>   failures against 292 passes**. New functionality being red because it does not exist; **not**
+>   claimed as a pre-existing defect. No existing dev-work evidence was disturbed.
+> - **A Phase 5 record slip is corrected in drop section 39.8:** section 38 says
+>   `test_plan6_boundaries.py` went "100 → 120"; the real Phase 5 count was **113** (157 + 45 + 88 +
+>   67 + 113 = 470, the total section 38.9 itself reports, and a fresh `1ac0e05` checkout collects
+>   113). The Phase 5 suite totals were measured directly and are correct.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 7 — RETRY AND DISPOSITIONS. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 5 COMPLETE; PHASE 6 NOT STARTED (2026-09-09)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block

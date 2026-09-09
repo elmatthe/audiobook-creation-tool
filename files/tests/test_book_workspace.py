@@ -1243,22 +1243,34 @@ def test_a_rejected_operation_consumes_no_identity():
 
 
 # --------------------------------------------------------------------------- #
-# Phase 6 must remain absent
+# The data layer holds no counter, and Phase 7 remains absent
 #
-# Phase 5 delivered the frozen run, so capture now exists and is covered in
-# ``test_book_run_snapshot.py``. The absence boundary moves forward with the plan
-# rather than being retired: numbering is Phase 6's, and dispositions and retry
-# are Phase 7's.
+# The boundary moves forward with the plan rather than being retired. Phase 5
+# delivered the frozen run (``test_book_run_snapshot.py``); Phase 6 delivered the
+# allocator — in ``shared/numbering.py``, which is a different module for a reason.
+# Dispositions, results and retry are still Phase 7's and still do not exist.
 # --------------------------------------------------------------------------- #
 
 
-def test_no_numbering_or_disposition_exists_yet():
-    """Phases 6 and 7 own these. Absence is proved, not merely untested."""
+def test_this_module_holds_no_counter_and_no_disposition():
+    """Half of this is now the stronger claim: the allocator EXISTS, one import
+    away, and this module still refuses it.
+
+    A success counter is execution state — a fact about one attempt — and this
+    module is where frozen state lives. Re-exporting ``SuccessNumbers`` here would
+    make numbering part of the workspace vocabulary, which is exactly what
+    ``shared/numbering.py`` being its own module says it is not. The Phase 7 names
+    below are the ordinary kind of absence: they have not been written yet.
+    """
     from shared import book_workspace as module
-    for later in ("SuccessNumbers", "Tentative", "NumberingError",
-                  "BookRunResult", "BookDisposition", "retry_failed_books",
-                  "RunResult", "RetryRequest"):
-        assert not hasattr(module, later), later
+    for elsewhere in ("SuccessNumbers", "Tentative", "NumberingError",
+                      "BookRunResult", "BookDisposition", "retry_failed_books",
+                      "RunResult", "RetryRequest"):
+        assert not hasattr(module, elsewhere), elsewhere
+
+    # And it is genuinely reachable, so the assertion above is not vacuous.
+    from shared.numbering import SuccessNumbers
+    assert SuccessNumbers(1).next_number == 1
 
 
 def test_a_book_still_stores_only_its_own_raw_values():
