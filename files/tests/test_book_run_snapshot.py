@@ -28,6 +28,7 @@ from shared import book_workspace
 from shared.book_workspace import (
     RUN_ID_KIND,
     BookContractError,
+    BookDisposition,
     BookIdentityError,
     BookJob,
     BookRunSnapshot,
@@ -71,6 +72,11 @@ ROOTED = ImportRoot("root-1", ROOT, 0)
 FIELDS = ("title", "author")
 
 _IDS = IdFactory("t-")
+
+#: The two skip reasons a capture may record. Named here so the shape tests below
+#: read as being about the collection rather than about the enum.
+EMPTY = BookDisposition.SKIPPED_EMPTY
+INVALID = BookDisposition.SKIPPED_INVALID
 
 
 def files(label: str, count: int = 2) -> ImportedFileSnapshot:
@@ -188,14 +194,14 @@ def test_duplicate_attempted_book_ids_are_refused():
 
 def test_duplicate_skipped_book_ids_are_refused():
     with pytest.raises(BookIdentityError):
-        BookRunSnapshot(skipped_book_ids=("b-1", "b-1"))
+        BookRunSnapshot(skipped=((("b-1", EMPTY)), ("b-1", EMPTY)))
 
 
 def test_a_book_cannot_be_both_attempted_and_skipped():
     """Two answers to 'what did this run do with book X' is one too many."""
     snapshot = capture(workspace(book())).runs[0][1]
     with pytest.raises(BookIdentityError):
-        BookRunSnapshot(runs=(("b-1", snapshot),), skipped_book_ids=("b-1",))
+        BookRunSnapshot(runs=(("b-1", snapshot),), skipped=(("b-1", EMPTY),))
 
 
 @pytest.mark.parametrize("bad", ["runs", b"runs", 7, None])
@@ -228,7 +234,7 @@ def test_a_malformed_book_id_is_refused_in_either_collection(bad):
     with pytest.raises(BookIdentityError):
         BookRunSnapshot(runs=((bad, snapshot),))
     with pytest.raises(BookIdentityError):
-        BookRunSnapshot(skipped_book_ids=(bad,))
+        BookRunSnapshot(skipped=((bad, EMPTY),))
 
 
 def test_the_captured_shared_metadata_must_be_the_phase_four_value():
@@ -238,13 +244,26 @@ def test_the_captured_shared_metadata_must_be_the_phase_four_value():
 
 
 def test_the_composition_carries_no_later_phase_state():
-    """No counter, no disposition, no failure, no controller, no output."""
+    """No counter, no failure, no result, no controller, no output.
+
+    **Phase 7 transition.** The stored field is now ``skipped`` — the skipped books
+    *with the reason frozen beside each one* — because telling SKIPPED_EMPTY from
+    SKIPPED_INVALID afterwards would mean reading a workspace that may have changed,
+    which section 16 forbids. That is the one disposition a capture may hold, because
+    a skip is decided at capture rather than by running. Everything that describes
+    what *happened* still lives in the result layer, not here.
+    """
     stored = {entry.name for entry in dataclasses.fields(BookRunSnapshot)}
-    assert stored == {"runs", "skipped_book_ids", "shared"}
+    assert stored == {"runs", "skipped", "shared"}
     for later in ("numbers", "next_number", "start_number", "dispositions",
                   "outcomes", "failures", "result", "retry", "controller",
                   "destination", "outputs"):
         assert later not in stored, later
+
+    # ``skipped_book_ids`` survives as a DERIVED projection, so the Phase 5 spelling
+    # keeps working while there is only one stored truth about the skipped books.
+    assert "skipped_book_ids" not in stored
+    assert isinstance(BookRunSnapshot.__dict__["skipped_book_ids"], property)
 
 
 # --------------------------------------------------------------------------- #
@@ -650,3 +669,125 @@ def test_two_captures_of_one_workspace_are_independent():
         assert left is not right, "each capture froze its own run"
         assert left.snapshot_id != right.snapshot_id
         assert dict(left.tool_options) == dict(right.tool_options)
+
+
+# --------------------------------------------------------------------------- #
+# The skip reason is frozen at capture — Phase 7 transition
+#
+# Phase 5 stored only the skipped ids, which was everything capture eligibility
+# needed. Phase 7 has to tell SKIPPED_EMPTY from SKIPPED_INVALID, and the only
+# moment that distinction exists is the moment eligibility is classified: the
+# predicate has been asked, and the answer is about to be thrown away. Section 16
+# forbids consulting the live workspace afterwards, so it is captured here.
+#
+# This is a forward evolution of the Phase 5 composition, not a Phase 5 defect.
+# --------------------------------------------------------------------------- #
+
+
+def test_capture_tells_an_empty_book_from_an_invalid_one():
+    blank, invalid, fine = empty_book(), book("B"), book("C")
+    value = capture(workspace(blank, invalid, fine),
+                    is_valid=lambda entry: entry.book_id != invalid.book_id)
+
+    assert value.skipped == ((blank.book_id, EMPTY), (invalid.book_id, INVALID))
+    assert value.skip_reason(blank.book_id) is EMPTY
+    assert value.skip_reason(invalid.book_id) is INVALID
+    assert value.attempted_book_ids == (fine.book_id,)
+
+
+def test_an_attempted_book_has_no_skip_reason():
+    entry = book("A")
+    value = capture(workspace(entry))
+    assert value.skip_reason(entry.book_id) is None
+
+
+def test_an_unknown_book_has_no_skip_reason():
+    value = capture(workspace(book("A")))
+    assert value.skip_reason("b-nobody") is None
+
+
+def test_emptiness_is_answered_first_and_needs_no_consumer_opinion():
+    """A book with nothing to work on reads as EMPTY even if the predicate agrees.
+
+    "It had no files" is the structural truth and is true whatever the consumer
+    thinks; asking the predicate to arbitrate would make the reason depend on which
+    tool happened to be running.
+    """
+    blank = empty_book()
+    value = capture(workspace(blank, book("A")), is_valid=lambda entry: False)
+    assert value.skip_reason(blank.book_id) is EMPTY
+
+
+def test_with_no_predicate_no_book_is_ever_invalid():
+    value = capture(workspace(empty_book(), empty_book(), book("A")))
+    assert {why for _book_id, why in value.skipped} == {EMPTY}
+
+
+def test_the_skip_collection_is_the_one_stored_truth():
+    """``skipped_book_ids`` is derived from it, so the two cannot drift apart."""
+    blank, invalid = empty_book(), book("B")
+    value = capture(workspace(blank, invalid, book("C")),
+                    is_valid=lambda entry: entry.book_id != invalid.book_id)
+
+    stored = {entry.name for entry in dataclasses.fields(BookRunSnapshot)}
+    assert "skipped" in stored
+    assert "skipped_book_ids" not in stored, "a second stored truth"
+
+    assert value.skipped_book_ids == tuple(
+        book_id for book_id, _why in value.skipped)
+    assert value.skipped_count == len(value.skipped)
+
+
+def test_the_frozen_skip_reason_survives_every_later_workspace_edit():
+    """Section 16 again: the reason cannot be re-derived, so it must not need to be."""
+    blank, invalid, fine = empty_book(), book("B"), book("C")
+    space = workspace(blank, invalid, fine)
+    value = capture(space, is_valid=lambda entry: entry.book_id != invalid.book_id)
+    before = value.skipped
+
+    # Give the empty book files, make the invalid one look ordinary, change the
+    # shared metadata, then throw the whole workspace away.
+    filled = replace_book(space, BookJob(book_id=blank.book_id, files=files("Z")))
+    set_shared_metadata(filled.workspace,
+                        SharedMetadata(FIELDS, {"title": "Changed"}))
+    add_book(filled.workspace, id_factory=IdFactory("late-"))
+    remove_book(filled.workspace, id_factory=IdFactory("late-"))
+    replace_workspace_from_import(filled.workspace, scanned("Fresh"),
+                                  id_factory=IdFactory("late-"))
+
+    assert value.skipped == before
+    assert value.skip_reason(blank.book_id) is EMPTY, "still empty, as captured"
+    assert value.skip_reason(invalid.book_id) is INVALID
+
+
+@pytest.mark.parametrize("why", [
+    BookDisposition.SUCCEEDED,
+    BookDisposition.FAILED,
+    BookDisposition.NOT_ATTEMPTED,
+])
+def test_only_the_two_skip_reasons_may_be_stored_in_a_capture(why):
+    """SUCCEEDED, FAILED and NOT_ATTEMPTED are facts about running.
+
+    A skipped book never ran, so storing one of those here would be a second, older
+    answer to a question the result layer derives.
+    """
+    with pytest.raises(WorkspaceContractError):
+        BookRunSnapshot(skipped=(("b-1", why),))
+
+
+@pytest.mark.parametrize("wrong", ["skipped_empty", None, 0, ("b-1",)])
+def test_a_skip_reason_must_be_the_enum_member_not_its_value(wrong):
+    with pytest.raises(WorkspaceContractError):
+        BookRunSnapshot(skipped=(("b-1", wrong),))
+
+
+def test_a_skip_entry_must_be_a_pair():
+    for bad in [("b-1",), ("b-1", EMPTY, "extra"), "b-1"]:
+        with pytest.raises(WorkspaceContractError):
+            BookRunSnapshot(skipped=(bad,))
+
+
+@pytest.mark.parametrize("bad", ["skipped", b"skipped", 7, None])
+def test_the_skip_collection_must_be_an_iterable_of_pairs(bad):
+    with pytest.raises(WorkspaceContractError):
+        BookRunSnapshot(skipped=bad)

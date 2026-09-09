@@ -2,6 +2,82 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 7 COMPLETE; PHASE 8 NOT STARTED (2026-09-09)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 7** as the next action. Phase 7 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 7 — Dispositions and retry is COMPLETE.** `shared/book_workspace.py` gains
+>   `BookDisposition`, `SKIP_DISPOSITIONS`, `WorkspaceRunResult` and `retry_failed_books`
+>   (`__all__` 41 → **45**). **Phase 7 describes a retry; it never runs one.**
+> - **Five book dispositions, and no sixth:** `SUCCEEDED`, `FAILED`, `SKIPPED_EMPTY`,
+>   `SKIPPED_INVALID`, `NOT_ATTEMPTED`. There is deliberately **no book-level `CANCELLED`** —
+>   cancellation is a fact about the batch and `JobState.CANCELLED` already says it. Plan 3's
+>   `ItemStatus` was **not** widened, reused or even referenced; a guard proves it.
+> - **The skip reason is now frozen at capture.** Phase 5 stored only the skipped ids, so
+>   `SKIPPED_EMPTY` and `SKIPPED_INVALID` were indistinguishable afterwards, and re-deriving them
+>   would have meant reading a live workspace — which §16 forbids. `BookRunSnapshot` now stores
+>   `skipped: tuple[(book_id, BookDisposition), ...]`, and **`skipped_book_ids` survives as a derived
+>   property** with unchanged behaviour. One stored truth, not two. Emptiness is asked first, so an
+>   empty book reads as `SKIPPED_EMPTY` even where the predicate would also reject it. **This is an
+>   authorised Phase 7 forward evolution, NOT a Phase 5 defect** — `test_book_numbering.py` needed no
+>   edit at all, which is the outward proof the Phase 5 contract held.
+> - **`WorkspaceRunResult` is three fields**: the exact `BookRunSnapshot`, one **existing Plan 3
+>   `RunResult`** per settled book, and Plan 3's own terminal `JobState`. No `WorkspaceState`, no
+>   second result/failure/retry type, no controller. Results are canonicalised into the frozen
+>   attempted-book order whatever order the caller supplies.
+> - **Identity, not equality.** A result carrying another book's snapshot — or an equal-but-distinct
+>   copy — is refused, because an equal copy is the signature of a rebuilt run.
+> - **Decision 28A pinned directly**: A succeeds, B fails, C succeeds → the batch is
+>   `COMPLETED_WITH_FAILURES`, **not** `FAILED`, and C still settled. Even a book whose own run was
+>   `JobState.FAILED` leaves the batch completed.
+> - **Retry Failed delegates rather than reimplements.** `retry_failed_books(result)` returns one
+>   existing Plan 3 `RetryRequest` per retryable book, each built by that book's own
+>   `RunResult.retry()`; availability delegates whole to
+>   `job_control.is_available(JobAction.RETRY_FAILED, …)` and Plan 6 never restates the action/state
+>   table. Retryable means **failed AND `RunResult.has_retryable`** — succeeded, both skips,
+>   not-attempted and fatal/unretryable failures are all excluded.
+> - **Decision 37A proved end to end.** The chain `BookRunSnapshot -> RunResult -> RetryRequest` holds
+>   the **same** `RunSnapshot` object, asserted with `is`. `retry_failed_books` takes no workspace
+>   parameter at all: change per-book configuration, Shared Metadata, the imported files, add a book,
+>   remove a book and replace the entire workspace from a fresh import, and the requests, ids,
+>   snapshots, item ids, tool options and file lists are unchanged.
+> - **Numbering stayed where Phase 6 put it.** Production imports no allocator. The protocol test
+>   owns its own counter: A commits 1, B fails committing nothing, C takes 2; **building Retry Failed
+>   consumes zero numbers**; a simulated retried success then takes **3** — sequence 1, 2, 3, no gap,
+>   no duplicate. `numbering.py`, `m4b_numbering.py` and `test_m4b_numbering.py` are unchanged and all
+>   51 Plan 5 numbering tests pass.
+> - **Gate: 6,354 collected / 6,340 passed / 14 skipped / 0 failed**, up from the Phase 6 baseline of
+>   6,187 by exactly **167**: `test_book_retry.py` +109 (new), `test_plan6_boundaries.py` 145 → 182,
+>   `test_book_run_snapshot.py` 67 → 86, `test_book_workspace.py` 157 → 159. **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; `git diff --check` clean; all
+>   four panel/Converter hashes byte-identical; **`ADOPTED` unchanged at six**; `job_control.py` and
+>   every other forbidden file unchanged; production runtime state unchanged across 174,065 files.
+> - **Red proof** at `1983526` in a fresh `files/dev-work/phase7-redproof/` worktree, since removed:
+>   two collection `ImportError`s plus **12 boundary failures against 364 passes**. New functionality
+>   red because it does not exist; not a pre-existing defect.
+> - **TWO REAL DEFECTS WERE FOUND AND FIXED, both in test machinery this session wrote.** (1) The
+>   Phase 6 promoted-state hash pins were recorded from LF files this session authored, but
+>   `core.autocrlf` is `true`, so they failed in a fresh CRLF checkout on line endings alone with
+>   identical content; the comparison now normalises line endings and **the recorded digests did not
+>   change**. The four maintainer-supplied panel/Converter hashes are left exactly as recorded.
+>   (2) Two tests in `test_plan6_boundaries.py` briefly shared a name while a guard was being moved
+>   forward, so one silently ceased to exist while the suite stayed green; a permanent guard now
+>   asserts no Plan 6 test module declares the same test twice.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the
+>   focused run, the full run and under `verify.py`. It remains **not fixed and is not called fixed**,
+>   and it was not modified.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 8 — UI ADAPTER AND HARNESS. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval. **Phase 8 carries the plan's FIRST MANUAL GATE, which has
+>   not been reached.** `shared/book_workspace_ui.py` and `files/tests/manual_plan6_harness.py` do not
+>   exist, and structural guards prove the data layer is still Tk-free, thread-free and theme-free.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 6 COMPLETE; PHASE 7 NOT STARTED (2026-09-09)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block

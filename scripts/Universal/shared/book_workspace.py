@@ -38,12 +38,24 @@ what one book's run will consume, and :func:`capture_workspace_run` freezes a wh
 workspace into a :class:`BookRunSnapshot` — **one existing Plan 3 ``RunSnapshot``
 per eligible book**, composed, never replaced. After capture the run never consults
 the workspace again.
+That last sentence is why Phase 7 froze the *reason* a book was skipped alongside
+the id: telling ``SKIPPED_EMPTY`` from ``SKIPPED_INVALID`` afterwards would have
+meant asking a workspace that may have changed since.
+
+Phase 7 added sections 18.1–18.3: :class:`BookDisposition` — the five book-level
+answers Plan 3's ``ItemStatus`` deliberately does not hold — plus
+:class:`WorkspaceRunResult`, which composes **one existing Plan 3 ``RunResult`` per
+attempted book** with Plan 3's own ``JobState`` for the batch, and
+:func:`retry_failed_books`, which returns one existing Plan 3 ``RetryRequest`` per
+retryable book. It **describes** a retry; it never runs one.
 
 What deliberately does **not** live here
 ---------------------------------------
-No numbering, no dispositions, no Retry Failed, no ``JobController`` and no Tk.
-Those are Plan 6 Phases 6–8 of the active drop, and structural guards prove they
-have not been pulled forward. Phase 5 **captures**; it runs nothing.
+No numbering, no ``JobController`` and no Tk. The allocator is
+``shared.numbering``'s, a controller is one-per-run and the consumer's, and the Tk
+adapter is Phase 8 of the active drop; structural guards prove none has been pulled
+forward. Phase 5 **captures** and Phase 7 **composes**; neither runs anything — no
+worker, no thread, no ffmpeg, no output, and no number allocated.
 
 No thread, no lock, no queue, no clock, no subprocess, no network, and no filesystem
 access of any kind. A ``Path`` reaches this module only as data already inside a
@@ -89,7 +101,17 @@ from shared.importing import (
     SupportedTypeCatalog,
     natural_key,
 )
-from shared.job_control import RunSnapshot, capture_run, freeze_options
+from shared.job_control import (
+    JobAction,
+    JobState,
+    RetryRequest,
+    RunResult,
+    RunSnapshot,
+    TERMINAL_STATES,
+    capture_run,
+    freeze_options,
+    is_available,
+)
 
 __all__ = [
     "BookContractError",
@@ -133,6 +155,10 @@ __all__ = [
     "effective_run_options",
     "BookRunSnapshot",
     "capture_workspace_run",
+    "BookDisposition",
+    "SKIP_DISPOSITIONS",
+    "WorkspaceRunResult",
+    "retry_failed_books",
 ]
 
 
@@ -1199,6 +1225,54 @@ def effective_run_options(book: BookJob,
     return options
 
 
+# --------------------------------------------------------------------------- #
+# Book dispositions — Phase 7 (section 18.1)
+# --------------------------------------------------------------------------- #
+
+
+class BookDisposition(Enum):
+    """What became of one book in one workspace run. Five answers, no more.
+
+    Plan 3's ``ItemStatus`` deliberately has only ``SUCCEEDED`` / ``FAILED`` /
+    ``NOT_ATTEMPTED`` and deliberately has no ``SKIPPED``: a *tool* that wants to
+    skip an item decides that for itself. A ``BookJob`` is not a Plan 3 item — the
+    workspace itself decides a book is not worth attempting, before any worker
+    exists — so section 18.1 gives the book level the two skip answers Plan 3 has no
+    business holding, and Plan 6 states them here rather than widening ``ItemStatus``.
+
+    There is deliberately **no** ``CANCELLED`` member. Cancellation is a fact about
+    the batch, and Plan 3's ``JobState.CANCELLED`` already says it; asking a book
+    "were you cancelled?" produces two different answers for the same run depending
+    on how far it got, which is exactly what ``FAILED`` and ``NOT_ATTEMPTED`` already
+    distinguish.
+    """
+
+    #: Attempted, and its own Plan 3 ``RunResult`` reports ``JobState.SUCCEEDED``.
+    SUCCEEDED = "succeeded"
+    #: Attempted, and its run reached a terminal state that was not success —
+    #: including a book cancelled part-way through its own work.
+    FAILED = "failed"
+    #: Had no imported files at capture, so it received no ``RunSnapshot``. Not a
+    #: failure: Decision 13A says an empty job is identified clearly and skipped
+    #: safely.
+    SKIPPED_EMPTY = "skipped_empty"
+    #: The consumer's validity predicate rejected it at capture, so it received no
+    #: ``RunSnapshot``. Also not a failure.
+    SKIPPED_INVALID = "skipped_invalid"
+    #: Eligible, frozen, and never reached — the batch ended first. Emphatically not
+    #: a failure, and never offered for retry, the same rule Plan 3 states for items.
+    NOT_ATTEMPTED = "not_attempted"
+
+
+#: The only dispositions a *capture* can record, because capture happens before any
+#: work does. Stated once, so the snapshot's invariant and the derivation that reads
+#: it cannot disagree about which two those are.
+SKIP_DISPOSITIONS = frozenset({
+    BookDisposition.SKIPPED_EMPTY,
+    BookDisposition.SKIPPED_INVALID,
+})
+
+
 @dataclass(frozen=True, slots=True)
 class BookRunSnapshot:
     """One workspace run, frozen: the books it will attempt and the ones it will not.
@@ -1208,10 +1282,18 @@ class BookRunSnapshot:
     identity, not copied — so the book identity and the Plan 3 run identity stay tied
     together without either being encoded inside the other.
 
-    ``skipped_book_ids`` records the books this run will not attempt, by stable id.
-    At Phase 5 that is capture eligibility and nothing more: an empty book is not a
-    failure, and the disposition vocabulary that says what *became* of a book is
-    Phase 7's.
+    ``skipped`` records the books this run will not attempt, in order, **with the
+    reason frozen beside each one**: an ordered tuple of
+    ``(book_id, BookDisposition)`` restricted to :data:`SKIP_DISPOSITIONS`. Phase 5
+    stored only the ids, because capture eligibility was all it owned; Phase 7 has to
+    tell ``SKIPPED_EMPTY`` from ``SKIPPED_INVALID``, and the only moment that
+    distinction exists is the moment eligibility is classified. Reconstructing it
+    later would mean reading the live workspace, which is precisely what section 16
+    forbids — so it is captured here, once.
+
+    ``skipped_book_ids`` therefore remains available and behaves exactly as it did,
+    but it is now **derived** from that one collection rather than stored beside it.
+    Two stored truths about the same books is one too many.
 
     ``shared`` is the Shared Metadata that was in force at capture. It is kept so the
     run can report what it resolved against; the effective values themselves are
@@ -1219,14 +1301,15 @@ class BookRunSnapshot:
     to resolve precedence again**.
 
     Deliberately absent: no success counter or next number (Phase 6 — a counter is a
-    fact about one attempt's execution, the opposite of a frozen plan), no
-    disposition, failure, ``RunResult`` or ``RetryRequest`` (Phase 7), no
-    ``JobController`` (one per run, and the consumer owns it), and no output path
-    (Plan 2's, always).
+    fact about one attempt's execution, the opposite of a frozen plan), no failure,
+    ``RunResult`` or ``RetryRequest`` — those describe what *happened*, and this is
+    the plan a retry re-reads — no ``JobController`` (one per run, and the consumer
+    owns it), and no output path (Plan 2's, always). The only disposition here is a
+    skip reason, because a skip is decided **at capture** rather than by running.
     """
 
     runs: tuple[tuple[str, RunSnapshot], ...] = ()
-    skipped_book_ids: tuple[str, ...] = ()
+    skipped: tuple[tuple[str, BookDisposition], ...] = ()
     shared: SharedMetadata = NO_SHARED_METADATA
 
     def __post_init__(self) -> None:
@@ -1254,13 +1337,29 @@ class BookRunSnapshot:
             pairs.append((book_id, snapshot))
         object.__setattr__(self, "runs", tuple(pairs))
 
-        if isinstance(self.skipped_book_ids, (str, bytes)) or not isinstance(
-                self.skipped_book_ids, Iterable):
-            raise WorkspaceContractError("skipped_book_ids must be an iterable of ids")
-        skipped: list[str] = []
+        if isinstance(self.skipped, (str, bytes)) or not isinstance(
+                self.skipped, Iterable):
+            raise WorkspaceContractError("skipped must be an iterable of pairs")
+        skipped: list[tuple[str, BookDisposition]] = []
         seen: set[str] = set()
-        for book_id in self.skipped_book_ids:
+        for entry in self.skipped:
+            if isinstance(entry, (str, bytes)) or not isinstance(entry, Iterable):
+                raise WorkspaceContractError(
+                    "each skip must be a (book_id, BookDisposition) pair")
+            items = tuple(entry)
+            if len(items) != 2:
+                raise WorkspaceContractError(
+                    "each skip must be a (book_id, BookDisposition) pair, got "
+                    f"{len(items)} values")
+            book_id, why = items
             clean = _require_identifier("book_id", book_id, error=BookIdentityError)
+            if why not in SKIP_DISPOSITIONS:
+                # SUCCEEDED, FAILED and NOT_ATTEMPTED are facts about running, and a
+                # skipped book never ran. Storing one here would be a second, older
+                # answer to a question the result layer derives.
+                raise WorkspaceContractError(
+                    "a skipped book's disposition must be SKIPPED_EMPTY or "
+                    f"SKIPPED_INVALID, got {why!r}")
             if clean in seen:
                 raise BookIdentityError(f"duplicate skipped book_id {clean!r}")
             if clean in attempted:
@@ -1269,8 +1368,8 @@ class BookRunSnapshot:
                 raise BookIdentityError(
                     f"book_id {clean!r} is both attempted and skipped")
             seen.add(clean)
-            skipped.append(clean)
-        object.__setattr__(self, "skipped_book_ids", tuple(skipped))
+            skipped.append((clean, why))
+        object.__setattr__(self, "skipped", tuple(skipped))
 
         if not isinstance(self.shared, SharedMetadata):
             raise WorkspaceContractError(
@@ -1287,8 +1386,30 @@ class BookRunSnapshot:
         return len(self.runs)
 
     @property
+    def skipped_book_ids(self) -> tuple[str, ...]:
+        """The books this run will not attempt, in order — **derived**.
+
+        The Phase 5 spelling, unchanged in behaviour. It is a projection of
+        :attr:`skipped` rather than a second stored tuple, so the ids and the reasons
+        cannot drift apart.
+        """
+        return tuple(book_id for book_id, _why in self.skipped)
+
+    @property
     def skipped_count(self) -> int:
-        return len(self.skipped_book_ids)
+        return len(self.skipped)
+
+    def skip_reason(self, book_id: str) -> BookDisposition | None:
+        """Why that book was not attempted, as frozen at capture, or ``None``.
+
+        ``None`` means "this run did not skip that book" — it may have attempted it,
+        or never have heard of it. A lookup; it reads nothing live.
+        """
+        wanted = _require_identifier("book_id", book_id, error=BookIdentityError)
+        for candidate, why in self.skipped:
+            if candidate == wanted:
+                return why
+        return None
 
     def snapshot_for(self, book_id: str) -> RunSnapshot | None:
         """That book's frozen run, or ``None`` — a lookup, never a capture."""
@@ -1323,6 +1444,12 @@ def capture_workspace_run(workspace: WorkspaceSnapshot, *,
     here and **never stored, never frozen and never handed to a worker**. With no
     predicate, every non-empty book is eligible.
 
+    **The reason is frozen with the skip.** This loop is the only place that knows
+    *why* a book is not being attempted, so it records ``SKIPPED_EMPTY`` or
+    ``SKIPPED_INVALID`` here rather than leaving Phase 7 to re-derive it from a
+    workspace that may have changed since. The predicate itself is still not stored —
+    only its answer, as a value.
+
     **Capture reads the workspace and changes nothing.** No revision moves, no
     selection shifts and no ``BookMutation`` is returned, because capturing is an
     observation rather than an edit.
@@ -1355,10 +1482,17 @@ def capture_workspace_run(workspace: WorkspaceSnapshot, *,
     # Classify and resolve first, mint second. Nothing below this point can turn a
     # book from eligible to skipped, so no id is spent on a book that is not run.
     eligible: list[tuple[BookJob, dict[str, Any]]] = []
-    skipped: list[str] = []
+    skipped: list[tuple[str, BookDisposition]] = []
     for book in space.books:
-        if book.is_empty or (is_valid is not None and not is_valid(book)):
-            skipped.append(book.book_id)
+        if book.is_empty:
+            # Emptiness is asked first and answered structurally, so an empty book
+            # reads as SKIPPED_EMPTY even where the predicate would also have
+            # rejected it. "It had nothing to work on" is the truer reason, and it
+            # needs no consumer opinion to be true.
+            skipped.append((book.book_id, BookDisposition.SKIPPED_EMPTY))
+            continue
+        if is_valid is not None and not is_valid(book):
+            skipped.append((book.book_id, BookDisposition.SKIPPED_INVALID))
             continue
         eligible.append((book, effective_run_options(book, space.shared)))
 
@@ -1377,5 +1511,280 @@ def capture_workspace_run(workspace: WorkspaceSnapshot, *,
         )
         for book, options in eligible
     )
-    return BookRunSnapshot(runs=runs, skipped_book_ids=tuple(skipped),
-                           shared=space.shared)
+    return BookRunSnapshot(runs=runs, skipped=tuple(skipped), shared=space.shared)
+
+
+# --------------------------------------------------------------------------- #
+# The workspace result and Retry Failed — Phase 7 (sections 18.2 and 18.3)
+#
+# Composition, not orchestration. Everything here is derived from two frozen
+# facts — the captured run and the per-book results the consumer settled — so a
+# summary can never contradict the records it summarises, and a retry can never
+# read anything the run did not already have.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceRunResult:
+    """One finished workspace run: what the batch did, book by book.
+
+    Three fields, and every question answered from them:
+
+    ``snapshot`` is the exact :class:`BookRunSnapshot` the batch was captured with —
+    the same object, so the frozen attempted order, the skip reasons and each book's
+    ``RunSnapshot`` are all still the originals.
+
+    ``results`` pairs a ``book_id`` with **that book's own Plan 3
+    ``job_control.RunResult``**, settled through the existing ``RunResult.settle``.
+    Plan 6 defines no second per-item result, no second failure record and no second
+    retry value; it composes Plan 3's by book identity. A book that never reached
+    settlement simply has no entry, which is what makes ``NOT_ATTEMPTED`` expressible
+    without inventing a placeholder result for it.
+
+    ``state`` is Plan 3's own ``JobState``, terminal, describing the **batch**. There
+    is no ``WorkspaceState``: a workspace run is a run, and Plan 3 already says what
+    states a finished run may be in.
+
+    **A book failure is not a batch failure** (Decision 28A). A run that lost some
+    books but orchestrated correctly is ``COMPLETED_WITH_FAILURES``, exactly as Plan 3
+    rules for items — and that is precisely the state in which Retry Failed becomes
+    available at all.
+
+    Results are stored in the frozen attempted-book order, whatever order the caller
+    supplied them in, so the same facts always compose to the same value.
+    """
+
+    snapshot: BookRunSnapshot
+    results: tuple[tuple[str, RunResult], ...] = ()
+    state: JobState = JobState.SUCCEEDED
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.snapshot, BookRunSnapshot):
+            raise WorkspaceContractError(
+                "snapshot must be a BookRunSnapshot, got "
+                f"{type(self.snapshot).__name__}")
+        if not isinstance(self.state, JobState):
+            raise WorkspaceContractError(
+                f"state must be a job_control.JobState, got {type(self.state).__name__}")
+        if self.state not in TERMINAL_STATES:
+            raise WorkspaceContractError(
+                f"a workspace result describes a finished run; {self.state.value} is "
+                "not a terminal state")
+
+        if isinstance(self.results, (str, bytes)) or not isinstance(
+                self.results, Iterable):
+            raise WorkspaceContractError("results must be an iterable of pairs")
+        entries = (self.results.items() if isinstance(self.results, Mapping)
+                   else self.results)
+
+        attempted = self.snapshot.attempted_book_ids
+        skipped = set(self.snapshot.skipped_book_ids)
+        settled: dict[str, RunResult] = {}
+        for entry in entries:
+            if isinstance(entry, (str, bytes)) or not isinstance(entry, Iterable):
+                raise WorkspaceContractError(
+                    "each result must be a (book_id, RunResult) pair")
+            items = tuple(entry)
+            if len(items) != 2:
+                raise WorkspaceContractError(
+                    "each result must be a (book_id, RunResult) pair, got "
+                    f"{len(items)} values")
+            book_id, result = items
+            book_id = _require_identifier("book_id", book_id, error=BookIdentityError)
+            if not isinstance(result, RunResult):
+                raise WorkspaceContractError(
+                    "each result must be a job_control.RunResult, got "
+                    f"{type(result).__name__}")
+            if book_id in settled:
+                raise BookIdentityError(f"duplicate result for book_id {book_id!r}")
+            if book_id in skipped:
+                raise BookIdentityError(
+                    f"book_id {book_id!r} was skipped at capture and has no run to "
+                    "report a result for")
+            expected = self.snapshot.snapshot_for(book_id)
+            if expected is None:
+                raise BookIdentityError(
+                    f"book_id {book_id!r} is not one of this run's attempted books")
+            if result.snapshot is not expected:
+                # Identity, not equality. An equal-but-distinct snapshot is the
+                # signature of a rebuilt run, and a retry built from one would use
+                # today's configuration while claiming to re-run the original.
+                raise WorkspaceContractError(
+                    f"the result for book_id {book_id!r} carries a different "
+                    "RunSnapshot object than the one this run captured for it")
+            settled[book_id] = result
+
+        # Canonical order is the frozen attempted order, never the caller's.
+        object.__setattr__(self, "results", tuple(
+            (book_id, settled[book_id])
+            for book_id in attempted if book_id in settled))
+
+        missing = tuple(book_id for book_id in attempted if book_id not in settled)
+        if (self.state in (JobState.SUCCEEDED, JobState.COMPLETED_WITH_FAILURES)
+                and missing):
+            raise WorkspaceContractError(
+                f"the batch reports {self.state.value} but attempted books "
+                f"{missing!r} never settled; a run that finished settled every book "
+                "it started")
+        if self.state is JobState.SUCCEEDED:
+            lost = tuple(book_id for book_id, result in self.results
+                         if result.state is not JobState.SUCCEEDED)
+            if lost:
+                raise WorkspaceContractError(
+                    f"the batch reports succeeded but books {lost!r} did not; a run "
+                    "that lost a book is completed_with_failures")
+        if self.state is JobState.COMPLETED_WITH_FAILURES and not any(
+                result.state is not JobState.SUCCEEDED
+                for _book_id, result in self.results):
+            raise WorkspaceContractError(
+                "completed_with_failures needs at least one book that did not "
+                "succeed")
+
+    # -- lookups ----------------------------------------------------------- #
+
+    def result_for(self, book_id: str) -> RunResult | None:
+        """That book's own Plan 3 result, or ``None`` if it never settled."""
+        wanted = _require_identifier("book_id", book_id, error=BookIdentityError)
+        for candidate, result in self.results:
+            if candidate == wanted:
+                return result
+        return None
+
+    def disposition_for(self, book_id: str) -> BookDisposition | None:
+        """What became of that book. The **one** derivation (section 18.1).
+
+        In order, because the order is the meaning:
+
+        1. **A captured skip** answers for itself, exactly as frozen. An empty or
+           invalid book is not "not attempted" — it was ruled out on purpose.
+        2. **An attempted book with no result** was never reached: ``NOT_ATTEMPTED``.
+           The batch ended first. It is not a failure and is never retried.
+        3. **A result reporting ``JobState.SUCCEEDED``**: ``SUCCEEDED``.
+        4. **Any other terminal result**: ``FAILED``. A book that was cancelled
+           part-way through its own work did not succeed, and calling that anything
+           softer would hide a half-finished book from Retry Failed.
+
+        ``None`` means this run never heard of that book.
+        """
+        wanted = _require_identifier("book_id", book_id, error=BookIdentityError)
+        why = self.snapshot.skip_reason(wanted)
+        if why is not None:
+            return why
+        if self.snapshot.snapshot_for(wanted) is None:
+            return None
+        result = self.result_for(wanted)
+        if result is None:
+            return BookDisposition.NOT_ATTEMPTED
+        if result.state is JobState.SUCCEEDED:
+            return BookDisposition.SUCCEEDED
+        return BookDisposition.FAILED
+
+    @property
+    def dispositions(self) -> tuple[tuple[str, BookDisposition], ...]:
+        """Every book this run knew about, attempted first, then skipped.
+
+        Derived on demand from the snapshot and the results, so a disposition can
+        never drift out of step with the facts it was built from.
+        """
+        ordered = [
+            (book_id, self.disposition_for(book_id))
+            for book_id in self.snapshot.attempted_book_ids
+        ]
+        ordered.extend(self.snapshot.skipped)
+        return tuple(ordered)
+
+    # -- counts, all from the one derivation -------------------------------- #
+
+    @property
+    def counts(self) -> Mapping[BookDisposition, int]:
+        """Derived, never stored — two counters cannot disagree if there is one."""
+        tally: dict[BookDisposition, int] = {why: 0 for why in BookDisposition}
+        for _book_id, why in self.dispositions:
+            tally[why] += 1
+        return MappingProxyType(tally)
+
+    @property
+    def succeeded_count(self) -> int:
+        return self.counts[BookDisposition.SUCCEEDED]
+
+    @property
+    def failed_count(self) -> int:
+        return self.counts[BookDisposition.FAILED]
+
+    @property
+    def skipped_empty_count(self) -> int:
+        return self.counts[BookDisposition.SKIPPED_EMPTY]
+
+    @property
+    def skipped_invalid_count(self) -> int:
+        return self.counts[BookDisposition.SKIPPED_INVALID]
+
+    @property
+    def not_attempted_count(self) -> int:
+        return self.counts[BookDisposition.NOT_ATTEMPTED]
+
+    # -- retryability ------------------------------------------------------- #
+
+    @property
+    def retryable_book_ids(self) -> tuple[str, ...]:
+        """The books Retry Failed would re-run, in frozen attempted order.
+
+        Two conditions, both required: the book's disposition is ``FAILED``, and its
+        own Plan 3 result says it has something retryable. The second question is
+        never asked twice — ``RunResult.has_retryable`` already derives it from the
+        failure log, and re-reading ``FailureRecord.retryable`` here would be a second
+        opinion about the same records.
+
+        Order follows ``snapshot.runs``, never the order failures arrived across
+        books, never the caller's mapping and never the live workspace.
+        """
+        return tuple(
+            book_id for book_id, result in self.results
+            if self.disposition_for(book_id) is BookDisposition.FAILED
+            and result.has_retryable
+        )
+
+    @property
+    def has_retryable(self) -> bool:
+        """Whether any book is worth re-running. Not, by itself, whether to offer it."""
+        return bool(self.retryable_book_ids)
+
+    @property
+    def can_retry_failed(self) -> bool:
+        """Whether Retry Failed may be offered — **Plan 3's answer, not a new one**.
+
+        Delegated whole to ``job_control.is_available``. Plan 6 does not restate the
+        action/state table: a second copy of it is a second chance to disagree with
+        the controller that actually enforces it.
+        """
+        return is_available(JobAction.RETRY_FAILED, self.state,
+                            has_retryable=self.has_retryable)
+
+
+def retry_failed_books(result: WorkspaceRunResult) -> tuple[RetryRequest, ...]:
+    """Retry Failed for a whole workspace — Decision 37A, section 18.3.
+
+    One existing Plan 3 :class:`~shared.job_control.RetryRequest` per retryable book,
+    in the same order as :attr:`WorkspaceRunResult.retryable_book_ids`, each built by
+    **that book's own ``RunResult.retry()``** against that book's exact original
+    ``RunSnapshot`` object. No Plan 6 wrapper, no subclass, no rebuilt snapshot, no
+    re-capture.
+
+    **It reads nothing live.** There is no ``WorkspaceSnapshot`` parameter, because
+    there is nothing a current workspace could contribute: the files, the effective
+    tool options, the occurrence ids and the failure log are all already inside the
+    frozen result. Change the books, the shared metadata, the imported lists or the
+    whole workspace afterwards and the requests are identical, object for object.
+
+    **It runs nothing.** A ``RetryRequest`` is a value; re-running it is the
+    consumer's job, exactly as it is today for the Converter, Cover and TTS panels.
+    Nothing here starts a thread, touches a disk, reserves a path, captures a run or
+    allocates a number.
+    """
+    if not isinstance(result, WorkspaceRunResult):
+        raise WorkspaceContractError(
+            f"result must be a WorkspaceRunResult, got {type(result).__name__}")
+    return tuple(
+        result.result_for(book_id).retry()
+        for book_id in result.retryable_book_ids
+    )

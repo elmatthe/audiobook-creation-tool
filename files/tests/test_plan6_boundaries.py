@@ -98,6 +98,13 @@ PHASE0_PLAN5_HASHES = {
 PHASE0_ALLOCATOR_HASH = \
     "a26cd25954c5ad21d16c350642025e768538c60f9df0475c71385191a9f9fb98"
 
+#: NOTE. The four hashes above are **raw-byte** digests of files as git checks them
+#: out in this repository (``core.autocrlf = true``, so CRLF on disk), and they are
+#: the maintainer-supplied stop-gate values. They are deliberately left exactly as
+#: recorded. The Phase 6 pins below are content digests instead — Phase 7's red proof
+#: found them tripping on a fresh checkout's line endings alone, with identical
+#: content, which is a gate failing for the wrong reason.
+#:
 #: The state the authorised Phase 6 promotion left behind, pinned so that any
 #: *later* change to the shim, the promoted allocator or the Plan 5 regression suite
 #: has to be a deliberate act rather than a quiet one. The maintainer's Phase 6
@@ -170,12 +177,21 @@ PHASE6_NAMES = (
     "propose", "next_number", "consumed", "START_NUMBER", "start_number",
 )
 
-#: Phase 7 owns dispositions, results and retry. Phase 5 may USE RunSnapshot -
-#: composing it is the whole job - but not RunResult or RetryRequest.
-PHASE7_NAMES = (
-    "RunResult", "RetryRequest", "FailureLog", "FailureRecord", "ItemOutcome",
-    "ItemStatus", "BookDisposition", "BookRunResult", "retry_failed_books",
-    "retryable_ids", "settle",
+#: The five book-level answers Phase 7 delivered, in declaration order. Stated here
+#: so the guard and the enum cannot drift; a sixth would need this line changed
+#: deliberately, which is the point.
+BOOK_DISPOSITIONS = (
+    "SUCCEEDED", "FAILED", "SKIPPED_EMPTY", "SKIPPED_INVALID", "NOT_ATTEMPTED",
+)
+
+#: Phase 8 owns the Tk adapter and the manual harness. The data layer stays Tk-free,
+#: thread-free and theme-free until then, and it is proved rather than assumed. This
+#: replaces the Phase-7-absence list Phase 7 itself made obsolete.
+PHASE8_NAMES = (
+    "tkinter", "tk", "ttk", "Tk", "Toplevel", "Frame", "Widget", "StringVar",
+    "MainThreadGuard", "MainThreadPump", "LockGroup", "style_name",
+    "style_tk_widget", "ui_theme", "job_ui", "BookNavigator",
+    "SharedMetadataPanel", "book_workspace_ui", "manual_plan6_harness",
 )
 
 
@@ -188,8 +204,49 @@ def sample(code: str) -> ast.Module:
     return ast.parse(code)
 
 
+#: Line-ending constants, spelled once so the guard below never has to embed a
+#: literal carriage return in its own source.
+CRLF = bytes((13, 10))
+LF = bytes((10,))
+
+
 def sha256_of(path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def sha256_normalised(path) -> str:
+    """Content hash with line endings normalised to LF.
+
+    ``core.autocrlf`` is ``true`` in this repository, so a file's bytes on disk
+    depend on whether git checked it out (CRLF) or a tool wrote it (LF). Phase 7's
+    red proof caught the Phase 6 pins failing in a fresh worktree for exactly that
+    reason and nothing else — the content was identical. A gate that fires on a
+    checkout convention is a gate nobody can trust, so the promoted-state pins
+    compare content. They still detect any real change; the recorded digests did
+    not need to move, because the files they name are LF in this tree already.
+    """
+    raw = path.read_bytes()
+    return hashlib.sha256(raw.replace(CRLF, LF)).hexdigest()
+
+
+def one_declaration(tree: ast.Module, name: str):
+    """The single class or function of that name, at any depth. Never two.
+
+    Two declarations sharing a name is itself worth failing on: a guard that
+    silently inspected the first would be inspecting the wrong one.
+    """
+    found = [node for node in ast.walk(tree)
+             if isinstance(node, (ast.ClassDef, ast.FunctionDef,
+                                  ast.AsyncFunctionDef)) and node.name == name]
+    assert len(found) == 1, f"expected exactly one {name!r}, found {len(found)}"
+    return found[0]
+
+
+def one_function(tree: ast.Module, name: str):
+    """As above, but it must be a function or method rather than a class."""
+    node = one_declaration(tree, name)
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)), name
+    return node
 
 
 # --------------------------------------------------------------------------- #
@@ -594,7 +651,7 @@ def test_both_import_paths_reach_the_very_same_objects():
 
 def test_the_promotion_changed_the_legacy_file_and_left_the_converter_alone():
     """The move happened, and it stopped exactly where it was authorised to stop."""
-    legacy = sha256_of(UNIVERSAL / "mp3_tools/m4b_numbering.py")
+    legacy = sha256_normalised(UNIVERSAL / "mp3_tools/m4b_numbering.py")
     assert legacy != PHASE0_ALLOCATOR_HASH, "the promotion did not happen"
     assert (sha256_of(UNIVERSAL / "mp3_tools/m4b_converter.py")
             == PHASE0_PLAN5_HASHES["scripts/Universal/mp3_tools/m4b_converter.py"])
@@ -602,25 +659,220 @@ def test_the_promotion_changed_the_legacy_file_and_left_the_converter_alone():
 
 @pytest.mark.parametrize("relative", sorted(PHASE6_PROMOTION_HASHES))
 def test_the_promoted_state_is_pinned_where_the_promotion_left_it(relative):
-    """Re-closes the maintainer's one-time authorisation behind the change."""
-    assert sha256_of(REPO_ROOT / relative) == PHASE6_PROMOTION_HASHES[relative]
+    """Re-closes the maintainer's one-time authorisation behind the change.
+
+    Content, not raw bytes — see :func:`sha256_normalised`.
+    """
+    assert sha256_normalised(REPO_ROOT / relative) == PHASE6_PROMOTION_HASHES[relative]
 
 
-@pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_phase_seven_disposition_or_retry_exists_yet(name):
-    """Using ``RunSnapshot`` is Phase 5's; ``RunResult`` and ``RetryRequest`` are not."""
-    tree = source_of(name)
-    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
-    present = sorted(entry for entry in PHASE7_NAMES if entry in seen)
-    assert present == [], present
+# --------------------------------------------------------------------------- #
+# Phase 7 — dispositions, result composition and retry (drop section 18)
+#
+# The Phase-7-absence guard that stood here has been replaced by the contracts
+# that phase actually has to keep. The absence it protected has moved forward to
+# Phase 8 below; it was not deleted.
+# --------------------------------------------------------------------------- #
 
 
-def test_the_composition_stores_no_later_phase_state():
-    """The record itself is the proof: three fields, and none of them is a result."""
+def test_the_book_disposition_is_the_one_book_level_vocabulary():
+    from shared.book_workspace import BookDisposition
+
+    assert [member.name for member in BookDisposition] == list(BOOK_DISPOSITIONS)
+    tree = source_of("book_workspace.py")
+    enums = {node.name for node in ast.walk(tree)
+             if isinstance(node, ast.ClassDef)
+             and any(ast.unparse(base) == "Enum" for base in node.bases)}
+    # WorkspaceOperation is Phase 2's, and BookDisposition is Phase 7's. A third
+    # book-outcome enum would be a second answer to the same question.
+    assert enums == {"WorkspaceOperation", "BookDisposition"}, enums
+
+
+def test_plan3_item_status_was_not_widened_or_reused_as_a_book_vocabulary():
+    """Plan 3's three answers stay three; a BookJob is not a Plan 3 item."""
+    from shared.job_control import ItemStatus
+
+    assert [member.name for member in ItemStatus] == [
+        "SUCCEEDED", "FAILED", "NOT_ATTEMPTED"]
+    assert not hasattr(ItemStatus, "SKIPPED")
+
+    tree = source_of("book_workspace.py")
+    seen = referenced_names(tree) | imported_names(tree)
+    assert "ItemStatus" not in seen, "the book layer must not lean on the item one"
+    assert "ItemOutcome" not in seen
+
+
+def test_the_skip_reason_is_frozen_at_capture_and_never_re_derived():
+    """Section 16: after capture the run never consults the workspace again."""
+    tree = source_of("book_workspace.py")
+    capture = one_function(tree, "capture_workspace_run")
+
+    # It names the two skip reasons itself, at the moment it classifies.
+    named = referenced_names(capture)
+    assert "SKIPPED_EMPTY" in named and "SKIPPED_INVALID" in named
+
+    # And the derivation that reads them never goes back to a WorkspaceSnapshot.
+    for owner in ("disposition_for", "dispositions", "retryable_book_ids"):
+        node = one_function(tree, owner)
+        live = referenced_names(node) | constructed_names(node)
+        for forbidden in ("WorkspaceSnapshot", "books", "is_empty", "is_valid",
+                          "capture_workspace_run", "capture_run"):
+            assert forbidden not in live, (owner, forbidden)
+
+
+def test_there_is_one_stored_truth_about_the_skipped_books():
     from shared.book_workspace import BookRunSnapshot
 
     stored = {entry.name for entry in dataclasses.fields(BookRunSnapshot)}
-    assert stored == {"runs", "skipped_book_ids", "shared"}
+    assert stored == {"runs", "skipped", "shared"}
+    assert "skipped_book_ids" not in stored, "a second stored truth"
+    assert isinstance(BookRunSnapshot.__dict__["skipped_book_ids"], property)
+    assert isinstance(BookRunSnapshot.__dict__["skipped_count"], property)
+
+
+def test_the_result_composes_plan3_values_rather_than_replacing_them():
+    from shared import book_workspace
+    from shared import job_control
+    from shared.book_workspace import WorkspaceRunResult
+
+    assert book_workspace.RunResult is job_control.RunResult
+    assert book_workspace.RetryRequest is job_control.RetryRequest
+    assert book_workspace.JobState is job_control.JobState
+
+    stored = {entry.name for entry in dataclasses.fields(WorkspaceRunResult)}
+    assert stored == {"snapshot", "results", "state"}
+
+    tree = source_of("book_workspace.py")
+    declared = defined_names(tree)
+    for invented in ("BookRunResult", "BookItemResult", "BookFailureLog",
+                     "BookFailureRecord", "WorkspaceFailureRecord", "WorkspaceState",
+                     "BookRetryRequest", "WorkspaceRetryRequest", "RetryManager",
+                     "RetryController", "ResultRegistry", "FailureRegistry"):
+        assert invented not in declared, invented
+
+
+def test_the_result_layer_constructs_no_plan3_value_it_should_be_handed():
+    """Settling and retrying are Plan 3's; Plan 6 receives what they produce."""
+    tree = source_of("book_workspace.py")
+    for owner in ("WorkspaceRunResult", "retry_failed_books"):
+        node = one_declaration(tree, owner)
+        built = constructed_names(node)
+        for plan3 in ("RunResult", "RetryRequest", "FailureLog", "FailureRecord",
+                      "RunSnapshot", "settle", "from_failures"):
+            assert plan3 not in built, (owner, plan3)
+
+
+def test_retry_delegates_to_run_result_retry():
+    tree = source_of("book_workspace.py")
+    node = one_function(tree, "retry_failed_books")
+    assert "retry" in constructed_names(node), "it must call the Plan 3 method"
+
+
+def test_retry_availability_delegates_to_plan3_is_available():
+    tree = source_of("book_workspace.py")
+    node = one_function(tree, "can_retry_failed")
+    assert "is_available" in constructed_names(node)
+    assert "shared.job_control.is_available" in imported_names(tree)
+    # The action/state table itself is never restated here.
+    assert "_ACTION_STATES" not in referenced_names(tree)
+
+
+def test_retry_reads_nothing_live_and_captures_nothing():
+    tree = source_of("book_workspace.py")
+    node = one_function(tree, "retry_failed_books")
+
+    parameters = {arg.arg for arg in node.args.args} | {
+        arg.arg for arg in node.args.kwonlyargs}
+    assert parameters == {"result"}, parameters
+
+    called = constructed_names(node)
+    for forbidden in ("capture_run", "capture_workspace_run", "SuccessNumbers",
+                      "JobController", "Thread", "Popen", "open", "mkdir",
+                      "propose", "commit", "next_id"):
+        assert forbidden not in called, forbidden
+
+    named = referenced_names(node)
+    for live in ("WorkspaceSnapshot", "IdFactory", "books", "is_valid"):
+        assert live not in named, live
+
+
+def test_the_retry_path_never_reaches_the_allocator():
+    """Phase 6 put the counter in the consumer's execution state. It stays there."""
+    tree = source_of("book_workspace.py")
+    modules = imported_names(tree)
+    assert "shared.numbering" not in modules
+    assert not any(entry.split(".")[-1] == "numbering" for entry in modules), modules
+    seen = referenced_names(tree) | defined_names(tree) | modules
+    for allocator in ("SuccessNumbers", "Tentative", "NumberingError", "propose",
+                      "next_number", "consumed"):
+        assert allocator not in seen, allocator
+
+
+def test_no_controller_or_event_stream_is_built_here():
+    tree = source_of("book_workspace.py")
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    for owned_elsewhere in ("JobController", "JobReporter", "JobEventStream",
+                            "JobEvent", "LoggerBridge", "EtaEstimator",
+                            "ProgressTracker", "JobAdapter", "MainThreadPump"):
+        assert owned_elsewhere not in seen, owned_elsewhere
+
+
+def test_the_counts_are_derived_and_stored_nowhere():
+    from shared.book_workspace import WorkspaceRunResult
+
+    stored = {entry.name for entry in dataclasses.fields(WorkspaceRunResult)}
+    for derived in ("counts", "dispositions", "succeeded_count", "failed_count",
+                    "skipped_empty_count", "skipped_invalid_count",
+                    "not_attempted_count", "retryable_book_ids", "has_retryable",
+                    "can_retry_failed"):
+        assert derived not in stored, derived
+        assert isinstance(WorkspaceRunResult.__dict__[derived], property), derived
+
+
+# --------------------------------------------------------------------------- #
+# Phase 8 must remain absent
+#
+# Where the Phase-7-absence guard used to stand. Phase 8 owns the Tk adapter and
+# the manual harness; neither exists, and that is proved rather than assumed.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("name", DATA_LAYER)
+def test_no_phase_eight_adapter_vocabulary_exists_yet(name):
+    tree = source_of(name)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    present = sorted(entry for entry in PHASE8_NAMES if entry in seen)
+    assert present == [], present
+
+
+def test_the_phase_eight_adapter_module_does_not_exist():
+    assert not (SHARED / "book_workspace_ui.py").exists()
+
+
+def test_the_phase_eight_manual_harness_does_not_exist():
+    assert not (REPO_ROOT / "files" / "tests" / "manual_plan6_harness.py").exists()
+
+
+def test_no_plan6_module_has_grown_a_widget_or_a_theme_dependency():
+    for name in DATA_LAYER + (ALLOCATOR,):
+        tree = parse(SHARED / name)
+        modules = imported_names(tree)
+        for entry in modules:
+            assert not entry.split(".")[0].lower().startswith("tkinter"), (name, entry)
+            assert entry.split(".")[-1] not in {"ui_theme", "job_ui"}, (name, entry)
+
+
+def test_the_composition_stores_no_later_phase_state():
+    """Still three fields, and none of them is a result.
+
+    Phase 7 renamed one: ``skipped`` now carries the reason beside each id, because
+    the reason has to be frozen at capture. ``skipped_book_ids`` survives as a
+    derived property, so the outward Phase 5 contract is unchanged.
+    """
+    from shared.book_workspace import BookRunSnapshot
+
+    stored = {entry.name for entry in dataclasses.fields(BookRunSnapshot)}
+    assert stored == {"runs", "skipped", "shared"}
 
 
 def test_the_validity_seam_is_asked_and_never_stored():
@@ -634,12 +886,13 @@ def test_the_validity_seam_is_asked_and_never_stored():
     assert "is_valid" not in stored
 
 
-def test_phases_one_to_six_delivered_their_own_names_and_no_more():
-    """The public surface is exactly what Phases 1-6 were authorised to add.
+def test_phases_one_to_seven_delivered_their_own_names_and_no_more():
+    """The public surface is exactly what Phases 1-7 were authorised to add.
 
     **Phase 6 added nothing to it**, and that is the assertion, not an omission: the
     allocator is its own module because numbering is not part of the workspace
     vocabulary. A ``SuccessNumbers`` re-exported from here would have made it one.
+    Phase 7 added four names and no more.
     """
     from shared import book_workspace
 
@@ -663,9 +916,12 @@ def test_phases_one_to_six_delivered_their_own_names_and_no_more():
     phase5 = {"RUN_ID_KIND", "effective_run_options", "BookRunSnapshot",
               "capture_workspace_run"}
     phase6: set[str] = set()          # numbering lives in its own module, by design
+    phase7 = {"BookDisposition", "SKIP_DISPOSITIONS", "WorkspaceRunResult",
+              "retry_failed_books"}
     assert (set(book_workspace.__all__)
-            == phase1 | phase2 | phase3 | phase4 | phase5 | phase6)
-    assert len(book_workspace.__all__) == 41, "15 + 10 + 3 + 9 + 4 + 0"
+            == phase1 | phase2 | phase3 | phase4 | phase5 | phase6 | phase7)
+    assert len(book_workspace.__all__) == 45, "15 + 10 + 3 + 9 + 4 + 0 + 4"
+    assert len(set(book_workspace.__all__)) == 45, "no name listed twice"
 
 
 def test_capture_is_not_a_workspace_operation():
@@ -1108,31 +1364,78 @@ def test_the_re_export_guard_records_which_names_were_taken(code, expected):
 
 
 @pytest.mark.parametrize("code,expected", [
-    ("from shared.job_control import RunResult\n"
-     "def f(s):\n    return RunResult.settle(s)", "RunResult"),
-    ("from shared.job_control import RetryRequest\n"
-     "def f():\n    return RetryRequest", "RetryRequest"),
-    ("from shared.job_control import FailureLog\n"
-     "def f():\n    return FailureLog", "FailureLog"),
-    ("class BookDisposition:\n    pass", "BookDisposition"),
-    ("def retry_failed_books(result):\n    return ()", "retry_failed_books"),
-    ("def f(r):\n    return r.retryable_ids", "retryable_ids"),
+    ("import tkinter as tk\ndef f():\n    return tk.Tk()", "tkinter"),
+    ("from tkinter import ttk\ndef f():\n    return ttk", "ttk"),
+    ("from shared.job_ui import MainThreadGuard\n"
+     "class P:\n    guard = MainThreadGuard", "MainThreadGuard"),
+    ("from shared.job_ui import LockGroup\ndef f():\n    return LockGroup", "LockGroup"),
+    ("from shared.ui_theme import style_tk_widget\n"
+     "def f(w):\n    return style_tk_widget(w)", "style_tk_widget"),
+    ("class BookNavigator:\n    pass", "BookNavigator"),
+    ("from shared import book_workspace_ui\n"
+     "def f():\n    return book_workspace_ui", "book_workspace_ui"),
 ])
-def test_the_phase_seven_guard_actually_detects_results_or_retry(code, expected):
+def test_the_phase_eight_guard_actually_detects_an_adapter(code, expected):
     tree = sample(code)
     seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
-    assert expected in {entry for entry in PHASE7_NAMES if entry in seen}
+    assert expected in {entry for entry in PHASE8_NAMES if entry in seen}
 
 
-def test_the_phase_seven_guard_permits_using_run_snapshot():
-    """Phase 5 must be allowed to use the snapshot type it composes."""
+def test_the_phase_eight_guard_passes_a_pure_value_layer():
+    """Composing a result and describing a retry must not trip the adapter guard."""
     clean = sample(
-        "from shared.job_control import RunSnapshot, capture_run\n"
-        "def f(s):\n"
-        "    return isinstance(s, RunSnapshot)\n"
+        "from shared.job_control import JobAction, JobState, is_available\n"
+        "def can_retry(state, has_retryable):\n"
+        "    return is_available(JobAction.RETRY_FAILED, state,\n"
+        "                        has_retryable=has_retryable)\n"
+        "def requests(results):\n"
+        "    return tuple(result.retry() for _book_id, result in results)\n"
     )
     seen = defined_names(clean) | referenced_names(clean) | imported_names(clean)
-    assert {entry for entry in PHASE7_NAMES if entry in seen} == set()
+    assert {entry for entry in PHASE8_NAMES if entry in seen} == set()
+
+
+def test_the_phase_eight_guard_is_not_fooled_by_prose_about_a_panel():
+    """A docstring may say "panel" and "Tk"; only nodes count."""
+    clean = sample(
+        '"""The panel that adopts this, in Phase 8, will read Tk vars on the main\n'
+        'thread through MainThreadGuard. Nothing here does."""\n'
+        "def f(result):\n    return result.dispositions\n"
+    )
+    seen = defined_names(clean) | referenced_names(clean) | imported_names(clean)
+    assert {entry for entry in PHASE8_NAMES if entry in seen} == set()
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("class BookDisposition:\n"
+     "    CANCELLED = 'cancelled'\n", "CANCELLED"),
+    ("class BookDisposition:\n"
+     "    SKIPPED = 'skipped'\n", "SKIPPED"),
+])
+def test_a_sixth_book_disposition_would_be_visible(code, expected):
+    """Mutation-check for the five-member pin: a new member is a new assignment."""
+    tree = sample(code)
+    members = {node.targets[0].id for node in ast.walk(tree)
+               if isinstance(node, ast.Assign)
+               and isinstance(node.targets[0], ast.Name)}
+    assert expected in members
+    assert expected not in BOOK_DISPOSITIONS
+
+
+def test_the_declaration_helper_refuses_an_ambiguous_name():
+    """Two things sharing a name would make every guard below inspect the wrong one."""
+    twice = sample("def f():\n    pass\ndef f():\n    pass\n")
+    with pytest.raises(AssertionError):
+        one_declaration(twice, "f")
+    with pytest.raises(AssertionError):
+        one_declaration(twice, "absent")
+
+
+def test_the_declaration_helper_finds_a_method_inside_a_class():
+    nested = sample("class A:\n    def m(self):\n        return 1\n")
+    assert one_function(nested, "m").name == "m"
+    with pytest.raises(AssertionError):
+        one_function(nested, "A"), "a class is not a function"
 
 
 @pytest.mark.parametrize("code", [
@@ -1175,3 +1478,56 @@ def test_the_controller_guard_actually_detects_run_machinery(code, expected):
     tree = sample(code)
     seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
     assert expected in seen
+
+
+# --------------------------------------------------------------------------- #
+# The Plan 6 suite protects itself
+#
+# Added at Phase 7, from a defect this suite actually had for a few minutes: two
+# functions in this module were given the same name while a guard was being moved
+# forward, so Python silently kept the second and the first vanished. It was
+# green. A test that quietly stops existing is worse than one that fails.
+# --------------------------------------------------------------------------- #
+
+#: Every test module Plan 6 owns.
+PLAN6_TEST_MODULES = (
+    "test_book_workspace.py", "test_book_grouping.py", "test_shared_metadata.py",
+    "test_book_run_snapshot.py", "test_book_numbering.py", "test_book_retry.py",
+    "test_plan6_boundaries.py",
+)
+
+
+@pytest.mark.parametrize("name", PLAN6_TEST_MODULES)
+def test_no_plan6_test_is_shadowed_by_a_later_one_of_the_same_name(name):
+    tree = parse(REPO_ROOT / "files" / "tests" / name)
+    declared = [node.name for node in tree.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name.startswith("test_")]
+    repeated = sorted({entry for entry in declared if declared.count(entry) > 1})
+    assert repeated == [], (name, repeated)
+
+
+def test_that_shadowing_guard_actually_detects_a_shadowed_test():
+    duplicated = sample(
+        "def test_a():\n    assert True\n"
+        "def test_b():\n    assert True\n"
+        "def test_a():\n    assert True\n"
+    )
+    declared = [node.name for node in duplicated.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name.startswith("test_")]
+    assert sorted({e for e in declared if declared.count(e) > 1}) == ["test_a"]
+
+
+def test_that_shadowing_guard_passes_distinct_tests():
+    fine = sample("def test_a():\n    assert True\ndef test_b():\n    assert True\n")
+    declared = [node.name for node in fine.body
+                if isinstance(node, ast.FunctionDef)
+                and node.name.startswith("test_")]
+    assert sorted({e for e in declared if declared.count(e) > 1}) == []
+
+
+@pytest.mark.parametrize("name", PLAN6_TEST_MODULES)
+def test_every_plan6_test_module_exists_and_is_collected(name):
+    """The list above must not quietly name a module that has been renamed away."""
+    assert (REPO_ROOT / "files" / "tests" / name).is_file(), name

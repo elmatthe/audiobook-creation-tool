@@ -1243,34 +1243,63 @@ def test_a_rejected_operation_consumes_no_identity():
 
 
 # --------------------------------------------------------------------------- #
-# The data layer holds no counter, and Phase 7 remains absent
+# The data layer holds no counter, and Phase 8 remains absent
 #
 # The boundary moves forward with the plan rather than being retired. Phase 5
-# delivered the frozen run (``test_book_run_snapshot.py``); Phase 6 delivered the
-# allocator — in ``shared/numbering.py``, which is a different module for a reason.
-# Dispositions, results and retry are still Phase 7's and still do not exist.
+# delivered the frozen run, Phase 6 the allocator (in shared/numbering.py, which
+# is a different module for a reason) and Phase 7 the dispositions, result and
+# retry composition. What is left is Phase 8: the Tk adapter and the manual
+# harness, which still do not exist.
 # --------------------------------------------------------------------------- #
 
 
-def test_this_module_holds_no_counter_and_no_disposition():
-    """Half of this is now the stronger claim: the allocator EXISTS, one import
+def test_this_module_holds_no_counter():
+    """The stronger claim, now that the allocator ships: it EXISTS, one import
     away, and this module still refuses it.
 
-    A success counter is execution state — a fact about one attempt — and this
-    module is where frozen state lives. Re-exporting ``SuccessNumbers`` here would
-    make numbering part of the workspace vocabulary, which is exactly what
-    ``shared/numbering.py`` being its own module says it is not. The Phase 7 names
-    below are the ordinary kind of absence: they have not been written yet.
+    A success counter is execution state - a fact about one attempt - and this
+    module is where frozen state lives. Re-exporting SuccessNumbers here would make
+    numbering part of the workspace vocabulary, which is exactly what
+    shared/numbering.py being its own module says it is not.
     """
     from shared import book_workspace as module
     for elsewhere in ("SuccessNumbers", "Tentative", "NumberingError",
-                      "BookRunResult", "BookDisposition", "retry_failed_books",
-                      "RunResult", "RetryRequest"):
+                      "numbering", "propose", "next_number", "start_number"):
         assert not hasattr(module, elsewhere), elsewhere
 
     # And it is genuinely reachable, so the assertion above is not vacuous.
     from shared.numbering import SuccessNumbers
     assert SuccessNumbers(1).next_number == 1
+
+
+def test_this_module_composes_plan3_retry_rather_than_replacing_it():
+    """Phase 7 turned two of the old absences into presences - by REUSE.
+
+    RunResult and RetryRequest are now named here, which is the point: Plan 6
+    composes Plan 3's values by book identity. What must stay absent is a Plan 6
+    substitute for either.
+    """
+    from shared import book_workspace as module
+    from shared import job_control
+
+    assert module.RunResult is job_control.RunResult
+    assert module.RetryRequest is job_control.RetryRequest
+    assert module.JobState is job_control.JobState
+
+    for invented in ("BookRunResult", "BookItemResult", "BookFailureLog",
+                     "BookFailureRecord", "WorkspaceFailureRecord",
+                     "BookRetryRequest", "WorkspaceState", "ItemStatus",
+                     "JobController", "RetryManager", "ResultRegistry"):
+        assert not hasattr(module, invented), invented
+
+
+def test_phase_eight_has_not_been_pulled_forward():
+    """The Tk adapter and the manual harness are Phase 8's. Absence is proved."""
+    from shared import book_workspace as module
+    for later in ("tk", "ttk", "tkinter", "MainThreadGuard", "MainThreadPump",
+                  "LockGroup", "style_name", "style_tk_widget", "BookNavigator",
+                  "SharedMetadataPanel", "frame", "widget"):
+        assert not hasattr(module, later), later
 
 
 def test_a_book_still_stores_only_its_own_raw_values():
