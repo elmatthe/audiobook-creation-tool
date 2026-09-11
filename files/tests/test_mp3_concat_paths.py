@@ -228,21 +228,27 @@ def test_input_order_is_preserved_audibly(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
+#: Where the FFmpeg helpers live since the focused MP3 plan's Phase 7 moved
+#: them out of the panel: ``mp3_tool`` re-exports them, but the code — and so
+#: every structural guard below — is here.
+HELPERS_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_processing.py"
+
+
 def test_no_ffmpeg_call_is_made_through_a_shell():
     """Argument-vector execution only — a path never reaches a shell."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            for keyword in node.keywords:
-                if keyword.arg == "shell":
-                    assert isinstance(keyword.value, ast.Constant)
-                    assert keyword.value.value is False, "shell=True is never allowed"
+    for source in (HELPERS_SOURCE,
+                   REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for keyword in node.keywords:
+                    if keyword.arg == "shell":
+                        assert isinstance(keyword.value, ast.Constant)
+                        assert keyword.value.value is False, "shell=True is never allowed"
 
 
 def test_run_ff_is_given_a_list_not_a_string():
-    tree = ast.parse((REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py")
-                     .read_text(encoding="utf-8"))
+    tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     function = next(n for n in ast.walk(tree)
                     if isinstance(n, ast.FunctionDef) and n.name == "run_ff")
     calls = [n for n in ast.walk(function)
@@ -254,10 +260,12 @@ def test_run_ff_is_given_a_list_not_a_string():
 
 
 def test_shlex_quote_is_only_used_for_the_human_readable_log():
-    """Shell quoting must never be mistaken for concat-list escaping."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
-              ).read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    """Shell quoting must never be mistaken for concat-list escaping.
+
+    Since Phase 7 the engine also quotes a failed command for its technical
+    detail — the same human-readable purpose, and the only other owner.
+    """
+    tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     owners = set()
     for function in ast.walk(tree):
         if not isinstance(function, ast.FunctionDef):
@@ -266,12 +274,11 @@ def test_shlex_quote_is_only_used_for_the_human_readable_log():
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "quote"):
                 owners.add(function.name)
-    assert owners <= {"save_error_log"}, owners
+    assert owners <= {"save_error_log", "_stage_clean_copy"}, owners
 
 
 def test_the_escaper_does_not_use_shell_quoting():
-    tree = ast.parse((REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py")
-                     .read_text(encoding="utf-8"))
+    tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     function = next(n for n in ast.walk(tree)
                     if isinstance(n, ast.FunctionDef)
                     and n.name == "ffmpeg_escape_listfile_path")

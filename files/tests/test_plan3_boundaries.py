@@ -103,7 +103,8 @@ ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
             "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
             "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py",
-            "mp3_tools/mp3_tool.py", "mp3_tools/mp3_plan.py")
+            "mp3_tools/mp3_tool.py", "mp3_tools/mp3_plan.py",
+            "mp3_tools/mp3_processing.py")
 
 
 def relative_name(path: Path) -> str:
@@ -657,7 +658,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_ten_production_modules_are_authorized_to_adopt():
+def test_exactly_these_eleven_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -735,7 +736,16 @@ def test_exactly_these_ten_production_modules_are_authorized_to_adopt():
     counterpart of the Converter's ``m4b_plan.py`` and, like it, builds no
     manager, coordinator, controller or widget.
 
-    The name says "these ten" rather than "nine" because the count is part of what
+    v0.6.3 focused MP3 plan Phase 7 adds the **eleventh**:
+    ``mp3_tools/mp3_processing.py`` is the Write ID3 engine. It settles every
+    Book into the foundation's own ``RunResult`` from ``FailureRecord`` values
+    keyed by the real occurrence id — which is exactly what Plan 6's
+    ``WorkspaceRunResult`` and ``retry_failed_books`` consume — so it names
+    ``shared.job_control`` and nothing else of Plan 3: no importer, no
+    controller, no adapter. The composition guard below asks that of it
+    positively as a result-side adopter.
+
+    The name says "these eleven" rather than "ten" because the count is part of what
     is pinned: a widening that did not have to rename this test would be a widening
     nobody had to think about.
     """
@@ -747,7 +757,8 @@ def test_exactly_these_ten_production_modules_are_authorized_to_adopt():
                        "shared/book_workspace_ui.py",
                        "mp3_tools/mp3_workflow.py",
                        "mp3_tools/mp3_tool.py",
-                       "mp3_tools/mp3_plan.py")
+                       "mp3_tools/mp3_plan.py",
+                       "mp3_tools/mp3_processing.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/m4b_maker.py",
@@ -804,7 +815,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 10, importers
+    assert len(importers) == 11, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -853,6 +864,7 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
         assert not (defined & forbidden), (relative, defined & forbidden)
         modules = imported_names(tree)
         ui_side = "shared.job_ui" in modules and "shared.importing" not in modules
+        result_side = (relative == "mp3_tools/mp3_processing.py")
         if ui_side:
             # A UI-side adopter composes the UI foundation. Asked positively, so
             # this branch cannot become an escape hatch for adopting nothing.
@@ -860,6 +872,18 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
             for reused in ("MainThreadGuard", "style_name"):
                 assert reused in modules or any(
                     entry.endswith(f".{reused}") for entry in modules), (relative, reused)
+        elif result_side:
+            # A result-side engine composes the result vocabulary and nothing
+            # more: it settles Books into RunResults and must build them from
+            # the foundation's own records, never from a controller of its own.
+            assert "shared.job_control" in modules, relative
+            assert "shared.importing" not in modules, relative
+            for reused in ("FailureRecord", "FailureLog", "RunResult"):
+                assert reused in modules or any(
+                    entry.endswith(f".{reused}") for entry in modules), (relative, reused)
+            built = constructed_names(tree)
+            assert "settle" in built, "RunResult.settle decides the state, not the engine"
+            assert "JobController" not in built, relative
         else:
             assert "shared.importing" in modules, relative
         if relative in set(PANELS):

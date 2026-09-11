@@ -29,6 +29,13 @@ the Plan 3 importer and job-control adapters and the Phase 3 MP3 model:
   MP3** — beside the shared Pause / Resume / Cancel / Retry Failed bar, one
   global progress view and one Summary / Details log region.
 
+Phase 7 moved the proven FFmpeg helpers (concat lists, FAST/Safe concat, WAV
+normalisation, signed-time append/trim, timestamp text) into
+``mp3_tools/mp3_processing.py`` beside the Write ID3 engine that consumes the
+frozen plan; they are re-exported here under their original names. The panel
+still runs nothing itself: wiring the engine to the shared job controller,
+Pause/Resume/Cancel, progress and Retry Failed is Phase 9's.
+
 Phase 5 adds the frozen plan: a processing button validates the workspace,
 reserves **one** MP3 Tool run for the whole operation through the shared
 service, and freezes everything the processing phases and a later Retry Failed
@@ -37,9 +44,7 @@ and filename, effective metadata, signed Time, artwork, the Book subfolders and
 the private staging beside them (``mp3_tools/mp3_plan.py``). Nothing is
 processed yet: no FFmpeg is run, no tag is written, no artwork is embedded and
 nothing is retried, so the still-empty run is released again and the plan is
-reported in the log. The proven FFmpeg helpers below (concat lists, FAST/Safe
-concat, WAV normalisation, signed-time append/trim, timestamp text) are kept
-verbatim for the processing phases; the panel does not call them.
+reported in the log.
 
 Removed with the single-book form, as the focused plan directs: the global file
 list, the Book-level Title field, ``Silence between tracks``, the FAST checkbox,
@@ -53,11 +58,9 @@ is declared here. Nothing scrolls the whole tool: the track list, the Chapter
 Titles box and the log scroll locally and give up height first.
 """
 
-import shlex
 import sys
 import time
 from pathlib import Path
-from typing import List, Tuple, Optional
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -69,12 +72,10 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import config as shared_config
-from shared import ffmpeg_utils
 from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
-from shared import subprocess_utils as sp
 from shared import ui_theme
 from shared.book_workspace import (
     SharedMetadata,
@@ -165,295 +166,24 @@ def _remembered_dir(key: str) -> Path:
     return Path.home()
 
 
-def ensure_ffmpeg_available() -> bool:
-    """True only when a proved, pinned pair is active.
-
-    Every FFmpeg-backed operation in this tool -- concat, duration probing,
-    normalisation, silence generation, time edits -- is gated on this. A merely
-    discovered pair is not enough: it was never executed.
-    """
-    return ffmpeg_utils.verified_ffmpeg()
-
-
-def run_ff(args: List[str]) -> Tuple[int, str, str]:
-    """Run ffmpeg/ffprobe and return (code, stdout, stderr) as text."""
-    try:
-        from subprocess import PIPE
-
-        p = sp.run(args, stdout=PIPE, stderr=PIPE, text=True)
-        return p.returncode, p.stdout, p.stderr
-    except Exception as e:
-        return 999, "", f"Subprocess failed: {e}"
-
-
-def save_error_log(folder: Path, title: str, args: List[str], stderr: str):
-    """Write (append) a minimal ffmpeg_log.txt only on error."""
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-        log = folder / "ffmpeg_log.txt"
-        with log.open("a", encoding="utf-8") as f:
-            f.write(f"\n--- {title} ---\n")
-            f.write("CMD: " + " ".join(shlex.quote(a) for a in args) + "\n")
-            if stderr:
-                f.write(stderr.strip() + "\n")
-    except Exception:
-        pass
-
-
-def ffmpeg_escape_listfile_path(p: Path) -> str:
-    """Serialise one path as a concat-demuxer ``file`` directive.
-
-    These are **not** shell rules. Per ffmpeg's documented syntax ("Quoting and
-    escaping"), every character between single quotes is literal — a backslash
-    inside them escapes nothing. So a quote cannot be written ``\\'``: ffmpeg
-    would read it as the closing quote and silently truncate the path at that
-    point. The documented form closes the quote, emits an escaped quote outside
-    it, and reopens::
-
-        file '/mnt/share/file 3'\\''.wav'
-
-    Because everything else inside the quotes is literal, Windows backslashes,
-    spaces and non-ASCII characters need no treatment at all. The previous
-    version doubled backslashes as well; that survived only because Windows
-    collapses repeated path separators, and it corrupted any real backslash.
-
-    A newline cannot be represented — the demuxer parses one directive per line.
-    Windows forbids newlines in names outright, so this only rejects a pathological
-    POSIX name rather than writing a listfile ffmpeg would misread.
-    """
-    text = str(p)
-    if "\n" in text or "\r" in text:
-        raise ValueError(f"a line break cannot appear in a concat list entry: {text!r}")
-    return "file '" + text.replace("'", "'\\''") + "'"
-
-
-def write_concat_listfile(paths: List[Path], listfile: Path):
-    """Write the concat list as UTF-8 — ffmpeg reads these names as UTF-8."""
-    with listfile.open("w", encoding="utf-8", newline="\n") as f:
-        for p in paths:
-            f.write(ffmpeg_escape_listfile_path(p) + "\n")
-
-
-def ffprobe_duration_seconds(path: Path) -> Optional[float]:
-    code, out, _ = run_ff(
-        [
-            ffmpeg_utils.ffprobe_cmd(),
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(path),
-        ]
-    )
-    if code == 0:
-        try:
-            return float(out.strip())
-        except Exception:
-            return None
-    return None
-
-
-def seconds_to_hms(sec: float) -> str:
-    sec = max(0.0, float(sec))
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = sec - h * 3600 - m * 60
-    return f"{h:02d}:{m:02d}:{s:06.3f}" if h > 0 else f"{m:02d}:{s:06.3f}"
-
-
-# ---------------------------
-# FAST PATH (metadata stripped)
-# ---------------------------
-
-
-def concat_mp3s_fast(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
-    args = [
-        ffmpeg_utils.ffmpeg_cmd(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(listfile),
-        "-map_metadata",
-        "-1",
-        "-c:a",
-        "libmp3lame",
-        "-q:a",
-        "2",
-        str(out_mp3),
-    ]
-    code, _, err = run_ff(args)
-    if code != 0:
-        save_error_log(log_dir, "FAST PATH concat_mp3s_fast", args, err)
-    return code == 0
-
-
-# ---------------------------
-# SAFE PATH (WAV normalize + optional gaps)
-# ---------------------------
-
-
-def normalize_to_wav(in_path: Path, out_wav: Path, log_dir: Path) -> bool:
-    args = [
-        ffmpeg_utils.ffmpeg_cmd(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        str(in_path),
-        "-vn",
-        "-sn",
-        "-dn",
-        "-ac",
-        "2",
-        "-ar",
-        "44100",
-        "-sample_fmt",
-        "s16",
-        str(out_wav),
-    ]
-    code, _, err = run_ff(args)
-    if code != 0:
-        save_error_log(log_dir, f"normalize_to_wav: {in_path.name}", args, err)
-    return code == 0
-
-
-def make_silence_wav(seconds: float, out_wav: Path, log_dir: Path) -> bool:
-    seconds = max(0.0, float(seconds))
-    args = [
-        ffmpeg_utils.ffmpeg_cmd(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-f",
-        "lavfi",
-        "-i",
-        "anullsrc=r=44100:cl=stereo",
-        "-t",
-        f"{seconds:.6f}",
-        "-ac",
-        "2",
-        "-ar",
-        "44100",
-        "-sample_fmt",
-        "s16",
-        str(out_wav),
-    ]
-    code, _, err = run_ff(args)
-    if code != 0:
-        save_error_log(log_dir, "make_silence_wav", args, err)
-    return code == 0
-
-
-def concat_wavs_to_mp3(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
-    args = [
-        ffmpeg_utils.ffmpeg_cmd(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(listfile),
-        "-map_metadata",
-        "-1",
-        "-c:a",
-        "libmp3lame",
-        "-q:a",
-        "2",
-        str(out_mp3),
-    ]
-    code, _, err = run_ff(args)
-    if code != 0:
-        save_error_log(log_dir, "SAFE PATH concat_wavs_to_mp3", args, err)
-    return code == 0
-
-
-# ---------------------------
-# Time edit helpers (always strip metadata)
-# ---------------------------
-
-
-def add_silence_to_mp3(in_mp3: Path, seconds: float, out_mp3: Path, log_dir: Path) -> bool:
-    seconds = max(0.0, float(seconds))
-    args = [
-        ffmpeg_utils.ffmpeg_cmd(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        str(in_mp3),
-        "-f",
-        "lavfi",
-        "-t",
-        f"{seconds:.6f}",
-        "-i",
-        "anullsrc=r=44100:cl=stereo",
-        "-filter_complex",
-        "[0:a][1:a]concat=n=2:v=0:a=1[a]",
-        "-map",
-        "[a]",
-        "-map_metadata",
-        "-1",
-        "-ac",
-        "2",
-        "-ar",
-        "44100",
-        "-c:a",
-        "libmp3lame",
-        "-q:a",
-        "2",
-        str(out_mp3),
-    ]
-    code, _, err = run_ff(args)
-    if code != 0:
-        save_error_log(log_dir, f"add_silence_to_mp3: {in_mp3.name}", args, err)
-    return code == 0
-
-
-def trim_from_end_mp3(in_mp3: Path, seconds_to_remove: float, out_mp3: Path, log_dir: Path) -> bool:
-    seconds_to_remove = max(0.0, float(seconds_to_remove))
-    dur = ffprobe_duration_seconds(in_mp3) or 0.0
-    new_dur = max(0.0, dur - seconds_to_remove)
-    args = [
-        ffmpeg_utils.ffmpeg_cmd(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        str(in_mp3),
-        "-t",
-        f"{new_dur:.6f}",
-        "-map_metadata",
-        "-1",
-        "-ac",
-        "2",
-        "-ar",
-        "44100",
-        "-c:a",
-        "libmp3lame",
-        "-q:a",
-        "2",
-        str(out_mp3),
-    ]
-    code, _, err = run_ff(args)
-    if code != 0:
-        save_error_log(log_dir, f"trim_from_end_mp3: {in_mp3.name}", args, err)
-    return code == 0
+# The proven FFmpeg helpers moved to ``mp3_processing`` at Phase 7 of the
+# focused MP3 redesign, where the Write ID3 engine shares them. They are
+# re-exported here under their original names for every existing caller.
+from mp3_tools.mp3_processing import (  # noqa: E402,F401
+    add_silence_to_mp3,
+    concat_mp3s_fast,
+    concat_wavs_to_mp3,
+    ensure_ffmpeg_available,
+    ffmpeg_escape_listfile_path,
+    ffprobe_duration_seconds,
+    make_silence_wav,
+    normalize_to_wav,
+    run_ff,
+    save_error_log,
+    seconds_to_hms,
+    trim_from_end_mp3,
+    write_concat_listfile,
+)
 
 
 # ---------------------------

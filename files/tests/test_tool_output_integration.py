@@ -336,21 +336,26 @@ def test_mp3_tool_time_edit_and_id3_plan_distinct_destinations(output_base, tmp_
 
 
 def test_mp3_tool_keeps_the_signed_time_helpers_for_its_processing_phases():
-    """Narrowed at the focused MP3 plan's Phase 4.
+    """Narrowed at the focused MP3 plan's Phase 4; followed to Phase 7's module.
 
     The old ``_id3_worker``'s time-only branch (``abs(delta) > 1e-9``) is gone
     with the worker. What the redesign carries forward are the proven helpers —
-    append and trim — which Phase 7 applies to every track of every Book, at
-    zero, positive and negative Time, with real-media tests of its own.
+    append and trim — which Phase 7's ``mp3_processing`` applies to every track
+    of every Book at zero, positive and negative Time, with real-media tests of
+    its own (``test_mp3_write_id3.py``). The panel re-exports them by identity.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py").read_text(
-        encoding="utf-8"
-    )
+    from mp3_tools import mp3_processing, mp3_tool
+
+    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_processing.py"
+              ).read_text(encoding="utf-8")
     tree = ast.parse(source)
     declared = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
-    assert {"add_silence_to_mp3", "trim_from_end_mp3", "concat_mp3s_fast",
-            "normalize_to_wav", "concat_wavs_to_mp3", "write_concat_listfile",
-            "ffprobe_duration_seconds", "seconds_to_hms"} <= declared
+    helpers = {"add_silence_to_mp3", "trim_from_end_mp3", "concat_mp3s_fast",
+               "normalize_to_wav", "concat_wavs_to_mp3", "write_concat_listfile",
+               "ffprobe_duration_seconds", "seconds_to_hms"}
+    assert helpers <= declared
+    for name in helpers:
+        assert getattr(mp3_tool, name) is getattr(mp3_processing, name), name
 
 
 def test_mp3_tool_retired_its_local_run_folder_helper():
@@ -846,11 +851,15 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: v0.6.3 focused MP3 plan Phase 5 adds ``mp3_tools.mp3_plan`` as the tenth: the
 #: MP3 Tool's frozen run plan, not a tool panel, listed only to keep the two
 #: spellings in step.
+#: Phase 7 adds ``mp3_tools.mp3_processing`` as the eleventh: the Write ID3
+#: engine settles each Book into a Plan 3 ``RunResult``, so it names the
+#: foundation's result vocabulary; not a tool panel.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
                   "shared.book_workspace_ui", "mp3_tools.mp3_workflow",
-                  "mp3_tools.mp3_tool", "mp3_tools.mp3_plan")
+                  "mp3_tools.mp3_tool", "mp3_tools.mp3_plan",
+                  "mp3_tools.mp3_processing")
 
 
 def _tool_path(relative: str) -> Path:
