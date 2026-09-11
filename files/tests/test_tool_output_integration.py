@@ -815,10 +815,13 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: v0.6.3 Plan 6 Phase 8 adds ``shared.book_workspace_ui`` as the seventh, for the
 #: same reason: it is the Plan 6 Tk adapter, not a tool, so it matches nothing in
 #: ``TOOL_MODULES`` and is excluded from no guard by being named here.
+#: v0.6.3 focused MP3 plan Phase 3 adds ``mp3_tools.mp3_workflow`` as the eighth:
+#: the MP3 Tool's pure model, not the panel — ``mp3_tools.mp3_tool`` stays in
+#: ``TOOL_MODULES`` and is still checked below as an unadopted tool.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
-                  "shared.book_workspace_ui")
+                  "shared.book_workspace_ui", "mp3_tools.mp3_workflow")
 
 
 def _tool_path(relative: str) -> Path:

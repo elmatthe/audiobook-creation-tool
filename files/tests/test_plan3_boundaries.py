@@ -102,7 +102,7 @@ PANELS = (
 ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
             "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
-            "shared/book_workspace_ui.py")
+            "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py")
 
 
 def relative_name(path: Path) -> str:
@@ -656,7 +656,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_seven_production_modules_are_authorized_to_adopt():
+def test_exactly_these_eight_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -708,7 +708,17 @@ def test_exactly_these_seven_production_modules_are_authorized_to_adopt():
     measures it here. **This entry authorises that one module and nothing else** —
     the manual harness is not production and is not listed.
 
-    The name says "these seven" rather than "six" because the count is part of what
+    v0.6.3 focused MP3 plan Phase 3 adds the **eighth**: ``mp3_tools/mp3_workflow.py``
+    is the MP3 Tool's pure model — the MP3 ``SupportedTypeCatalog``, folder-to-Book
+    and Add-Files projection over the Plan 6 workspace, source ID3 observation and
+    the title/number/time contracts. It names ``ImportedFile``,
+    ``ImportedFileSnapshot``, ``SupportedType`` and ``IdFactory`` because those are
+    the importer's own values and a second spelling of any of them would be a
+    second importer. It builds no manager, coordinator, controller or widget, and
+    ``files/tests/test_mp3_workflow.py`` holds it to that. **The MP3 Tool panel
+    itself is not listed and stays byte-identical** until the phase that converts it.
+
+    The name says "these eight" rather than "seven" because the count is part of what
     is pinned: a widening that did not have to rename this test would be a widening
     nobody had to think about.
     """
@@ -717,7 +727,8 @@ def test_exactly_these_seven_production_modules_are_authorized_to_adopt():
                        "mp3_tools/m4b_destinations.py",
                        "mp3_tools/m4b_plan.py",
                        "shared/book_workspace.py",
-                       "shared/book_workspace_ui.py")
+                       "shared/book_workspace_ui.py",
+                       "mp3_tools/mp3_workflow.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/mp3_tool.py",
@@ -775,7 +786,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 7, importers
+    assert len(importers) == 8, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
