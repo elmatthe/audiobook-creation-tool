@@ -1293,12 +1293,17 @@ def test_this_module_composes_plan3_retry_rather_than_replacing_it():
         assert not hasattr(module, invented), invented
 
 
-def test_phase_eight_has_not_been_pulled_forward():
-    """The Tk adapter and the manual harness are Phase 8's. Absence is proved."""
+def test_the_model_carries_no_adapter_vocabulary():
+    """The Tk adapter exists (Phase 8) and the model still refuses it.
+
+    Written as a Phase-8-absence guard; kept as the stronger ownership claim once
+    the adapter was written, and corrected to the adapter's real class name —
+    the prototype pinned ``SharedMetadataPanel``, which nothing ever defined.
+    """
     from shared import book_workspace as module
     for later in ("tk", "ttk", "tkinter", "MainThreadGuard", "MainThreadPump",
                   "LockGroup", "style_name", "style_tk_widget", "BookNavigator",
-                  "SharedMetadataPanel", "frame", "widget"):
+                  "SharedMetadataSurface", "frame", "widget"):
         assert not hasattr(module, later), later
 
 

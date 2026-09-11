@@ -191,7 +191,7 @@ PHASE8_NAMES = (
     "tkinter", "tk", "ttk", "Tk", "Toplevel", "Frame", "Widget", "StringVar",
     "MainThreadGuard", "MainThreadPump", "LockGroup", "style_name",
     "style_tk_widget", "ui_theme", "job_ui", "BookNavigator",
-    "SharedMetadataPanel", "book_workspace_ui", "manual_plan6_harness",
+    "SharedMetadataSurface", "book_workspace_ui", "manual_plan6_harness",
 )
 
 
@@ -830,30 +830,412 @@ def test_the_counts_are_derived_and_stored_nowhere():
 
 
 # --------------------------------------------------------------------------- #
-# Phase 8 must remain absent
+# Phase 8 — the one Tk adapter, and the harness (drop section 19)
 #
-# Where the Phase-7-absence guard used to stand. Phase 8 owns the Tk adapter and
-# the manual harness; neither exists, and that is proved rather than assumed.
+# Where the Phase-8-absence guard stood. The absence became a presence, so the
+# guard became an ownership contract rather than being deleted: the data layer's
+# Tk-freedom is now the *stronger* claim, because the adapter exists one import
+# away and book_workspace.py still refuses it.
+# --------------------------------------------------------------------------- #
+
+#: The one Plan 6 Tk adapter. There is no second, and Phase 9 adds none.
+ADAPTER = "book_workspace_ui.py"
+
+#: The developer-only harness. Production must not be able to reach it.
+HARNESS = "manual_plan6_harness.py"
+
+
+def adapter_tree() -> ast.Module:
+    return parse(SHARED / ADAPTER)
+
+
+@pytest.mark.parametrize("name", DATA_LAYER + (ALLOCATOR,))
+def test_the_model_layer_still_names_no_adapter_vocabulary(name):
+    """Now the stronger claim: the adapter EXISTS, and the model still refuses it."""
+    tree = parse(SHARED / name)
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    present = sorted(entry for entry in PHASE8_NAMES if entry in seen)
+    assert present == [], (name, present)
+
+
+@pytest.mark.parametrize("name", DATA_LAYER + (ALLOCATOR,))
+def test_no_model_module_imports_the_adapter(name):
+    """The dependency runs one way. A model that imported its own UI is a cycle."""
+    modules = imported_names(parse(SHARED / name))
+    assert "shared.book_workspace_ui" not in modules, name
+    assert not any(entry.split(".")[-1] == "book_workspace_ui" for entry in modules)
+
+
+def test_there_is_exactly_one_plan6_tk_adapter():
+    """One module may touch Tk, and a second would be a second place to fix a bug."""
+    touching = sorted(
+        path.name for path in SHARED.glob("*.py")
+        if any(entry.split(".")[0] == "tkinter"
+               for entry in imported_names(parse(path))))
+    assert ADAPTER in touching
+    plan6 = {ADAPTER, *DATA_LAYER, ALLOCATOR}
+    assert [name for name in touching if name in plan6] == [ADAPTER], touching
+
+
+def test_the_adapter_reaches_no_disk_process_network_or_output_service():
+    tree = adapter_tree()
+    modules = imported_names(tree)
+    for banned in ("os", "os.path", "pathlib", "subprocess", "shutil", "socket",
+                   "urllib", "http", "requests", "threading", "queue", "asyncio",
+                   "multiprocessing", "time", "datetime",
+                   "shared.output_paths", "shared.paths"):
+        assert banned not in modules, banned
+    forbidden = {
+        "sanitize_component", "sanitize_relative", "DestinationPlanner",
+        "reserve_run_directory", "ensure_output_base", "plan_flat", "plan_mirrored",
+        "RunReservation", "numbered_variant",
+    }
+    assert referenced_names(tree) & forbidden == set()
+
+
+def test_the_adapter_opens_no_second_after_chain_and_starts_no_thread():
+    tree = adapter_tree()
+    called = constructed_names(tree)
+    for scheduled in ("after", "after_idle", "after_cancel", "update",
+                      "update_idletasks", "mainloop", "sleep", "Thread", "Timer",
+                      "Queue", "Event", "monotonic", "perf_counter"):
+        assert scheduled not in called, scheduled
+    seen = referenced_names(tree) | imported_names(tree)
+    assert "MainThreadPump" not in seen, "Plan 3 owns the one callback chain"
+
+
+def test_the_adapter_contains_no_platform_branch():
+    tree = adapter_tree()
+    assert platform_branching_in(tree) - {"name"} == set(), platform_branching_in(tree)
+    modules = imported_names(tree)
+    assert "sys" not in modules and "platform" not in modules
+
+
+def test_the_adapter_declares_no_theme_literal_or_token():
+    """Drop section 19: no new colour, metric or font. Not even a hex literal."""
+    tree = adapter_tree()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            assert not node.value.startswith("#"), node.value
+    seen = referenced_names(tree)
+    for token in ("colors", "fonts", "metrics", "palette", "shared_bg"):
+        assert token not in seen, token
+    # And no Windows-only bundle key is subscripted, which is what KeyErrors on aqua.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript):
+            spelled = ast.unparse(node)
+            for windows_only in ("metrics", "styles", "fonts", "colors"):
+                assert windows_only not in spelled, spelled
+
+
+def test_the_adapter_runs_nothing_the_later_phases_own():
+    """It renders the finished model. It captures, numbers and retries nothing."""
+    tree = adapter_tree()
+    seen = referenced_names(tree) | imported_names(tree) | defined_names(tree)
+    for owned_elsewhere in ("capture_workspace_run", "capture_run", "RunSnapshot",
+                            "BookRunSnapshot", "WorkspaceRunResult", "RunResult",
+                            "RetryRequest", "retry_failed_books", "BookDisposition",
+                            "SuccessNumbers", "Tentative", "NumberingError",
+                            "JobController", "JobState", "is_locked"):
+        assert owned_elsewhere not in seen, owned_elsewhere
+
+
+def test_the_adapter_reimplements_no_model_projection():
+    """It may call a pure projection. It may not grow its own copy of one."""
+    tree = adapter_tree()
+    declared = defined_names(tree)
+    for model_owned in ("has_meaningful_work", "disabled_fields", "effective_value",
+                        "effective_metadata", "is_populated", "add_book",
+                        "duplicate_book", "remove_book", "previous_book",
+                        "next_book", "select_book", "replace_book",
+                        "set_shared_metadata", "book_groups", "new_book_id"):
+        assert model_owned not in declared, model_owned
+    called = constructed_names(tree)
+    assert "has_meaningful_work" in called, "Decision 50A is asked, not re-decided"
+    assert "disabled_fields" in called, "Decision 20B is asked, not re-decided"
+
+
+def test_the_adapter_mutates_nothing_and_mints_no_identity():
+    tree = adapter_tree()
+    built = constructed_names(tree)
+    for owned_by_the_model in ("BookMutation", "WorkspaceSnapshot", "BookJob",
+                               "SharedMetadata", "IdFactory", "new_book_id",
+                               "next_id", "add_book", "duplicate_book",
+                               "remove_book", "previous_book", "next_book",
+                               "select_book", "replace_book", "set_shared_metadata"):
+        assert owned_by_the_model not in built, owned_by_the_model
+
+
+def test_the_adapter_hard_codes_no_universal_metadata_vocabulary():
+    tree = adapter_tree()
+    literals = {node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    for universal in ("title", "author", "narrator", "series", "album", "genre",
+                      "album_artist", "year", "comment", "series_index"):
+        assert universal not in literals, universal
+
+
+def test_the_adapter_recreates_no_plan3_widget():
+    tree = adapter_tree()
+    seen = defined_names(tree) | referenced_names(tree)
+    for plan3 in ("ImportedFileList", "ImportOptionsBar", "ImportStatusBar",
+                  "ImportAdapter", "JobControlBar", "JobStatusView",
+                  "SummaryDetailsView", "JobAdapter", "ProgressIndicator",
+                  "JobEventStream", "JobReporter", "EtaEstimator", "LoggerBridge"):
+        assert plan3 not in seen, plan3
+
+
+def test_no_component_subclasses_a_widget_or_a_universal_base_panel():
+    tree = adapter_tree()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for base in node.bases:
+            spelled = ast.unparse(base)
+            for widget in ("Frame", "Labelframe", "Widget", "Panel", "Toplevel"):
+                assert widget not in spelled, (node.name, spelled)
+
+
+def test_phases_one_to_eight_delivered_their_own_names_and_no_more():
+    """Phase 8 added a module, and nothing at all to the model's surface."""
+    from shared import book_workspace, book_workspace_ui
+
+    assert len(book_workspace.__all__) == 45, "Phase 8 adds no model name"
+    assert book_workspace_ui.__all__ == [
+        "BookWorkspaceUiError", "BookNavigator", "SharedMetadataSurface"]
+    tree = adapter_tree()
+    public = {node.name for node in tree.body
+              if isinstance(node, ast.ClassDef) and not node.name.startswith("_")}
+    assert public == set(book_workspace_ui.__all__), public
+
+
+# --------------------------------------------------------------------------- #
+# The harness is a developer tool, and provably out of the product
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("name", DATA_LAYER)
-def test_no_phase_eight_adapter_vocabulary_exists_yet(name):
-    tree = source_of(name)
+def test_the_manual_harness_exists_and_is_directly_runnable():
+    path = REPO_ROOT / "files" / "tests" / HARNESS
+    assert path.is_file()
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    guards = [node for node in tree.body
+              if isinstance(node, ast.If) and "__main__" in ast.unparse(node.test)]
+    assert guards, "a manual harness needs a real entry point"
+    assert "main" in {node.name for node in tree.body
+                      if isinstance(node, ast.FunctionDef)}
+
+
+def test_nothing_under_scripts_imports_the_manual_harness():
+    stem = HARNESS.removesuffix(".py")
+    for path in UNIVERSAL.rglob("*.py"):
+        modules = imported_names(parse(path))
+        assert not any(entry.split(".")[-1] == stem for entry in modules), path
+
+
+def test_the_launcher_does_not_reference_the_harness_or_the_adapter():
+    tree = parse(UNIVERSAL / "launcher.py")
+    seen = referenced_names(tree) | imported_names(tree)
+    for name in (HARNESS.removesuffix(".py"), "book_workspace_ui", "BookNavigator",
+                 "SharedMetadataSurface"):
+        assert not any(name == entry.split(".")[-1] for entry in seen), name
+
+
+def test_the_launcher_tool_registry_is_still_exactly_six():
+    tree = parse(UNIVERSAL / "launcher.py")
+    for node in ast.walk(tree):
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
+        if any(isinstance(target, ast.Name) and target.id == "TOOLS"
+               for target in targets):
+            assert isinstance(node.value, (ast.List, ast.Tuple))
+            assert len(node.value.elts) == 6, "Plan 6 adds no tool"
+
+
+def test_the_harness_is_not_collected_by_pytest():
+    """Its name is not ``test_*`` and it declares no test function."""
+    assert not HARNESS.startswith("test_")
+    tree = ast.parse(
+        (REPO_ROOT / "files" / "tests" / HARNESS).read_text(encoding="utf-8"))
+    named = {node.name for node in ast.walk(tree)
+             if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    assert not any(name.startswith(("test_", "Test")) for name in named), named
+
+
+def test_the_harness_lives_outside_the_shipped_tree():
+    """The release archives are built from ``scripts/``; this is under ``files/``."""
+    path = REPO_ROOT / "files" / "tests" / HARNESS
+    assert (REPO_ROOT / "files") in path.parents
+    assert UNIVERSAL not in path.parents
+    assert not (UNIVERSAL / HARNESS).exists()
+
+
+def test_the_harness_touches_no_disk_or_process():
+    tree = ast.parse(
+        (REPO_ROOT / "files" / "tests" / HARNESS).read_text(encoding="utf-8"))
+    called = constructed_names(tree)
+    for forbidden in ("Popen", "run", "check_output", "system", "mkdir", "makedirs",
+                      "rmtree", "unlink", "touch", "write_text", "write_bytes",
+                      "urlopen", "socket", "sleep", "Thread"):
+        assert forbidden not in called, forbidden
+    modules = imported_names(tree)
+    for banned in ("subprocess", "shutil", "socket", "urllib", "requests",
+                   "threading", "time", "tempfile"):
+        assert banned not in modules, banned
+
+
+def test_the_harness_drives_the_production_model_and_adapter():
+    """It demonstrates the real thing; a harness over a stub proves nothing."""
+    tree = ast.parse(
+        (REPO_ROOT / "files" / "tests" / HARNESS).read_text(encoding="utf-8"))
+    modules = imported_names(tree)
+    assert "shared.book_workspace_ui" in modules
+    assert "shared.book_workspace" in modules
+    seen = referenced_names(tree)
+    for real in ("BookNavigator", "SharedMetadataSurface", "add_book",
+                 "duplicate_book", "remove_book", "previous_book", "next_book",
+                 "select_book", "set_shared_metadata", "has_meaningful_work",
+                 "ask_confirm"):
+        assert real in seen, real
+
+
+def test_the_harness_owns_its_own_field_vocabulary():
+    """Example field names live in the consumer, never in the adapter."""
+    harness = ast.parse(
+        (REPO_ROOT / "files" / "tests" / HARNESS).read_text(encoding="utf-8"))
+    literals = {node.value for node in ast.walk(harness)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    assert {"title", "author"} <= literals, "the consumer declares them"
+    adapter = {node.value for node in ast.walk(adapter_tree())
+               if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    assert not ({"title", "author", "narrator"} & adapter), "and the adapter does not"
+
+
+def test_the_confirmation_policy_lives_in_the_harness_not_the_adapter():
+    """Decision 50A, split: the model answers, the consumer decides, the UI routes."""
+    harness = ast.parse(
+        (REPO_ROOT / "files" / "tests" / HARNESS).read_text(encoding="utf-8"))
+    assert "ask_confirm" in constructed_names(harness)
+    assert "ask_confirm" not in referenced_names(adapter_tree())
+
+
+# --- mutation checks for the Phase 8 guards -------------------------------- #
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("import tkinter as tk\ndef f():\n    return tk.Tk()", "tkinter"),
+    ("from shared.job_ui import MainThreadGuard\n"
+     "class P:\n    guard = MainThreadGuard", "MainThreadGuard"),
+    ("from shared import ui_theme\ndef f():\n    return ui_theme", "ui_theme"),
+    ("class BookNavigator:\n    pass", "BookNavigator"),
+])
+def test_the_model_purity_guard_actually_detects_adapter_vocabulary(code, expected):
+    tree = sample(code)
     seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
-    present = sorted(entry for entry in PHASE8_NAMES if entry in seen)
-    assert present == [], present
+    assert expected in {entry for entry in PHASE8_NAMES if entry in seen}
 
 
-def test_the_phase_eight_adapter_module_does_not_exist():
-    assert not (SHARED / "book_workspace_ui.py").exists()
+def test_the_model_purity_guard_passes_a_pure_value_layer():
+    clean = sample(
+        "from shared.job_control import freeze_options\n"
+        "def options(book, shared):\n"
+        "    return freeze_options(dict(book.configuration))\n")
+    seen = defined_names(clean) | referenced_names(clean) | imported_names(clean)
+    assert {entry for entry in PHASE8_NAMES if entry in seen} == set()
 
 
-def test_the_phase_eight_manual_harness_does_not_exist():
-    assert not (REPO_ROOT / "files" / "tests" / "manual_plan6_harness.py").exists()
+@pytest.mark.parametrize("code", [
+    'STYLE = "#1e1e1e"\n',
+    'def f(theme):\n    return theme["metrics"]["gap_md"]\n',
+    'def f(theme):\n    return theme["styles"]["shared_label"]\n',
+])
+def test_the_theme_literal_guard_actually_detects_a_new_token(code):
+    tree = sample(code)
+    hexes = [node.value for node in ast.walk(tree)
+             if isinstance(node, ast.Constant) and isinstance(node.value, str)
+             and node.value.startswith("#")]
+    subscripts = [ast.unparse(node) for node in ast.walk(tree)
+                  if isinstance(node, ast.Subscript)
+                  and any(key in ast.unparse(node)
+                          for key in ("metrics", "styles", "fonts", "colors"))]
+    assert hexes or subscripts, code
 
 
-def test_no_plan6_module_has_grown_a_widget_or_a_theme_dependency():
+def test_the_theme_literal_guard_passes_the_sanctioned_lookup():
+    clean = sample(
+        "from shared.job_ui import style_name\n"
+        "def f(theme):\n    return style_name(theme, 'shared_label')\n")
+    hexes = [node.value for node in ast.walk(clean)
+             if isinstance(node, ast.Constant) and isinstance(node.value, str)
+             and node.value.startswith("#")]
+    assert hexes == []
+    assert [node for node in ast.walk(clean) if isinstance(node, ast.Subscript)] == []
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("class Navigator(ttk.Frame):\n    pass", "Frame"),
+    ("class Surface(ttk.Labelframe):\n    pass", "Labelframe"),
+    ("class Panel(BasePanel):\n    pass", "Panel"),
+])
+def test_the_composition_guard_actually_detects_a_subclass(code, expected):
+    tree = sample(code)
+    found = [ast.unparse(base) for node in ast.walk(tree)
+             if isinstance(node, ast.ClassDef) for base in node.bases]
+    assert any(expected in spelled for spelled in found), found
+
+
+def test_the_composition_guard_passes_a_component_that_owns_a_frame():
+    clean = sample(
+        "class Navigator:\n"
+        "    def __init__(self, parent):\n"
+        "        self.frame = ttk.Frame(parent)\n")
+    found = [ast.unparse(base) for node in ast.walk(clean)
+             if isinstance(node, ast.ClassDef) for base in node.bases]
+    assert found == []
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("def f(v):\n    return bool(v.strip())", "strip"),
+    ("def disabled_fields(shared):\n    return frozenset()", "disabled_fields"),
+    ("def has_meaningful_work(book):\n    return True", "has_meaningful_work"),
+])
+def test_the_reimplementation_guard_actually_detects_a_copied_projection(
+        code, expected):
+    tree = sample(code)
+    declared = defined_names(tree)
+    attrs = {node.func.attr for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
+    assert expected in (declared | attrs), (declared, attrs)
+
+
+def test_the_reimplementation_guard_passes_a_call_to_the_model():
+    clean = sample(
+        "from shared.book_workspace import disabled_fields\n"
+        "def render(shared):\n    return disabled_fields(shared)\n")
+    assert "disabled_fields" not in defined_names(clean)
+    assert "disabled_fields" in constructed_names(clean)
+
+
+@pytest.mark.parametrize("code,expected", [
+    ("def f(w):\n    w.after(100, f)", "after"),
+    ("def f(w):\n    w.after_idle(f)", "after_idle"),
+    ("import threading\ndef f():\n    return threading.Thread()", "Thread"),
+])
+def test_the_after_chain_guard_actually_detects_a_second_chain(code, expected):
+    assert expected in constructed_names(sample(code))
+
+
+def test_the_after_chain_guard_passes_a_push_driven_render():
+    clean = sample(
+        "def render(self, workspace):\n"
+        "    self._workspace = workspace\n"
+        "    self.label.configure(text='Book 1 of 1')\n")
+    called = constructed_names(clean)
+    for scheduled in ("after", "after_idle", "Thread", "sleep"):
+        assert scheduled not in called
+
+
+def test_no_plan6_model_module_has_grown_a_widget_or_a_theme_dependency():
+    """The adapter is deliberately not in this list — owning widgets is its job."""
     for name in DATA_LAYER + (ALLOCATOR,):
         tree = parse(SHARED / name)
         modules = imported_names(tree)
@@ -1493,7 +1875,7 @@ def test_the_controller_guard_actually_detects_run_machinery(code, expected):
 PLAN6_TEST_MODULES = (
     "test_book_workspace.py", "test_book_grouping.py", "test_shared_metadata.py",
     "test_book_run_snapshot.py", "test_book_numbering.py", "test_book_retry.py",
-    "test_plan6_boundaries.py",
+    "test_book_workspace_ui.py", "test_plan6_boundaries.py",
 )
 
 
@@ -1531,3 +1913,237 @@ def test_that_shadowing_guard_passes_distinct_tests():
 def test_every_plan6_test_module_exists_and_is_collected(name):
     """The list above must not quietly name a module that has been renamed away."""
     assert (REPO_ROOT / "files" / "tests" / name).is_file(), name
+
+
+# --------------------------------------------------------------------------- #
+# The harness is out of both release archives — proved, not assumed
+#
+# Read-only. Nothing here runs release.py, and nothing here changes packaging:
+# the point is that the harness is ALREADY excluded by the existing explicit
+# scope, so Phase 8 needed no packaging change at all.
+# --------------------------------------------------------------------------- #
+
+
+def release_tree() -> ast.Module:
+    return parse(SHARED / "release.py")
+
+
+def test_the_packager_walks_exactly_one_tree_and_it_is_not_files():
+    """``scripts/`` is walked; ``files/`` is never named as a source at all."""
+    tree = release_tree()
+    walked = {ast.unparse(node.func.value) for node in ast.walk(tree)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+              and node.func.attr in {"rglob", "glob", "walk", "iterdir"}}
+    assert walked == {"SCRIPTS_DIR"}, walked
+
+    assigned = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and isinstance(node.targets[0], ast.Name):
+            assigned[node.targets[0].id] = ast.unparse(node.value)
+    assert "SCRIPTS_DIR" in assigned
+    assert "FILES_DIR" not in assigned, "the dev tree is not a packaging source"
+
+
+def test_no_release_root_file_is_the_harness_or_lives_under_files():
+    tree = release_tree()
+    root_files = [node for node in tree.body
+                  if isinstance(node, ast.Assign)
+                  and any(getattr(target, "id", "") == "ROOT_FILES"
+                          for target in node.targets)]
+    assert len(root_files) == 1, "ROOT_FILES is the explicit root scope"
+    named = {node.value for node in ast.walk(root_files[0])
+             if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    assert HARNESS not in named
+    for entry in named:
+        assert not entry.startswith("files/"), entry
+
+
+def test_the_harness_would_not_be_reached_by_the_packagers_scope():
+    """Mechanically: the harness path is not under the one tree that is walked."""
+    harness = REPO_ROOT / "files" / "tests" / HARNESS
+    scripts_dir = REPO_ROOT / "scripts"
+    assert scripts_dir not in harness.parents, harness
+    assert harness not in set(scripts_dir.rglob("*"))
+
+
+def test_the_plan3_harness_is_excluded_the_same_way_and_always_was():
+    """The precedent this relies on. If it ever changed, this fails too."""
+    plan3 = REPO_ROOT / "files" / "tests" / "manual_plan3_harness.py"
+    assert plan3.is_file(), "the Plan 3 harness is the precedent"
+    assert (REPO_ROOT / "scripts") not in plan3.parents
+
+
+def test_the_adapter_by_contrast_does_ship():
+    """It is production, so it must be inside the packaged tree."""
+    adapter = SHARED / ADAPTER
+    assert (REPO_ROOT / "scripts") in adapter.parents
+    assert adapter in set((REPO_ROOT / "scripts").rglob("*.py"))
+
+
+# --------------------------------------------------------------------------- #
+# The harness after the Phase 8 manual gate
+#
+# Three corrections the maintainer asked for on inspection: narrator gone, every
+# entry labelled on its own side, and a per-book Chapter Titles section. These
+# are structural checks over the harness source; the live behaviour of the
+# chapter editor is exercised in ``test_book_workspace_ui.py``.
+# --------------------------------------------------------------------------- #
+
+
+def harness_tree() -> ast.Module:
+    return parse(REPO_ROOT / "files" / "tests" / HARNESS)
+
+
+def harness_literals() -> set[str]:
+    return {node.value for node in ast.walk(harness_tree())
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+
+
+def test_the_harness_declares_no_narrator_field():
+    """The maintainer does not use narrator metadata and does not want the space."""
+    declared = [node for node in harness_tree().body
+                if isinstance(node, ast.Assign)
+                and any(getattr(target, "id", "") == "FIELDS"
+                        for target in node.targets)]
+    assert len(declared) == 1, "one vocabulary declaration"
+    spelled = ast.unparse(declared[0])
+    assert "narrator" not in spelled.lower(), spelled
+    assert "title" in spelled and "author" in spelled
+
+
+def test_the_harness_vocabulary_is_key_and_label_pairs():
+    declared = next(node for node in harness_tree().body
+                    if isinstance(node, ast.Assign)
+                    and any(getattr(target, "id", "") == "FIELDS"
+                            for target in node.targets))
+    assert isinstance(declared.value, ast.Tuple)
+    for element in declared.value.elts:
+        assert isinstance(element, ast.Tuple), ast.unparse(element)
+        assert len(element.elts) == 2, ast.unparse(element)
+
+
+def test_the_adapter_still_hard_codes_no_field_key_or_label():
+    """Removing narrator from a consumer must not have taught the adapter anything."""
+    adapter = {node.value for node in ast.walk(adapter_tree())
+               if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    for concrete in ("title", "Title", "author", "Author", "narrator", "Narrator"):
+        assert concrete not in adapter, concrete
+
+
+# --- the chapter-titles section -------------------------------------------- #
+
+
+def test_the_harness_shows_a_chapter_titles_section_with_its_help_text():
+    literals = harness_literals()
+    assert "Chapter Titles" in literals, "the section caption"
+    assert "One chapter title per line." in literals, "the help text"
+    # "Chapters" alone would suggest file or duration editing, which this is not.
+    assert "Chapters" not in literals
+
+
+def test_the_chapter_key_is_the_harnesss_own_and_reaches_no_shared_layer():
+    tree = harness_tree()
+    declared = [node for node in tree.body
+                if isinstance(node, ast.Assign)
+                and any(getattr(target, "id", "") == "CHAPTER_FIELD"
+                        for target in node.targets)]
+    assert len(declared) == 1
+    assert ast.unparse(declared[0].value) == "'chapter_titles'"
+
+    # It is ordinary BookJob configuration, so it must appear nowhere else.
+    assert "chapter_titles" not in {
+        node.value for node in ast.walk(adapter_tree())
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    for name in DATA_LAYER + (ALLOCATOR,):
+        assert "chapter_titles" not in {
+            node.value for node in ast.walk(parse(SHARED / name))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)}, name
+
+
+def test_the_chapter_editor_writes_through_the_existing_immutable_flow():
+    """``replace_book`` and a fresh ``BookJob`` — no new mutation path."""
+    tree = harness_tree()
+    editor = one_function(tree, "on_chapter_edit")
+    called = constructed_names(editor)
+    assert "replace_book" in called, "the model applies the change"
+    assert "BookJob" in called, "a new immutable value, not an edit in place"
+
+
+def test_the_harness_adds_no_m4b_or_chapter_writing_behaviour():
+    """Plan 6 demonstrates the configuration surface. It writes nothing."""
+    tree = harness_tree()
+    called = constructed_names(tree)
+    for owned_elsewhere in ("ffmpeg_cmd", "write_chapters", "ffmetadata",
+                            "build_chapters", "chapter_times", "duration",
+                            "probe", "convert", "export", "run", "Popen"):
+        assert owned_elsewhere not in called, owned_elsewhere
+    modules = imported_names(tree)
+    for banned in ("subprocess", "shared.metadata", "mp3_tools.m4b_maker",
+                   "mp3_tools.m4b_converter", "pydub", "mutagen"):
+        assert banned not in modules, banned
+    declared = defined_names(tree)
+    for invented in ("Chapter", "ChapterModel", "ChapterList", "ChapterPlan"):
+        assert invented not in declared, invented
+
+
+def test_the_chapter_box_is_themed_through_the_sanctioned_helper():
+    """A classic ``Text`` needs ``style_tk_widget``; it must not be hand-coloured."""
+    tree = harness_tree()
+    calls = [node for node in ast.walk(tree)
+             if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Attribute)
+             and node.func.attr == "style_tk_widget"]
+    roles = {keyword.value.value for node in calls for keyword in node.keywords
+             if keyword.arg == "role"}
+    assert "text" in roles, "an editable per-book field takes the field colours"
+    assert "shared" not in roles, (
+        "the Shared role would falsely say this is global")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            assert not node.value.startswith("#"), node.value
+
+
+def test_the_chapter_section_is_never_part_of_shared_metadata():
+    tree = harness_tree()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        spelled = ast.unparse(node.func)
+        if spelled.endswith("SharedMetadata") or spelled.endswith(
+                "SharedMetadata.for_fields"):
+            assert "CHAPTER_FIELD" not in ast.unparse(node), ast.unparse(node)
+    # And the chapter widget is built outside both metadata groups.
+    assert "self.chapters" in ast.unparse(tree)
+
+
+def test_the_harness_adds_no_second_imported_file_list():
+    """Chapter titles are not audio files, and Plan 3 still owns the file list."""
+    tree = harness_tree()
+    seen = defined_names(tree) | referenced_names(tree) | imported_names(tree)
+    for plan3 in ("ImportedFileList", "ImportAdapter", "ImportOptionsBar",
+                  "ImportedFileManager", "ask_files", "ask_folder"):
+        assert plan3 not in seen, plan3
+
+
+def test_the_harness_opens_no_after_chain():
+    tree = harness_tree()
+    called = constructed_names(tree)
+    for scheduled in ("after", "after_idle", "after_cancel", "sleep"):
+        assert scheduled not in called, scheduled
+
+
+def test_only_the_diagnostic_log_expands():
+    """At 920x600 the form keeps its size and the log gives up the space."""
+    tree = harness_tree()
+    weighted = [ast.unparse(node) for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "rowconfigure"
+                and ast.unparse(node.func.value) == "container"
+                and any(keyword.arg == "weight" and keyword.value.value
+                        for keyword in node.keywords)]
+    # Exactly one row of the FORM expands. (The log frame separately lets its own
+    # text box fill the space the form gave up, which is the point of giving it up.)
+    assert len(weighted) == 1, weighted
+    assert "container.rowconfigure(4" in weighted[0], weighted[0]

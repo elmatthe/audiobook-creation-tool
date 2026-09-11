@@ -812,9 +812,13 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: named here. It is listed **only** to keep the two spellings in step. The drift
 #: assertion below is what caught this file when the Phase 1 widening first
 #: updated ``ADOPTED`` alone.
+#: v0.6.3 Plan 6 Phase 8 adds ``shared.book_workspace_ui`` as the seventh, for the
+#: same reason: it is the Plan 6 Tk adapter, not a tool, so it matches nothing in
+#: ``TOOL_MODULES`` and is excluded from no guard by being named here.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
-                  "mp3_tools.m4b_plan", "shared.book_workspace")
+                  "mp3_tools.m4b_plan", "shared.book_workspace",
+                  "shared.book_workspace_ui")
 
 
 def _tool_path(relative: str) -> Path:

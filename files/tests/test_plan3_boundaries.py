@@ -101,7 +101,8 @@ PANELS = (
 #: pins the tuple against the tree so it cannot drift.
 ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
-            "mp3_tools/m4b_plan.py", "shared/book_workspace.py")
+            "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
+            "shared/book_workspace_ui.py")
 
 
 def relative_name(path: Path) -> str:
@@ -655,7 +656,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_six_production_modules_are_authorized_to_adopt():
+def test_exactly_these_seven_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -691,10 +692,23 @@ def test_exactly_these_six_production_modules_are_authorized_to_adopt():
     measures, and ``files/tests/test_plan6_boundaries.py`` holds it to the rest of
     its own boundaries. **This entry authorises that one module and nothing else:**
     Plan 6's ``shared/numbering.py`` (Phase 6) and ``shared/book_workspace_ui.py``
-    (Phase 8) do not exist yet, and whether either needs declaring is decided when
-    it is written, by this guard measuring the tree — never assumed in advance.
+    (Phase 8) did not exist yet when that was written, and whether either needed
+    declaring was left to this guard measuring the tree rather than assumed in
+    advance. Both answers are now in: **numbering did not**, because the promoted
+    allocator imports nothing but ``dataclasses``, and it is deliberately absent
+    below.
 
-    The name says "these six" rather than "five" because the count is part of what
+    v0.6.3 Plan 6 Phase 8 adds the **seventh**: ``shared/book_workspace_ui.py`` is
+    the one Plan 6 Tk adapter, so it necessarily names ``MainThreadGuard``,
+    ``LockGroup``, ``style_name`` and ``ControlKind`` — reusing the one thread
+    guard, the one lock contract and the one style lookup instead of growing a
+    second of each. It defines none of them, and it recreates none of the Plan 3
+    widgets: ``files/tests/test_book_workspace_ui.py`` holds it to that, and
+    ``test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it``
+    measures it here. **This entry authorises that one module and nothing else** —
+    the manual harness is not production and is not listed.
+
+    The name says "these seven" rather than "six" because the count is part of what
     is pinned: a widening that did not have to rename this test would be a widening
     nobody had to think about.
     """
@@ -702,7 +716,8 @@ def test_exactly_these_six_production_modules_are_authorized_to_adopt():
                        "mp3_tools/m4b_converter.py",
                        "mp3_tools/m4b_destinations.py",
                        "mp3_tools/m4b_plan.py",
-                       "shared/book_workspace.py")
+                       "shared/book_workspace.py",
+                       "shared/book_workspace_ui.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/mp3_tool.py",
@@ -760,7 +775,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 6, importers
+    assert len(importers) == 7, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -782,6 +797,18 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
     to import ``job_ui`` to satisfy a guard would be backwards — it would force a
     dependency the module must not have. Phase 10's ``mp3_tools/m4b_plan.py``
     is the same kind of adopter for the same reason.
+
+    **v0.6.3 Plan 6 Phase 8 adds the mirror-image case, and it is the same
+    argument pointed the other way.** ``shared/book_workspace_ui.py`` adopts the
+    *UI* half of the foundation — ``MainThreadGuard``, ``LockGroup``,
+    ``style_name``, ``ControlKind`` — and has no business naming
+    ``shared.importing`` at all: it is handed an immutable ``WorkspaceSnapshot``
+    and renders it, so an ``IdFactory`` or an ``ImportedFileSnapshot`` would be a
+    dependency it must not have. So the "composes the importer" half is asked of
+    the adopters that adopt the importer, and a UI-side adopter is held to the
+    **UI** composition instead — which is a stricter question for that module, not
+    a waived one. The reimplementation ban above still applies to every adopter
+    without exception, and that is the real protection.
     """
     forbidden = {
         "ImportedFileManager", "ImportCoordinator", "ImportPoller",
@@ -796,7 +823,16 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
         }
         assert not (defined & forbidden), (relative, defined & forbidden)
         modules = imported_names(tree)
-        assert "shared.importing" in modules, relative
+        ui_side = "shared.job_ui" in modules and "shared.importing" not in modules
+        if ui_side:
+            # A UI-side adopter composes the UI foundation. Asked positively, so
+            # this branch cannot become an escape hatch for adopting nothing.
+            assert "shared.job_control" in modules, relative
+            for reused in ("MainThreadGuard", "style_name"):
+                assert reused in modules or any(
+                    entry.endswith(f".{reused}") for entry in modules), (relative, reused)
+        else:
+            assert "shared.importing" in modules, relative
         if relative in set(PANELS):
             assert "shared.import_coordination" in modules, relative
             assert "shared.job_ui" in modules, relative
