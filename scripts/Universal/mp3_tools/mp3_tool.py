@@ -70,7 +70,6 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 from shared import config as shared_config
 from shared import ffmpeg_utils
-from shared import image_capabilities
 from shared import job_ui
 from shared import output_paths
 from shared import paths
@@ -109,14 +108,17 @@ from shared.importing import (
 )
 from shared.job_control import ControlKind, JobState
 from shared.job_ui import LockGroup, MainThreadGuard, MainThreadPump, style_name
+from mp3_tools import mp3_artwork
 from mp3_tools import mp3_plan
 from mp3_tools import mp3_workflow as wf
 
-# Optional dependency for the artwork preview, exactly as the M4B Maker treats it.
+# Tk's side of the artwork preview. Decoding, thumbnailing and every rule about
+# what a chosen image becomes live in ``mp3_artwork``; this only turns the
+# service's in-memory thumbnail into something a label can show.
 try:
-    from PIL import Image, ImageTk
+    from PIL import ImageTk
 except Exception:  # pragma: no cover - Pillow is a pinned requirement
-    Image = ImageTk = None
+    ImageTk = None
 
 APP_TITLE = "MP3 Tool"
 
@@ -524,24 +526,28 @@ class _ArtworkControl:
         return self.enabled
 
     def set_path(self, path: str) -> None:
-        """Show *path*'s preview, or the no-artwork placeholder for blank."""
+        """Show *path*'s preview, or the no-artwork placeholder for blank.
+
+        The thumbnail is the artwork service's, scaled in memory; the stored
+        value stays the source path and the source is never touched. A path
+        that cannot be previewed is shown as such rather than dropped: the
+        selection is the user's until they change it.
+        """
         self.path = str(path or "")
         self._image = None
         self.has_preview = False
         if not self.path:
             self.preview.configure(image="", text="(none)")
             return
-        if Image is None or ImageTk is None:
+        if ImageTk is None:
             self.preview.configure(image="", text="(no preview)")
             return
         try:
-            with Image.open(self.path) as opened:
-                thumb = opened.copy()
-            thumb.thumbnail(PREVIEW_MAX)
+            thumb = mp3_artwork.preview_image(self.path, PREVIEW_MAX)
             self._image = ImageTk.PhotoImage(thumb)
             self.preview.configure(image=self._image, text="")
             self.has_preview = True
-        except Exception:
+        except (mp3_artwork.ArtworkError, Exception):
             self.preview.configure(image="", text="(no preview)")
 
     def set_enabled(self, enabled: bool) -> None:
@@ -946,8 +952,7 @@ class MP3ToolUI(ttk.Frame):
 
     def artwork_filetypes(self) -> list:
         """The chooser filter, from the shared capability probe, never a list."""
-        patterns = " ".join(f"*{s}" for s in image_capabilities.decodable_suffixes())
-        return [("Images", patterns), ("All files", "*.*")]
+        return mp3_artwork.artwork_filetypes()
 
     def _ask_artwork(self) -> str:
         chosen = filedialog.askopenfilename(
@@ -1218,9 +1223,24 @@ class MP3ToolUI(ttk.Frame):
 
     # -- artwork ----------------------------------------------------------- #
 
+    def _validated_artwork(self, chosen: str) -> str | None:
+        """A chosen file the service accepts, or None after a visible refusal.
+
+        The service decodes it the way the tag will; a refusal leaves whatever
+        was selected before exactly as it was.
+        """
+        if not chosen:
+            return None
+        try:
+            mp3_artwork.load_artwork(chosen)
+        except mp3_artwork.ArtworkError as exc:
+            messagebox.showerror(APP_TITLE, f"Book Artwork: {exc}", parent=self)
+            return None
+        return chosen
+
     def choose_shared_artwork(self) -> None:
         self._guard.require("choose_shared_artwork")
-        chosen = str(self._choose_artwork() or "")
+        chosen = self._validated_artwork(str(self._choose_artwork() or ""))
         if chosen:
             self.on_shared_change("artwork", chosen)
 
@@ -1232,7 +1252,7 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("choose_book_artwork")
         if not self.book_artwork.enabled:
             return
-        chosen = str(self._choose_artwork() or "")
+        chosen = self._validated_artwork(str(self._choose_artwork() or ""))
         if chosen:
             self.set_book_field("artwork", chosen)
 

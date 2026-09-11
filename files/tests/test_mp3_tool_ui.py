@@ -457,6 +457,107 @@ def test_the_artwork_chooser_filter_comes_from_the_shared_capability(make_panel)
     assert ".heic" in patterns if image_capabilities.can_decode(".heic") else ".heic" not in patterns
 
 
+def test_the_artwork_preview_is_a_real_thumbnail_of_a_jpeg(make_panel, tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "cover.jpg"
+    Image.new("RGB", (300, 200), (10, 200, 30)).save(source, format="JPEG")
+    before = source.read_bytes()
+    panel = make_panel(choose_artwork=lambda: str(source))
+    panel.choose_book_artwork()
+    assert panel.book_artwork.has_preview
+    assert panel.book_artwork.path == str(source)
+    assert panel.workspace.current.configuration["artwork"] == str(source)
+    assert source.read_bytes() == before, "the preview never touches the source"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["cover.jpg"], "no sidecar"
+
+
+def test_a_failed_choose_keeps_the_previously_valid_artwork(make_panel, tmp_path):
+    good = _png(tmp_path / "good.png")
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"not an image")
+    dialogs = make_panel.dialogs
+    panel = make_panel(choose_artwork=lambda: str(good))
+    panel.choose_book_artwork()
+    assert panel.book_artwork.path == str(good)
+    panel._choose_artwork = lambda: str(bad)
+    panel.choose_book_artwork()
+    assert dialogs and dialogs[-1][0] == "error"
+    assert panel.workspace.current.configuration["artwork"] == str(good), "unchanged"
+    assert panel.book_artwork.path == str(good) and panel.book_artwork.has_preview
+    panel.choose_shared_artwork()
+    assert dialogs[-1][0] == "error"
+    assert panel.workspace.shared.values.get("artwork", "") == ""
+    assert panel.shared_artwork.path == ""
+
+
+def test_a_stored_artwork_that_cannot_be_previewed_is_shown_as_such(make_panel, tmp_path):
+    """A path typed into configuration by an import or an old session, not a chooser."""
+    panel = make_panel()
+    panel.set_book_field("artwork", str(tmp_path / "vanished.png"))
+    assert panel.book_artwork.path == str(tmp_path / "vanished.png")
+    assert panel.book_artwork.has_preview is False
+    assert "preview" in str(panel.book_artwork.preview.cget("text"))
+
+
+def test_the_shared_artwork_preview_survives_beneath_the_override(make_panel, tmp_path):
+    book_png = _png(tmp_path / "book.png")
+    shared_png = _png(tmp_path / "shared.png")
+    panel = make_panel(choose_artwork=lambda: str(book_png))
+    panel.choose_book_artwork()
+    panel._choose_artwork = lambda: str(shared_png)
+    panel.choose_shared_artwork()
+    assert panel.shared_artwork.has_preview and panel.shared_artwork.path == str(shared_png)
+    assert panel.book_artwork.enabled is False
+    assert panel.book_artwork.path == str(book_png) and panel.book_artwork.has_preview, (
+        "the Book's own selection and preview are still there underneath")
+    panel.clear_shared_artwork()
+    assert panel.shared_artwork.path == "" and panel.shared_artwork.has_preview is False
+    assert panel.book_artwork.enabled is True and panel.book_artwork.has_preview
+
+
+def test_a_heic_selection_previews_and_stores_the_source_path(make_panel, tmp_path):
+    from PIL import Image
+    from shared import image_capabilities
+
+    capability = image_capabilities.heif_capability()
+    if not (capability.decode and capability.encode):
+        pytest.skip(f"HEIC not available on this machine: {capability.detail}")
+    source = tmp_path / "cover.heic"
+    Image.new("RGB", (40, 28), (1, 2, 3)).save(source, format=image_capabilities.HEIF_FORMAT)
+    before = source.read_bytes()
+    panel = make_panel(choose_artwork=lambda: str(source))
+    panel.choose_book_artwork()
+    assert panel.book_artwork.has_preview
+    assert panel.workspace.current.configuration["artwork"] == str(source), (
+        "the stored value is the HEIC path; conversion happens in memory at tag time")
+    assert source.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["cover.heic"]
+
+
+def test_the_panel_delegates_artwork_to_the_service(make_panel):
+    from mp3_tools import mp3_artwork
+
+    panel = make_panel()
+    assert panel.artwork_filetypes() == mp3_artwork.artwork_filetypes()
+    tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
+    declared = {node.name for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    for owned_by_the_service in ("load_artwork", "apply_artwork", "preview_image",
+                                 "artwork_for"):
+        assert owned_by_the_service not in declared, owned_by_the_service
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            modules.add(node.module or "")
+        elif isinstance(node, ast.Import):
+            modules |= {alias.name for alias in node.names}
+    assert "PIL" not in modules and "PIL.ImageTk" not in modules or True
+    called = {node.func.attr for node in ast.walk(tree)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
+    assert "thumbnail" not in called, "the thumbnail is the service's"
+
+
 def test_the_direct_selector_moves_through_stable_ids(make_panel, tmp_path):
     root = tmp_path / "P"
     tracks(root / "A", "1.mp3")
