@@ -103,7 +103,7 @@ ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
             "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
             "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py",
-            "mp3_tools/mp3_tool.py")
+            "mp3_tools/mp3_tool.py", "mp3_tools/mp3_plan.py")
 
 
 def relative_name(path: Path) -> str:
@@ -657,7 +657,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_nine_production_modules_are_authorized_to_adopt():
+def test_exactly_these_ten_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -727,7 +727,15 @@ def test_exactly_these_nine_production_modules_are_authorized_to_adopt():
     supersession the focused plan records; **M4B Maker and the M4B Metadata
     Editor stay unadopted and are still checked below.**
 
-    The name says "these nine" rather than "eight" because the count is part of what
+    v0.6.3 focused MP3 plan Phase 5 adds the **tenth**: ``mp3_tools/mp3_plan.py``
+    freezes one operation into an immutable run plan — one shared reservation,
+    the Plan 6 capture and its exact ``RunSnapshot`` per Book, every name and
+    destination — and names ``IdFactory``, ``ImportOptions`` and
+    ``SupportedTypeCatalog`` only to hand them to that capture. It is the MP3
+    counterpart of the Converter's ``m4b_plan.py`` and, like it, builds no
+    manager, coordinator, controller or widget.
+
+    The name says "these ten" rather than "nine" because the count is part of what
     is pinned: a widening that did not have to rename this test would be a widening
     nobody had to think about.
     """
@@ -738,7 +746,8 @@ def test_exactly_these_nine_production_modules_are_authorized_to_adopt():
                        "shared/book_workspace.py",
                        "shared/book_workspace_ui.py",
                        "mp3_tools/mp3_workflow.py",
-                       "mp3_tools/mp3_tool.py")
+                       "mp3_tools/mp3_tool.py",
+                       "mp3_tools/mp3_plan.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/m4b_maker.py",
@@ -795,7 +804,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 9, importers
+    assert len(importers) == 10, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():

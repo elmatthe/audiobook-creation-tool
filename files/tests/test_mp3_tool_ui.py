@@ -75,9 +75,10 @@ def windows_theme(tk_root, monkeypatch):
 
 
 @pytest.fixture
-def make_panel(tk_root, windows_theme):
+def make_panel(tk_root, windows_theme, monkeypatch):
     """A real ``MP3ToolUI`` on the Windows bundle with deterministic seams."""
     made: list[mp3_tool.MP3ToolUI] = []
+    dialogs: list[tuple[str, str]] = []
 
     def build(**kwargs):
         kwargs.setdefault("theme", windows_theme)
@@ -91,10 +92,17 @@ def make_panel(tk_root, windows_theme):
         kwargs.setdefault("confirm_broad_root", lambda roots: False)
         kwargs.setdefault("confirm_large_result", lambda outcome: True)
         kwargs.setdefault("confirm", lambda title, message: True)
+        # No test may open a real message box: a modal dialog would hang the
+        # run. Record instead; a test that cares patches its own recorder.
+        monkeypatch.setattr(mp3_tool.messagebox, "showerror",
+                            lambda title, message, **kw: dialogs.append(("error", message)))
+        monkeypatch.setattr(mp3_tool.messagebox, "showwarning",
+                            lambda title, message, **kw: dialogs.append(("warning", message)))
         panel = mp3_tool.MP3ToolUI(tk_root, **kwargs)
         made.append(panel)
         return panel
 
+    build.dialogs = dialogs  # type: ignore[attr-defined]
     yield build
     for panel in made:
         panel.close()
@@ -727,31 +735,90 @@ def test_auto_number_and_start_number_are_book_only(make_panel):
 # --------------------------------------------------------------------------- #
 
 
-def test_the_process_buttons_validate_and_do_not_process(make_panel, tmp_path, monkeypatch):
+def reservations_under(tmp_path, monkeypatch):
+    """The real ``RunReservation`` shape, kept inside ``tmp_path``; counts calls."""
     from shared import output_paths
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Phase 4 reserves nothing")
+    made: list[output_paths.RunReservation] = []
 
-    monkeypatch.setattr(output_paths, "reserve_run_directory", forbidden)
-    errors: list[str] = []
-    monkeypatch.setattr(mp3_tool.messagebox, "showerror",
-                        lambda title, message, **kw: errors.append(message))
+    def reserve(tool_key, *, base=None, effective=None, **kwargs):
+        directory = tmp_path / "Outputs" / f"MP3-Tool-{len(made) + 1}"
+        directory.mkdir(parents=True)
+        made.append(output_paths.RunReservation(
+            tool_key=tool_key, base_directory=tmp_path / "Outputs",
+            tool_directory=tmp_path / "Outputs", run_directory=directory,
+            run_number=len(made) + 1))
+        return made[-1]
+
+    monkeypatch.setattr(output_paths, "reserve_run_directory", reserve)
+    return made
+
+
+def test_the_process_buttons_validate_before_reserving_anything(make_panel, tmp_path, monkeypatch):
+    made = reservations_under(tmp_path, monkeypatch)
+    dialogs = make_panel.dialogs
     a, = tracks(tmp_path / "F", "a.mp3")
     panel = make_panel()
+    panel.write_id3_tags()
+    assert dialogs[-1][0] == "warning" and "Import a folder" in dialogs[-1][1]
+    assert made == [], "an empty workspace reserves nothing"
     add_files(panel, a)
     panel.type_start_number("zero")
     panel.write_id3_tags()
-    assert errors and "Start #" in errors[-1]
+    assert dialogs[-1][0] == "error" and "Start #" in dialogs[-1][1]
     panel.type_start_number("")
     panel.surface.set_shared_text("time_delta", "abc")
     panel.combine_mp3s()
-    assert "Time" in errors[-1]
+    assert dialogs[-1][0] == "error" and "Time" in dialogs[-1][1]
+    assert made == [], "validation failed, so no run was reserved"
+
+
+def test_an_operation_reserves_one_run_freezes_the_plan_and_releases_the_empty_run(
+        make_panel, tmp_path, monkeypatch):
+    made = reservations_under(tmp_path, monkeypatch)
+    root = tmp_path / "Library"
+    tracks(root / "A", "01 One.mp3", "02 Two.mp3")
+    tracks(root / "B", "01.mp3")
+    tracks(root / "C", "01.mp3")
+    before = {path: path.read_bytes() for path in root.rglob("*.mp3")}
+    panel = make_panel()
+    import_folder(panel, root)
     panel.surface.set_shared_text("time_delta", "1.5")
     panel.combine_mp3s()
-    assert any("Combine MP3s" in line for line in panel.log.summary)
+    assert len(made) == 1, "one reservation for three Books"
+    plan = panel.last_plan
+    assert plan is not None and plan.reservation is made[0]
+    assert plan.operation is mp3_tool.mp3_plan.MP3Operation.COMBINE
+    assert [entry.folder_name for entry in plan.books] == ["A", "B", "C"]
+    assert [entry.number for entry in plan.books] == [1, 2, 3]
+    assert all(entry.time_delta == 1.5 for entry in plan.books)
+    assert [t.filename for t in plan.books[0].tracks] == ["01 One.mp3", "02 Two.mp3"]
+    assert plan.books[0].combined_filename == "A.mp3"
+    assert any("planned 3 Book(s)" in line for line in panel.log.summary)
     assert any("not available" in line for line in panel.log.summary)
-    assert list(tmp_path.rglob("*.mp3")) == [a], "nothing was written anywhere"
+    assert not made[0].run_directory.exists(), "the empty run was released"
+    assert {path: path.read_bytes() for path in root.rglob("*.mp3")} == before, "sources untouched"
+    assert [p for p in root.rglob("*") if p.is_file() and p.suffix != ".mp3"] == []
+
+    # Editing everything afterwards changes nothing in the frozen plan.
+    frozen = tuple((e.folder_name, tuple(t.filename for t in e.tracks)) for e in plan.books)
+    panel.set_book_field("album", "Renamed")
+    panel.type_chapter_titles("X\nY")
+    panel.surface.set_shared_text("time_delta", "9")
+    panel.navigator.invoke(BookNavigator.REMOVE)
+    assert tuple((e.folder_name, tuple(t.filename for t in e.tracks)) for e in plan.books) == frozen
+    assert panel.last_plan is plan
+
+
+def test_a_second_operation_takes_a_second_reservation(make_panel, tmp_path, monkeypatch):
+    made = reservations_under(tmp_path, monkeypatch)
+    a, = tracks(tmp_path / "F", "a.mp3")
+    panel = make_panel()
+    add_files(panel, a)
+    panel.write_id3_tags()
+    panel.combine_mp3s()
+    assert len(made) == 2
+    assert panel.last_plan.operation is mp3_tool.mp3_plan.MP3Operation.COMBINE
 
 
 def test_the_panel_reaches_no_media_pipeline_yet():
@@ -763,10 +830,17 @@ def test_the_panel_reaches_no_media_pipeline_yet():
     called |= {node.func.id for node in ast.walk(panel)
                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
     for later in ("run_ff", "concat_mp3s_fast", "normalize_to_wav", "concat_wavs_to_mp3",
-                  "add_silence_to_mp3", "trim_from_end_mp3", "reserve_run_directory",
-                  "capture_workspace_run", "capture_run", "JobController",
+                  "add_silence_to_mp3", "trim_from_end_mp3", "prepare_staging",
+                  "publish_book", "discard_staging", "JobController",
                   "retry_failed_books", "Thread", "save", "EasyID3", "APIC"):
         assert later not in called, later
+    # Phase 5: the plan is frozen through the planning module, not here.
+    assert "plan_run" in called and "reserve_run_directory" in called
+    declared = {node.name for node in ast.walk(panel)
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    for owned_by_the_plan in ("plan_run", "track_filename", "book_folder_name",
+                              "number_width", "publish_book"):
+        assert owned_by_the_plan not in declared, owned_by_the_plan
 
 
 # --------------------------------------------------------------------------- #

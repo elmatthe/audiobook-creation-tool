@@ -29,13 +29,17 @@ the Plan 3 importer and job-control adapters and the Phase 3 MP3 model:
   MP3** — beside the shared Pause / Resume / Cancel / Retry Failed bar, one
   global progress view and one Summary / Details log region.
 
-What this phase does **not** do: no FFmpeg is run, no tag is written, no artwork
-is embedded, no run directory is reserved, no run is frozen and nothing is
-retried. The two processing buttons validate the workspace (Start #, signed
-Time) and say plainly that processing is not available yet. The proven FFmpeg
-helpers below (concat lists, FAST/Safe concat, WAV normalisation, signed-time
-append/trim, timestamp text) are kept verbatim for the processing phases; the
-panel does not call them.
+Phase 5 adds the frozen plan: a processing button validates the workspace,
+reserves **one** MP3 Tool run for the whole operation through the shared
+service, and freezes everything the processing phases and a later Retry Failed
+will read — Book order and ids, every track's occurrence, final Title, number
+and filename, effective metadata, signed Time, artwork, the Book subfolders and
+the private staging beside them (``mp3_tools/mp3_plan.py``). Nothing is
+processed yet: no FFmpeg is run, no tag is written, no artwork is embedded and
+nothing is retried, so the still-empty run is released again and the plan is
+reported in the log. The proven FFmpeg helpers below (concat lists, FAST/Safe
+concat, WAV normalisation, signed-time append/trim, timestamp text) are kept
+verbatim for the processing phases; the panel does not call them.
 
 Removed with the single-book form, as the focused plan directs: the global file
 list, the Book-level Title field, ``Silence between tracks``, the FAST checkbox,
@@ -105,6 +109,7 @@ from shared.importing import (
 )
 from shared.job_control import ControlKind, JobState
 from shared.job_ui import LockGroup, MainThreadGuard, MainThreadPump, style_name
+from mp3_tools import mp3_plan
 from mp3_tools import mp3_workflow as wf
 
 # Optional dependency for the artwork preview, exactly as the M4B Maker treats it.
@@ -624,6 +629,9 @@ class MP3ToolUI(ttk.Frame):
         # again at 1 for the new set. This is a display fact hung off the real
         # identity — never a key anything else is stored by.
         self.book_numbers: dict[str, int] = {}
+        #: The most recently frozen run plan, kept for inspection. Phase 7+
+        #: hands it to the worker; nothing here reads it back into the widgets.
+        self.last_plan: mp3_plan.RunPlan | None = None
         self._rendering = False
         self._summary: list[str] = []
         self._details: list[str] = []
@@ -1409,11 +1417,22 @@ class MP3ToolUI(ttk.Frame):
         self._guard.require("combine_mp3s")
         return self._request_operation("Combine MP3s → One MP3")
 
-    def _request_operation(self, label: str) -> bool:
-        """Validate the workspace and say what would run. Nothing runs yet.
+    def _reserve_run(self):
+        """Reserve one run for one validated operation. None means do not start."""
+        try:
+            return output_paths.reserve_run_directory(TOOL_KEY)
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror(APP_TITLE, exc.message, parent=self)
+            return None
 
-        The processing pipelines, the frozen run capture and the run directory
-        arrive in later phases; this phase must not fake any of them.
+    def _request_operation(self, label: str) -> bool:
+        """Validate, reserve one run, freeze the plan. Nothing is processed yet.
+
+        Exactly one reservation per operation, never one per Book, and only
+        after the workspace validated. The plan is frozen from the workspace as
+        it is at this moment; editing anything afterwards cannot reach it. The
+        processing pipelines arrive in later phases, so the empty run is
+        released again and the plan is reported instead of run.
         """
         if self._closed:
             return False
@@ -1439,8 +1458,41 @@ class MP3ToolUI(ttk.Frame):
             messagebox.showwarning(APP_TITLE, "Import a folder or add MP3 files first.",
                                    parent=self)
             return False
-        self._say(f"{label}: {len(eligible)} Book(s) ready. Processing is not available "
-                  "in this build yet; nothing was written.")
+        reservation = self._reserve_run()
+        if reservation is None:
+            return False
+        operation = (mp3_plan.MP3Operation.COMBINE if label.startswith("Combine")
+                     else mp3_plan.MP3Operation.WRITE_ID3)
+        try:
+            plan = mp3_plan.plan_run(
+                space, self.store, operation=operation, reservation=reservation,
+                catalog=wf.MP3_CATALOG,
+                import_options=ImportOptions.for_catalog(wf.MP3_CATALOG),
+                effective_config=self._effective_config, id_factory=self._ids,
+                created_at=self._clock(), numbers=self.book_numbers)
+        except (wf.MP3ValueError, mp3_plan.PlanError,
+                output_paths.OutputPathError) as exc:
+            output_paths.release_if_empty(reservation)
+            messagebox.showerror(APP_TITLE, f"{label}: {exc}", parent=self)
+            return False
+        self.last_plan = plan
+        self._say(f"{label}: planned {len(plan.books)} Book(s) into "
+                  f"{plan.run_directory.name}.")
+        for entry in plan.books:
+            outputs = (f"{len(entry.tracks)} track(s)" if operation is
+                       mp3_plan.MP3Operation.WRITE_ID3 else entry.combined_filename)
+            self._say(f"  Book {entry.number} → {entry.folder_name}: {outputs}",
+                      f"  Book {entry.number} ({entry.book_id}) → {entry.published_dir} "
+                      f"[staging {entry.staging_dir}]; artist={entry.artist!r} "
+                      f"album_artist={entry.album_artist!r} album={entry.album!r} "
+                      f"time={entry.time_delta} artwork={entry.artwork} "
+                      f"auto_number={entry.auto_number} start={entry.start_number}; "
+                      + "; ".join(f"{t.filename} <- {t.source.name}" for t in entry.tracks))
+        # Nothing processes in this build, so the run stays empty and is
+        # released rather than left as an empty numbered folder.
+        released = output_paths.release_if_empty(reservation)
+        self._say("Processing is not available in this build yet; nothing was written"
+                  + (" and the empty run folder was released." if released else "."))
         return False
 
     # -- job-control shell: nothing runs, so nothing can be paused or retried --

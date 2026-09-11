@@ -292,14 +292,14 @@ def test_converter_module_reserves_only_at_start(output_base):
 # --------------------------------------------------------------------------- #
 
 
-def test_mp3_tool_reserves_nothing_until_its_processing_phases(output_base):
-    """Narrowed at the focused MP3 plan's Phase 4, which rebuilt the panel.
+def test_mp3_tool_reserves_exactly_one_run_per_operation(output_base):
+    """The focused MP3 plan's Phase 5 contract, restored from Phase 4's gap.
 
-    The old panel reserved one run inside each of its three actions through a
-    single ``_reserve_run`` seam; those actions are gone. The redesigned panel
-    has two processing actions that do not process yet, so it reserves nothing:
-    Phase 5 of the focused plan adds exactly one reservation per operation
-    through the shared service, and must widen this back when it does.
+    The old panel reserved one run inside each of three actions; Phase 4
+    rebuilt it with no reservation at all; Phase 5 gives it back **one**
+    seam, ``_reserve_run``, that both processing actions reach through one
+    operation path — one run per operation, never one per Book, and never at
+    build time.
     """
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py").read_text(
         encoding="utf-8"
@@ -308,7 +308,10 @@ def test_mp3_tool_reserves_nothing_until_its_processing_phases(output_base):
     calls = [node for node in ast.walk(tree)
              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
              and node.func.attr == "reserve_run_directory"]
-    assert calls == [], "Phase 4 reserves no run; Phase 5 adds the one per operation"
+    assert len(calls) == 1, "one reservation seam"
+    assert any(isinstance(a, ast.Name) and a.id == "TOOL_KEY" for a in calls[0].args)
+    assert source.count("def _reserve_run") == 1
+    assert source.count("self._reserve_run()") == 1, "reached from the one operation path"
     assert "destination_hint(TOOL_KEY)" in source, "the destination is still displayed"
 
 
@@ -712,12 +715,6 @@ def test_no_tool_reserves_output_outside_an_operation_start():
         path = REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
         tree_ = ast.parse(path.read_text(encoding="utf-8"))
         names = innermost_reservers(tree_)
-        if relative == "mp3_tools.mp3_tool":
-            # Focused MP3 plan Phase 4: the redesigned panel has no processing
-            # yet and so no reservation anywhere; Phase 5 adds one per
-            # operation and must move this tool back into the general rule.
-            assert names == set(), f"{relative}: reserved inside {names}"
-            continue
         assert names, f"{relative} never reserves a run"
         for name in names:
             assert name in starters, f"{relative}: reserved inside {name}"
@@ -846,11 +843,14 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: ``mp3_tools.mp3_tool`` is redesigned on the shared importer and workspace,
 #: so it leaves the unadopted-tool check below; M4B Maker and the M4B Metadata
 #: Editor remain the two unadopted tools.
+#: v0.6.3 focused MP3 plan Phase 5 adds ``mp3_tools.mp3_plan`` as the tenth: the
+#: MP3 Tool's frozen run plan, not a tool panel, listed only to keep the two
+#: spellings in step.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
                   "shared.book_workspace_ui", "mp3_tools.mp3_workflow",
-                  "mp3_tools.mp3_tool")
+                  "mp3_tools.mp3_tool", "mp3_tools.mp3_plan")
 
 
 def _tool_path(relative: str) -> Path:

@@ -290,12 +290,13 @@ def test_the_escaper_does_not_use_shell_quoting():
 def test_the_combine_output_still_goes_through_the_shared_run_directory():
     """The reservation rules are untouched by the escaping fix.
 
-    Narrowed at the focused MP3 plan's Phase 4: the redesigned panel does not
-    combine yet, so it reserves nothing; what must still hold is that no local
-    run-folder helper came back. Phase 5 restores the reservation assertion.
+    Narrowed at the focused MP3 plan's Phase 4 while the redesigned panel
+    reserved nothing; restored at Phase 5, which plans every Combine into one
+    shared reservation per operation. No local run-folder helper came back.
     """
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
               ).read_text(encoding="utf-8")
+    assert "reserve_run_directory" in source
     assert "next_available_folder" not in source
     assert "BASE_OUTPUT_DIRNAME" not in source
     assert "destination_hint(TOOL_KEY)" in source
