@@ -292,13 +292,24 @@ def test_converter_module_reserves_only_at_start(output_base):
 # --------------------------------------------------------------------------- #
 
 
-def test_mp3_tool_has_a_single_reservation_seam(output_base):
+def test_mp3_tool_reserves_nothing_until_its_processing_phases(output_base):
+    """Narrowed at the focused MP3 plan's Phase 4, which rebuilt the panel.
+
+    The old panel reserved one run inside each of its three actions through a
+    single ``_reserve_run`` seam; those actions are gone. The redesigned panel
+    has two processing actions that do not process yet, so it reserves nothing:
+    Phase 5 of the focused plan adds exactly one reservation per operation
+    through the shared service, and must widen this back when it does.
+    """
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py").read_text(
         encoding="utf-8"
     )
-    assert source.count("def _reserve_run") == 1
-    # Combine, time edit and ID3 each go through it.
-    assert source.count("self._reserve_run()") == 3
+    tree = ast.parse(source)
+    calls = [node for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr == "reserve_run_directory"]
+    assert calls == [], "Phase 4 reserves no run; Phase 5 adds the one per operation"
+    assert "destination_hint(TOOL_KEY)" in source, "the destination is still displayed"
 
 
 def test_mp3_tool_combine_stages_inside_its_own_run(output_base, tmp_path):
@@ -321,13 +332,22 @@ def test_mp3_tool_time_edit_and_id3_plan_distinct_destinations(output_base, tmp_
         assert plan != src
 
 
-def test_mp3_tool_time_only_through_write_id3_is_preserved():
-    """Entering only a time value must still run through Write ID3 Tags."""
+def test_mp3_tool_keeps_the_signed_time_helpers_for_its_processing_phases():
+    """Narrowed at the focused MP3 plan's Phase 4.
+
+    The old ``_id3_worker``'s time-only branch (``abs(delta) > 1e-9``) is gone
+    with the worker. What the redesign carries forward are the proven helpers —
+    append and trim — which Phase 7 applies to every track of every Book, at
+    zero, positive and negative Time, with real-media tests of its own.
+    """
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py").read_text(
         encoding="utf-8"
     )
-    assert "abs(delta) > 1e-9" in source, "the time-only branch must remain"
-    assert "add_silence_to_mp3" in source and "trim_from_end_mp3" in source
+    tree = ast.parse(source)
+    declared = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+    assert {"add_silence_to_mp3", "trim_from_end_mp3", "concat_mp3s_fast",
+            "normalize_to_wav", "concat_wavs_to_mp3", "write_concat_listfile",
+            "ffprobe_duration_seconds", "seconds_to_hms"} <= declared
 
 
 def test_mp3_tool_retired_its_local_run_folder_helper():
@@ -692,6 +712,12 @@ def test_no_tool_reserves_output_outside_an_operation_start():
         path = REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
         tree_ = ast.parse(path.read_text(encoding="utf-8"))
         names = innermost_reservers(tree_)
+        if relative == "mp3_tools.mp3_tool":
+            # Focused MP3 plan Phase 4: the redesigned panel has no processing
+            # yet and so no reservation anywhere; Phase 5 adds one per
+            # operation and must move this tool back into the general rule.
+            assert names == set(), f"{relative}: reserved inside {names}"
+            continue
         assert names, f"{relative} never reserves a run"
         for name in names:
             assert name in starters, f"{relative}: reserved inside {name}"
@@ -816,12 +842,15 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: same reason: it is the Plan 6 Tk adapter, not a tool, so it matches nothing in
 #: ``TOOL_MODULES`` and is excluded from no guard by being named here.
 #: v0.6.3 focused MP3 plan Phase 3 adds ``mp3_tools.mp3_workflow`` as the eighth:
-#: the MP3 Tool's pure model, not the panel — ``mp3_tools.mp3_tool`` stays in
-#: ``TOOL_MODULES`` and is still checked below as an unadopted tool.
+#: the MP3 Tool's pure model. Phase 4 adds the panel itself as the ninth —
+#: ``mp3_tools.mp3_tool`` is redesigned on the shared importer and workspace,
+#: so it leaves the unadopted-tool check below; M4B Maker and the M4B Metadata
+#: Editor remain the two unadopted tools.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
-                  "shared.book_workspace_ui", "mp3_tools.mp3_workflow")
+                  "shared.book_workspace_ui", "mp3_tools.mp3_workflow",
+                  "mp3_tools.mp3_tool")
 
 
 def _tool_path(relative: str) -> Path:
@@ -867,7 +896,6 @@ def test_no_unadopted_tool_reached_for_the_plan3_foundation():
     assert sorted(checked) == [
         "mp3_tools.m4b_maker",
         "mp3_tools.m4b_metadata_editor",
-        "mp3_tools.mp3_tool",
     ], checked
 
 
@@ -1066,6 +1094,11 @@ def test_an_unreadable_source_reserves_no_run_folder(output_base, tmp_path):
 def test_the_time_edit_worker_writes_copies_into_its_run(output_base, tmp_path):
     from mp3_tools import mp3_tool
 
+    if not hasattr(mp3_tool.MP3ToolUI, "_time_edit_worker"):
+        pytest.skip(
+            "retired by the focused MP3 plan's Phase 4: the standalone time-edit "
+            "action is gone; Phase 7's Write ID3 pipeline re-covers signed-time "
+            "copies with real media")
     sources = [_tone(tmp_path / "src" / "A.mp3", 1.0, 440),
                _tone(tmp_path / "nested" / "A.mp3", 1.0, 660)]
     before = digest(sources)

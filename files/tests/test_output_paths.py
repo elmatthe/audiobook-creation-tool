@@ -1065,6 +1065,13 @@ def test_every_tool_panel_consumes_the_shared_service():
                  if isinstance(node, ast.Call)
                  and isinstance(node.func, ast.Attribute)
                  and node.func.attr == "reserve_run_directory"]
+        if relative == "mp3_tools/mp3_tool.py":
+            # Focused MP3 plan Phase 4 rebuilt this panel without processing;
+            # it shows the destination and reserves nothing. Phase 5 adds one
+            # reservation per operation and must return it to the general rule.
+            assert calls == [], relative
+            assert "destination_hint(TOOL_KEY)" in source, relative
+            continue
         assert calls, relative
         assert any(
             any(isinstance(a, ast.Name) and a.id == "TOOL_KEY" for a in call.args)

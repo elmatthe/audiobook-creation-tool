@@ -72,17 +72,25 @@ ALLOCATOR_FORBIDDEN = (
 )
 
 #: Phase 0 recorded these SHA-256 values as the byte-identity gates for the
-#: consumer panels Plan 6 must not touch. Plan 7 converts M4B Maker; Plan 8 the
-#: other two. Until then a difference here means Plan 6 reached somewhere it may
-#: not, and it is a stop gate rather than a value to update.
+#: consumer panels Plan 6 must not touch. A difference here means Plan 6 reached
+#: somewhere it may not, and it is a stop gate rather than a value to update.
+#:
+#: **The MP3 Tool left this gate at the focused MP3 plan's Phase 4** — the one
+#: supersession that plan records (its section 4: the protection is superseded
+#: "for ``mp3_tool.py`` only"). Its Phase 0 digest is kept below as
+#: :data:`MP3_TOOL_PHASE0_HASH` so the retirement is proved to be real rather
+#: than assumed, and the two M4B panels stay exactly as protected as before.
 PHASE0_PANEL_HASHES = {
     "mp3_tools/m4b_maker.py":
         "55774911516dd0b5b30d51c6a0b6d93ac62005d16fa1adb46e69f8b61e2b7d8d",
-    "mp3_tools/mp3_tool.py":
-        "96c746a8a4defd9c495d66770b04e2f789a9a37957018c263e5f3371fe3984d5",
     "mp3_tools/m4b_metadata_editor.py":
         "310b27f6d46668782305b54434f5b9bd00f4611e077f6772f3410adb5ffdd180",
 }
+
+#: The MP3 Tool as Plan 6 Phase 0 found it, before the focused MP3 redesign
+#: converted it. Evidence, not a gate: the panel is *required* to differ now.
+MP3_TOOL_PHASE0_HASH = \
+    "96c746a8a4defd9c495d66770b04e2f789a9a37957018c263e5f3371fe3984d5"
 
 #: Recorded at Phase 0 and **still enforced**. The Converter is Plan 5's, it is the
 #: consumer the promotion had to leave alone, and Phase 6 did not touch one byte of
@@ -1344,8 +1352,27 @@ def test_exactly_one_place_advances_the_workspace_revision():
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES))
 def test_the_consumer_panels_are_byte_identical_to_the_phase_zero_baseline(relative):
-    """Plan 6 ships adopted by no production panel. Proved by hash, not by reading."""
+    """The two M4B panels are still adopted by nothing. Proved by hash, not by reading."""
     assert sha256_of(UNIVERSAL / relative) == PHASE0_PANEL_HASHES[relative]
+
+
+def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
+    """The focused MP3 plan's one supersession, proved rather than assumed.
+
+    The panel must differ from its Phase 0 bytes *and* must now be the adopter
+    the focused plan makes it: it names the workspace vocabulary the other two
+    panels are still forbidden to name. A panel that merely changed a comment
+    would pass the first half and fail the second.
+    """
+    assert sha256_of(UNIVERSAL / "mp3_tools/mp3_tool.py") != MP3_TOOL_PHASE0_HASH
+    tree = parse(UNIVERSAL / "mp3_tools/mp3_tool.py")
+    names = referenced_names(tree) | imported_names(tree)
+    assert "shared.book_workspace" in imported_names(tree)
+    assert "WorkspaceSnapshot" in names
+    assert "shared.book_workspace_ui" in imported_names(tree)
+    assert "mp3_tools.mp3_workflow" in imported_names(tree)
+    assert set(PHASE0_PANEL_HASHES) == {
+        "mp3_tools/m4b_maker.py", "mp3_tools/m4b_metadata_editor.py"}
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PLAN5_HASHES))

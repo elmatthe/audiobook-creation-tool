@@ -734,7 +734,7 @@ def test_the_two_adoption_tuples_disagree_about_the_converter_on_purpose():
     assert "mp3_tools/m4b_converter.py" in UNCONVERTED_PANELS
     assert set(UNCONVERTED_PANELS) == {
         "mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
-        "mp3_tools/m4b_maker.py", "mp3_tools/mp3_tool.py", "tts/epub2tts_gui.py",
+        "mp3_tools/m4b_maker.py", "tts/epub2tts_gui.py",
     }
 
 

@@ -48,9 +48,11 @@ GENERIC_STYLES = (
 
 #: The five panels Plan 1 deliberately left classic. Phase 6 must not convert
 #: one by accident, so their sources are checked for ``ACT.*`` directly.
+#: Four since the focused MP3 plan's Phase 4 converted the MP3 Tool: it now
+#: names the design system deliberately, like the M4B Metadata Editor.
 UNCONVERTED_PANELS = (
     "mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
-    "mp3_tools/m4b_maker.py", "mp3_tools/mp3_tool.py", "tts/epub2tts_gui.py",
+    "mp3_tools/m4b_maker.py", "tts/epub2tts_gui.py",
 )
 
 VENV_BYTES = 500
@@ -796,7 +798,7 @@ def test_building_the_cleanup_dialogs_leaves_generic_styles_untouched(
     assert not changed, f"cleanup leaked into generic styles: {changed}"
 
 
-def test_the_five_unconverted_panels_still_carry_no_act_style():
+def test_the_four_unconverted_panels_still_carry_no_act_style():
     for relative in UNCONVERTED_PANELS:
         source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(
             encoding="utf-8"

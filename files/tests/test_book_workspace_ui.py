@@ -1618,6 +1618,84 @@ def test_the_selector_hint_vocabulary_is_the_consumers():
 
 
 # --------------------------------------------------------------------------- #
+# Stable row labels — Phase 4 manual-gate remediation
+#
+# ``Book {position}`` is a position, and a position is reused: remove the first
+# of three and the second is relabelled "Book 1". The maintainer read that as a
+# Book's files moving under another Book's name. The navigator therefore lets
+# the consumer label a row itself, from whatever stable fact it keeps beside the
+# stable id; it still knows no numbering scheme and stores no table of its own.
+# --------------------------------------------------------------------------- #
+
+
+def stable_label(entry: BookJob, position: int) -> str:
+    """This suite's own rule: the book's ``display_name`` is the whole label."""
+    return f"#{entry.configuration.get('display_name', '?')}"
+
+
+@pytest.fixture
+def labelled(parent, calls, windows_theme):
+    made = BookNavigator(parent, theme=windows_theme, label_for=stable_label,
+                         on_select=calls.make("select"))
+    yield made
+    if not made.closed:
+        made.close()
+
+
+def test_a_consumer_label_replaces_the_positional_row_label(labelled):
+    space = workspace(hinted("A"), hinted("B"), hinted("C"))
+    labelled.render(space)
+    assert labelled.selector_labels == ("#A", "#B", "#C")
+
+
+def test_removing_the_first_book_does_not_relabel_the_survivors(labelled):
+    space = workspace(hinted("A"), hinted("B"), hinted("C"))
+    labelled.render(space)
+    survivors = remove_book(space, id_factory=_IDS).workspace
+    labelled.render(survivors)
+    assert labelled.selector_labels == ("#B", "#C"), "no row is called A any more"
+    assert labelled.selector_ids == tuple(b.book_id for b in survivors.books)
+    assert labelled.position_text == "Book 1 of 2", "position stays a position"
+    assert labelled.heading_text == "#B  (1 of 2)"
+    assert labelled.position_variable.get() == labelled.heading_text
+
+
+def test_the_heading_names_the_current_book_not_its_slot(labelled):
+    space = workspace(hinted("A"), hinted("B"))
+    labelled.render(next_book(space).workspace)
+    assert labelled.heading_text == "#B  (2 of 2)"
+    assert labelled.selector.get() == "#B"
+
+
+def test_without_a_consumer_rule_the_heading_is_the_position(navigator):
+    navigator.render(workspace(book(), book()))
+    assert navigator.heading_text == navigator.position_text == "Book 1 of 2"
+    assert navigator.position_variable.get() == "Book 1 of 2"
+
+
+def test_a_label_rule_that_is_not_callable_is_refused(parent):
+    with pytest.raises(BookWorkspaceUiError):
+        BookNavigator(parent, label_for="display_name")
+
+
+def test_the_label_rule_receives_the_position_but_owes_it_nothing(parent, windows_theme):
+    seen: list[tuple[str, int]] = []
+
+    def rule(entry, position):
+        seen.append((entry.configuration.get("display_name", ""), position))
+        return "same"
+
+    made = BookNavigator(parent, theme=windows_theme, label_for=rule)
+    try:
+        made.render(workspace(hinted("A"), hinted("B")))
+        assert set(seen) >= {("A", 1), ("B", 2)}
+        # Even identical labels resolve by id: the row table is the snapshot.
+        assert len(made.selector_ids) == 2
+    finally:
+        made.close()
+
+
+# --------------------------------------------------------------------------- #
 # Compact, consumer-placeable surface layout — Phase 2
 #
 # The prototype laid the two groups side by side with the fields stacked, which
@@ -1725,6 +1803,43 @@ def test_the_default_still_shows_the_caption_and_header(parent, windows_theme):
         assert isinstance(made.title_label, ttk.Label)
         assert isinstance(made.header, ttk.Label)
         assert made.title_label.cget("text") == "Shared Metadata"
+    finally:
+        made.close()
+
+
+def test_a_long_label_can_wrap_and_entries_can_start_narrow(parent, windows_theme):
+    """Two presentation knobs a wide consumer needs at 920px, and nothing more.
+
+    Added for the MP3 Tool (focused MP3 plan, Phase 4): five fields across one
+    row only fit the minimum window when the entries' *requested* width is
+    small and a long display label may fold. Neither knob reads a font or a
+    metric, and neither changes the contract.
+    """
+    long = (("time", "Add/Remove Time at End of Each Track (seconds)"),
+            ("album", "Album"))
+    made = SharedMetadataSurface(parent, long, theme=windows_theme, layout="rows",
+                                 wraplength=150, entry_width=12)
+    try:
+        for key in ("time", "album"):
+            row = made._rows[key]
+            assert int(row.label.cget("wraplength")) == 150
+            assert int(row.book_label.cget("wraplength")) == 150
+            assert int(row.shared_entry.cget("width")) == 12
+            assert int(row.book_entry.cget("width")) == 12
+        # Equal growth, not equal width: no uniform group ties the columns.
+        for frame in (made.shared_frame, made.book_frame):
+            for column in range(2):
+                assert not frame.grid_columnconfigure(column)["uniform"]
+    finally:
+        made.close()
+
+
+def test_the_knobs_are_absent_by_default(parent, windows_theme):
+    made = SharedMetadataSurface(parent, TWO, theme=windows_theme)
+    try:
+        row = made._rows["title_key"]
+        assert str(row.label.cget("wraplength")) in ("", "0"), "unset"
+        assert int(row.shared_entry.cget("width")) == 20, "ttk's own default"
     finally:
         made.close()
 

@@ -102,7 +102,8 @@ PANELS = (
 ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
             "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
-            "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py")
+            "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py",
+            "mp3_tools/mp3_tool.py")
 
 
 def relative_name(path: Path) -> str:
@@ -656,7 +657,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_eight_production_modules_are_authorized_to_adopt():
+def test_exactly_these_nine_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -715,10 +716,18 @@ def test_exactly_these_eight_production_modules_are_authorized_to_adopt():
     ``ImportedFileSnapshot``, ``SupportedType`` and ``IdFactory`` because those are
     the importer's own values and a second spelling of any of them would be a
     second importer. It builds no manager, coordinator, controller or widget, and
-    ``files/tests/test_mp3_workflow.py`` holds it to that. **The MP3 Tool panel
-    itself is not listed and stays byte-identical** until the phase that converts it.
+    ``files/tests/test_mp3_workflow.py`` holds it to that.
 
-    The name says "these eight" rather than "seven" because the count is part of what
+    v0.6.3 focused MP3 plan Phase 4 adds the **ninth**, and it is the panel:
+    ``mp3_tools/mp3_tool.py`` is redesigned as the first production adopter of
+    the Plan 6 workspace — the shared ``BookNavigator`` and
+    ``SharedMetadataSurface``, the Phase 3 model, and the Plan 3
+    ``ImportCoordinator`` / ``ImportedFileManager`` / job-control shells, exactly
+    as the Converter, Cover and TTS panels compose the importer. It is the one
+    supersession the focused plan records; **M4B Maker and the M4B Metadata
+    Editor stay unadopted and are still checked below.**
+
+    The name says "these nine" rather than "eight" because the count is part of what
     is pinned: a widening that did not have to rename this test would be a widening
     nobody had to think about.
     """
@@ -728,10 +737,10 @@ def test_exactly_these_eight_production_modules_are_authorized_to_adopt():
                        "mp3_tools/m4b_plan.py",
                        "shared/book_workspace.py",
                        "shared/book_workspace_ui.py",
-                       "mp3_tools/mp3_workflow.py")
+                       "mp3_tools/mp3_workflow.py",
+                       "mp3_tools/mp3_tool.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
-        "mp3_tools/mp3_tool.py",
         "mp3_tools/m4b_maker.py",
         "mp3_tools/m4b_metadata_editor.py",
     }
@@ -786,7 +795,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 8, importers
+    assert len(importers) == 9, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -855,6 +864,7 @@ def test_every_adopting_panel_is_still_checked_for_the_full_composition():
     assert sorted(panels) == [
         "mp3_tools/cover_resizer.py",
         "mp3_tools/m4b_converter.py",
+        "mp3_tools/mp3_tool.py",
         "tts/epub2tts_gui.py",
     ], panels
 
@@ -917,11 +927,17 @@ def test_the_existing_cancellation_api_is_unchanged_and_unwrapped():
 
 
 def test_every_pre_existing_caller_of_the_cancellation_api_still_resolves():
-    """The six production modules and two tests that already import these names."""
+    """The production modules and two tests that already import these names.
+
+    The MP3 Tool was a caller until the focused MP3 plan's Phase 4 replaced its
+    ad-hoc worker with the shared job-control shell; its processing phases run
+    through ``JobController``, whose cooperative cancellation is Plan 3's, so
+    the panel no longer names the primitive itself. The remaining callers are
+    unchanged.
+    """
     callers = {
         "mp3_tools/m4b_maker.py": ("ConversionCancelled", "raise_if_cancelled"),
         "mp3_tools/m4b_metadata_editor.py": ("ConversionCancelled", "raise_if_cancelled"),
-        "mp3_tools/mp3_tool.py": ("ConversionCancelled", "raise_if_cancelled"),
         "tts/epub2tts_gui.py": ("ConversionCancelled",),
         "tts/epub2tts_edge/epub2tts_edge.py": ("ConversionCancelled",),
         "tts/kokoro_synth.py": ("ConversionCancelled",),

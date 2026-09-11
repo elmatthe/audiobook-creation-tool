@@ -226,6 +226,16 @@ class BookNavigator:
     creates no page identity and no fixed page count either. Two books described
     identically stay two rows because the number leads.
 
+    **A row label may be the consumer's** (Phase 4 manual-gate remediation).
+    ``Book {position}`` is a position, and a position is reused: remove the first
+    of three books and the second is relabelled ``Book 1``, which reads as one
+    book's files appearing under another's name. A consumer that keeps a stable
+    display fact beside the stable id — a number assigned once and never reused,
+    say — passes ``label_for(book, position)`` and that string becomes the whole
+    row label, and the heading beside the buttons shows it with the position in
+    brackets. The navigator still knows no numbering scheme, stores none, and
+    resolves every row through the snapshot exactly as before.
+
     Remove Book passes the model's own meaningful-work answer to ``on_remove``. This
     class does not decide whether to confirm and never calls ``ask_confirm``: it
     reports ``has_meaningful_work(current_book)`` and the caller shows the dialog or
@@ -256,8 +266,8 @@ class BookNavigator:
     SELECTOR_WIDTH = 22
 
     __slots__ = ("_guard", "_theme", "_closed", "_locked", "_workspace",
-                 "_callbacks", "_position", "_describe", "frame", "buttons",
-                 "label", "position_variable", "selector")
+                 "_callbacks", "_position", "_describe", "_label_for", "frame",
+                 "buttons", "label", "position_variable", "selector")
 
     def __init__(
         self,
@@ -266,6 +276,7 @@ class BookNavigator:
         theme: Mapping[str, object] | None = None,
         thread_id: int | None = None,
         describe: Callable[[BookJob], object] | None = None,
+        label_for: Callable[[BookJob, int], object] | None = None,
         on_previous: Callable[[], object] | None = None,
         on_next: Callable[[], object] | None = None,
         on_add: Callable[[], object] | None = None,
@@ -277,6 +288,10 @@ class BookNavigator:
             raise BookWorkspaceUiError(
                 "describe must be a callable taking a BookJob and returning the "
                 f"display hint for the selector, got {type(describe).__name__}")
+        if label_for is not None and not callable(label_for):
+            raise BookWorkspaceUiError(
+                "label_for must be a callable taking (BookJob, position) and "
+                f"returning the row label, got {type(label_for).__name__}")
         self._guard = MainThreadGuard(thread_id)
         self._theme = theme
         self._closed = False
@@ -284,6 +299,7 @@ class BookNavigator:
         self._workspace: WorkspaceSnapshot | None = None
         self._position: tuple[int, int] = (0, 0)
         self._describe = describe
+        self._label_for = label_for
         self._callbacks: dict[str, Callable[..., object] | None] = {
             self.PREVIOUS: on_previous,
             self.NEXT: on_next,
@@ -374,24 +390,48 @@ class BookNavigator:
             return ()
         return tuple(entry.book_id for entry in self._workspace.books)
 
+    def _row_label(self, entry: BookJob, position: int) -> str:
+        """One row's text: the consumer's rule if given, else ``Book {position}``
+        with the optional hint. Presentation only — whitespace is collapsed and
+        nothing about it is stored, compared or validated."""
+        if self._label_for is not None:
+            return " ".join(str(self._label_for(entry, position)).split())
+        hint = ""
+        if self._describe is not None:
+            hint = " ".join(str(self._describe(entry)).split())
+        return f"Book {position} — {hint}" if hint else f"Book {position}"
+
     @property
     def selector_labels(self) -> tuple[str, ...]:
-        """One row per book: ``Book N``, or ``Book N — <hint>`` when the consumer
-        supplied a ``describe`` callback and it returned something to show.
+        """One row per book, in the rendered snapshot's order.
 
-        The number leads, so two books the consumer describes identically remain
-        two distinct rows. The hint is presentation only: whitespace is collapsed
-        for display and nothing about it is stored, compared or validated.
+        By default ``Book N``, or ``Book N — <hint>`` when the consumer supplied a
+        ``describe`` callback and it returned something to show; the number leads,
+        so two books described identically remain two distinct rows. With a
+        ``label_for`` rule the consumer's string is the whole row, and keeping
+        rows distinguishable is then its responsibility — rows still resolve to
+        ids, never to their text.
         """
         if self._workspace is None:
             return ()
-        rows = []
-        for position, entry in enumerate(self._workspace.books, start=1):
-            hint = ""
-            if self._describe is not None:
-                hint = " ".join(str(self._describe(entry)).split())
-            rows.append(f"Book {position} — {hint}" if hint else f"Book {position}")
-        return tuple(rows)
+        return tuple(self._row_label(entry, position)
+                     for position, entry in enumerate(self._workspace.books, start=1))
+
+    @property
+    def heading_text(self) -> str:
+        """What the label beside the buttons shows.
+
+        ``Book X of Y`` unless the consumer labels rows itself, in which case the
+        current book's own label with its position in brackets — so the heading
+        names the book, and the slot it happens to occupy stays visibly a slot.
+        """
+        if self._label_for is None or self._workspace is None:
+            return self.position_text
+        position, count = self._position
+        current = self._workspace.current
+        if not isinstance(current, BookJob) or not count:
+            return self.position_text
+        return f"{self._row_label(current, position)}  ({position} of {count})"
 
     def availability(self) -> Mapping[str, bool]:
         """Which actions are offered, derived from the rendered snapshot.
@@ -424,7 +464,7 @@ class BookNavigator:
         self._position = (workspace.current_position, workspace.count)
         available = self.availability()
         if not self._closed:
-            _write(self.position_variable, self.position_text)
+            _write(self.position_variable, self.heading_text)
             for action, offered in available.items():
                 _enable(self.buttons.get(action), offered and not self._locked)
             self._render_selector(available[self.SELECT])
@@ -613,9 +653,11 @@ class SharedMetadataSurface:
     side-by-side groups; ``layout="rows"`` stacks Shared above This Book with the
     fields left to right, for a consumer that has more below them than above.
     ``show_header=False`` drops the caption and explanatory line for a consumer that
-    captions the region itself. The consumer places ``frame`` — and may place its
-    own non-text controls beside these groups — but nothing tool-specific is drawn
-    here.
+    captions the region itself; ``wraplength`` lets a long display label fold
+    instead of widening its column, and ``entry_width`` sets the entries' minimum
+    width in characters so a wide vocabulary still fits the minimum window. The consumer places ``frame`` — and may place
+    its own non-text controls beside these groups — but nothing tool-specific is
+    drawn here.
 
     Editing delegates. A keystroke in a shared field reports ``(field_name, raw text)``
     to ``on_shared_change``; the caller builds the new ``SharedMetadata``, calls
@@ -649,6 +691,8 @@ class SharedMetadataSurface:
         book_title: str = "This Book",
         layout: str = "columns",
         show_header: bool = True,
+        wraplength: int | None = None,
+        entry_width: int | None = None,
         on_shared_change: Callable[[str, str], object] | None = None,
         on_book_change: Callable[[str, str], object] | None = None,
     ) -> None:
@@ -717,6 +761,14 @@ class SharedMetadataSurface:
         entry_style = style_name(theme, "entry")
         shared_label_style = style_name(theme, "shared_label")
         book_label_style = style_name(theme, "label")
+        # A long display label wraps rather than widening its column: the
+        # consumer says how wide a field may be, in pixels, and a label that
+        # needs more folds onto a second line. No font or metric is read.
+        wrap = {} if wraplength is None else {"wraplength": int(wraplength)}
+        # Likewise the entries' *minimum* width, in characters: they still
+        # stretch with their column, but a consumer with many fields across
+        # one row can keep the row inside the supported minimum window.
+        narrow = {} if entry_width is None else {"width": int(entry_width)}
         for index, (name, display) in enumerate(self._specs):
             row = self._rows[name]
             if layout == "columns":
@@ -732,29 +784,34 @@ class SharedMetadataSurface:
                             "padx": (0 if index == 0 else 8, 0)}
 
             row.label = ttk.Label(self.shared_frame, text=display,
-                                  style=shared_label_style)
+                                  style=shared_label_style, **wrap)
             row.label.grid(sticky="w", **label_at)
             row.shared_variable = tk.StringVar(master=self.frame, value="")
             row.shared_entry = ttk.Entry(
                 self.shared_frame, textvariable=row.shared_variable,
-                style=entry_style)
+                style=entry_style, **narrow)
             row.shared_entry.grid(sticky="ew", **entry_at)
 
             row.book_label = ttk.Label(self.book_frame, text=display,
-                                       style=book_label_style)
+                                       style=book_label_style, **wrap)
             row.book_label.grid(sticky="w", **label_at)
             row.book_variable = tk.StringVar(master=self.frame, value="")
             row.book_entry = ttk.Entry(
-                self.book_frame, textvariable=row.book_variable, style=entry_style)
+                self.book_frame, textvariable=row.book_variable, style=entry_style,
+                **narrow)
             row.book_entry.grid(sticky="ew", **entry_at)
 
             self._arm(row.shared_variable, name, self._report_shared)
             self._arm(row.book_variable, name, self._report_book)
 
+        # Equal *growth*, not equal width: a ``uniform`` group would size every
+        # column to the widest label and push a five-field consumer past the
+        # 920px minimum. Each column keeps its own natural width and the slack
+        # is shared evenly.
         field_columns = len(self._specs) if layout == "rows" else 1
         for group in (self.shared_frame, self.book_frame):
             for column in range(max(1, field_columns)):
-                group.columnconfigure(column, weight=1, uniform="fields")
+                group.columnconfigure(column, weight=1)
 
     # -- wiring ------------------------------------------------------------- #
 

@@ -833,14 +833,24 @@ def test_the_model_is_registered_as_a_plan3_adopter():
     assert "mp3_tools/mp3_workflow.py" in ADOPTED
 
 
-def test_the_mp3_tool_panel_is_untouched_by_phase_three():
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_of
-
-    assert (sha256_of(UNIVERSAL / "mp3_tools/mp3_tool.py")
-            == PHASE0_PANEL_HASHES["mp3_tools/mp3_tool.py"])
+def test_the_mp3_tool_panel_adopts_the_model_and_defines_none_of_it():
+    """Phase 3 left the panel untouched; Phase 4 made it the model's consumer."""
     tree = ast.parse((UNIVERSAL / "mp3_tools/mp3_tool.py").read_text(encoding="utf-8"))
     modules = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             modules.add(node.module or "")
-    assert "mp3_tools.mp3_workflow" not in modules
+            modules |= {f"{node.module}.{alias.name}" for alias in node.names}
+    assert "mp3_tools.mp3_workflow" in modules
+    declared = {node.name for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    for owned_here in ("consensus", "summarise", "title_from_filename",
+                       "default_title", "resolve_titles", "usable_lines",
+                       "parse_time_delta", "parse_start_number", "import_folder",
+                       "add_files", "move_tracks", "remove_tracks",
+                       "ObservationStore", "SourceTags"):
+        # The panel *calls* these; it may name a method after an action
+        # (``import_folder``, ``add_files``) but must not re-declare the model.
+        if owned_here in ("import_folder", "add_files"):
+            continue
+        assert owned_here not in declared, owned_here

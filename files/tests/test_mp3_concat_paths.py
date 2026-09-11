@@ -288,17 +288,28 @@ def test_the_escaper_does_not_use_shell_quoting():
 
 
 def test_the_combine_output_still_goes_through_the_shared_run_directory():
-    """The reservation rules are untouched by the escaping fix."""
+    """The reservation rules are untouched by the escaping fix.
+
+    Narrowed at the focused MP3 plan's Phase 4: the redesigned panel does not
+    combine yet, so it reserves nothing; what must still hold is that no local
+    run-folder helper came back. Phase 5 restores the reservation assertion.
+    """
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
               ).read_text(encoding="utf-8")
-    assert "reserve_run_directory" in source
     assert "next_available_folder" not in source
+    assert "BASE_OUTPUT_DIRNAME" not in source
+    assert "destination_hint(TOOL_KEY)" in source
 
 
 def test_the_listfile_lives_inside_the_operation_directory(tmp_path):
     """Concat lists are operation-owned, never left beside a source."""
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
               ).read_text(encoding="utf-8")
+    if "def _combine_worker" not in source:
+        pytest.skip(
+            "retired by the focused MP3 plan's Phase 4: the single-book combine "
+            "worker is gone; Phase 8's per-Book Combine pipeline re-covers where "
+            "its concat lists live, inside the Book's private staging")
     assert 'build_dir / "inputs_fast.txt"' in source
     assert 'out_dir / "build" / "inputs_safe.txt"' in source
 
