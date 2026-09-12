@@ -106,11 +106,16 @@ PHASE0_PLAN5_HASHES = {
 PHASE0_ALLOCATOR_HASH = \
     "a26cd25954c5ad21d16c350642025e768538c60f9df0475c71385191a9f9fb98"
 
-#: NOTE. The four hashes above are **raw-byte** digests of files as git checks them
-#: out in this repository (``core.autocrlf = true``, so CRLF on disk), and they are
-#: the maintainer-supplied stop-gate values. They are deliberately left exactly as
-#: recorded. The Phase 6 pins below are content digests instead — Phase 7's red proof
-#: found them tripping on a fresh checkout's line endings alone, with identical
+#: NOTE. The four hashes above are digests of the files **as git checks them out
+#: on Windows** (``core.autocrlf = true``, so CRLF on disk), and they are the
+#: maintainer-supplied stop-gate values. They are deliberately left exactly as
+#: recorded. They are compared through :func:`sha256_as_checked_out_on_windows`,
+#: which hashes that same CRLF representation whatever the host wrote to disk:
+#: the Mac gate (focused MP3 plan, Phase 12) found this checkout LF on disk, so
+#: the raw digests differed with byte-for-byte identical content — a gate firing
+#: on a checkout convention, which is the failure mode the Phase 6 pins below had
+#: already met. Those are content digests instead — Phase 7's red proof found
+#: them tripping on a fresh checkout's line endings alone, with identical
 #: content, which is a gate failing for the wrong reason.
 #:
 #: The state the authorised Phase 6 promotion left behind, pinned so that any
@@ -220,6 +225,21 @@ LF = bytes((10,))
 
 def sha256_of(path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def sha256_as_checked_out_on_windows(path) -> str:
+    """The maintainer's stop-gate digest: the file as a Windows checkout has it.
+
+    The Phase 0 pins were recorded from a ``core.autocrlf = true`` checkout, so
+    they digest CRLF bytes. A macOS or Linux checkout of the same commit has LF
+    on disk, and the raw digest differs with identical content. Folding every
+    line ending to LF and then to CRLF reproduces the recorded representation
+    on any host, so the recorded values stay exactly as supplied, a Windows
+    checkout keeps passing unchanged, and any real change to the content still
+    changes the digest. Only the line-ending convention is folded away.
+    """
+    raw = path.read_bytes()
+    return hashlib.sha256(raw.replace(CRLF, LF).replace(LF, CRLF)).hexdigest()
 
 
 def sha256_normalised(path) -> str:
@@ -661,7 +681,7 @@ def test_the_promotion_changed_the_legacy_file_and_left_the_converter_alone():
     """The move happened, and it stopped exactly where it was authorised to stop."""
     legacy = sha256_normalised(UNIVERSAL / "mp3_tools/m4b_numbering.py")
     assert legacy != PHASE0_ALLOCATOR_HASH, "the promotion did not happen"
-    assert (sha256_of(UNIVERSAL / "mp3_tools/m4b_converter.py")
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/m4b_converter.py")
             == PHASE0_PLAN5_HASHES["scripts/Universal/mp3_tools/m4b_converter.py"])
 
 
@@ -1353,7 +1373,7 @@ def test_exactly_one_place_advances_the_workspace_revision():
 @pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES))
 def test_the_consumer_panels_are_byte_identical_to_the_phase_zero_baseline(relative):
     """The two M4B panels are still adopted by nothing. Proved by hash, not by reading."""
-    assert sha256_of(UNIVERSAL / relative) == PHASE0_PANEL_HASHES[relative]
+    assert sha256_as_checked_out_on_windows(UNIVERSAL / relative) == PHASE0_PANEL_HASHES[relative]
 
 
 def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
@@ -1364,7 +1384,8 @@ def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
     panels are still forbidden to name. A panel that merely changed a comment
     would pass the first half and fail the second.
     """
-    assert sha256_of(UNIVERSAL / "mp3_tools/mp3_tool.py") != MP3_TOOL_PHASE0_HASH
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/mp3_tool.py")
+            != MP3_TOOL_PHASE0_HASH)
     tree = parse(UNIVERSAL / "mp3_tools/mp3_tool.py")
     names = referenced_names(tree) | imported_names(tree)
     assert "shared.book_workspace" in imported_names(tree)
@@ -1378,7 +1399,32 @@ def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
 @pytest.mark.parametrize("relative", sorted(PHASE0_PLAN5_HASHES))
 def test_the_plan5_converter_is_byte_identical_to_the_phase_zero_baseline(relative):
     """The consumer the promotion existed to leave alone. Still not one byte moved."""
-    assert sha256_of(REPO_ROOT / relative) == PHASE0_PLAN5_HASHES[relative]
+    assert sha256_as_checked_out_on_windows(REPO_ROOT / relative) == PHASE0_PLAN5_HASHES[relative]
+
+
+@pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES) + [
+    path.removeprefix("scripts/Universal/") for path in PHASE0_PLAN5_HASHES])
+def test_the_phase_zero_pins_hold_on_lf_and_crlf_checkouts_and_only_there(relative, tmp_path):
+    """The guard reads content, not the checkout convention (Phase 12, macOS).
+
+    The same protected file written with LF endings and with CRLF endings must
+    both meet the recorded pin; one byte of real change must not. Proved on
+    copies so the protected files themselves are never written.
+    """
+    pinned = {**PHASE0_PANEL_HASHES,
+              **{k.removeprefix("scripts/Universal/"): v for k, v in PHASE0_PLAN5_HASHES.items()}}
+    content = (UNIVERSAL / relative).read_bytes().replace(CRLF, LF)
+    assert CRLF not in content
+    lf_copy = tmp_path / "lf.py"
+    crlf_copy = tmp_path / "crlf.py"
+    changed_copy = tmp_path / "changed.py"
+    lf_copy.write_bytes(content)
+    crlf_copy.write_bytes(content.replace(LF, CRLF))
+    changed_copy.write_bytes(content + b"# one more line" + LF)
+    assert sha256_of(lf_copy) != sha256_of(crlf_copy), "the raw bytes really differ"
+    assert sha256_as_checked_out_on_windows(lf_copy) == pinned[relative]
+    assert sha256_as_checked_out_on_windows(crlf_copy) == pinned[relative]
+    assert sha256_as_checked_out_on_windows(changed_copy) != pinned[relative]
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES))

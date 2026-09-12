@@ -62,12 +62,18 @@ def tk_root():
 
 
 @pytest.fixture
-def windows_theme(tk_root, monkeypatch):
-    import sys
+def windows_theme(tk_root):
+    """The Windows ``ACT.*`` bundle, asked for through the theme's own seam.
 
-    monkeypatch.setattr(sys, "platform", "win32")
+    ``apply_theme(platform="win32")`` selects the Windows *presentation*
+    without rewriting ``sys.platform``. The hardening and orchestration suites
+    run real FFmpeg through panels built on this fixture, and a host-wide
+    ``sys.platform = "win32"`` made ``shared.subprocess_utils`` reach for
+    ``subprocess.STARTUPINFO`` on macOS — 31 failures that had nothing to do
+    with the panel. The real subprocess layer now sees the real host.
+    """
     style = ttk.Style(tk_root)
-    theme = ui_theme.apply_theme(tk_root, style)
+    theme = ui_theme.apply_theme(tk_root, style, platform="win32")
     yield theme
     restore = ttk.Style(tk_root)
     if "vista" in restore.theme_names():

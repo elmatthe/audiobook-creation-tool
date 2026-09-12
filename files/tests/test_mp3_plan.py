@@ -606,6 +606,15 @@ def test_discard_staging_removes_only_the_books_private_area(source_root, reserv
 
 
 def test_discard_staging_refuses_to_follow_a_link_out_of_the_work_area(source_root, reserve, tmp_path):
+    """The link is removed as a link; what it points at is never reached.
+
+    First exercised on macOS (Phase 12): the Windows account cannot create a
+    symlink, so this skipped there and a defect hid — the containment check
+    resolved the link, saw it land outside the staging area and aborted the
+    whole discard as unsafe, leaving the staging directory behind. Fail-closed,
+    but not the contract: a link inside staging is unlinked, the discard
+    completes, and the target is untouched.
+    """
     a = book(source_root, "F", ["1.mp3"], album="Dune")
     made = plan(workspace(a), observe(a), reserve)
     entry = made.books[0]
@@ -615,9 +624,13 @@ def test_discard_staging_refuses_to_follow_a_link_out_of_the_work_area(source_ro
     (outside / "keep.txt").write_text("keep", encoding="utf-8")
     try:
         os.symlink(outside, entry.staging_dir / "escape", target_is_directory=True)
+        os.symlink(outside / "keep.txt", entry.staging_dir / "escape.txt")
     except (OSError, NotImplementedError):
         pytest.skip("this environment cannot create a directory symlink")
-    mp.discard_staging(entry)
+    removed = mp.discard_staging(entry)
+    assert removed >= 3, "both links, then the staging directory itself"
+    assert not entry.staging_dir.exists()
+    assert outside.is_dir()
     assert (outside / "keep.txt").read_text(encoding="utf-8") == "keep"
 
 
@@ -701,12 +714,28 @@ def test_the_planning_module_is_registered_as_an_adopter():
     assert "mp3_tools/mp3_plan.py" in ADOPTED
 
 
+def _tmp_filesystem_is_case_insensitive(tmp_path) -> bool:
+    """Ask the temporary volume itself rather than the platform name."""
+    probe = tmp_path / "CaseProbe"
+    probe.mkdir()
+    try:
+        return (tmp_path / "caseprobe").exists()
+    finally:
+        probe.rmdir()
+
+
 def test_the_directory_planner_extension_shares_the_one_collision_authority(tmp_path):
     planner = output_paths.DestinationPlanner(tmp_path)
     first = planner.plan_directory("Dune")
     second = planner.plan_directory("dune")
     assert first == tmp_path / "Dune"
-    assert second == tmp_path / "Dune-1", "case-insensitive, like files"
+    # The alias is detected on every filesystem — the planner's taken-set is
+    # case-insensitive by contract — and the collision is numbered on the
+    # name as requested. Compared by casefolded name, because ``PosixPath``
+    # equality is case-sensitive while ``WindowsPath`` equality is not, and
+    # the spelling is the same fact on both.
+    assert second.parent == tmp_path
+    assert second.name.casefold() == "dune-1", "case-insensitive, like files"
     (tmp_path / "Dune-2").mkdir()
     assert planner.plan_directory("Dune") == tmp_path / "Dune-3"
     # A file planned with the same stem does not share the directory's name.
@@ -716,3 +745,23 @@ def test_the_directory_planner_extension_shares_the_one_collision_authority(tmp_
     assert planner.plan_directory("..") == tmp_path / output_paths.sanitize_component("..")
     assert tmp_path in planner.plan_directory("../../etc").parents
     assert sorted(p.name for p in tmp_path.iterdir()) == ["Dune-2"], "nothing was created"
+
+
+def test_an_existing_folder_that_differs_only_by_case_follows_the_volume(tmp_path):
+    """What is on disk is asked of the disk, not of the platform name.
+
+    A fresh planner knows nothing of an earlier batch, so an existing ``Dune``
+    folder is found through the filesystem check alone: on a case-insensitive
+    volume ``dune`` *is* that folder and is numbered past it; on a
+    case-sensitive volume it is a different entry and may be planned as is.
+    Both are the volume's own truth, and neither is an overwrite.
+    """
+    (tmp_path / "Dune").mkdir()
+    planned = output_paths.DestinationPlanner(tmp_path).plan_directory("dune")
+    assert planned.parent == tmp_path
+    if _tmp_filesystem_is_case_insensitive(tmp_path):
+        assert planned.name.casefold() == "dune-1", "Dune already occupies the name"
+    else:
+        assert planned.name == "dune", "a distinct entry on this volume"
+    assert not planned.exists(), "planned, never created"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Dune"], "nothing was created"

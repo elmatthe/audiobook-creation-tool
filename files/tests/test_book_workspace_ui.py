@@ -108,13 +108,10 @@ def parent(tk_root):
 
 
 @pytest.fixture
-def windows_theme(tk_root, monkeypatch):
-    """The Windows ``ACT.*`` bundle, forced on any host."""
-    import sys
-
-    monkeypatch.setattr(sys, "platform", "win32")
+def windows_theme(tk_root):
+    """The Windows ``ACT.*`` bundle, asked for through the theme's own seam."""
     style = ttk.Style(tk_root)
-    theme = ui_theme.apply_theme(tk_root, style)
+    theme = ui_theme.apply_theme(tk_root, style, platform="win32")
     yield theme
     restore = ttk.Style(tk_root)
     if "vista" in restore.theme_names():

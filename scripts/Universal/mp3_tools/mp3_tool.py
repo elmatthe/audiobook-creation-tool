@@ -79,11 +79,21 @@ approved ``ACT.*`` design-system style; on macOS and the classic branch the same
 lookup returns ``""`` and the panel is drawn natively. No colour, font or metric
 is declared here. Nothing scrolls the whole tool: the track list, the Chapter
 Titles box and the log scroll locally and give up height first.
+
+Composition follows the theme's metrics where it offers panel hints
+(``_layout_hints``): native aqua controls are wider and taller than the ACT
+design's, so on macOS the navigator's Book actions fold under its navigation
+row, the two primary actions stand in a column beside the job area, the
+metadata entries ask for fewer characters and a long field label wraps. A
+bundle without those hints — the Windows design system, the classic branch,
+a test theme — gets the accepted single-row composition unchanged. Only where
+things sit differs; every control, label and callback is the same.
 """
 
 import queue
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import tkinter as tk
@@ -393,6 +403,52 @@ class _Attempt:
 # ---------------------------
 
 
+def _layout_hints(theme) -> dict:
+    """The panel's composition, read off the theme bundle with its own defaults.
+
+    The defaults are the accepted Windows composition. A theme whose
+    ``metrics`` carry the panel hints (the aqua bundle) overrides them; one
+    without ``metrics`` at all (the classic branch) or with other keys only
+    (the Windows design system, a test theme) changes nothing. Presentation
+    only: nothing read here reaches the model, the plan or the engines.
+    """
+    metrics = (theme or {}).get("metrics") or {}
+    if not isinstance(metrics, Mapping):
+        metrics = {}
+    return {
+        "pad": int(metrics.get("panel_pad", 10)),
+        "gap": int(metrics.get("panel_gap", 6)),
+        "gap_small": int(metrics.get("panel_gap_small", 4)),
+        "navigator_layout": str(metrics.get("navigator_layout", "row")),
+        "actions_layout": str(metrics.get("actions_layout", "row")),
+        "entry_width": int(metrics.get("field_entry_width", 12)),
+        "label_wrap": metrics.get("field_label_wrap"),
+        "label_wrap_narrow": metrics.get("field_label_wrap_narrow"),
+        "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
+        "artwork_gap": int(metrics.get("artwork_gap", 12)),
+    }
+
+
+def _label_wraps(hints: Mapping[str, object], fields) -> dict[str, int] | None:
+    """Per-field label widths for the metadata surface, or ``None`` for none.
+
+    The Time label is the long one and takes the wide budget; every other
+    label takes the narrow budget, which keeps it near its entry's width.
+    Without a wide budget in the hints nothing wraps, exactly as before.
+    """
+    wide = hints.get("label_wrap")
+    if wide is None:
+        return None
+    narrow = hints.get("label_wrap_narrow")
+    wraps = {}
+    for key in fields:
+        if key == "time_delta":
+            wraps[key] = int(wide)
+        elif narrow is not None:
+            wraps[key] = int(narrow)
+    return wraps
+
+
 class _ArtworkControl:
     """Book Artwork: a caption, a small preview and Choose / Clear. MP3-owned.
 
@@ -427,12 +483,17 @@ class _ArtworkControl:
         self.preview = ttk.Label(
             self.frame, text="(none)", anchor="center", width=7,
             style=style_name(theme, "shared_secondary" if shared else "secondary_label"))
-        self.btn_choose = ttk.Button(self.frame, text="Choose…", width=7,
+        # The button widths are the ACT design's; a theme whose native
+        # buttons carry their own bezel padding asks for the natural width.
+        natural = _layout_hints(theme)["artwork_buttons"] == "natural"
+        self.btn_choose = ttk.Button(self.frame, text="Choose…",
                                      style=style_name(theme, "button"),
-                                     command=self._choose)
-        self.btn_clear = ttk.Button(self.frame, text="Clear", width=5,
+                                     command=self._choose,
+                                     **({} if natural else {"width": 7}))
+        self.btn_clear = ttk.Button(self.frame, text="Clear",
                                     style=style_name(theme, "button"),
-                                    command=self._clear)
+                                    command=self._clear,
+                                    **({} if natural else {"width": 5}))
         # Two rows only -- caption, then the two buttons side by side -- with
         # the preview spanning both on the left, so the control is no taller
         # than a label and an entry and the band it sits in stays compact.
@@ -640,7 +701,8 @@ class MP3ToolUI(ttk.Frame):
     # ------------------------------------------------------------------ #
 
     def _build(self, theme) -> None:
-        pad = 10
+        hints = _layout_hints(theme)
+        pad, gap, gap_small = hints["pad"], hints["gap"], hints["gap_small"]
         self.columnconfigure(0, weight=1)
         # Pinned rows keep their requested height; the two variable-length
         # regions -- tracks/chapters and the log -- absorb a short window, so
@@ -655,7 +717,7 @@ class MP3ToolUI(ttk.Frame):
 
         # -- row 0: workspace-level import ------------------------------ #
         top = ttk.Frame(self, style=style_name(theme, "window"))
-        top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, 4))
+        top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
         top.columnconfigure(1, weight=1)
         self.btn_import_folder = ttk.Button(
             top, text="Import Folder", style=style_name(theme, "button"),
@@ -671,23 +733,26 @@ class MP3ToolUI(ttk.Frame):
 
         # -- row 1: the shared navigator --------------------------------- #
         self.navigator = BookNavigator(
-            self, theme=theme, describe=self._describe, label_for=self._label_for,
+            self, theme=theme, layout=hints["navigator_layout"],
+            describe=self._describe, label_for=self._label_for,
             on_previous=self.on_previous, on_next=self.on_next,
             on_add=self.on_add, on_duplicate=self.on_duplicate,
             on_remove=self.on_remove, on_select=self.on_select)
-        self.navigator.frame.grid(row=1, column=0, sticky="ew", padx=pad, pady=(0, 4))
+        self.navigator.frame.grid(row=1, column=0, sticky="ew", padx=pad,
+                                  pady=(0, gap_small))
 
         # -- row 2: Shared above Current Book ----------------------------- #
         text_fields = tuple(
             (key, wf.FIELD_LABELS[key]) for key in wf.SHARED_FIELDS if key != "artwork")
         self.surface = SharedMetadataSurface(
             self, text_fields, theme=theme, layout="rows",
-            show_header=False, entry_width=12,
+            show_header=False, entry_width=hints["entry_width"],
+            wraplength=_label_wraps(hints, (key for key, _label in text_fields)),
             shared_title="Shared — applies to every Book and overrides its own value",
             book_title="Current Book",
             on_shared_change=self.on_shared_change,
             on_book_change=self.on_book_change)
-        self.surface.frame.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, 6))
+        self.surface.frame.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, gap))
         field_columns = len(text_fields)
         # Widget padding, not a style: the theme's card padding suits a card,
         # and two stacked bands of it would spend the height the track list
@@ -702,13 +767,13 @@ class MP3ToolUI(ttk.Frame):
             theme=theme, shared=True, on_choose=self.choose_shared_artwork,
             on_clear=self.clear_shared_artwork)
         self.shared_artwork.frame.grid(row=0, column=field_columns, rowspan=2,
-                                       sticky="nw", padx=(12, 0))
+                                       sticky="nw", padx=(hints["artwork_gap"], 0))
         self.book_artwork = _ArtworkControl(
             self.surface.book_frame, caption=wf.FIELD_LABELS["artwork"],
             theme=theme, shared=False, on_choose=self.choose_book_artwork,
             on_clear=self.clear_book_artwork)
         self.book_artwork.frame.grid(row=0, column=field_columns, rowspan=4,
-                                     sticky="nw", padx=(12, 0))
+                                     sticky="nw", padx=(hints["artwork_gap"], 0))
 
         # Mixed-source markers, one under each observed scalar of the Book.
         self.mixed_labels: dict[str, ttk.Label] = {}
@@ -744,7 +809,7 @@ class MP3ToolUI(ttk.Frame):
 
         # -- row 3: tracks | chapter titles ------------------------------- #
         middle = ttk.Frame(self, style=style_name(theme, "window"))
-        middle.grid(row=3, column=0, sticky="nsew", padx=pad, pady=(0, 6))
+        middle.grid(row=3, column=0, sticky="nsew", padx=pad, pady=(0, gap))
         middle.columnconfigure(0, weight=3)
         middle.columnconfigure(1, weight=2)
         middle.rowconfigure(0, weight=1)
@@ -809,23 +874,36 @@ class MP3ToolUI(ttk.Frame):
         # beneath it -- is one adapter per run, installed into column 2 by
         # ``_install_jobs``; the primary buttons and Clear Log are the panel's.
         self.actions = ttk.Frame(self, style=style_name(theme, "window"))
-        self.actions.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, 6))
+        self.actions.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, gap))
         self.actions.columnconfigure(2, weight=1)
         self.btn_write_id3 = ttk.Button(
             self.actions, text="Write ID3 Tags",
             style=style_name(theme, "primary_button"), command=self.write_id3_tags)
-        self.btn_write_id3.grid(row=0, column=0, sticky="nw")
         self.btn_combine = ttk.Button(
             self.actions, text="Combine MP3s → One MP3",
             style=style_name(theme, "primary_button"), command=self.combine_mp3s)
-        self.btn_combine.grid(row=0, column=1, sticky="nw", padx=(8, 16))
         # Beneath the primary buttons rather than beside the job area: side
         # by side the row asked for 940 px and clipped the status view at the
-        # 920 px minimum. The job area spans both rows on the right.
+        # 920 px minimum. The job area spans every row on the right.
         self.btn_clear_log = ttk.Button(
             self.actions, text="Clear Log", style=style_name(theme, "button"),
             command=self.clear_log)
-        self.btn_clear_log.grid(row=1, column=0, columnspan=2, sticky="sw", pady=(4, 0))
+        if hints["actions_layout"] == "row":
+            self.btn_write_id3.grid(row=0, column=0, sticky="nw")
+            self.btn_combine.grid(row=0, column=1, sticky="nw", padx=(8, 16))
+            self.btn_clear_log.grid(row=1, column=0, columnspan=2, sticky="sw",
+                                    pady=(4, 0))
+            self._jobs_rowspan = 2
+        else:
+            # Stacked: the two primary actions in one column with Clear Log
+            # beneath, no taller than the job area beside them, so the row
+            # fits where native buttons are too wide to sit side by side.
+            self.btn_write_id3.grid(row=0, column=0, sticky="new", padx=(0, 16))
+            self.btn_combine.grid(row=1, column=0, sticky="new",
+                                  padx=(0, 16), pady=(4, 0))
+            self.btn_clear_log.grid(row=2, column=0, sticky="sew",
+                                    padx=(0, 16), pady=(4, 0))
+            self._jobs_rowspan = 3
 
         # -- row 5: the one log region ----------------------------------- #
         # Two requested lines: the log is the region that yields first at the
@@ -877,7 +955,7 @@ class MP3ToolUI(ttk.Frame):
             on_event=self._on_job_event,
             on_terminal=self._on_terminal,
         )
-        self.jobs.frame.grid(row=0, column=2, rowspan=2, sticky="ew")
+        self.jobs.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="ew")
         self.jobs.controls.frame.grid_configure(sticky="e")
         # The panel's own names for the shared pieces, re-pointed per run.
         self.controls = self.jobs.controls

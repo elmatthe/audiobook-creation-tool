@@ -240,7 +240,18 @@ class BookNavigator:
     class does not decide whether to confirm and never calls ``ask_confirm``: it
     reports ``has_meaningful_work(current_book)`` and the caller shows the dialog or
     does not (Decision 50A).
+
+    **Two geometries, one contract** (focused MP3 plan, Phase 12). ``layout="row"``
+    is the accepted single row. ``layout="stacked"`` puts Previous / Next / the
+    heading / the selector on one row and Add / Duplicate / Remove beneath, for a
+    consumer whose native controls are too wide for one row inside its minimum
+    window. The consumer chooses; nothing here reads a platform or a theme
+    metric, and the buttons, labels, callbacks and rendering are the same either way.
     """
+
+    #: The two geometries. ``"row"`` is the accepted single row; ``"stacked"``
+    #: folds the three Book actions under the navigation row.
+    LAYOUTS = ("row", "stacked")
 
     #: The labels this navigator renders, in the order it renders them.
     ADD = "add"
@@ -266,8 +277,8 @@ class BookNavigator:
     SELECTOR_WIDTH = 22
 
     __slots__ = ("_guard", "_theme", "_closed", "_locked", "_workspace",
-                 "_callbacks", "_position", "_describe", "_label_for", "frame",
-                 "buttons", "label", "position_variable", "selector")
+                 "_callbacks", "_position", "_describe", "_label_for", "_layout",
+                 "frame", "buttons", "label", "position_variable", "selector")
 
     def __init__(
         self,
@@ -275,6 +286,7 @@ class BookNavigator:
         *,
         theme: Mapping[str, object] | None = None,
         thread_id: int | None = None,
+        layout: str = "row",
         describe: Callable[[BookJob], object] | None = None,
         label_for: Callable[[BookJob, int], object] | None = None,
         on_previous: Callable[[], object] | None = None,
@@ -284,6 +296,9 @@ class BookNavigator:
         on_remove: Callable[[bool], object] | None = None,
         on_select: Callable[[str], object] | None = None,
     ) -> None:
+        if layout not in self.LAYOUTS:
+            raise BookWorkspaceUiError(
+                f"layout must be one of {self.LAYOUTS!r}, got {layout!r}")
         if describe is not None and not callable(describe):
             raise BookWorkspaceUiError(
                 "describe must be a callable taking a BookJob and returning the "
@@ -296,6 +311,7 @@ class BookNavigator:
         self._theme = theme
         self._closed = False
         self._locked = False
+        self._layout = layout
         self._workspace: WorkspaceSnapshot | None = None
         self._position: tuple[int, int] = (0, 0)
         self._describe = describe
@@ -339,13 +355,28 @@ class BookNavigator:
         # this row is the widest bounded thing Plan 6 draws, and at the 920px minimum
         # width every pixel it does not claim is a pixel an action cannot be clipped
         # by. Section 19.1 forbids solving that with a whole-panel scrollbar.
-        self.buttons[self.PREVIOUS].grid(row=0, column=0)
-        self.buttons[self.NEXT].grid(row=0, column=1, padx=(6, 0))
-        self.label.grid(row=0, column=2, padx=(8, 8))
-        self.selector.grid(row=0, column=3, padx=(0, 8))
-        self.buttons[self.ADD].grid(row=0, column=4)
-        self.buttons[self.DUPLICATE].grid(row=0, column=5, padx=(6, 0))
-        self.buttons[self.REMOVE].grid(row=0, column=6, padx=(6, 0))
+        if layout == "row":
+            self.buttons[self.PREVIOUS].grid(row=0, column=0)
+            self.buttons[self.NEXT].grid(row=0, column=1, padx=(6, 0))
+            self.label.grid(row=0, column=2, padx=(8, 8))
+            self.selector.grid(row=0, column=3, padx=(0, 8))
+            self.buttons[self.ADD].grid(row=0, column=4)
+            self.buttons[self.DUPLICATE].grid(row=0, column=5, padx=(6, 0))
+            self.buttons[self.REMOVE].grid(row=0, column=6, padx=(6, 0))
+        else:
+            # Stacked: the three Book actions fold under the navigation row,
+            # left-aligned in the same columns so the two rows read as one
+            # block. The label column still carries the slack, and the
+            # selector keeps the right edge of the block.
+            self.buttons[self.PREVIOUS].grid(row=0, column=0, sticky="w")
+            self.buttons[self.NEXT].grid(row=0, column=1, sticky="w", padx=(6, 0))
+            self.label.grid(row=0, column=2, sticky="w", padx=(8, 8))
+            self.selector.grid(row=0, column=3, sticky="e")
+            self.buttons[self.ADD].grid(row=1, column=0, sticky="w", pady=(4, 0))
+            self.buttons[self.DUPLICATE].grid(row=1, column=1, sticky="w",
+                                              padx=(6, 0), pady=(4, 0))
+            self.buttons[self.REMOVE].grid(row=1, column=2, columnspan=2,
+                                           sticky="w", padx=(8, 0), pady=(4, 0))
         self.frame.columnconfigure(2, weight=1)
 
     # -- pure state, no Tk reached ----------------------------------------- #
@@ -357,6 +388,10 @@ class BookNavigator:
     @property
     def closed(self) -> bool:
         return self._closed
+
+    @property
+    def layout(self) -> str:
+        return self._layout
 
     @property
     def locked(self) -> bool:
@@ -654,8 +689,10 @@ class SharedMetadataSurface:
     fields left to right, for a consumer that has more below them than above.
     ``show_header=False`` drops the caption and explanatory line for a consumer that
     captions the region itself; ``wraplength`` lets a long display label fold
-    instead of widening its column, and ``entry_width`` sets the entries' minimum
-    width in characters so a wide vocabulary still fits the minimum window. The consumer places ``frame`` — and may place
+    instead of widening its column — one width in pixels for every label, or a
+    mapping of field name to width for just those labels — and ``entry_width``
+    sets the entries' minimum width in characters so a wide vocabulary still
+    fits the minimum window. The consumer places ``frame`` — and may place
     its own non-text controls beside these groups — but nothing tool-specific is
     drawn here.
 
@@ -691,7 +728,7 @@ class SharedMetadataSurface:
         book_title: str = "This Book",
         layout: str = "columns",
         show_header: bool = True,
-        wraplength: int | None = None,
+        wraplength: int | Mapping[str, int] | None = None,
         entry_width: int | None = None,
         on_shared_change: Callable[[str, str], object] | None = None,
         on_book_change: Callable[[str, str], object] | None = None,
@@ -762,9 +799,17 @@ class SharedMetadataSurface:
         shared_label_style = style_name(theme, "shared_label")
         book_label_style = style_name(theme, "label")
         # A long display label wraps rather than widening its column: the
-        # consumer says how wide a field may be, in pixels, and a label that
-        # needs more folds onto a second line. No font or metric is read.
-        wrap = {} if wraplength is None else {"wraplength": int(wraplength)}
+        # consumer says how wide a field may be, in pixels — for every field,
+        # or per field by name — and a label that needs more folds onto a
+        # second line. No font or metric is read.
+        if wraplength is None:
+            wrap_for = {}
+        elif isinstance(wraplength, Mapping):
+            wrap_for = {str(name): {"wraplength": int(width)}
+                        for name, width in wraplength.items()}
+        else:
+            wrap_for = {name: {"wraplength": int(wraplength)}
+                        for name, _label in self._specs}
         # Likewise the entries' *minimum* width, in characters: they still
         # stretch with their column, but a consumer with many fields across
         # one row can keep the row inside the supported minimum window.
@@ -783,6 +828,7 @@ class SharedMetadataSurface:
                 entry_at = {"row": 1, "column": index,
                             "padx": (0 if index == 0 else 8, 0)}
 
+            wrap = wrap_for.get(name, {})
             row.label = ttk.Label(self.shared_frame, text=display,
                                   style=shared_label_style, **wrap)
             row.label.grid(sticky="w", **label_at)

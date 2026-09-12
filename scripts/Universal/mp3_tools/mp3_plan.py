@@ -462,17 +462,23 @@ def discard_staging(book: BookPlan) -> int:
         current_path = Path(current)
         if current_path != root:
             output_paths.assert_contained(root, current_path)
+        # A link is removed as a link and never followed. Its own location is
+        # already proven inside the staging area (``current_path`` was), so it
+        # is not handed to ``assert_contained``, which resolves links: a link
+        # pointing outside would otherwise abort the discard as unsafe rather
+        # than being unlinked, and the staging area would be left behind.
         for name in files:
             target = current_path / name
-            output_paths.assert_contained(root, target)
+            if not target.is_symlink():
+                output_paths.assert_contained(root, target)
             os.unlink(target)
             removed += 1
         for name in directories:
             target = current_path / name
-            output_paths.assert_contained(root, target)
             if target.is_symlink():
                 os.unlink(target)      # the link itself, never what it points at
             else:
+                output_paths.assert_contained(root, target)
                 os.rmdir(target)
             removed += 1
     os.rmdir(root)
