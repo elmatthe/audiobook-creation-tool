@@ -508,11 +508,25 @@ class MainThreadPump:
         handle, self._handle = self._handle, None
         if handle is None:
             return
-        cancel = getattr(self._widget, "after_cancel", None)
-        if cancel is None or not _alive(self._widget):
+        if _alive(self._widget):
+            cancel = getattr(self._widget, "after_cancel", None)
+            if cancel is None:
+                return
+            try:
+                cancel(handle)
+            except tk.TclError:
+                pass
+            return
+        # The widget is gone; the timer is not. An ``after`` id belongs to the
+        # interpreter, and destroying the widget only deleted the command it
+        # would call -- so left alone it fires into a deleted command and Tk
+        # reports a background error. Cancel it where it lives.
+        interpreter = getattr(self._widget, "tk", None)
+        call = getattr(interpreter, "call", None)
+        if call is None:
             return
         try:
-            cancel(handle)
+            call("after", "cancel", handle)
         except tk.TclError:
             pass
 
@@ -1772,8 +1786,24 @@ class JobStatusView:
         self._guard.require("set_locked")
 
     def close(self) -> None:
+        """Retire the view. An animating bar's timer is the view's own and ends here.
+
+        ``ttk.Progressbar.start`` schedules a timer that Tk only stops when told
+        to; destroying the bar leaves it pending until it next fires. A view
+        retired mid-animation -- the adapter of a run replaced by the next one --
+        must not leave that behind, so the animation is stopped before the
+        widgets go, never after.
+        """
         self._guard.require("close")
+        if self._closed:
+            return
         self._closed = True
+        if not _alive(self.indicator.bar):
+            return
+        try:
+            self.indicator.finish()
+        except tk.TclError:
+            pass
 
     def _write(self, variable: tk.StringVar, value: str) -> None:
         try:

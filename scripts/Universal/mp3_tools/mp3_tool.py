@@ -54,7 +54,7 @@ reached ``NOT_ATTEMPTED`` and the batch ``CANCELLED`` (there is no Book-level
 "cancelled"). When the terminal event is drained the per-Book ``RunResult``
 values the engine settled compose into the Plan 6 ``WorkspaceRunResult`` on
 the main thread — the one place Book statuses (Ready / Queued / Processing /
-Completed / Failed / Skipped) are read from — and that frozen result is what
+Completed / Failed / Skipped / Not attempted) are read from — and that frozen result is what
 **Retry Failed** asks: ``retry_failed_books`` names the failed Books and their
 failed occurrences, and the same engine re-runs exactly those against the
 same ``RunPlan``, reusing every staged piece the first attempt kept and
@@ -178,6 +178,7 @@ STATUS_PROCESSING = "Processing"
 STATUS_COMPLETED = "Completed"
 STATUS_FAILED = "Failed"
 STATUS_SKIPPED = "Skipped"
+STATUS_NOT_ATTEMPTED = "Not attempted"
 
 MIXED_MARK = "Mixed source metadata"
 
@@ -1712,8 +1713,10 @@ class MP3ToolUI(ttk.Frame):
         engine has settled is ``Completed`` or ``Failed`` by its own result; a
         Book an earlier attempt settled and this retry leaves alone keeps that
         answer; the Book at the projected stage is ``Processing`` and the rest
-        of the attempt's Books are ``Queued``. Afterwards, the frozen result's
-        disposition answers, and a Book it does not know is ``Ready``.
+        of the attempt's Books are ``Queued`` -- a presentation of the active
+        batch, held nowhere. Afterwards the frozen result's disposition answers
+        (focused plan section 26): ``NOT_ATTEMPTED`` is shown as *Not attempted*,
+        and a Book the result does not know at all is ``Ready``.
         """
         attempt = self._attempt
         if attempt is not None and self._busy:
@@ -1761,6 +1764,8 @@ class MP3ToolUI(ttk.Frame):
             return STATUS_FAILED
         if disposition in (BookDisposition.SKIPPED_EMPTY, BookDisposition.SKIPPED_INVALID):
             return STATUS_SKIPPED
+        if disposition is BookDisposition.NOT_ATTEMPTED:
+            return STATUS_NOT_ATTEMPTED
         return STATUS_READY
 
     # -- the shared control bar's callbacks ---------------------------------- #

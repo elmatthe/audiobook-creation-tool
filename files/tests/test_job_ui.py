@@ -525,6 +525,41 @@ def test_a_destroyed_widget_stops_the_chain_instead_of_raising(tk_root):
     made.close()
 
 
+def test_stopping_after_the_widget_is_gone_still_cancels_the_timer(tk_root):
+    """v0.6.3 Phase 10 (test-isolation defect). The ``after`` timer belongs to
+    the interpreter, not to the widget that scheduled it: destroying the widget
+    deletes the Python command but leaves the timer pending, and when it fires
+    Tk reports a background error for a command that no longer exists. So a
+    pump whose widget has gone must still cancel its timer where it lives."""
+    holder = ttk.Frame(tk_root)
+    made = job_ui.MainThreadPump(holder)
+    made.start()
+    handle = made.pending
+    assert handle is not None
+    holder.destroy()
+    assert str(handle) in tk_root.tk.call("after", "info"), "still pending after destroy"
+    made.stop()
+    assert str(handle) not in tk_root.tk.call("after", "info"), (
+        "the timer outlived its widget: it fires into a deleted command")
+    made.close()
+
+
+def test_closing_the_status_view_stops_an_animating_bar(tk_root):
+    """A ``ttk.Progressbar.start`` timer is the view's own: closing the view
+    ends it, so a view retired while indeterminate leaves no timer behind to
+    be found by whatever uses the interpreter next."""
+    holder = ttk.Frame(tk_root)
+    view = job_ui.JobStatusView(holder)
+    view.apply(ProgressView(mode=ProgressMode.INDETERMINATE, label="Working…"))
+    assert any("Autoincrement" in str(tk_root.tk.call("after", "info", entry))
+               for entry in tk_root.tk.call("after", "info"))
+    view.close()
+    assert not any("Autoincrement" in str(tk_root.tk.call("after", "info", entry))
+                   for entry in tk_root.tk.call("after", "info")), (
+        "the animation timer survived close()")
+    holder.destroy()
+
+
 def test_the_pump_never_asks_a_queue_how_big_it_is():
     """``qsize`` is unreliable under concurrency; the drain contract avoids needing it.
 

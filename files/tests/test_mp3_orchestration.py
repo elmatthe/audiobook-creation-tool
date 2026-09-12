@@ -304,7 +304,7 @@ def test_cancel_stops_at_the_next_checkpoint_and_leaves_later_books_not_attempte
     assert count["n"] == 1, "cancel stopped at the checkpoint before Book 2"
     assert result.disposition_for(books[1].book_id) is BookDisposition.NOT_ATTEMPTED
     assert panel.jobs.stream.terminal.kind is JobEventKind.CANCELLED
-    assert statuses(panel)[0] == "Completed" and statuses(panel)[2] == "Ready"
+    assert statuses(panel)[0] == "Completed" and statuses(panel)[2] == "Not attempted"
     assert panel.controls.availability()[JobAction.RETRY_FAILED] is False
 
 

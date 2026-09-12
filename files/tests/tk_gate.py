@@ -72,6 +72,14 @@ def open_tk_root(tk):
 #: The one Tcl interpreter this process uses. See :func:`tk_root_session`.
 _SHARED_ROOT = None
 
+#: How many gate scopes are open right now. See :func:`finalise_before_thread`.
+_OPEN_SCOPES = 0
+
+#: The test currently running, and the test the thread-start boundary last ran
+#: for. Set by the suite's autouse fixture; compared by the hook.
+_CURRENT_TEST = None
+_FINALISED_FOR = None
+
 
 def _reset_root(root) -> None:
     """Return the shared root to the state a freshly created one would be in.
@@ -87,10 +95,7 @@ def _reset_root(root) -> None:
     """
     try:
         for callback in root.tk.call("after", "info"):
-            try:
-                root.after_cancel(callback)
-            except Exception:
-                pass
+            _cancel_after(root, callback)
     except Exception:
         pass
 
@@ -119,6 +124,34 @@ def _reset_root(root) -> None:
         root.geometry("")
         root.withdraw()
         root.update_idletasks()
+    except Exception:
+        pass
+
+
+def _cancel_after(root, callback) -> None:
+    """Cancel one pending ``after`` id where it lives: in the interpreter.
+
+    Not ``root.after_cancel``. That reads the timer's script and hands it to
+    ``deletecommand`` before cancelling, and a timer Tk scheduled for itself
+    -- ``ttk::progressbar::Autoincrement`` for an animating bar -- carries a
+    Tcl *list* as its script, so ``deletecommand`` raises ``TypeError``, which
+    ``after_cancel`` does not catch, and the cancel never happens. Measured at
+    v0.6.3 Phase 10: three such timers from destroyed progress bars survived
+    the boundary and failed the next module's "nothing scheduled" assertion.
+
+    A Python callback's command is still deleted first, exactly as
+    ``after_cancel`` would, so a cancelled Tk-side timer leaves no orphaned
+    command either. Every step is tolerant: the reset runs at teardown, where
+    a timer that fired or a command that went with its widget is ordinary.
+    """
+    try:
+        script = root.tk.splitlist(root.tk.call("after", "info", callback))[0]
+        if isinstance(script, str):
+            root.deletecommand(script)
+    except Exception:
+        pass
+    try:
+        root.tk.call("after", "cancel", callback)
     except Exception:
         pass
 
@@ -287,6 +320,75 @@ def armed_tk_objects(tk) -> list:
     return armed
 
 
+def begin_test(nodeid: str) -> None:
+    """Tell the gate which test is running. Called by the suite's autouse fixture."""
+    global _CURRENT_TEST
+    _CURRENT_TEST = nodeid
+
+
+def finalise_before_thread() -> int:
+    """The thread-start boundary (v0.6.3 Phase 10). Returns what the collection freed.
+
+    :func:`finalise_tk_objects` ran only around a *module*, and the hazard it
+    exists for does not respect that boundary: a variable one test leaves in a
+    cycle can be collected during the very next test of the same module, on
+    whatever thread happens to allocate -- the scan worker
+    ``test_job_ui::test_cancel_import_stops_the_scan_and_touches_no_job_
+    controller`` starts, for one, which then blocks inside
+    ``Variable.__del__`` waiting for a main thread that is waiting for it.
+    Which test the collector picks depends on allocation history, so merely
+    collecting another module first was enough to turn the stall on.
+
+    The hazard has exactly one precondition: a worker thread starts while an
+    armed Tk object is waiting to be collected. So this runs at that moment
+    and no other -- from the ``Thread.start`` hook the suite installs, on the
+    main thread, once per test, and only while a gate scope is open. A test
+    that starts no thread pays nothing; a pure module pays nothing; running
+    a boundary after *every* test instead was measured at more than double
+    the whole suite's time, because a full collection over a heap this size
+    is not ten milliseconds by the end of a run.
+
+    What it does is one main-thread ``gc.collect``, and deliberately **not**
+    what the module boundary does: the module boundary disarms every live Tk
+    object because every widget is gone by then, whereas here the running
+    test's own variables are alive and in use. Collecting is enough. Every
+    unreachable cycle -- the leftovers -- is finalised right here, on this
+    thread, before the worker exists; whatever is still reachable is exactly
+    what cannot be collected on the worker.
+
+    Returns how many objects the collection freed.
+    """
+    global _FINALISED_FOR
+    if _OPEN_SCOPES <= 0 or _SHARED_ROOT is None:
+        return 0
+    if _FINALISED_FOR == _CURRENT_TEST:
+        return 0
+    if threading.current_thread() is not threading.main_thread():
+        return 0
+    _FINALISED_FOR = _CURRENT_TEST
+    return gc.collect()
+
+
+def install_thread_start_boundary() -> None:
+    """Make every ``Thread.start`` from the main thread pass the boundary first.
+
+    Installed once per process by the suite's ``conftest``; idempotent. The
+    wrapper is the whole hook: it adds nothing to the thread and changes
+    nothing about how it runs.
+    """
+    if getattr(threading.Thread.start, "_tk_gate_boundary", False):
+        return
+    real_start = threading.Thread.start
+
+    def start(self, *args, **kwargs):
+        finalise_before_thread()
+        return real_start(self, *args, **kwargs)
+
+    start._tk_gate_boundary = True  # type: ignore[attr-defined]
+    start._tk_gate_real = real_start  # type: ignore[attr-defined]
+    threading.Thread.start = start  # type: ignore[method-assign]
+
+
 def shared_root(tk):
     """The one live root for this process, created on first use.
 
@@ -340,12 +442,15 @@ def tk_root_session(tk, *, before_destroy=None):
     destroyed once at exit rather than at the end of every scope. What each
     scope gets is a *pristine* root, not a new interpreter.
     """
+    global _OPEN_SCOPES
     root = shared_root(tk)
     _reset_root(root)
     finalise_tk_objects(tk)
+    _OPEN_SCOPES += 1
     try:
         yield root
     finally:
+        _OPEN_SCOPES -= 1
         if before_destroy is not None:
             before_destroy()
         _reset_root(root)
