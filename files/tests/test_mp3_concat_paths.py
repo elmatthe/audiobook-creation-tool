@@ -262,8 +262,9 @@ def test_run_ff_is_given_a_list_not_a_string():
 def test_shlex_quote_is_only_used_for_the_human_readable_log():
     """Shell quoting must never be mistaken for concat-list escaping.
 
-    Since Phase 7 the engine also quotes a failed command for its technical
-    detail — the same human-readable purpose, and the only other owner.
+    Since Phase 7 the Write ID3 engine, and since Phase 8 the Combine engine,
+    also quote a failed command for its technical detail — the same
+    human-readable purpose, and the only other owners.
     """
     tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     owners = set()
@@ -274,7 +275,7 @@ def test_shlex_quote_is_only_used_for_the_human_readable_log():
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "quote"):
                 owners.add(function.name)
-    assert owners <= {"save_error_log", "_stage_clean_copy"}, owners
+    assert owners <= {"save_error_log", "_stage_clean_copy", "_combine_constituents"}, owners
 
 
 def test_the_escaper_does_not_use_shell_quoting():
@@ -310,16 +311,21 @@ def test_the_combine_output_still_goes_through_the_shared_run_directory():
 
 
 def test_the_listfile_lives_inside_the_operation_directory(tmp_path):
-    """Concat lists are operation-owned, never left beside a source."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
-              ).read_text(encoding="utf-8")
-    if "def _combine_worker" not in source:
-        pytest.skip(
-            "retired by the focused MP3 plan's Phase 4: the single-book combine "
-            "worker is gone; Phase 8's per-Book Combine pipeline re-covers where "
-            "its concat lists live, inside the Book's private staging")
-    assert 'build_dir / "inputs_fast.txt"' in source
-    assert 'out_dir / "build" / "inputs_safe.txt"' in source
+    """Concat lists are operation-owned, never left beside a source.
+
+    Skipped from the focused MP3 plan's Phase 4 (the single-book combine
+    worker went) until Phase 8's per-Book Combine engine put both lists where
+    they now live: inside the Book's private staging under the one run.
+    """
+    source = HELPERS_SOURCE.read_text(encoding="utf-8")
+    assert 'book.staging_dir / "inputs_fast.txt"' in source
+    assert 'book.staging_dir / "inputs_safe.txt"' in source
+    assert 'wav_dir = book.staging_dir / "wavs"' in source
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)                 and node.func.id == "write_concat_listfile":
+            spelled = ast.unparse(node.args[1])
+            assert spelled == "listfile", spelled
 
 
 def test_a_failure_still_records_the_ffmpeg_error_text(tmp_path):

@@ -1,7 +1,7 @@
 """MP3 processing: the FFmpeg helpers and the Write ID3 engine — v0.6.3 focused
 MP3 redesign, Phase 7.
 
-Two things live here, and nothing that touches a widget, a thread or a
+Three things live here, and nothing that touches a widget, a thread or a
 controller.
 
 **The proven FFmpeg helpers** the MP3 Tool has always used — ``run_ff``, the
@@ -41,6 +41,21 @@ Failures are Plan 3 ``FailureRecord`` values against the Book's own
 ``RunSnapshot``: a track failure carries the real occurrence id and is
 retryable; a Book-level failure (artwork that will not decode, a publication
 that failed) carries no item id and is not — no identity is ever invented.
+
+**The Combine engine** (focused plan section 24) runs a frozen Combine plan
+the same way, one combined MP3 per Book and never across Books. Every
+constituent is staged with the frozen signed Time first — the final one too —
+through the very same per-track staging as Write ID3. FAST concat is tried
+automatically when the staged constituents share one codec, sample rate and
+channel count; otherwise, or when FAST fails, the Safe path normalises each to
+WAV and concatenates those, and the reason is emitted as a technical event.
+The combined file's tag is written from a clean state — Title = effective
+Album only, Artist / Album Artist / Album when populated, the frozen artwork,
+no Track Number, no chapter frames — and ``combined_time-stamps.txt`` lists
+the final frozen Titles at their adjusted offsets. Both are validated, then the
+Book is published whole through the Phase 5 boundary. A constituent that could
+not be prepared is a retryable failure against its real occurrence; a concat,
+tag, timestamp or publication failure is the Book's own, item-less.
 """
 
 from __future__ import annotations
@@ -61,10 +76,18 @@ __all__ = [
     "ProcessingError",
     "ProcessingEvent",
     "BookReport",
+    "RunReport",
     "WriteId3Report",
+    "CombineReport",
     "write_id3_run",
     "write_id3_book",
     "validate_staged_track",
+    "combine_run",
+    "combine_book",
+    "validate_combined_book",
+    "fast_eligibility",
+    "ffprobe_audio_stream",
+    "timestamp_lines",
     "ensure_ffmpeg_available",
     "run_ff",
     "save_error_log",
@@ -189,8 +212,9 @@ def seconds_to_hms(sec: float) -> str:
 # ---------------------------
 
 
-def concat_mp3s_fast(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
-    args = [
+def _fast_concat_args(listfile: Path, out_mp3: Path) -> List[str]:
+    """One-pass concat-demuxer encode of like constituents, metadata stripped."""
+    return [
         ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
@@ -210,6 +234,10 @@ def concat_mp3s_fast(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
         "2",
         str(out_mp3),
     ]
+
+
+def concat_mp3s_fast(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
+    args = _fast_concat_args(listfile, out_mp3)
     code, _, err = run_ff(args)
     if code != 0:
         save_error_log(log_dir, "FAST PATH concat_mp3s_fast", args, err)
@@ -221,8 +249,9 @@ def concat_mp3s_fast(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
 # ---------------------------
 
 
-def normalize_to_wav(in_path: Path, out_wav: Path, log_dir: Path) -> bool:
-    args = [
+def _normalize_args(in_path: Path, out_wav: Path) -> List[str]:
+    """Decode one constituent to 44.1 kHz stereo 16-bit WAV for the Safe concat."""
+    return [
         ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
@@ -241,6 +270,10 @@ def normalize_to_wav(in_path: Path, out_wav: Path, log_dir: Path) -> bool:
         "s16",
         str(out_wav),
     ]
+
+
+def normalize_to_wav(in_path: Path, out_wav: Path, log_dir: Path) -> bool:
+    args = _normalize_args(in_path, out_wav)
     code, _, err = run_ff(args)
     if code != 0:
         save_error_log(log_dir, f"normalize_to_wav: {in_path.name}", args, err)
@@ -275,8 +308,9 @@ def make_silence_wav(seconds: float, out_wav: Path, log_dir: Path) -> bool:
     return code == 0
 
 
-def concat_wavs_to_mp3(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
-    args = [
+def _safe_concat_args(listfile: Path, out_mp3: Path) -> List[str]:
+    """Concat the normalised WAVs into one MP3, metadata stripped."""
+    return [
         ffmpeg_utils.ffmpeg_cmd(),
         "-hide_banner",
         "-loglevel",
@@ -296,6 +330,10 @@ def concat_wavs_to_mp3(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
         "2",
         str(out_mp3),
     ]
+
+
+def concat_wavs_to_mp3(listfile: Path, out_mp3: Path, log_dir: Path) -> bool:
+    args = _safe_concat_args(listfile, out_mp3)
     code, _, err = run_ff(args)
     if code != 0:
         save_error_log(log_dir, "SAFE PATH concat_wavs_to_mp3", args, err)
@@ -448,13 +486,20 @@ class BookReport:
 
 
 @dataclass(frozen=True)
-class WriteId3Report:
+class RunReport:
+    """One operation's outcome: a ``BookReport`` per attempted Book, in order."""
+
     plan: mp3_plan.RunPlan
     books: tuple[BookReport, ...]
 
     @property
     def failed_book_ids(self) -> tuple[str, ...]:
         return tuple(entry.book_id for entry in self.books if not entry.succeeded)
+
+
+#: Both engines report the same shape; the names say which one ran.
+WriteId3Report = RunReport
+CombineReport = RunReport
 
 
 def _check(checkpoint: Checkpoint | None) -> None:
@@ -468,7 +513,7 @@ def _emit(listener: Listener | None, event: ProcessingEvent) -> None:
 
 
 def write_id3_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = None,
-                  on_event: Listener | None = None) -> WriteId3Report:
+                  on_event: Listener | None = None) -> RunReport:
     """Run every planned Book in frozen order. A failed Book never stops the next."""
     if not isinstance(plan, mp3_plan.RunPlan):
         raise ProcessingError(f"plan must be a RunPlan, got {type(plan).__name__}")
@@ -479,7 +524,8 @@ def write_id3_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = Non
     for book in plan.books:
         _check(checkpoint)
         reports.append(write_id3_book(book, checkpoint=checkpoint, on_event=on_event))
-    return WriteId3Report(plan=plan, books=tuple(reports))
+    mp3_plan.discard_run_staging(plan)
+    return RunReport(plan=plan, books=tuple(reports))
 
 
 def write_id3_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = None,
@@ -715,3 +761,344 @@ def validate_staged_track(book: mp3_plan.BookPlan, track: mp3_plan.TrackPlan,
                 or pictures[0].mime != artwork.mime or int(pictures[0].type) != mp3_artwork.FRONT_COVER:
             raise ProcessingError("the staged artwork is not the planned front cover",
                                   stage="validate", detail=str(staged))
+
+
+# ---------------------------
+# The Combine engine (Phase 8)
+# ---------------------------
+
+#: Every constituent is FAST-eligible only when these stream facts agree
+#: across the Book, because the concat demuxer joins one stream shape.
+_STREAM_FACTS = ("codec_name", "sample_rate", "channels")
+
+
+def ffprobe_audio_stream(path: Path) -> Optional[Tuple[str, str, str]]:
+    """``(codec_name, sample_rate, channels)`` of the first audio stream, or None."""
+    code, out, _ = run_ff([
+        ffmpeg_utils.ffprobe_cmd(), "-v", "error", "-select_streams", "a:0",
+        "-show_entries", "stream=" + ",".join(_STREAM_FACTS),
+        "-of", "default=noprint_wrappers=1", str(path),
+    ])
+    if code != 0:
+        return None
+    facts = {}
+    for line in out.splitlines():
+        key, _, value = line.partition("=")
+        facts[key.strip()] = value.strip()
+    if not all(facts.get(key) for key in _STREAM_FACTS):
+        return None
+    return tuple(facts[key] for key in _STREAM_FACTS)  # type: ignore[return-value]
+
+
+def fast_eligibility(staged: List[Path]) -> Tuple[bool, str]:
+    """Whether FAST concat is valid for these staged constituents, and why not.
+
+    FAST hands the concat demuxer the adjusted constituents in one pass; it
+    is valid only when every one of them has the same codec, sample rate and
+    channel count. Anything else goes straight to Safe, with the reason.
+    """
+    shapes = []
+    for path in staged:
+        shape = ffprobe_audio_stream(path)
+        if shape is None:
+            return False, f"{path.name}: the audio stream could not be probed"
+        shapes.append((path.name, shape))
+    distinct = {shape for _name, shape in shapes}
+    if len(distinct) > 1:
+        described = "; ".join(f"{name}: codec={s[0]} sample_rate={s[1]} channels={s[2]}"
+                              for name, s in shapes)
+        return False, f"constituents differ in codec, sample rate or channels ({described})"
+    return True, ""
+
+
+def combine_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = None,
+                on_event: Listener | None = None) -> RunReport:
+    """Run every planned Book in frozen order. A failed Book never stops the next."""
+    if not isinstance(plan, mp3_plan.RunPlan):
+        raise ProcessingError(f"plan must be a RunPlan, got {type(plan).__name__}")
+    if plan.operation is not mp3_plan.MP3Operation.COMBINE:
+        raise ProcessingError(f"combine_run runs a Combine plan, not {plan.operation.value}")
+    reports: list[BookReport] = []
+    for book in plan.books:
+        _check(checkpoint)
+        reports.append(combine_book(book, checkpoint=checkpoint, on_event=on_event))
+    mp3_plan.discard_run_staging(plan)
+    return RunReport(plan=plan, books=tuple(reports))
+
+
+def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = None,
+                 on_event: Listener | None = None) -> BookReport:
+    """Stage every constituent with the frozen Time, combine, tag, publish whole.
+
+    Reads the frozen plan and nothing else. A constituent that cannot be
+    staged is a retryable failure against its real occurrence and the Book
+    cannot combine; the other constituents are still staged so the retry has
+    them. FAST is tried when the staged constituents are alike, Safe otherwise
+    or after a FAST failure, and the reason is emitted either way. Combine,
+    tag, timestamp and publication failures are the Book's own — item-less.
+    """
+    if not isinstance(book, mp3_plan.BookPlan):
+        raise ProcessingError(f"book must be a BookPlan, got {type(book).__name__}")
+    if book.operation is not mp3_plan.MP3Operation.COMBINE:
+        raise ProcessingError(
+            f"combine_book runs a Combine Book, not {book.operation.value}")
+    snapshot_id = book.snapshot.snapshot_id
+    failures: list[FailureRecord] = []
+    staged_ok: list[str] = []
+
+    def fatal(stage: str, message: str, detail: str = "") -> BookReport:
+        failures.append(FailureRecord(item_id=None, stage=stage, display_message=message,
+                                      technical_detail=detail or message,
+                                      retryable=False, snapshot_id=snapshot_id))
+        _emit(on_event, ProcessingEvent(book.book_id, None, stage, message, detail))
+        return _settle(book, failures, staged_ok, ())
+
+    _emit(on_event, ProcessingEvent(book.book_id, None, "book",
+                                    f"Book {book.number} — started: combining "
+                                    f"{len(book.tracks)} track(s)"))
+    if not ensure_ffmpeg_available():
+        return fatal("ffmpeg", "ffmpeg/ffprobe is not available; run the setup launcher")
+    try:
+        artwork = mp3_artwork.artwork_for(book)
+    except mp3_artwork.ArtworkError as exc:
+        return fatal("artwork", f"Book Artwork: {exc}")
+    try:
+        mp3_plan.prepare_staging(book)
+    except (mp3_plan.PlanError, OSError) as exc:
+        return fatal("staging", f"the private staging folder could not be created: {exc}")
+
+    # 1. Every constituent, in frozen order, with the frozen Time applied —
+    #    the final one included. The same staging as Write ID3 uses.
+    durations: dict[str, float] = {}
+    for track in book.tracks:
+        _check(checkpoint)
+        _emit(on_event, ProcessingEvent(
+            book.book_id, track.occurrence_id, "track",
+            f"Book {book.number} — preparing track {track.position} of {len(book.tracks)}: "
+            f"{track.source.name}"))
+        try:
+            _stage_clean_copy(book, track)
+            measured = ffprobe_duration_seconds(track.staged)
+            if measured is None:
+                raise ProcessingError("the prepared track has no readable duration",
+                                      stage="probe", detail=str(track.staged))
+        except ProcessingError as exc:
+            _discard_staged(track.staged)
+            failures.append(FailureRecord(
+                item_id=track.occurrence_id, stage=exc.stage, display_message=str(exc),
+                technical_detail=exc.detail or str(exc), retryable=True,
+                snapshot_id=snapshot_id))
+            _emit(on_event, ProcessingEvent(book.book_id, track.occurrence_id, exc.stage,
+                                            f"{track.source.name}: {exc}", exc.detail))
+            continue
+        durations[track.occurrence_id] = measured
+        staged_ok.append(track.occurrence_id)
+    if failures:
+        _emit(on_event, ProcessingEvent(
+            book.book_id, None, "book",
+            f"Book {book.number} — failed: {len(failures)} track(s) could not be prepared; "
+            "nothing combined, nothing published"))
+        return _settle(book, failures, staged_ok, ())
+
+    # 2. Combine: FAST when valid, Safe otherwise or after a FAST failure.
+    _check(checkpoint)
+    constituents = [track.staged for track in book.tracks]
+    try:
+        _combine_constituents(book, constituents, checkpoint=checkpoint, on_event=on_event)
+    except ProcessingError as exc:
+        _discard_staged(book.combined_staged)
+        return fatal(exc.stage, f"the combined MP3 could not be created: {exc}", exc.detail)
+
+    # 3. Tag, timestamps, validate, publish — the Book's own steps.
+    try:
+        _write_combined_tag(book, artwork)
+        _write_timestamps(book, durations)
+        validate_combined_book(book, artwork, durations)
+    except ProcessingError as exc:
+        return fatal(exc.stage, str(exc), exc.detail)
+    _check(checkpoint)
+    try:
+        published = mp3_plan.publish_book(book)
+    except (mp3_plan.PlanError, OSError) as exc:
+        return fatal("publish", f"the finished Book could not be published: {exc}")
+    # The adjusted constituents and any WAVs were only ever inputs to the
+    # published file; a published Book keeps no private leftovers.
+    try:
+        mp3_plan.discard_staging(book)
+    except (mp3_plan.PlanError, OSError):
+        pass
+    _emit(on_event, ProcessingEvent(book.book_id, None, "book",
+                                    f"Book {book.number} — completed: {book.combined_filename}"))
+    return _settle(book, failures, staged_ok, published)
+
+
+def _combine_constituents(book: mp3_plan.BookPlan, constituents: List[Path], *,
+                          checkpoint: Checkpoint | None, on_event: Listener | None) -> None:
+    """FAST first when eligible; Safe on ineligibility or a FAST failure."""
+    eligible, reason = fast_eligibility(constituents)
+    if eligible:
+        _emit(on_event, ProcessingEvent(book.book_id, None, "fast",
+                                        f"Book {book.number} — trying FAST concat"))
+        listfile = book.staging_dir / "inputs_fast.txt"
+        write_concat_listfile(constituents, listfile)
+        args = _fast_concat_args(listfile, book.combined_staged)
+        code, _out, err = run_ff(args)
+        if code == 0 and _plausible_output(book.combined_staged):
+            return
+        _discard_staged(book.combined_staged)
+        _emit(on_event, ProcessingEvent(
+            book.book_id, None, "fallback",
+            f"Book {book.number} — FAST concat failed; switching to Safe",
+            "CMD: " + " ".join(shlex.quote(a) for a in args) + "\n" + err.strip()))
+    else:
+        _emit(on_event, ProcessingEvent(book.book_id, None, "ineligible",
+                                        f"Book {book.number} — FAST concat is not valid here; "
+                                        "using Safe", reason))
+    _check(checkpoint)
+    _emit(on_event, ProcessingEvent(book.book_id, None, "safe",
+                                    f"Book {book.number} — Safe concat (WAV normalisation)"))
+    wav_dir = book.staging_dir / "wavs"
+    wav_dir.mkdir(parents=True, exist_ok=True)
+    wavs: List[Path] = []
+    for index, constituent in enumerate(constituents, start=1):
+        _check(checkpoint)
+        wav = wav_dir / f"{index:04d}.wav"
+        args = _normalize_args(constituent, wav)
+        code, _out, err = run_ff(args)
+        if code != 0:
+            raise ProcessingError(
+                f"{constituent.name} could not be normalised for the Safe concat", stage="safe",
+                detail="CMD: " + " ".join(shlex.quote(a) for a in args) + "\n" + err.strip())
+        wavs.append(wav)
+    listfile = book.staging_dir / "inputs_safe.txt"
+    write_concat_listfile(wavs, listfile)
+    args = _safe_concat_args(listfile, book.combined_staged)
+    code, _out, err = run_ff(args)
+    if code != 0 or not _plausible_output(book.combined_staged):
+        raise ProcessingError(
+            "the Safe concat did not produce the combined MP3", stage="safe",
+            detail="CMD: " + " ".join(shlex.quote(a) for a in args) + "\n" + err.strip())
+
+
+def _plausible_output(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _write_combined_tag(book: mp3_plan.BookPlan,
+                        artwork: mp3_artwork.Artwork | None) -> None:
+    """Title = effective Album only; no Track Number; the frozen artwork."""
+    from mutagen.id3 import ID3, TALB, TIT2, TPE1, TPE2
+    from mutagen.id3 import delete as delete_tags
+
+    try:
+        delete_tags(str(book.combined_staged))
+        tags = ID3()
+        if book.album:
+            tags.add(TIT2(encoding=3, text=[book.album]))
+            tags.add(TALB(encoding=3, text=[book.album]))
+        if book.artist:
+            tags.add(TPE1(encoding=3, text=[book.artist]))
+        if book.album_artist:
+            tags.add(TPE2(encoding=3, text=[book.album_artist]))
+        mp3_artwork.apply_artwork(tags, artwork)
+        tags.save(str(book.combined_staged), v2_version=3)
+    except (OSError, ValueError, mp3_artwork.ArtworkError) as exc:
+        raise ProcessingError(f"the combined tag could not be written: {exc}", stage="tag",
+                              detail=str(book.combined_staged)) from exc
+
+
+def timestamp_lines(book: mp3_plan.BookPlan, durations: dict) -> List[str]:
+    """The timestamp sheet, from the final frozen Titles and the adjusted
+    constituent durations, in frozen order. Pure; deterministic."""
+    width = max(2, len(str(len(book.tracks))))
+    lines: List[str] = []
+    start = 0.0
+    for track in book.tracks:
+        length = float(durations[track.occurrence_id])
+        lines.append(f"{track.position:0{width}d}. {track.title} @ {seconds_to_hms(start)} "
+                     f"(+{seconds_to_hms(length)})")
+        start += length
+    return lines
+
+
+def _write_timestamps(book: mp3_plan.BookPlan, durations: dict) -> None:
+    try:
+        with book.timestamps_staged.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write("\n".join(timestamp_lines(book, durations)) + "\n")
+    except OSError as exc:
+        raise ProcessingError(f"the timestamp file could not be written: {exc}",
+                              stage="timestamps", detail=str(book.timestamps_staged)) from exc
+
+
+def _expected_combined_frames(book: mp3_plan.BookPlan,
+                              artwork: mp3_artwork.Artwork | None) -> set[str]:
+    expected = set()
+    if book.album:
+        expected |= {"TIT2", "TALB"}
+    if book.artist:
+        expected.add("TPE1")
+    if book.album_artist:
+        expected.add("TPE2")
+    if artwork is not None:
+        expected.add("APIC")
+    return expected
+
+
+def validate_combined_book(book: mp3_plan.BookPlan, artwork: mp3_artwork.Artwork | None,
+                           durations: dict) -> None:
+    """Is the staged combined result what the plan intends? Reads staging only."""
+    from mutagen.id3 import ID3, ID3NoHeaderError
+
+    combined = book.combined_staged
+    if not _plausible_output(combined) or combined.is_symlink():
+        raise ProcessingError("the combined MP3 is missing or empty", stage="validate",
+                              detail=str(combined))
+    actual = ffprobe_duration_seconds(combined)
+    expected_total = sum(float(durations[t.occurrence_id]) for t in book.tracks)
+    if actual is None:
+        raise ProcessingError("the combined MP3 has no readable duration", stage="validate",
+                              detail=str(combined))
+    # Each encoded constituent may carry a few tens of milliseconds of
+    # encoder padding across a join; allow for that per constituent.
+    tolerance = max(DURATION_TOLERANCE_SECONDS,
+                    DURATION_TOLERANCE_RATIO * expected_total + 0.05 * len(book.tracks))
+    if abs(actual - expected_total) > tolerance:
+        raise ProcessingError(
+            f"the combined MP3 lasts {actual:.2f} s, expected {expected_total:.2f} s",
+            stage="validate", detail=str(combined))
+    try:
+        tags = ID3(str(combined))
+        present = {key.split(":")[0] for key in tags.keys()}
+    except ID3NoHeaderError:
+        tags, present = None, set()
+    expected = _expected_combined_frames(book, artwork)
+    if present != expected:
+        raise ProcessingError(
+            f"the combined MP3 carries frames {sorted(present)}, expected {sorted(expected)}",
+            stage="validate", detail=str(combined))
+    if tags is not None:
+        for frame_id, value in (("TIT2", book.album), ("TALB", book.album),
+                                ("TPE1", book.artist), ("TPE2", book.album_artist)):
+            if frame_id in expected:
+                actual_text = "/".join(str(t) for t in tags[frame_id].text)
+                if actual_text != value:
+                    raise ProcessingError(f"{frame_id} reads {actual_text!r}, expected {value!r}",
+                                          stage="validate", detail=str(combined))
+        if artwork is not None:
+            pictures = [frame for key, frame in tags.items() if key.startswith("APIC")]
+            if len(pictures) != 1 or pictures[0].data != artwork.data \
+                    or pictures[0].mime != artwork.mime \
+                    or int(pictures[0].type) != mp3_artwork.FRONT_COVER:
+                raise ProcessingError("the combined artwork is not the planned front cover",
+                                      stage="validate", detail=str(combined))
+    sheet = book.timestamps_staged
+    if not _plausible_output(sheet):
+        raise ProcessingError("the timestamp file is missing or empty", stage="validate",
+                              detail=str(sheet))
+    lines = sheet.read_text(encoding="utf-8").splitlines()
+    if lines != timestamp_lines(book, durations):
+        raise ProcessingError("the timestamp file does not match the frozen titles and "
+                              "adjusted durations", stage="validate", detail=str(sheet))

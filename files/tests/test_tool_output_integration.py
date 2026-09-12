@@ -1099,31 +1099,25 @@ def test_an_unreadable_source_reserves_no_run_folder(output_base, tmp_path):
     assert after == before, "a failed preflight reserved a folder anyway"
 
 
-@needs_ffmpeg
-def test_the_time_edit_worker_writes_copies_into_its_run(output_base, tmp_path):
+def test_the_time_edit_worker_writes_copies_into_its_run():
+    """Retired by the focused MP3 plan's Phase 4 and re-covered by Phase 7.
+
+    The standalone time-edit action is gone. Signed-time copies now land in the
+    Book's private staging and are published into the one run by the Write ID3
+    engine, proved on real media in ``test_mp3_write_id3``; this names those
+    proofs so the coverage cannot quietly disappear with the old worker.
+    """
+    import test_mp3_write_id3 as covered
+
+    for name in ("test_zero_time_still_creates_a_distinct_clean_output",
+                 "test_positive_time_appends_to_the_end",
+                 "test_negative_time_trims_from_the_end",
+                 "test_an_excessive_trim_fails_safely_with_the_real_occurrence",
+                 "test_every_source_hash_is_unchanged_after_a_whole_run"):
+        assert callable(getattr(covered, name)), name
     from mp3_tools import mp3_tool
 
-    if not hasattr(mp3_tool.MP3ToolUI, "_time_edit_worker"):
-        pytest.skip(
-            "retired by the focused MP3 plan's Phase 4: the standalone time-edit "
-            "action is gone; Phase 7's Write ID3 pipeline re-covers signed-time "
-            "copies with real media")
-    sources = [_tone(tmp_path / "src" / "A.mp3", 1.0, 440),
-               _tone(tmp_path / "nested" / "A.mp3", 1.0, 660)]
-    before = digest(sources)
-    reservation = op.reserve_run_directory("mp3_tool")
-
-    host = _Q()
-    host.progress = type("P", (), {"update": lambda *a: None})()
-    mp3_tool.MP3ToolUI._time_edit_worker(host, {
-        "files": sources, "delta": 0.25,
-        "outdir": reservation.run_directory, "planner": reservation.planner(),
-    })
-
-    produced = sorted(p.name for p in reservation.run_directory.iterdir() if p.is_file())
-    assert produced == ["A-1.mp3", "A.mp3"], host.drain()
-    for path, payload in before.items():
-        assert path.read_bytes() == payload, "an imported original was modified"
+    assert not hasattr(mp3_tool.MP3ToolUI, "_time_edit_worker")
 
 
 @needs_ffmpeg
