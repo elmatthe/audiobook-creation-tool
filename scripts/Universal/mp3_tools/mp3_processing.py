@@ -61,7 +61,7 @@ tag, timestamp or publication failure is the Book's own, item-less.
 from __future__ import annotations
 
 import shlex
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -459,16 +459,27 @@ class ProcessingError(Exception):
 
 @dataclass(frozen=True)
 class ProcessingEvent:
-    """One line of what the engine is doing — the narrow seam a log can render."""
+    """One line of what the engine is doing — the narrow seam a log can render.
+
+    ``kind`` says what the line *is*, so a consumer can project it into the
+    shared job-event vocabulary without parsing the message: ``book`` (a Book
+    started), ``track`` (a track started), ``kept`` (a retained staged track
+    reused on a retry), ``failure`` (a track failure with its real occurrence,
+    or a Book-level one without), ``completed`` / ``failed`` (how the Book
+    ended), ``warning`` and ``technical``. The engine still knows nothing of
+    reporters, streams or widgets.
+    """
 
     book_id: str
     occurrence_id: str | None
     stage: str
     message: str
     detail: str = ""
+    kind: str = "technical"
 
 
 Listener = Callable[[ProcessingEvent], object]
+BookListener = Callable[["BookReport"], object]
 
 
 @dataclass(frozen=True)
@@ -512,9 +523,51 @@ def _emit(listener: Listener | None, event: ProcessingEvent) -> None:
         listener(event)
 
 
+def _settled(listener: BookListener | None, report: BookReport) -> BookReport:
+    if listener is not None:
+        listener(report)
+    return report
+
+
+RetryItems = Mapping[str, Collection[str]]
+
+
+def _retry_subset(retry_items: RetryItems | None, book: mp3_plan.BookPlan):
+    """Which of *book*'s tracks a retry re-runs: ``None`` on a first attempt.
+
+    A retry names its Books and, per Book, the occurrence ids that failed —
+    exactly what Plan 6's ``retry_failed_books`` derived from the frozen
+    result. A Book the retry does not name is skipped whole: it was published,
+    or it failed in a way no retry can repair. An occurrence the plan does not
+    hold is refused rather than silently ignored.
+    """
+    if retry_items is None:
+        return None
+    wanted = retry_items.get(book.book_id)
+    if wanted is None:
+        return ()
+    known = {track.occurrence_id for track in book.tracks}
+    subset = frozenset(str(item) for item in wanted)
+    unknown = subset - known
+    if unknown:
+        raise ProcessingError(
+            f"retry names occurrences not in Book {book.number}'s frozen plan: "
+            f"{sorted(unknown)!r}", stage="retry")
+    return subset
+
+
 def write_id3_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = None,
-                  on_event: Listener | None = None) -> RunReport:
-    """Run every planned Book in frozen order. A failed Book never stops the next."""
+                  on_event: Listener | None = None, on_book: BookListener | None = None,
+                  retry_items: RetryItems | None = None) -> RunReport:
+    """Run every planned Book in frozen order. A failed Book never stops the next.
+
+    ``on_book`` hears each Book's report the moment it settles, in order, on
+    the calling thread. ``retry_items`` turns the run into an exact failed-item
+    retry of the **same** plan: only the named Books run, only their named
+    occurrences are re-staged, every other staged piece of theirs is reused,
+    and each is published whole from the same ``BookPlan``. Nothing is
+    re-planned, re-reserved or re-captured.
+    """
     if not isinstance(plan, mp3_plan.RunPlan):
         raise ProcessingError(f"plan must be a RunPlan, got {type(plan).__name__}")
     if plan.operation is not mp3_plan.MP3Operation.WRITE_ID3:
@@ -522,20 +575,29 @@ def write_id3_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = Non
             f"write_id3_run runs a Write ID3 plan, not {plan.operation.value}")
     reports: list[BookReport] = []
     for book in plan.books:
+        only = _retry_subset(retry_items, book)
+        if only == ():
+            continue
         _check(checkpoint)
-        reports.append(write_id3_book(book, checkpoint=checkpoint, on_event=on_event))
+        reports.append(_settled(on_book, write_id3_book(
+            book, checkpoint=checkpoint, on_event=on_event, only=only)))
     mp3_plan.discard_run_staging(plan)
     return RunReport(plan=plan, books=tuple(reports))
 
 
 def write_id3_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = None,
-                   on_event: Listener | None = None) -> BookReport:
+                   on_event: Listener | None = None,
+                   only: Collection[str] | None = None) -> BookReport:
     """Stage, tag and validate every track of one Book, then publish it whole.
 
     Reads the frozen plan and nothing else. Track failures are recorded
     against the real occurrence id and the Book goes on to its remaining
     tracks, so the retry has as much staged work to reuse as possible; the
     Book is published only if nothing failed.
+
+    ``only`` is the retry's subset: a track outside it whose staged copy is
+    still there is reused as it was validated — and re-made if it is not, so a
+    Book is never published with a piece missing.
     """
     if not isinstance(book, mp3_plan.BookPlan):
         raise ProcessingError(f"book must be a BookPlan, got {type(book).__name__}")
@@ -550,11 +612,14 @@ def write_id3_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = N
         failures.append(FailureRecord(item_id=None, stage=stage, display_message=message,
                                       technical_detail=detail or message,
                                       retryable=False, snapshot_id=snapshot_id))
-        _emit(on_event, ProcessingEvent(book.book_id, None, stage, message, detail))
+        _emit(on_event, ProcessingEvent(book.book_id, None, stage, message, detail,
+                                        kind="failure"))
         return _settle(book, failures, staged_ok, ())
 
-    _emit(on_event, ProcessingEvent(book.book_id, None, "book",
-                                    f"Book {book.number} — started: {len(book.tracks)} track(s)"))
+    _emit(on_event, ProcessingEvent(
+        book.book_id, None, "book",
+        f"Book {book.number} — started: {len(book.tracks)} track(s)"
+        + (f", retrying {len(only)}" if only else ""), kind="book"))
     if not ensure_ffmpeg_available():
         return fatal("ffmpeg", "ffmpeg/ffprobe is not available; run the setup launcher")
     try:
@@ -568,10 +633,13 @@ def write_id3_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = N
 
     for track in book.tracks:
         _check(checkpoint)
+        if _kept(book, track, only, on_event):
+            staged_ok.append(track.occurrence_id)
+            continue
         _emit(on_event, ProcessingEvent(
             book.book_id, track.occurrence_id, "track",
             f"Book {book.number} — track {track.position} of {len(book.tracks)}: "
-            f"{track.filename}"))
+            f"{track.filename}", kind="track"))
         try:
             expected = _stage_clean_copy(book, track)
             _write_whitelist(book, track, artwork)
@@ -583,7 +651,8 @@ def write_id3_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = N
                 technical_detail=exc.detail or str(exc), retryable=True,
                 snapshot_id=snapshot_id))
             _emit(on_event, ProcessingEvent(book.book_id, track.occurrence_id, exc.stage,
-                                            f"{track.filename}: {exc}", exc.detail))
+                                            f"{track.filename}: {exc}", exc.detail,
+                                            kind="failure"))
             continue
         staged_ok.append(track.occurrence_id)
 
@@ -595,12 +664,27 @@ def write_id3_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = N
             return fatal("publish", f"the finished Book could not be published: {exc}")
         _emit(on_event, ProcessingEvent(book.book_id, None, "book",
                                         f"Book {book.number} — completed: "
-                                        f"{len(book.tracks)} track(s)"))
+                                        f"{len(book.tracks)} track(s)", kind="completed"))
     else:
         _emit(on_event, ProcessingEvent(
             book.book_id, None, "book",
-            f"Book {book.number} — failed: {len(failures)} track(s); nothing published"))
+            f"Book {book.number} — failed: {len(failures)} track(s); nothing published",
+            kind="failed"))
     return _settle(book, failures, staged_ok, published)
+
+
+def _kept(book: mp3_plan.BookPlan, track: mp3_plan.TrackPlan,
+          only: Collection[str] | None, on_event: Listener | None) -> bool:
+    """On a retry, reuse a track outside the subset whose staged copy survived."""
+    if only is None or track.occurrence_id in only:
+        return False
+    if not (track.staged.is_file() and not track.staged.is_symlink()):
+        return False
+    _emit(on_event, ProcessingEvent(
+        book.book_id, track.occurrence_id, "track",
+        f"Book {book.number} — track {track.position} of {len(book.tracks)}: "
+        f"{track.filename} kept from the earlier attempt", kind="kept"))
+    return True
 
 
 def _settle(book: mp3_plan.BookPlan, failures, staged_ok, published) -> BookReport:
@@ -812,22 +896,34 @@ def fast_eligibility(staged: List[Path]) -> Tuple[bool, str]:
 
 
 def combine_run(plan: mp3_plan.RunPlan, *, checkpoint: Checkpoint | None = None,
-                on_event: Listener | None = None) -> RunReport:
-    """Run every planned Book in frozen order. A failed Book never stops the next."""
+                on_event: Listener | None = None, on_book: BookListener | None = None,
+                retry_items: RetryItems | None = None) -> RunReport:
+    """Run every planned Book in frozen order. A failed Book never stops the next.
+
+    ``on_book`` and ``retry_items`` mean what they mean for
+    :func:`write_id3_run`: a retry re-stages only the named constituents,
+    reuses the rest, and redoes the whole finalisation — concat, tag,
+    timestamps, validation, publication — from the same ``BookPlan``.
+    """
     if not isinstance(plan, mp3_plan.RunPlan):
         raise ProcessingError(f"plan must be a RunPlan, got {type(plan).__name__}")
     if plan.operation is not mp3_plan.MP3Operation.COMBINE:
         raise ProcessingError(f"combine_run runs a Combine plan, not {plan.operation.value}")
     reports: list[BookReport] = []
     for book in plan.books:
+        only = _retry_subset(retry_items, book)
+        if only == ():
+            continue
         _check(checkpoint)
-        reports.append(combine_book(book, checkpoint=checkpoint, on_event=on_event))
+        reports.append(_settled(on_book, combine_book(
+            book, checkpoint=checkpoint, on_event=on_event, only=only)))
     mp3_plan.discard_run_staging(plan)
     return RunReport(plan=plan, books=tuple(reports))
 
 
 def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = None,
-                 on_event: Listener | None = None) -> BookReport:
+                 on_event: Listener | None = None,
+                 only: Collection[str] | None = None) -> BookReport:
     """Stage every constituent with the frozen Time, combine, tag, publish whole.
 
     Reads the frozen plan and nothing else. A constituent that cannot be
@@ -836,6 +932,9 @@ def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = Non
     them. FAST is tried when the staged constituents are alike, Safe otherwise
     or after a FAST failure, and the reason is emitted either way. Combine,
     tag, timestamp and publication failures are the Book's own — item-less.
+
+    ``only`` is the retry's subset, as for :func:`write_id3_book`: a retained
+    constituent is reused (its duration probed again), a missing one re-made.
     """
     if not isinstance(book, mp3_plan.BookPlan):
         raise ProcessingError(f"book must be a BookPlan, got {type(book).__name__}")
@@ -850,12 +949,14 @@ def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = Non
         failures.append(FailureRecord(item_id=None, stage=stage, display_message=message,
                                       technical_detail=detail or message,
                                       retryable=False, snapshot_id=snapshot_id))
-        _emit(on_event, ProcessingEvent(book.book_id, None, stage, message, detail))
+        _emit(on_event, ProcessingEvent(book.book_id, None, stage, message, detail,
+                                        kind="failure"))
         return _settle(book, failures, staged_ok, ())
 
-    _emit(on_event, ProcessingEvent(book.book_id, None, "book",
-                                    f"Book {book.number} — started: combining "
-                                    f"{len(book.tracks)} track(s)"))
+    _emit(on_event, ProcessingEvent(
+        book.book_id, None, "book",
+        f"Book {book.number} — started: combining {len(book.tracks)} track(s)"
+        + (f", retrying {len(only)}" if only else ""), kind="book"))
     if not ensure_ffmpeg_available():
         return fatal("ffmpeg", "ffmpeg/ffprobe is not available; run the setup launcher")
     try:
@@ -872,12 +973,15 @@ def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = Non
     durations: dict[str, float] = {}
     for track in book.tracks:
         _check(checkpoint)
-        _emit(on_event, ProcessingEvent(
-            book.book_id, track.occurrence_id, "track",
-            f"Book {book.number} — preparing track {track.position} of {len(book.tracks)}: "
-            f"{track.source.name}"))
+        kept = _kept(book, track, only, on_event)
+        if not kept:
+            _emit(on_event, ProcessingEvent(
+                book.book_id, track.occurrence_id, "track",
+                f"Book {book.number} — preparing track {track.position} of "
+                f"{len(book.tracks)}: {track.source.name}", kind="track"))
         try:
-            _stage_clean_copy(book, track)
+            if not kept:
+                _stage_clean_copy(book, track)
             measured = ffprobe_duration_seconds(track.staged)
             if measured is None:
                 raise ProcessingError("the prepared track has no readable duration",
@@ -889,7 +993,8 @@ def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = Non
                 technical_detail=exc.detail or str(exc), retryable=True,
                 snapshot_id=snapshot_id))
             _emit(on_event, ProcessingEvent(book.book_id, track.occurrence_id, exc.stage,
-                                            f"{track.source.name}: {exc}", exc.detail))
+                                            f"{track.source.name}: {exc}", exc.detail,
+                                            kind="failure"))
             continue
         durations[track.occurrence_id] = measured
         staged_ok.append(track.occurrence_id)
@@ -897,7 +1002,7 @@ def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = Non
         _emit(on_event, ProcessingEvent(
             book.book_id, None, "book",
             f"Book {book.number} — failed: {len(failures)} track(s) could not be prepared; "
-            "nothing combined, nothing published"))
+            "nothing combined, nothing published", kind="failed"))
         return _settle(book, failures, staged_ok, ())
 
     # 2. Combine: FAST when valid, Safe otherwise or after a FAST failure.
@@ -928,7 +1033,8 @@ def combine_book(book: mp3_plan.BookPlan, *, checkpoint: Checkpoint | None = Non
     except (mp3_plan.PlanError, OSError):
         pass
     _emit(on_event, ProcessingEvent(book.book_id, None, "book",
-                                    f"Book {book.number} — completed: {book.combined_filename}"))
+                                    f"Book {book.number} — completed: {book.combined_filename}",
+                                    kind="completed"))
     return _settle(book, failures, staged_ok, published)
 
 
@@ -938,7 +1044,8 @@ def _combine_constituents(book: mp3_plan.BookPlan, constituents: List[Path], *,
     eligible, reason = fast_eligibility(constituents)
     if eligible:
         _emit(on_event, ProcessingEvent(book.book_id, None, "fast",
-                                        f"Book {book.number} — trying FAST concat"))
+                                        f"Book {book.number} — trying FAST concat",
+                                        kind="technical"))
         listfile = book.staging_dir / "inputs_fast.txt"
         write_concat_listfile(constituents, listfile)
         args = _fast_concat_args(listfile, book.combined_staged)
@@ -949,14 +1056,16 @@ def _combine_constituents(book: mp3_plan.BookPlan, constituents: List[Path], *,
         _emit(on_event, ProcessingEvent(
             book.book_id, None, "fallback",
             f"Book {book.number} — FAST concat failed; switching to Safe",
-            "CMD: " + " ".join(shlex.quote(a) for a in args) + "\n" + err.strip()))
+            "CMD: " + " ".join(shlex.quote(a) for a in args) + "\n" + err.strip(),
+            kind="warning"))
     else:
         _emit(on_event, ProcessingEvent(book.book_id, None, "ineligible",
                                         f"Book {book.number} — FAST concat is not valid here; "
-                                        "using Safe", reason))
+                                        "using Safe", reason, kind="technical"))
     _check(checkpoint)
     _emit(on_event, ProcessingEvent(book.book_id, None, "safe",
-                                    f"Book {book.number} — Safe concat (WAV normalisation)"))
+                                    f"Book {book.number} — Safe concat (WAV normalisation)",
+                                    kind="technical"))
     wav_dir = book.staging_dir / "wavs"
     wav_dir.mkdir(parents=True, exist_ok=True)
     wavs: List[Path] = []

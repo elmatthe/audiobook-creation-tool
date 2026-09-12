@@ -27,24 +27,47 @@ the Plan 3 importer and job-control adapters and the Phase 3 MP3 model:
   Selected, per-field *Mixed source metadata* markers and a compact status.
 - Exactly two processing actions — **Write ID3 Tags** and **Combine MP3s → One
   MP3** — beside the shared Pause / Resume / Cancel / Retry Failed bar, one
-  global progress view and one Summary / Details log region.
+  global progress view and one Summary / Detailed log region.
 
 Phase 7 moved the proven FFmpeg helpers (concat lists, FAST/Safe concat, WAV
 normalisation, signed-time append/trim, timestamp text) into
-``mp3_tools/mp3_processing.py`` beside the Write ID3 engine that consumes the
-frozen plan; they are re-exported here under their original names. The panel
-still runs nothing itself: wiring the engine to the shared job controller,
-Pause/Resume/Cancel, progress and Retry Failed is Phase 9's.
+``mp3_tools/mp3_processing.py`` beside the Write ID3 and Combine engines that
+consume the frozen plan; they are re-exported here under their original names.
 
 Phase 5 adds the frozen plan: a processing button validates the workspace,
 reserves **one** MP3 Tool run for the whole operation through the shared
 service, and freezes everything the processing phases and a later Retry Failed
 will read — Book order and ids, every track's occurrence, final Title, number
 and filename, effective metadata, signed Time, artwork, the Book subfolders and
-the private staging beside them (``mp3_tools/mp3_plan.py``). Nothing is
-processed yet: no FFmpeg is run, no tag is written, no artwork is embedded and
-nothing is retried, so the still-empty run is released again and the plan is
-reported in the log.
+the private staging beside them (``mp3_tools/mp3_plan.py``).
+
+Phase 9 runs it. One operation is **one** Plan 3 run: one ``JobController``
+for the whole batch (never one per Book), one ``JobReporter``, one event
+stream drained by one ``JobAdapter`` on the panel's one pump, one worker
+thread. The engine knows nothing of any of that: it is handed the controller's
+``checkpoint`` and an event listener, and ``_RunProjection`` turns its
+``ProcessingEvent`` lines into the shared job events on the worker's own
+thread — no widget is ever reached from there. Pause, Resume and Cancel are
+the controller's: ``PAUSED`` is shown only once the worker acknowledged it at
+a checkpoint, and Cancel stops at the next one, leaving the Books it never
+reached ``NOT_ATTEMPTED`` and the batch ``CANCELLED`` (there is no Book-level
+"cancelled"). When the terminal event is drained the per-Book ``RunResult``
+values the engine settled compose into the Plan 6 ``WorkspaceRunResult`` on
+the main thread — the one place Book statuses (Ready / Queued / Processing /
+Completed / Failed / Skipped) are read from — and that frozen result is what
+**Retry Failed** asks: ``retry_failed_books`` names the failed Books and their
+failed occurrences, and the same engine re-runs exactly those against the
+same ``RunPlan``, reusing every staged piece the first attempt kept and
+publishing each Book whole from its original ``BookPlan``. The live workspace
+may have been edited every way there is in between; none of it can reach the
+retry.
+
+The log is one region, ``Summary`` | ``Detailed``, whose history survives from
+run to run: a divider marks each new run and each retry, the panel's own
+import lines sit between, and Clear Log clears the visible text only — the
+event history, the session log the shared ``LoggerBridge`` already writes the
+technical lines into, and the frozen result are untouched. There is no Copy
+button (the panes are selectable) and no level selector.
 
 Removed with the single-book form, as the focused plan directs: the global file
 list, the Book-level Title field, ``Silence between tracks``, the FAST checkbox,
@@ -58,6 +81,7 @@ is declared here. Nothing scrolls the whole tool: the track list, the Chapter
 Titles box and the log scroll locally and give up height first.
 """
 
+import queue
 import sys
 import time
 from pathlib import Path
@@ -72,13 +96,17 @@ if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from shared import config as shared_config
+from shared import job_control
 from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import ui_theme
 from shared.book_workspace import (
+    BookDisposition,
     SharedMetadata,
+    WorkspaceContractError,
+    WorkspaceRunResult,
     WorkspaceSnapshot,
     add_book,
     disabled_fields,
@@ -87,10 +115,12 @@ from shared.book_workspace import (
     next_book,
     previous_book,
     remove_book,
+    retry_failed_books,
     select_book,
     set_shared_metadata,
 )
 from shared.book_workspace_ui import BookNavigator, SharedMetadataSurface
+from shared.cancellation import ConversionCancelled
 from shared.import_coordination import (
     TERMINAL_STATUSES,
     ImportCoordinator,
@@ -107,10 +137,11 @@ from shared.importing import (
     RootKind,
     ScanRequest,
 )
-from shared.job_control import ControlKind, JobState
-from shared.job_ui import LockGroup, MainThreadGuard, MainThreadPump, style_name
+from shared.job_control import JobEventKind, JobState
+from shared.job_ui import MainThreadGuard, MainThreadPump, style_name
 from mp3_tools import mp3_artwork
 from mp3_tools import mp3_plan
+from mp3_tools import mp3_processing
 from mp3_tools import mp3_workflow as wf
 
 # Tk's side of the artwork preview. Decoding, thumbnailing and every rule about
@@ -137,18 +168,36 @@ KEY_INPUT_DIR = "mp3_tool.input_dir"
 #: resized, cropped or rewritten, and what is embedded later is the file itself.
 PREVIEW_MAX = (56, 56)
 
-#: The compact status shown for the current Book. Phase 4 has no run, so every
-#: Book is ready; later phases derive Processing / Completed / Failed / Skipped
-#: from the frozen run result rather than from a second state machine.
+#: The compact status shown for the current Book. While a run is under way it
+#: is read from that run's frozen plan and the results the engine has settled
+#: so far; afterwards from the frozen ``WorkspaceRunResult``'s dispositions —
+#: never from a second state machine kept here.
 STATUS_READY = "Ready"
+STATUS_QUEUED = "Queued"
+STATUS_PROCESSING = "Processing"
+STATUS_COMPLETED = "Completed"
+STATUS_FAILED = "Failed"
+STATUS_SKIPPED = "Skipped"
 
 MIXED_MARK = "Mixed source metadata"
 
 #: Characters of Album / folder hint shown after ``Book N`` before eliding.
 HINT_LIMIT = 40
 
-#: How many Summary and Details lines the log region keeps visible.
+#: How many frozen Summary and Detailed lines the log region keeps.
 LOG_LIMIT = 400
+
+#: The run id the job area carries before any operation has started.
+IDLE_RUN_ID = "mp3-idle"
+
+#: The stage announced on the main thread before the worker starts.
+STAGE_PREPARE = "prepare"
+
+#: Rules a line under the previous run's lines in both log panes.
+DIVIDER_MARK = "────"
+
+#: What the user is told when a worker dies with the run unfinished.
+FAULT_MESSAGE = "The run stopped unexpectedly and was not completed."
 
 
 # ---------------------------
@@ -184,6 +233,158 @@ from mp3_tools.mp3_processing import (  # noqa: E402,F401
     trim_from_end_mp3,
     write_concat_listfile,
 )
+
+
+# ---------------------------
+# One attempt at one frozen run
+# ---------------------------
+
+
+def _identifier(text: str) -> str:
+    """A stage name the shared event vocabulary accepts: no whitespace."""
+    return "-".join(str(text).split()) or "processing"
+
+
+def _one_line(text: str) -> str:
+    """A display-safe message: the engine's line, with any break folded away."""
+    return " ".join(str(text).splitlines()).strip()
+
+
+class _RunProjection:
+    """Projects the engine's ``ProcessingEvent`` lines into shared job events.
+
+    Built on the main thread from the frozen plan, called on the **worker**
+    thread by the engine, and it touches nothing but the reporter — which only
+    hands typed events to the queue the adapter drains. The engine never learns
+    a reporter exists; this is the one translation, and the engine's vocabulary
+    (``kind``) is what it reads, never the message text.
+
+    Progress is one determinate count for the whole batch: every track the
+    attempt will process is one unit and every Book's finalisation — publish,
+    or combine-tag-timestamps-publish — is one more. The stage is the Book
+    (``book-<position>``) and the current item the real occurrence, which is
+    what the panel's status line turns into ``Book 2 of 10 — Track 14 of 32``.
+    """
+
+    def __init__(self, reporter, plan: mp3_plan.RunPlan, *, retry_items=None) -> None:
+        self._reporter = reporter
+        books = [book for book in plan.books
+                 if retry_items is None or book.book_id in retry_items]
+        self.count = len(books)
+        self._position = {book.book_id: index for index, book in enumerate(books, start=1)}
+        self._published_dir = {book.book_id: book.published_dir for book in plan.books}
+        self._offset: dict[str, int] = {}
+        self._units: dict[str, int] = {}
+        total = 0
+        for book in books:
+            units = (len(book.tracks) if retry_items is None
+                     else len(tuple(retry_items[book.book_id]))) + 1
+            self._offset[book.book_id] = total
+            self._units[book.book_id] = units
+            total += units
+        self.total = total
+        self._started: dict[str, int] = {}
+
+    def stage_of(self, book_id: str) -> str:
+        return f"book-{self._position.get(book_id, 0)}"
+
+    def __call__(self, event: mp3_processing.ProcessingEvent) -> None:
+        reporter = self._reporter
+        book_id = event.book_id
+        stage = self.stage_of(book_id)
+        message = _one_line(event.message)
+        kind = event.kind
+        if kind == "book":
+            reporter.stage_changed(stage, message)
+            reporter.progress(self._offset.get(book_id, 0), self.total, stage=stage)
+        elif kind == "track":
+            started = self._started.get(book_id, 0)
+            self._started[book_id] = started + 1
+            reporter.current_item(event.occurrence_id, message)
+            reporter.progress(self._offset.get(book_id, 0) + started, self.total,
+                              item_id=event.occurrence_id, stage=stage)
+        elif kind == "kept":
+            reporter.technical(message)
+        elif kind == "failure":
+            reporter.failure(message, event.detail, item_id=event.occurrence_id,
+                             stage=_identifier(event.stage))
+            if event.occurrence_id is None:
+                self._finish(book_id)
+        elif kind == "completed":
+            location = self._published_dir.get(book_id)
+            if location is not None:
+                reporter.output_location(location, message)
+            else:  # pragma: no cover - every planned Book has a published dir
+                reporter.warning(message)
+            self._finish(book_id)
+        elif kind == "failed":
+            reporter.warning(message, event.detail)
+            self._finish(book_id)
+        elif kind == "warning":
+            reporter.warning(message, event.detail)
+        else:
+            detail = message if not event.detail else f"{message}\n{event.detail}"
+            reporter.technical(detail)
+
+    def _finish(self, book_id: str) -> None:
+        if book_id not in self._offset:
+            return
+        reporter = self._reporter
+        reporter.progress(self._offset[book_id] + self._units[book_id], self.total,
+                          stage=self.stage_of(book_id))
+
+
+class _Attempt:
+    """The facts one attempt shares between the worker and the main thread.
+
+    Everything here is frozen before the worker starts, except ``results``:
+    the worker appends each Book's settled ``RunResult`` there — through the
+    engine's own per-Book callback, in frozen order — as soon as the Book
+    returns, before the next Book's first event and before the terminal
+    event. The main thread only ever reads it while draining an event, so
+    by the time the terminal event is drained every result is there.
+    """
+
+    def __init__(self, *, label: str, plan: mp3_plan.RunPlan, run_id: str, number: int,
+                 controller, reporter, retry_items=None, prior=None) -> None:
+        self.label = label
+        self.plan = plan
+        self.run_id = run_id
+        self.number = number
+        self.controller = controller
+        self.reporter = reporter
+        self.retry_items = None if retry_items is None else dict(retry_items)
+        self.prior = prior
+        self.books = tuple(book for book in plan.books
+                           if retry_items is None or book.book_id in retry_items)
+        self.projection = _RunProjection(reporter, plan, retry_items=self.retry_items)
+        self.results: list[tuple[str, job_control.RunResult]] = []
+        self.report = None
+
+    def record(self, report) -> None:
+        """The engine's per-Book callback. Worker thread; append only."""
+        self.results.append((report.book_id, report.result))
+
+    def settled(self, book_id: str):
+        for candidate, result in tuple(self.results):
+            if candidate == book_id:
+                return result
+        return None
+
+    def position_of(self, book_id: str) -> int:
+        for index, book in enumerate(self.books, start=1):
+            if book.book_id == book_id:
+                return index
+        return 0
+
+    def track_context(self, item_id: str | None) -> str:
+        if not item_id:
+            return ""
+        for book in self.plan.books:
+            track = book.track_for(item_id)
+            if track is not None:
+                return f"Track {track.position} of {len(book.tracks)}"
+        return ""
 
 
 # ---------------------------
@@ -324,12 +525,16 @@ class MP3ToolUI(ttk.Frame):
         confirm=None,
         home=None,
         reader=None,
+        bridge=None,
     ):
         """Build the panel.
 
         Every keyword is a seam the tests drive instead of a real dialog, clock,
         thread or tag reader — the injection points the Converter, Cover and TTS
-        panels already expose. Production passes none of them.
+        panels already expose. Production passes none of them. ``thread_factory``
+        makes both the import scan's thread and the processing worker's;
+        ``bridge`` is the one ``LoggerBridge`` every run's event stream forwards
+        its technical lines through into the session log.
         """
         if theme is None:
             theme = ui_theme.apply_theme(parent.winfo_toplevel(), ttk.Style(parent))
@@ -351,6 +556,9 @@ class MP3ToolUI(ttk.Frame):
         self._confirm_large = (self._confirm_large_result
                                if confirm_large_result is None
                                else confirm_large_result)
+        self._thread_factory = (self._default_thread if thread_factory is None
+                                else thread_factory)
+        self._bridge = job_control.LoggerBridge() if bridge is None else bridge
 
         # --- the workspace: the Plan 6 snapshot and the Phase 3 store -------- #
         # The one mutable reference to the current immutable workspace lives
@@ -365,12 +573,16 @@ class MP3ToolUI(ttk.Frame):
         # again at 1 for the new set. This is a display fact hung off the real
         # identity — never a key anything else is stored by.
         self.book_numbers: dict[str, int] = {}
-        #: The most recently frozen run plan, kept for inspection. Phase 7+
-        #: hands it to the worker; nothing here reads it back into the widgets.
+        #: The most recently frozen run plan: what the worker ran and what a
+        #: Retry Failed re-runs. Nothing here reads it back into the widgets.
         self.last_plan: mp3_plan.RunPlan | None = None
+        #: The current or most recent attempt, and the frozen batch result it
+        #: (or its predecessor) settled into. Retry Failed reads only these.
+        self._attempt: _Attempt | None = None
+        self._settled: WorkspaceRunResult | None = None
+        self._busy = False
+        self._attempts = 0
         self._rendering = False
-        self._summary: list[str] = []
-        self._details: list[str] = []
 
         # --- the shared importing foundation ----------------------------- #
         # One pump owns every scheduled callback; the scan poller rides it.
@@ -403,9 +615,8 @@ class MP3ToolUI(ttk.Frame):
 
         self._build(theme)
 
-        # Run locking is the shared contract. Idle now; the processing phases
-        # apply real job states through this same group.
-        self.lock_group = LockGroup()
+        # Run locking is the shared contract: the adapter's lock group applies
+        # the approved matrix to these seams whenever the run's state moves.
         self._tracks_lock = self._ButtonLock(
             self.btn_add_files, self.btn_move_up, self.btn_move_down,
             self.btn_remove_tracks)
@@ -413,16 +624,7 @@ class MP3ToolUI(ttk.Frame):
         self._book_options_lock = self._ButtonLock(
             self.btn_write_id3, self.btn_combine, self.check_auto_number,
             self.entry_start_number)
-        self.lock_group.register(ControlKind.IMPORTED_INPUT, self.navigator,
-                                 self._tracks_lock, self._import_lock)
-        self.lock_group.register(ControlKind.PROCESSING_OPTION, self.surface,
-                                 self.shared_artwork, self.book_artwork,
-                                 self._book_options_lock)
-        self.lock_group.register(ControlKind.JOB_CONTROL, self.controls)
-        self.lock_group.register(ControlKind.PROGRESS_STATUS, self.status)
-        self.lock_group.register(ControlKind.LOG_VIEW, self.log)
-        self.lock_group.apply(JobState.IDLE)
-        self.controls.apply(JobState.IDLE)
+        self._install_jobs(IDLE_RUN_ID, ())
 
         self.render()
         if not ensure_ffmpeg_available():
@@ -601,28 +803,85 @@ class MP3ToolUI(ttk.Frame):
         self._suspend_chapters = False
         self._chapter_baseline = ""
 
-        # -- row 4: the two actions, the shared job controls, progress ----- #
-        actions = ttk.Frame(self, style=style_name(theme, "window"))
-        actions.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, 6))
-        actions.columnconfigure(2, weight=1)
+        # -- row 4: the two actions, the shared job area, Clear Log --------- #
+        # The job area -- the shared control bar with the progress view
+        # beneath it -- is one adapter per run, installed into column 2 by
+        # ``_install_jobs``; the primary buttons and Clear Log are the panel's.
+        self.actions = ttk.Frame(self, style=style_name(theme, "window"))
+        self.actions.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, 6))
+        self.actions.columnconfigure(2, weight=1)
         self.btn_write_id3 = ttk.Button(
-            actions, text="Write ID3 Tags", style=style_name(theme, "primary_button"),
-            command=self.write_id3_tags)
-        self.btn_write_id3.grid(row=0, column=0, sticky="w")
+            self.actions, text="Write ID3 Tags",
+            style=style_name(theme, "primary_button"), command=self.write_id3_tags)
+        self.btn_write_id3.grid(row=0, column=0, sticky="nw")
         self.btn_combine = ttk.Button(
-            actions, text="Combine MP3s → One MP3",
+            self.actions, text="Combine MP3s → One MP3",
             style=style_name(theme, "primary_button"), command=self.combine_mp3s)
-        self.btn_combine.grid(row=0, column=1, sticky="w", padx=(8, 16))
-        self.controls = job_ui.JobControlBar(
-            actions, theme=theme,
-            on_pause=self.on_pause, on_resume=self.on_resume,
-            on_cancel=self.on_cancel, on_retry=self.on_retry)
-        self.controls.frame.grid(row=0, column=2, sticky="e")
-        # The progress view has three rows of its own (bar, stage and ETA,
-        # status) and the control bar four buttons; side by side they exceed
-        # the 920px minimum, so the view takes the full width beneath.
-        self.status = job_ui.JobStatusView(actions, theme=theme,
-                                           progress_length=240)
+        self.btn_combine.grid(row=0, column=1, sticky="nw", padx=(8, 16))
+        # Beneath the primary buttons rather than beside the job area: side
+        # by side the row asked for 940 px and clipped the status view at the
+        # 920 px minimum. The job area spans both rows on the right.
+        self.btn_clear_log = ttk.Button(
+            self.actions, text="Clear Log", style=style_name(theme, "button"),
+            command=self.clear_log)
+        self.btn_clear_log.grid(row=1, column=0, columnspan=2, sticky="sw", pady=(4, 0))
+
+        # -- row 5: the one log region ----------------------------------- #
+        # Two requested lines: the log is the region that yields first at the
+        # 920x600 minimum, and it grows with the window like the track list.
+        # Built once and handed to every run's adapter, so the history of one
+        # run is still there when the next one starts.
+        self.log = job_ui.SummaryDetailsView(self, theme=theme, height=2,
+                                             details_label="Detailed",
+                                             limit=LOG_LIMIT)
+        self.log.frame.grid(row=5, column=0, sticky="nsew", padx=pad, pady=(0, pad))
+
+    def _install_jobs(self, run_id: str, item_ids) -> None:
+        """Point the shared job area at one run. Main thread only.
+
+        A run owns its event stream, and a stream cannot be rebound, so a new
+        run -- or a new attempt at the same run -- gets a new adapter in the
+        same place. The retired one is closed first, which drops its drain, so
+        the one pump keeps exactly one job drain however many runs a session
+        performs. The log view is **not** the adapter's: it is the panel's one
+        region, handed in, and it keeps every earlier run's lines.
+
+        Retry Failed's availability is not decided here or anywhere in this
+        panel: a fresh adapter holds no result, and the control is offered only
+        once a settled ``WorkspaceRunResult`` reporting a retryable Book is
+        handed to it *and* the run reached ``COMPLETED_WITH_FAILURES``.
+        """
+        previous = getattr(self, "jobs", None)
+        if previous is not None:
+            previous.close()
+            previous.frame.destroy()
+        theme = self.theme
+        self._event_q = queue.Queue()
+        self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        self.jobs = job_ui.JobAdapter(
+            self.actions,
+            run_id=run_id,
+            pump=self._pump,
+            theme=theme,
+            pull=job_ui.queue_pull(self._event_q),
+            estimator=self._estimator,
+            bridge=self._bridge,
+            item_ids=item_ids,
+            views=self.log,
+            context=self._context,
+            on_pause=self.pause,
+            on_resume=self.resume,
+            on_cancel=self.cancel,
+            on_retry=self.retry_failed,
+            on_event=self._on_job_event,
+            on_terminal=self._on_terminal,
+        )
+        self.jobs.frame.grid(row=0, column=2, rowspan=2, sticky="ew")
+        self.jobs.controls.frame.grid_configure(sticky="e")
+        # The panel's own names for the shared pieces, re-pointed per run.
+        self.controls = self.jobs.controls
+        self.status = self.jobs.status
+        self.lock_group = self.jobs.locks
         # Per-instance restyling only, the way the M4B Metadata Editor does
         # it: the shared ``ProgressIndicator`` itself stays generic because
         # the unconverted panels build their own from the same class, and a
@@ -631,14 +890,10 @@ class MP3ToolUI(ttk.Frame):
         self.status.indicator.frame.configure(style=style_name(theme, "card"))
         self.status.indicator.bar.configure(style=style_name(theme, "progressbar"))
         self.status.indicator.label.configure(style=style_name(theme, "status_label"))
-        self.status.frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-
-        # -- row 5: the one log region ----------------------------------- #
-        # Two requested lines: the log is the region that yields first at the
-        # 920x600 minimum, and it grows with the window like the track list.
-        self.log = job_ui.SummaryDetailsView(self, theme=theme,
-                                             height=2)
-        self.log.frame.grid(row=5, column=0, sticky="nsew", padx=pad, pady=(0, pad))
+        self.jobs.register_inputs(self.navigator, self._tracks_lock, self._import_lock)
+        self.jobs.register_options(self.surface, self.shared_artwork, self.book_artwork,
+                                   self._book_options_lock)
+        self.jobs.render()
 
     # -- lock seams for the panel's own buttons ---------------------------- #
 
@@ -772,9 +1027,18 @@ class MP3ToolUI(ttk.Frame):
             if self.var_start_number.get() != wf.start_number_text(book):
                 self.var_start_number.set(wf.start_number_text(book))
             self._render_mixed()
-            self.status_label.configure(text=STATUS_READY)
+            self._render_status()
         finally:
             self._rendering = False
+
+    def _render_status(self) -> None:
+        if self._closed:
+            return
+        try:
+            self.status_label.configure(
+                text=self.book_status_for(self.workspace.current.book_id))
+        except tk.TclError:
+            pass
 
     def _render_light(self) -> None:
         """After a per-Book text edit: what the edit can change, and no more."""
@@ -851,14 +1115,16 @@ class MP3ToolUI(ttk.Frame):
         return mutation.changed
 
     def _say(self, line: str, detail: str = "") -> None:
-        """One Summary line, optionally with a Details line beneath it."""
-        self._summary.append(line)
-        self._details.append(detail or line)
-        del self._summary[:-LOG_LIMIT]
-        del self._details[:-LOG_LIMIT]
+        """One Summary line of the panel's own, with its Detailed companion."""
         if not self._closed:
-            self.log.set_summary(self._summary)
-            self.log.set_details(self._details)
+            self.log.append(line, detail or line)
+
+    def clear_log(self) -> None:
+        """Clear the visible log text. The history behind it is untouched:
+        the run's event stream, the session log and the frozen result."""
+        self._guard.require("clear_log")
+        if not self._closed:
+            self.log.clear()
 
     # ------------------------------------------------------------------ #
     # Navigator callbacks
@@ -1176,15 +1442,15 @@ class MP3ToolUI(ttk.Frame):
             return None
 
     def _request_operation(self, label: str) -> bool:
-        """Validate, reserve one run, freeze the plan. Nothing is processed yet.
+        """Validate, reserve one run, freeze the plan, start the one worker.
 
         Exactly one reservation per operation, never one per Book, and only
         after the workspace validated. The plan is frozen from the workspace as
-        it is at this moment; editing anything afterwards cannot reach it. The
-        processing pipelines arrive in later phases, so the empty run is
-        released again and the plan is reported instead of run.
+        it is at this moment; editing anything afterwards cannot reach it, and
+        neither can a later Retry Failed read anything but it. A press while a
+        run is under way is refused before anything is reserved.
         """
-        if self._closed:
+        if self._closed or self._busy:
             return False
         space = self.workspace
         eligible = []
@@ -1226,51 +1492,380 @@ class MP3ToolUI(ttk.Frame):
             messagebox.showerror(APP_TITLE, f"{label}: {exc}", parent=self)
             return False
         self.last_plan = plan
-        self._say(f"{label}: planned {len(plan.books)} Book(s) into "
-                  f"{plan.run_directory.name}.")
-        for entry in plan.books:
-            outputs = (f"{len(entry.tracks)} track(s)" if operation is
-                       mp3_plan.MP3Operation.WRITE_ID3 else entry.combined_filename)
-            self._say(f"  Book {entry.number} → {entry.folder_name}: {outputs}",
-                      f"  Book {entry.number} ({entry.book_id}) → {entry.published_dir} "
-                      f"[staging {entry.staging_dir}]; artist={entry.artist!r} "
-                      f"album_artist={entry.album_artist!r} album={entry.album!r} "
-                      f"time={entry.time_delta} artwork={entry.artwork} "
-                      f"auto_number={entry.auto_number} start={entry.start_number}; "
-                      + "; ".join(f"{t.filename} <- {t.source.name}" for t in entry.tracks))
-        # Nothing processes in this build, so the run stays empty and is
-        # released rather than left as an empty numbered folder.
-        released = output_paths.release_if_empty(reservation)
-        self._say("Processing is not available in this build yet; nothing was written"
-                  + (" and the empty run folder was released." if released else "."))
-        return False
+        self._settled = None
+        self._start_attempt(label, plan)
+        return True
 
-    # -- job-control shell: nothing runs, so nothing can be paused or retried --
+    # ------------------------------------------------------------------ #
+    # The one run: controller, reporter, adapter, worker
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _default_thread(target, name: str):
+        import threading
+
+        # ``daemon`` is a backstop, never the mechanism: ``close`` asks the
+        # controller to cancel, and the worker stops at its next checkpoint.
+        return threading.Thread(target=target, name=name, daemon=True)
+
+    @property
+    def is_running(self) -> bool:
+        return self._busy
+
+    @property
+    def job_controller(self):
+        """The cooperative controller of the current or last attempt, or ``None``."""
+        attempt = self._attempt
+        return None if attempt is None else attempt.controller
+
+    @property
+    def last_result(self) -> WorkspaceRunResult | None:
+        """The frozen batch result the last attempt settled into, or ``None``."""
+        return self._settled
+
+    @property
+    def attempt(self) -> int:
+        """How many attempts this panel has started: runs and retries alike."""
+        return self._attempts
+
+    def _start_attempt(self, label: str, plan: mp3_plan.RunPlan, *,
+                       retry_items=None, prior=None) -> None:
+        """Begin one attempt at *plan*: a first run, or a retry of it.
+
+        The shared controller is this attempt's one state authority; its
+        listener copies every state it actually reaches into the event stream,
+        so the panel keeps no rival state machine beside it. A retry is a new
+        attempt at the **same** run -- same plan, same run id, same run
+        directory, nothing reserved -- with a fresh controller, reporter and
+        adapter, because a terminal controller and a retired adapter cannot be
+        revived.
+        """
+        attempt_number = self._attempts + 1
+        run_id = (self._attempt.run_id if retry_items is not None and self._attempt
+                  else self._ids.next_id("run"))
+        item_ids = tuple(track.occurrence_id for book in plan.books for track in book.tracks)
+        controller = job_control.JobController(run_id, listener=self._on_state)
+        reporter = job_control.JobReporter(
+            run_id, clock=self._clock, publish=self._publish, item_ids=item_ids)
+        attempt = _Attempt(label=label, plan=plan, run_id=run_id, number=attempt_number,
+                           controller=controller, reporter=reporter,
+                           retry_items=retry_items, prior=prior)
+        self._attempts = attempt_number
+        self._attempt = attempt
+        self._busy = True
+        # The divider first: it freezes the previous run's lines into the log's
+        # history, so the fresh adapter's empty first render cannot drop them.
+        heading = (f"Retry Failed — {label} — attempt {attempt_number}"
+                   if retry_items is not None
+                   else f"{label} — {plan.run_directory.name}")
+        self.log.divider(f"{DIVIDER_MARK} {heading}")
+        # The retired adapter is closed inside here, which drops its drain: one
+        # pump, one job drain however many attempts a run takes. The new
+        # adapter holds no result, so Retry Failed is unavailable for the whole
+        # of this attempt without anything setting it.
+        self._install_jobs(run_id, item_ids)
+
+        controller.start()
+        # Locked now, from the state the controller actually reached, rather
+        # than a tick later when the RUNNING event is drained.
+        self.lock_group.apply(controller.state)
+        books = len(attempt.books)
+        reporter.stage_changed(
+            STAGE_PREPARE,
+            (f"{label}: retrying {books} Book(s) in {plan.run_directory.name}…"
+             if retry_items is not None
+             else f"{label}: {books} Book(s) → {plan.run_directory.name}"))
+        reporter.output_location(plan.run_directory, f"Output: {plan.run_directory}")
+        reporter.progress(0, attempt.projection.total, stage=STAGE_PREPARE)
+        self._render_status()
+
+        thread = self._thread_factory(lambda: self._worker(attempt), f"mp3-{run_id}")
+        self._worker_thread = thread
+        thread.start()
+
+    def _publish(self, event) -> None:
+        """Hand one produced event to the queue the shared adapter drains.
+
+        Called from whichever thread produced it -- the worker for progress and
+        failures, the main thread for a button press that moved the controller.
+        A queue is the only thing that crosses that boundary; no widget is ever
+        touched from the worker, not even for progress.
+        """
+        self._event_q.put(event)
+
+    def _on_state(self, snapshot) -> None:
+        """The controller's listener: copy its state into the event stream.
+
+        The reporter mints the event *from this snapshot*, so the UI can never
+        show a state the controller did not actually reach -- a ``PAUSED`` no
+        worker acknowledged is not merely avoided here, it is unconstructible.
+        """
+        attempt = self._attempt
+        if attempt is not None and snapshot.run_id == attempt.run_id:
+            attempt.reporter.state_changed(snapshot)
+
+    def _context(self, stage: str | None, item_id: str | None) -> str:
+        """The status line under the bar: ``Book 2 of 10 — Track 14 of 32``."""
+        attempt = self._attempt
+        if not stage:
+            return ""
+        if attempt is None or not stage.startswith("book-"):
+            return stage
+        try:
+            position = int(stage[len("book-"):])
+        except ValueError:
+            return stage
+        text = f"Book {position} of {attempt.projection.count}"
+        track = attempt.track_context(item_id)
+        return f"{text} — {track}" if track else text
+
+    def _worker(self, attempt: _Attempt) -> None:
+        """Run the attempt, and **never let anything escape this thread**.
+
+        Whatever happens in the engine, the controller settles and the one
+        terminal event is sent, because that event is what frees the panel. A
+        cancellation raised at a checkpoint settles as cancelled; anything
+        else as failed, with the fault kept to the Detailed pane and the
+        session log. Nothing here reaches a widget.
+        """
+        controller = attempt.controller
+        reporter = attempt.reporter
+        try:
+            self._run_attempt(attempt)
+        except ConversionCancelled:
+            try:
+                reporter.cancelled(controller.finish_cancelled())
+            except Exception:  # pragma: no cover - already stopping; do not mask it
+                pass
+        except BaseException as exc:  # noqa: BLE001 - deliberately everything
+            detail = f"{type(exc).__name__}: {exc}"
+            try:
+                reporter.technical(detail)
+                reporter.completed(controller.fail(FAULT_MESSAGE, detail))
+            except Exception:  # pragma: no cover - already failing; do not mask it
+                pass
+
+    def _run_attempt(self, attempt: _Attempt) -> None:
+        """The worker's body: the engine, then the controller's verdict."""
+        plan = attempt.plan
+        engine = (mp3_processing.combine_run
+                  if plan.operation is mp3_plan.MP3Operation.COMBINE
+                  else mp3_processing.write_id3_run)
+        report = engine(plan, checkpoint=attempt.controller.checkpoint,
+                        on_event=attempt.projection, on_book=attempt.record,
+                        retry_items=attempt.retry_items)
+        attempt.report = report
+        controller = attempt.controller
+        final = (controller.complete_with_failures() if report.failed_book_ids
+                 else controller.succeed())
+        attempt.reporter.completed(final)
+
+    # -- main-thread projections of the run --------------------------------- #
+
+    def _on_job_event(self, _event) -> None:
+        """Every accepted event may move the current Book's status line."""
+        self._render_status()
+
+    def _on_terminal(self, event) -> None:
+        """The attempt ended: compose the frozen batch result. Main thread only.
+
+        The per-Book ``RunResult`` values are the engine's, settled against each
+        Book's own original ``RunSnapshot``; a retry merges its Books' new
+        results over the earlier attempt's, so the result always describes the
+        whole frozen run. The batch state is the controller's terminal state,
+        except that a retry attempt which itself succeeded while another Book
+        still stands failed is, for the batch, completed with failures
+        (Decision 28A). Nothing is rebuilt or re-captured.
+        """
+        attempt = self._attempt
+        if attempt is None or event.run_id != attempt.run_id or not self._busy:
+            return
+        results: dict[str, job_control.RunResult] = {}
+        if attempt.prior is not None:
+            results.update(attempt.prior.results)
+        results.update(tuple(attempt.results))
+        state = event.state or JobState.FAILED
+        if state is JobState.SUCCEEDED and any(
+                entry.state is not JobState.SUCCEEDED for entry in results.values()):
+            state = JobState.COMPLETED_WITH_FAILURES
+        try:
+            result = WorkspaceRunResult(attempt.plan.capture, results=tuple(results.items()),
+                                        state=state)
+        except WorkspaceContractError as exc:
+            result = None
+            self._say(f"{attempt.label}: the result could not be settled.", str(exc))
+        self._settled = result
+        self._busy = False
+        self.jobs.set_result(result)
+        if result is not None:
+            skipped = result.skipped_empty_count + result.skipped_invalid_count
+            self._say(f"{attempt.label}: {result.succeeded_count} Book(s) completed, "
+                      f"{result.failed_count} failed, {skipped} skipped, "
+                      f"{result.not_attempted_count} not attempted "
+                      f"→ {attempt.plan.run_directory}")
+        self.render()
+
+    def book_status_for(self, book_id: str) -> str:
+        """One Book's compact status, read from the run -- never kept here.
+
+        During an attempt: a Book the capture skipped is ``Skipped``; one the
+        engine has settled is ``Completed`` or ``Failed`` by its own result; a
+        Book an earlier attempt settled and this retry leaves alone keeps that
+        answer; the Book at the projected stage is ``Processing`` and the rest
+        of the attempt's Books are ``Queued``. Afterwards, the frozen result's
+        disposition answers, and a Book it does not know is ``Ready``.
+        """
+        attempt = self._attempt
+        if attempt is not None and self._busy:
+            capture = attempt.plan.capture
+            if book_id in capture.skipped_book_ids:
+                return STATUS_SKIPPED
+            settled = attempt.settled(book_id)
+            if settled is not None:
+                return self._status_of_result(settled)
+            prior = attempt.prior
+            if prior is not None and book_id not in attempt.retry_items:
+                return self._status_of_disposition(prior.disposition_for(book_id))
+            position = attempt.position_of(book_id)
+            if position:
+                if self._current_stage() == attempt.projection.stage_of(book_id):
+                    return STATUS_PROCESSING
+                return STATUS_QUEUED
+            return STATUS_READY
+        result = self._settled
+        if result is None:
+            return STATUS_READY
+        return self._status_of_disposition(result.disposition_for(book_id))
+
+    def _current_stage(self) -> str | None:
+        """The stage the run's accepted events last announced, if any.
+
+        Read from the adapter's stream rather than its projected view because
+        the adapter hands each accepted event to this panel *before* it
+        re-projects, and the status label must not lag one drain behind.
+        """
+        for entry in reversed(self.jobs.stream.events):
+            if entry.kind is JobEventKind.STAGE_CHANGED:
+                return entry.stage
+        return None
+
+    @staticmethod
+    def _status_of_result(result) -> str:
+        return STATUS_COMPLETED if result.state is JobState.SUCCEEDED else STATUS_FAILED
+
+    @staticmethod
+    def _status_of_disposition(disposition) -> str:
+        if disposition is BookDisposition.SUCCEEDED:
+            return STATUS_COMPLETED
+        if disposition is BookDisposition.FAILED:
+            return STATUS_FAILED
+        if disposition in (BookDisposition.SKIPPED_EMPTY, BookDisposition.SKIPPED_INVALID):
+            return STATUS_SKIPPED
+        return STATUS_READY
+
+    # -- the shared control bar's callbacks ---------------------------------- #
+
+    def pause(self) -> None:
+        """Ask the run to pause at its next safe checkpoint.
+
+        Truthful by construction: this reaches ``PAUSE_REQUESTED`` and stops
+        there; only the worker, arriving at a checkpoint between two tracks or
+        two Books, can make it ``PAUSED``. The FFmpeg call in flight is never
+        suspended or killed, and nothing here claims otherwise.
+        """
+        controller = self.job_controller
+        if controller is not None and self._busy:
+            controller.request_pause()
+
+    def resume(self) -> None:
+        """Return a paused or pausing run to running and wake its worker."""
+        controller = self.job_controller
+        if controller is not None and self._busy:
+            controller.resume()
+
+    def cancel(self) -> None:
+        """Ask the run to stop at its next checkpoint. Cooperative, never forced.
+
+        No later Book starts; the one in flight stops between its stages; the
+        Books never reached settle as ``NOT_ATTEMPTED`` and the batch as
+        ``CANCELLED`` once the worker has acknowledged it -- never before.
+        """
+        controller = self.job_controller
+        if controller is not None and self._busy:
+            controller.request_cancel()
+
+    def retry_failed(self) -> bool:
+        """Re-run the failed Books of the frozen run. Main thread only.
+
+        **A new attempt at the same run, not a new run.** The plan is the
+        original object, the run directory the one reserved at the original
+        press, and nothing here reads a widget, the workspace, the store or
+        the configuration: the user may have edited every field, reordered and
+        removed tracks and added Books since, and none of it reaches what this
+        executes. The shared model decides *what* is retried --
+        ``retry_failed_books`` on the frozen result -- and the engine re-stages
+        exactly those occurrences, reuses every other staged piece and
+        publishes each Book whole from its original ``BookPlan``.
+        """
+        self._guard.require("retry_failed")
+        if self._closed or self._busy:
+            return False
+        attempt = self._attempt
+        result = self._settled
+        plan = self.last_plan
+        if attempt is None or result is None or plan is None or attempt.plan is not plan:
+            return False
+        if not result.can_retry_failed:
+            return False
+        retry_items = {}
+        for request in retry_failed_books(result):
+            book = next((entry for entry in plan.books
+                         if entry.snapshot is request.snapshot), None)
+            if book is None:  # pragma: no cover - the result was settled from this plan
+                messagebox.showerror(APP_TITLE, "Retry Failed: the failed Book is not in "
+                                     "the frozen plan; nothing was retried.", parent=self)
+                return False
+            retry_items[book.book_id] = tuple(request.item_ids)
+        if not retry_items:
+            return False
+        self._start_attempt(attempt.label, plan, retry_items=retry_items, prior=result)
+        return True
 
     def on_pause(self) -> None:
-        pass
+        self.pause()
 
     def on_resume(self) -> None:
-        pass
+        self.resume()
 
     def on_cancel(self) -> None:
-        pass
+        self.cancel()
 
     def on_retry(self) -> None:
-        pass
+        self.retry_failed()
 
     # ------------------------------------------------------------------ #
     # Teardown
     # ------------------------------------------------------------------ #
 
     def close(self) -> None:
-        """Cancel any scan, stop the pump, close every component. Idempotent."""
+        """Cancel any scan or run, stop the pump, close every component. Idempotent.
+
+        A worker still running is asked to cancel through its controller and
+        stops at its next checkpoint; the events it sends after this go to a
+        queue nothing drains, which is exactly where they should go.
+        """
         if self._closed:
             return
         self._closed = True
+        controller = self.job_controller
+        if controller is not None and self._busy:
+            try:
+                controller.request_cancel()
+            except Exception:
+                pass
         for component in (self._poller, self.navigator, self.surface,
-                          self.shared_artwork, self.book_artwork, self.controls,
-                          self.status, self.log, self.import_status, self.lock_group):
+                          self.shared_artwork, self.book_artwork, self.jobs,
+                          self.log, self.import_status):
             try:
                 component.close()
             except Exception:

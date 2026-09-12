@@ -874,8 +874,24 @@ def test_the_process_buttons_validate_before_reserving_anything(make_panel, tmp_
     assert made == [], "validation failed, so no run was reserved"
 
 
-def test_an_operation_reserves_one_run_freezes_the_plan_and_releases_the_empty_run(
+def settle(panel, limit: int = 200) -> None:
+    """Tick the one pump until the run has settled (inline workers only)."""
+    for _ in range(limit):
+        panel._pump.tick()
+        if not panel.is_running:
+            return
+    raise AssertionError("the run did not settle within the tick budget")
+
+
+def test_an_operation_reserves_one_run_freezes_the_plan_and_runs_it(
         make_panel, tmp_path, monkeypatch):
+    """Phase 9: the frozen plan is run, not reported and released.
+
+    The placeholders are not audio, so every track fails in the engine and
+    every Book settles ``FAILED`` -- which is exactly what this shell-level
+    test needs: one reservation, one frozen plan, nothing written beside a
+    source, and the numbered run kept for the Retry Failed the result offers.
+    """
     made = reservations_under(tmp_path, monkeypatch)
     root = tmp_path / "Library"
     tracks(root / "A", "01 One.mp3", "02 Two.mp3")
@@ -885,7 +901,8 @@ def test_an_operation_reserves_one_run_freezes_the_plan_and_releases_the_empty_r
     panel = make_panel()
     import_folder(panel, root)
     panel.surface.set_shared_text("time_delta", "1.5")
-    panel.combine_mp3s()
+    assert panel.combine_mp3s() is True
+    settle(panel)
     assert len(made) == 1, "one reservation for three Books"
     plan = panel.last_plan
     assert plan is not None and plan.reservation is made[0]
@@ -895,9 +912,13 @@ def test_an_operation_reserves_one_run_freezes_the_plan_and_releases_the_empty_r
     assert all(entry.time_delta == 1.5 for entry in plan.books)
     assert [t.filename for t in plan.books[0].tracks] == ["01 One.mp3", "02 Two.mp3"]
     assert plan.books[0].combined_filename == "A.mp3"
-    assert any("planned 3 Book(s)" in line for line in panel.log.summary)
-    assert any("not available" in line for line in panel.log.summary)
-    assert not made[0].run_directory.exists(), "the empty run was released"
+    assert any("Combine MP3s" in line and "3 Book(s)" in line for line in panel.log.summary)
+    result = panel.last_result
+    assert result is not None and result.snapshot is plan.capture
+    assert result.state is JobState.COMPLETED_WITH_FAILURES
+    assert result.failed_count == 3
+    assert made[0].run_directory.is_dir(), "the run is kept for Retry Failed"
+    assert not any(entry.published_dir.exists() for entry in plan.books)
     assert {path: path.read_bytes() for path in root.rglob("*.mp3")} == before, "sources untouched"
     assert [p for p in root.rglob("*") if p.is_file() and p.suffix != ".mp3"] == []
 
@@ -916,13 +937,25 @@ def test_a_second_operation_takes_a_second_reservation(make_panel, tmp_path, mon
     a, = tracks(tmp_path / "F", "a.mp3")
     panel = make_panel()
     add_files(panel, a)
-    panel.write_id3_tags()
-    panel.combine_mp3s()
+    assert panel.write_id3_tags() is True
+    assert panel.combine_mp3s() is False, "refused until the first run has settled"
+    settle(panel)
+    assert panel.combine_mp3s() is True
+    settle(panel)
     assert len(made) == 2
     assert panel.last_plan.operation is mp3_tool.mp3_plan.MP3Operation.COMBINE
 
 
-def test_the_panel_reaches_no_media_pipeline_yet():
+def test_the_panel_reaches_the_media_pipeline_only_through_the_engines():
+    """Phase 9 runs the plan, and still through nothing but the engine seams.
+
+    Narrowed from the Phase 4-8 "no pipeline yet" guard: the controller, the
+    retry derivation and the worker thread are now the panel's to compose, so
+    they are asked for positively. Every FFmpeg helper, the staging and
+    publication boundaries and the tag writers stay out of reach -- the engine
+    module owns them, and the panel names only ``write_id3_run`` and
+    ``combine_run``.
+    """
     tree = ast.parse(PANEL_SOURCE.read_text(encoding="utf-8"))
     panel = next(node for node in ast.walk(tree)
                  if isinstance(node, ast.ClassDef) and node.name == "MP3ToolUI")
@@ -930,11 +963,17 @@ def test_the_panel_reaches_no_media_pipeline_yet():
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
     called |= {node.func.id for node in ast.walk(panel)
                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
-    for later in ("run_ff", "concat_mp3s_fast", "normalize_to_wav", "concat_wavs_to_mp3",
-                  "add_silence_to_mp3", "trim_from_end_mp3", "prepare_staging",
-                  "publish_book", "discard_staging", "JobController",
-                  "retry_failed_books", "Thread", "save", "EasyID3", "APIC"):
-        assert later not in called, later
+    for owned_by_the_engine in (
+            "run_ff", "concat_mp3s_fast", "normalize_to_wav", "concat_wavs_to_mp3",
+            "add_silence_to_mp3", "trim_from_end_mp3", "prepare_staging",
+            "publish_book", "discard_staging", "discard_run_staging", "save",
+            "EasyID3", "APIC", "write_id3_book", "combine_book"):
+        assert owned_by_the_engine not in called, owned_by_the_engine
+    referenced = {node.attr for node in ast.walk(panel) if isinstance(node, ast.Attribute)}
+    assert {"write_id3_run", "combine_run"} <= referenced
+    for composed in ("JobController", "JobReporter", "JobAdapter", "retry_failed_books",
+                     "WorkspaceRunResult", "Thread"):
+        assert composed in called, composed
     # Phase 5: the plan is frozen through the planning module, not here.
     assert "plan_run" in called and "reserve_run_directory" in called
     declared = {node.name for node in ast.walk(panel)

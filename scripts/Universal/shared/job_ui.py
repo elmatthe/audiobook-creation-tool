@@ -1805,9 +1805,26 @@ class SummaryDetailsView:
     renders :func:`~shared.job_control.detail_lines`. Neither is filtered, reordered or
     embellished here — in particular Summary is never given a diagnostic, because the
     projection that builds it never reads the field diagnostics live in.
+
+    **History (v0.6.3 focused MP3 plan, Phase 9).** A panel that keeps one log
+    region across many runs hands each run's adapter this same view. Each pane
+    then shows two parts: a frozen *history* — earlier runs, the panel's own
+    lines from :meth:`append`, and the :meth:`divider` lines between them — and
+    the *live* section, which is whatever the current run's projection last
+    handed to :meth:`set_summary` / :meth:`set_details`. A projection is
+    cumulative, so re-rendering it replaces the live section and never the
+    history. :meth:`clear` empties the visible text only: the frozen history is
+    dropped and the live lines already shown are remembered as *seen*, so the
+    next cumulative render of the same run shows only what came after. Nothing
+    here reaches the event stream, the session log or a settled result.
+
+    A view built the Phase 8 way — no history calls — behaves exactly as before:
+    ``set_summary`` replaces everything, and the second tab is ``Details``.
     """
 
     __slots__ = ("_guard", "_theme", "_closed", "_summary", "_details",
+                 "_summary_history", "_details_history", "_summary_seen",
+                 "_details_seen", "_limit",
                  "frame", "summary_text", "details_text",
                  "summary_frame", "details_frame", "_height")
 
@@ -1819,12 +1836,22 @@ class SummaryDetailsView:
         thread_id: int | None = None,
         height: int = 10,
         width: int = 60,
+        details_label: str = "Details",
+        limit: int | None = None,
     ) -> None:
         self._guard = MainThreadGuard(thread_id)
         self._theme = theme
         self._closed = False
         self._summary: tuple[str, ...] = ()
         self._details: tuple[str, ...] = ()
+        # The frozen part of each pane, and how many live lines were already
+        # shown before the last freeze -- the mechanism that keeps a cleared
+        # run from re-populating when its cumulative projection renders again.
+        self._summary_history: list[str] = []
+        self._details_history: list[str] = []
+        self._summary_seen = 0
+        self._details_seen = 0
+        self._limit = None if limit is None else max(1, int(limit))
 
         self._height = max(1, int(height))
 
@@ -1848,7 +1875,7 @@ class SummaryDetailsView:
         self.summary_frame, self.summary_text = self._page(theme, height, width)
         self.details_frame, self.details_text = self._page(theme, height, width)
         self.frame.add(self.summary_frame, text="Summary")
-        self.frame.add(self.details_frame, text="Details")
+        self.frame.add(self.details_frame, text=str(details_label) or "Details")
 
     def minimum_height(self) -> int:
         """Pixels this notebook needs to keep **one** readable line of text.
@@ -1878,23 +1905,89 @@ class SummaryDetailsView:
 
     @property
     def summary(self) -> tuple[str, ...]:
-        return self._summary
+        """What the Summary pane shows: frozen history, then the unseen live lines."""
+        return self._visible(self._summary_history, self._summary, self._summary_seen)
 
     @property
     def details(self) -> tuple[str, ...]:
-        return self._details
+        return self._visible(self._details_history, self._details, self._details_seen)
 
     def set_summary(self, lines: Iterable[str]) -> tuple[str, ...]:
+        """Replace the live Summary section with this cumulative projection."""
         self._guard.require("set_summary")
         self._summary = tuple(str(line) for line in lines)
-        self._write(self.summary_text, self._summary)
-        return self._summary
+        if len(self._summary) < self._summary_seen:
+            # A shorter projection is a new source, not a shrunken one: a
+            # cumulative stream never loses lines. Nothing of it was seen.
+            self._summary_seen = 0
+        shown = self.summary
+        self._write(self.summary_text, shown)
+        return shown
 
     def set_details(self, lines: Iterable[str]) -> tuple[str, ...]:
+        """Replace the live Details section with this cumulative projection."""
         self._guard.require("set_details")
         self._details = tuple(str(line) for line in lines)
-        self._write(self.details_text, self._details)
-        return self._details
+        if len(self._details) < self._details_seen:
+            self._details_seen = 0
+        shown = self.details
+        self._write(self.details_text, shown)
+        return shown
+
+    # -- history ------------------------------------------------------------ #
+
+    def append(self, line: str, detail: str | None = None) -> None:
+        """Add one line of the owner's own to both panes, after what is showing.
+
+        The live section shown so far is frozen into history first, so the line
+        lands *after* it; the live projection re-rendering later shows only
+        what it gains from here on.
+        """
+        self._guard.require("append")
+        self._freeze()
+        self._summary_history.append(str(line))
+        self._details_history.append(str(line if detail is None else detail))
+        self._trim()
+        self._redraw()
+
+    def divider(self, text: str) -> None:
+        """Freeze the current run's lines and rule a line under them."""
+        self._guard.require("divider")
+        self.append(text, text)
+
+    def clear(self) -> None:
+        """Clear the visible text of both panes, and only that.
+
+        The frozen history is dropped and every live line already shown is
+        remembered as seen, so a re-render of the same run puts nothing back.
+        No event, no result and no session log entry is touched: this is the
+        one place the view forgets, and it forgets pixels.
+        """
+        self._guard.require("clear")
+        self._freeze()
+        self._summary_history = []
+        self._details_history = []
+        self._redraw()
+
+    def _freeze(self) -> None:
+        self._summary_history.extend(self._summary[self._summary_seen:])
+        self._summary_seen = len(self._summary)
+        self._details_history.extend(self._details[self._details_seen:])
+        self._details_seen = len(self._details)
+
+    def _trim(self) -> None:
+        if self._limit is None:
+            return
+        del self._summary_history[:-self._limit]
+        del self._details_history[:-self._limit]
+
+    def _redraw(self) -> None:
+        self._write(self.summary_text, self.summary)
+        self._write(self.details_text, self.details)
+
+    @staticmethod
+    def _visible(history: list[str], live: tuple[str, ...], seen: int) -> tuple[str, ...]:
+        return tuple(history) + live[seen:]
 
     def show_summary(self) -> None:
         self._guard.require("show_summary")
@@ -1941,6 +2034,11 @@ class SummaryDetailsView:
         text = tk.Text(page, height=max(1, int(height)), width=max(1, int(width)),
                        wrap="none", state="disabled")
         ui_theme.style_tk_widget(text, theme or {}, "log")
+        # Read-only is not unselectable: a person sends the log by selecting it.
+        # Tk binds Select-All to Control-a on Windows only, so it is bound here
+        # for every platform; Copy is the class binding and works when disabled.
+        text.bind("<Control-a>", self._select_all)
+        text.bind("<Control-A>", self._select_all)
         text.grid(row=0, column=0, sticky="nsew")
         bar = ttk.Scrollbar(page, orient="vertical", command=text.yview,
                             style=style_name(theme, "vscrollbar"))
@@ -1969,6 +2067,15 @@ class SummaryDetailsView:
             self.frame.select(index)
         except tk.TclError:
             pass
+
+    @staticmethod
+    def _select_all(event) -> str:
+        try:
+            event.widget.tag_add("sel", "1.0", "end-1c")
+            event.widget.mark_set("insert", "1.0")
+        except tk.TclError:
+            pass
+        return "break"
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return (f"SummaryDetailsView(summary={len(self._summary)}, "
@@ -2000,6 +2107,7 @@ class JobAdapter:
     __slots__ = (
         "_guard", "_pump", "_stream", "_estimator", "_pull", "_limit", "_closed",
         "_result", "_summary_view", "_verdicts", "_on_event", "_on_terminal",
+        "_owns_views", "_context",
         "frame", "controls", "status", "views", "locks",
     )
 
@@ -2024,9 +2132,27 @@ class JobAdapter:
         on_event: Callable[[JobEvent], object] | None = None,
         on_terminal: Callable[[JobEvent], object] | None = None,
         details_height: int = 10,
+        views: SummaryDetailsView | None = None,
+        context: Callable[[str | None, str | None], str] | None = None,
     ) -> None:
+        """Build the job side for one run.
+
+        ``views`` (v0.6.3 focused MP3 plan, Phase 9) hands the adapter a
+        :class:`SummaryDetailsView` the *caller* owns — one log region that
+        outlives the run, so history survives from one adapter to the next.
+        It is rendered into, never placed and never closed here. ``context``
+        turns the projected stage and current occurrence into the one line the
+        status view shows beneath the bar (``"Book 2 of 10 — Track 14 of 32"``
+        rather than a raw occurrence id); without it the line is the shared
+        default, unchanged.
+        """
         if not isinstance(pump, MainThreadPump):
             raise JobUiError(f"pump must be a MainThreadPump, got {type(pump).__name__}")
+        if views is not None and not isinstance(views, SummaryDetailsView):
+            raise JobUiError(
+                f"views must be a SummaryDetailsView, got {type(views).__name__}")
+        if context is not None and not callable(context):
+            raise JobUiError("context must be callable")
         self._guard = MainThreadGuard(thread_id)
         self._pump = pump
         self._stream = (
@@ -2045,20 +2171,24 @@ class JobAdapter:
         self._verdicts: tuple[object, ...] = ()
         self._on_event = on_event
         self._on_terminal = on_terminal
+        self._owns_views = views is None
+        self._context = context
 
         self.frame = ttk.Frame(parent, style=style_name(theme, "surface"))
         self.controls = JobControlBar(
             self.frame, theme=theme, thread_id=thread_id, on_pause=on_pause,
             on_resume=on_resume, on_cancel=on_cancel, on_retry=on_retry)
         self.status = JobStatusView(self.frame, theme=theme, thread_id=thread_id)
-        self.views = SummaryDetailsView(
+        self.views = (SummaryDetailsView(
             self.frame, theme=theme, thread_id=thread_id, height=details_height)
+            if views is None else views)
         self.locks = LockGroup(thread_id=thread_id)
 
         self.controls.frame.grid(row=0, column=0, sticky="w")
         self.status.frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        self.views.frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
-        self.frame.rowconfigure(2, weight=1)
+        if self._owns_views:
+            self.views.frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+            self.frame.rowconfigure(2, weight=1)
         self.frame.columnconfigure(0, weight=1)
 
         self.locks.register(ControlKind.JOB_CONTROL, self.controls)
@@ -2167,7 +2297,12 @@ class JobAdapter:
         if self._closed:
             return view
         state = view.state or JobState.IDLE
-        self.status.apply(view.progress, stage=view.stage, item_id=view.current_item_id)
+        if self._context is None:
+            self.status.apply(view.progress, stage=view.stage,
+                              item_id=view.current_item_id)
+        else:
+            self.status.apply(view.progress,
+                              stage=self._context(view.stage, view.current_item_id))
         self.status.set_eta(view.eta)
         self.status.set_status(view.final or _summary_status(view))
         self.views.set_summary(view.lines)
@@ -2185,10 +2320,19 @@ class JobAdapter:
         return bool(result is not None and result.has_retryable)
 
     def set_result(self, result: RunResult | None) -> SummaryView:
-        """Hand the adapter the settled run so Retry Failed can become available."""
+        """Hand the adapter the settled run so Retry Failed can become available.
+
+        A :class:`~shared.job_control.RunResult`, or a settled result composed
+        of them that answers ``has_retryable`` the same way — Plan 6's
+        ``WorkspaceRunResult`` is one. Nothing else is accepted: the adapter
+        asks that one question of the result and decides nothing itself.
+        """
         self._guard.require("set_result")
         if result is not None and not isinstance(result, RunResult):
-            raise JobUiError(f"result must be a RunResult, got {type(result).__name__}")
+            answer = getattr(result, "has_retryable", None)
+            if not isinstance(answer, bool):
+                raise JobUiError(
+                    f"result must be a RunResult, got {type(result).__name__}")
         self._result = result
         return self.render()
 
@@ -2212,7 +2356,8 @@ class JobAdapter:
         self._pull = None
         self.controls.close()
         self.status.close()
-        self.views.close()
+        if self._owns_views:
+            self.views.close()
         self.locks.close()
         self._on_event = None
         self._on_terminal = None
