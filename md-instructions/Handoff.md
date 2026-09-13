@@ -2,6 +2,73 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 1 COMPLETE (SHARED M4B SEAMS + ARTWORK FOUNDATION); PHASE 2 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the Phase 0 block beneath it on one point only —
+> that block names **Phase 1** as the next action. Phase 1 is now done. Everything else in it
+> (the integration fact, the active authority, the panel audit and the **guard map**) stands as
+> written and is still the reference for Phases 2–10.
+>
+> **Phase 1 built exactly two seams and adopted nothing.**
+> - **`BookNavigator` gained an opt-in Book-action subset** (`shared/book_workspace_ui.py`,
+>   +74/−16): `actions=` names which of Add / Duplicate / Remove the navigator offers, validated
+>   by `_book_action_subset` (a non-sequence, a navigation name, an unknown name or a repeat is
+>   refused), exposed as `.actions` and `BookNavigator.BOOK_ACTIONS`. A dropped action has **no
+>   button** (absent from `.buttons`, never gridded), is reported `False` by `availability()`
+>   (the key stays so every consumer reads one mapping) and `invoke()` refuses it even when a
+>   callback was passed. Previous / Next / the direct selector are never optional. **The default
+>   is behaviour-identical for the MP3 Tool**: the three actions land in the same grid slots as
+>   before in both layouts. One new `__slots__` entry (`_actions`); the old no-second-index /
+>   no-row-table guards still hold.
+> - **`mp3_tools/m4b_artwork.py` (new, 152 lines, Tk-free)** is the one M4B artwork service for
+>   Maker and Editor. It *reuses* the proved shared decode path rather than reinventing it —
+>   `artwork_filetypes`, `load_artwork`, `artwork_for` and `preview_image` are
+>   `mp3_artwork`'s, which already routes every decode through `shared.image_capabilities`
+>   (so the chooser filter is the probe's, JPG/PNG are carried as their own bytes, a
+>   mislabelled/undecodable file is refused, and HEIC/HEIF is decoded only where the probe says
+>   so and converted to PNG **in memory**, dimensions preserved, no sidecar). What is
+>   M4B-specific lives here: `M4BCover` (frozen: source, `MP4Cover` image format, bytes,
+>   width, height, converted), `load_cover(path)`, `cover_for(plan)` (reads only the frozen
+>   `artwork` value), `apply_cover(mp4_tags, cover|None)` (exactly one `covr` entry or none,
+>   in place, no other atom touched) and `embed_cover(path, cover|None)` (mutagen metadata-only
+>   rewrite of a **staged** container — proved by an unchanged packed-audio MD5). The ID3
+>   `apply_artwork` is deliberately not reused. The module names no suffix or MIME literal and
+>   defines no decoder.
+> - **UI adapter — deliberately deferred to Phase 6, flagged for the maintainer.** The plan lets
+>   Phase 1 add "only the minimum UI adapter needed" if both panels would otherwise duplicate the
+>   chooser/preview/Shared-vs-Book control. They would (the MP3 Tool's `_ArtworkControl`, ~110
+>   lines, is panel-owned Tk), but a Tk adapter that imports `job_ui.style_name` is a Plan-3
+>   adopter and would require widening `ADOPTED` (11 → 12, plus the "eleven" test name,
+>   `PLAN3_ADOPTERS`, and the `mp3_tools/m4b_`-prefix pin in `test_m4b_hardening`) in a phase
+>   whose only consumer does not exist yet. Building it with the first real consumer (Maker,
+>   Phase 6) shapes it against a real composition and moves those guard changes into the phase
+>   that already authorises Maker's adoption. The Tk-free service is complete without it.
+>
+> **RED → GREEN evidence.** `files/tests/test_book_navigator_actions.py` (18 tests): 17 failed
+> red on `TypeError: unexpected keyword argument 'actions'` / missing `BOOK_ACTIONS` / `.actions`
+> / `_actions` slot, 1 default-behaviour guard green from the start by design; all 18 green
+> after. `files/tests/test_m4b_artwork.py` (24 tests): red as a collection `ImportError`
+> (`cannot import name 'm4b_artwork'`); 24 green after, including the HEIC cases (this machine
+> decodes HEIF) and the real-container cases on a six-second FFmpeg-built AAC `.m4a`.
+>
+> **Phase 1 gate (focused, per plan §11).** New tests + shared workspace/UI/image-capability
+> regressions + every structural guard that can see a new `mp3_tools/` module
+> (`test_plan3_boundaries`, `test_plan6_boundaries`, `test_m4b_hardening`, `test_mp3_hardening`,
+> `test_tool_output_integration`, `test_repository_contract`, `test_epub_retirement`,
+> `test_ffmpeg_runtime_trust`, `test_launcher_smoke`, `test_preferences_maintenance_ui`) + the
+> MP3 panel UI/layout suites + `test_m4b_metadata*` + `test_mp3_write_id3`: **1,395 passed / 12
+> skipped (aqua-only geometry) / 0 failed** in 45 s. `compileall` exit 0; `git diff --check`
+> clean (worktree and index). No full suite / `verify.py` this phase — the plan schedules the
+> next full gate at Phase 5. **Both M4B panels are byte-identical to their Phase 0 hashes;
+> `ADOPTED` is unchanged at 11; `launcher.TOOLS` is six; version `0.6.2`.**
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 2 — M4B MAKER WORKSPACE/IMPORT MODEL. IT HAS NOT STARTED**
+> and requires separate explicit maintainer approval. Phase 2 is Tk-free
+> (`mp3_tools/m4b_maker_workflow.py`: field declarations, effective Shared/Book values,
+> folder-to-Book construction, chapter-title defaults, silence/Series Part parsing, explicit
+> Output Filename) with **no FFmpeg and no panel conversion**; when it imports the shared
+> foundation it must be added to `ADOPTED` and the `m4b_`-prefix pin narrowly, per the guard map.
+
 > ## ⟢ CURRENT STATE — v0.6.4 M4B MAKER + M4B METADATA EDITOR, PHASE 0 COMPLETE; PHASE 1 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the 2026-09-12 block beneath it on three points —

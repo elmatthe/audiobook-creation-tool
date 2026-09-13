@@ -247,6 +247,16 @@ class BookNavigator:
     consumer whose native controls are too wide for one row inside its minimum
     window. The consumer chooses; nothing here reads a platform or a theme
     metric, and the buttons, labels, callbacks and rendering are the same either way.
+
+    **A consumer may show a subset of the Book actions** (v0.6.4 plan, Phase 1).
+    ``actions=`` names which of Add / Duplicate / Remove this navigator offers;
+    the default is all three, so a consumer that does not pass it — the MP3
+    Tool — gets exactly the navigator it always had. A dropped action has no
+    button, is never reported as available and cannot be invoked, so a
+    one-file-per-Book consumer such as the M4B Metadata Editor can leave out a
+    meaningless Duplicate and an empty manual Add without either becoming a
+    reachable no-op. Navigation and the direct selector are not optional: the
+    subset may only drop Book actions, never Previous, Next or the selector.
     """
 
     #: The two geometries. ``"row"`` is the accepted single row; ``"stacked"``
@@ -271,6 +281,10 @@ class BookNavigator:
         REMOVE: "Remove Book",
     }
 
+    #: The optional Book actions, in the order they are rendered. ``actions=``
+    #: may name any subset of exactly these; the default is all of them.
+    BOOK_ACTIONS = (ADD, DUPLICATE, REMOVE)
+
     #: Characters the direct selector shows before the dropdown takes over. A
     #: long hint is not clipped by anything the adapter decides — the consumer
     #: chooses what to describe a book by, and the popup lists every row whole.
@@ -278,7 +292,8 @@ class BookNavigator:
 
     __slots__ = ("_guard", "_theme", "_closed", "_locked", "_workspace",
                  "_callbacks", "_position", "_describe", "_label_for", "_layout",
-                 "frame", "buttons", "label", "position_variable", "selector")
+                 "_actions", "frame", "buttons", "label", "position_variable",
+                 "selector")
 
     def __init__(
         self,
@@ -287,6 +302,7 @@ class BookNavigator:
         theme: Mapping[str, object] | None = None,
         thread_id: int | None = None,
         layout: str = "row",
+        actions: Sequence[str] | None = None,
         describe: Callable[[BookJob], object] | None = None,
         label_for: Callable[[BookJob, int], object] | None = None,
         on_previous: Callable[[], object] | None = None,
@@ -299,6 +315,7 @@ class BookNavigator:
         if layout not in self.LAYOUTS:
             raise BookWorkspaceUiError(
                 f"layout must be one of {self.LAYOUTS!r}, got {layout!r}")
+        self._actions = self._book_action_subset(actions)
         if describe is not None and not callable(describe):
             raise BookWorkspaceUiError(
                 "describe must be a callable taking a BookJob and returning the "
@@ -332,8 +349,9 @@ class BookNavigator:
 
         neutral = style_name(theme, "button")
         self.buttons: dict[str, ttk.Button] = {}
-        for column, action in enumerate(
-                (self.PREVIOUS, self.NEXT, self.ADD, self.DUPLICATE, self.REMOVE)):
+        # A dropped Book action gets no button at all — not a hidden one, not a
+        # disabled one — so nothing about it can be reached through the frame.
+        for action in (self.PREVIOUS, self.NEXT) + self._actions:
             button = ttk.Button(
                 self.frame, text=self.LABELS[action], style=neutral,
                 command=lambda bound=action: self.invoke(bound))
@@ -355,16 +373,20 @@ class BookNavigator:
         # this row is the widest bounded thing Plan 6 draws, and at the 920px minimum
         # width every pixel it does not claim is a pixel an action cannot be clipped
         # by. Section 19.1 forbids solving that with a whole-panel scrollbar.
+        #
+        # The Book actions take slots in their rendered order, so the default
+        # three land exactly where they always have and a subset simply fills
+        # the first slots. The slot geometry is the same whatever fills it.
         if layout == "row":
             self.buttons[self.PREVIOUS].grid(row=0, column=0)
             self.buttons[self.NEXT].grid(row=0, column=1, padx=(6, 0))
             self.label.grid(row=0, column=2, padx=(8, 8))
             self.selector.grid(row=0, column=3, padx=(0, 8))
-            self.buttons[self.ADD].grid(row=0, column=4)
-            self.buttons[self.DUPLICATE].grid(row=0, column=5, padx=(6, 0))
-            self.buttons[self.REMOVE].grid(row=0, column=6, padx=(6, 0))
+            for slot, action in enumerate(self._actions):
+                self.buttons[action].grid(
+                    row=0, column=4 + slot, **({"padx": (6, 0)} if slot else {}))
         else:
-            # Stacked: the three Book actions fold under the navigation row,
+            # Stacked: the Book actions fold under the navigation row,
             # left-aligned in the same columns so the two rows read as one
             # block. The label column still carries the slack, and the
             # selector keeps the right edge of the block.
@@ -372,12 +394,37 @@ class BookNavigator:
             self.buttons[self.NEXT].grid(row=0, column=1, sticky="w", padx=(6, 0))
             self.label.grid(row=0, column=2, sticky="w", padx=(8, 8))
             self.selector.grid(row=0, column=3, sticky="e")
-            self.buttons[self.ADD].grid(row=1, column=0, sticky="w", pady=(4, 0))
-            self.buttons[self.DUPLICATE].grid(row=1, column=1, sticky="w",
-                                              padx=(6, 0), pady=(4, 0))
-            self.buttons[self.REMOVE].grid(row=1, column=2, columnspan=2,
-                                           sticky="w", padx=(8, 0), pady=(4, 0))
+            slots = ({"column": 0},
+                     {"column": 1, "padx": (6, 0)},
+                     {"column": 2, "columnspan": 2, "padx": (8, 0)})
+            for slot, action in zip(slots, self._actions):
+                self.buttons[action].grid(row=1, sticky="w", pady=(4, 0), **slot)
         self.frame.columnconfigure(2, weight=1)
+
+    @classmethod
+    def _book_action_subset(cls, actions: object) -> tuple[str, ...]:
+        """Validate ``actions=`` into the canonical-order tuple this navigator offers.
+
+        ``None`` is the full set. Otherwise a sequence naming each wanted Book
+        action once; navigation names, unknown names and repeats are refused
+        rather than ignored, because a silently dropped name is how a consumer
+        ends up with a navigator it did not ask for.
+        """
+        if actions is None:
+            return cls.BOOK_ACTIONS
+        if isinstance(actions, (str, bytes)) or not isinstance(actions, Sequence):
+            raise BookWorkspaceUiError(
+                "actions must be a sequence of Book action names from "
+                f"{cls.BOOK_ACTIONS!r}, got {actions!r}")
+        wanted = list(actions)
+        unknown = [entry for entry in wanted if entry not in cls.BOOK_ACTIONS]
+        if unknown:
+            raise BookWorkspaceUiError(
+                f"actions may name only {cls.BOOK_ACTIONS!r}; navigation and the "
+                f"selector are always present. Refused: {unknown!r}")
+        if len(set(wanted)) != len(wanted):
+            raise BookWorkspaceUiError(f"actions names a Book action twice: {wanted!r}")
+        return tuple(action for action in cls.BOOK_ACTIONS if action in wanted)
 
     # -- pure state, no Tk reached ----------------------------------------- #
 
@@ -392,6 +439,14 @@ class BookNavigator:
     @property
     def layout(self) -> str:
         return self._layout
+
+    @property
+    def actions(self) -> tuple[str, ...]:
+        """The Book actions this navigator offers, in rendered order.
+
+        The full :data:`BOOK_ACTIONS` unless the consumer chose a subset.
+        """
+        return self._actions
 
     @property
     def locked(self) -> bool:
@@ -473,16 +528,19 @@ class BookNavigator:
 
         Previous is unavailable at the first book and Next at the last — the model's
         own no-wrap rule, read rather than restated. Add is always meaningful.
-        Duplicate, Remove and the direct selector need a book to act on.
+        Duplicate, Remove and the direct selector need a book to act on. A Book
+        action the consumer left out of ``actions=`` is never offered; the key is
+        still present so every consumer reads the same mapping.
         """
         position, count = self._position
         has_book = count > 0
+        offered = self._actions
         return {
             self.PREVIOUS: has_book and position > 1,
             self.NEXT: has_book and position < count,
-            self.ADD: True,
-            self.DUPLICATE: has_book,
-            self.REMOVE: has_book,
+            self.ADD: self.ADD in offered,
+            self.DUPLICATE: has_book and self.DUPLICATE in offered,
+            self.REMOVE: has_book and self.REMOVE in offered,
             self.SELECT: has_book,
         }
 
