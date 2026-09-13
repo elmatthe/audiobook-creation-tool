@@ -2,6 +2,83 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 3 COMPLETE (M4B MAKER FROZEN PLANNING AND DESTINATIONS); PHASE 4 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the Phase 2 block beneath it on one point only —
+> that block names **Phase 3** as the next action. Phase 3 is now done. The Phase 0 block's
+> integration fact, active authority, panel audit and **guard map** still stand and govern
+> Phases 4–10. The artwork Tk/UI adapter stays deferred to Phase 6 by maintainer approval.
+>
+> **Phase 3 froze the whole Maker operation before any media work; nothing runs and nothing is
+> written.**
+> - **`mp3_tools/m4b_maker_plan.py` (new, 376 lines, Tk-free)** on the `mp3_plan.py` precedent.
+>   `MakerDestination` (frozen: `mode`, `root`, `work_root`, optional `RunReservation`) is built
+>   once per operation by **`standard_destination(reservation)`** — the one reserved
+>   `M4B-Maker-N`, staging under its own `.work` (reserved with the planner first so a Book named
+>   `.work` is numbered away) — or **`custom_destination(dir, work_root=…)`** — the folder proved
+>   by `output_paths.validate_custom_destination`, used *directly* with **no nested
+>   `M4B-Maker-N`**, and a caller-owned absolute work root that must not be the folder or lie
+>   inside it (the existing Maker stages custom builds in an operation-owned temp dir rather than
+>   littering the user's folder; preserved). `MakerRunOptions` (frozen: `auto_number`,
+>   `start_part_text`, `fast_first`). **`plan_run`** parses every Book's effective Silence and
+>   the Start Part first (a bad one refuses the whole operation via `MakerValueError`), applies
+>   `assert_outside_source_trees` in standard mode only (custom mode is the explicit beside-the-
+>   sources exception), takes the Plan 6 `capture_workspace_run` (empty Books skipped, exact
+>   `RunSnapshot` identity kept), and plans every Book through **one `DestinationPlanner`**.
+>   `BookPlan` carries: `book_id`, workspace `number`, `snapshot`, `occurrence_ids`, `sources`,
+>   `chapter_titles` (`wf.book_chapter_titles`), embedded `title` (the Book's own, else the
+>   resolved output-name candidate so no Book is nameless — §5.7), effective `artist` /
+>   `album_artist` / `album` / `series`, `series_part` (the Book's raw text while Auto-number is
+>   OFF, **`None` while ON** — the number is Phase 5's), `artwork` path or `None`, parsed
+>   `silence`, and `filename` / `staging_dir` / `staged` / `published`. `RunPlan` carries the
+>   destination, the capture, the Books, `auto_number`, parsed `start_part`, `fast_first`.
+> - **Naming = Decision 51A through shared authorities only.** `wf.output_name_candidates`
+>   (explicit Output Filename → Title → effective Album → unambiguous folder → `Book N`); the
+>   first candidate whose sanitised stem is still readable wins; `output_filename()` =
+>   `sanitize_component` + `.m4b` **exactly once** (an existing `.m4b`/`.M4B` is not doubled);
+>   collision numbering is the planner's (`Dune.m4b`, `Dune-1.m4b`, `dune-2.m4b`, deterministic,
+>   filesystem-aware in custom folders); a path-like name cannot escape the root. No `re` import.
+>   Every published and staged path passes `assert_not_input`. Staging is keyed by the final
+>   collision-numbered stem so same-named Books stage apart.
+> - **Not in Phase 3, by design:** no `prepare_staging`/`publish_book`/`discard_staging`
+>   (Phase 4 owns the staging lifecycle and atomic publication), no FFmpeg, no artwork loading
+>   (the plan carries the path; Phase 4 loads through `m4b_artwork.cover_for`), no success
+>   number proposed or consumed, no Fast/Safe logic (`fast_first` is a frozen flag).
+> - **One real defect caught by RED and fixed in code:** `assert_contained` treats the root
+>   itself as *not* contained, so a custom work root equal to the destination slipped through;
+>   `custom_destination` now checks equality explicitly. **Two test corrections, not code:** the
+>   overlap test had used a source that exists on disk, which the shared planner correctly
+>   numbers around — it now uses a phantom record so `assert_not_input` is what refuses; and a
+>   listing was taken before the fixtures wrote files.
+> - **Guard changes, the same three sites as Phase 2, narrow:** `ADOPTED` 12 → **13**
+>   (`mp3_tools/m4b_maker_plan.py`; test renamed `..._these_thirteen_...`, `len == 13`);
+>   `PLAN3_ADOPTERS` mirrored; the `m4b_`-prefix set names it. **Maker panel still unadopted,
+>   still checked; both panel hashes unchanged.**
+>
+> **RED → GREEN evidence.** `files/tests/test_m4b_maker_plan.py` (40 tests): red as a
+> collection `ImportError`; first green run 35/40 with the five failures above (1 code defect,
+> 3 test fixes, 1 expected `ADOPTED` pin); **40/40** after.
+>
+> **Phase 3 gate (focused, per plan §11).** Plan + workflow + `test_output_paths` +
+> `test_tool_output_integration` + `test_maker_custom_destination` + `test_mp3_plan` + Plan-6
+> workspace/snapshot/numbering/retry + `test_plan6_boundaries`, `test_plan3_boundaries`,
+> `test_m4b_hardening`, `test_mp3_hardening`, `test_repository_contract`, `test_m4b_maker_smoke`,
+> `test_m4b_destinations`, `test_m4b_conversion_plan`, `test_launcher_smoke`,
+> `test_epub_retirement`, `test_ffmpeg_runtime_trust`: **1,601 passed / 3 skipped / 0 failed**
+> in 39 s (the 3 skips are the pre-existing Windows symlink-privilege cases). `compileall`
+> exit 0; `git diff --check` clean (worktree and index). No full suite / `verify.py` — the next
+> full gate is Phase 5. **`launcher.TOOLS` six; version `0.6.2`; no panel/launcher/`don't-delete/`
+> change.**
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 4 — M4B MAKER SINGLE-BOOK PROCESSING AND ATOMIC
+> PUBLICATION. IT HAS NOT STARTED** and requires separate explicit maintainer approval. Phase 4
+> executes **one frozen `BookPlan`**: FFmpeg readiness through the shared authority, the
+> existing Fast path with automatic Safe fallback, WAV normalisation and inserted silence,
+> chapter timing/titles, core + series metadata, the M4B cover via `m4b_artwork.cover_for` /
+> `embed_cover` on the **staged** file without re-encoding, validation, then atomic publication
+> from `staged` to `published`; with the staging lifecycle (`prepare`/`publish`/`discard`)
+> bounded to `work_root`. No live Tk reads, no second FFmpeg discovery, no batch/controller yet.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 2 COMPLETE (M4B MAKER WORKSPACE/IMPORT MODEL); PHASE 3 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the Phase 1 block beneath it on one point only —

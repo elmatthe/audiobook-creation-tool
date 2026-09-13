@@ -104,7 +104,8 @@ ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
             "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py",
             "mp3_tools/mp3_tool.py", "mp3_tools/mp3_plan.py",
-            "mp3_tools/mp3_processing.py", "mp3_tools/m4b_maker_workflow.py")
+            "mp3_tools/mp3_processing.py", "mp3_tools/m4b_maker_workflow.py",
+            "mp3_tools/m4b_maker_plan.py")
 
 
 def relative_name(path: Path) -> str:
@@ -658,7 +659,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_twelve_production_modules_are_authorized_to_adopt():
+def test_exactly_these_thirteen_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -756,9 +757,19 @@ def test_exactly_these_twelve_production_modules_are_authorized_to_adopt():
     no source tags, and ``files/tests/test_m4b_maker_workflow.py`` holds it to
     that. **The Maker panel itself is still unadopted and still checked below.**
 
-    The name says "these twelve" rather than "eleven" because the count is part of
-    what is pinned: a widening that did not have to rename this test would be a
-    widening nobody had to think about.
+    v0.6.4 Phase 3 adds the **thirteenth**: ``mp3_tools/m4b_maker_plan.py``
+    freezes one Maker operation into an immutable run plan — one shared
+    destination (a reserved run or a validated custom folder), the Plan 6
+    capture and its exact ``RunSnapshot`` per Book, every name and path — and
+    names ``IdFactory``, ``ImportOptions`` and ``SupportedTypeCatalog`` only to
+    hand them to that capture, and ``RunSnapshot`` only as the type it carries.
+    It is the Maker counterpart of ``mp3_plan.py`` and, like it, builds no
+    manager, coordinator, controller or widget; ``files/tests/test_m4b_maker_plan.py``
+    holds it to that. **The Maker panel is still unadopted and still checked.**
+
+    The name says "these thirteen" rather than "twelve" because the count is
+    part of what is pinned: a widening that did not have to rename this test
+    would be a widening nobody had to think about.
     """
     assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
                        "mp3_tools/m4b_converter.py",
@@ -770,7 +781,8 @@ def test_exactly_these_twelve_production_modules_are_authorized_to_adopt():
                        "mp3_tools/mp3_tool.py",
                        "mp3_tools/mp3_plan.py",
                        "mp3_tools/mp3_processing.py",
-                       "mp3_tools/m4b_maker_workflow.py")
+                       "mp3_tools/m4b_maker_workflow.py",
+                       "mp3_tools/m4b_maker_plan.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/m4b_maker.py",
@@ -827,7 +839,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 12, importers
+    assert len(importers) == 13, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
