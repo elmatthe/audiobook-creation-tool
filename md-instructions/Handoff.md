@@ -79,8 +79,9 @@
 > is the established route — Plans 3, 4 and 5 merged through PRs #4, #5 and #6).** Nothing
 > post-closeout is authorized by Phase 13: no version bump, release, tag, package, PR, merge or
 > branch deletion. The temporary focused plan `md-instructions/0.6.3-plan6-mp3-tool-redesign.md`
-> is retained pending the maintainer's explicit deletion approval; its surviving truth has been
-> transferred (see the Phase 13 entry below). The broader Plan 6 drop
+> was **retired (deleted) after the Phase 13 closeout with the maintainer's explicit approval**
+> on 2026-09-12; its surviving truth had been transferred first (see the Phase 13 entry below).
+> The broader Plan 6 drop
 > (`md-instructions/0.6.3-drop1-shared-multi-book-workspace.md`) is untouched: the M4B Maker and
 > M4B Metadata Editor adoptions of the shared multi-Book workspace remain unscheduled and
 > unauthorized.
