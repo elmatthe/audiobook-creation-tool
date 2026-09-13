@@ -15,6 +15,85 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — **The MP3 Tool is rebuilt as a multi-Book workspace** (v0.6.3 focused MP3 redesign, accepted 2026-09-12)
+
+The MP3 Tool no longer works on one flat list of files with three separate operations. It now
+holds **several Books at once** and processes them in one go, with two actions instead of three.
+
+- **Books, not a file list.** `Import Folder` scans a folder and makes **one Book per directory
+  that directly contains MP3s** (a series folder becomes one Book per volume; files that are not
+  MP3s are reported as skipped, never imported). `Add Files` adds MP3s to the current Book.
+  Move between Books with **Previous / Next** or the direct **Book selector**; **Add**,
+  **Duplicate** and **Remove** Books; reorder or remove tracks inside a Book. A Book keeps its
+  identity when others are added or removed.
+- **Shared settings sit above the current Book.** Artist / Author, Album Artist / Author, Album,
+  *Add/Remove Time at End of Each Track (seconds)* and artwork exist once for every Book and once
+  per Book. A filled Shared value applies to every Book and **disables** the matching Book field;
+  clear it and each Book's own value comes back. Blank means blank — nothing silently falls back
+  to what the source files carried.
+- **Source metadata is a suggestion, not a hidden default.** The Artist, Album Artist and Album
+  read from a Book's files pre-fill its fields once; where the files disagree, the field is marked
+  *Mixed source metadata*. Whatever you type — or clear — is what gets written.
+- **Chapter Titles per Book, one per line,** pre-filled from the files' own titles (or their
+  cleaned filenames). Line *n* names track *n*; blank lines are ignored; a shorter list leaves the
+  remaining tracks on their defaults. There is no Book-level Title field: a Book is named by its
+  Album.
+- **Title, filename and track number are three different things.** With **Auto-number** on
+  (the default; **Start #** blank means 1), each output file is named `NN <Title>.mp3` — any
+  number already leading the source name is removed first, so nothing is ever numbered twice —
+  and the embedded Title never carries that prefix. The track number is written as an ordinary
+  integer (`7`, not `07`); the filename prefix is at least two digits and widens as needed.
+- **One signed Time field replaces the separate Time-edit operation.** A positive value appends
+  that many seconds of silence to the end of every track, a negative value trims them, and zero
+  still produces clean new copies. Combine applies it to every constituent, the last one included.
+- **Write ID3 Tags** writes **new copies** with exactly the intended tags — Title, Artist, Album
+  Artist, Album, the track number when Auto-number is on, and the selected front-cover artwork —
+  and nothing else: comments, genre, year, encoder tags and old artwork from the source are gone.
+  There are no *preserve / remove* metadata modes to choose between.
+- **Combine MP3s → One MP3** produces **one combined MP3 per Book** (Books are never joined
+  together) titled by the Album, with Artist / Album Artist / Album, the artwork, no track
+  number and no chapter frames, plus a `combined_time-stamps.txt` listing every track's final
+  title at its offset. The fast single-pass concat is tried automatically whenever the tracks
+  share a codec, sample rate and channel count, and the tool switches to the Safe
+  (WAV-normalising) path by itself when they do not or when the fast pass fails — the reason is
+  shown in the Detailed log. There is no FAST checkbox and no filename prompt.
+- **Artwork is chosen explicitly, previewed, and never touched.** JPG and PNG are embedded
+  byte-for-byte; **HEIC/HEIF** are offered when this machine can decode them and are converted
+  **in memory** to PNG for the embed only — no converted file is written beside your picture, and
+  the picture itself is never resized, cropped or rewritten. No selected artwork means no artwork
+  in the output, old embedded art included.
+- **Where the output goes.** One numbered `MP3-Tool-N` run folder per operation, with one
+  subfolder per Book named by its Album (otherwise by the source folder, otherwise `Book N`).
+  Each Book is published **whole or not at all**: a Book with a failed track publishes nothing,
+  the run continues with the next Book, and **Retry Failed** re-runs just the failed pieces from
+  the settings the run started with — later edits in the window cannot change a run already
+  frozen. Pause / Resume / Cancel come from the shared run controls; a cancelled run keeps every
+  Book it already finished and marks the rest *Not attempted*. Source files are only ever read.
+- **One log region, Summary | Detailed,** whose history survives from run to run with a divider
+  per run and per retry; **Clear Log** clears what is visible and nothing more, and the normal
+  session log keeps recording. There is no Copy Log button and no Debug/Info/Warn selector.
+- **Windows** draws the tool in the ACT dark design system; **macOS** draws it natively.
+
+### Changed — **The macOS window minimum is 1024×720** (v0.6.3 focused MP3 redesign Phase 12, 2026-09-12)
+
+On macOS the launcher can no longer be dragged smaller than **1024×720** — the size it opens at.
+Native aqua buttons, entries and labels are larger than the Windows design's, and at 920×600 the
+MP3 Tool's fixed bands alone were taller than the window, so the track list and the log collapsed
+to nothing and controls were cut off. The Windows minimum stays **920×600**. The MP3 Tool's macOS
+composition was also adjusted to native metrics: the Book actions fold under the navigation row,
+the two processing buttons stand in a column beside the run controls, the long Time label wraps,
+and the metadata entries share the row evenly. Only where things sit differs from Windows; every
+control and behaviour is the same.
+
+### Fixed — cross-platform hardening found by the macOS gate (v0.6.3 focused MP3 redesign Phase 12, 2026-09-12)
+
+- Cleaning up a Book's private staging area now removes a symbolic link inside it **as a link**
+  instead of following it, seeing it point outside and abandoning the cleanup.
+- Internal: the test suite runs fully green on macOS as well as Windows — Windows presentation is
+  requested through the theme's own seam rather than by telling the whole process it is on
+  Windows, the protected-file guards read content rather than the checkout's line endings, and
+  the filesystem-case tests ask the volume what it does.
+
 ### Changed — **Setup and launch now repair themselves** (v0.6.2 PRE-PLAN-6, 2026-09-05)
 
 Double-clicking `Setup_and_Run` on an installation whose prerequisites have gone missing or broken now

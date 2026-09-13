@@ -4,6 +4,97 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-12 — Focused MP3 closeout: the MP3 Tool's approved product contract, and the minimum window is the platform's
+
+**Decision (v0.6.3 focused MP3 redesign, Phase 13 closeout).** The MP3 Tool redesign is complete
+and accepted on both platforms, and these are the rules that outlive the temporary focused plan
+that carried them. Each was approved during the plan, is implemented, and is protected by tests.
+The numbered decisions of the Plan 6 foundation (the Decision Register 1–55 under `don't-delete/`)
+are not repeated here; this entry records what the focused continuation added or superseded.
+
+**The MP3 Tool is a multi-Book workspace with exactly two actions.** `Import Folder` makes one
+Book per directory that directly contains MP3s; `Add Files` extends the current Book; Book
+identity is the stable Plan 6 id, the visible number a position. The actions are **Write ID3
+Tags** and **Combine MP3s → One MP3** and no third; the separate Time-edit operation, the FAST
+checkbox, the combined-filename prompt and the preserve/remove metadata modes of the old
+single-book form are retired for this tool.
+
+**Shared → Book → blank, and blank means blank.** The Shared area is exactly five fields — Artist,
+Album Artist, Album, one signed Time, artwork. A populated Shared value overrides and disables the
+matching Book field and leaves the Book's stored value intact. Source tags pre-fill a Book's three
+scalars once and are never an output fallback: a cleared field writes no frame. A track's own
+default Title (source Title, else cleaned filename) is the one source-derived fallback. There is no
+Book-level Title; a Book is named by its Album.
+
+**Title, filename and track number are three values.** The output filename is derived **from the
+final Title** (`mp3_plan.track_filename`): one existing leading number removed, sanitised through
+the shared cross-platform sanitiser, the calculated number added exactly once when Auto-number is
+on, at least two digits wide and widening with the Book's last number; a Title that sanitises to
+nothing falls back to the source's cleaned name. The embedded Title never carries the prefix; `TRCK`
+is an ordinary unpadded integer; Start # blank means 1. *This supersedes the focused plan's §16.2
+wording ("take the source-derived basename") — the accepted authority is the Title, as implemented
+at Phase 5 and accepted on both platforms.*
+
+**One signed Time.** Positive appends silence to the end of every track, negative trims, zero still
+produces clean new copies; Combine applies it to every constituent including the final one.
+
+**Write ID3 writes a whitelist from a clean tag.** `TIT2` always; `TPE1`, `TPE2`, `TALB` when
+populated; `TRCK` when Auto-number is on; one front-cover `APIC` when artwork is selected. Nothing
+else from the source survives — old artwork included when no artwork is selected.
+
+**Combine is one file per Book, FAST first, Safe automatically.** Books never merge. FAST (a
+one-pass concat-demuxer re-encode) is tried when the staged constituents share codec, sample rate
+and channel count; otherwise, or when FAST fails, the Safe WAV-normalising path runs and the reason
+is emitted as a technical event. The combined tag is Title = effective Album, Artist / Album Artist
+/ Album when populated, the artwork, no `TRCK`, no `CHAP`/`CTOC`; `combined_time-stamps.txt` lists
+the final Titles at their adjusted offsets. A FAST rejection by FFmpeg on otherwise compatible media
+(observed on macOS with FFmpeg 9.0.1) is this contract working, not a defect.
+
+**Artwork is explicit and read-only.** The chooser filter comes from
+`shared.image_capabilities.decodable_suffixes()`; JPG/PNG bytes are embedded as-is; HEIC/HEIF are
+decoded through the one shared probe into an **in-memory** PNG for the embed only, pixel
+dimensions preserved, no sidecar written; the selected file is never resized, cropped or rewritten.
+
+**One run, one controller, atomic Books, frozen retry.** A processing button reserves one
+`MP3-Tool-N` run for the whole batch, freezes one `RunPlan`, and runs one `JobController` /
+`JobReporter` / `JobAdapter` for every Book in order. A Book publishes whole or not at all
+(private `.work/` staging beside its subfolder, which is named Album → source folder → `Book N`
+through the shared collision planner); a failed Book does not stop later Books; Cancel leaves
+unreached Books *Not attempted* and the batch cancelled (there is no Book-level "cancelled");
+Retry Failed re-runs exactly the failed occurrences of the failed Books against the same frozen
+plan inside the same run directory, reusing retained staged pieces, and no live edit can reach it.
+Staging cleanup unlinks a link as a link and never follows it.
+
+**One log region.** Summary | Detailed, history kept across runs with a divider per run and per
+retry, Clear Log clears the visible text only, the persistent session logger continues; no Copy
+Log button, no severity selector, no second engine-output pane.
+
+**The minimum window is the platform's.** Windows keeps `MIN_SIZE = (920, 600)` and its accepted
+Phase 11 ACT composition. macOS aqua's minimum is `AQUA_MIN_SIZE = (1024, 720)` — the size the
+launcher opens at — because native aqua control, font and bezel metrics make the six fixed bands of
+this composition (~440 px) taller than the 484 px content host a 920×600 window leaves, before any
+list or log height at all; no wrap, weight or padding change closes that, only a Mac-only redesign,
+and the maintainer chose the minimum instead after inspecting 1024×720 and larger on the real
+launcher. This supersedes the plan's universal 920×600 wording **for macOS only**. Platform
+presentation differences live behind the theme bundle: the aqua metrics carry composition hints the
+panel reads with the Windows values as defaults, so the Windows layout is untouched by
+construction; business behaviour never branches on platform.
+
+**Tests request a presentation through the theme seam, never by falsifying the host.**
+`ui_theme.apply_theme(root, style, platform="win32")` selects the Windows bundle on any machine.
+A fixture that rewrites `sys.platform` while a panel runs real FFmpeg is a defect — it sent
+`shared/subprocess_utils` down the Windows path on macOS — and is not to be reintroduced.
+
+**What deliberately did *not* become a decision record.** The aqua hint token values, the CRLF
+canonicalisation of the Phase-0 hash guards, the casefolded-name comparison in the planner test,
+the FFmpeg argument shapes and the Phase 10/12 bug fixes are implementation mechanics or enforcement
+of rules already approved; they live in `Handoff.md` and the code.
+
+*Approved across the focused MP3 redesign (Windows Phase 11 and macOS Phase 12, both accepted by
+2026-09-12) and recorded at closeout by Claude Code.*
+
+---
+
 ## 2026-09-05 — Two already-pushed commits keep their AI co-author trailers: a one-time historical exception, not a change of rule
 
 **Status: historical waiver. This entry does NOT supersede, weaken or amend the 2026-07-07 decision

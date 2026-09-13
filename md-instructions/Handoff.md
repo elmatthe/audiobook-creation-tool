@@ -2,6 +2,96 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.3 FOCUSED MP3 REDESIGN, PHASES 1–13 COMPLETE; AWAITING THE MAINTAINER'S INTEGRATION DECISION (2026-09-12)
+>
+> **This block is the live state.** It supersedes every dated block beneath it on the state of
+> the v0.6.3 work; those blocks stand as history, exactly as written. A fresh session needs this
+> block, `Briefing.md` (architecture), `Changelog.md` (what changed for the user) and the
+> 2026-09-12 entry in `Decisions.md` (the durable rules) — not the temporary focused plan and not
+> the chat that produced it.
+>
+> **Where things are.**
+> - Branch `feature/0.6.3-drop1-shared-multi-book-workspace`, final checkpoint
+>   **`bd6a30f4a27a213f55a94db2292d2e23b6db41fa`** (`v0.6.3 MP3 Phase 12: fix macOS layout and
+>   portability`), equal to its upstream. Branched from and still 0 behind
+>   `origin/master` **`83a2bfc7de25dbe5a599b48fd73fe306695e490d`**, which is unmoved.
+> - Version identity **`0.6.2`**, UNRELEASED: no `[0.6.2]`/`[0.6.3]` changelog heading, no tag,
+>   no GitHub release, no package, no PR, no merge, no branch deletion. Published release remains
+>   `v0.4.0`. `launcher.TOOLS` still holds exactly six tools.
+> - The Phase 13 closeout commit (documentation only) follows this checkpoint on the same branch.
+>
+> **What was built and accepted.** The MP3 Tool is now a **multi-Book workspace** — one
+> `Import Folder` makes one Book per directory that directly contains MP3s, `Add Files` extends the
+> current Book, Books are navigated with Previous / Next / a direct selector and added, duplicated
+> and removed; Shared metadata (Artist, Album Artist, Album, signed Time, artwork) overrides and
+> disables the matching Book values; Chapter Titles, Auto-number and Start # are per Book; the two
+> processing actions **Write ID3 Tags** and **Combine MP3s → One MP3** run every eligible Book
+> sequentially from one frozen run plan under one `JobController`, publish each Book atomically,
+> continue past a failed Book and offer **Retry Failed** from the frozen state; one
+> Summary | Detailed log region with Clear Log. Details: `Briefing.md` → *The MP3 Tool*.
+>
+> **Two platforms, two acceptances.**
+> - **Windows (Phase 11, maintainer, real launcher + real media):** UI at 920×600 / 1024×720,
+>   Write ID3, Combine, playback, failure isolation, Retry Failed, Pause/Resume/Cancel, source
+>   safety, metadata/output inspection — all accepted. Windows minimum stays **920×600**.
+> - **macOS (Phase 12, maintainer, real launcher + real media):** native aqua accepted at
+>   **1024×720 and larger**; the macOS minimum is intentionally **1024×720**
+>   (`ui_theme.AQUA_MIN_SIZE`) because the six fixed bands of the composition under native aqua
+>   metrics are taller than the 484 px content host a 920×600 window leaves — a maintainer
+>   ruling superseding the plan's universal 920×600 wording for macOS only. Setup/launcher/FFmpeg
+>   healthy; HEIC capability (decode and encode) and preview exercised; representative real-media
+>   Write ID3 and Combine runs, the mixed-format Safe path, an automatic FAST → Safe fallback,
+>   source safety, logs and playback all passed. The maintainer explicitly ended further manual
+>   auditing and removed the temporary test outputs; nothing of that evidence is retained on disk,
+>   and nothing here claims otherwise.
+>
+> **Latest automated gates.** Windows (Phase 10 commit `0b6989c`): 6,925 collected / 6,909 passed
+> / 16 skipped / 0 failed. macOS (Phase 12 commit `bd6a30f`): **6,945 collected / 6,888 passed /
+> 57 skipped / 0 failed**; `verify.py` **PASS**; `compileall` clean; `git diff --check` clean.
+> The 57 skips are the pre-existing Windows-only cases (ACT design system, `.bat` launcher,
+> junctions, handles, Windows candidate locations). Phase 12 also fixed three Mac-only
+> test-portability defects without a skip — the Windows-bundle fixtures now ask for the
+> presentation through `apply_theme(..., platform="win32")` instead of rewriting `sys.platform`
+> (which had sent real FFmpeg through the Windows subprocess path); the Phase-0 hash guards hash
+> the canonical CRLF representation on any checkout; the planner case test compares casefolded
+> names and asks the volume whether it folds case — and one real latent defect:
+> `mp3_plan.discard_staging` now unlinks a symlink inside its staging area instead of resolving it,
+> seeing it point outside and aborting the discard.
+>
+> **Implementation note (not a defect).** On this Mac's Homebrew FFmpeg 9.0.1, one otherwise
+> compatible real Book attempted FAST concat and FFmpeg rejected the encode near the concat tail
+> (`libmp3lame: inadequate AVFrame plane padding`); the application fell back to Safe
+> automatically, logged the reason with the command, and produced valid output — the §24.2
+> contract working as designed. FAST is a one-pass concat-demuxer re-encode, not a stream copy.
+>
+> **Commit trail of the branch** (0 behind master, 22 ahead): `0eda1e8` Plan 6 draft;
+> `0aa48d2`…`0c07cf2` Plan 6 Phases 0–7 (book vocabulary, workspace controller, folder-to-book
+> construction, shared metadata precedence, frozen book runs, success-only numbering, retry
+> dispositions); `e35e626` Plan 6 Phase 8 + MP3 Phase 2 (Tk adapter, direct Book selector);
+> `427f609` MP3 Phase 3 (Book/import/source-metadata model); `ff27377` Phase 4 (workspace UI);
+> `d3f8093` Phase 5 (frozen run plan, naming, atomic staging); `37144a0` Phase 6 (artwork
+> service); `2b75d7d` Phase 7 (Write ID3 engine); `420dc91` Phase 8 (Combine engine);
+> `16a5f3a` Phase 9 (job control, one log, Retry Failed); `0b6989c` Phase 10 (hardening matrix);
+> Phase 11 was Windows manual acceptance with no code change; `bd6a30f` Phase 12 (macOS layout
+> and portability). Phase 1 was a read-only audit.
+>
+> **THE NEXT ACTION IS THE MAINTAINER'S: decide on integration of this branch (a PR to `master`
+> is the established route — Plans 3, 4 and 5 merged through PRs #4, #5 and #6).** Nothing
+> post-closeout is authorized by Phase 13: no version bump, release, tag, package, PR, merge or
+> branch deletion. The temporary focused plan `md-instructions/0.6.3-plan6-mp3-tool-redesign.md`
+> is retained pending the maintainer's explicit deletion approval; its surviving truth has been
+> transferred (see the Phase 13 entry below). The broader Plan 6 drop
+> (`md-instructions/0.6.3-drop1-shared-multi-book-workspace.md`) is untouched: the M4B Maker and
+> M4B Metadata Editor adoptions of the shared multi-Book workspace remain unscheduled and
+> unauthorized.
+>
+> **Phase 13 (2026-09-12, documentation only).** Reconciled `Handoff.md` (this block),
+> `Changelog.md` (the accepted unreleased MP3 redesign, the macOS minimum, the cross-platform
+> hardening), `Briefing.md` (the MP3 Tool architecture, the per-platform minimum, stale
+> single-Book / time-edit / conversion-boundary claims), `Decisions.md` (one closeout ADR) and
+> `README.md` (user-facing MP3 Tool instructions). No production or test file changed. The
+> permanent planning references under `md-instructions/don't-delete/` were not touched.
+
 > ## ⟢ CURRENT STATE — PLAN 6 PHASE 7 COMPLETE; PHASE 8 NOT STARTED (2026-09-09)
 >
 > **This block is the live state.** It supersedes the block below it on one point only — that block
