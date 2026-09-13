@@ -859,13 +859,15 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: not a tool panel — ``mp3_tools.m4b_maker`` itself is still checked below.
 #: v0.6.4 Phase 3 adds ``mp3_tools.m4b_maker_plan`` as the thirteenth: the
 #: Maker's frozen run plan over the shared destination and capture; not a panel.
+#: v0.6.4 Phase 5 adds ``mp3_tools.m4b_maker_batch`` as the fourteenth: the
+#: Maker's Tk-free batch runner over the shared job architecture; not a panel.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
                   "shared.book_workspace_ui", "mp3_tools.mp3_workflow",
                   "mp3_tools.mp3_tool", "mp3_tools.mp3_plan",
                   "mp3_tools.mp3_processing", "mp3_tools.m4b_maker_workflow",
-                  "mp3_tools.m4b_maker_plan")
+                  "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_maker_batch")
 
 
 def _tool_path(relative: str) -> Path:

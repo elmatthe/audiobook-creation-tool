@@ -105,7 +105,7 @@ ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py",
             "mp3_tools/mp3_tool.py", "mp3_tools/mp3_plan.py",
             "mp3_tools/mp3_processing.py", "mp3_tools/m4b_maker_workflow.py",
-            "mp3_tools/m4b_maker_plan.py")
+            "mp3_tools/m4b_maker_plan.py", "mp3_tools/m4b_maker_batch.py")
 
 
 def relative_name(path: Path) -> str:
@@ -659,7 +659,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_thirteen_production_modules_are_authorized_to_adopt():
+def test_exactly_these_fourteen_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -767,7 +767,18 @@ def test_exactly_these_thirteen_production_modules_are_authorized_to_adopt():
     manager, coordinator, controller or widget; ``files/tests/test_m4b_maker_plan.py``
     holds it to that. **The Maker panel is still unadopted and still checked.**
 
-    The name says "these thirteen" rather than "twelve" because the count is
+    v0.6.4 Phase 5 adds the **fourteenth**: ``mp3_tools/m4b_maker_batch.py``
+    runs one frozen Maker plan through the shared job architecture — one
+    ``JobController`` and one ``JobReporter`` per batch attempt, the Plan 3
+    ``RunResult`` / ``FailureRecord`` vocabulary per Book, the Plan 6
+    ``WorkspaceRunResult`` and ``retry_failed_books``, and the shared
+    ``SuccessNumbers`` allocator — and names ``IdFactory`` only to mint the run
+    id. It is the Maker's Tk-free counterpart of the orchestration the MP3 Tool
+    keeps in its panel; it starts no thread, defines no controller, adapter or
+    widget, and ``files/tests/test_m4b_maker_batch.py`` holds it to that.
+    **The Maker panel is still unadopted and still checked.**
+
+    The name says "these fourteen" rather than "thirteen" because the count is
     part of what is pinned: a widening that did not have to rename this test
     would be a widening nobody had to think about.
     """
@@ -782,7 +793,8 @@ def test_exactly_these_thirteen_production_modules_are_authorized_to_adopt():
                        "mp3_tools/mp3_plan.py",
                        "mp3_tools/mp3_processing.py",
                        "mp3_tools/m4b_maker_workflow.py",
-                       "mp3_tools/m4b_maker_plan.py")
+                       "mp3_tools/m4b_maker_plan.py",
+                       "mp3_tools/m4b_maker_batch.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/m4b_maker.py",
@@ -839,7 +851,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 13, importers
+    assert len(importers) == 14, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():

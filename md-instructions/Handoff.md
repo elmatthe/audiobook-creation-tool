@@ -2,6 +2,108 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 5 COMPLETE (M4B MAKER BATCH EXECUTION, SUCCESS NUMBERING, RETRY FAILED — MILESTONE GATE GREEN); PHASE 6 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the Phase 4 block beneath it on one point only —
+> that block names **Phase 5** as the next action. Phase 5 is now done and the Maker engine is
+> **functionally adopted end to end** behind a still-unconverted panel. The Phase 0 block's
+> integration fact, active authority, panel audit and **guard map** still govern Phases 6–10.
+> The artwork Tk/UI adapter stays deferred to Phase 6 by maintainer approval.
+>
+> **Phase 5 orchestration — `mp3_tools/m4b_maker_batch.py` (new, 416 lines, Tk-free).**
+> - **`MakerRun(plan, id_factory=, clock=, publish=)`** owns what outlives an attempt: the frozen
+>   `RunPlan`, the merged per-Book results, and — **only when `plan.auto_number`** — one
+>   `shared.numbering.SuccessNumbers(plan.start_part)` for the whole retry chain (execution
+>   state, never plan state). `start()` begins the first attempt; `retry_failed()` begins a
+>   retry from the settled result via `book_workspace.retry_failed_books` (same run id, the
+>   **same frozen `BookPlan` objects** matched by `RunSnapshot` identity, nothing re-planned /
+>   re-reserved / re-captured, **no number consumed**); `pause()` / `resume()` / `cancel()`
+>   forward to the active attempt's controller; `add_listener()` hears every event.
+> - **`Attempt`** = exactly **one `JobController` + one `JobReporter`** per batch attempt
+>   (AST-pinned: one construction site, outside any loop). `run()` is the **one worker body**,
+>   refused a second time, run on whatever thread the caller supplies (the module imports no
+>   `threading`). It runs every Book in frozen order — `checkpoint()` between Books and, through
+>   the Phase 4 engine, inside them — then settles the controller (`succeed` /
+>   `complete_with_failures` / `finish_cancelled` / `fail` with `FAULT_MESSAGE` on a worker fault)
+>   and composes the Plan 6 **`WorkspaceRunResult`** over all attempts (a retry that succeeded
+>   while another Book still stands failed is `COMPLETED_WITH_FAILURES` — Decision 28A).
+> - **Per Book:** a retained, validated staged candidate (a retry after a publication failure)
+>   is **reused** (`[kept]`), else `stage_book`; a cancelled staging raises through to the
+>   controller; **with Auto-number: `propose()` → write the part (+ Series Name) on the staged
+>   file via `metadata.write_m4b_tags` → `validate_staged_m4b` again → `checkpoint()` →
+>   `publish_book` → `commit(tentative)` only after publication succeeded.** A failure before
+>   or during publication consumes nothing; a publication failure **retains the candidate**
+>   (it still carries the stale tentative part, which the retry rewrites to its own proposed
+>   number); success discards staging, prunes an empty work root and emits `output_location`.
+> - **Plan 3 vocabulary, no invented identity:** a Book that failed while it still had inputs to
+>   retry (stages normalize / silence / fast / fallback / safe / encode / series / cover /
+>   validate / publish / number / processing / staging) records one **retryable `FailureRecord`
+>   per real occurrence** it was combining, so `RunResult.retry()` names those occurrences and
+>   the retry rebuilds the Book whole; a Book that could not start (unusable artwork, FFmpeg not
+>   ready) records one **item-less fatal** record (`FAILED`, not retryable). Empty Books keep
+>   the capture's `SKIPPED_EMPTY`; Books the cancelled attempt never reached, and the Book it
+>   interrupted (nothing published), are `NOT_ATTEMPTED` — there is no Book-level `CANCELLED`.
+> - **Proved (20 tests, real FFmpeg media):** A ✓ / B ✗ / C ✓ continues and settles
+>   `COMPLETED_WITH_FAILURES` with `retryable_book_ids == (B,)`; Auto-number Start 1 → A=1, B=none,
+>   C=2, `consumed == 2`; frozen Start 4 → 4, 5, 6; publication failure commits nothing (C still
+>   2) and retains B's candidate with stale part 2; **Retry Failed publishes B as part 3**, building
+>   the retry consumed nothing, only B ran, A and C's hashes **and mtimes** unchanged, A's
+>   `RunResult` is the same object; a retained candidate is reused (`stage_book` never called)
+>   and its stale part rewritten 2 → 3; the retry ignores every later workspace edit (Title
+>   renamed, Shared series changed, a Book removed) and uses `retry.books[0] is b`; Auto-number
+>   OFF creates no allocator and preserves manual part 7; **Pause** requested from the worker is
+>   acknowledged at the next checkpoint (`PAUSE_REQUESTED` → `PAUSED` in the event stream,
+>   nothing runs while paused) and **Resume** finishes `SUCCEEDED` on a real worker thread;
+>   **Cancel** after Book 1 leaves `[SUCCEEDED, NOT_ATTEMPTED, NOT_ATTEMPTED]`, state
+>   `CANCELLED`, work root empty; cancel mid-Book publishes nothing and leaves no staging.
+> - **Guard changes, the same three sites, narrow:** `ADOPTED` 13 → **14**
+>   (`mp3_tools/m4b_maker_batch.py`; test renamed `..._these_fourteen_...`, `len == 14`);
+>   `PLAN3_ADOPTERS` mirrored; the `m4b_`-prefix set names it. It names `IdFactory` only to mint
+>   the run id. **Maker panel still unadopted, still checked; both panel hashes unchanged.**
+>
+> **RED → GREEN evidence.** `files/tests/test_m4b_maker_batch.py`: red as a collection
+> `ImportError`; first green run 19/20 with only the expected `ADOPTED` pin failing; **20/20**
+> after the guard edits.
+>
+> **MILESTONE GATE (plan §11 checkpoint 2, Windows, 2026-09-13).**
+> 1. Focused regressions (batch + processing + plan + workflow + `test_book_retry` +
+>    `test_book_numbering` + `test_book_run_snapshot` + `test_book_workspace` +
+>    `test_m4b_numbering` + `test_job_control` + `test_job_controller` + `test_job_events_eta` +
+>    `test_m4b_retry` + all structural guards): **1,809 passed / 0 failed** in 61 s.
+> 2. **Full pytest: 7,161 collected / 7,132 passed / 29 skipped / 0 failed** in 7:14 (direct run,
+>    `-rs`), and again **7,132 / 29 / 0** in 7:13 with `verify.py`'s exact invocation plus `-rf`.
+>    Collection reconciled against Phase 0 (6,945) **to the test**: +209 from the six new files
+>    (18 + 24 + 75 + 40 + 32 + 20), +2 in `test_plan3_boundaries` (two new *unadopted*
+>    production modules — `m4b_artwork`, `m4b_maker_processing` — feed its parametrised
+>    no-adoption guard), +5 in `test_launch_self_heal` (one guard parametrised over every
+>    production source; five new modules) = **+216**. No collection loss. The 29 skips are the
+>    Phase 0 set exactly: 13 aqua-only (12 `test_mp3_tool_layout`, 1 `test_ui_theme`), 10
+>    symlink-privilege (6 `test_import_traversal`, 2 `test_mp3_plan`, 1 `test_output_paths`, 1
+>    `test_cover_source_side`), 3 case-insensitive filesystem, 3 `JACK_RYAN_M4B_FOLDER`. 1
+>    warning (the pydub `audioop` deprecation, pre-existing).
+> 3. **`python scripts/verify.py`: **RESULT: PASS** (pytest 7,132 passed / 29 skipped / 1 warning in 7:18; deps / docs / docnames / config PASS). **Recorded, not hidden:** the *first* `verify.py` attempt reported `1 failed, 7131 passed, 29 skipped` — `verify.py` keeps only pytest's summary line, so the failing test's name was lost. It was diagnosed as far as the evidence allows: the immediately following full run with `verify.py`'s exact invocation plus `-rf` was 7,132 / 29 / 0, as was the direct run before it, and the second `verify.py` passed; the repository already records two pre-existing full-suite intermittents of exactly this shape (`test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates`, filesystem/order-sensitive, Plan 5; and the Tk `init.tcl` transient). No test was weakened or skipped. **Suggestion for the maintainer:** have `verify.py` retain pytest's `-rf` short summary so an intermittent is named next time.**
+> 4. `compileall` (`scripts/Universal`, `scripts/verify.py`, `files/tests`): exit 0.
+> 5. `git diff --check` (worktree and index): clean.
+> 6. Invariants: branch `feature/0.6.4-m4b-maker-metadata-editor`; `origin/master` unmoved at
+>    `e0bab662`; `launcher.TOOLS` = 6; version `0.6.2` (`config.toml`, `shared/version.py`);
+>    `config-template.toml` absent; four canonical doc names; `don't-delete/` (4 files), both
+>    panels, launcher and version files **byte-identical to the anchor**; no unexpected
+>    untracked files.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 6 — M4B MAKER PRODUCTION UI ADOPTION. IT HAS NOT STARTED**
+> and requires separate explicit maintainer approval. Phase 6 replaces the single-Book panel
+> with the coordinated workspace UI on the `mp3_tool.py` precedent: import/workspace band,
+> Maker Shared fields (`SharedMetadataSurface` over the five text fields + the artwork control),
+> `BookNavigator` (default action set), current-Book configuration, local MP3 list, chapter
+> editor, output/run options (custom destination, Auto-number + Start Part, Fast-first),
+> `JobControlBar` / `JobStatusView` / `SummaryDetailsView` over a `JobAdapter` draining
+> `MakerRun`'s events, `LockGroup`; **plus the deferred M4B artwork Tk adapter** (first real
+> consumer). It leaves `PHASE0_PANEL_HASHES` for the Maker the way the MP3 Tool did (digest
+> becomes evidence + positive adoption assertion), updates `UNCONVERTED_PANELS`, `ADOPTED`
+> (panel = 15), the `test_mp3_hardening` substring guard, `test_tool_output_integration`'s
+> source-string pins and `test_ffmpeg_runtime_trust.expected` (the panel stops calling FFmpeg)
+> — each narrowly — and ends with **full suite + `verify.py`**.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 4 COMPLETE (M4B MAKER SINGLE-BOOK PROCESSING + ATOMIC PUBLICATION); PHASE 5 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the Phase 3 block beneath it on one point only —
