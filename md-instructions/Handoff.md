@@ -16,8 +16,9 @@
 >   portability`), equal to its upstream. Branched from and still 0 behind
 >   `origin/master` **`83a2bfc7de25dbe5a599b48fd73fe306695e490d`**, which is unmoved.
 > - Version identity **`0.6.2`**, UNRELEASED: no `[0.6.2]`/`[0.6.3]` changelog heading, no tag,
->   no GitHub release, no package, no PR, no merge, no branch deletion. Published release remains
->   `v0.4.0`. `launcher.TOOLS` still holds exactly six tools.
+>   no GitHub release, no package, no merge, no branch deletion. **Pull request #10 is OPEN against
+>   `master` and not yet merged.** Published release remains `v0.4.0`. `launcher.TOOLS` still holds
+>   exactly six tools.
 > - The Phase 13 closeout commit (documentation only) follows this checkpoint on the same branch.
 >
 > **What was built and accepted.** The MP3 Tool is now a **multi-Book workspace** — one
@@ -64,7 +65,8 @@
 > automatically, logged the reason with the command, and produced valid output — the §24.2
 > contract working as designed. FAST is a one-pass concat-demuxer re-encode, not a stream copy.
 >
-> **Commit trail of the branch** (0 behind master, 22 ahead): `0eda1e8` Plan 6 draft;
+> **Commit trail of the branch** (0 behind `origin/master`; completed feature checkpoint `7d3726f`, open
+> against `master` as pull request #10): `0eda1e8` Plan 6 draft;
 > `0aa48d2`…`0c07cf2` Plan 6 Phases 0–7 (book vocabulary, workspace controller, folder-to-book
 > construction, shared metadata precedence, frozen book runs, success-only numbering, retry
 > dispositions); `e35e626` Plan 6 Phase 8 + MP3 Phase 2 (Tk adapter, direct Book selector);
