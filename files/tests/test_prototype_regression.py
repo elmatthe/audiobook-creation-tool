@@ -436,13 +436,15 @@ def test_building_the_whole_app_leaves_the_generic_styles_untouched(
     assert not changed, f"building the app leaked into generic styles: {changed}"
     assert style.theme_use() == "vista"
 
-    # Only the one converted panel opted in.
+    # Only the converted panels opted in: the editor (Plan 1) and, since the
+    # focused MP3 plan's Phase 4, the MP3 Tool. The other four still use none.
     per_panel = {
         key: sorted({_style_of(w) for w in _walk(cont)
                      if _style_of(w).startswith("ACT.")})
         for key, cont in app.containers.items()
     }
-    assert per_panel.pop("m4b_metadata"), "the converted panel uses no ACT style"
+    for converted in ("m4b_metadata", "mp3_tool"):
+        assert per_panel.pop(converted), f"the converted {converted} uses no ACT style"
     assert all(v == [] for v in per_panel.values()), per_panel
 
 

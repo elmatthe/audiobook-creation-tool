@@ -611,6 +611,44 @@ class DestinationPlanner:
             f"directory={directory}",
         )
 
+    def plan_directory(self, name: str, *, subdir: PurePath | str | None = None) -> Path:
+        """Reserve the next free **directory** name under an optional subdir.
+
+        The one generic extension the multi-book MP3 redesign needed (v0.6.3
+        focused MP3 plan, Phase 5): a run that gives every Book its own subfolder
+        has to keep two Books called *Dune* apart with the same authority that
+        keeps two files apart. So this shares :meth:`plan`'s sanitiser, its
+        case-insensitive taken-set and its filesystem check, and differs in one
+        respect only: a directory has no extension, so a conflict is numbered
+        ``name-1`` / ``name-2`` on the whole name rather than on a stem.
+
+        Returns the planned path and records it — **no directory is created**.
+        A name reserved here is also unavailable to :meth:`plan`, and vice
+        versa, because a file and a folder cannot share a name either.
+        """
+        safe_name = sanitize_component(name)
+        directory = self.root
+        if subdir is not None:
+            relative = sanitize_relative(subdir)
+            if relative.parts:
+                directory = self.root / relative
+        assert_contained(self.root, directory / safe_name)
+
+        candidate = directory / safe_name
+        if self._is_free(candidate):
+            self._taken.add(self._key(candidate))
+            return candidate
+        for index in range(1, MAX_COLLISION_ATTEMPTS + 1):
+            candidate = directory / f"{safe_name}-{index}"
+            if self._is_free(candidate):
+                self._taken.add(self._key(candidate))
+                return candidate
+        raise ReservationError(
+            f"no free folder name could be found for {safe_name!r} after "
+            f"{MAX_COLLISION_ATTEMPTS} attempts",
+            f"directory={directory}",
+        )
+
     @property
     def planned_count(self) -> int:
         return len(self._taken)

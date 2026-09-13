@@ -176,16 +176,61 @@ def test_a_later_retry_could_continue_from_the_consumed_count():
 
 
 def test_the_allocator_is_pure():
-    """AST, not substring: prose about retries legitimately says "retry"."""
+    """AST, not substring: prose about retries legitimately says "retry".
+
+    **This guard was transitioned at v0.6.3 Plan 6 Phase 6, by explicit maintainer
+    authorisation, and it was made stricter rather than weaker.**
+
+    It used to assert that this file's import roots were within
+    ``{"__future__", "dataclasses"}`` -- a correct statement while this file *was*
+    the allocator. Plan 6 §17.1 promoted the implementation to
+    ``shared/numbering.py`` so one allocator serves every consumer, leaving this
+    file as a compatibility re-export. A re-export necessarily depends on
+    ``shared.numbering``, so the old assertion had become a statement about an
+    architecture that no longer exists; the first promotion attempt stopped on it,
+    50/51, exactly as a blocking gate should.
+
+    What replaced it pins the *new* architecture harder than the old one pinned the
+    old: not "``shared`` is allowed" but **exactly ``shared.numbering``, exactly
+    those three names, and no allocator implementation of its own**. Permitting the
+    root ``shared`` would have let this file grow a dependency on any shared module;
+    it cannot.
+
+    The original purity property did not disappear -- **it moved with the
+    implementation**. ``files/tests/test_plan6_boundaries.py`` now asserts
+    ``shared/numbering.py`` itself imports only ``{"__future__", "dataclasses"}``
+    and names none of the forbidden vocabulary below. Between the two, every
+    property this test used to protect is still protected, and one more is added.
+    """
     tree = ast.parse(NUMBERING_SOURCE.read_text(encoding="utf-8"))
-    roots: set[str] = set()
+
+    # A. This file defines no allocator of its own. It re-exports; it does not
+    #    wrap, subclass or reimplement, so there cannot be two allocators.
+    defined = {node.name for node in ast.walk(tree)
+               if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
+    assert defined == set(), defined
+
+    # B/C/D. Its only dependency is exactly ``shared.numbering`` -- the module, not
+    #    merely the ``shared`` root -- and it takes exactly the three public names.
+    imported: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            roots |= {alias.name.split(".")[0] for alias in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            roots.add(node.module.split(".")[0])
-    assert roots <= {"__future__", "dataclasses"}, roots
+            for alias in node.names:
+                imported.setdefault(alias.name, set())
+        elif isinstance(node, ast.ImportFrom):
+            assert node.level == 0, "absolute imports only"
+            imported.setdefault(node.module or "", set()).update(
+                alias.name for alias in node.names)
+    assert set(imported) == {"__future__", "shared.numbering"}, imported
+    assert imported["shared.numbering"] == {
+        "NumberingError", "Tentative", "SuccessNumbers"}, imported
 
+    # The re-export is the whole point: the same objects, not copies of them.
+    from shared import numbering as shared_numbering
+    for name in ("NumberingError", "Tentative", "SuccessNumbers"):
+        assert getattr(m4b_numbering, name) is getattr(shared_numbering, name), name
+
+    # E. Unchanged from the original guard, and still true.
     named = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     named |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
     for forbidden in ("Tk", "StringVar", "Path", "open", "run", "popen",

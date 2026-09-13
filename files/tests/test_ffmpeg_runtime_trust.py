@@ -366,12 +366,16 @@ def test_the_converter_gates_ask_for_verification():
 
 
 def test_the_mp3_tool_gate_asks_for_verification():
-    source = (UNIVERSAL / "mp3_tools" / "mp3_tool.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    asked = {n.func.attr for n in ast.walk(tree)
-             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-             and n.func.attr in ("have_ffmpeg", "verified_ffmpeg")}
-    assert asked == {"verified_ffmpeg"}, asked
+    """The gate lives in ``mp3_processing`` since the focused MP3 plan's Phase 7
+    moved the helpers there; the panel re-exports it and asks nothing itself."""
+    def asked_in(relative):
+        tree = ast.parse((UNIVERSAL / relative).read_text(encoding="utf-8"))
+        return {n.func.attr for n in ast.walk(tree)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr in ("have_ffmpeg", "verified_ffmpeg")}
+
+    assert asked_in("mp3_tools/mp3_processing.py") == {"verified_ffmpeg"}
+    assert asked_in("mp3_tools/mp3_tool.py") == set(), "the panel goes through the gate"
 
 
 def test_no_production_consumer_still_gates_on_have_ffmpeg():
@@ -422,7 +426,7 @@ def test_every_ffmpeg_execution_resolves_through_the_shared_helpers():
     """Positive half: the consumers that do run FFmpeg ask the authority."""
     expected = {
         "mp3_tools/m4b_maker.py", "mp3_tools/m4b_probe.py",
-        "mp3_tools/mp3_tool.py", "mp3_tools/m4b_converter.py",
+        "mp3_tools/mp3_processing.py", "mp3_tools/m4b_converter.py",
         "shared/metadata.py", "tts/chatterbox_synth.py",
         "tts/epub2tts_edge/epub2tts_edge.py",
     }

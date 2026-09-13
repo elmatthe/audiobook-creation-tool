@@ -101,7 +101,10 @@ PANELS = (
 #: pins the tuple against the tree so it cannot drift.
 ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_converter.py", "mp3_tools/m4b_destinations.py",
-            "mp3_tools/m4b_plan.py")
+            "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
+            "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py",
+            "mp3_tools/mp3_tool.py", "mp3_tools/mp3_plan.py",
+            "mp3_tools/mp3_processing.py")
 
 
 def relative_name(path: Path) -> str:
@@ -655,7 +658,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_five_production_modules_are_authorized_to_adopt():
+def test_exactly_these_eleven_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -680,14 +683,84 @@ def test_exactly_five_production_modules_are_authorized_to_adopt():
     so it reads each occurrence's identity, source root and root-relative
     path to decide where that book's outputs go. It consumes the foundation
     and defines none of it, which is what the guards below measure.
+
+    v0.6.3 Plan 6 Phase 1 adds the **sixth**, and it is the first that is neither a
+    panel nor a tool module: ``shared/book_workspace.py`` is the multi-book data
+    layer, so it necessarily names ``IdFactory``, ``Revision``,
+    ``ImportedFileSnapshot`` and ``freeze_options`` — reusing the one identifier
+    factory, the one revision stamp, the one file-list type and the one deep-freeze
+    instead of growing a second of each. It defines none of them, which is exactly
+    what ``test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it``
+    measures, and ``files/tests/test_plan6_boundaries.py`` holds it to the rest of
+    its own boundaries. **This entry authorises that one module and nothing else:**
+    Plan 6's ``shared/numbering.py`` (Phase 6) and ``shared/book_workspace_ui.py``
+    (Phase 8) did not exist yet when that was written, and whether either needed
+    declaring was left to this guard measuring the tree rather than assumed in
+    advance. Both answers are now in: **numbering did not**, because the promoted
+    allocator imports nothing but ``dataclasses``, and it is deliberately absent
+    below.
+
+    v0.6.3 Plan 6 Phase 8 adds the **seventh**: ``shared/book_workspace_ui.py`` is
+    the one Plan 6 Tk adapter, so it necessarily names ``MainThreadGuard``,
+    ``LockGroup``, ``style_name`` and ``ControlKind`` — reusing the one thread
+    guard, the one lock contract and the one style lookup instead of growing a
+    second of each. It defines none of them, and it recreates none of the Plan 3
+    widgets: ``files/tests/test_book_workspace_ui.py`` holds it to that, and
+    ``test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it``
+    measures it here. **This entry authorises that one module and nothing else** —
+    the manual harness is not production and is not listed.
+
+    v0.6.3 focused MP3 plan Phase 3 adds the **eighth**: ``mp3_tools/mp3_workflow.py``
+    is the MP3 Tool's pure model — the MP3 ``SupportedTypeCatalog``, folder-to-Book
+    and Add-Files projection over the Plan 6 workspace, source ID3 observation and
+    the title/number/time contracts. It names ``ImportedFile``,
+    ``ImportedFileSnapshot``, ``SupportedType`` and ``IdFactory`` because those are
+    the importer's own values and a second spelling of any of them would be a
+    second importer. It builds no manager, coordinator, controller or widget, and
+    ``files/tests/test_mp3_workflow.py`` holds it to that.
+
+    v0.6.3 focused MP3 plan Phase 4 adds the **ninth**, and it is the panel:
+    ``mp3_tools/mp3_tool.py`` is redesigned as the first production adopter of
+    the Plan 6 workspace — the shared ``BookNavigator`` and
+    ``SharedMetadataSurface``, the Phase 3 model, and the Plan 3
+    ``ImportCoordinator`` / ``ImportedFileManager`` / job-control shells, exactly
+    as the Converter, Cover and TTS panels compose the importer. It is the one
+    supersession the focused plan records; **M4B Maker and the M4B Metadata
+    Editor stay unadopted and are still checked below.**
+
+    v0.6.3 focused MP3 plan Phase 5 adds the **tenth**: ``mp3_tools/mp3_plan.py``
+    freezes one operation into an immutable run plan — one shared reservation,
+    the Plan 6 capture and its exact ``RunSnapshot`` per Book, every name and
+    destination — and names ``IdFactory``, ``ImportOptions`` and
+    ``SupportedTypeCatalog`` only to hand them to that capture. It is the MP3
+    counterpart of the Converter's ``m4b_plan.py`` and, like it, builds no
+    manager, coordinator, controller or widget.
+
+    v0.6.3 focused MP3 plan Phase 7 adds the **eleventh**:
+    ``mp3_tools/mp3_processing.py`` is the Write ID3 engine. It settles every
+    Book into the foundation's own ``RunResult`` from ``FailureRecord`` values
+    keyed by the real occurrence id — which is exactly what Plan 6's
+    ``WorkspaceRunResult`` and ``retry_failed_books`` consume — so it names
+    ``shared.job_control`` and nothing else of Plan 3: no importer, no
+    controller, no adapter. The composition guard below asks that of it
+    positively as a result-side adopter.
+
+    The name says "these eleven" rather than "ten" because the count is part of what
+    is pinned: a widening that did not have to rename this test would be a widening
+    nobody had to think about.
     """
     assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
                        "mp3_tools/m4b_converter.py",
                        "mp3_tools/m4b_destinations.py",
-                       "mp3_tools/m4b_plan.py")
+                       "mp3_tools/m4b_plan.py",
+                       "shared/book_workspace.py",
+                       "shared/book_workspace_ui.py",
+                       "mp3_tools/mp3_workflow.py",
+                       "mp3_tools/mp3_tool.py",
+                       "mp3_tools/mp3_plan.py",
+                       "mp3_tools/mp3_processing.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
-        "mp3_tools/mp3_tool.py",
         "mp3_tools/m4b_maker.py",
         "mp3_tools/m4b_metadata_editor.py",
     }
@@ -742,7 +815,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 5, importers
+    assert len(importers) == 11, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -764,6 +837,18 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
     to import ``job_ui`` to satisfy a guard would be backwards — it would force a
     dependency the module must not have. Phase 10's ``mp3_tools/m4b_plan.py``
     is the same kind of adopter for the same reason.
+
+    **v0.6.3 Plan 6 Phase 8 adds the mirror-image case, and it is the same
+    argument pointed the other way.** ``shared/book_workspace_ui.py`` adopts the
+    *UI* half of the foundation — ``MainThreadGuard``, ``LockGroup``,
+    ``style_name``, ``ControlKind`` — and has no business naming
+    ``shared.importing`` at all: it is handed an immutable ``WorkspaceSnapshot``
+    and renders it, so an ``IdFactory`` or an ``ImportedFileSnapshot`` would be a
+    dependency it must not have. So the "composes the importer" half is asked of
+    the adopters that adopt the importer, and a UI-side adopter is held to the
+    **UI** composition instead — which is a stricter question for that module, not
+    a waived one. The reimplementation ban above still applies to every adopter
+    without exception, and that is the real protection.
     """
     forbidden = {
         "ImportedFileManager", "ImportCoordinator", "ImportPoller",
@@ -778,7 +863,29 @@ def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it(
         }
         assert not (defined & forbidden), (relative, defined & forbidden)
         modules = imported_names(tree)
-        assert "shared.importing" in modules, relative
+        ui_side = "shared.job_ui" in modules and "shared.importing" not in modules
+        result_side = (relative == "mp3_tools/mp3_processing.py")
+        if ui_side:
+            # A UI-side adopter composes the UI foundation. Asked positively, so
+            # this branch cannot become an escape hatch for adopting nothing.
+            assert "shared.job_control" in modules, relative
+            for reused in ("MainThreadGuard", "style_name"):
+                assert reused in modules or any(
+                    entry.endswith(f".{reused}") for entry in modules), (relative, reused)
+        elif result_side:
+            # A result-side engine composes the result vocabulary and nothing
+            # more: it settles Books into RunResults and must build them from
+            # the foundation's own records, never from a controller of its own.
+            assert "shared.job_control" in modules, relative
+            assert "shared.importing" not in modules, relative
+            for reused in ("FailureRecord", "FailureLog", "RunResult"):
+                assert reused in modules or any(
+                    entry.endswith(f".{reused}") for entry in modules), (relative, reused)
+            built = constructed_names(tree)
+            assert "settle" in built, "RunResult.settle decides the state, not the engine"
+            assert "JobController" not in built, relative
+        else:
+            assert "shared.importing" in modules, relative
         if relative in set(PANELS):
             assert "shared.import_coordination" in modules, relative
             assert "shared.job_ui" in modules, relative
@@ -790,6 +897,7 @@ def test_every_adopting_panel_is_still_checked_for_the_full_composition():
     assert sorted(panels) == [
         "mp3_tools/cover_resizer.py",
         "mp3_tools/m4b_converter.py",
+        "mp3_tools/mp3_tool.py",
         "tts/epub2tts_gui.py",
     ], panels
 
@@ -852,11 +960,17 @@ def test_the_existing_cancellation_api_is_unchanged_and_unwrapped():
 
 
 def test_every_pre_existing_caller_of_the_cancellation_api_still_resolves():
-    """The six production modules and two tests that already import these names."""
+    """The production modules and two tests that already import these names.
+
+    The MP3 Tool was a caller until the focused MP3 plan's Phase 4 replaced its
+    ad-hoc worker with the shared job-control shell; its processing phases run
+    through ``JobController``, whose cooperative cancellation is Plan 3's, so
+    the panel no longer names the primitive itself. The remaining callers are
+    unchanged.
+    """
     callers = {
         "mp3_tools/m4b_maker.py": ("ConversionCancelled", "raise_if_cancelled"),
         "mp3_tools/m4b_metadata_editor.py": ("ConversionCancelled", "raise_if_cancelled"),
-        "mp3_tools/mp3_tool.py": ("ConversionCancelled", "raise_if_cancelled"),
         "tts/epub2tts_gui.py": ("ConversionCancelled",),
         "tts/epub2tts_edge/epub2tts_edge.py": ("ConversionCancelled",),
         "tts/kokoro_synth.py": ("ConversionCancelled",),

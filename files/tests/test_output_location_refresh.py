@@ -397,8 +397,10 @@ def test_registration_added_no_styling_or_layout_change(key):
     """
     source = PANEL_SOURCES[key].read_text(encoding="utf-8")
     assert source.count("register_destination_hint") == 1, key
-    if key == "m4b_metadata":
-        assert "ACT." in source, "the converted editor keeps its design system"
+    if key in ("m4b_metadata", "mp3_tool"):
+        # The editor (Plan 1) and, since the focused MP3 plan's Phase 4, the
+        # MP3 Tool are the converted panels; both name the design system.
+        assert "ACT." in source, f"the converted {key} keeps its design system"
     else:
         assert "ACT." not in source, key
 

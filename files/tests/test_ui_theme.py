@@ -43,11 +43,15 @@ def tk_root():
 
 
 @pytest.fixture
-def windows_theme(tk_root, monkeypatch):
-    """(style, theme) for the Windows branch, forced on any host."""
-    monkeypatch.setattr(sys, "platform", "win32")
+def windows_theme(tk_root):
+    """(style, theme) for the Windows branch, asked for on any host.
+
+    Through ``apply_theme``'s own ``platform`` seam rather than by rewriting
+    ``sys.platform``: the latter also told every real subprocess it was on
+    Windows, which is how 31 macOS test failures were made (Phase 12).
+    """
     style = ttk.Style(tk_root)
-    return style, ui_theme.apply_theme(tk_root, style)
+    return style, ui_theme.apply_theme(tk_root, style, platform="win32")
 
 
 def _luminance(hex_color: str) -> float:
@@ -89,12 +93,17 @@ def test_apply_theme_on_current_platform(tk_root):
 
     assert REQUIRED_KEYS <= set(theme)
     assert theme["geometry"] == "1024x720"
-    assert theme["min_size"] == (920, 600)
+    # The minimum is the platform's (Phase 12 maintainer ruling): native aqua
+    # metrics need the 1024x720 window the launcher opens at; Windows and the
+    # classic branch keep 920x600.
+    assert theme["min_size"] == (
+        ui_theme.AQUA_MIN_SIZE if theme["mode"] == "aqua" else ui_theme.MIN_SIZE)
     assert theme["font_heading"][1:] == (15, "bold")
 
     if sys.platform == "darwin":
         assert theme["mode"] == "aqua"
         assert style.theme_use() == "aqua"
+        assert theme["min_size"] == (1024, 720)
         colors, metrics = theme["colors"], theme["metrics"]
         assert colors and metrics
         for name, value in colors.items():
@@ -605,11 +614,10 @@ def test_progress_indicator_default_style_is_untouched(tk_root):
     ind.frame.destroy()
 
 
-def test_classic_branch_other_platform(tk_root, monkeypatch):
+def test_classic_branch_other_platform(tk_root):
     """Non-win32/non-darwin keeps the historical clam + TkDefaultFont look."""
-    monkeypatch.setattr(sys, "platform", "linux")
     style = ttk.Style(tk_root)
-    theme = ui_theme.apply_theme(tk_root, style)
+    theme = ui_theme.apply_theme(tk_root, style, platform="linux")
 
     assert theme["mode"] == "classic"
     assert theme["family"] == "TkDefaultFont"
@@ -617,6 +625,53 @@ def test_classic_branch_other_platform(tk_root, monkeypatch):
     assert theme["geometry"] == "1024x720"
     assert theme["min_size"] == (920, 600)
     assert style.theme_use() == "clam"
+
+
+# ---------------------------------------------------------------------------
+# v0.6.3 MP3 Phase 12 — the minimum window is the platform's, and the branch
+# can be asked for explicitly without lying to the host
+# ---------------------------------------------------------------------------
+
+def test_the_minimum_window_is_pinned_per_platform():
+    """Windows stays at 920x600; aqua is 1024x720 (maintainer ruling)."""
+    assert ui_theme.MIN_SIZE == (920, 600)
+    assert ui_theme.AQUA_MIN_SIZE == (1024, 720)
+    assert ui_theme.DEFAULT_GEOMETRY == "1024x720", (
+        "the aqua minimum is the size the launcher opens at")
+
+
+def test_windows_minimum_stays_920x600_whatever_the_host(windows_theme):
+    _style, theme = windows_theme
+    assert theme["mode"] == "windows"
+    assert theme["min_size"] == (920, 600) == ui_theme.MIN_SIZE
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the aqua branch needs aqua")
+def test_aqua_minimum_is_1024x720_on_a_real_mac(tk_root):
+    style = ttk.Style(tk_root)
+    theme = ui_theme.apply_theme(tk_root, style)
+    assert theme["mode"] == "aqua"
+    assert theme["min_size"] == (1024, 720) == ui_theme.AQUA_MIN_SIZE
+    assert theme["geometry"] == "1024x720"
+
+
+def test_the_platform_seam_selects_the_branch_without_touching_sys_platform(tk_root):
+    """``platform=`` picks the presentation; ``sys.platform`` stays the host's."""
+    host = sys.platform
+    style = ttk.Style(tk_root)
+    windows = ui_theme.apply_theme(tk_root, style, platform="win32")
+    assert windows["mode"] == "windows" and windows["family"] == "Segoe UI"
+    assert windows["styles"] and windows["min_size"] == (920, 600)
+    assert sys.platform == host
+    classic = ui_theme.apply_theme(tk_root, style, platform="linux")
+    assert classic["mode"] == "classic" and classic["family"] == "TkDefaultFont"
+    assert sys.platform == host
+    # And with nothing passed, the host decides — exactly as before the seam.
+    own = ui_theme.apply_theme(tk_root, style)
+    expected = {"darwin": "aqua", "win32": "windows"}.get(host, "classic")
+    assert own["mode"] == expected
+    if "vista" in style.theme_names():
+        style.theme_use("vista")
 
 
 # ---------------------------------------------------------------------------
