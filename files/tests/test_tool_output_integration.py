@@ -854,12 +854,15 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: Phase 7 adds ``mp3_tools.mp3_processing`` as the eleventh: the Write ID3
 #: engine settles each Book into a Plan 3 ``RunResult``, so it names the
 #: foundation's result vocabulary; not a tool panel.
+#: v0.6.4 Phase 2 adds ``mp3_tools.m4b_maker_workflow`` as the twelfth: the
+#: Maker's Tk-free model over the Plan 6 workspace and the importer's values;
+#: not a tool panel — ``mp3_tools.m4b_maker`` itself is still checked below.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
                   "shared.book_workspace_ui", "mp3_tools.mp3_workflow",
                   "mp3_tools.mp3_tool", "mp3_tools.mp3_plan",
-                  "mp3_tools.mp3_processing")
+                  "mp3_tools.mp3_processing", "mp3_tools.m4b_maker_workflow")
 
 
 def _tool_path(relative: str) -> Path:

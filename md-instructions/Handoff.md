@@ -2,6 +2,77 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 2 COMPLETE (M4B MAKER WORKSPACE/IMPORT MODEL); PHASE 3 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the Phase 1 block beneath it on one point only —
+> that block names **Phase 2** as the next action. Phase 2 is now done. The Phase 0 block's
+> integration fact, active authority, panel audit and **guard map** still stand and still govern
+> Phases 3–10. The maintainer approved Phase 1 and its disposition to **defer the M4B artwork
+> Tk/UI adapter to the first real UI consumer in Phase 6**; it was not added in Phase 2.
+>
+> **Phase 2 built the Maker's Tk-free model and adopted nothing in the panel.**
+> - **`mp3_tools/m4b_maker_workflow.py` (new, 530 lines)** is the Maker's non-UI layer over the
+>   shared Plan 6 workspace and the importer, on the `mp3_workflow.py` precedent but with the
+>   Maker's own vocabulary: `MAKER_TYPE`/`MAKER_CATALOG` (MP3 in); **six Shared fields**
+>   `artist, album_artist, album, series, silence, artwork` and **four Book-only fields**
+>   `title, series_part, output_filename, chapter_titles` with `FIELD_LABELS`;
+>   `new_shared_metadata`/`new_workspace` (one pristine Book, empty configuration — the Maker
+>   supplies **no model defaults**, so `has_meaningful_work` keeps its Decision 50A meaning);
+>   `import_folder` (pure delegation to `replace_workspace_from_import`: one Book per directory
+>   directly containing MP3s, natural order, atomic replacement, **no source-tag prefill** — the
+>   Maker observes no ID3, per §5.7); `add_files` (current Book only, selection natural-ordered by
+>   filename as the existing Maker does, occurrence identity, duplicates refused, never regrouped);
+>   `move_tracks`/`remove_tracks` (bounded, identity-preserving, configuration kept);
+>   `set_book_field` (raw text, blank is a stored fact, Maker fields only); text accessors;
+>   **`strip_leading_numbers`/`normalize_title` preserved verbatim from the current Maker** (an
+>   AST test compares the function bodies against the hash-pinned panel) and `default_titles`,
+>   `usable_lines`, `resolve_chapter_titles`, `book_chapter_titles` (line *n* → chapter *n*, a
+>   short list keeps the automatic titles, extras ignored, blank lines are not chapters — the
+>   Maker's existing rule); `parse_silence` (blank → 0.0, finite, **negative refused**, `-0` → 0.0)
+>   and `parse_start_part` (blank → 1, positive whole number); `effective_values` (Shared → Book →
+>   blank via `effective_metadata` only), `effective_silence`; `source_folder_name` (the one
+>   containing directory or `None`) and `output_name_candidates(shared, book, position)` — the
+>   Decision 51A inputs in order (explicit Output Filename, Title, effective Album, unambiguous
+>   folder, `Book N`), blanks skipped, **not sanitised and no `.m4b`** — that is Phase 3's through
+>   `output_paths`; `display_hint` (Title, else effective Album, else folder).
+> - **Deliberately absent:** no observation store, no `ffmpeg`/`mutagen`/`output_paths`/Tk
+>   import, no run reservation, no plan, no staging, no Series-Part validation beyond raw text
+>   (Auto-number and Start Part are batch-level run options per §5.9 and belong to Phase 3's
+>   frozen plan), and no title fallback resolution (§5.7 — it depends on the planned name).
+> - **Guard changes, exactly the three the Phase 0 map predicted, all narrow:**
+>   `test_plan3_boundaries.ADOPTED` 11 → **12** (`mp3_tools/m4b_maker_workflow.py`; the pinned
+>   test renamed `..._these_twelve_...`, docstring extended, `len(importers) == 12`);
+>   `test_tool_output_integration.PLAN3_ADOPTERS` mirrored; `test_m4b_hardening`'s
+>   `mp3_tools/m4b_`-prefix set now names the Maker module explicitly with a comment. **The
+>   Maker panel is still in `UNADOPTED_PANELS` and still checked; both panel hashes unchanged.**
+>
+> **RED → GREEN evidence.** `files/tests/test_m4b_maker_workflow.py` (75 tests): red as a
+> collection `ImportError` (`cannot import name 'm4b_maker_workflow'`). First green run showed
+> two of my *expected titles* were wrong about the existing Maker rule (the first `_` is always
+> the `: ` rewrite, so `Its_s a trap` → `Its: s a trap`); verified against the original
+> `m4b_maker.normalize_title` on nine probes (all identical) and corrected the **test**, not the
+> preserved code, then added the AST body-equality guard. 75/75 green after the guard edits.
+>
+> **Phase 2 gate (focused, per plan §11).** Maker workflow + Plan-6 workspace/UI/snapshot/
+> numbering/retry regressions + `test_plan6_boundaries`, `test_plan3_boundaries`,
+> `test_m4b_hardening`, `test_mp3_hardening`, `test_tool_output_integration`,
+> `test_repository_contract`, `test_mp3_workflow`, `test_import_manager`, `test_import_traversal`,
+> `test_m4b_maker_smoke`, `test_maker_custom_destination`, `test_m4b_artwork`,
+> `test_launcher_smoke`, `test_epub_retirement`, `test_ffmpeg_runtime_trust`: **1,752 passed /
+> 9 skipped / 0 failed** in 33 s. The 9 skips are the pre-existing Windows cases (6 symlink
+> privilege, 3 case-insensitive filesystem). `compileall` exit 0; `git diff --check` clean
+> (worktree and index). No full suite / `verify.py` this phase — next full gate is Phase 5.
+> **`launcher.TOOLS` six; version `0.6.2`; no panel, launcher or `don't-delete/` change.**
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 3 — M4B MAKER FROZEN PLANNING AND DESTINATIONS. IT HAS NOT
+> STARTED** and requires separate explicit maintainer approval. Phase 3 freezes one operation
+> (Book order/IDs, occurrences, final chapter titles, effective metadata/artwork/silence,
+> manual-or-auto series settings, optional output filename, Fast-first option, standard or
+> custom destination, staged and final paths) through `output_paths` sanitising/collision
+> planning and one reservation, with **no media output**; it consumes this module's values
+> (`book_chapter_titles`, `effective_values`, `effective_silence`, `output_name_candidates`,
+> `parse_start_part`) and will itself be a new `ADOPTED` entry.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 1 COMPLETE (SHARED M4B SEAMS + ARTWORK FOUNDATION); PHASE 2 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the Phase 0 block beneath it on one point only —
