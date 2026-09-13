@@ -2,6 +2,91 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 4 COMPLETE (M4B MAKER SINGLE-BOOK PROCESSING + ATOMIC PUBLICATION); PHASE 5 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the Phase 3 block beneath it on one point only —
+> that block names **Phase 4** as the next action. Phase 4 is now done. The Phase 0 block's
+> integration fact, active authority, panel audit and **guard map** still stand and govern
+> Phases 5–10. The artwork Tk/UI adapter stays deferred to Phase 6 by maintainer approval.
+>
+> **Phase 4 extracted the proven Maker engine behind the frozen plan and made every Book build
+> atomic. The panel is untouched.**
+> - **`mp3_tools/m4b_maker_processing.py` (new, 798 lines, Tk-free)** runs **one frozen
+>   `BookPlan`** with explicit dependencies only (`work_root`, `fast_first`, `checkpoint`,
+>   `on_event`, `bitrate`) — no widget, no Tk variable, no workspace (AST-guarded: no
+>   `tkinter`/`book_workspace`/`job_*`/`importing`/`m4b_maker` import; no live-var names).
+>   **Moved verbatim from the panel** (AST body-equality test against the hash-pinned
+>   `m4b_maker.py`): `build_ffmetadata_from_starts` (250 ms lead-in, ≥100 ms chapters, last
+>   ends at total−1), `write_concat_list`, `wav_duration_ms`, `compute_starts_total_fast`,
+>   `compute_audio_starts_with_silence`, `ffprobe_duration_ms`; plus `normalize_to_wav`,
+>   `create_silence_wav` and the FAST/Safe concat commands (`fast_concat_args` /
+>   `safe_concat_args`) as the panel runs them, **minus the FFmpeg cover input**. Constants
+>   `LEADIN_MS=250`, `WAV_SR=44100`, `WAV_CH=2`, `WAV_FMT="s16"`, `DEFAULT_BITRATE="128k"`.
+> - **Path decision preserved:** silence > 0 → normalise every track to WAV, one silence WAV
+>   *between* adjacent tracks (never after the last), Safe; else FAST when Fast-first is on,
+>   with **automatic Fast → Safe fallback** on `CalledProcessError` (re-normalise, recompute
+>   starts with 0 silence, rewrite ffmeta, Safe) and the reason emitted as a `fallback` event;
+>   Fast-first off → Safe on the MP3 list directly (the panel's own behaviour). Every FFmpeg
+>   launch is headed by `ffmpeg_utils.ffmpeg_cmd()`/`ffprobe_cmd()`; readiness is
+>   `ffmpeg_utils.verified_ffmpeg()` (an unverified pair fails at stage `ffmpeg` before anything
+>   is created).
+> - **Two deliberate changes from the panel:** (1) **artwork is a post-step on the staged file**
+>   through Phase 1's `m4b_artwork.cover_for` / `embed_cover` (mutagen `covr`) — JPEG/PNG bytes
+>   preserved, HEIC/HEIF converted **in memory** only where the probe allows, no sidecar, and the
+>   packed audio stream proved unchanged by MD5; the cover is resolved *before* any encoding so an
+>   unusable image fails at stage `artwork` with **no FFmpeg launched**. (2) **Nothing is ever
+>   encoded to `BookPlan.published`** — the encode targets `BookPlan.staged` (spy-asserted), the
+>   series tags (`metadata.write_m4b_tags`: Series Name always when populated; **manual Series
+>   Part only** — a plan with `series_part=None` gets the name and no part, the number is Phase
+>   5's) and the cover go onto the staged file, `validate_staged_m4b` reads it back through the
+>   shared ffprobe/metadata authorities (regular non-empty file, positive audio duration,
+>   exactly the planned chapter titles in order, the planned Title, cover present iff planned),
+>   and only then `publish_book` moves it with `os.replace` — refusing an already-present
+>   destination — with a **cross-filesystem route** for a custom folder on another drive
+>   (`output_paths.temporary_sibling` in the destination + `atomic_replace`, tested by forcing
+>   `EXDEV`). `stage_book` (everything up to a validated staged M4B) and `publish_book` are
+>   separate on purpose so Phase 5 can write the proposed success number onto the staged file
+>   between them; `build_book` composes them for the manual case.
+> - **Cleanup is bounded:** `prepare_staging` creates only `<work_root>/<stem>/`;
+>   `discard_staging` removes only that directory (links unlinked, never followed); after a
+>   Book the work root is `rmdir`-pruned **only if empty**. A failed or cancelled Book leaves
+>   **no staging and no file in the destination**; the reserved run directory and a custom
+>   folder's unrelated files are never touched; source hashes are asserted unchanged.
+> - **`BookOutcome`** (frozen: `succeeded`, `published`, `staged`, `path_used`, `cancelled`,
+>   `failure_stage/message/detail`) and **`ProcessingEvent`** (`book_id`, `stage`, `message`,
+>   `detail`, `kind`) are values; Phase 5 maps them into the Plan 3 `RunResult` vocabulary.
+> - **No guard changes this phase:** the engine imports no Plan 3 module, so it is not an
+>   adopter; `ADOPTED` stays 13, `test_ffmpeg_runtime_trust` still holds (`expected ⊆ found`),
+>   both panel hashes unchanged.
+>
+> **RED → GREEN evidence.** `files/tests/test_m4b_maker_processing.py` (32 tests, real
+> one-second FFmpeg tones, real AAC/M4B builds): red as a collection `ImportError`. First green
+> run 16/17 with `-x`: **one real gap** — the empty `.work` directory survived a failed Book —
+> fixed by the empty-only prune. Then two over-broad assertions in my own structural test
+> (a legitimate `"ffmpeg"` stage-name literal; a plain local named `files`) were narrowed to what
+> they mean (no command list headed by a bare executable; no Tk-variable names). **32/32**.
+>
+> **Phase 4 gate (focused, per plan §11).** Processing + plan + workflow + `test_m4b_artwork` +
+> `test_m4b_metadata*` + `test_ffmpeg_runtime_trust` + `test_ffmpeg_health` + `test_output_paths`
+> + `test_tool_output_integration` + `test_maker_custom_destination` + `test_m4b_maker_smoke` +
+> `test_plan6_boundaries` + `test_plan3_boundaries` + `test_m4b_hardening` + `test_mp3_hardening`
+> + `test_repository_contract` + `test_mp3_combine` + `test_mp3_write_id3` + `test_launcher_smoke`
+> + `test_epub_retirement` + `test_image_capabilities`: **1,319 passed / 1 skipped / 0 failed**
+> in 59 s (the skip is the pre-existing Windows symlink-privilege case in `test_output_paths`).
+> `compileall` exit 0; `git diff --check` clean (worktree and index). No full suite / `verify.py`
+> — **Phase 5 is the planned full milestone gate.** `launcher.TOOLS` six; version `0.6.2`; no
+> panel/launcher/`don't-delete/` change.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 5 — M4B MAKER BATCH EXECUTION, SUCCESS NUMBERING AND RETRY
+> FAILED. IT HAS NOT STARTED** and requires separate explicit maintainer approval. Phase 5 runs
+> all planned Books in frozen order under **one** `JobController` / reporter / event stream /
+> worker, continues after a Book failure, publishes each Book atomically via
+> `stage_book → (propose success number, write it on the staged file) → publish_book → commit`,
+> uses the shared success allocator (`shared.numbering.SuccessNumbers`), maps `BookOutcome` to
+> Plan 3 `RunResult`/`FailureRecord` for `WorkspaceRunResult` + `retry_failed_books`, and ends
+> with the **full pytest + `verify.py` + compileall + diff check milestone gate**. Its module
+> will import `job_control`, so it joins `ADOPTED` (14) and the `m4b_`-prefix pin.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 3 COMPLETE (M4B MAKER FROZEN PLANNING AND DESTINATIONS); PHASE 4 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the Phase 2 block beneath it on one point only —
