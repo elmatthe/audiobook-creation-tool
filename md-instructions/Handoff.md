@@ -2,6 +2,145 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 M4B MAKER + M4B METADATA EDITOR, PHASE 0 COMPLETE; PHASE 1 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the 2026-09-12 block beneath it on three points —
+> pull request #10 is now **merged**, the active branch and temporary plan have changed, and the
+> next action is no longer the maintainer's integration decision. Everything else in that block,
+> and every dated block beneath it, stands as history exactly as written.
+>
+> **Integration fact (supersedes every "PR #10 is OPEN" sentence in this file and in the permanent
+> Master Index).** PR #10 merged into `master` as **`e0bab662b385734807bf264d8f450aebac053dcc`**
+> (parent 1 `83a2bfc7de25dbe5a599b48fd73fe306695e490d`, parent 2
+> `4b988676ac258f4f3b4991aa92c99679a2e6ce33`). The merge tree is identical to the feature tip's
+> tree. `origin/master` is exactly that commit; nothing newer has landed. Stale "open / unmerged"
+> wording elsewhere is a documentation-reconciliation item for the plan's Phase 14, not a defect,
+> and the permanent `don't-delete/` index was deliberately **not** edited in Phase 0.
+>
+> **Active authority.** The maintainer-approved temporary plan is
+> `md-instructions/Audiobook Creation Tool v0.6.4 — M4B Maker + M4B Metadata Editor.md`
+> (exact filename, not renamed; the plan's own Phase 14 text refers to it by a shorter
+> `0.6.4-m4b-maker-metadata-editor.md` spelling — treat that as the same file). It is the **only
+> active** implementation authority. The retained
+> `md-instructions/0.6.3-drop1-shared-multi-book-workspace.md` is a **read-only contract
+> reference** for the shared foundation; it is neither active nor retired. The plan's §2.1
+> supersession (2026-09-13) replaces the old Plan 7 / Plan 8 split and the Master Index §15
+> `feature/0.6.4-m4b-maker` / `feature/0.6.5-m4b-metadata-editor` wording with **one** drop and
+> **one** branch: v0.6.4 = M4B Maker + M4B Metadata Editor.
+>
+> **Where things are.**
+> - Branch **`feature/0.6.4-m4b-maker-metadata-editor`**, created in Phase 0 from the verified
+>   `origin/master` `e0bab662` (`--no-track`; pushed at the Phase 0 commit). Local `master` was
+>   left where it stood (`e36ab7d`, an older ancestor of `origin/master`) — Phase 0 branched from
+>   the remote ref directly rather than moving it. The previous feature branch
+>   `feature/0.6.3-drop1-shared-multi-book-workspace` is retained at `4b98867`.
+> - Version identity **`0.6.2`**, UNRELEASED (`shared/version.py`, `config.toml`); published
+>   release **`v0.4.0`**; `launcher.TOOLS` exactly six; `config-template.toml` absent; the four
+>   canonical doc names unchanged. No tag, release, package, PR, merge or branch deletion.
+> - Untracked maintainer material preserved: the plan file itself (now committed by Phase 0).
+>   Pre-existing gitignored local state left alone: `files/dev-work/` (including a stale
+>   `git worktree` at `files/dev-work/phase12/degraded`, detached at `82042f7`), `.venv/`.
+>
+> **Phase 0 gates (this checkout, Windows, 2026-09-13).** Full pytest: **6,945 collected / 6,916 passed / 29 skipped / 0 failed**, identical across three consecutive runs (6:59 with `-W default`, 6:43 under `verify.py`, 6:44 with `-rs`). The 29 skips are fully accounted for: **13 macOS-aqua-only** geometry cases added by MP3 Phase 12 (12 in `test_mp3_tool_layout.py`, 1 in `test_ui_theme.py`) — exactly the difference from the Phase 10 Windows baseline of 16 — plus the 16 pre-existing Windows skips (10 symlink-privilege `WinError 1314`, 3 case-insensitive-filesystem, 3 `JACK_RYAN_M4B_FOLDER` fixture). Warnings: 1 under the plain run; 95 only when `-W default` is forced, all `ResourceWarning: unclosed file` inside pytest temp dirs (26 `test_mp3_finalization.py`, 3 `test_suite_isolation.py`, 1 `test_tts_smoke.py`) — pre-existing and hidden by the default filter. The known intermittent `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in all three runs and was not modified**.
+> `python scripts/verify.py`: **RESULT: PASS (pytest / deps / docs / docnames / config all PASS)**. `compileall` over `scripts/Universal`, `scripts/verify.py`,
+> `files/tests`: exit 0, no output. `git diff --check` (worktree and index): clean. No production
+> or test file changed in Phase 0.
+>
+> **Phase 0 audit — what the two panels are today (evidence for Phases 1–10, not a to-do list).**
+> - `mp3_tools/m4b_maker.py` (1,014 lines) is the **classic, unconverted** single-Book panel: one
+>   raw `self.files` list, Tk vars copied into a `params` dict on the main thread, its own
+>   `threading.Thread` + `queue` pump (no `JobController`), FFmpeg resolved through
+>   `shared.ffmpeg_utils`. Fast-first with automatic Safe fallback, silence via WAV normalisation
+>   (`create_silence_wav`, `compute_audio_starts_with_silence`), chapters from cleaned filenames
+>   (`compute_titles`) plus a one-per-line textbox, cover passed to FFmpeg at encode time, series
+>   tags written with `metadata.write_m4b_tags` after the encode. Standard runs reserve
+>   `M4B-Maker-N`; the custom destination (Decision 10A) plans straight into the chosen folder.
+>   **Gaps the plan targets:** FFmpeg writes the final `.m4b` **directly to its published path**
+>   (no private staging → §5.13); the filename fallback is `title or album or "audiobook"`
+>   (§5.8 wants the Decision 51A chain); silence is parsed as a float with **no negative
+>   rejection** (§5.5); no Shared/Book split, no Books, no Retry Failed, no Summary/Detailed log.
+> - `mp3_tools/m4b_metadata_editor.py` (1,438 lines) is already **ACT-converted on Windows**
+>   (card layout) with a classic branch elsewhere, and both branches wrap the whole form in a
+>   scrollable `Canvas` — the whole-form-scroll debt §Phase 10 discharges. It is a **batch-global**
+>   form: one shared tag set for every file, a chapter-title pager per file, preserve-by-default
+>   via `_collect_tags(only_edited=...)`, and three actions (`save`, `on_clear_all_tags`,
+>   `on_remove_series_numbering`) over `shared.metadata` (`write_m4b_tags`,
+>   `clear_metadata_keep_chapters`, `clear_series_numbering`, `apply_chapter_titles`). Own
+>   thread/queue, no `JobController`. **Gaps the plan targets:** `shutil.copy2` lands the copy on
+>   its **final** planned path before any tag write, so a later failure leaves a visible partial
+>   copy (§Phase 9 "existing bug/debt"); auto-number is **position-based**
+>   (`start_part + idx - 1`), so a failed file leaves a gap (§6.8 wants success-only); no Books,
+>   no per-file page, no Retry Failed.
+> - Shared foundation confirmed present by AST: every `book_workspace` name the plan lists
+>   (`__all__` = 45), `BookNavigator` / `SharedMetadataSurface` in `book_workspace_ui`,
+>   `JobController` / `JobReporter` / `JobEventStream` / `LoggerBridge` / `EtaEstimator` /
+>   `RunResult` / `RetryRequest` in `job_control`, `JobAdapter` / `JobControlBar` /
+>   `JobStatusView` / `SummaryDetailsView` / `LockGroup` / `MainThreadGuard` / `MainThreadPump`
+>   in `job_ui`, `ImportedFileManager` in `importing` and `ImportCoordinator` / `ImportPoller` in
+>   `import_coordination`, `reserve_run_directory` / `validate_custom_destination` /
+>   `DestinationPlanner` / `assert_not_input` / `assert_contained` / **`sanitize_component`**
+>   (z-spelling) in `output_paths`, `can_decode` / `decodable_suffixes` / `heif_capability` in
+>   `image_capabilities`, `SuccessNumbers` / `Tentative` in `shared/numbering`. The MP3 precedent
+>   is `mp3_tool.py` + `mp3_workflow.py` + `mp3_plan.py` + `mp3_processing.py`.
+>
+> **Phase 0 guard map — the exact tests that deliberately hold Maker/Editor outside Plan-6/Plan-3
+> adoption. Each may be changed only when the phase that authorises that adoption begins, and
+> narrowly (never weakened globally).**
+> 1. `files/tests/test_plan6_boundaries.py` — `PHASE0_PANEL_HASHES` pins both panels by SHA-256
+>    of their CRLF representation (`test_the_consumer_panels_are_byte_identical_to_the_phase_zero_baseline`,
+>    `test_the_phase_zero_pins_hold_on_lf_and_crlf_checkouts_and_only_there`);
+>    `test_no_consumer_panel_names_any_plan6_vocabulary` forbids `BookJob` / `WorkspaceSnapshot` /
+>    `book_workspace` / `new_book_id` / `field_role` / `FIELD_ROLES` in either panel; and
+>    `test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion` asserts
+>    `set(PHASE0_PANEL_HASHES) == {maker, editor}`. Precedent for leaving the gate: the MP3 Tool's
+>    digest became evidence (`MP3_TOOL_PHASE0_HASH`) with a positive adoption assertion. Maker
+>    leaves at **Phase 6**, Editor at **Phase 10**. `PHASE0_PLAN5_HASHES` (Converter) and
+>    `PHASE6_PROMOTION_HASHES` stay untouched by this plan.
+> 2. `files/tests/test_plan3_boundaries.py` — `ADOPTED` (11 modules, pinned by
+>    `test_exactly_these_eleven_production_modules_are_authorized_to_adopt`, measured against the
+>    tree by `test_exactly_these_production_modules_have_adopted_the_foundation` with
+>    `len == 11`); `UNADOPTED_SOURCES` / `UNADOPTED_PANELS` derive from it;
+>    `test_every_adopting_panel_is_still_checked_for_the_full_composition` pins the adopting
+>    panels to exactly four; the composition guard requires a UI-side adopter to import
+>    `shared.job_control`, `MainThreadGuard`, `style_name`, `shared.import_coordination` and
+>    `shared.job_ui`, and forbids any adopter from *defining* `ImportedFileManager`,
+>    `JobController`, `JobAdapter`, etc. New `m4b_maker_*` / `m4b_metadata_*` modules that
+>    import the foundation must be added here (and renamed counts updated) in their own phase.
+> 3. `files/tests/test_tool_output_integration.py` — `PLAN3_ADOPTERS` mirrors `ADOPTED` in
+>    dotted form, and the no-adoption check asserts the remaining checked tools are exactly
+>    `["mp3_tools.m4b_maker", "mp3_tools.m4b_metadata_editor"]`; plus **source-string** pins
+>    `test_maker_has_no_output_base_bypass` ("Choose custom destination" present,
+>    `choose_outdir` absent), `test_metadata_editor_reserves_per_action`
+>    (`def _reserve_run` ×1, `self._reserve_run()` ×2) and
+>    `test_metadata_editor_workers_take_the_batch_planner` (exact `_save_worker` /
+>    `_remove_numbering_worker` signatures, `planner.plan(f.name)`).
+> 4. `files/tests/test_preferences_maintenance_ui.py` — `UNCONVERTED_PANELS` still lists
+>    `mp3_tools/m4b_maker.py` (Editor already left it); `test_m4b_hardening.py::test_the_two_adoption_tuples_disagree_about_the_converter_on_purpose`
+>    pins that set, and `test_the_converter_local_modules_that_adopted_are_exactly_these` asserts
+>    the `mp3_tools/m4b_`-prefixed members of `ADOPTED` are exactly the three Converter modules —
+>    any new `mp3_tools/m4b_maker_*.py` / `m4b_metadata_*.py` adopter trips it.
+> 5. `files/tests/test_mp3_hardening.py` (≈line 770) — substring assertion that the Maker,
+>    Editor and Converter sources contain none of `book_workspace`, `mp3_workflow`, `mp3_plan`,
+>    `mp3_processing`; and `TOOLS` length 6 / version `0.6.2`.
+> 6. `files/tests/test_ffmpeg_runtime_trust.py` — `expected` set of `ffmpeg_cmd()` /
+>    `ffprobe_cmd()` callers includes `mp3_tools/m4b_maker.py`; if Phase 4 moves execution into
+>    `m4b_maker_processing.py` the set must follow the code (it is `expected <= found`, so the
+>    new module must be added, and the panel entry removed only if it stops calling).
+> 7. Unchanged by design: `test_launcher_smoke.EXPECTED_TOOLS` / `test_epub_retirement` (six
+>    tools), `test_m4b_hardening` pure-module list (`m4b_execution`, `m4b_numbering`,
+>    `m4b_probe`, `m4b_commands`, `m4b_metadata`, `m4b_chapters` import nothing shared/Tk), the
+>    Plan-6 harness ban on importing `mp3_tools.m4b_maker`, and `test_repository_contract`.
+>    Existing behavioural suites that will evolve with the panels: `test_m4b_maker_smoke.py`
+>    (4), `test_maker_custom_destination.py` (29), `test_m4b_metadata_editor_ui.py` (12),
+>    `test_m4b_metadata_editor_shared.py` (7), `test_prototype_regression.py` (12).
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 1 — SHARED M4B ADOPTION SEAMS AND ARTWORK FOUNDATION. IT HAS
+> NOT STARTED** and requires separate explicit maintainer approval. Phase 1 creates the optional
+> `BookNavigator` action-subset extension and a Tk-free `mp3_tools/m4b_artwork.py`; **no panel
+> adopts anything in Phase 1** and every guard above stays green. Commit policy for the drop:
+> one green phase → one plain commit → push only to `feature/0.6.4-m4b-maker-metadata-editor`;
+> no amend/squash/rebase/force-push; no AI authorship, session or provenance trailers.
+
 > ## ⟢ CURRENT STATE — v0.6.3 FOCUSED MP3 REDESIGN, PHASES 1–13 COMPLETE; AWAITING THE MAINTAINER'S INTEGRATION DECISION (2026-09-12)
 >
 > **This block is the live state.** It supersedes every dated block beneath it on the state of
