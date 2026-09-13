@@ -213,6 +213,100 @@ def test_the_module_boundary_leaves_nothing_armed():
     assert tk_gate.armed_tk_objects(tk) == []
 
 
+def test_the_reset_cancels_a_ttk_timer_whose_script_is_a_tcl_list(tk_root):
+    """v0.6.3 Phase 10: the reported order-dependent failure, reproduced.
+
+    ``test_job_ui`` followed by ``test_book_workspace_ui::
+    test_no_scheduled_callback_is_left_behind`` failed because three
+    ``ttk::progressbar::Autoincrement`` timers survived the module boundary.
+    ``_reset_root`` cancelled through ``tkinter.Misc.after_cancel``, which
+    reads the timer's script and calls ``deletecommand`` on it -- and for a
+    ttk timer that script is a Tcl *list*, so ``deletecommand`` raises
+    ``TypeError``, which ``after_cancel`` does not catch, so ``after cancel``
+    never runs. The reset then swallowed the error and moved on with the
+    timer still pending. The boundary must cancel where the timer lives.
+    """
+    from tkinter import ttk
+
+    holder = ttk.Frame(tk_root)
+    bar = ttk.Progressbar(holder, mode="indeterminate")
+    bar.pack()
+    bar.start(60)
+    holder.destroy()
+    pending = tk_root.tk.call("after", "info")
+    assert pending, "the destroyed bar's animation timer is still scheduled"
+    tk_gate._reset_root(tk_root)
+    assert tk_root.tk.call("after", "info") == "", (
+        "the boundary left a ttk timer pending for the next module to find")
+
+
+# --------------------------------------------------------------------------- #
+# B2. v0.6.3 Phase 10: the boundary is every *test*, not only every module
+#
+# The reported order-dependent failure had a second cause. ``test_job_ui``
+# followed by ``test_suite_isolation`` stalled ``test_cancel_import_stops_the_
+# scan_and_touches_no_job_controller`` for its whole five-second bound: the
+# faulthandler dump showed the scan worker inside ``tkinter.Variable.__del__``
+# -- a variable an *earlier test in the same module* had left in a cycle,
+# finalised by the cyclic collector on the worker thread, calling into Tcl
+# while the main thread sat in ``Event.wait``. The module boundary disarms
+# nothing between two tests of one module, and which test the collector picks
+# depends on allocation history -- which is why merely collecting another
+# module changed the outcome.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="module")
+def module_root():
+    """A module-scoped root, as every real UI module holds one.
+
+    This module's own ``tk_root`` is function-scoped, so its teardown already
+    finalises after every test here; the pair below must run under the scope
+    the UI modules actually use, where nothing between two tests of one
+    module finalised anything before Phase 10.
+    """
+    yield from tk_gate.tk_root_session(tk)
+
+
+@pytest.fixture(scope="module")
+def automatic_collection_paused():
+    """Model the hazard's precondition: the cycle has not been collected yet.
+
+    A small young cycle would otherwise be swept by the next automatic
+    generation-0 collection between two tests, on the main thread, which is
+    the harmless case. In the real failure the cycle had aged past that and
+    was collected later, on a worker. Pausing automatic collection makes
+    "not yet collected" a fact rather than a matter of allocation counts; the
+    explicit ``gc.collect`` inside the boundary is unaffected by it.
+    """
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.enable()
+
+
+def test_an_earlier_test_leaves_an_armed_variable_behind(
+        module_root, automatic_collection_paused):
+    """The first half of a two-test pair: leave exactly what a UI test leaves."""
+    leftover_variable(module_root)
+    assert tk_gate.armed_tk_objects(tk), "the cycle is armed and uncollected"
+
+
+def test_the_next_test_in_the_module_starts_its_worker_with_nothing_armed(
+        module_root, automatic_collection_paused):
+    """The second half. Definition order is execution order within a module,
+    so this runs immediately after the test above, with its leftover still
+    armed; the boundary at ``Thread.start`` makes it inert before the worker
+    exists, so no collection on that worker can ever reach Tcl."""
+    assert tk_gate.armed_tk_objects(tk), "the earlier test's leftover is still armed"
+    worker = threading.Thread(target=lambda: None, name="boundary-probe")
+    worker.start()
+    worker.join(BOUND)
+    assert tk_gate.armed_tk_objects(tk) == [], (
+        "an armed Tk variable survived into a test that started a worker")
+
+
 def test_the_shared_root_is_not_destroyed_by_the_boundary(tk_root):
     """Deliberately narrow: one interpreter per process is a load-bearing rule.
 

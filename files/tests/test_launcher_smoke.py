@@ -26,7 +26,9 @@ EXPECTED_TOOLS = ["tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b
 #: The only tool panel this drop may convert (Phase 3). Everything else in
 #: EXPECTED_TOOLS must still render through the generic ttk styles.
 CONVERTED_TOOL = "m4b_metadata"
-UNCONVERTED_TOOLS = [k for k in EXPECTED_TOOLS if k != CONVERTED_TOOL]
+#: The MP3 Tool joined the converted set at the focused MP3 plan's Phase 4.
+CONVERTED_TOOLS = ("m4b_metadata", "mp3_tool")
+UNCONVERTED_TOOLS = [k for k in EXPECTED_TOOLS if k not in CONVERTED_TOOLS]
 
 #: The Windows shell only exists on win32 — ``apply_theme`` routes on the real
 #: platform, and monkeypatching ``sys.platform`` for a *whole launcher build*
@@ -344,11 +346,12 @@ def test_windows_selected_tool_state_and_status(fresh_root, fake_settings,
 @windows_only
 def test_child_panels_do_not_inherit_act_styles(fresh_root, fake_settings,
                                                 error_recorder):
-    """The five unconverted panels stay generic; only the editor is converted.
+    """The four unconverted panels stay generic; two are converted.
 
-    Phase 3 converted the M4B Metadata Editor, so it now *names* ``ACT.*``
-    styles itself. That is opting in, not inheriting — which the other five
-    panels prove by still carrying not one namespaced style between them.
+    Phase 3 converted the M4B Metadata Editor, and the focused MP3 plan's
+    Phase 4 the MP3 Tool, so each now *names* ``ACT.*`` styles itself. That is
+    opting in, not inheriting — which the other four panels prove by still
+    carrying not one namespaced style between them.
     """
     import launcher
 
@@ -369,15 +372,16 @@ def test_child_panels_do_not_inherit_act_styles(fresh_root, fake_settings,
     assert counted > 0
     assert offenders == [], f"panel contents inherited shell styles: {offenders}"
 
-    # The converted panel opted in deliberately, and did so completely: no ttk
+    # Each converted panel opted in deliberately, and did so completely: no ttk
     # widget in it was left on a generic style.
     # (the container itself is launcher-owned and stays deliberately unstyled)
-    converted = list(_walk(app.containers[CONVERTED_TOOL]))[1:]
-    act_styled = [w for w in converted if _style_of(w).startswith("ACT.")]
-    assert len(act_styled) > 40, "the converted editor barely uses the design system"
-    generic = [str(w) for w in converted
-               if isinstance(w, ttk.Widget) and not _style_of(w)]
-    assert generic == [], f"converted editor left widgets on generic styles: {generic}"
+    for key in CONVERTED_TOOLS:
+        converted = list(_walk(app.containers[key]))[1:]
+        act_styled = [w for w in converted if _style_of(w).startswith("ACT.")]
+        assert len(act_styled) > 40, f"the converted {key} barely uses the design system"
+        generic = [str(w) for w in converted
+                   if isinstance(w, ttk.Widget) and not _style_of(w)]
+        assert generic == [], f"converted {key} left widgets on generic styles: {generic}"
 
     # The swap host and every tool container are deliberately unstyled, which
     # is *why* nothing inherits: there is nothing to inherit from.

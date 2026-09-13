@@ -2,6 +2,696 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.3 FOCUSED MP3 REDESIGN, PHASES 1–13 COMPLETE; AWAITING THE MAINTAINER'S INTEGRATION DECISION (2026-09-12)
+>
+> **This block is the live state.** It supersedes every dated block beneath it on the state of
+> the v0.6.3 work; those blocks stand as history, exactly as written. A fresh session needs this
+> block, `Briefing.md` (architecture), `Changelog.md` (what changed for the user) and the
+> 2026-09-12 entry in `Decisions.md` (the durable rules) — not the temporary focused plan and not
+> the chat that produced it.
+>
+> **Where things are.**
+> - Branch `feature/0.6.3-drop1-shared-multi-book-workspace`, final checkpoint
+>   **`bd6a30f4a27a213f55a94db2292d2e23b6db41fa`** (`v0.6.3 MP3 Phase 12: fix macOS layout and
+>   portability`), equal to its upstream. Branched from and still 0 behind
+>   `origin/master` **`83a2bfc7de25dbe5a599b48fd73fe306695e490d`**, which is unmoved.
+> - Version identity **`0.6.2`**, UNRELEASED: no `[0.6.2]`/`[0.6.3]` changelog heading, no tag,
+>   no GitHub release, no package, no PR, no merge, no branch deletion. Published release remains
+>   `v0.4.0`. `launcher.TOOLS` still holds exactly six tools.
+> - The Phase 13 closeout commit (documentation only) follows this checkpoint on the same branch.
+>
+> **What was built and accepted.** The MP3 Tool is now a **multi-Book workspace** — one
+> `Import Folder` makes one Book per directory that directly contains MP3s, `Add Files` extends the
+> current Book, Books are navigated with Previous / Next / a direct selector and added, duplicated
+> and removed; Shared metadata (Artist, Album Artist, Album, signed Time, artwork) overrides and
+> disables the matching Book values; Chapter Titles, Auto-number and Start # are per Book; the two
+> processing actions **Write ID3 Tags** and **Combine MP3s → One MP3** run every eligible Book
+> sequentially from one frozen run plan under one `JobController`, publish each Book atomically,
+> continue past a failed Book and offer **Retry Failed** from the frozen state; one
+> Summary | Detailed log region with Clear Log. Details: `Briefing.md` → *The MP3 Tool*.
+>
+> **Two platforms, two acceptances.**
+> - **Windows (Phase 11, maintainer, real launcher + real media):** UI at 920×600 / 1024×720,
+>   Write ID3, Combine, playback, failure isolation, Retry Failed, Pause/Resume/Cancel, source
+>   safety, metadata/output inspection — all accepted. Windows minimum stays **920×600**.
+> - **macOS (Phase 12, maintainer, real launcher + real media):** native aqua accepted at
+>   **1024×720 and larger**; the macOS minimum is intentionally **1024×720**
+>   (`ui_theme.AQUA_MIN_SIZE`) because the six fixed bands of the composition under native aqua
+>   metrics are taller than the 484 px content host a 920×600 window leaves — a maintainer
+>   ruling superseding the plan's universal 920×600 wording for macOS only. Setup/launcher/FFmpeg
+>   healthy; HEIC capability (decode and encode) and preview exercised; representative real-media
+>   Write ID3 and Combine runs, the mixed-format Safe path, an automatic FAST → Safe fallback,
+>   source safety, logs and playback all passed. The maintainer explicitly ended further manual
+>   auditing and removed the temporary test outputs; nothing of that evidence is retained on disk,
+>   and nothing here claims otherwise.
+>
+> **Latest automated gates.** Windows (Phase 10 commit `0b6989c`): 6,925 collected / 6,909 passed
+> / 16 skipped / 0 failed. macOS (Phase 12 commit `bd6a30f`): **6,945 collected / 6,888 passed /
+> 57 skipped / 0 failed**; `verify.py` **PASS**; `compileall` clean; `git diff --check` clean.
+> The 57 skips are the pre-existing Windows-only cases (ACT design system, `.bat` launcher,
+> junctions, handles, Windows candidate locations). Phase 12 also fixed three Mac-only
+> test-portability defects without a skip — the Windows-bundle fixtures now ask for the
+> presentation through `apply_theme(..., platform="win32")` instead of rewriting `sys.platform`
+> (which had sent real FFmpeg through the Windows subprocess path); the Phase-0 hash guards hash
+> the canonical CRLF representation on any checkout; the planner case test compares casefolded
+> names and asks the volume whether it folds case — and one real latent defect:
+> `mp3_plan.discard_staging` now unlinks a symlink inside its staging area instead of resolving it,
+> seeing it point outside and aborting the discard.
+>
+> **Implementation note (not a defect).** On this Mac's Homebrew FFmpeg 9.0.1, one otherwise
+> compatible real Book attempted FAST concat and FFmpeg rejected the encode near the concat tail
+> (`libmp3lame: inadequate AVFrame plane padding`); the application fell back to Safe
+> automatically, logged the reason with the command, and produced valid output — the §24.2
+> contract working as designed. FAST is a one-pass concat-demuxer re-encode, not a stream copy.
+>
+> **Commit trail of the branch** (0 behind master, 22 ahead): `0eda1e8` Plan 6 draft;
+> `0aa48d2`…`0c07cf2` Plan 6 Phases 0–7 (book vocabulary, workspace controller, folder-to-book
+> construction, shared metadata precedence, frozen book runs, success-only numbering, retry
+> dispositions); `e35e626` Plan 6 Phase 8 + MP3 Phase 2 (Tk adapter, direct Book selector);
+> `427f609` MP3 Phase 3 (Book/import/source-metadata model); `ff27377` Phase 4 (workspace UI);
+> `d3f8093` Phase 5 (frozen run plan, naming, atomic staging); `37144a0` Phase 6 (artwork
+> service); `2b75d7d` Phase 7 (Write ID3 engine); `420dc91` Phase 8 (Combine engine);
+> `16a5f3a` Phase 9 (job control, one log, Retry Failed); `0b6989c` Phase 10 (hardening matrix);
+> Phase 11 was Windows manual acceptance with no code change; `bd6a30f` Phase 12 (macOS layout
+> and portability). Phase 1 was a read-only audit.
+>
+> **THE NEXT ACTION IS THE MAINTAINER'S: decide on integration of this branch (a PR to `master`
+> is the established route — Plans 3, 4 and 5 merged through PRs #4, #5 and #6).** Nothing
+> post-closeout is authorized by Phase 13: no version bump, release, tag, package, PR, merge or
+> branch deletion. The temporary focused plan `md-instructions/0.6.3-plan6-mp3-tool-redesign.md`
+> was **retired (deleted) after the Phase 13 closeout with the maintainer's explicit approval**
+> on 2026-09-12; its surviving truth had been transferred first (see the Phase 13 entry below).
+> The broader Plan 6 drop
+> (`md-instructions/0.6.3-drop1-shared-multi-book-workspace.md`) is untouched: the M4B Maker and
+> M4B Metadata Editor adoptions of the shared multi-Book workspace remain unscheduled and
+> unauthorized.
+>
+> **Phase 13 (2026-09-12, documentation only).** Reconciled `Handoff.md` (this block),
+> `Changelog.md` (the accepted unreleased MP3 redesign, the macOS minimum, the cross-platform
+> hardening), `Briefing.md` (the MP3 Tool architecture, the per-platform minimum, stale
+> single-Book / time-edit / conversion-boundary claims), `Decisions.md` (one closeout ADR) and
+> `README.md` (user-facing MP3 Tool instructions). No production or test file changed. The
+> permanent planning references under `md-instructions/don't-delete/` were not touched.
+
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 7 COMPLETE; PHASE 8 NOT STARTED (2026-09-09)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 7** as the next action. Phase 7 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 7 — Dispositions and retry is COMPLETE.** `shared/book_workspace.py` gains
+>   `BookDisposition`, `SKIP_DISPOSITIONS`, `WorkspaceRunResult` and `retry_failed_books`
+>   (`__all__` 41 → **45**). **Phase 7 describes a retry; it never runs one.**
+> - **Five book dispositions, and no sixth:** `SUCCEEDED`, `FAILED`, `SKIPPED_EMPTY`,
+>   `SKIPPED_INVALID`, `NOT_ATTEMPTED`. There is deliberately **no book-level `CANCELLED`** —
+>   cancellation is a fact about the batch and `JobState.CANCELLED` already says it. Plan 3's
+>   `ItemStatus` was **not** widened, reused or even referenced; a guard proves it.
+> - **The skip reason is now frozen at capture.** Phase 5 stored only the skipped ids, so
+>   `SKIPPED_EMPTY` and `SKIPPED_INVALID` were indistinguishable afterwards, and re-deriving them
+>   would have meant reading a live workspace — which §16 forbids. `BookRunSnapshot` now stores
+>   `skipped: tuple[(book_id, BookDisposition), ...]`, and **`skipped_book_ids` survives as a derived
+>   property** with unchanged behaviour. One stored truth, not two. Emptiness is asked first, so an
+>   empty book reads as `SKIPPED_EMPTY` even where the predicate would also reject it. **This is an
+>   authorised Phase 7 forward evolution, NOT a Phase 5 defect** — `test_book_numbering.py` needed no
+>   edit at all, which is the outward proof the Phase 5 contract held.
+> - **`WorkspaceRunResult` is three fields**: the exact `BookRunSnapshot`, one **existing Plan 3
+>   `RunResult`** per settled book, and Plan 3's own terminal `JobState`. No `WorkspaceState`, no
+>   second result/failure/retry type, no controller. Results are canonicalised into the frozen
+>   attempted-book order whatever order the caller supplies.
+> - **Identity, not equality.** A result carrying another book's snapshot — or an equal-but-distinct
+>   copy — is refused, because an equal copy is the signature of a rebuilt run.
+> - **Decision 28A pinned directly**: A succeeds, B fails, C succeeds → the batch is
+>   `COMPLETED_WITH_FAILURES`, **not** `FAILED`, and C still settled. Even a book whose own run was
+>   `JobState.FAILED` leaves the batch completed.
+> - **Retry Failed delegates rather than reimplements.** `retry_failed_books(result)` returns one
+>   existing Plan 3 `RetryRequest` per retryable book, each built by that book's own
+>   `RunResult.retry()`; availability delegates whole to
+>   `job_control.is_available(JobAction.RETRY_FAILED, …)` and Plan 6 never restates the action/state
+>   table. Retryable means **failed AND `RunResult.has_retryable`** — succeeded, both skips,
+>   not-attempted and fatal/unretryable failures are all excluded.
+> - **Decision 37A proved end to end.** The chain `BookRunSnapshot -> RunResult -> RetryRequest` holds
+>   the **same** `RunSnapshot` object, asserted with `is`. `retry_failed_books` takes no workspace
+>   parameter at all: change per-book configuration, Shared Metadata, the imported files, add a book,
+>   remove a book and replace the entire workspace from a fresh import, and the requests, ids,
+>   snapshots, item ids, tool options and file lists are unchanged.
+> - **Numbering stayed where Phase 6 put it.** Production imports no allocator. The protocol test
+>   owns its own counter: A commits 1, B fails committing nothing, C takes 2; **building Retry Failed
+>   consumes zero numbers**; a simulated retried success then takes **3** — sequence 1, 2, 3, no gap,
+>   no duplicate. `numbering.py`, `m4b_numbering.py` and `test_m4b_numbering.py` are unchanged and all
+>   51 Plan 5 numbering tests pass.
+> - **Gate: 6,354 collected / 6,340 passed / 14 skipped / 0 failed**, up from the Phase 6 baseline of
+>   6,187 by exactly **167**: `test_book_retry.py` +109 (new), `test_plan6_boundaries.py` 145 → 182,
+>   `test_book_run_snapshot.py` 67 → 86, `test_book_workspace.py` 157 → 159. **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; `git diff --check` clean; all
+>   four panel/Converter hashes byte-identical; **`ADOPTED` unchanged at six**; `job_control.py` and
+>   every other forbidden file unchanged; production runtime state unchanged across 174,065 files.
+> - **Red proof** at `1983526` in a fresh `files/dev-work/phase7-redproof/` worktree, since removed:
+>   two collection `ImportError`s plus **12 boundary failures against 364 passes**. New functionality
+>   red because it does not exist; not a pre-existing defect.
+> - **TWO REAL DEFECTS WERE FOUND AND FIXED, both in test machinery this session wrote.** (1) The
+>   Phase 6 promoted-state hash pins were recorded from LF files this session authored, but
+>   `core.autocrlf` is `true`, so they failed in a fresh CRLF checkout on line endings alone with
+>   identical content; the comparison now normalises line endings and **the recorded digests did not
+>   change**. The four maintainer-supplied panel/Converter hashes are left exactly as recorded.
+>   (2) Two tests in `test_plan6_boundaries.py` briefly shared a name while a guard was being moved
+>   forward, so one silently ceased to exist while the suite stayed green; a permanent guard now
+>   asserts no Plan 6 test module declares the same test twice.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the
+>   focused run, the full run and under `verify.py`. It remains **not fixed and is not called fixed**,
+>   and it was not modified.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 8 — UI ADAPTER AND HARNESS. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval. **Phase 8 carries the plan's FIRST MANUAL GATE, which has
+>   not been reached.** `shared/book_workspace_ui.py` and `files/tests/manual_plan6_harness.py` do not
+>   exist, and structural guards prove the data layer is still Tk-free, thread-free and theme-free.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 6 COMPLETE; PHASE 7 NOT STARTED (2026-09-09)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 6** as the next action. Phase 6 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 6 — Numbering is COMPLETE**, in two parts: the promotion (drop section 17.1) and
+>   the book-level contract (17.2).
+> - **A BLOCKING GATE FIRED AND WAS RESOLVED BY A BINDING MAINTAINER RULING, NOT BY JUDGEMENT.**
+>   Read **drop section 39.1** before reading section 17.1. Section 17.1 required
+>   `files/tests/test_m4b_numbering.py` to pass **unchanged**. The first Phase 6 attempt promoted the
+>   allocator, hit `test_the_allocator_is_pure` at **50/51**
+>   (`AssertionError: {'__future__', 'shared'}`), **stopped and fully reverted the tree**, exactly as
+>   instructed. Every honest re-export spelling was proved to fail that assertion — the absolute form
+>   records the `shared` root; the relative form raises *"attempted relative import beyond top-level
+>   package"* because `scripts/Universal/` has no `__init__.py`; `importlib` records itself. The one
+>   spelling that would have slipped past, `__import__('shared.numbering')`, passes only by **hiding**
+>   the dependency from the AST and was **rejected as evasion and never written.** The maintainer then
+>   authorised a narrowly scoped transition of that one assertion.
+> - **THIS IS NOT A PLAN 5 DEFECT, AND NOT A WEAKENING.** The Plan 5 guard was correct about Plan 5's
+>   architecture and it is the reason the promotion could not happen quietly. It was retired from that
+>   file **only because the property it protected moved to a different file.** Its replacement is
+>   **stricter**: the legacy file must declare **no allocator of its own**, its dependencies must be
+>   **exactly** `{"__future__", "shared.numbering"}` — the module, **not merely the `shared` root** —
+>   it must take exactly the three public names, those objects must **be** the shared ones by
+>   identity, and the original twelve-name forbidden list is unchanged.
+> - **The original purity property moved with the implementation.** `test_plan6_boundaries.py` now
+>   asserts `shared/numbering.py` has import roots within `{"__future__", "dataclasses"}` and names
+>   none of `Tk`, `StringVar`, `Path`, `open`, `run`, `popen`, `ConversionPlan`, `SegmentPlan`,
+>   `ItemPlan`, `whole_book_tags`, `segment_tags`, `ffmpeg_cmd`. Same allowlist, same list, pointed at
+>   the file that actually implements the counter.
+> - **Exactly one test function changed, proved mechanically**: 66 top-level declarations before and
+>   after, none added, none removed, `changed == ['test_the_allocator_is_pure']`, **behavioural
+>   expectations altered: NONE**. `test_m4b_numbering.py` still collects and passes **51**.
+> - **The allocator was MOVED, not copied.** `NumberingError`, `Tentative` and `SuccessNumbers` are
+>   **unparsed-AST identical** between `1ac0e05:mp3_tools/m4b_numbering.py` and
+>   `shared/numbering.py`; only the module docstring differs. `mp3_tools/m4b_numbering.py` is now a
+>   re-export declaring nothing, so `mp3_tools.m4b_numbering.SuccessNumbers` **is**
+>   `shared.numbering.SuccessNumbers` — **one implementation, not two**, asserted by `is`.
+> - **`m4b_converter.py` is byte-identical**, along with `m4b_maker.py`, `mp3_tool.py`,
+>   `m4b_metadata_editor.py`, `job_control.py`, `importing.py`, `config.py`, `metadata.py`,
+>   `import_coordination.py`, `job_ui.py`, `ui_theme.py`, `launcher.py`, `test_plan3_boundaries.py`,
+>   `test_tool_output_integration.py`, `config.toml` and `version.py`. **`ADOPTED` stays at six** —
+>   `shared/numbering.py` imports no Plan 3 module, as Phase 0 predicted.
+> - **`shared/book_workspace.py` was not modified**; `__all__` stays at **41**. That is the design:
+>   numbering is not part of the workspace vocabulary, which is what putting the allocator in its own
+>   module says. A guard asserts the data layer still names no counter — now the *stronger* claim,
+>   since the allocator exists one import away and is refused anyway.
+> - **Decisions 21A / 28A / 48A proved at book level** by `files/tests/test_book_numbering.py` (35
+>   tests) driving the shared allocator **directly** — no second state machine. The start is read from
+>   the **frozen** `tool_options`, so editing the live book or the shared metadata after capture
+>   cannot move the attempt. The canonical sequence holds: A commits 1; B proposes 2 and **fails
+>   without committing**; C receives **2**; final `(1, 2)`, `consumed == 2`, `next_number == 3` — and
+>   at start 7 it is **`(7, 8)`, not `(7, 9)`**. Empty and consumer-invalid books never reach the
+>   allocator at all. The counter appears in **no** frozen record and `capture_workspace_run`
+>   constructs no `SuccessNumbers`.
+> - **Gate: 6,187 collected / 6,173 passed / 14 skipped / 0 failed**, up from the Phase 5 baseline of
+>   6,118 by exactly **69**: `test_book_numbering.py` +35, `test_plan6_boundaries.py` 113 → 145,
+>   `test_plan3_boundaries.py` +1 and `test_launch_self_heal.py` +1 (both parametrise over every
+>   `scripts/Universal/**.py`). **No baseline test disappeared.** `verify.py` **RESULT: PASS**;
+>   `compileall` exit 0; `git diff --check` clean; production runtime state fingerprinted before and
+>   after over 174,065 files — **no change**.
+> - **Red proof** at `1ac0e05` in a fresh `files/dev-work/phase6-redproof/` worktree, since removed:
+>   `ModuleNotFoundError: No module named 'shared.numbering'` at collection, plus **10 boundary
+>   failures against 292 passes**. New functionality being red because it does not exist; **not**
+>   claimed as a pre-existing defect. No existing dev-work evidence was disturbed.
+> - **A Phase 5 record slip is corrected in drop section 39.8:** section 38 says
+>   `test_plan6_boundaries.py` went "100 → 120"; the real Phase 5 count was **113** (157 + 45 + 88 +
+>   67 + 113 = 470, the total section 38.9 itself reports, and a fresh `1ac0e05` checkout collects
+>   113). The Phase 5 suite totals were measured directly and are correct.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 7 — RETRY AND DISPOSITIONS. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 5 COMPLETE; PHASE 6 NOT STARTED (2026-09-09)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 5** as the next action. Phase 5 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 5 — Frozen effective values is COMPLETE.** `shared/book_workspace.py` gains
+>   `BookRunSnapshot`, `capture_workspace_run`, `effective_run_options` and `RUN_ID_KIND`. Capture
+>   freezes a workspace into **one existing Plan 3 `RunSnapshot` per eligible book**, composed and
+>   never replaced. **Phase 5 captures; it runs nothing.**
+> - **No second snapshot framework.** Every snapshot comes from the existing
+>   `job_control.capture_run`, and a guard asserts `RunSnapshot` is never called as a constructor —
+>   building one by hand would bypass the single place a live payload is refused. A spy proves
+>   **exactly one call per eligible book** (one, two and five books → one, two and five calls) and
+>   that each receives that book's **own** `ImportedFileSnapshot` by identity.
+> - **Snapshot ids come from the existing `IdFactory`** under `RUN_ID_KIND = "run"`, distinct from
+>   `BOOK_ID_KIND`, and deliberately do **not** encode the book identity — the
+>   `(book_id, RunSnapshot)` pair carries that mapping. **No clock is read**: `created_at` comes from
+>   the caller.
+> - **Effective options** are the book's configuration with every declared Shared Metadata field
+>   overlaid by its effective value; non-metadata keys (bitrate, split) carry through untouched.
+>   Neither raw source is modified — the override exists only in that third mapping, which is why
+>   clearing a shared field later simply leaves the per-book value there. `capture_run` deep-freezes
+>   it through the project's one `freeze_options`; there is no second freeze.
+> - **The total freeze is proved against every live layer at once**: after capture, `set_shared_metadata`,
+>   `replace_book`, `add_book`, `remove_book` and a whole re-import all leave the captured run
+>   unchanged in attempted ids, skipped ids, every `snapshot_id`, `files`, `item_ids`, `tool_options`,
+>   `effective_config`, captured `shared` and ordering — and **by object identity**, with a spy
+>   confirming the composition holds the exact objects `capture_run` returned.
+> - **Empty books are skipped, not failed**, recorded by stable id. Validity beyond emptiness is the
+>   consumer's: an optional `is_valid` predicate, asked synchronously and **never stored, frozen or
+>   handed to a worker**. No M4B/MP3 policy entered the shared foundation.
+> - **Capture is read-only**: no revision moves, no selection shifts, no `BookMutation` is returned.
+>   A rejected capture consumes no snapshot id. **One documented limitation:** `effective_config` is
+>   `capture_run`'s to validate, so a bad one can consume at most one id; closing that would require
+>   changing Plan 3's `IdFactory`, which is not this phase's to do.
+> - **Gate: 6,118 collected / 6,104 passed / 14 skipped / 0 failed**, up from the Phase 4 baseline of
+>   6,038 by exactly 80, all in the five Plan 6 test modules (390 → 470). **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six protected hashes
+>   byte-identical; **`ADOPTED` unchanged at six**; `job_control.py` and every other forbidden file
+>   **unchanged**; production runtime state unchanged.
+> - **Red proof** at `0ab25c1`: `ImportError: cannot import name 'RUN_ID_KIND'`, plus four contract
+>   guard failures. Not claimed as a pre-existing defect.
+> - **Phase 6 (numbering) and Phase 7 (dispositions/retry) are absent and proved so.** Using
+>   `RunSnapshot` is Phase 5's job; `RunResult` and `RetryRequest` are not, and a mutation check pins
+>   that distinction. Orphaned Phase-5 guard machinery was **removed rather than left standing**,
+>   because keeping it would imply a protection that no longer existed.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 6 — NUMBERING. IT HAS NOT STARTED** and requires separate
+>   explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 4 COMPLETE; PHASE 5 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 4** as the next action. Phase 4 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 4 — Shared Metadata is COMPLETE, and Decision 20B is implemented in the pure
+>   model.** `shared/book_workspace.py` gains `SharedMetadata` (the consumer's declared fields plus
+>   the raw shared values), `is_populated`, `effective_value`, `effective_metadata`,
+>   `disabled_fields`, `set_shared_metadata`, `NO_SHARED_METADATA`, `BLANK` and
+>   `SharedMetadataError`. **Effective values are live projections, stored nowhere.**
+> - **The three values are kept apart**: the raw per-book value stays in `BookJob.configuration` and
+>   is **never rewritten**; the raw shared value is stored **once** on the workspace; the effective
+>   value is computed. `BookJob` gained no field, and a guard asserts no record anywhere stores an
+>   "effective" value — a stored copy is how two truths come to disagree.
+> - **The full section 15.2 lifecycle is one test**: shared blank → per-book effective; shared set →
+>   shared effective and the field projected disabled; **the book's raw value still reads its own
+>   text**; shared cleared → the per-book value is effective again and the field re-enabled. That
+>   restoration works because nothing was ever overwritten.
+> - **One predicate drives both precedence and the disabled projection**, asserted structurally: no
+>   second blankness helper may exist, and `disabled_fields` must reach `is_populated` by delegating
+>   to `populated_fields` rather than deciding for itself. Two interpretations would eventually
+>   disagree, and the symptom would be a control the user can still type into whose value is silently
+>   discarded.
+> - **The field vocabulary belongs to the consumer** (section 15.4). No universal list exists, and the
+>   guard checks it twice: no constant named like one, **and** no literal anywhere enumerating two or
+>   more audiobook tag names, so renaming is not enough to smuggle one in.
+> - **A recorded finding:** non-string shared values are **refused**. Section 15.2 defines
+>   populatedness for text, so refusing keeps Phase 4 from inventing semantics nobody specified; every
+>   shareable metadata field reads back as a string, and the one integer (`track`) belongs to
+>   numbering, not Shared Metadata. A future non-text shared field would be a new decision.
+> - **Every earlier operation preserves the shared value** — add, duplicate, remove, previous, next,
+>   select, replace and import — because the one `_changed` constructor carries it forward. An import
+>   therefore cannot silently discard what the user shared across books. Decision 49A is untouched:
+>   Duplicate copies the book's own configuration and **not** the shared state.
+> - **`WorkspaceOperation.SHARED_METADATA` is its own member**, because the update changes neither the
+>   books nor the selection; reporting it as `REPLACE` or `IMPORT` would misdescribe what moved.
+> - **Gate: 6,038 collected / 6,024 passed / 14 skipped / 0 failed**, up from the Phase 3 baseline of
+>   5,936 by exactly 102, all in the four Plan 6 test modules (288 → 390). **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six protected hashes
+>   byte-identical; **`ADOPTED` unchanged at six**; `shared/metadata.py` **not modified**; production
+>   runtime state unchanged.
+> - **Red proof** at `ae7e777`: `ImportError: cannot import name 'BLANK'`, plus five further contract
+>   failures. Not claimed as a pre-existing defect.
+> - **One of my own new guards was wrong and was corrected rather than loosened** — it demanded a
+>   direct call where the code correctly delegates; the guard now asserts the real chain, which is a
+>   stronger statement. The Phase 5 absence boundary moved forward rather than being retired.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 5 — FROZEN EFFECTIVE VALUES. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 3 COMPLETE; PHASE 4 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 3** as the next action. Phase 3 is now done, and its open judgement call was accepted
+> by the maintainer. Everything else in it, and every dated block beneath it, stands as written.
+>
+> - **Plan 6 Phase 3 — Folder-to-book construction is COMPLETE, and Decision 12A is implemented.**
+>   `shared/book_workspace.py` gains `book_groups`, `books_from_import` and
+>   `replace_workspace_from_import`. Every directory that **directly contains** imported files is one
+>   book; distinct directories are never combined; group order follows first appearance; files inside
+>   each book are natural-ordered. It is a **projection, not an import** — the Plan 3 importer still
+>   owns scanning, traversal, cancellation, commits and occurrence identity, and nothing here reads a
+>   disk.
+> - **The Phase 2 judgement call is ACCEPTED and applied unchanged**, not re-decided: removing a sole
+>   *already pristine* book stays a no-op, and an empty import onto an already-pristine workspace
+>   follows the same rule. A sole *meaningful* book is still replaced by a fresh pristine one.
+> - **`planning_groups` was neither used nor modified and the stop gate was never triggered.** Phase
+>   0's conclusion held: it buckets on `source_root.root_id`, so reusing it would turn one selected
+>   folder of twelve audiobooks into one book — a test asserts twelve. `importing.py`,
+>   `import_coordination.py`, `job_control.py`, `job_ui.py` and `ui_theme.py` are unchanged, proved by
+>   line-ending-normalised hashing and by AST-comparing `planning_groups`, `scan_roots` and
+>   `validate_direct_files`.
+> - **No platform branch was needed for directory identity.** `Path` equality and hashing already
+>   apply the running system's own rules — verified empirically before relying on it — so grouping
+>   folds case where the platform folds and does not where it does not, without this layer naming a
+>   platform or asking the filesystem anything.
+> - **Grouped snapshots keep the source snapshot's `Revision`**, decided from existing contracts
+>   rather than guessed: a revision stamps which manager state a list came from, and
+>   `INITIAL_REVISION` is what `NO_FILES` uses to mean *never imported*, so resetting it would make an
+>   imported book indistinguishable from a pristine one. Drop section 36.6 carries the evidence.
+> - **`WorkspaceOperation.IMPORT` was added rather than overloading `REPLACE`**, which means "swap one
+>   book"; an import replaces every book and the selection. The revision advances **once for the
+>   replacement, not once per book**.
+> - **Gate: 5,936 collected / 5,922 passed / 14 skipped / 0 failed**, up from the Phase 2 baseline of
+>   5,874 by exactly 62, all in the three Plan 6 test modules (226 → 288). **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six protected hashes
+>   byte-identical; **`ADOPTED` unchanged at six**; production runtime state unchanged.
+> - **Red proof** at `e481008`: `ImportError: cannot import name 'book_groups'`, plus five further
+>   contract failures. Not claimed as a pre-existing defect.
+> - **The Phase 4 absence boundary moved forward rather than being retired**: the guard that forbade
+>   the grouping mechanism was replaced by stricter purity guards (no filesystem call of any kind, no
+>   `planning_groups`, no import execution, one sort key), and Shared Metadata is now what must be
+>   absent. Every new guard is mutation-checked against synthetic samples.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 4 — SHARED METADATA (Decision 20B). IT HAS NOT STARTED** and
+>   requires separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 2 COMPLETE; PHASE 3 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> names **Phase 2** as the next action. Phase 2 is now done. Everything else in it, and every dated
+> block beneath it, stands as written.
+>
+> - **Plan 6 Phase 2 — Workspace Controller is COMPLETE.** `shared/book_workspace.py` now carries the
+>   controller as **pure functions over the Phase 1 value**: `add_book`, `duplicate_book`,
+>   `remove_book`, `previous_book`, `next_book`, `select_book`, `replace_book`, each returning a
+>   frozen `BookMutation`; the `WorkspaceOperation` enum; and `has_meaningful_work`, Decision 50A's
+>   single predicate. There is **no controller object** — hold a snapshot, call an operation, get a
+>   new one back. No new production module, so **`ADOPTED` was not widened** and
+>   `test_plan3_boundaries.py` / `test_tool_output_integration.py` were not touched.
+> - **Phase 3 has NOT started.** No folder-to-book grouping exists, and the guard watches the
+>   **mechanism** rather than a name: a module that never asks where a file sits cannot be grouping by
+>   directory, whatever it calls its functions. Eleven mutation samples prove the guard fires, one
+>   proves prose about parent directories does not fool it, and one proves it accepts the Phase 2
+>   controller.
+> - **Contracts as delivered:** non-wrapping navigation; selection by stable `book_id`, never index;
+>   Duplicate carries configuration and resets inputs by **reading `FIELD_ROLES`** rather than
+>   restating Decision 49A; Remove never yields a zero-book workspace and replaces a sole meaningful
+>   book with a fresh pristine one; Replace identifies its own target by the id it carries, so an edit
+>   cannot become a silent remove-and-add; `1 <= X <= Y` after all seven operations; and the revision
+>   advances exactly once per real change, enforced by `_changed` being the **only** caller of
+>   `advance()`.
+> - **One judgement call, recorded for your disposition** (drop section 35.6): removing the sole book
+>   when it is **already pristine** is reported as a no-op, since the invariant "removing the last book
+>   leaves one pristine book" already holds and treating it as a change would spend an identity and a
+>   revision to replace a book with an identical one. A sole book that *does* hold work is replaced and
+>   the work discarded. Both paths are tested; if you prefer unconditional replacement it is one line.
+> - **Gate: 5,874 collected / 5,860 passed / 14 skipped / 0 failed**, up from the Phase 1 baseline of
+>   5,791 by exactly 83 — +71 in `test_book_workspace.py` and +12 in `test_plan6_boundaries.py`, with
+>   no other module's count moving. **No baseline test disappeared.** `verify.py` **RESULT: PASS**;
+>   `compileall` exit 0; all six protected hashes byte-identical; production runtime state unchanged.
+> - **Red proof:** at the pre-Phase-2 commit `cd11181` the new tests fail because the controller does
+>   not exist (`ImportError: cannot import name 'BookMutation'`, plus the two Phase 2 contract guards
+>   red). Not claimed as a pre-existing defect.
+> - **Identity consumption on a rejected operation** is avoided by ordering — validate the workspace
+>   before asking the factory — not by rollback; perfect non-consumption would require changing Plan
+>   3's `IdFactory`, which Phase 2 may not do. The **workspace state itself is fully atomic**.
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in the full
+>   run and under `verify.py`. It remains **not fixed and is not called fixed**.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 3 — FOLDER-TO-BOOK CONSTRUCTION (Decision 12A). IT HAS NOT
+>   STARTED** and requires separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 1 COMPLETE; PHASE 2 NOT STARTED (2026-09-08)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> says production implementation has not started and names **Phase 1** as the next action. Phase 1 is
+> now done. Everything else in it, and every dated block beneath it, stands as written.
+>
+> - **Plan 6 Phase 1 — Book Job Vocabulary is COMPLETE.** `scripts/Universal/shared/book_workspace.py`
+>   now exists: the frozen `BookJob` (stable opaque `book_id` minted through Plan 3's `IdFactory`, a
+>   configuration deep-frozen by Plan 3's `freeze_options`, and one `ImportedFileSnapshot`), the frozen
+>   `WorkspaceSnapshot` value, four typed errors, and `FIELD_ROLES`/`field_role` — Decision 49A's
+>   configuration-versus-inputs split, stated in exactly one place and pinned against the dataclass so
+>   no later field can escape classification.
+> - **Phase 2 has NOT started.** There is no Add, Duplicate, Remove, Previous, Next, Select, Replace or
+>   meaningful-work predicate, and no Shared Metadata, run capture, numbering, retry, adapter or
+>   harness. Their absence is **proved** by `test_plan6_boundaries.py`, not merely untested.
+> - **`ADOPTED` was widened by exactly one module**, `shared/book_workspace.py`, after proving the
+>   widening was mechanically required (two guards were red without it). `shared/numbering.py` and
+>   `shared/book_workspace_ui.py` were **not** pre-authorised. **Four** tied assertions were updated,
+>   not the three the Phase 0 map predicted: the fourth is
+>   `test_tool_output_integration.PLAN3_ADOPTERS`, a second spelling of the same list, found by the
+>   repository's own drift guard rather than by inspection. That map gap is recorded in drop
+>   section 34.6, and a repository-wide search confirmed those two are the only spellings.
+> - **Gate: 5,791 collected / 5,777 passed / 14 skipped / 0 failed**, up from the Phase 0 baseline of
+>   5,647 by exactly 144 — 85 + 58 new tests plus **1** inherited automatically by an existing
+>   `test_launch_self_heal.py` parametrization over every `scripts/Universal/*.py`. **No baseline test
+>   disappeared.** `verify.py` **RESULT: PASS**; `compileall` exit 0; all six Phase 0 protected hashes
+>   byte-identical; production runtime state unchanged.
+> - **Red proof:** at the pre-Phase-1 commit `0aa48d2`, the new tests fail because the module does not
+>   exist (`ImportError: cannot import name 'book_workspace'`, and 15 of the boundary guards red). New
+>   functionality being red is **not** claimed as a pre-existing defect.
+> - **Two first-draft defects were found and fixed, and are recorded rather than hidden** (drop
+>   section 34.10): a `book_id` containing a path separator was wrongly accepted, caught by this
+>   phase's own test; and two test-side bugs (a per-call `IdFactory` that made two books collide, and
+>   an immutability assertion that expected the wrong exception for a frozen **slots** dataclass).
+> - **The Phase 0 intermittent observation did not recur.**
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates` passed in both full
+>   runs and under `verify.py`. It remains **not fixed and is not called fixed**; Phase 1 touched
+>   nothing in its dependency path.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 2 — WORKSPACE CONTROLLER. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval.
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, release, package, `release.py` run, PR or merge; **published release `v0.4.0`**;
+>   `origin/master` unmoved at `83a2bfc`; every branch retained; the three consumer panels
+>   byte-identical; and this commit carries no AI authorship, session or provenance trailer.
+>
+> ## ⟢ CURRENT STATE — PLAN 6 PHASE 0 COMPLETE; PHASE 1 NOT STARTED (2026-09-07)
+>
+> **This block is the live state.** It supersedes the block below it on one point only — that block
+> says "PRODUCTION IMPLEMENTATION HAS NOT STARTED" and names **Phase 0** as the next action; Phase 0
+> has now been performed. Everything else in it, and every dated block beneath it, stands exactly as
+> written and is not rewritten here.
+>
+> - **Plan 6 Phase 0 — Baseline and Contract Map is COMPLETE**, committed on
+>   `feature/0.6.3-drop1-shared-multi-book-workspace`. It was read / inspect / map / record only.
+> - **PRODUCTION IMPLEMENTATION HAS STILL NOT STARTED.** Phase 0 created **no** production module, no
+>   test module and no harness; it widened no `ADOPTED`, moved no file, and changed no production
+>   source, test, configuration, version or dependency. The twelve Plan 6 files remain absent.
+> - **No architecture-affecting contradiction was found.** All 71 named Plan 3 symbols, all 28 frozen
+>   records, the `ACT.Shared.*` resources and all ten section 8.2 "does not exist" findings were
+>   re-verified **by AST**. The approved plan stands unchanged; only an evidence section (section 33)
+>   was appended to the drop.
+> - **Implementation baseline: 5,647 collected / 5,633 passed / 14 skipped / 0 failed**, identical to
+>   the planning baseline with no loss of collected tests. `verify.py` **RESULT: PASS**;
+>   `compileall` exit 0 over `scripts/` and `files/tests/`. Phase 0 reference SHA-256 hashes for the
+>   three consumer panels, the Converter, `m4b_numbering.py` and `test_m4b_numbering.py` are recorded
+>   in drop section 33.3 as the byte-identity gates for later phases.
+> - **Two non-blocking observations, recorded not fixed** (drop section 33.6): (1) a **pre-existing,
+>   intermittent** failure of `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates`
+>   was seen **once** and then passed in isolation, with its module, on an immediate second full run
+>   and under `verify.py` — it is a Plan 5 test with filesystem/order sensitivity, Phase 0 may not
+>   modify an existing test, and it is **not** recorded as a pass or as fixed; (2) a draft substring
+>   guard produced a false positive on `m4b_maker.py` (the log string *"retrying in Safe Mode"* is the
+>   Fast-first fallback, **not** Retry Failed), re-confirming that Plan 6's structural guards must be
+>   AST-based.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 1 — BOOK JOB VOCABULARY. IT HAS NOT STARTED** and requires
+>   separate explicit maintainer approval. Phase 1 must widen `ADOPTED` and its two count pins in the
+>   same commit that first names a Plan 3 symbol (drop section 33.8).
+> - **Unchanged:** version identity **`0.6.2`** and **UNRELEASED**, no `[0.6.2]`/`[0.6.3]` changelog
+>   heading, no tag, no GitHub release, no package, no `release.py` run, no PR and no merge; the
+>   **published GitHub release remains `v0.4.0`**; `origin/master` is unmoved at `83a2bfc`; every
+>   branch is retained; and this commit carries no AI authorship, session or provenance trailer.
+>
+> ## ⟢ CURRENT STATE — PLAN 6 PLANNING IS OPEN; THE STANDALONE RECONCILIATION REVIEW WAS WAIVED (2026-09-07)
+>
+> **This block is the live state of the repository.** It supersedes the block below it on exactly two
+> points, both of which an explicit maintainer instruction has overtaken: that "THE CURRENT NEXT
+> ACTION is ONE independent, READ-ONLY integration-readiness review of this reconciliation branch",
+> and that "PLAN 6 HAS NOT STARTED, and this reconciliation does not start it or authorize it".
+> Everything else in that block — and every dated block beneath it — stands exactly as written, is
+> still accurate, and is **not** rewritten, reopened or deleted here.
+>
+> - **The maintainer elected to SKIP the standalone integration-readiness review of
+>   `maintenance/0.6.2-post-merge-record-reconciliation`.** That review was **never performed**, and
+>   it is **withdrawn as a requirement** rather than left outstanding: no reader should treat it as
+>   pending work. The maintainer's stated reason is that another full review cycle is not worth
+>   spending on a documentation-only reconciliation.
+> - **The required sanity/repository review was folded into the opening audit for Plan 6** and
+>   performed as part of Plan 6 plan creation on **2026-09-07**. **No separate review cycle was run,
+>   no integration-readiness report or checkpoint was produced, and no READY verdict was produced,
+>   claimed or implied.** The audit re-verified, mechanically: the working tree clean; the ancestry
+>   `10a03ed` → `7072695` → `83a2bfc`; that `origin/master` had **not** advanced past `83a2bfc`; that
+>   no Plan 6 branch or drop existed on any branch or in any history; that `md-instructions/` held no
+>   active temporary drop; and that both reconciliation commits are documentation-only and carry no
+>   AI authorship trailer. It found **no contradiction** that invalidates the Plan 6 ownership map.
+> - **PLAN 6 PLANNING IS NOW OPEN. PRODUCTION IMPLEMENTATION HAS NOT STARTED.** Nothing in Plan 6
+>   has been implemented: no `shared/book_workspace.py`, no `shared/numbering.py`, no
+>   `shared/book_workspace_ui.py`, no harness, no test, and no change to any production panel. This
+>   checkpoint created a **plan**, not a feature.
+> - **The active temporary implementation drop is
+>   `md-instructions/0.6.3-drop1-shared-multi-book-workspace.md`**, and it is the only one. It is
+>   `v0.6.3 Drop 1 — Plan 6: Shared multi-book workspace foundation`, an eleven-phase drop
+>   (Phases 0–10) covering the book-job data model, Add/Duplicate/Remove Book, Previous/Next and
+>   `Book X of Y`, folder-to-book creation, Shared Metadata precedence, frozen effective-value
+>   snapshots, success-only numbering, and book-level Retry Failed.
+> - **The branch is `feature/0.6.3-drop1-shared-multi-book-workspace`**, created from the verified
+>   Plan 6 planning baseline **`10a03ed66480d396d65881eea84cb8ae4bfe452e`** — the final
+>   reconciliation commit — so both reconciliation commits are **carried forward, not lost**. They
+>   were **not** rewritten, squashed, rebased, amended, cherry-picked or force-pushed, and they will
+>   ride naturally into whatever integration Plan 6 eventually receives.
+> - **Three Plan 6 architecture decisions were settled by the maintainer at plan creation**, and the
+>   drop encodes them: (1) frozen run capture composes **one Plan 3 `job_control.RunSnapshot` per
+>   book**, so book-level retry is literally Plan 3's own `RunResult.retry()` → `RetryRequest` and no
+>   parallel snapshot framework is invented; (2) success-only numbering is **promoted**, not
+>   duplicated — `mp3_tools/m4b_numbering.py` moves to `shared/numbering.py` behind a re-export shim,
+>   under a blocking gate that `test_m4b_numbering.py` passes unchanged and `m4b_converter.py` stays
+>   byte-identical; (3) the Tk adapter is proved by a **developer-only harness** on the Plan 3
+>   precedent, adopted by **no production panel**, so `m4b_maker.py` stays byte-identical for Plan 7.
+> - **THE NEXT ACTION IS PLAN 6 PHASE 0 ONLY, AND IT REQUIRES EXPLICIT MAINTAINER APPROVAL FIRST.**
+>   Phase 0 is baseline recording, source-audit re-verification and regression-contract mapping, and
+>   it writes **no production code**. No phase may be chained into the next; each needs its own
+>   approval, as every plan's phases do.
+> - **This checkpoint changed documentation only.** Exactly three tracked files: the new drop, this
+>   file, and the permanent `don't-delete/…-Master-Implementation-Plan-Index.md`. **Zero production
+>   code, zero tests, zero configuration, zero launcher or setup files.** `Briefing.md`,
+>   `Changelog.md`, `Decisions.md`, `README.md`, `config.toml` and `version.py` were deliberately not
+>   touched — planning is not product behaviour, and the audit found no permanent-record requirement.
+> - **Restated and unchanged.** Plan 5 remains COMPLETE, APPROVED, CLOSED and INTEGRATED at
+>   `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`. PRE-PLAN-6 remains COMPLETE, CLOSED and INTEGRATED at
+>   its merge anchor `83a2bfc7de25dbe5a599b48fd73fe306695e490d`; the branch
+>   `maintenance/0.6.2-setup-self-healing` stays **retained** at `d7452a2b`, and every prior feature
+>   branch is likewise retained. **Phase 9 remains WAIVED / NOT APPLICABLE and was never a passed
+>   test**; real non-admin Windows target-machine acceptance remains **UNPERFORMED**. The two
+>   historical AI-trailer commits keep their closed-set exception, remain policy violations, and set
+>   **no precedent** — this commit carries no authorship, session or provenance trailer of any kind.
+>   Version identity remains **`0.6.2`** and **UNRELEASED**: no `[0.6.2]` and no `[0.6.3]` changelog
+>   heading, **no tag, no GitHub release, no package, no `release.py` run**, and the **published
+>   GitHub release remains `v0.4.0`**. **Plan 9 still owns release hardening and publication.**
+> - **Plans 7, 8 and 9 remain undrafted**, the nine-plan structure is unchanged, and no plan was
+>   reordered, renamed or added.
+>
+> ## ⟢ CURRENT STATE — PRE-PLAN-6 IS MERGED AND INTEGRATED; POST-MERGE RECORD RECONCILIATION (2026-09-07)
+>
+> **This block is the live state of the repository.** It supersedes the block below it on exactly the
+> points where that block speaks in the present tense about the integration sequence still being
+> *ahead* of the project: that a recheck is "the next action", that "no pull request is authorized",
+> that merge is "a separate explicit maintainer authorization" still to come, and that "`origin/master`
+> is untouched by it". Those statements were true when written, before the recheck, the pull request
+> and the merge. **All three have since happened.** That block is kept verbatim beneath this one as the
+> dated record of the pre-merge position. Nothing else below is deleted, rewritten or reopened — the
+> Phase-7, Phase-8, post-Phase-8 remediation, Phase-9 waiver and records-remediation entries stand
+> exactly as written.
+>
+> - **PRE-PLAN-6 IS MERGED. The `Setup_and_Run` / bootstrap self-healing maintenance is COMPLETE,
+>   CLOSED and INTEGRATED into `master`.** It reached `master` through **pull request #9**,
+>   *"v0.6.2 PRE-PLAN-6: self-healing setup and verified FFmpeg readiness"*, merged by the maintainer
+>   on **2026-09-06** (2026-09-07 UTC) as a **normal two-parent merge commit — not a squash, not a
+>   rebase**.
+> - **The stable PRE-PLAN-6 integration anchor is that merge commit:**
+>   **`83a2bfc7de25dbe5a599b48fd73fe306695e490d`**, with exactly two parents —
+>   parent 1 **`e36ab7d9236e210a5dfd8aaf69f25a158ca0908c`** (the `master` tip the branch merged into)
+>   and parent 2 **`d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`** (the approved maintenance head). Cite
+>   that merge commit, which is permanent. **The literal current tip of `master` is deliberately not
+>   asserted here** — it is queried from Git, because a branch tip moves and a written one goes stale.
+> - **The complete maintenance head is an ancestor of `master`.** All **twenty** commits of the series
+>   — the full `e36ab7d…d7452a2` delta — are reachable from the merge; nothing was dropped, squashed
+>   or rewritten to get there. *(The **19**-commit figure in the dated blocks below was accurate when
+>   written: it counted the series through the Phase-10 closeout `a170e41`, before the final
+>   records-remediation commit `d7452a2` was added. Those blocks are correct as history and are not
+>   rewritten here.)*
+> - **The maintenance branch is RETAINED, not deleted.** `maintenance/0.6.2-setup-self-healing` still
+>   exists on `origin` at **`d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`**, unchanged.
+> - **Phase 9 remains WAIVED / NOT APPLICABLE — it was never converted to PASS, and merging did not
+>   convert it.** CSPW-PC was removed as a deployment target. It was **not tested and did not pass**,
+>   and **no HOME-PC substitute evidence** was used or claimed. HOME-PC Phase 7 remains the accepted
+>   Windows evidence and HOME-MacOS Phase 8 the accepted macOS evidence. **Real non-admin Windows
+>   target-machine acceptance remains UNPERFORMED**; if such a target returns, Phase 9 must be
+>   reinstated and actually run. M5 is closed in implementation only — every production
+>   `winget install` names `--scope user`, with no machine scope and no elevation fallback.
+> - **The two historical AI-trailer violations are unchanged and are still violations.**
+>   **`592a72b90886a33bf03172fab39409b786af9dc5`** (Phase 8) and
+>   **`e916cb1128cb71c6fbe3de10f1d54238d5bfa345`** (macOS test isolation) carry `Co-Authored-By: Claude …`
+>   and `Claude-Session: …` trailers that **violate** the standing 2026-07-07 decision *"No AI co-author
+>   trailers in commit messages, ever"*. **Merging them into `master` did not make them compliant and
+>   reclassifies nothing.** The maintainer's **one-time, closed-set historical exception covering only
+>   those two named commits** — a signed ADR in `Decisions.md` (2026-09-05) — stands exactly as ruled:
+>   it **sets no precedent**, authorizes **no** trailer on this commit or any future commit, and
+>   authorizes **no** amend, rebase, squash, cherry-pick or force-push. **The 2026-07-07 rule remains
+>   fully binding for all future work**, and this commit carries no authorship, session or provenance
+>   trailer of any kind.
+> - **The merge published nothing.** Version identity remains **`0.6.2`** and **UNRELEASED**: no
+>   `[0.6.2]` changelog heading, **no tag, no GitHub release, no package, no `release.py` run**. The
+>   **published GitHub release remains `v0.4.0`** (verified against the repository's release list), and
+>   **Plan 9 still owns release hardening and publication**.
+> - **THIS BRANCH is the current bounded checkpoint: a post-merge integration-record reconciliation,
+>   and nothing more.** It exists because the two live coordination records still described the
+>   recheck, the pull request and the merge as *future* work after they had all actually occurred. It
+>   changes exactly two tracked documents — this file and the permanent
+>   `don't-delete/…-Master-Implementation-Plan-Index.md` — and **zero production code, zero tests, zero
+>   configuration and zero launcher/setup files**. It is documentation and provenance only.
+> - **THE CURRENT NEXT ACTION is ONE independent, READ-ONLY integration-readiness review of this
+>   reconciliation branch**, `maintenance/0.6.2-post-merge-record-reconciliation`. **It has not been
+>   performed, and READY is not assumed or inferable from this block** — it has to be returned by that
+>   review, independently. **No pull request is authorized until it returns READY**, PR review follows
+>   only after that, and **merge remains a separate, explicit maintainer authorization**. §15 of the
+>   master index carries the same statement.
+> - **PLAN 6 HAS NOT STARTED, and this reconciliation does not start it or authorize it.** The
+>   integration gate the earlier blocks placed in front of Plan 6 — *"Plan 6 may begin only once this
+>   maintenance is integrated into `master`"* — is now satisfied, but a satisfied gate is not an
+>   authorization. Plan 6 (v0.6.3 Drop 1, the shared multi-book workspace foundation) is still
+>   **undrafted**: no execution drop exists, no branch exists, and it needs **separate explicit
+>   maintainer approval** before it opens, as every plan does. **Plans 6–9 all remain undrafted.**
+> - **`md-instructions/pre-plan-6-setup-self-healing.md` was retired at closeout and must NOT be
+>   recreated.** Its durable content lives in `Decisions.md`, `Changelog.md`, `Briefing.md`,
+>   `README.md`, this file and the master index. There is currently **no active temporary
+>   implementation drop.**
+
 > ## ⟢ CURRENT STATE — PRE-PLAN-6 COMPLETE AND CLOSED; INTEGRATION RECORDS REMEDIATED; AWAITING A READ-ONLY RECHECK (2026-09-05)
 >
 > **This block is the live state of the repository.** It supersedes the block below it on every point

@@ -156,8 +156,9 @@ flashing during use.
   M4B Metadata `M4B-Metadata-Outputs`. Each panel shows its tool folder read-only and names the
   actual reserved run once an operation starts; the base is changed only in Preferences & Data,
   so no per-tool browse control can bypass it. Every output-producing action reserves its own
-  run — MP3 Tool's combine, time-edit and ID3 each get one, as do the editor's Write Tags,
-  Clear All Tags and Remove Series Numbering — and staging (`build/`, WAV normalisation,
+  run — the MP3 Tool's Write ID3 Tags and Combine each reserve **one** run for the whole
+  multi-Book batch (v0.6.3), as do the editor's Write Tags, Clear All Tags and Remove Series
+  Numbering — and staging (`build/`, the MP3 Tool's private `.work/`, WAV normalisation,
   ffmetadata) stays inside that run, so cleanup can never reach another run, the tool parent or
   the base.
 - **The two destination exceptions (v0.6.0 Drop 2 Phase 5).** Decision 10A allows exactly two
@@ -343,11 +344,13 @@ flashing during use.
   `files/tests/test_ui_theme.py`, `test_launcher_smoke.py`, `test_m4b_metadata_editor_ui.py`
   and `test_prototype_regression.py` all assert this isolation, the last of them across a
   whole application build.
-- **Conversion boundary (still in force).** The **Windows launcher shell** and the
-  **M4B Metadata Editor** are the only converted surfaces. **TTS Audiobook, M4B Converter,
-  MP3 Tool, M4B Maker and Cover Image Resizer remain classic** and must stay that way until
-  the Plan 9 conversion drop — measured live, they carry **zero** `ACT.*` styles between
-  them, against 19 in the editor. Approval of the prototype did not add them to its scope.
+- **Conversion boundary (still in force, one addition).** The **Windows launcher shell**, the
+  **M4B Metadata Editor** and — since the v0.6.3 focused MP3 redesign, by that plan's explicit
+  supersession — the **MP3 Tool** are the converted surfaces: on Windows they draw only `ACT.*`
+  styles, on macOS the same lookups return `""` and native aqua draws them. **TTS Audiobook,
+  M4B Converter, M4B Maker and Cover Image Resizer remain classic** and must stay that way until
+  the Plan 9 conversion drop — measured live, they carry **zero** `ACT.*` styles between them.
+  Approval of the prototype did not add them to its scope.
 - **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
@@ -588,6 +591,51 @@ before ffmpeg is invoked once.
   reports it rather than writing a short book, and the drift check does not blame the platform on a
   path it deliberately routed around.
 
+### The MP3 Tool (v0.6.3 focused MP3 redesign)
+
+The MP3 Tool is the first adopter of the shared **multi-Book workspace** (the v0.6.3 Plan 6
+foundation) and follows the Converter's shape: `mp3_tools/mp3_tool.py` is the panel and the only
+one of its modules that imports Tk; policy lives in Tk-free modules beside it and in shared
+authorities it consumes rather than copies.
+
+| Module | Responsibility |
+|---|---|
+| `shared/book_workspace.py` | The Plan 6 model: `BookJob`, `WorkspaceSnapshot`, stable Book ids, Shared → Book → blank precedence (`effective_value`, `disabled_fields`), `has_meaningful_work`, frozen `BookRunSnapshot` / `WorkspaceRunResult` and `retry_failed_books`. Immutable values; no Tk, no thread, no platform. |
+| `shared/book_workspace_ui.py` | The one Tk adapter of that model: `BookNavigator` (Previous / Next / heading / direct selector / Add / Duplicate / Remove, `layout="row"` or `"stacked"`) and `SharedMetadataSurface` (the Shared and Book field groups, `layout="rows"`, per-field `wraplength`). Reads no theme token and no platform. |
+| `mp3_tools/mp3_workflow.py` | The MP3 vocabulary and rules: the five Shared fields, folder-to-Book import projection, source-metadata observation (majority values, *Mixed source metadata*), default Titles (source Title, else cleaned filename), Chapter Titles resolution, signed-Time and Start # parsing. |
+| `mp3_tools/mp3_plan.py` | The frozen `RunPlan` a processing button builds before any work: Book order and ids, every occurrence, final Title / number / filename (`track_filename` — **from the final Title**, one leading number removed, sanitised, the calculated number added once; source-name fallback for a Title that sanitises to nothing), effective metadata, signed Time, artwork, one Book subfolder each (Album → source folder → `Book N`, through the shared collision planner) and the private `.work/` staging; `prepare_staging` / `publish_book` (atomic, whole Book or nothing) / `discard_staging` (links unlinked as links, never followed). |
+| `mp3_tools/mp3_artwork.py` | Artwork through `shared/image_capabilities`: the chooser filter from `decodable_suffixes()`, `load_artwork` (JPG/PNG bytes embedded as-is; HEIC/HEIF decoded to an **in-memory** PNG for the embed only), `preview_image`, `apply_artwork` (one front-cover APIC). The source picture is never written. |
+| `mp3_tools/mp3_processing.py` | The FFmpeg helpers and the two engines. Write ID3: every track becomes a new staged copy with the frozen Time applied (0 = `-map_metadata -1 -c copy`; + appends silence; − trims; an excessive trim fails before FFmpeg runs) and exactly the whitelisted frames written from a clean tag. Combine: constituents staged the same way — the final one too — then FAST (`fast_eligibility`: one codec / sample rate / channel count) or Safe (WAV normalisation), combined tag from a clean state, `combined_time-stamps.txt`. Tk-free; handed a checkpoint and an event listener. |
+| `mp3_tools/mp3_tool.py` | The panel: composes the adapters, freezes the plan, runs **one** `JobController` / `JobReporter` / `JobAdapter` per operation on its one pump, projects engine events into shared job events, composes per-Book `RunResult`s into the `WorkspaceRunResult` Book statuses are read from (Ready / Queued / Processing / Completed / Failed / Skipped / Not attempted), and asks `retry_failed_books` for Retry Failed. Presentation follows `_layout_hints(theme)` — accepted Windows values by default, the aqua bundle's compact hints on macOS. |
+
+Shared authorities it consumes unchanged: `shared/importing.py` + `import_coordination.py`
+(the scan), `shared/job_control.py` (controller, checkpoints, `RunResult`, `RetryRequest`),
+`shared/job_ui.py` (`JobAdapter`, `JobControlBar`, `JobStatusView`, `SummaryDetailsView`,
+`MainThreadPump`), `shared/output_paths.py` (reservation, sanitiser, collision planner,
+containment) and `shared/image_capabilities.py` (the one HEIC probe).
+
+- **Blank means blank.** Source tags pre-fill Artist / Album Artist / Album once (folder import,
+  or an empty Book's first files) and are never consulted again; a cleared field stores `""` and
+  the output carries no such frame. The one source fallback is a track's own default Title.
+- **A run is frozen, and the retry reads only the freeze.** Everything the engines and a later
+  Retry Failed need is in the `RunPlan`; live edits after Start cannot reach it. Retry re-runs
+  exactly the failed occurrences of the failed Books against the same plan inside the same
+  `MP3-Tool-N` directory, reusing every retained staged piece.
+- **Title, filename and track number are independent.** The embedded Title never carries the
+  filename prefix; the prefix is at least two digits and widens with the Book's last number;
+  `TRCK` is an ordinary unpadded integer; Start # blank means 1.
+- **Platform.** Windows: ACT dark, minimum 920×600. macOS: native aqua, minimum **1024×720**
+  (`ui_theme.AQUA_MIN_SIZE`) — the six fixed bands under aqua metrics exceed the content host a
+  920×600 window leaves, so the maintainer superseded the universal minimum for macOS only (Phase
+  12, 2026-09-12); the aqua composition stacks the navigator's Book actions and the two primary
+  buttons, wraps the Time label and balances the entries, driven by hint tokens in the aqua
+  theme bundle so the Windows composition is untouched. `test_mp3_tool_layout.py` measures the
+  real launcher on aqua; `test_mp3_tool_ui.py` protects the Windows layout.
+- **Tests ask for a platform's presentation through the seam.** `ui_theme.apply_theme(root,
+  style, platform="win32")` selects the Windows bundle on any host; rewriting `sys.platform` in a
+  fixture is forbidden because real FFmpeg runs through `shared/subprocess_utils`, which must see
+  the real host.
+
 ## Features
 
 - **TTS Audiobook** (`tts/epub2tts_gui.py`) — **PDF/TXT → MP3** (v0.6.1: EPUB retired, see
@@ -624,8 +672,20 @@ before ffmpeg is invoked once.
   or a track number. Optional whole-book track numbering is **off by default** and numbers only
   successes, so a failure leaves no gap. Progress with an ETA, **Pause/Resume/Cancel** and **Retry
   Failed** come from the shared job controls; sources are never modified and nothing is overwritten.
-- **MP3 Tool** (`mp3_tools/mp3_tool.py`) — combine MP3s into one, time-edit track ends, bulk
-  ID3 tagging with chapter-title paste.
+- **MP3 Tool** (`mp3_tools/mp3_tool.py`) — a **multi-Book workspace** (v0.6.3 focused MP3
+  redesign): `Import Folder` makes one Book per directory that directly contains MP3s, `Add Files`
+  extends the current Book, Books are navigated / added / duplicated / removed; Shared metadata
+  (Artist, Album Artist, Album, one signed Time, artwork) overrides and disables the matching
+  Book fields; per Book: Chapter Titles (one per line), Auto-number / Start #, the track list.
+  Exactly two actions — **Write ID3 Tags** (new copies carrying exactly Title / Artist / Album
+  Artist / Album / optional track number / front cover, nothing from the source) and **Combine
+  MP3s → One MP3** (one combined file per Book, Title = Album, no track number, no chapter
+  frames, a `combined_time-stamps.txt`; FAST concat tried automatically when the constituents
+  share codec / sample rate / channels, Safe WAV-normalising path otherwise or on a FAST failure,
+  reason logged). Every eligible Book runs sequentially from one frozen plan under one
+  `JobController`; each Book publishes atomically; a failed Book does not stop the next; Retry
+  Failed reruns only the failed pieces from the frozen state. Sources are never modified. See
+  *The MP3 Tool* below.
 - **M4B Maker** (`mp3_tools/m4b_maker.py`) — MP3s → chaptered M4B with cover art, metadata, and
   Audiobookshelf-compatible series tags (freeform `----:com.apple.iTunes:SERIES`/`SERIES-PART`
   atoms — what ABS's ffprobe scanner actually reads).
@@ -666,8 +726,9 @@ before ffmpeg is invoked once.
   shared-value / "(varies)" detection shipped in v0.5.0. It adds **no** per-book override,
   **no** field precedence, **no** disabling and **no** workspace: Decision 20B's full
   populated-global-overrides model needs the Plan 6 data model and the Plan 8 editor
-  workflow and does **not** exist today. `test_shared_metadata_grouping_adds_no_precedence_or_disabling`
-  pins that down.
+  workflow. The data model now exists (v0.6.3, `shared/book_workspace.py`) and the **MP3 Tool**
+  adopted it; the editor has **not**, and its surface is still visual only.
+  `test_shared_metadata_grouping_adds_no_precedence_or_disabling` pins that down.
 - **Summary/Details specimen (presentation only, developer-only).**
   `files/tests/manual_windows_ui_prototype.py` is a developer fixture, **not part of the
   product and not part of the test suite**: pytest cannot collect it, it is not in
@@ -734,10 +795,27 @@ built archive and no publication**. Plan 5 **is** integrated — it merged into 
 with `feature/0.6.2-m4b-converter-upgrade` retained at `393a5625` — but merging published nothing,
 and release remains Plan 9's. v0.6.0 Drops 1–3 (Plans 1–3) never carried a
 version of their own and still do not; v0.6.1 was the first bump since v0.5.1 and v0.6.2 the
-second. The wider v0.6.x initiative is **not** complete — four of the nine plans (6–9) remain
-undrafted.
+second. The wider v0.6.x initiative is **not** complete. Plan 6 (the shared multi-Book
+workspace) is drafted and its foundation plus the MP3 Tool adoption are implemented and accepted
+on both platforms under the v0.6.3 focused MP3 redesign (branch
+`feature/0.6.3-drop1-shared-multi-book-workspace`, checkpoint `bd6a30f4`, **not merged, not
+released**, version identity still `0.6.2`); its M4B Maker and M4B Metadata Editor adoptions are
+unscheduled. Plans 7–9 remain undrafted.
 
 ## High-Level State
+
+**v0.6.3 focused MP3 redesign (Plan 6 foundation + MP3 Tool adoption) — COMPLETE and ACCEPTED
+on both platforms on 2026-09-12; not merged and not released.** The MP3 Tool became a multi-Book
+workspace with Shared → Book → blank metadata precedence, one signed Time, explicit previewed
+artwork (JPG/PNG embedded as-is, HEIC/HEIF converted in memory when the machine can decode them),
+per-Book Chapter Titles and numbering, exactly two actions — Write ID3 Tags and Combine MP3s → One
+MP3 — run sequentially from one frozen plan under one `JobController` with atomic per-Book
+publication, Pause/Resume/Cancel and Retry Failed, one Summary | Detailed log, and a clean tag
+whitelist. Windows Phase 11 and macOS Phase 12 were each accepted by the maintainer on the real
+launcher with real media (playback, source safety, failure isolation and retry included); the
+macOS minimum window became 1024×720 by ruling, Windows keeps 920×600. Latest gates: Windows
+6,925 / 6,909 / 16 / 0; macOS 6,945 / 6,888 / 57 / 0, `verify.py` PASS. `launcher.TOOLS` still
+holds exactly six tools. The next action is the maintainer's integration decision.
 
 All six tools are built, live-verified on Windows (v0.1.0 test matrix: 18/18 applicable rows
 PASS; later releases re-verified their areas) **and on macOS (2026-07-08: full per-tool live
@@ -980,8 +1058,11 @@ the exact five-step smoke test is written out in `Handoff.md`.
   primary action, no unresolvable overlap, no clipped confirmation button. `MIN_SIZE` and
   `DEFAULT_GEOMETRY` are unchanged (below). The M4B Metadata Editor's permanently scrolling
   form is an accepted Plan 1 limitation, not the final target; Plan 9 owns the reflow.
-- **Windows geometry, deliberately unchanged.** `MIN_SIZE = (920, 600)` and
-  `DEFAULT_GEOMETRY = "1024x720"` stay as they are. At the 920×600 minimum the **M4B
+- **Windows geometry, deliberately unchanged; macOS has its own minimum since v0.6.3.**
+  `MIN_SIZE = (920, 600)` and `DEFAULT_GEOMETRY = "1024x720"` stay as they are on Windows and
+  the classic branch. The aqua bundle returns `AQUA_MIN_SIZE = (1024, 720)` — the maintainer's
+  Phase 12 ruling (2026-09-12), see *The MP3 Tool* above and `Decisions.md`; the launcher
+  applies whatever `theme["min_size"]` says. At the 920×600 minimum the **M4B
   Converter's** primary action and Log are still clipped (~19 px and ~108 px bottom + 75 px
   right, identical at both scaling levels). That panel is unconverted and Plan 9 will rebuild
   it, so the clipping is deferred there rather than fixed by widening the minimum on behalf

@@ -502,6 +502,23 @@ _ADVICE = ("\nRedirect the writer to tmp_path before it runs — "
 
 
 @pytest.fixture(autouse=True)
+def _tk_objects_finalised_before_a_thread(request):
+    """No worker thread starts while an armed Tk object waits to be collected.
+
+    The rule and its reasons live in ``tk_gate.finalise_before_thread``; this
+    installs the ``Thread.start`` hook once and tells the gate which test is
+    running, so the boundary runs at most once per test and only in a test
+    that actually starts a thread inside a live-Tk scope. Everything else
+    pays nothing.
+    """
+    import tk_gate
+
+    tk_gate.install_thread_start_boundary()
+    tk_gate.begin_test(request.node.nodeid)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _no_production_state_writes():
     """Fail any test that mutates real production state.
 

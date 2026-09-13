@@ -36,8 +36,15 @@ class FakeInterp:
 
     def call(self, *args):
         if args[:2] == ("after", "info"):
+            if len(args) == 3:
+                return ("script_for_" + args[2], "timer")
             return tuple(self.owner.pending)
+        if args[:2] == ("after", "cancel"):
+            self.owner.after_cancel(args[2])
         return ""
+
+    def splitlist(self, value):
+        return tuple(value)
 
 
 class FakeChild:
@@ -95,6 +102,9 @@ class FakeTk:
         if identifier in self.pending:
             self.pending.remove(identifier)
 
+    def deletecommand(self, name):
+        self.deleted_commands = getattr(self, "deleted_commands", []) + [name]
+
     def bind_all(self, *args):
         return tuple(self.all_bindings)
 
@@ -124,12 +134,34 @@ class FakeTk:
         self.updated += 1
 
 
+@pytest.fixture
+def real_root():
+    """The process's one real root, through the gate, for the test that needs it."""
+    tk = pytest.importorskip("tkinter")
+    yield from tk_gate.tk_root_session(tk)
+
+
 @pytest.fixture(autouse=True)
-def _no_shared_root_leaks():
-    """No stand-in root may survive into another test, or into the real suite."""
+def _no_shared_root_leaks(request):
+    """No stand-in root may survive into another test, or into the real suite.
+
+    The real root is put back afterwards, not dropped (v0.6.3 Phase 10): this
+    used to leave ``_SHARED_ROOT`` as ``None`` after every test here, so the
+    next live-Tk module opened a *second* interpreter beside the abandoned
+    one -- the churn this gate exists to prevent, and the ``init.tcl``
+    transient the full suite kept meeting after this module ran. The one test
+    that wants the real root says so by asking for ``real_root``, and is left
+    alone.
+    """
+    if "real_root" in request.fixturenames:
+        yield
+        return
+    real = tk_gate._SHARED_ROOT
     tk_gate._SHARED_ROOT = None
-    yield
-    tk_gate._SHARED_ROOT = None
+    try:
+        yield
+    finally:
+        tk_gate._SHARED_ROOT = real
 
 
 # --------------------------------------------------------------------------- #
@@ -324,14 +356,19 @@ def test_a_failed_session_never_yields_a_root(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def test_a_real_root_can_still_be_opened_and_destroyed():
-    """The gate must not have broken the ordinary path on this machine."""
+def test_a_real_root_can_still_be_opened_through_the_gate(real_root):
+    """The gate must not have broken the ordinary path on this machine.
+
+    Through the gate, deliberately, and never destroyed here: this test used
+    to open and destroy a throwaway root of its own, which is the one thing
+    this module documents as failing on Windows inside pytest -- a second
+    interpreter after the shared one -- and it failed that way three runs in
+    four when it followed another live-Tk module (``Can't find a usable
+    init.tcl``). The ordinary path *is* the shared root.
+    """
     tk = pytest.importorskip("tkinter")
-    root = tk_gate.open_tk_root(tk)
-    try:
-        assert root.winfo_exists()
-    finally:
-        root.destroy()
+    assert real_root.winfo_exists()
+    assert tk_gate.shared_root(tk) is real_root
 
 
 @pytest.mark.parametrize("module_name, scope", [

@@ -228,21 +228,27 @@ def test_input_order_is_preserved_audibly(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
+#: Where the FFmpeg helpers live since the focused MP3 plan's Phase 7 moved
+#: them out of the panel: ``mp3_tool`` re-exports them, but the code — and so
+#: every structural guard below — is here.
+HELPERS_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_processing.py"
+
+
 def test_no_ffmpeg_call_is_made_through_a_shell():
     """Argument-vector execution only — a path never reaches a shell."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            for keyword in node.keywords:
-                if keyword.arg == "shell":
-                    assert isinstance(keyword.value, ast.Constant)
-                    assert keyword.value.value is False, "shell=True is never allowed"
+    for source in (HELPERS_SOURCE,
+                   REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for keyword in node.keywords:
+                    if keyword.arg == "shell":
+                        assert isinstance(keyword.value, ast.Constant)
+                        assert keyword.value.value is False, "shell=True is never allowed"
 
 
 def test_run_ff_is_given_a_list_not_a_string():
-    tree = ast.parse((REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py")
-                     .read_text(encoding="utf-8"))
+    tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     function = next(n for n in ast.walk(tree)
                     if isinstance(n, ast.FunctionDef) and n.name == "run_ff")
     calls = [n for n in ast.walk(function)
@@ -254,10 +260,13 @@ def test_run_ff_is_given_a_list_not_a_string():
 
 
 def test_shlex_quote_is_only_used_for_the_human_readable_log():
-    """Shell quoting must never be mistaken for concat-list escaping."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
-              ).read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    """Shell quoting must never be mistaken for concat-list escaping.
+
+    Since Phase 7 the Write ID3 engine, and since Phase 8 the Combine engine,
+    also quote a failed command for its technical detail — the same
+    human-readable purpose, and the only other owners.
+    """
+    tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     owners = set()
     for function in ast.walk(tree):
         if not isinstance(function, ast.FunctionDef):
@@ -266,12 +275,11 @@ def test_shlex_quote_is_only_used_for_the_human_readable_log():
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "quote"):
                 owners.add(function.name)
-    assert owners <= {"save_error_log"}, owners
+    assert owners <= {"save_error_log", "_stage_clean_copy", "_combine_constituents"}, owners
 
 
 def test_the_escaper_does_not_use_shell_quoting():
-    tree = ast.parse((REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py")
-                     .read_text(encoding="utf-8"))
+    tree = ast.parse(HELPERS_SOURCE.read_text(encoding="utf-8"))
     function = next(n for n in ast.walk(tree)
                     if isinstance(n, ast.FunctionDef)
                     and n.name == "ffmpeg_escape_listfile_path")
@@ -288,19 +296,36 @@ def test_the_escaper_does_not_use_shell_quoting():
 
 
 def test_the_combine_output_still_goes_through_the_shared_run_directory():
-    """The reservation rules are untouched by the escaping fix."""
+    """The reservation rules are untouched by the escaping fix.
+
+    Narrowed at the focused MP3 plan's Phase 4 while the redesigned panel
+    reserved nothing; restored at Phase 5, which plans every Combine into one
+    shared reservation per operation. No local run-folder helper came back.
+    """
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
               ).read_text(encoding="utf-8")
     assert "reserve_run_directory" in source
     assert "next_available_folder" not in source
+    assert "BASE_OUTPUT_DIRNAME" not in source
+    assert "destination_hint(TOOL_KEY)" in source
 
 
 def test_the_listfile_lives_inside_the_operation_directory(tmp_path):
-    """Concat lists are operation-owned, never left beside a source."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py"
-              ).read_text(encoding="utf-8")
-    assert 'build_dir / "inputs_fast.txt"' in source
-    assert 'out_dir / "build" / "inputs_safe.txt"' in source
+    """Concat lists are operation-owned, never left beside a source.
+
+    Skipped from the focused MP3 plan's Phase 4 (the single-book combine
+    worker went) until Phase 8's per-Book Combine engine put both lists where
+    they now live: inside the Book's private staging under the one run.
+    """
+    source = HELPERS_SOURCE.read_text(encoding="utf-8")
+    assert 'book.staging_dir / "inputs_fast.txt"' in source
+    assert 'book.staging_dir / "inputs_safe.txt"' in source
+    assert 'wav_dir = book.staging_dir / "wavs"' in source
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)                 and node.func.id == "write_concat_listfile":
+            spelled = ast.unparse(node.args[1])
+            assert spelled == "listfile", spelled
 
 
 def test_a_failure_still_records_the_ffmpeg_error_text(tmp_path):

@@ -53,6 +53,13 @@ from tkinter import ttk
 
 DEFAULT_GEOMETRY = "1024x720"
 MIN_SIZE = (920, 600)
+#: The smallest window the native aqua composition fits (v0.6.3 MP3 Phase 12,
+#: maintainer ruling). Native buttons, entries, labels and bezels are larger
+#: than the ACT design's, so the 920x600 minimum the Windows composition is
+#: accepted at leaves a 484 px content host on macOS — less than the fixed
+#: bands of the MP3 Tool alone. 1024x720 was inspected and accepted on the
+#: real launcher; Windows and the classic branch keep ``MIN_SIZE``.
+AQUA_MIN_SIZE = (1024, 720)
 
 #: Every ttk style this module registers for Windows begins with this prefix.
 #: Nothing outside the prefix is created, redefined or configured, which is
@@ -64,11 +71,11 @@ WINDOWS_STYLE_PREFIX = "ACT"
 # helpers
 # ---------------------------------------------------------------------------
 
-def _classic_font_family() -> str:
+def _classic_font_family(platform: str) -> str:
     """The historical launcher font choice (Windows branch must not change)."""
-    if sys.platform == "win32":
+    if platform == "win32":
         return "Segoe UI"
-    if sys.platform == "darwin":
+    if platform == "darwin":
         return "Helvetica Neue"
     return "TkDefaultFont"
 
@@ -111,13 +118,13 @@ def _mac_font_family(root: tk.Tk) -> str:
 # branches
 # ---------------------------------------------------------------------------
 
-def _apply_classic(root: tk.Tk, style: ttk.Style) -> dict:
+def _apply_classic(root: tk.Tk, style: ttk.Style, platform: str) -> dict:
     """Reproduce today's exact look (vista/Segoe UI on Windows, clam elsewhere)."""
     try:
-        style.theme_use("vista" if sys.platform == "win32" else "clam")
+        style.theme_use("vista" if platform == "win32" else "clam")
     except tk.TclError:
         pass
-    family = _classic_font_family()
+    family = _classic_font_family(platform)
     return {
         "mode": "classic",
         "family": family,
@@ -135,7 +142,7 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
     try:
         style.theme_use("aqua")
     except tk.TclError:  # a Tk built without aqua — style like the classic look
-        return _apply_classic(root, style)
+        return _apply_classic(root, style, "darwin")
 
     window = _resolve_color(root, "systemWindowBackgroundColor", "#ececec")
     text = _resolve_color(root, "systemLabelColor", "#000000")
@@ -176,7 +183,7 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
         "font_section": (family, 11, "bold"),
         "font_status": (family, 11),
         "geometry": DEFAULT_GEOMETRY,
-        "min_size": MIN_SIZE,
+        "min_size": AQUA_MIN_SIZE,
         "colors": colors,
         "metrics": {
             "sidebar_width": 220,
@@ -187,6 +194,25 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
             "toolbar_height": 44,
             "content_pad": 14,
             "status_pad": (12, 5),
+            # Panel composition hints (v0.6.3 MP3 Phase 12). Native aqua
+            # buttons, entries and labels are wider and taller than the ACT
+            # design's, so a composition accepted on Windows can ask for more
+            # width than the content host has here: the MP3 Tool's navigator
+            # and job-control rows were cut off, and its metadata entries
+            # were squeezed to a few characters. A panel reads these with its
+            # own defaults as the fallback; the Windows bundle carries none,
+            # so its accepted layout is untouched. Presentation only — what
+            # the controls do is the same on every platform.
+            "panel_pad": 8,               # the panel's outer margin
+            "panel_gap": 4,               # between its bands
+            "panel_gap_small": 2,         # between a band and its neighbour row
+            "navigator_layout": "stacked",  # Prev/Next/selector over Add/Dup/Remove
+            "actions_layout": "stacked",    # primary actions in a column
+            "field_entry_width": 8,       # characters; ~10 px each at 13 pt
+            "field_label_wrap": 155,      # px; the longest field label folds once
+            "field_label_wrap_narrow": 100,  # px; other labels stay near their entry
+            "artwork_buttons": "natural",  # Choose/Clear at their native width
+            "artwork_gap": 8,             # px between the text fields and artwork
         },
     }
 
@@ -862,7 +888,7 @@ def _apply_windows(root: tk.Tk, style: ttk.Style) -> dict:
     converted looks exactly as it did before this branch existed.
     """
     base = _windows_base_theme(style)
-    family = _classic_font_family()
+    family = _classic_font_family("win32")
     colors = dict(_WINDOWS_COLORS)
     metrics = dict(_WINDOWS_METRICS)
     fonts = _windows_fonts(family)
@@ -1087,7 +1113,8 @@ class ProgressIndicator:
             self.reset()
 
 
-def apply_theme(root: tk.Tk, style: ttk.Style) -> dict:
+def apply_theme(root: tk.Tk, style: ttk.Style, *,
+                platform: str | None = None) -> dict:
     """Apply the platform theme and return the resolved fonts/colors/metrics.
 
     The launcher builds its widgets exclusively from this dict. Each platform
@@ -1099,9 +1126,16 @@ def apply_theme(root: tk.Tk, style: ttk.Style) -> dict:
 
     Every mode returns the same bundle keys the launcher already reads, so a
     caller written against the classic bundle keeps working.
+
+    ``platform`` names the branch explicitly; it defaults to the host's
+    ``sys.platform``. It is the one sanctioned way to ask for another
+    platform's *presentation* — a test that wants the Windows bundle on a Mac
+    passes ``platform="win32"`` here instead of rewriting ``sys.platform``,
+    which would also tell every real subprocess it was on Windows.
     """
-    if sys.platform == "darwin":
+    branch = sys.platform if platform is None else platform
+    if branch == "darwin":
         return _apply_darwin(root, style)
-    if sys.platform == "win32":
+    if branch == "win32":
         return _apply_windows(root, style)
-    return _apply_classic(root, style)
+    return _apply_classic(root, style, branch)

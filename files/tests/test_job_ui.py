@@ -134,11 +134,10 @@ def pump(parent):
 
 
 @pytest.fixture
-def windows_theme(tk_root, monkeypatch):
-    """The Windows ``ACT.*`` bundle, forced on any host."""
-    monkeypatch.setattr(sys, "platform", "win32")
+def windows_theme(tk_root):
+    """The Windows ``ACT.*`` bundle, asked for through the theme's own seam."""
     style = ttk.Style(tk_root)
-    theme = ui_theme.apply_theme(tk_root, style)
+    theme = ui_theme.apply_theme(tk_root, style, platform="win32")
     yield theme
     restore = ttk.Style(tk_root)
     if "vista" in restore.theme_names():
@@ -523,6 +522,41 @@ def test_a_destroyed_widget_stops_the_chain_instead_of_raising(tk_root):
     assert made.pending is None
     assert made.running is False
     made.close()
+
+
+def test_stopping_after_the_widget_is_gone_still_cancels_the_timer(tk_root):
+    """v0.6.3 Phase 10 (test-isolation defect). The ``after`` timer belongs to
+    the interpreter, not to the widget that scheduled it: destroying the widget
+    deletes the Python command but leaves the timer pending, and when it fires
+    Tk reports a background error for a command that no longer exists. So a
+    pump whose widget has gone must still cancel its timer where it lives."""
+    holder = ttk.Frame(tk_root)
+    made = job_ui.MainThreadPump(holder)
+    made.start()
+    handle = made.pending
+    assert handle is not None
+    holder.destroy()
+    assert str(handle) in tk_root.tk.call("after", "info"), "still pending after destroy"
+    made.stop()
+    assert str(handle) not in tk_root.tk.call("after", "info"), (
+        "the timer outlived its widget: it fires into a deleted command")
+    made.close()
+
+
+def test_closing_the_status_view_stops_an_animating_bar(tk_root):
+    """A ``ttk.Progressbar.start`` timer is the view's own: closing the view
+    ends it, so a view retired while indeterminate leaves no timer behind to
+    be found by whatever uses the interpreter next."""
+    holder = ttk.Frame(tk_root)
+    view = job_ui.JobStatusView(holder)
+    view.apply(ProgressView(mode=ProgressMode.INDETERMINATE, label="Working…"))
+    assert any("Autoincrement" in str(tk_root.tk.call("after", "info", entry))
+               for entry in tk_root.tk.call("after", "info"))
+    view.close()
+    assert not any("Autoincrement" in str(tk_root.tk.call("after", "info", entry))
+                   for entry in tk_root.tk.call("after", "info")), (
+        "the animation timer survived close()")
+    holder.destroy()
 
 
 def test_the_pump_never_asks_a_queue_how_big_it_is():
@@ -2191,3 +2225,136 @@ def test_the_harness_is_reachable_from_no_production_entry_point():
     universal = Path(__file__).resolve().parent.parent.parent / "scripts" / "Universal"
     for path in universal.rglob("*.py"):
         assert "manual_plan3_harness" not in path.read_text(encoding="utf-8"), path
+
+
+# --------------------------------------------------------------------------- #
+# v0.6.3 focused MP3 plan, Phase 9: one log region across many runs
+# --------------------------------------------------------------------------- #
+
+
+def test_the_view_grew_backward_compatibly(parent):
+    """No history call, no change: replace-all, and the second tab is Details."""
+    plain = job_ui.SummaryDetailsView(parent)
+    assert plain.frame.tab(1, "text") == "Details"
+    plain.set_summary(("first",))
+    plain.set_summary(("second",))
+    assert plain.summary == ("second",)
+    assert plain.rendered(plain.summary_text) == "second"
+
+
+def test_history_dividers_and_a_renamed_second_tab(parent):
+    view = job_ui.SummaryDetailsView(parent, details_label="Detailed")
+    assert view.frame.tab(1, "text") == "Detailed"
+    view.append("Import Folder: 3 files.", "[import] 3 files")
+    view.set_summary(("Running.", "Stage: book-1"))
+    view.set_details(("[+0.000s] state_changed: Running.",))
+    assert view.summary == ("Import Folder: 3 files.", "Running.", "Stage: book-1")
+    assert view.details == ("[import] 3 files", "[+0.000s] state_changed: Running.")
+    # A cumulative re-render replaces only the live section.
+    view.set_summary(("Running.", "Stage: book-1", "Finished."))
+    assert view.summary == ("Import Folder: 3 files.", "Running.", "Stage: book-1",
+                            "Finished.")
+    view.divider("— run 2 —")
+    view.set_summary(("Running.",))
+    assert view.summary == ("Import Folder: 3 files.", "Running.", "Stage: book-1",
+                            "Finished.", "— run 2 —", "Running.")
+    assert view.rendered(view.summary_text) == "\n".join(view.summary)
+    assert view.details[-1] == "— run 2 —"
+
+
+def test_clear_empties_the_visible_text_and_nothing_repopulates(parent):
+    view = job_ui.SummaryDetailsView(parent)
+    view.append("before")
+    view.set_summary(("Running.", "Stage: convert"))
+    view.set_details(("d1", "d2"))
+    view.clear()
+    assert view.summary == () and view.details == ()
+    assert view.rendered(view.summary_text) == "" and view.rendered(view.details_text) == ""
+    # The same cumulative projection again: still nothing.
+    view.set_summary(("Running.", "Stage: convert"))
+    view.set_details(("d1", "d2"))
+    assert view.summary == () and view.details == ()
+    # Only what comes after the cleared point shows.
+    view.set_summary(("Running.", "Stage: convert", "Finished."))
+    view.set_details(("d1", "d2", "d3"))
+    assert view.summary == ("Finished.",) and view.details == ("d3",)
+    # A new, shorter source (a fresh run's adapter) is shown whole.
+    view.set_summary(("Ready.",))
+    assert view.summary == ("Ready.",)
+
+
+def test_the_history_is_bounded_by_the_limit(parent):
+    view = job_ui.SummaryDetailsView(parent, limit=3)
+    for index in range(6):
+        view.append(f"line {index}")
+    assert view.summary == ("line 3", "line 4", "line 5")
+
+
+def test_select_all_is_bound_on_both_panes(parent):
+    view = job_ui.SummaryDetailsView(parent)
+    view.set_summary(("one", "two"))
+    for pane in (view.summary_text, view.details_text):
+        assert pane.bind("<Control-a>")
+    view.summary_text.event_generate("<<SelectAll>>")
+    view.summary_text.update()
+    assert view.summary_text.get("sel.first", "sel.last").rstrip("\n") == "one\ntwo"
+
+
+def test_an_externally_owned_view_is_rendered_into_and_never_closed(parent, pump):
+    view = job_ui.SummaryDetailsView(parent, details_label="Detailed")
+    view.append("kept")
+    publisher = Publisher()
+    adapter = job_adapter(parent, pump, publisher, views=view)
+    assert adapter.views is view
+    assert view.frame.winfo_manager() == "", "placed by its owner, not the adapter"
+    publisher.reporter.state_changed(snapshot_for(JobState.RUNNING))
+    pump.tick()
+    assert view.summary == ("kept", "Running.")
+    adapter.close()
+    assert view.closed is False
+    with pytest.raises(job_ui.JobUiError):
+        job_ui.JobAdapter(parent, run_id="run-2", pump=pump, views="not a view")
+
+
+def test_the_context_callable_owns_the_stage_line(parent, pump, tmp_path):
+    manager = ImportedFileManager()
+    fill(manager, *book(tmp_path))
+    snapshot = run_snapshot(manager)
+    item_ids = snapshot.item_ids
+    publisher = Publisher(item_ids=item_ids)
+    seen: list[tuple] = []
+
+    def context(stage, item_id):
+        seen.append((stage, item_id))
+        return f"Book {stage} — {item_id}"
+
+    adapter = job_adapter(parent, pump, publisher, item_ids=item_ids, context=context)
+    publisher.reporter.stage_changed("one", "Book one")
+    publisher.reporter.current_item(item_ids[0], "first")
+    pump.tick()
+    assert ("one", item_ids[0]) in seen
+    assert adapter.status.stage_text == f"Book one — {item_ids[0]}"
+    with pytest.raises(job_ui.JobUiError):
+        job_ui.JobAdapter(parent, run_id="run-2", pump=pump, context="not callable")
+
+
+def test_set_result_accepts_a_composed_result_that_answers_has_retryable(parent, pump):
+    publisher = Publisher()
+    adapter = job_adapter(parent, pump, publisher)
+    publisher.reporter.completed(snapshot_for(JobState.COMPLETED_WITH_FAILURES))
+    pump.tick()
+
+    class Composed:
+        has_retryable = True
+
+    adapter.set_result(Composed())
+    assert adapter.has_retryable is True
+    assert adapter.controls.availability()[JobAction.RETRY_FAILED] is True
+
+    class Wrong:
+        has_retryable = "yes"
+
+    with pytest.raises(job_ui.JobUiError):
+        adapter.set_result(Wrong())
+    with pytest.raises(job_ui.JobUiError):
+        adapter.set_result("finished")

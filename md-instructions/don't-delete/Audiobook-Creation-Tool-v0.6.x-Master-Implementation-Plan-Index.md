@@ -119,7 +119,7 @@ The observed `master` SHA is orientation evidence, not permission to overwrite a
 | 3 | v0.6.0 Drop 3 | *(retired at closeout)* | **Complete, maintainer-approved 2026-08-10, closed out, and MERGED into `master` through pull request #4** (merge `809a43e754920fce2f11f08e3c401dcc4c7a5223`); branch `feature/0.6.0-drop3-shared-job-controls-importing` retained. *(Superseded status text, kept for the record: this row previously read "awaiting integration review; NOT merged", and before that* **ACTIVE — Phases 0-7 complete (Phases 0-2 on 2026-08-08, Phases 3-6 on 2026-08-09, Phase 7 on 2026-08-10).** Branch `feature/0.6.0-drop3-shared-job-controls-importing`, start SHA `563df9884497032e19abd4437a0e66584cd9ec12`. Phase 1 added the frozen importing/job-control vocabulary (`shared/importing.py`, `shared/job_control.py`) and 307 tests, and repaired the Phase 0 baseline defect under approved option (a). Phase 2 added the read-only traversal core — natural ordering, broad-root classification, hidden detection, non-following identity capture and `scan_roots` — plus 97 tests; its link-classification risk gate was reached, evidenced and cleared, and `maintenance.py` was **not** refactored. Phase 3 added the imported-file manager, Add Files validation, deduplication by non-following source identity, the deliberate-duplicate override and atomic transactions — plus 146 tests; its `output_paths.py` compatibility gate was **not encountered**, and `output_paths.py`, `maintenance.py` and `shared/cancellation.py` are all byte-identical to the Phase 2 commit. Phase 4 added the background coordination layer in a new pure companion module `shared/import_coordination.py` — one operation at a time, the broad-root warning before any worker, a bounded queue of frozen events, owner-thread fencing on every manager-touching entry point, the captured >1,000 threshold confirmation and atomic commit with bounded stale-revision recomputation — plus 129 tests; its cancellation isolation gate was **not encountered**, and `shared/cancellation.py` remains byte-identical. Phase 5 added the cooperative run controller to `shared/job_control.py` — the frozen transition table enforced in one place, condition-based pause waiting, resume, cancel wake-up, one acknowledgement per run and deterministic terminal settlement — plus one additive predicate in `shared/cancellation.py` and 173 tests; its compatibility gate was **not encountered**, `ConversionCancelled` and `raise_if_cancelled` are unchanged, and every pre-existing caller passes untouched. Phase 6 added run framing to `shared/job_control.py` — `capture_run`, the UI-neutral lock derivation, and the `ItemStatus`/`ItemOutcome`/`RunResult` disposition layer that builds Retry Failed from only retryable failures against the exact original snapshot — plus 174 tests; its risk gate was honoured by omission, so no output descriptor exists and Plan 2 keeps sole ownership of placement. Phase 7 added the reporting layer to the same module — typed production whose state-bearing events are minted from the controller's own snapshot, a stream that rejects stale, unknown-item, post-terminal and duplicate-terminal events inertly, Summary/Details projections whose Summary structurally cannot read the technical `detail` field, a lazy bridge to the one existing session logger, a progress contract that is never rounded up to meet a happy ending, and a current-run rolling ETA with an injected clock, a three-sample minimum, a twenty-sample window, precise pause exclusion and `Calculating…` for every unreliable case — plus 258 tests; no mandatory gate was encountered, no approved Phase 1–6 contract was rewritten, and `logging_setup.py` and `ui_theme.py` are byte-identical. Adopted by no production panel. Phases 8–10 not started; each needs separate explicit maintainer approval. See the recorded start state in Section 15.*) All ten phases are done; Phase 9's Windows manual matrix was explicitly approved, Phase 10 transferred the lasting record and retired the temporary drop, and the automated gate was **2,534 collected / 2,521 passed / 13 skipped / 1 warning** both before and after that retirement. Plan 4 has since been built on top of this foundation and adopts it in two production panels. | Plans 1–2 |
 | 4 | v0.6.1 | *(retired at closeout)* | **COMPLETE, maintainer-approved, CLOSED, and MERGED into `master` through pull request #5** (merge `81c9c0600ca74a42a22bd09d367a702bee9708fe`, a normal merge commit; parent 1 `809a43e`, parent 2 the approved feature head `07d21545d4f5d0bce7b548a437ba6bf1dff71d19`); branch `feature/0.6.1-tts-cover-workflows` retained. *(Superseded status text, kept for the record: this row previously read "awaiting integration review; NOT merged".)* All sixteen phases (0–15) done and separately approved, on branch `feature/0.6.1-tts-cover-workflows` from start SHA `809a43e754920fce2f11f08e3c401dcc4c7a5223`. Delivered: the **unified PDF/TXT queue** in TTS; the **retirement of EPUB** from production with its source preserved in the permanent tracked archive `files/archived-code/epub-tts/` (a **breaking change**, and the archive is **not** a temporary drop); the Cover **Details / List / Medium Thumbnail** browser; **HEIC/HEIF** capability with decode and encode reported separately and **format preserved, never silently substituted with JPEG**; the **Chatterbox** engine (`ResembleAI/chatterbox-turbo` via `chatterbox-tts==0.1.7`) with **four maintainer-authorized voices**, **CPU-first** device selection and a truthful degraded path; and shared importer / output-service / job-control adoption in both panels. `launcher.TOOLS` still holds exactly six tools. **Evidence:** the Windows manual matrix is **COMPLETE and explicitly approved** (2026-08-19, HOME-PC, 1920×1080 at 100%) after five root-caused defects; **live macOS is a PASS, not a deferral** (2026-08-20/21, Apple M4 Pro, macOS 26.5.2, native arm64) including **genuine HEIC 12/12** and all four Chatterbox voices on **real Metal**, approved by ear on 2026-08-21; Phase 14 approved 2026-08-22 on its 14D evidence, having found and fixed a real wheel-binding lifecycle defect in `shared/ui_theme.py` and closed a test-harness hole where a failed Tk root became a silent skip; automated gate **3901 collected, 3887 passed, 0 failed, 0 errors, 14 skipped, 1 warning**, **zero Tk/display skips**, `verify.py` **RESULT: PASS**, compile exit 0 — identical **before and after** the temporary drop was retired. **Phase 15 closeout completed:** the lasting record moved into `Briefing.md`, `Changelog.md` (under `[Unreleased]`, **no `[0.6.1]` heading**), `README.md`, `Decisions.md`, `Handoff.md` and this index; **`VERSION` bumped `0.5.1` → `0.6.1` as a version identity, not a release**; and `md-instructions/0.6.1-tts-cover-workflows.md` was retired as the sole deletion, with no rename. **Deferred, not passed:** Windows 125% scaling, Windows DPI awareness, the `.DS_Store`-into-packaging defect (prototyped, deliberately uncommitted — Plan 9 owns packaging), and a general pronunciation override (recorded, **not implemented**). No tag, release, packaging, publication or merge. | Plans 1–3 |
 | 5 | v0.6.2 | *(retired at closeout)* | **COMPLETE, maintainer-approved, CLOSED (2026-08-31), and MERGED into `master` through pull request #6** (merge `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`, 2026-09-02, a normal two-parent merge commit; parent 1 `81c9c0600ca74a42a22bd09d367a702bee9708fe`, parent 2 the approved feature head `393a5625f0bce90cb4f9f4313196017acf958f56`); branch `feature/0.6.2-m4b-converter-upgrade` **retained**, not deleted. *(Superseded status text, kept for the record: this row previously read* **CLOSED (2026-08-31); NOT merged.**)* Branch `feature/0.6.2-m4b-converter-upgrade` from start SHA `81c9c0600ca74a42a22bd09d367a702bee9708fe`. All nineteen phases (0–18) done and separately approved. *(Superseded status text, kept for the record: this row previously read* **ACTIVE — drafted, maintainer-approved, Phase 0 complete; Phase 1 not started.**)* **Delivered:** whole-book **and split-by-chapter** M4B → MP3 over a **complete timeline** partition (the pre-first-chapter head and post-last-chapter tail are included, never dropped); Preserve / Replace / Write-none metadata over one strict five-field allowlist (`title`, `artist`, `album_artist`, `album`, optional `track`) enforced at the ffmpeg boundary by `-map_metadata -1`; whole-book chapter maps retained **with their titles** under Preserve and Replace; artwork copied, never re-encoded, on whole books and on every fragment; **per-book output folders for split runs**; shared importer, job-control, destination-planning and output-reservation adoption; occurrence-identity duplicates; a fully frozen run **including its configuration**; Pause/Resume/Cancel and Retry Failed against the original snapshot; success-only optional track numbering **defaulting OFF**; coherent FFmpeg pair provisioning; and a Windows Media Foundation decode route for xHE-AAC. Sources are never modified and nothing is overwritten. `launcher.TOOLS` still holds exactly six tools. **Approved product contracts as finally settled:** **D1** local functional-layout policy with a sanctioned minimal scrolling fallback (`MIN_SIZE` unchanged); **D2** artwork — Preserve keeps, Strip removes, Replace keeps source artwork, no image picker; **D3 SUPERSEDED at Phase 16 Checkpoint C4** — split outputs now go into **one folder per book** rather than staying flat per Decision 31A, by explicit maintainer supersession, recorded as a signed ADR in `Decisions.md`; **D4** split-Preserve inherits only `album`/`artist`/`album_artist` and regenerates `title`/`track`; **D5** three distinct numbering concepts with success-only whole-book allocation, **default OFF** as ruled at Checkpoint C3; **D6A** whole-book Replace preserves the source chapter map, **extended at Checkpoint C2 to require its titles as well as its timing**; **D7A** an additive shared `ImportOptions.include_subfolders: bool = True` extension implemented at Phase 7A, plus the Decision 14A `Clear All` label correction. **Evidence:** Phase 15 completed the Windows manual validation (maintainer acceptance 2026-08-29) after four root-caused blockers — FFmpeg provisioning, whole-book artwork truncation, the Windows xHE-AAC decode gap, and the ffprobe cp1252 Unicode refusal; Phase 16 completed macOS validation in bounded checkpoints against a real 12-book corpus with mechanical output audits; Phase 17 was an independent three-reviewer bug hunt with every claim mechanically confirmed and every regression mutation-proved, fixing six further defects. **Waived / evidence gaps, recorded as such and never as PASS:** no real **xHE-AAC (USAC)** source on either platform, so neither the Media Foundation route nor macOS `aac_at` has a live end-to-end decode; real-source PNG-cover, artwork-free, chapterless and slash/backslash-title rows absent from the corpus (covered by synthetic produced-bytes proofs); the Whole **Strip** real-GUI run maintainer-reported PASS **without mechanical corroboration**; human inspection at exactly `920×600` and further manual breadth waived by explicit disposition; Windows 125% scaling still deferred to Plan 9. **Phase 18 closeout completed:** the lasting record moved into `Briefing.md`, `Changelog.md` (under `[Unreleased]`, **no `[0.6.2]` heading and no date**), `Decisions.md`, `Handoff.md` and this index; **`VERSION` and `config.toml` bumped `0.6.1` → `0.6.2` together as a version identity, not a release**, with the eight version-guard tests updated in the same commit; and `md-instructions/0.6.2-m4b-converter-upgrade.md` was retired as the sole deletion, with no rename and with `don't-delete/` and `files/archived-code/epub-tts/` untouched. **Integration is complete and published nothing.** Plan 5 reached `master` through a first review returning NOT READY on documentation grounds, a documentation remediation (`3fc58bf`), a recheck returning NOT READY on one test-only Windows portability defect, that defect's correction (`393a562`), a final recheck returning **READY**, and an independent PR review returning **READY TO MERGE**. **There is still no tag, no GitHub release, no package and no `release.py` run**; the published GitHub release remains **`v0.4.0`** and Plan 9 owns release. *(Superseded, kept for the record: this clause previously read* **No tag, release, packaging, publication, `release.py` run, pull request or merge — integration review and everything after it are outstanding**.)* | Plans 1–3 |
-| 6 | v0.6.3 Drop 1 | `0.6.3-drop1-shared-multi-book-workspace.md` | Planned; not drafted | Plans 1–3 |
+| 6 | v0.6.3 Drop 1 | `0.6.3-drop1-shared-multi-book-workspace.md` | **DRAFTED / PLANNING COMPLETE; implementation NOT STARTED** (2026-09-07). The drop exists and is the single active temporary implementation drop, on branch `feature/0.6.3-drop1-shared-multi-book-workspace` created from `10a03ed66480d396d65881eea84cb8ae4bfe452e`. Eleven phases (0–10). **No phase has run and no production code exists** — no `shared/book_workspace.py`, no `shared/numbering.py`, no `shared/book_workspace_ui.py`, no test, no panel change. Three architecture decisions were settled by the maintainer at plan creation: one Plan 3 `RunSnapshot` **per book**; `mp3_tools/m4b_numbering.py` **promoted** to `shared/numbering.py` behind a re-export shim under a blocking Converter regression gate; and a **developer-only harness** on the Plan 3 precedent, so the foundation ships adopted by no production panel. **Plan 6 does not close or release v0.6.3** — Plan 7 does. No version bump, tag, release or package. Phase 0 is the next bounded action and needs separate explicit maintainer approval. *(Superseded status text, kept for the record: this row previously read “Planned; not drafted”.)* | Plans 1–3 |
 | 7 | v0.6.3 Drop 2 | `0.6.3-drop2-m4b-maker-multi-book.md` | Planned; not drafted | Plans 1–3 and 6 |
 | 8 | v0.6.4 | `0.6.4-mp3-and-m4b-metadata-workflows.md` | Planned; not drafted | Plans 1–3 and 6; Plan 7 validates the shared model first |
 | 9 | v0.6.5 | `0.6.5-ui-parity-hardening-release.md` | Planned; not drafted | Plans 1–8 |
@@ -127,6 +127,30 @@ The observed `master` SHA is orientation evidence, not permission to overwrite a
 Do not draft or implement Plans 6–9 while an earlier plan is active. A later plan may be drafted only after the current plan is implemented, verified, manually approved, documented, merged through the established workflow, and closed.
 
 *Superseded (kept for the record): this line previously read “Do not draft or implement Plans 5–9 while an earlier plan is active,” and before that “Do not draft or implement Plans 4–9 while Plan 3 is active.” Plans 3, 4 and 5 are all complete, approved and closed; Plan 6 is the next unopened plan and has not been drafted or started.*
+
+**Status note (2026-09-07, PRE-PLAN-6 MERGED and integrated). This is the current §5 status.** It
+supersedes the 2026-09-05 note below on the two points where that note describes the integration
+sequence as still ahead of the project: that "the action that comes first now is ONE independent
+READ-ONLY integration-readiness recheck of that maintenance branch", and that "the maintenance is not
+yet merged". **The recheck was performed, pull request #9 was opened and reviewed, and the maintainer
+merged it.** Every other fact in that note, and every Plan 5 fact in the notes below it, still stands.
+**The PRE-PLAN-6 `Setup_and_Run` / bootstrap self-healing maintenance is COMPLETE, CLOSED and
+INTEGRATED into `master`**, through **pull request #9** — *"v0.6.2 PRE-PLAN-6: self-healing setup and
+verified FFmpeg readiness"* — merged on **2026-09-06** as a **normal two-parent merge commit**, not a
+squash and not a rebase. **PRE-PLAN-6's stable integration anchor is that merge commit,
+`83a2bfc7de25dbe5a599b48fd73fe306695e490d`** (parent 1 `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c`,
+parent 2 the approved maintenance head `d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a`); the whole
+maintenance head is an ancestor of `master`, and the branch
+`maintenance/0.6.2-setup-self-healing` is **retained** at `d7452a2b`, not deleted. **As everywhere
+else in this file, the literal current tip of `master` is not asserted here** — it is queried from
+Git; cite the permanent merge commit instead. **Plan 5 remains COMPLETE, APPROVED, CLOSED and
+INTEGRATED**, unchanged, at its own anchor `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`. **The merge
+published nothing:** `0.6.2` remains **UNRELEASED** with no `[0.6.2]` changelog heading, no tag, no
+GitHub release, no package and no `release.py` run, and the **published GitHub release remains
+`v0.4.0`**. **Phase 9 remains WAIVED / NOT APPLICABLE and was never a passed test** — merging did not
+convert it. **Plan 6 has NOT begun.** Its integration precondition is now satisfied, but a satisfied
+precondition is not an authorization: Plan 6 is still undrafted, still needs separate explicit
+maintainer approval, and Plans 6–9 all remain unopened. See §15 for the current next-action record.
 
 **Status note (2026-09-05, PRE-PLAN-6 maintenance closed). This is the current §5 status.** It
 supersedes the 2026-09-02 note below on one point only: that note closed by saying **"Plan 6 has NOT
@@ -383,6 +407,115 @@ Do not absorb these into an unrelated plan:
 | Open Issue #2: CLI-only `kokoro_synth.py` cp1252 `UnicodeEncodeError` | Separate issue; do not fold into Plan 2 |
 
 ## 15. Immediate next action
+
+**Updated 2026-09-07, when Plan 6 planning opened. This block is the current next-action record. It
+supersedes the 2026-09-07 block below it on exactly two points, both overtaken by an explicit
+maintainer instruction: that "THE CURRENT NEXT ACTION is ONE independent, READ-ONLY
+integration-readiness review of that reconciliation branch", and that "Plan 6 must not be drafted or
+implemented before that sequence completes". Everything else in that block still stands — in
+particular its PRE-PLAN-6 merge anchor, its Phase 9 waiver and its release prohibitions, none of
+which are changed here. Every block below it remains dated history and must not be read as
+instructions.**
+
+- **The standalone integration-readiness review of
+  `maintenance/0.6.2-post-merge-record-reconciliation` was WAIVED by explicit maintainer
+  instruction.** It was **never performed**, and it is **withdrawn as a requirement** rather than
+  left outstanding — no reader should treat it as pending work. The maintainer judged another full
+  review cycle not worth spending on a documentation-only reconciliation.
+- **The required transition/repository review occurred instead as part of Plan 6 plan creation** on
+  2026-09-07. **No separate review cycle was run, no integration-readiness report or checkpoint was
+  produced, and no READY verdict was produced, claimed or implied.** The audit mechanically
+  re-verified the clean worktree; the ancestry `10a03ed` → `7072695` → `83a2bfc`; that
+  `origin/master` had **not** advanced past `83a2bfc`; that no Plan 6 branch or drop existed
+  anywhere; that `md-instructions/` held no active temporary drop; and that both reconciliation
+  commits are documentation-only and carry no AI authorship trailer. It found **no contradiction**
+  invalidating the Plan 6 ownership map in §7 or the nine-plan structure.
+- **The two reconciliation commits are carried forward, not lost.** Plan 6 branched from
+  `10a03ed66480d396d65881eea84cb8ae4bfe452e`, so both ride into whatever integration Plan 6
+  eventually receives. Neither was rewritten, squashed, rebased, amended, cherry-picked or
+  force-pushed, and neither may be. As everywhere else in this file, the literal current tip of
+  `master` is **not** asserted here — it is queried from Git; cite the permanent PR #9 merge commit
+  `83a2bfc7de25dbe5a599b48fd73fe306695e490d` instead.
+- **PLAN 6 IS NOW DRAFTED / PLANNING COMPLETE. IMPLEMENTATION HAS NOT STARTED.** The single active
+  temporary implementation drop is `md-instructions/0.6.3-drop1-shared-multi-book-workspace.md`, on
+  branch `feature/0.6.3-drop1-shared-multi-book-workspace`. **No phase has run and no production
+  code, test or configuration exists for it.** Drafting a plan is not implementing one.
+- **THE CURRENT NEXT ACTION is PLAN 6 PHASE 0, and only Phase 0.** It is baseline recording,
+  source-audit re-verification and regression-contract mapping, and it writes **no production code**.
+  Like every phase of every plan, **it requires separate explicit maintainer approval before it
+  begins**, and no phase may be chained into the next.
+- **The plan-creation checkpoint changed documentation only** — exactly three tracked files: the new
+  drop, `Handoff.md` and this index. **Zero production code, zero tests, zero configuration, zero
+  launcher or setup files.** `Briefing.md`, `Changelog.md`, `Decisions.md`, `README.md`,
+  `config.toml` and `version.py` were deliberately untouched, because planning is not product
+  behaviour.
+- **Nothing was published and nothing was released.** Version identity remains **`0.6.2`** and
+  **UNRELEASED**: no `[0.6.2]` and no `[0.6.3]` changelog heading, **no tag, no GitHub release, no
+  package, no `release.py` run**, no pull request and no merge. The **published GitHub release
+  remains `v0.4.0`**, and **Plan 9 still owns release hardening and publication**. **Plan 6 does not
+  close the v0.6.3 checkpoint** — Plan 7 does, after this foundation is integrated and proven in
+  M4B Maker.
+- **Phase 9 remains WAIVED / NOT APPLICABLE and was never a passed test.** Real non-admin Windows
+  target-machine acceptance remains **UNPERFORMED**. Plan 5 remains COMPLETE, APPROVED, CLOSED and
+  INTEGRATED at `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`; PRE-PLAN-6 likewise at `83a2bfc`. All
+  prior feature and maintenance branches are **retained**.
+- **Plans 7, 8 and 9 remain undrafted**, each needs its own separate explicit maintainer approval,
+  and the nine-plan structure is unchanged — no plan reordered, renamed or added.
+
+**Updated 2026-09-07, after PRE-PLAN-6 was merged. This block is the current next-action record. It
+supersedes the 2026-09-05 block below on the points where that block places the integration sequence
+in the future — it named "ONE independent, READ-ONLY integration-readiness recheck" as THE CURRENT
+NEXT ACTION, stated that "no pull request is authorized until that recheck independently returns
+READY", and held merge open as "a separate, explicit maintainer authorization". The recheck was
+performed, pull request #9 was opened and reviewed, and the maintainer merged it, so those three
+statements no longer control. Everything else in that block still stands — in particular its
+real-machine acceptance paragraph and its Phase 9 waiver, which are NOT changed here. Every block
+below it remains dated history and must not be read as instructions.**
+
+- **v0.6.2 Plan 5 remains COMPLETE, APPROVED, CLOSED and INTEGRATED.** Nothing about it is reopened
+  or changed here; its merge anchor is still pull request **#6** / `7fc9d18b69a2a5b802cc88ef9eada99f17a3df6f`.
+- **PRE-PLAN-6 is now COMPLETE, CLOSED and INTEGRATED into `master`.** The bounded `Setup_and_Run` /
+  bootstrap self-healing maintenance on branch `maintenance/0.6.2-setup-self-healing` reached `master`
+  through **pull request #9**, *"v0.6.2 PRE-PLAN-6: self-healing setup and verified FFmpeg
+  readiness"*, merged on **2026-09-06** as a **normal two-parent merge commit** — not a squash, not a
+  rebase.
+- **PRE-PLAN-6's stable integration anchor is that merge commit,
+  `83a2bfc7de25dbe5a599b48fd73fe306695e490d`**, whose two parents are
+  `e36ab7d9236e210a5dfd8aaf69f25a158ca0908c` (parent 1) and
+  `d7452a2b6bba96a4b5e5a8959e66a071f4cdde1a` (parent 2, the approved maintenance head). The complete
+  maintenance head is therefore an ancestor of `master`. The branch
+  `maintenance/0.6.2-setup-self-healing` is **retained** at `d7452a2b`, not deleted. Following this
+  file's standing convention, **cite that permanent merge commit, not a live branch tip** — the
+  literal current tip of `master` is not asserted here and is queried from Git.
+- **Phase 9 remains WAIVED / NOT APPLICABLE, and the merge did not convert it to PASS.** CSPW-PC was
+  removed as a deployment target; it was not tested and did not pass, and HOME-PC was not substituted
+  for it. **Real non-admin Windows target-machine acceptance remains UNPERFORMED.** The 2026-09-05
+  block's real-machine acceptance paragraph stands in full.
+- **The merge published nothing.** Version identity remains **`0.6.2`** and **UNRELEASED**: no
+  `[0.6.2]` changelog heading, **no tag, no GitHub release, no package, no `release.py` run**. The
+  **published GitHub release remains `v0.4.0`**, and **Plan 9 still owns release hardening and
+  publication**.
+- **This entry is carried by a bounded post-merge integration-record reconciliation** on branch
+  `maintenance/0.6.2-post-merge-record-reconciliation`. It exists only because this section and §5
+  still described the recheck, the pull request and the merge as future work after all three had
+  happened. It touches exactly two tracked documents — `Handoff.md` and this index — and **zero
+  production code, zero tests, zero configuration and zero launcher/setup files**. It is a
+  documentation and provenance checkpoint, nothing more.
+- **THE CURRENT NEXT ACTION is ONE independent, READ-ONLY integration-readiness review of that
+  reconciliation branch.** It has **not** been performed. **READY is not assumed and must not be
+  inferred from this entry** — it has to be returned by that review, independently, exactly as the
+  same discipline was applied to Plan 5 and to PRE-PLAN-6 itself. **No pull request is authorized
+  until that review returns READY**; an independent PR review follows only after that; and **merge
+  remains a separate, explicit maintainer authorization**. **Plan 6 must not be drafted or
+  implemented before that sequence completes.**
+- **PLAN 6 HAS NOT STARTED, and nothing here starts or authorizes it.** The gate that the earlier
+  blocks placed in front of Plan 6 — that this maintenance must first reach `master` — is now
+  satisfied, but **a satisfied gate is not an approval**. Plan 6 keeps its defined place in the
+  approved nine-plan structure as the **v0.6.3 Drop 1 shared multi-book workspace foundation**
+  (temporary drop `0.6.3-drop1-shared-multi-book-workspace.md`, depending on Plans 1–3), and it is
+  still **Planned; not drafted**: no execution drop exists and no branch exists. It requires
+  **separate explicit maintainer approval** before it opens, as every plan does. **Plans 6–9 all
+  remain undrafted**, and the nine-plan structure is unchanged — no plan reordered, renamed or added.
 
 **Updated 2026-09-05, after the PRE-PLAN-6 maintenance closed. This block is the current
 next-action record. It supersedes the 2026-09-02 block below on ONE point only — that block named the
