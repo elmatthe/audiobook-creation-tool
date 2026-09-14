@@ -866,7 +866,8 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: second production adopter of the shared workspace, so only the Metadata
 #: Editor is still checked below. v0.6.4 Phase 7 adds
 #: ``mp3_tools.m4b_metadata_workflow``, the Editor's Tk-free model; Phase 8
-#: adds ``mp3_tools.m4b_metadata_plan``, its frozen action plans; the Editor
+#: adds ``mp3_tools.m4b_metadata_plan``, its frozen action plans; Phase 9 adds
+#: ``mp3_tools.m4b_metadata_batch``, its Tk-free batch runner; the Editor
 #: panel is still checked.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
@@ -876,7 +877,8 @@ PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.mp3_processing", "mp3_tools.m4b_maker_workflow",
                   "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_maker_batch",
                   "mp3_tools.m4b_artwork_ui", "mp3_tools.m4b_maker",
-                  "mp3_tools.m4b_metadata_workflow", "mp3_tools.m4b_metadata_plan")
+                  "mp3_tools.m4b_metadata_workflow", "mp3_tools.m4b_metadata_plan",
+                  "mp3_tools.m4b_metadata_batch")
 
 
 def _tool_path(relative: str) -> Path:

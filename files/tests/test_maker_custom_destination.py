@@ -362,14 +362,22 @@ def test_cancellation_cleanup_is_guarded_in_source():
     """
     import ast
 
+    from mp3_tools import m4b_staging
+
     panel = Path(mk.__file__).read_text(encoding="utf-8")
     assert "rmtree" not in panel and "ConversionCancelled" not in panel
+    # v0.6.4 Phase 9 extracted the bounded discard into the shared M4B staging
+    # module; the Maker engine delegates to it and adds nothing of its own.
     engine = ast.parse(Path(proc.__file__).read_text(encoding="utf-8"))
-    discard = next(node for node in ast.walk(engine)
+    delegate = next(node for node in ast.walk(engine)
+                    if isinstance(node, ast.FunctionDef) and node.name == "discard_staging")
+    assert "m4b_staging.discard_staging" in ast.unparse(delegate)
+    staging = ast.parse(Path(m4b_staging.__file__).read_text(encoding="utf-8"))
+    discard = next(node for node in ast.walk(staging)
                    if isinstance(node, ast.FunctionDef) and node.name == "discard_staging")
     called = {node.func.id for node in ast.walk(discard)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
-    assert "_require_owned" in called, "staging is proved operation-owned before anything goes"
+    assert "require_owned" in called, "staging is proved operation-owned before anything goes"
     assert "rmtree" not in ast.dump(discard), "entries are removed one by one, inside the root"
 
 

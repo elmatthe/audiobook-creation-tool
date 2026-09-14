@@ -541,7 +541,7 @@ def clear_metadata_keep_chapters(path) -> None:
         mp4.save()
 
 
-def clear_series_numbering(path) -> None:
+def clear_series_numbering(path, *, keep_series_name: bool = False) -> None:
     """Remove every series / sequence / track numbering atom across all known
     surfaces, leaving all other tags and chapters intact — a deterministic
     baseline before re-tagging a set.
@@ -554,20 +554,30 @@ def clear_series_numbering(path) -> None:
     individual ``ilst`` keys, never the chapter ``trak`` (same guarantee as
     :func:`clear_metadata_keep_chapters`). Operate on a COPY only — never on an
     imported original (the Metadata Editor copies first).
+
+    With ``keep_series_name=True`` (v0.6.4) the *name* surfaces survive — the
+    movement name ``©mvn`` / ``mvnm`` and any freeform atom whose final segment
+    is exactly a series-name suffix (``…:SERIES``) — so only the numbering goes
+    (``trkn``, movement index/count, ``…:PART`` / ``…:SERIES-PART``). The
+    default is unchanged.
     """
     from mutagen.mp4 import MP4
 
     mp4 = MP4(str(Path(path)))
     if not mp4.tags:
         return
+    name_atoms = {MOVEMENT_NAME_ATOM, "mvnm"} if keep_series_name else set()
     # Native + legacy movement/track atoms.
     for key in (TRACK_ATOM, MOVEMENT_NAME_ATOM, MOVEMENT_INDEX_ATOM,
                 MOVEMENT_COUNT_ATOM, *LEGACY_MOVEMENT_ATOMS):
-        mp4.tags.pop(key, None)
+        if key not in name_atoms:
+            mp4.tags.pop(key, None)
     # Freeform series/part atoms across every vendor namespace.
     for key in list(mp4.tags.keys()):
         if key.startswith("----:"):
             suffix = key.rsplit(":", 1)[-1].upper()
+            if keep_series_name and suffix in _SERIES_NAME_SUFFIXES:
+                continue
             if "SERIES" in suffix or "PART" in suffix:
                 mp4.tags.pop(key, None)
     mp4.save()

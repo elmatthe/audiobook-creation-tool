@@ -107,7 +107,8 @@ ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/mp3_processing.py", "mp3_tools/m4b_maker_workflow.py",
             "mp3_tools/m4b_maker_plan.py", "mp3_tools/m4b_maker_batch.py",
             "mp3_tools/m4b_artwork_ui.py", "mp3_tools/m4b_maker.py",
-            "mp3_tools/m4b_metadata_workflow.py", "mp3_tools/m4b_metadata_plan.py")
+            "mp3_tools/m4b_metadata_workflow.py", "mp3_tools/m4b_metadata_plan.py",
+            "mp3_tools/m4b_metadata_batch.py")
 
 
 def relative_name(path: Path) -> str:
@@ -661,7 +662,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_eighteen_production_modules_are_authorized_to_adopt():
+def test_exactly_these_nineteen_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -812,7 +813,19 @@ def test_exactly_these_eighteen_production_modules_are_authorized_to_adopt():
     ``files/tests/test_m4b_metadata_plan.py`` holds it to that. **The Metadata
     Editor panel itself stays unadopted and still checked.**
 
-    The name says "these eighteen" rather than "seventeen" because the count is
+    v0.6.4 Phase 9 adds the **nineteenth**: ``mp3_tools/m4b_metadata_batch.py``
+    runs one frozen Editor plan through the shared job architecture — one
+    ``JobController`` / ``JobReporter`` per attempt, the Plan 3 ``RunResult`` /
+    ``FailureRecord`` / ``FailureLog`` vocabulary per Book, the Plan 6
+    ``WorkspaceRunResult`` and ``retry_failed_books`` for Retry Failed, and the
+    shared ``SuccessNumbers`` for Auto-number — over the Tk-free Phase 9 engine
+    ``m4b_metadata_processing.py`` (not an adopter: it imports only the media
+    authorities and the shared staging pattern). It is the Editor counterpart
+    of ``m4b_maker_batch.py``, starts no thread and touches no widget;
+    ``files/tests/test_m4b_metadata_batch.py`` holds it to that. **The Metadata
+    Editor panel itself stays unadopted and still checked.**
+
+    The name says "these nineteen" rather than "eighteen" because the count is
     part of what is pinned: a widening that did not have to rename this test
     would be a widening nobody had to think about.
     """
@@ -832,7 +845,8 @@ def test_exactly_these_eighteen_production_modules_are_authorized_to_adopt():
                        "mp3_tools/m4b_artwork_ui.py",
                        "mp3_tools/m4b_maker.py",
                        "mp3_tools/m4b_metadata_workflow.py",
-                       "mp3_tools/m4b_metadata_plan.py")
+                       "mp3_tools/m4b_metadata_plan.py",
+                       "mp3_tools/m4b_metadata_batch.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
         "mp3_tools/m4b_metadata_editor.py",
@@ -888,7 +902,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 18, importers
+    assert len(importers) == 19, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():

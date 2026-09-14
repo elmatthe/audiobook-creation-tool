@@ -52,7 +52,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import shutil
 import traceback
 import wave
 from collections.abc import Callable
@@ -64,6 +63,7 @@ from shared import ffmpeg_utils, metadata, output_paths
 from shared import subprocess_utils as sp
 from shared.cancellation import ConversionCancelled, raise_if_cancelled
 from mp3_tools import m4b_artwork
+from mp3_tools import m4b_staging
 from mp3_tools.m4b_maker_plan import BookPlan
 
 __all__ = [
@@ -413,108 +413,40 @@ def _require_plan(book: object) -> BookPlan:
     return book
 
 
+def _staging(call, book: BookPlan, work_root: Path):
+    """Run one shared staging operation, re-raising its refusal as this engine's."""
+    try:
+        return call(book, work_root=work_root)
+    except m4b_staging.StagingError as exc:
+        raise ProcessingError(str(exc), stage=exc.stage, detail=exc.detail) from exc
+
+
 def _require_owned(book: BookPlan, work_root: Path) -> Path:
-    """The staging directory must be ``<work_root>/<name>``, exactly, and the
-    staged file must be directly inside it."""
-    work = Path(work_root)
-    if book.staging_dir.parent != work or book.staged.parent != book.staging_dir:
-        raise ProcessingError(
-            f"staging {book.staging_dir} is not directly under the work area {work}",
-            stage="staging")
-    return work
+    """The staging directory must be ``<work_root>/<name>``, exactly."""
+    try:
+        return m4b_staging.require_owned(book, work_root)
+    except m4b_staging.StagingError as exc:
+        raise ProcessingError(str(exc), stage=exc.stage) from exc
 
 
 def prepare_staging(book: BookPlan, *, work_root: Path) -> Path:
     """Create the Book's private staging directory. Idempotent. Nothing visible."""
-    book = _require_plan(book)
-    work = _require_owned(book, work_root)
-    if book.staging_dir.exists() or book.staging_dir.is_symlink():
-        output_paths.assert_no_link_in(work, book.staging_dir)
-    book.staging_dir.mkdir(parents=True, exist_ok=True)
-    output_paths.assert_no_link_in(work, book.staging_dir)
-    return book.staging_dir
+    return _staging(m4b_staging.prepare_staging, _require_plan(book), work_root)
 
 
 def discard_staging(book: BookPlan, *, work_root: Path) -> int:
-    """Delete the Book's staging area and everything inside it, and nothing else.
-
-    Bounded to that one directory: every entry is re-checked to lie under it,
-    links are removed as links and never followed. Returns entries removed.
-    """
-    book = _require_plan(book)
-    _require_owned(book, work_root)
-    root = book.staging_dir
-    if not root.exists() and not root.is_symlink():
-        return 0
-    if root.is_symlink():
-        raise ProcessingError(f"staging {root} is a link and was not touched", stage="staging")
-    removed = 0
-    for current, directories, files in os.walk(root, topdown=False, followlinks=False):
-        current_path = Path(current)
-        if current_path != root:
-            output_paths.assert_contained(root, current_path)
-        for name in files:
-            target = current_path / name
-            if not target.is_symlink():
-                output_paths.assert_contained(root, target)
-            os.unlink(target)
-            removed += 1
-        for name in directories:
-            target = current_path / name
-            if target.is_symlink():
-                os.unlink(target)      # the link itself, never what it points at
-            else:
-                output_paths.assert_contained(root, target)
-                os.rmdir(target)
-            removed += 1
-    os.rmdir(root)
-    return removed + 1
+    """Delete the Book's staging area and everything inside it, and nothing else."""
+    return _staging(m4b_staging.discard_staging, _require_plan(book), work_root)
 
 
 def publish_book(book: BookPlan, *, work_root: Path) -> Path:
     """Make a fully staged Book visible, atomically, at its planned path.
 
-    Refuses — before moving anything — unless the staged M4B is a regular file
-    and the published path does not already exist (the planner reserved it;
-    anything there now is someone else's). Moves with ``os.replace``; when the
-    work root is on another filesystem, copies to a plan-owned temporary
-    sibling in the destination folder and replaces atomically from there, so
-    the final name never holds a partial file.
+    The shared M4B staging pattern (``m4b_staging.publish_staged``): refuses an
+    already-present destination, moves with ``os.replace``, and takes the
+    temporary-sibling route when the work root is on another filesystem.
     """
-    book = _require_plan(book)
-    _require_owned(book, work_root)
-    staged, published = book.staged, book.published
-    if staged.is_symlink() or not staged.is_file():
-        raise ProcessingError(f"{book.filename} was not staged; nothing was published",
-                              stage="publish")
-    if published.exists() or published.is_symlink():
-        raise ProcessingError(f"{published} already exists; nothing was published",
-                              stage="publish")
-    if not published.parent.is_dir():
-        raise ProcessingError(f"the destination folder {published.parent} is not available",
-                              stage="publish")
-    output_paths.assert_no_link_in(published.parent, published)
-    try:
-        os.replace(staged, published)
-        return published
-    except OSError as exc:
-        if getattr(exc, "errno", None) not in (getattr(os, "EXDEV", 18), 18):
-            raise ProcessingError(f"publishing {book.filename} failed: {exc}",
-                                  stage="publish", detail=repr(exc)) from exc
-    # Cross-device: stage a sibling in the destination folder, then replace.
-    temporary = None
-    try:
-        temporary = output_paths.temporary_sibling(published)
-        shutil.copyfile(staged, temporary)
-        output_paths.atomic_replace(temporary, published)
-        temporary = None
-        os.unlink(staged)
-    except (OSError, output_paths.OutputPathError) as exc:
-        if temporary is not None:
-            output_paths.discard_temporary(temporary)
-        raise ProcessingError(f"publishing {book.filename} failed: {exc}",
-                              stage="publish", detail=repr(exc)) from exc
-    return published
+    return _staging(m4b_staging.publish_staged, _require_plan(book), work_root)
 
 
 # --------------------------------------------------------------------------- #
@@ -782,17 +714,9 @@ def build_book(book: BookPlan, *, work_root: Path, fast_first: bool,
 
 
 def _discard_quietly(book: BookPlan, work: Path) -> None:
-    """Drop the Book's staging, then the work root **if it is now empty**.
-
-    ``rmdir`` only: a work root that still holds anything — another Book's
-    staging — stays, and nothing outside the Book's own directory is deleted.
-    """
+    """Drop the Book's staging, then the work root **if it is now empty**."""
     try:
         discard_staging(book, work_root=work)
     except Exception:
         pass
-    try:
-        if work.is_dir() and not work.is_symlink() and not any(work.iterdir()):
-            work.rmdir()
-    except OSError:
-        pass
+    m4b_staging.prune_work_root(work)

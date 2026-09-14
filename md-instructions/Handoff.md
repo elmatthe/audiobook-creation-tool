@@ -2,6 +2,118 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 9 COMPLETE (METADATA EDITOR ATOMIC PROCESSING + JOB-CONTROL ADOPTION — MILESTONE GATE GREEN); PHASE 10 NOT STARTED (2026-09-14)
+>
+> **This block is the live state.** It supersedes the Phase 8 block beneath it on one point only —
+> that block names **Phase 9** as the next action. Phase 9 is now done. The Phase 0 block's
+> integration fact and active authority still stand; the Metadata Editor panel is **untouched and
+> still hash-protected** (`PHASE0_PANEL_HASHES` pins it; `UNADOPTED_PANELS` still names it). The
+> Editor's engine and batch runner now exist behind that untouched panel exactly as the Maker's did
+> behind its panel at Phase 5 — nothing in the UI runs through them yet.
+>
+> **Phase 9 executes a frozen Editor plan safely, re-encoding nothing.**
+> - **`mp3_tools/m4b_staging.py` (new, 170 lines, Tk-free, not an adopter)** — the shared-safe
+>   staging/publication pattern the Maker engine proved at Phase 4, extracted so both M4B tools
+>   run **one** copy: `require_owned` (staging exactly `<work root>/<stem>`, staged file directly
+>   inside), `prepare_staging`, `discard_staging` (bounded `os.walk`, links unlinked never
+>   followed, no `rmtree`), `publish_staged` (refuses an existing destination, `os.replace`,
+>   EXDEV → plan-owned `temporary_sibling` + `atomic_replace`), `prune_work_root` (`rmdir` only
+>   when empty). Duck-typed over any plan carrying `book_id/filename/staging_dir/staged/published`.
+>   **`m4b_maker_processing.py` now delegates** its `prepare_staging` / `discard_staging` /
+>   `publish_book` / `_require_owned` / `_discard_quietly` to it (same names, signatures and
+>   `ProcessingError` stages; `import shutil` gone; −99/+23 lines); the Maker's
+>   `test_maker_custom_destination` guard follows the delegation and pins the shared module's
+>   `require_owned` + no-`rmtree`. Maker suites unchanged and green.
+> - **`shared/metadata.py::clear_series_numbering(path, *, keep_series_name=False)`** — one
+>   backward-compatible keyword. The default still strips every series surface (the old panel's
+>   behaviour, `test_m4b_metadata` unchanged); `keep_series_name=True` keeps `©mvn` / `mvnm` and
+>   any freeform atom whose final segment is exactly `SERIES`, and still strips `trkn`, the
+>   movement index/count and every vendor `…:PART` / `…:SERIES-PART`. Plan §6.9 says Remove
+>   Series Numbering preserves the Series Name; the existing authority could not, so it was
+>   extended rather than bypassed.
+> - **`mp3_tools/m4b_metadata_processing.py` (new, 422 lines, Tk-free, not an adopter)** — the
+>   per-Book transaction on the `m4b_maker_processing` precedent: `ProcessingError(stage,
+>   detail)`, `ProcessingEvent`, `BookOutcome`; `stage_book` = preflight the source (vanished →
+>   `source`, fatal) → load the explicit cover first (`m4b_artwork.load_cover`; unusable →
+>   `artwork`, fatal, **before any copy**) → `prepare_staging` → `shutil.copy2` **into
+>   staging** → the action through `shared.metadata` only (**Save**: `write_m4b_tags(staged,
+>   writes)` when there are writes; **Clear**: `clear_metadata_keep_chapters` then the frozen
+>   writes; **Remove**: `clear_series_numbering(staged, keep_series_name=True)`) → explicit cover
+>   (`m4b_artwork.embed_cover`, Save/Clear) → positional chapter edits
+>   (`metadata.apply_chapter_titles`, `-c copy` remux, Save/Clear) → `validate_staged` →
+>   `build_book` publishes through `m4b_staging.publish_staged`. Every authority call runs under
+>   one guarded step so any exception becomes that stage's failure (`copy` / `clear` / `tags` /
+>   `cover` / `chapters` / `series` / `validate` / `publish`); checkpoints at start, after the
+>   copy and after validation. **Validation** (`probe_audio_stream` + `read_m4b_tags` +
+>   `read_chapter_titles`): readable audio; every frozen write present exactly; Clear → every
+>   non-written text field absent and no Series Part unless numbered; Remove → no Series Part,
+>   the observed Series Name still there, every other text field equal to the observation; the
+>   cover present exactly when the action leaves one; expected chapter titles in order; the
+>   batch's `series_part` when given. **The debt is closed:** a tag / chapter / cover failure after
+>   the copy leaves the run directory empty (proved), the staging gone and the work root pruned.
+> - **`mp3_tools/m4b_metadata_batch.py` (new, 443 lines, Tk-free, the nineteenth adopter)** —
+>   `EditorRun` / `Attempt` / `BookRecord` on the `m4b_maker_batch` precedent, no generic
+>   mega-controller: one `JobController` + one `JobReporter` per attempt (one construction site,
+>   outside any loop), one worker body run exactly once on the caller's thread, `checkpoint()`
+>   between Books and inside the engine, continue-on-failure, `RunResult.settle` per Book against
+>   its exact frozen `RunSnapshot`, `WorkspaceRunResult` over the capture (invalid-source Books
+>   keep `SKIPPED_INVALID`), `retry_failed_books` for Retry Failed (same run id, same frozen
+>   `BookPlan` objects, whatever the workspace did since), Pause/Resume/Cancel as the controller's
+>   requests. Retryable stages record **one `FailureRecord` for the Book's real occurrence**;
+>   `source` / `artwork` / `plan` failures are item-less and fatal. **Auto-number** (Save/Clear
+>   only — the plan already freezes `auto_number=False` for Remove, so `numbers is None`): one
+>   `SuccessNumbers(start_part)` per run; per staged Book `propose()` → `write_m4b_tags(staged,
+>   {series_part[, series if frozen]}, total=len(books))` → `validate_staged(series_part=n)` →
+>   `checkpoint()` → publish → `commit()`; a failed Book consumes nothing (A=5, B fails, C=6); a
+>   publication failure retains the validated candidate with its stale tentative part and the
+>   retry reuses it (no re-copy) after rewriting the part to the next proposal.
+> - **Guard changes, the same three sites, narrow:** `ADOPTED` 18 → **19**
+>   (`mp3_tools/m4b_metadata_batch.py`; test renamed `..._these_nineteen_...`, `len == 19`);
+>   `PLAN3_ADOPTERS` mirrored; the `m4b_`-prefix set names it. `m4b_staging.py` and
+>   `m4b_metadata_processing.py` are **not** adopters and are now each checked by the
+>   "no production module imports the foundation" parametrisation (+2). Editor panel protections
+>   unchanged; `test_ffmpeg_runtime_trust` untouched (the engine probes through
+>   `probe_audio_stream`, never `ffmpeg_cmd()` / `subprocess`).
+>
+> **RED → GREEN evidence.** `files/tests/test_m4b_metadata_processing.py` (23 tests) and
+> `files/tests/test_m4b_metadata_batch.py` (22 tests), on the Phase 7 fixtures (real FFmpeg-built
+> two-chapter cover-bearing containers; vendor atoms via mutagen): both red as collection
+> `ImportError`s; the processing suite **21/22 green on its first run** (the one failure was its
+> own AST check reading direct call heads where the authorities are handed to the guarded step
+> runner — the assertion now reads attribute references; the cover-embed-failure proof was added
+> afterwards, 23/23); the batch suite **21/22 green on its first run** with only the expected
+> `ADOPTED` pin failing; 22/22 after the guard edits. The plan's RED list is covered in full:
+> tag-write failure after the copy, chapter-title failure after the tags, cover failure (before the
+> copy and during the embed), unreadable / vanished source, continue to the next Book, Retry
+> Failed (rerun only the failed Book, next part, successes byte- and mtime-identical, original
+> frozen plan whatever changed), success-only numbering, source SHA-256 unchanged everywhere,
+> audio MD5 unchanged (`-c copy`), unrelated atoms byte-identical after Save, Clear removes
+> metadata + cover and keeps both chapters, Remove strips `trkn`/`©mvi`/`©mvc`/`…:SERIES-PART`
+> and keeps the Series Name on the Apple freeform, vendor freeform and movement surfaces plus
+> every unrelated tag, the cover and the chapters.
+>
+> **Phase 9 milestone gate (plan §11 full gate).** Focused regressions (Editor + Maker + metadata +
+> job-control + workspace + numbering + output-paths suites and every structural guard):
+> **2,604 passed / 1 skipped** (Windows symlink privilege). **Full pytest: 7,272 passed / 29 skipped / 0 failed, 1 warning, in 7:33** (the 29 skips are the
+> Phase 6 baseline exactly: 13 aqua-only cases, 10 Windows symlink-privilege cases, 3
+> case-insensitive-filesystem cases, 3 `JACK_RYAN_M4B_FOLDER`; the one warning is the pre-existing
+> pydub `audioop` deprecation)**
+> — collected 7,301 = Phase 8 HEAD's 7,243 (+11 environment-conditional cases the detached
+> comparison worktree lacks: `test_batch_convert_folders` 5, `test_kokoro_timing_wiring` 3,
+> `test_launch_self_heal` +3) + 22 batch + 23 processing + 2 plan3 parametrisations.
+> **`python scripts/verify.py`: RESULT: PASS** on the first attempt (**pytest 7,272 passed / 29 skipped,
+> 1 warning in 7:28**; deps / docs / docnames / config all PASS; no intermittent this time).** `compileall` (`scripts/Universal`,
+> `scripts/verify.py`, `files/tests`) exit 0; `git diff --check` clean (worktree and index).
+> Editor panel, launcher, `shared/version.py` and `don't-delete/` byte-identical to the anchor;
+> `launcher.TOOLS` six; version `0.6.2`.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 10 — METADATA EDITOR PRODUCTION UI ADOPTION. IT HAS NOT
+> STARTED** and requires separate explicit maintainer approval. Phase 10 replaces the
+> batch-global form with one Shared surface plus one independent page per imported file over the
+> Phase 7 model, the Phase 8 plans, the Phase 9 engine and `EditorRun`, retires the Editor
+> panel's byte-identity pin and `UNADOPTED_PANELS` entry as its guard map says, and is the first
+> point at which anything in the UI runs through `m4b_metadata_batch`.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 8 COMPLETE (METADATA EDITOR FROZEN ACTION PLANS); PHASE 9 NOT STARTED (2026-09-14)
 >
 > **This block is the live state.** It supersedes the Phase 7 block beneath it on one point only —
