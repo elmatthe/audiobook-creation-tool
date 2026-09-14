@@ -2,6 +2,98 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 7 COMPLETE (METADATA EDITOR SOURCE/WORKSPACE MODEL); PHASE 8 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the Phase 6 block beneath it on one point only —
+> that block names **Phase 7** as the next action. Phase 7 is now done. The Phase 0 block's
+> integration fact and active authority still stand; the Metadata Editor panel is **untouched and
+> still hash-protected** (`PHASE0_PANEL_HASHES` pins only it; `UNADOPTED_PANELS` still names it).
+>
+> **Phase 7 built the Editor's Tk-free model — observation + workspace only. Nothing is written.**
+> - **`mp3_tools/m4b_metadata_workflow.py` (new, 622 lines)**, on the `mp3_workflow` /
+>   `m4b_maker_workflow` precedent, with the Editor's own vocabulary and one deliberate contrast
+>   with the Maker: **one imported occurrence = one Book**, whatever directory it came from.
+>   `EDITOR_TYPE` / `EDITOR_CATALOG` (`.m4b`, `.m4a`, `.mp4`); **eight Shared fields**
+>   `title, artist, album, year, genre, comment, series, artwork` (`TEXT_FIELDS` = the seven text
+>   ones; **`series_part` is deliberately not a Shared or Book text field** — it is read-back plus
+>   the batch-level Auto-number / `parse_start_part` contract; `set_book_field("series_part", …)`
+>   is refused); one Book-only field `chapter_titles`.
+> - **`SourceObservation` (frozen, keyed by occurrence):** path, `readable` + `error`, the seven
+>   text fields, `series` / `series_part` with **provenance as `shared.metadata.read_m4b_tags`
+>   resolves it** (`series_source` / `series_part_source` ∈ freeform:<ns> | movement |
+>   album-implied | track-implied | None, and the exact atoms), `track`, `has_cover`,
+>   `chapter_titles` (order kept) / `chapter_count`; `series_name_implied` /
+>   `series_part_implied`; `source_value(name)` treats an album-implied name as blank for
+>   comparison. `observe_source` reads through the shared readers only (no `mutagen` import, no
+>   atom literal), **never raises**: an unreadable file becomes `readable=False` with the error
+>   text; chapters that fail leave the titles empty. `ObservationStore` is immutable, keyed by
+>   occurrence id, `for_book(book)` resolves through the Book's one source.
+> - **Import (over the Plan 3 importer's values; nothing scanned here):** `import_folder`
+>   replaces the workspace with one Book per committed occurrence in order (revision advanced,
+>   `WorkspaceOperation.IMPORT`, removed Books reported; an empty import is a no-op);
+>   `add_files` appends one Book per **new identity** (a source already held is counted in
+>   `ReceiveResult.skipped`), the last added becomes current, and a pristine startup Book is
+>   replaced rather than left beside the first real source. Distinct occurrences of one path
+>   stay distinct Books. Book IDs are the shared stable ids; navigation/remove are the shared
+>   operations.
+> - **Source versus edit — the contract Phase 8 needs, decided without guessing:** a Book's
+>   **configuration holds only explicit edits** (created empty). `prefill_values(observation)`
+>   is what the page shows before any edit (an album-implied Series Name is *not* prefilled;
+>   Series Part never is; an unreadable source prefills nothing). `page_values(shared, book,
+>   store)` = Shared → Book edit (a stored blank shows blank) → source prefill, for display only.
+>   **`edit_intent(shared, book, store, name)`** returns the value a later action would write
+>   or `None` = preserve: populated Shared → override; no key → nothing asked; blank → preserve;
+>   equal to the source value → nothing to write (so a vendor/movement/implied series value is
+>   never migrated by accident); else the edit. `explicit_edits`, `shared_intent` (populated
+>   Shared text fields only — **blank Shared is not a write**), `artwork_intent` (Shared
+>   replacement, else Book replacement, else `None` = preserve/leave removed). An edit never
+>   disturbs the observation (`store.for_book(edited).title` is still the source's).
+> - **Shared starts blank** even when every source agrees (proved with two identical sources);
+>   populated Shared → `disabled_fields` + override; cleared → the Book edit / prefill is back.
+> - **Chapters:** observed in source order; the per-Book buffer is positional and **keeps blank
+>   lines in place** (`chapter_lines`); `chapter_edits(book, observation)` → one entry per
+>   source chapter: the new title, or `None` when the line is blank or equals the source title;
+>   lines past the count ignored. Not the MP3 blank-line-collapse rule.
+> - **Read-back:** `series_readback(observation)` reproduces the existing Editor's four-case
+>   "Detected on file" line — proved **equal to `M4BMetadataEditorUI._series_readback_text`** on
+>   full / part-only / nothing / implied sources — plus an "unavailable" line for an unreadable
+>   file. `display_hint` = page Title, else the filename.
+> - **Deliberately absent:** no `mutagen`, `output_paths`, `job_*`, `numbering`, `tempfile`,
+>   `shutil` import; no write/copy/plan/reserve/stage/publish/retry name (AST-guarded); no
+>   sidecar (source hashes and directory listings asserted unchanged); no Editor panel change.
+> - **Guard changes, the same three sites, narrow:** `ADOPTED` 16 → **17**
+>   (`mp3_tools/m4b_metadata_workflow.py`; test renamed `..._these_seventeen_...`, `len == 17`);
+>   `PLAN3_ADOPTERS` mirrored; the `m4b_`-prefix set names it. **Editor panel protections are
+>   unchanged** — its hash pin, its place in `UNADOPTED_PANELS`, the Editor-only no-adoption
+>   check and the `test_mp3_hardening` tuple all still hold.
+>
+> **RED → GREEN evidence.** `files/tests/test_m4b_metadata_workflow.py` (28 tests, real
+> FFmpeg-built two-chapter cover-bearing containers tagged through the shared writer, vendor
+> `com.pilabor.tone` freeform atoms and native movement atoms written with mutagen in the test):
+> red as a collection `ImportError`; first green run 23/28 — three were my fixture's identity
+> string carrying a `/` (the importer rightly refuses it), one my AST check looking for *calls*
+> where the module uses the readers as injectable defaults, one the expected `ADOPTED` pin; then
+> one wrong field name in a test helper (`root` → `source_root`); **28/28**.
+>
+> **Phase 7 gate (focused, per plan §11).** Model + `test_book_workspace(_ui)` + importer
+> suites (`test_import_manager`, `test_import_traversal`, `test_import_coordination`) +
+> `test_m4b_metadata` + `test_m4b_metadata_editor_shared` / `_ui` + `test_prototype_regression`
+> + the two other workflow models + every structural guard (`plan6`, `plan3`, `m4b_hardening`,
+> `mp3_hardening`, `tool_output_integration`, `repository_contract`, `launcher_smoke`,
+> `epub_retirement`, `ffmpeg_runtime_trust`, `preferences_maintenance_ui`): **1,814 passed /
+> 9 skipped / 0 failed** in 47 s (the 9 skips are the pre-existing Windows symlink-privilege
+> and case-folding cases in the importer suites). `compileall` exit 0; `git diff --check` clean
+> (worktree and index). No full suite / `verify.py` — the next full gate is Phase 9. Editor
+> panel, launcher, version files and `don't-delete/` byte-identical to the anchor;
+> `launcher.TOOLS` six; version `0.6.2`.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 8 — METADATA EDITOR FROZEN ACTION PLANS. IT HAS NOT STARTED**
+> and requires separate explicit maintainer approval. Phase 8 freezes the three actions (Save
+> Tags / Clear All Tags (keep chapters) / Remove Series Numbering) per Book from this model's
+> intent functions — `explicit_edits`, `shared_intent`, `artwork_intent`, `chapter_edits`, the
+> observation, `parse_start_part` — into immutable plans with **one** standard Editor run and
+> flat collision-safe staged/final paths through `output_paths`, and no mutation engine yet.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 6 COMPLETE (M4B MAKER PRODUCTION UI ADOPTION — END-TO-END, FULL GATE GREEN); PHASE 7 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the Phase 5 block beneath it on one point only —
