@@ -750,9 +750,10 @@ def test_the_converter_local_modules_that_adopted_are_exactly_these():
 
     # ``m4b_maker_workflow`` (v0.6.4 Phase 2), ``m4b_maker_plan`` (Phase 3),
     # ``m4b_maker_batch`` (Phase 5), ``m4b_artwork_ui`` + the ``m4b_maker``
-    # panel (Phase 6) and ``m4b_metadata_workflow`` (Phase 7) share the prefix
-    # but are the Maker's / Editor's, not the Converter's; they are named here
-    # so the Converter set stays exact.
+    # panel (Phase 6), ``m4b_metadata_workflow`` (Phase 7) and
+    # ``m4b_metadata_plan`` (Phase 8) share the prefix but are the Maker's /
+    # Editor's, not the Converter's; they are named here so the Converter set
+    # stays exact.
     converter_local = {name for name in ADOPTED if name.startswith("mp3_tools/m4b_")}
     assert converter_local == {
         "mp3_tools/m4b_converter.py",
@@ -764,6 +765,7 @@ def test_the_converter_local_modules_that_adopted_are_exactly_these():
         "mp3_tools/m4b_artwork_ui.py",
         "mp3_tools/m4b_maker.py",
         "mp3_tools/m4b_metadata_workflow.py",
+        "mp3_tools/m4b_metadata_plan.py",
     }
 
 

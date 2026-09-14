@@ -2,6 +2,102 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 8 COMPLETE (METADATA EDITOR FROZEN ACTION PLANS); PHASE 9 NOT STARTED (2026-09-14)
+>
+> **This block is the live state.** It supersedes the Phase 7 block beneath it on one point only —
+> that block names **Phase 8** as the next action. Phase 8 is now done. The Phase 0 block's
+> integration fact and active authority still stand; the Metadata Editor panel is **untouched and
+> still hash-protected** (`PHASE0_PANEL_HASHES` pins it; `UNADOPTED_PANELS` still names it).
+>
+> **Phase 8 froze exact intent for the three Editor actions — intent + destinations only.**
+> - **`mp3_tools/m4b_metadata_plan.py` (new, 288 lines, Tk-free)** on the `m4b_maker_plan`
+>   precedent. `EditorAction` = `SAVE_TAGS` / `CLEAR_ALL_TAGS` / `REMOVE_SERIES_NUMBERING`;
+>   `EditorRunOptions` (frozen: `auto_number`, `start_part_text`); **`BookPlan`** (frozen)
+>   keeps **five things apart and never collapses them**: the frozen `SourceObservation` (what
+>   the source contains), `shared_overrides` (explicit Shared text fields), `book_edits`
+>   (explicit Book edits that no Shared value overrides), `artwork` (explicit replacement or
+>   `None` = preserve / leave removed), `chapter_edits` (positional, one entry per source
+>   chapter, `None` = preserve), and the `action`; plus `book_id`, workspace `number`, exact
+>   `RunSnapshot`, `occurrence_id`, `source`, `filename`, `staging_dir`, `staged`, `published`.
+>   `writes` is a **derived** read-only view (Shared over Book) for the engine; `has_intent`
+>   says whether the Book asks for anything (Clear and Remove are themselves intent; a Save
+>   with no write / artwork / chapter edit asks for nothing). **`RunPlan`** carries the action,
+>   the one `RunReservation`, `run_directory`, `work_root`, the capture, the Books, the frozen
+>   `observations` of every captured Book (attempted or skipped, via `observation_for`),
+>   `auto_number` and the parsed `start_part`; `has_intent` includes auto-numbering.
+> - **Save Tags** freezes only actual intended writes, straight from the Phase 7 intent
+>   functions: unchanged prefill → nothing; blank Book value → preserve; value equal to the
+>   source → nothing (a vendor `com.pilabor.tone` series the page displays is never migrated;
+>   retyping it identically still writes nothing; changing it does); populated Shared →
+>   override for every Book (and not also a Book edit); clearing Shared → the Book edit /
+>   source behaviour is back; artwork only when explicitly chosen (Shared → all Books, Book →
+>   that Book); chapter edits positional with blank/equal lines preserving.
+> - **Clear All Tags** freezes exactly the same explicit values — and nothing else — to reapply
+>   after the clear (proved: prefilled-but-unchanged Title/Artist/Series are **not** reapplied;
+>   an explicit Book Title, an explicit Shared Genre and an explicit Shared artwork are; an
+>   equal-to-source Book Artist is not; no replacement artwork means the cover stays removed;
+>   chapters are structurally preserved with only the explicit title edit represented). The
+>   observation still records the source cover beside the intent.
+> - **Remove Series Numbering** freezes the action alone: with a pending Book Title edit, a
+>   pending Shared Artist, a Book artwork replacement, a chapter edit and Auto-number ON all
+>   visible in the workspace, the plan carries empty overrides/edits, `artwork=None`,
+>   `chapter_edits=()`, `auto_number=False`, `start_part=1` — and the observed Series Name
+>   (`Saga`, part `4`) as a source fact the action preserves.
+> - **Series auto-number:** OFF → no `series_part` in any Book's writes; ON (Save/Clear) →
+>   `start_part` parsed and frozen (`EditorValueError` refuses a bad one before planning); no
+>   number assigned, no counter in the plan, no `part` attribute on a Book — the shared
+>   `SuccessNumbers` is Phase 9's execution state. Removal never numbers.
+> - **Outputs:** exactly **one** standard reservation per operation (no custom-destination
+>   exception); every Book flat in the run, named by its **source filename with its own
+>   extension kept** (`Book.m4b`, `Book-1.m4b`, `other.m4a`, `clip.mp4` — sanitised and
+>   collision-numbered by the shared planner, deterministic, filesystem-aware so an existing
+>   `Book.m4b` is never overwritten); staging under the run's `.work` (reserved first) keyed by
+>   the final stem; `assert_outside_source_trees` on the run and `assert_not_input` on every
+>   published and staged path. Planning creates nothing: run directory empty, sources
+>   unchanged, no work root.
+> - **Unreadable sources:** the shared capture's own `is_valid` predicate (readable
+>   observation) skips them as **`SKIPPED_INVALID`** — a frozen disposition with the Book's
+>   stable id in `capture.skipped`, its observation (error text) reachable via
+>   `observation_for`, no `BookPlan`, no repair, and no effect on the readable Books.
+> - **Immutability:** later Book edits, chapter edits, Shared overrides/artwork, a removed Book
+>   and even a grown observation store change nothing in the plan; every structure is a frozen
+>   dataclass, `writes` is a `MappingProxyType`, and a recursive walk proves no Tk object,
+>   callable, `WorkspaceSnapshot`, `BookJob` or `ObservationStore` is retained.
+> - **Deliberately absent (AST-guarded):** no `shared.metadata`, `mutagen`, `shutil`,
+>   `tempfile`, `job_ui`, `numbering` or `re` import; no copy / write / clear / apply / embed /
+>   mkdir / propose / commit call; no staging-lifecycle, engine or controller name.
+> - **Guard changes, the same three sites, narrow:** `ADOPTED` 17 → **18**
+>   (`mp3_tools/m4b_metadata_plan.py`; test renamed `..._these_eighteen_...`, `len == 18`);
+>   `PLAN3_ADOPTERS` mirrored; the `m4b_`-prefix set names it. Editor panel protections
+>   unchanged; Maker / MP3 / Converter guards untouched.
+>
+> **RED → GREEN evidence.** `files/tests/test_m4b_metadata_plan.py` (21 tests, on the Phase 7
+> fixtures — real FFmpeg-built two-chapter cover-bearing containers, vendor freeform atoms
+> written with mutagen in the test): red as a collection `ImportError`; **20/21 green on the
+> first run** with only the expected `ADOPTED` pin failing; 21/21 after the guard edits.
+>
+> **Phase 8 gate (focused, per plan §11).** Plan + Phase 7 model + `test_output_paths` +
+> `test_tool_output_integration` + `test_book_workspace` / `_run_snapshot` / `_retry` +
+> `test_m4b_metadata` + Editor shared / UI suites + `test_m4b_maker_plan` + `test_mp3_plan` +
+> every structural guard (`plan6`, `plan3`, `m4b_hardening`, `mp3_hardening`,
+> `repository_contract`, `launcher_smoke`, `epub_retirement`, `ffmpeg_runtime_trust`,
+> `preferences_maintenance_ui`): **1,522 passed / 3 skipped / 0 failed** in 43 s (the 3 skips
+> are the pre-existing Windows symlink-privilege cases). `compileall` exit 0; `git diff --check`
+> clean (worktree and index). No full suite / `verify.py` — **Phase 9 is the planned Editor
+> milestone full gate.** Editor panel, launcher, version files and `don't-delete/`
+> byte-identical to the anchor; `launcher.TOOLS` six; version `0.6.2`.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 9 — METADATA EDITOR ATOMIC PROCESSING AND JOB-CONTROL
+> ADOPTION. IT HAS NOT STARTED** and requires separate explicit maintainer approval. Phase 9
+> executes a frozen `BookPlan` per Book — copy to **private staging** (closing the
+> "`copy2` before the tag write leaves a visible partial copy" debt), the selected action
+> through `shared.metadata` (`write_m4b_tags` / `clear_metadata_keep_chapters` /
+> `clear_series_numbering` / `apply_chapter_titles`) and `m4b_artwork` (cover), validation,
+> atomic publication — under one `JobController` / reporter / worker with Pause/Resume/Cancel,
+> continue-on-failure, `WorkspaceRunResult`, Retry Failed and the shared success allocator for
+> Auto-number, on the `m4b_maker_processing` + `m4b_maker_batch` precedent, ending with
+> **full pytest + `verify.py` + compileall + diff check**.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 7 COMPLETE (METADATA EDITOR SOURCE/WORKSPACE MODEL); PHASE 8 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the Phase 6 block beneath it on one point only —
