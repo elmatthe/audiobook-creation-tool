@@ -767,9 +767,10 @@ def test_the_launcher_and_the_other_panels_are_where_they_were():
                                    else [node.target])))
     assert len(tools.value.elts) == 6
     assert config.get_effective().project.version == "0.6.2"
-    # The M4B Maker left this list at v0.6.4 Phase 6: it is the second
-    # workspace adopter now and names ``book_workspace`` on purpose.
-    for panel in ("mp3_tools/m4b_metadata_editor.py", "mp3_tools/m4b_converter.py"):
+    # The M4B Maker left this list at v0.6.4 Phase 6 and the Metadata Editor
+    # at Phase 10: both are workspace adopters now and name ``book_workspace``
+    # on purpose. The Converter is the one M4B panel still held to it.
+    for panel in ("mp3_tools/m4b_converter.py",):
         text = (UNIVERSAL / panel).read_text(encoding="utf-8")
         assert "book_workspace" not in text and "mp3_workflow" not in text, panel
         assert "mp3_plan" not in text and "mp3_processing" not in text, panel

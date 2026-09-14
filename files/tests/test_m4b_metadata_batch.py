@@ -535,10 +535,23 @@ def test_the_runner_is_registered_as_a_plan3_adopter():
     assert "mp3_tools/m4b_metadata_batch.py" in ADOPTED
 
 
-def test_the_editor_panel_is_still_byte_identical_and_runs_nothing_through_this():
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_as_checked_out_on_windows
+def test_the_editor_panel_now_runs_through_this_module():
+    """Phase 9 built the runner behind an untouched panel; v0.6.4 Phase 10 made
+    the panel its consumer (the old byte-identity pin retired with the conversion)."""
+    from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
     panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
-    assert sha256_as_checked_out_on_windows(panel) == PHASE0_PANEL_HASHES[
-        "mp3_tools/m4b_metadata_editor.py"]
-    assert "m4b_metadata_batch" not in panel.read_text(encoding="utf-8")
+    assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
+    tree = ast.parse(panel.read_text(encoding="utf-8"))
+    modules = {f"{node.module}.{alias.name}" for node in ast.walk(tree)
+               if isinstance(node, ast.ImportFrom) for alias in node.names}
+    modules |= {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    modules |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
+                for alias in node.names}
+    assert "mp3_tools.m4b_metadata_batch" in modules
+    built = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and ast.unparse(node.func).endswith(("EditorRun", "_run_factory"))]
+    assert len(built) == 1, "one EditorRun construction site"
+    references = {ast.unparse(node) for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    assert "self.run.retry_failed" in references, "Retry Failed forwards to the run"
+    assert "self.run.start" in references

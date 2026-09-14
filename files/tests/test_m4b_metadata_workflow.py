@@ -320,15 +320,24 @@ def test_implied_series_values_are_observations_not_prefill(container, sources):
 
 
 def test_the_series_readback_line_is_the_existing_editors_rule(container, sources):
-    from mp3_tools.m4b_metadata_editor import M4BMetadataEditorUI
+    """The four "Detected on file" cases, worded exactly as the old panel worded them.
 
+    Phase 7 proved this line equal to the old panel's ``_series_readback_text``;
+    v0.6.4 Phase 10 retired that method with the batch-global panel, so the
+    accepted wording is pinned here literally and the model is the authority
+    the production panel now displays through.
+    """
     cases = {
-        "full.m4b": dict(series="Saga", series_part="2", album="A"),
-        "partless.m4b": dict(series="Saga"),
-        "nothing.m4b": dict(),
-        "implied.m4b": dict(album="Alb"),
+        "full.m4b": (dict(series="Saga", series_part="2", album="A"),
+                     "Detected on file: Saga #2  (source: ----:com.apple.iTunes:SERIES)"),
+        "partless.m4b": (dict(series="Saga"),
+                         "Detected on file: Saga  (source: ----:com.apple.iTunes:SERIES)"),
+        "nothing.m4b": (dict(), "Detected on file: none — this file has no series tag"),
+        "implied.m4b": (dict(album="Alb"),
+                        "Detected on file: part #3 only — no series name on file; "
+                        "Audiobookshelf likely groups by Album: 'Alb'  (source: trkn)"),
     }
-    for name, tags in cases.items():
+    for name, (tags, expected) in cases.items():
         path = m4b(container, sources / name, **tags)
         if name == "implied.m4b":
             from mutagen.mp4 import MP4
@@ -336,8 +345,7 @@ def test_the_series_readback_line_is_the_existing_editors_rule(container, source
             mp4.tags["trkn"] = [(3, 9)]
             mp4.save()
         seen = wf.observe_source(path)
-        raw = metadata.read_m4b_tags(path)
-        assert wf.series_readback(seen) == M4BMetadataEditorUI._series_readback_text(raw), name
+        assert wf.series_readback(seen) == expected, name
 
 
 def test_an_unreadable_source_settles_safely_beside_readable_books(container, sources):
@@ -575,10 +583,22 @@ def test_the_model_is_registered_as_a_plan3_adopter():
     assert "mp3_tools/m4b_metadata_workflow.py" in ADOPTED
 
 
-def test_the_editor_panel_is_still_byte_identical_and_adopts_nothing():
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_as_checked_out_on_windows
+def test_the_editor_panel_now_consumes_this_model():
+    """Phase 7 built the model behind an untouched panel; v0.6.4 Phase 10 made
+    the panel its consumer (the old byte-identity pin retired with the conversion)."""
+    from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
     panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
-    assert sha256_as_checked_out_on_windows(panel) == PHASE0_PANEL_HASHES[
-        "mp3_tools/m4b_metadata_editor.py"]
-    assert "m4b_metadata_workflow" not in panel.read_text(encoding="utf-8")
+    assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
+    tree = ast.parse(panel.read_text(encoding="utf-8"))
+    modules = {f"{node.module}.{alias.name}" for node in ast.walk(tree)
+               if isinstance(node, ast.ImportFrom) for alias in node.names}
+    modules |= {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    modules |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
+                for alias in node.names}
+    assert "mp3_tools.m4b_metadata_workflow" in modules
+    declared = {node.name for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    for owned_here in ("observe_source", "prefill_values", "page_values", "edit_intent",
+                       "explicit_edits", "series_readback", "chapter_edits", "display_hint"):
+        assert owned_here not in declared, owned_here

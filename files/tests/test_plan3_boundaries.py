@@ -108,7 +108,7 @@ ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_maker_plan.py", "mp3_tools/m4b_maker_batch.py",
             "mp3_tools/m4b_artwork_ui.py", "mp3_tools/m4b_maker.py",
             "mp3_tools/m4b_metadata_workflow.py", "mp3_tools/m4b_metadata_plan.py",
-            "mp3_tools/m4b_metadata_batch.py")
+            "mp3_tools/m4b_metadata_batch.py", "mp3_tools/m4b_metadata_editor.py")
 
 
 def relative_name(path: Path) -> str:
@@ -662,7 +662,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_nineteen_production_modules_are_authorized_to_adopt():
+def test_exactly_these_twenty_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -825,7 +825,17 @@ def test_exactly_these_nineteen_production_modules_are_authorized_to_adopt():
     ``files/tests/test_m4b_metadata_batch.py`` holds it to that. **The Metadata
     Editor panel itself stays unadopted and still checked.**
 
-    The name says "these nineteen" rather than "eighteen" because the count is
+    v0.6.4 Phase 10 adds the **twentieth**: ``mp3_tools/m4b_metadata_editor.py``
+    itself — the Metadata Editor panel, rewritten as a thin Tk adapter that
+    composes the shared navigator (with the Editor's action subset), the
+    Shared surface, the common artwork control, the Plan 3 importer and job
+    adapters, and hands each frozen Editor plan to ``m4b_metadata_batch``. It
+    is the third production panel on the shared workspace and the last
+    consumer panel to leave the Plan 6 hash gate; ``files/tests/
+    test_m4b_metadata_editor_ui.py`` holds it to that. **No panel is left
+    unadopted and unchecked: ``UNADOPTED_PANELS`` is now the launcher alone.**
+
+    The name says "these twenty" rather than "nineteen" because the count is
     part of what is pinned: a widening that did not have to rename this test
     would be a widening nobody had to think about.
     """
@@ -846,10 +856,10 @@ def test_exactly_these_nineteen_production_modules_are_authorized_to_adopt():
                        "mp3_tools/m4b_maker.py",
                        "mp3_tools/m4b_metadata_workflow.py",
                        "mp3_tools/m4b_metadata_plan.py",
-                       "mp3_tools/m4b_metadata_batch.py")
+                       "mp3_tools/m4b_metadata_batch.py",
+                       "mp3_tools/m4b_metadata_editor.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
-        "mp3_tools/m4b_metadata_editor.py",
     }
 
 
@@ -902,7 +912,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 19, importers
+    assert len(importers) == 20, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -985,6 +995,7 @@ def test_every_adopting_panel_is_still_checked_for_the_full_composition():
         "mp3_tools/cover_resizer.py",
         "mp3_tools/m4b_converter.py",
         "mp3_tools/m4b_maker.py",
+        "mp3_tools/m4b_metadata_editor.py",
         "mp3_tools/mp3_tool.py",
         "tts/epub2tts_gui.py",
     ], panels
@@ -1056,12 +1067,16 @@ def test_every_pre_existing_caller_of_the_cancellation_api_still_resolves():
     the panel no longer names the primitive itself. The M4B Maker followed at
     v0.6.4 Phase 6 for the same reason: its engine (``m4b_maker_processing``)
     and batch runner (``m4b_maker_batch``) are the callers now, and the panel
-    only forwards the controller's requests. The remaining callers are unchanged.
+    only forwards the controller's requests. The Metadata Editor followed at
+    v0.6.4 Phase 10 the same way — its engine (``m4b_metadata_processing``,
+    Phase 9) and runner (``m4b_metadata_batch``) are the callers. The
+    remaining callers are unchanged.
     """
     callers = {
         "mp3_tools/m4b_maker_processing.py": ("ConversionCancelled", "raise_if_cancelled"),
         "mp3_tools/m4b_maker_batch.py": ("ConversionCancelled",),
-        "mp3_tools/m4b_metadata_editor.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "mp3_tools/m4b_metadata_processing.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "mp3_tools/m4b_metadata_batch.py": ("ConversionCancelled",),
         "tts/epub2tts_gui.py": ("ConversionCancelled",),
         "tts/epub2tts_edge/epub2tts_edge.py": ("ConversionCancelled",),
         "tts/kokoro_synth.py": ("ConversionCancelled",),

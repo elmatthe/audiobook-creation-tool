@@ -103,8 +103,18 @@ def _style_of(widget) -> str:
 
 
 def _first_entry(container):
+    """The first *editable* text field: a read-only selector (the shared
+    navigator's ``ttk.Combobox``, since v0.6.4 Phase 10 the first entry in the
+    Metadata Editor) re-renders its own label and is not a state marker."""
     for widget in _walk(container):
+        if isinstance(widget, ttk.Combobox):
+            continue
         if isinstance(widget, (ttk.Entry, tk.Entry)):
+            try:
+                if "readonly" in widget.state():
+                    continue
+            except (tk.TclError, AttributeError):
+                pass
             return widget
     return None
 

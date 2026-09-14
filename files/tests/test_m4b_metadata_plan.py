@@ -498,10 +498,16 @@ def test_the_plan_module_is_registered_as_a_plan3_adopter():
     assert "mp3_tools/m4b_metadata_plan.py" in ADOPTED
 
 
-def test_the_editor_panel_is_still_byte_identical():
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_as_checked_out_on_windows
+def test_the_editor_panel_now_freezes_its_actions_through_this_module():
+    """Phase 8 built the plans behind an untouched panel; v0.6.4 Phase 10 made
+    the panel their consumer (the old byte-identity pin retired with the conversion)."""
+    from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
     panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
-    assert sha256_as_checked_out_on_windows(panel) == PHASE0_PANEL_HASHES[
-        "mp3_tools/m4b_metadata_editor.py"]
-    assert "m4b_metadata_plan" not in panel.read_text(encoding="utf-8")
+    assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
+    tree = ast.parse(panel.read_text(encoding="utf-8"))
+    calls = {ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
+    assert "mp.plan_run" in calls
+    declared = {node.name for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    assert "plan_run" not in declared and "BookPlan" not in declared

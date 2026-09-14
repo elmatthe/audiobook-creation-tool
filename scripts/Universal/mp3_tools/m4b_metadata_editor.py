@@ -1,64 +1,68 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""M4B Metadata Editor — edit the tags of existing M4B-family files, one Book per file.
 
-"""
-M4B Metadata Editor — edit tags on existing M4B files without re-encoding.
+v0.6.4 Phase 10: the production panel is a **thin Tk composition/orchestration
+adapter** over the completed Editor layers. No business rule lives in a widget:
 
-Open one or more M4B files and edit their tags (Title, Author/Artist, Album,
-Year, Comment, Genre, cover image, and Audiobookshelf Series Name / Series Part).
-Reading and writing go through shared.metadata (mutagen), which only touches the
-keys you pass, so every other tag in each file is preserved.
+- **Workspace.** The shared Plan 6 multi-Book workspace with the Editor's own
+  projection: **one imported occurrence = one Book/page**, whatever directory
+  it came from (``m4b_metadata_workflow.import_folder`` replaces the workspace
+  through the shared ``ImportCoordinator`` scan; ``add_files`` appends one Book
+  per new source). Previous / Next / ``Book X of Y`` / the direct selector /
+  Remove Book are the shared ``BookNavigator`` with the Editor's action subset
+  — no ``Add Book``, no ``Duplicate Book``: the import controls are how pages
+  arrive. The panel owns no list of paths — the Books are the list.
+- **Source versus edit.** Every page shows its source's metadata as prefill,
+  read once into a frozen ``SourceObservation`` and displayed through the
+  model's ``page_values``. Rendering a page **never** writes into the Book's
+  configuration: only a keystroke reaches ``set_book_field``, and the model's
+  ``edit_intent`` decides what a later action writes (blank or unchanged =
+  preserve the source; a populated Shared value overrides every Book). The
+  Series read-back line, the source Series Part, the artwork presence and the
+  chapter count are read-back facts beside the entries, never edits.
+- **Shared and Book fields.** The Shared area is exactly the Editor's eight —
+  the seven text fields on the shared ``SharedMetadataSurface`` (``rows``
+  layout) plus the common M4B ``ArtworkControl``, once for Shared and once for
+  the Book. A populated Shared value disables the matching Book control;
+  ``disabled_fields`` decides, never this panel. Series Part is not a text
+  field: it is read-back plus the batch-level Auto-number contract.
+- **Chapters.** One local Chapter Titles box per Book, positional: line *N*
+  targets chapter *N*, a blank line preserves that chapter, an unchanged line
+  preserves it, blank lines are never collapsed. The box shows the source
+  titles until the user edits them; showing them is not an edit.
+- **Actions.** ``Save Tags`` / ``Clear All Tags (keep chapters)`` / ``Remove
+  Series Numbering`` each reserve **one** standard run, freeze one immutable
+  ``RunPlan`` through ``m4b_metadata_plan`` and hand it to **one**
+  ``EditorRun`` (Phase 9). The worker body is ``Attempt.run`` on one thread; its
+  events cross to the panel through a queue the shared ``JobAdapter`` drains on
+  the one ``MainThreadPump``. Pause / Resume / Cancel / Retry Failed are the
+  shared control bar's, forwarded to the run; locking is the shared
+  ``LockGroup`` applying the job-state matrix. Book status is read from the
+  attempt's settled records and, afterwards, the frozen ``WorkspaceRunResult``
+  — never from a second state model. Retry Failed re-runs the frozen run's
+  failed Books only; nothing typed since can reach it.
+- **Log.** One region, ``Summary`` | ``Detailed``, whose history survives from
+  run to run with a divider per attempt; Clear Log clears the visible text only.
 
-Non-destructive (v0.1.1): the imported originals are **never modified**. Each
-selected file is first copied into the output folder (a fresh
-``Downloads/M4B-Metadata-N`` by default, redirectable via Browse for the current
-run), and all tag writes run against the **copy**.
+Removed with the batch-global form: the raw file list and its cache, the
+private worker, busy flag, cancel event and log queue, the chapter pager, the
+"(varies)" detection and the position-based auto-number (now the shared
+success-only ``SuccessNumbers``), and the whole-form ``Canvas`` scroller.
 
-Behaviour:
-- **Single file:** the form is pre-filled from the file's existing tags. Editing
-  a field and saving writes that field back (to the copy).
-- **Multiple files / folder (batch mode):** fields whose value is identical
-  across ALL loaded files are pre-filled (shared-value detection, Drop 2);
-  fields that differ are left blank and reported as "(varies)". Fields left
-  **blank are not written** (each copy keeps the original's tag); any field
-  with a value **overwrites** that tag in every copy. An "Open Folder…" button
-  loads every .m4b/.m4a/.mp4 directly inside a chosen folder (non-recursive).
-
-Series Name / Series Part are written as the freeform atoms
-``----:com.apple.iTunes:SERIES`` / ``SERIES-PART`` (Briefing §6), which
-Audiobookshelf's ffprobe scanner reads as ``series`` / ``series-part``. When a
-part is auto-numbered the writer also sets the native ``trkn`` (Windows
-Explorer's ``#`` column) and movement atoms (``©mvn``/``©mvi``/``©mvc``) — see
-``shared.metadata.write_m4b_tags``. "Remove Series Numbering" strips every one of
-those surfaces again (``shared.metadata.clear_series_numbering``).
-
-Series Part is governed by an **Auto-number** toggle: OFF (default) writes
-nothing to series-part (the field is display-only — preserve-by-default); ON
-treats the Series Part field as the starting number and writes sequential parts
-across the loaded files in list order (a single file gets just that number).
-
-Refactored like the other tools: UI is built by build_ui(parent); the save runs
-on a worker thread with a Cancel button (cooperative cancellation between files)
-via shared.cancellation; a standalone main() is kept for debugging.
-
-Presentation (v0.6.0 Drop 1, Phase 3): the panel forks on ``theme["mode"]``.
-On Windows it builds a card layout from the ``ACT.*`` design system in
-``shared/ui_theme.py`` — an "Audiobook Files" card, the distinct **Shared
-Metadata** surface (muted accent fill/border/header) holding every batch-wide
-tag field plus the series sub-group, then Chapter Titles, Output, an
-always-visible action bar and an always-visible Log. Every other platform
-builds the historical layout byte-for-byte. **Nothing about metadata reading,
-writing, precedence, file order, output paths, threading or cancellation
-differs between the two** — both forks create the same widgets and attributes
-and every method below is shared. The Shared Metadata grouping is a visual
-statement of the batch behaviour that already exists; it adds no per-book
-override, disables no field, and implements no Plan 6/8 precedence.
+Presentation: every widget asks ``job_ui.style_name`` for the approved ``ACT.*``
+style on Windows; on macOS and the classic branch the lookup returns ``""`` and
+the panel is drawn natively. No colour, font or metric is declared here. Nothing
+scrolls the whole tool: the Chapter Titles box and the log scroll locally and
+give up height first. Where the theme's metrics carry the panel hints (the aqua
+bundle) the navigator's actions fold under its navigation row, the actions
+stack, and the artwork buttons take their natural width — the same seam the
+MP3 Tool and the Maker read.
 """
 
 import queue
-import shutil
 import sys
-import threading
+import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import tkinter as tk
@@ -70,42 +74,96 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import metadata
+from shared import config as shared_config
+from shared import job_control
+from shared import job_ui
 from shared import output_paths
 from shared import paths
 from shared import settings
 from shared import subprocess_utils as sp
 from shared import ui_theme
-from shared.cancellation import ConversionCancelled, raise_if_cancelled
+from shared.book_workspace import (
+    BookDisposition,
+    SharedMetadata,
+    WorkspaceRunResult,
+    WorkspaceSnapshot,
+    disabled_fields,
+    has_meaningful_work,
+    next_book,
+    previous_book,
+    remove_book,
+    select_book,
+    set_shared_metadata,
+)
+from shared.book_workspace_ui import BookNavigator, SharedMetadataSurface
+from shared.import_coordination import (
+    TERMINAL_STATUSES,
+    ImportCoordinator,
+    ImportOutcome,
+    ImportPoller,
+    OutcomeStatus,
+    StartOutcome,
+)
+from shared.importing import (
+    IdFactory,
+    ImportOptions,
+    ImportRoot,
+    ImportedFileManager,
+    RootKind,
+    ScanRequest,
+)
+from shared.job_control import JobEventKind, JobState, TERMINAL_STATES
+from shared.job_ui import MainThreadGuard, MainThreadPump, style_name
+from mp3_tools import m4b_artwork_ui
+from mp3_tools import m4b_metadata_batch as batch
+from mp3_tools import m4b_metadata_plan as mp
+from mp3_tools import m4b_metadata_workflow as wf
+from mp3_tools.m4b_artwork_ui import ArtworkControl
+from mp3_tools.m4b_metadata_plan import EditorAction
 
 APP_TITLE = "M4B Metadata Editor"
 
-# Auto-named output folder slug (v0.1.1): tags are written to COPIES delivered
-# into Downloads/<SLUG>-N, never to the imported originals.
 TOOL_KEY = "m4b_metadata"
 SLUG = paths.TOOL_SLUGS[TOOL_KEY]
 
-# settings.json keys (input/cover dirs only remember the dialog's last location;
-# the output folder is NOT persisted — it always resets to a fresh Downloads/<SLUG>-N).
+# settings.json keys (dialog locations only; the output folder is NOT persisted).
 KEY_INPUT_DIR = "m4b_metadata.input_dir"
 KEY_COVER_DIR = "m4b_metadata.cover_dir"
 
-# (friendly metadata key, Tk variable attribute, form label)
-_FIELDS = [
-    ("title", "var_title", "Title"),
-    ("artist", "var_artist", "Author / Artist"),
-    ("album", "var_album", "Album"),
-    ("year", "var_year", "Year"),
-    ("genre", "var_genre", "Genre"),
-    ("comment", "var_comment", "Comment"),
-    ("series", "var_series", "Series Name"),
-    ("series_part", "var_series_part", "Series Part"),
-]
+#: The compact status shown for the current Book, read from the run.
+STATUS_READY = "Ready"
+STATUS_QUEUED = "Queued"
+STATUS_PROCESSING = "Processing"
+STATUS_COMPLETED = "Completed"
+STATUS_FAILED = "Failed"
+STATUS_SKIPPED = "Skipped (unreadable)"
+STATUS_NOT_ATTEMPTED = "Not attempted"
 
-# Series fields are preserve-by-default even on a normal Save: a pre-filled value
-# left unchanged is never written back (it may have been read from a vendor/movement
-# atom, and silently migrating it to the canonical atom is not what the user asked).
-_SERIES_KEYS = {"series", "series_part"}
+#: Characters of the page Title / filename shown after ``Book N`` before eliding.
+HINT_LIMIT = 40
+
+#: How many frozen Summary and Detailed lines the log region keeps.
+LOG_LIMIT = 400
+
+#: The run id the job area carries before any operation has started.
+IDLE_RUN_ID = "m4b-metadata-idle"
+
+#: Rules a line under the previous run's lines in both log panes.
+DIVIDER_MARK = "────"
+
+#: What the panel says about preserve-by-default, once, where the fields are.
+SHARED_TITLE = "Shared — a value here overrides every Book; blank = each Book on its own"
+BOOK_TITLE = "Current Book — blank or unchanged = keep the source's own value"
+PRESERVE_HINT = ("Originals are never modified; each action writes copies to a new output "
+                 "run. Blank or unchanged Book fields keep the source's values.")
+
+#: The action labels the run announces and the log headings use.
+ACTION_LABELS = batch.ACTION_LABELS
+
+
+# ---------------------------
+# Utilities
+# ---------------------------
 
 
 def _remembered_dir(key: str) -> Path:
@@ -118,1308 +176,1156 @@ def _remembered_dir(key: str) -> Path:
     return Path.home()
 
 
-class M4BMetadataEditorUI(ttk.Frame):
-    """The M4B Metadata Editor as an embeddable frame.
+def _layout_hints(theme) -> dict:
+    """The panel's composition, read off the theme bundle with its own defaults.
 
-    ``theme`` is the optional ``shared.ui_theme`` bundle. It is resolved from
-    the platform when omitted, so every existing caller — including the
-    launcher's ``module.build_ui(container)`` — keeps working unchanged. It
-    exists so a developer-only fixture (or a future launcher) can hand the
-    panel a bundle it already applied instead of re-resolving it.
-
-    The presentation forks on ``theme["mode"]``: ``windows`` builds the v0.6.0
-    card layout from the ``ACT.*`` design system; every other mode builds the
-    historical layout byte-for-byte, so macOS aqua and Linux/other are
-    untouched. Both forks create exactly the same widgets and attributes, so
-    every callback, worker, cancel path and busy/idle transition below is
-    shared and unaware of which one built the screen.
+    The defaults are the accepted Windows composition. A theme whose ``metrics``
+    carry the panel hints (the aqua bundle) overrides them; one without changes
+    nothing. Presentation only: nothing read here reaches the model or the plan.
     """
+    metrics = (theme or {}).get("metrics") or {}
+    if not isinstance(metrics, Mapping):
+        metrics = {}
+    return {
+        "pad": int(metrics.get("panel_pad", 10)),
+        "gap": int(metrics.get("panel_gap", 6)),
+        "gap_small": int(metrics.get("panel_gap_small", 4)),
+        "navigator_layout": str(metrics.get("navigator_layout", "row")),
+        "actions_layout": str(metrics.get("actions_layout", "row")),
+        "entry_width": int(metrics.get("field_entry_width", 9)),
+        "label_wrap": metrics.get("field_label_wrap"),
+        "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
+        "artwork_gap": int(metrics.get("artwork_gap", 12)),
+    }
 
-    def __init__(self, parent: tk.Misc, theme: dict | None = None):
+
+# ---------------------------
+# GUI
+# ---------------------------
+
+
+class M4BMetadataEditorUI(ttk.Frame):
+    """The M4B Metadata Editor as an embeddable frame: one page per imported file."""
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        theme=None,
+        clock=None,
+        effective_config=None,
+        id_factory: IdFactory | None = None,
+        scanner=None,
+        thread_factory=None,
+        choose_files=None,
+        choose_folder=None,
+        choose_artwork=None,
+        confirm_broad_root=None,
+        confirm_large_result=None,
+        confirm=None,
+        home=None,
+        bridge=None,
+        run_factory=None,
+    ):
+        """Build the panel.
+
+        Every keyword is a seam the tests drive instead of a real dialog, clock
+        or thread. Production passes none of them. ``thread_factory`` makes both
+        the import scan's thread and the processing worker's; ``run_factory``
+        builds the ``EditorRun`` (the Phase 9 class by default).
+        """
         if theme is None:
             theme = ui_theme.apply_theme(parent.winfo_toplevel(), ttk.Style(parent))
-        windows = theme.get("mode") == "windows"
-        if windows:
-            super().__init__(parent, style=theme["styles"]["window"])
-        else:
-            super().__init__(parent)
+        super().__init__(parent, style=style_name(theme, "window"))
         self.theme = theme
-        self._windows = windows
+        self._guard = MainThreadGuard()
+        self._closed = False
+        self._clock = time.monotonic if clock is None else clock
+        self._effective_config = (shared_config.get_effective()
+                                  if effective_config is None
+                                  else effective_config)
+        self._ids = IdFactory("m4b-meta-") if id_factory is None else id_factory
+        self._choose_files = self._ask_files if choose_files is None else choose_files
+        self._choose_folder = self._ask_folder if choose_folder is None else choose_folder
+        self._choose_artwork = (self._ask_artwork if choose_artwork is None
+                                else choose_artwork)
+        self._confirm = self._ask_confirm if confirm is None else confirm
+        self._confirm_large = (self._confirm_large_result
+                               if confirm_large_result is None
+                               else confirm_large_result)
+        self._thread_factory = (self._default_thread if thread_factory is None
+                                else thread_factory)
+        self._bridge = job_control.LoggerBridge() if bridge is None else bridge
+        self._run_factory = batch.EditorRun if run_factory is None else run_factory
 
-        self.files: list[Path] = []
+        # --- the workspace ------------------------------------------------- #
+        # The one mutable reference to the current immutable workspace, and
+        # the immutable store of what each source contains. Every edit asks a
+        # model operation and renders the value back.
+        self.workspace: WorkspaceSnapshot = wf.new_workspace(id_factory=self._ids)
+        self.store: wf.ObservationStore = wf.ObservationStore()
+        # The user-facing Book number by stable id: assigned once, never reused
+        # while that workspace lives; a folder import starts again at 1.
+        self.book_numbers: dict[str, int] = {}
+        #: The most recently frozen plan and the run that executes it. Retry
+        #: Failed reads only these; nothing here reads them back into widgets.
+        self.last_plan: mp.RunPlan | None = None
+        self.run: batch.EditorRun | None = None
+        self._attempt: batch.Attempt | None = None
+        self._label: str = ""
+        self._rendering = False
 
-        # Cancellation / worker plumbing (mirrors the other MP3 tools' pattern).
-        self._busy = threading.Event()
-        self._cancel_event = threading.Event()
-        self._log_q: queue.Queue = queue.Queue()
+        # --- the shared importing foundation ------------------------------- #
+        self._pump = MainThreadPump(self)
+        self._manager = ImportedFileManager(id_factory=self._ids)
+        self._coordinator = ImportCoordinator(
+            self._manager,
+            scanner=scanner,
+            clock=self._clock,
+            id_factory=self._ids,
+            confirm_broad_root=(self._confirm_broad_root
+                                if confirm_broad_root is None
+                                else confirm_broad_root),
+            thread_factory=thread_factory,
+            **({} if home is None else {"home": home}),
+        )
+        self._poller = ImportPoller(
+            self._coordinator, self._pump.schedule, cancel=self._pump.cancel,
+            interval_ms=self._pump.interval_ms, on_outcome=self._handle_outcome)
+        self._import_kind: str | None = None
 
-        # One Tk var per editable text field.
-        for _key, attr, _label in _FIELDS:
-            setattr(self, attr, tk.StringVar())
-        self.var_cover_path = tk.StringVar()
-        self.mode_var = tk.StringVar(value="No files loaded.")
-        # Read-only "Detected on file" line for the series actually present on the
-        # loaded file (and which atom it came from), so an overwrite can be trusted.
-        self.series_readback_var = tk.StringVar(value="")
-
-        # Auto-number Series Part. This toggle is the *sole* control over whether
-        # anything is written to the series-part tag: OFF (default) writes nothing
-        # to series-part (the field is display-only / preserve-by-default); ON uses
-        # the Series Part field as the starting number and assigns sequential parts
-        # across the loaded files in list order (single file → just that number).
-        self.var_autonumber = tk.BooleanVar(value=False)
-        self.autonumber_hint_var = tk.StringVar(value="")
-
-        # Snapshot of the values auto-loaded into the form in single-file mode.
-        # A "Clear All Tags" run re-applies only fields the user changed from
-        # this snapshot, so unchanged pre-filled fields are genuinely wiped.
-        self._prefill: dict[str, str] = {}
-
-        # Cache of read_m4b_tags() per file (Drop 2). Keyed by Path; populated
-        # lazily by _tags_for(); cleared whenever the file list changes.
-        self._tag_cache: dict[Path, dict] = {}
-
-        # Per-file chapter-title import (Phase D). Buffers are keyed by Path so
-        # they survive paging and reordering; counts cache each file's chapter
-        # count (ffprobe) so paging doesn't re-probe repeatedly.
-        self._chap_page = 0
-        self._chap_shown: Path | None = None  # path currently displayed in the box
-        self._chap_buffers: dict[Path, str] = {}
-        self._chap_counts: dict[Path, int] = {}
-        self.chap_pager_var = tk.StringVar(value="No files loaded.")
-        self.chap_hint_var = tk.StringVar(value="")
-
-        # Output folder: a fresh Downloads/<SLUG>-N decided once now, at build
-        # time. Browse redirects it for this run only; it is never persisted, so
-        # the next launch starts at the next free -N. The folder is created
-        # lazily on the first successful save.
+        # Where the next run will go, shown read-only.
         self.var_outdir = tk.StringVar(value=output_paths.destination_hint(TOOL_KEY))
-        # Preferences & Data can change the base while this panel is alive; the
-        # shared registry re-points this display the moment that happens.
         output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
-        self._last_run_dir = None
 
-        self._build_ui()
+        self._build(theme)
 
-        # Start draining the worker->GUI queue on the main thread.
-        self.after(150, self._pump_queue)
+        # Run locking is the shared contract: the adapter's lock group applies
+        # the approved matrix to these seams whenever the run's state moves.
+        self._import_lock = self._ButtonLock(self.btn_import_folder, self.btn_add_files)
+        self._options_lock = self._ButtonLock(
+            self.btn_save, self.btn_clear_tags, self.btn_remove_numbering,
+            self.check_auto_number, self.entry_start_part)
+        self._chapters_lock = self._TextLock(self.chapter_text)
+        self._install_jobs(IDLE_RUN_ID, ())
 
-    # ----- UI -----
-    def _build_ui(self):
-        """Build the panel, then run the two state syncs both forks need."""
-        if self._windows:
-            self._build_ui_windows()
-        else:
-            self._build_ui_classic()
-        self._update_chap_buttons()  # disabled until files are loaded
-        self._update_autonumber_hint()  # set the initial (toggle-off) hint text
+        self.render()
+        self._pump.start()
 
-    def _build_ui_classic(self):
-        """The pre-v0.6.0 layout. macOS and Linux/other must stay byte-identical."""
-        # The tag/settings sections are taller than the launcher window once a
-        # batch is loaded, so they live in a vertically scrollable canvas —
-        # the same canvas_wrap + create_window + scrollregion/width-sync +
-        # enable_mousewheel wiring as the TTS panel. The action buttons (row 1)
-        # and the Log (row 2) sit OUTSIDE the canvas so they are always
-        # visible, and the Log gets a fixed, larger height.
-        self.rowconfigure(0, weight=1)   # scrollable settings grow with window
-        self.rowconfigure(1, weight=0)   # action buttons — fixed, always visible
-        self.rowconfigure(2, weight=0)   # log box — fixed height, always visible
+    # ------------------------------------------------------------------ #
+    # Construction
+    # ------------------------------------------------------------------ #
+
+    def _build(self, theme) -> None:
+        hints = _layout_hints(theme)
+        pad, gap, gap_small = hints["pad"], hints["gap"], hints["gap_small"]
         self.columnconfigure(0, weight=1)
+        # Pinned rows keep their requested height; the two variable-length
+        # regions -- the chapter box and the log -- absorb a short window, so
+        # at 920x600 the actions row never falls off the bottom and no
+        # whole-panel scrollbar is needed.
+        self.rowconfigure(0, weight=0)   # Import Folder, Add Files, import status, output
+        self.rowconfigure(1, weight=0)   # navigator
+        self.rowconfigure(2, weight=0)   # Shared + Current Book
+        self.rowconfigure(3, weight=3)   # chapter titles -- scrolls
+        self.rowconfigure(4, weight=0)   # run options + preserve hint
+        self.rowconfigure(5, weight=0)   # actions, job controls, progress
+        self.rowconfigure(6, weight=2)   # the one log region -- scrolls
 
-        canvas_wrap = ttk.Frame(self)
-        canvas_wrap.grid(row=0, column=0, sticky="nsew")
-        canvas_wrap.rowconfigure(0, weight=1)
-        canvas_wrap.columnconfigure(0, weight=1)
-        settings_canvas = tk.Canvas(canvas_wrap, highlightthickness=0, borderwidth=0)
-        settings_canvas.grid(row=0, column=0, sticky="nsew")
-        settings_sb = ttk.Scrollbar(
-            canvas_wrap, orient="vertical", command=settings_canvas.yview
-        )
-        settings_sb.grid(row=0, column=1, sticky="ns")
-        settings_canvas.configure(yscrollcommand=settings_sb.set)
+        # -- row 0: workspace-level import ------------------------------ #
+        top = ttk.Frame(self, style=style_name(theme, "window"))
+        top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
+        top.columnconfigure(2, weight=1)
+        self.btn_import_folder = ttk.Button(
+            top, text="Import Folder", style=style_name(theme, "button"),
+            command=self.import_folder)
+        self.btn_import_folder.grid(row=0, column=0, sticky="w")
+        self.btn_add_files = ttk.Button(
+            top, text="Add Files", style=style_name(theme, "button"),
+            command=self.add_files)
+        self.btn_add_files.grid(row=0, column=1, sticky="w", padx=(4, 0))
+        self.import_status = job_ui.ImportStatusBar(
+            top, theme=theme, on_cancel=self.cancel_import)
+        self.import_status.frame.grid(row=0, column=2, sticky="ew", padx=(10, 10))
+        self.output_label = ttk.Label(
+            top, textvariable=self.var_outdir, anchor="e",
+            style=style_name(theme, "secondary_label"))
+        self.output_label.grid(row=0, column=3, sticky="e")
+        self.btn_open_out = ttk.Button(
+            top, text="Open Output Folder", style=style_name(theme, "button"),
+            command=self.open_outdir)
+        self.btn_open_out.grid(row=0, column=4, sticky="e", padx=(6, 0))
 
-        body = ttk.Frame(settings_canvas)
-        _body_window = settings_canvas.create_window((0, 0), window=body, anchor="nw")
+        # -- row 1: the shared navigator, Editor action subset ------------ #
+        self.navigator = BookNavigator(
+            self, theme=theme, layout=hints["navigator_layout"],
+            actions=(BookNavigator.REMOVE,),
+            describe=self._describe, label_for=self._label_for,
+            on_previous=self.on_previous, on_next=self.on_next,
+            on_remove=self.on_remove, on_select=self.on_select)
+        self.navigator.frame.grid(row=1, column=0, sticky="ew", padx=pad,
+                                  pady=(0, gap_small))
 
-        def _sync_scrollregion(_event=None):
-            settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
+        # -- row 2: Shared above Current Book ----------------------------- #
+        text_fields = tuple((key, wf.FIELD_LABELS[key]) for key in wf.TEXT_FIELDS)
+        wrap = hints["label_wrap"]
+        self.surface = SharedMetadataSurface(
+            self, text_fields, theme=theme, layout="rows",
+            show_header=False, entry_width=hints["entry_width"],
+            wraplength=None if wrap is None else int(wrap),
+            shared_title=SHARED_TITLE, book_title=BOOK_TITLE,
+            on_shared_change=self.on_shared_change,
+            on_book_change=self.on_book_change)
+        self.surface.frame.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, gap))
+        field_columns = len(text_fields)
+        for group in (self.surface.shared_frame, self.surface.book_frame):
+            group.configure(padding=(8, 2))
 
-        def _sync_body_width(event):
-            # Make the body fill the canvas width so "fill=X" rows expand as before.
-            settings_canvas.itemconfigure(_body_window, width=event.width)
+        natural = hints["artwork_buttons"] == "natural"
+        self.shared_artwork = ArtworkControl(
+            self.surface.shared_frame, caption=wf.FIELD_LABELS["artwork"],
+            theme=theme, shared=True, natural_buttons=natural,
+            on_choose=self.choose_shared_artwork, on_clear=self.clear_shared_artwork)
+        self.shared_artwork.frame.grid(row=0, column=field_columns, rowspan=2,
+                                       sticky="nw", padx=(hints["artwork_gap"], 0))
+        self.book_artwork = ArtworkControl(
+            self.surface.book_frame, caption=wf.FIELD_LABELS["artwork"],
+            theme=theme, shared=False, natural_buttons=natural,
+            on_choose=self.choose_book_artwork, on_clear=self.clear_book_artwork)
+        self.book_artwork.frame.grid(row=0, column=field_columns, rowspan=5,
+                                     sticky="nw", padx=(hints["artwork_gap"], 0))
 
-        body.bind("<Configure>", _sync_scrollregion)
-        settings_canvas.bind("<Configure>", _sync_body_width)
+        # The read-back lines under the Book fields: source identity, the
+        # series read-back and the compact facts + status. Display only.
+        readback = ttk.Frame(self.surface.book_frame, style=style_name(theme, "surface"))
+        readback.grid(row=2, column=0, columnspan=field_columns, sticky="ew", pady=(4, 0))
+        readback.columnconfigure(0, weight=1)
+        self.var_source = tk.StringVar(master=self, value="")
+        self.source_label = ttk.Label(readback, textvariable=self.var_source, anchor="w",
+                                      style=style_name(theme, "secondary_label"))
+        self.source_label.grid(row=0, column=0, sticky="ew")
+        self.var_readback = tk.StringVar(master=self, value="")
+        self.readback_label = ttk.Label(readback, textvariable=self.var_readback, anchor="w",
+                                        style=style_name(theme, "secondary_label"))
+        self.readback_label.grid(row=1, column=0, sticky="ew")
+        facts = ttk.Frame(readback, style=style_name(theme, "surface"))
+        facts.grid(row=2, column=0, sticky="ew")
+        self.var_facts = tk.StringVar(master=self, value="")
+        self.facts_label = ttk.Label(facts, textvariable=self.var_facts, anchor="w",
+                                     style=style_name(theme, "secondary_label"))
+        self.facts_label.grid(row=0, column=0, sticky="w")
+        ttk.Label(facts, text="Status:", style=style_name(theme, "label")).grid(
+            row=0, column=1, sticky="w", padx=(12, 4))
+        self.status_label = ttk.Label(facts, text=STATUS_READY,
+                                      style=style_name(theme, "status_label"))
+        self.status_label.grid(row=0, column=2, sticky="w")
 
-        # Wheel binding is scoped to while the pointer is over this panel (the
-        # wrap frame, not the canvas — the body frame covers the canvas).
-        ui_theme.enable_mousewheel(settings_canvas, hover_region=canvas_wrap)
+        # -- row 3: the local Chapter Titles editor ------------------------ #
+        chapters = ttk.Labelframe(
+            self, text="Chapter Titles (this Book) — line N renames chapter N; "
+                       "a blank or unchanged line keeps the source title",
+            style=style_name(theme, "labelframe"), padding=(6, 2))
+        chapters.grid(row=3, column=0, sticky="nsew", padx=pad, pady=(0, gap))
+        chapters.columnconfigure(0, weight=1)
+        chapters.rowconfigure(0, weight=1)
+        self.chapter_text = tk.Text(chapters, height=3, width=24, wrap="none", undo=True)
+        chapter_scroll = ttk.Scrollbar(chapters, orient="vertical",
+                                       command=self.chapter_text.yview,
+                                       style=style_name(theme, "vscrollbar"))
+        self.chapter_text.configure(yscrollcommand=chapter_scroll.set)
+        self.chapter_text.grid(row=0, column=0, sticky="nsew")
+        chapter_scroll.grid(row=0, column=1, sticky="ns")
+        ui_theme.style_tk_widget(self.chapter_text, theme, role="text")
+        ui_theme.enable_mousewheel(self.chapter_text)
+        self.chapter_text.bind("<KeyRelease>", self.on_chapter_edit)
+        self._suspend_chapters = False
+        self._chapter_baseline = ""
 
-        # Top: file actions
-        top = ttk.Frame(body)
-        top.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(10, 6))
-        self.btn_add = ttk.Button(top, text="Open M4B File(s)", command=self.add_files)
-        self.btn_add.pack(side=tk.LEFT)
-        self.btn_add_folder = ttk.Button(top, text="Open Folder…", command=self.add_folder)
-        self.btn_add_folder.pack(side=tk.LEFT, padx=(8, 0))
-        self.btn_remove = ttk.Button(top, text="Remove Selected", command=self.remove_selected)
-        self.btn_remove.pack(side=tk.LEFT, padx=(8, 0))
-        self.btn_clear = ttk.Button(top, text="Clear List", command=self.clear_list)
-        self.btn_clear.pack(side=tk.LEFT, padx=(8, 0))
-        self.lbl_mode = ttk.Label(top, textvariable=self.mode_var, foreground="#b45309")
-        self.lbl_mode.pack(side=tk.RIGHT)
+        # -- row 4: series numbering + the preserve hint ------------------- #
+        options = ttk.Frame(self, style=style_name(theme, "window"))
+        options.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, gap_small))
+        options.columnconfigure(3, weight=1)
+        self.var_auto_number = tk.BooleanVar(master=self, value=False)
+        self.check_auto_number = ttk.Checkbutton(
+            options, text="Auto-number Series Part (Save / Clear; successes only)",
+            variable=self.var_auto_number, style=style_name(theme, "checkbutton"))
+        self.check_auto_number.grid(row=0, column=0, sticky="w")
+        ttk.Label(options, text="Start Part (blank → 1):",
+                  style=style_name(theme, "label")).grid(
+            row=0, column=1, sticky="w", padx=(12, 4))
+        self.var_start_part = tk.StringVar(master=self, value="")
+        self.entry_start_part = ttk.Entry(
+            options, textvariable=self.var_start_part, width=6,
+            style=style_name(theme, "entry"))
+        self.entry_start_part.grid(row=0, column=2, sticky="w")
+        self.hint_label = ttk.Label(options, text=PRESERVE_HINT, anchor="w",
+                                    style=style_name(theme, "secondary_label"))
+        self.hint_label.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 0))
 
-        # File list
-        list_frame = ttk.LabelFrame(body, text="M4B Files")
-        list_frame.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
-        self.listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, height=5)
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox.configure(yscrollcommand=sb.set)
-
-        # Metadata form
-        form_box = ttk.LabelFrame(body, text="Tags (blank fields are left unchanged)")
-        form_box.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
-        form = ttk.Frame(form_box)
-        form.pack(fill=tk.X, padx=8, pady=8)
-        form.columnconfigure(1, weight=1)
-
-        self._field_widgets = []
-        for r, (_key, attr, label) in enumerate(_FIELDS):
-            ttk.Label(form, text=label + ":").grid(row=r, column=0, sticky="e", padx=5, pady=3)
-            ent = ttk.Entry(form, textvariable=getattr(self, attr))
-            ent.grid(row=r, column=1, sticky="we", padx=5, pady=3)
-            self._field_widgets.append(ent)
-
-        # Cover row
-        cover_row = len(_FIELDS)
-        ttk.Label(form, text="Cover image:").grid(
-            row=cover_row, column=0, sticky="e", padx=5, pady=3
-        )
-        self.entry_cover = ttk.Entry(form, textvariable=self.var_cover_path)
-        self.entry_cover.grid(row=cover_row, column=1, sticky="we", padx=5, pady=3)
-        cover_btns = ttk.Frame(form)
-        cover_btns.grid(row=cover_row, column=2, sticky="w", padx=4)
-        self.btn_cover = ttk.Button(cover_btns, text="Browse…", command=self.choose_cover)
-        self.btn_cover.pack(side=tk.LEFT)
-        self.btn_cover_clear = ttk.Button(cover_btns, text="Clear", command=lambda: self.var_cover_path.set(""))
-        self.btn_cover_clear.pack(side=tk.LEFT, padx=(6, 0))
-
-        # Auto-number toggle, beside the Series Part entry. Ticking it turns the
-        # Series Part field into the starting number and writes incrementing parts
-        # across the loaded files; unticked, series-part is never written.
-        sp_row = next(i for i, (k, _a, _l) in enumerate(_FIELDS) if k == "series_part")
-        self.chk_autonumber = ttk.Checkbutton(
-            form,
-            text="Auto-number across files",
-            variable=self.var_autonumber,
-            command=self._update_autonumber_hint,
-        )
-        self.chk_autonumber.grid(row=sp_row, column=2, sticky="w", padx=4)
-        self.var_series_part.trace_add("write", lambda *_: self._update_autonumber_hint())
-
-        # Read-only read-back of the series detected on the loaded file (and its
-        # source atom). Lets the user confirm the existing series before, and the
-        # written series after, an overwrite. Single file only; cleared otherwise.
-        self.lbl_series_readback = ttk.Label(
-            form_box, textvariable=self.series_readback_var, foreground="#1e3a8a"
-        )
-        self.lbl_series_readback.pack(side=tk.TOP, anchor="w", padx=8, pady=(0, 2))
-
-        # Live hint explaining exactly what the auto-number toggle will write.
-        self.lbl_autonumber_hint = ttk.Label(
-            form_box, textvariable=self.autonumber_hint_var, foreground="#6b7280"
-        )
-        self.lbl_autonumber_hint.pack(side=tk.TOP, anchor="w", padx=8, pady=(0, 8))
-
-        # Chapter Titles (optional) — paged, one page per loaded file, applied
-        # positionally (line N -> chapter N; blank line = leave that chapter).
-        chap_box = ttk.LabelFrame(body, text="Chapter Titles (optional)")
-        chap_box.pack(side=tk.TOP, fill=tk.BOTH, expand=False, padx=12, pady=(0, 6))
-        pager = ttk.Frame(chap_box)
-        pager.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 2))
-        self.btn_chap_prev = ttk.Button(pager, text="◀", width=3, command=self._chap_prev)
-        self.btn_chap_prev.pack(side=tk.LEFT)
-        ttk.Label(pager, textvariable=self.chap_pager_var).pack(side=tk.LEFT, padx=8)
-        self.btn_chap_next = ttk.Button(pager, text="▶", width=3, command=self._chap_next)
-        self.btn_chap_next.pack(side=tk.LEFT)
-        ttk.Label(chap_box, textvariable=self.chap_hint_var, foreground="#6b7280").pack(
-            side=tk.TOP, anchor="w", padx=8
-        )
-        self.chap_text = tk.Text(chap_box, height=6, wrap="none")
-        self.chap_text.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(2, 8))
-
-        # Output folder row — tagged copies are delivered here; originals are
-        # never touched. Last row of the scrollable body.
-        outrow = ttk.Frame(body)
-        outrow.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(0, 6))
-        ttk.Label(outrow, text="Output folder:").pack(side=tk.LEFT)
-        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
-                                      state="readonly")
-        self.entry_outdir.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 6))
-        self.btn_open_out = ttk.Button(outrow, text="Open", command=self.open_outdir)
-        self.btn_open_out.pack(side=tk.LEFT, padx=(6, 0))
-
-        # Action buttons (row 1): always visible, outside the scroll area.
-        action = ttk.Frame(self)
-        action.grid(row=1, column=0, sticky="ew", padx=12, pady=(6, 6))
-        self.btn_save = ttk.Button(action, text="Save Tags", command=self.save)
-        self.btn_save.pack(side=tk.LEFT)
+        # -- row 5: the three actions, the shared job area, Clear Log ------ #
+        self.actions = ttk.Frame(self, style=style_name(theme, "window"))
+        self.actions.grid(row=5, column=0, sticky="ew", padx=pad, pady=(0, gap))
+        self.actions.columnconfigure(2, weight=1)
+        buttons = ttk.Frame(self.actions, style=style_name(theme, "window"))
+        buttons.grid(row=0, column=0, rowspan=2, sticky="nw")
+        self.btn_save = ttk.Button(
+            buttons, text="Save Tags", style=style_name(theme, "primary_button"),
+            command=self.save)
         self.btn_clear_tags = ttk.Button(
-            action, text="Clear All Tags (keep chapters)", command=self.on_clear_all_tags
-        )
-        self.btn_clear_tags.pack(side=tk.LEFT, padx=(8, 0))
+            buttons, text="Clear All Tags (keep chapters)",
+            style=style_name(theme, "danger_button"), command=self.on_clear_all_tags)
         self.btn_remove_numbering = ttk.Button(
-            action, text="Remove Series Numbering", command=self.on_remove_series_numbering
-        )
-        self.btn_remove_numbering.pack(side=tk.LEFT, padx=(8, 0))
-        self.btn_cancel = ttk.Button(action, text="Cancel", command=self.cancel, state=tk.DISABLED)
-        self.btn_cancel.pack(side=tk.LEFT, padx=(8, 0))
-        # Progress (bar + files-done/percentage label; updated only from the
-        # main-thread queue pump)
-        self.progress = ui_theme.ProgressIndicator(action, length=240)
-        self.progress.frame.pack(side=tk.RIGHT)
-
-        # Log (row 2): a fixed, larger pane that is always visible and never
-        # crushed by the sections above (they scroll instead).
-        logf = ttk.LabelFrame(self, text="Log")
-        logf.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 10))
-        self.log = tk.Text(logf, height=14, wrap="word", state=tk.DISABLED)
-        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
-        sb2.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log.configure(yscrollcommand=sb2.set)
-
-    # ----- Windows presentation (v0.6.0 Drop 1) -----
-    @staticmethod
-    def _wrap_with(label: ttk.Label, host: tk.Misc, slack: int):
-        """Keep a caption's wraplength tied to its container's real width.
-
-        A fixed wraplength would either clip or force the card wider than the
-        window (a label's requested width propagates), which is exactly the
-        kind of horizontal overflow this layout has to avoid at 920x600.
-        """
-        def _resize(event):
-            width = max(160, event.width - slack)
-            if abs(int(label.cget("wraplength") or 0) - width) > 4:
-                label.configure(wraplength=width)
-        host.bind("<Configure>", _resize, add="+")
-
-    def _build_ui_windows(self):
-        """The v0.6.0 Windows layout: titled cards on the dark shell.
-
-        Same three-row skeleton as the classic build — scrollable body (row 0),
-        always-visible action bar (row 1), always-visible Log (row 2) — so the
-        scroll region, the scoped mouse-wheel wiring and the "primary actions
-        never scroll away" contract are unchanged. Only the composition and the
-        styling differ.
-
-        Every colour, font, pad and style name comes from the theme bundle, so
-        no hex literal or magic number is written here, and every style used is
-        ``ACT.*``-namespaced — the five unconverted panels are untouched.
-        """
-        s = self.theme["styles"]
-        m = self.theme["metrics"]
-        f = self.theme["fonts"]
-
-        self.rowconfigure(0, weight=1)   # scrollable settings grow with window
-        self.rowconfigure(1, weight=0)   # action bar — fixed, always visible
-        self.rowconfigure(2, weight=0)   # log — fixed height, always visible
-        self.columnconfigure(0, weight=1)
-
-        # --- scrollable body: identical wiring to the classic build ----------
-        canvas_wrap = ttk.Frame(self, style=s["window"])
-        canvas_wrap.grid(row=0, column=0, sticky="nsew")
-        canvas_wrap.rowconfigure(0, weight=1)
-        canvas_wrap.columnconfigure(0, weight=1)
-        settings_canvas = tk.Canvas(canvas_wrap, highlightthickness=0, borderwidth=0)
-        ui_theme.style_tk_widget(settings_canvas, self.theme, "window")
-        settings_canvas.grid(row=0, column=0, sticky="nsew")
-        settings_sb = ttk.Scrollbar(
-            canvas_wrap, orient="vertical", style=s["vscrollbar"],
-            command=settings_canvas.yview,
-        )
-        settings_sb.grid(row=0, column=1, sticky="ns")
-        settings_canvas.configure(yscrollcommand=settings_sb.set)
-
-        body = ttk.Frame(settings_canvas, style=s["window"],
-                         padding=(m["gap_md"], m["gap_md"], m["gap_md"], 0))
-        _body_window = settings_canvas.create_window((0, 0), window=body, anchor="nw")
-
-        def _sync_scrollregion(_event=None):
-            settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
-
-        def _sync_body_width(event):
-            settings_canvas.itemconfigure(_body_window, width=event.width)
-
-        body.bind("<Configure>", _sync_scrollregion)
-        settings_canvas.bind("<Configure>", _sync_body_width)
-        ui_theme.enable_mousewheel(settings_canvas, hover_region=canvas_wrap)
-
-        # --- card 1: the imported files --------------------------------------
-        files_card = ttk.Labelframe(body, text="Audiobook Files",
-                                    style=s["labelframe"])
-        files_card.pack(side=tk.TOP, fill=tk.X, pady=(0, m["card_gap"]))
-
-        file_actions = ttk.Frame(files_card, style=s["card"])
-        file_actions.pack(fill=tk.X)
-        self.btn_add = ttk.Button(file_actions, text="Open M4B File(s)",
-                                  style=s["button"], command=self.add_files)
-        self.btn_add.pack(side=tk.LEFT)
-        self.btn_add_folder = ttk.Button(file_actions, text="Open Folder…",
-                                         style=s["button"], command=self.add_folder)
-        self.btn_add_folder.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
-        self.btn_remove = ttk.Button(file_actions, text="Remove Selected",
-                                     style=s["button"], command=self.remove_selected)
-        self.btn_remove.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
-        self.btn_clear = ttk.Button(file_actions, text="Clear List",
-                                    style=s["button"], command=self.clear_list)
-        self.btn_clear.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
-
-        list_row = ttk.Frame(files_card, style=s["card"])
-        list_row.pack(fill=tk.BOTH, expand=True, pady=(m["gap_sm"], 0))
-        self.listbox = tk.Listbox(list_row, selectmode=tk.EXTENDED, height=5,
-                                  font=f["row"], activestyle="none")
-        ui_theme.style_tk_widget(self.listbox, self.theme, "list")
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb = ttk.Scrollbar(list_row, orient="vertical", style=s["vscrollbar"],
-                           command=self.listbox.yview)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox.configure(yscrollcommand=sb.set)
-
-        # --- card 2: Shared Metadata -----------------------------------------
-        # The drop's distinct batch-wide surface: muted accent fill, accent
-        # border, accent header (ACT.Shared.TLabelframe). Every field in here is
-        # written to *every* loaded file — which is exactly what the existing
-        # shared-value / "(varies)" detection already reports, so the grouping
-        # is a visual statement of behaviour that already exists. It adds no
-        # precedence, no per-book override and disables nothing (Plan 6/8).
-        shared_card = ttk.Labelframe(body, text="Shared Metadata",
-                                     style=s["shared_labelframe"])
-        shared_card.pack(side=tk.TOP, fill=tk.X, pady=(0, m["card_gap"]))
-
-        caption = ttk.Label(
-            shared_card, style=s["shared_secondary"], justify="left",
-            text=("These values are written to every loaded file. Blank fields are "
-                  "left unchanged."),
-        )
-        caption.pack(anchor="w")
-        self._wrap_with(caption, shared_card, m["card_pad"] * 2)
-
-        # The existing mode/"(varies)" notice lives here: it reports which
-        # shared fields were pre-filled and which differ across the batch.
-        self.lbl_mode = ttk.Label(shared_card, textvariable=self.mode_var,
-                                  style=s["shared_secondary"], justify="left")
-        self.lbl_mode.pack(anchor="w", pady=(m["gap_xs"], m["gap_md"]))
-        self._wrap_with(self.lbl_mode, shared_card, m["card_pad"] * 2)
-
-        form = ttk.Frame(shared_card, style=s["shared_surface"])
-        form.pack(fill=tk.X)
-        # Equal weights so the one two-up row (Year | Genre) splits evenly; the
-        # full-width fields span both and are unaffected.
-        form.columnconfigure(1, weight=1)
-        form.columnconfigure(3, weight=1)
-
-        attr_by_key = {key: attr for key, attr, _label in _FIELDS}
-        label_by_key = {key: label for key, _attr, label in _FIELDS}
-        entry_by_key: dict[str, ttk.Entry] = {}
-
-        def _field(key: str, row: int, col: int, span: int, **grid):
-            ttk.Label(form, text=label_by_key[key], style=s["shared_label"]).grid(
-                row=row, column=col, sticky="w",
-                padx=(0, m["gap_sm"]), pady=m["gap_xs"],
-            )
-            ent = ttk.Entry(form, textvariable=getattr(self, attr_by_key[key]),
-                            style=s["entry"])
-            ent.grid(row=row, column=col + 1, columnspan=span, sticky="we",
-                     padx=(0, m["gap_md"]), pady=m["gap_xs"], **grid)
-            entry_by_key[key] = ent
-            return ent
-
-        _field("title", 0, 0, 3)
-        _field("artist", 1, 0, 3)
-        _field("album", 2, 0, 3)
-        _field("year", 3, 0, 1)
-        _field("genre", 3, 2, 1)
-        _field("comment", 4, 0, 3)
-
-        # Cover row.
-        ttk.Label(form, text="Cover image", style=s["shared_label"]).grid(
-            row=5, column=0, sticky="w", padx=(0, m["gap_sm"]), pady=m["gap_xs"])
-        self.entry_cover = ttk.Entry(form, textvariable=self.var_cover_path,
-                                     style=s["entry"])
-        self.entry_cover.grid(row=5, column=1, columnspan=2, sticky="we",
-                              padx=(0, m["gap_sm"]), pady=m["gap_xs"])
-        cover_btns = ttk.Frame(form, style=s["shared_surface"])
-        cover_btns.grid(row=5, column=3, sticky="w")
-        self.btn_cover = ttk.Button(cover_btns, text="Browse…", style=s["button"],
-                                    command=self.choose_cover)
-        self.btn_cover.pack(side=tk.LEFT)
-        self.btn_cover_clear = ttk.Button(
-            cover_btns, text="Clear", style=s["button"],
-            command=lambda: self.var_cover_path.set(""),
-        )
-        self.btn_cover_clear.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
-
-        # Series sub-group, inside the same shared surface.
-        ttk.Frame(shared_card, style=s["divider"], height=1).pack(
-            fill=tk.X, pady=(m["gap_md"], m["gap_md"]))
-        ttk.Label(shared_card, text="Series", style=s["shared_header"]).pack(anchor="w")
-
-        series = ttk.Frame(shared_card, style=s["shared_surface"])
-        series.pack(fill=tk.X, pady=(m["gap_sm"], 0))
-        series.columnconfigure(1, weight=1)
-
-        ttk.Label(series, text=label_by_key["series"], style=s["shared_label"]).grid(
-            row=0, column=0, sticky="w", padx=(0, m["gap_sm"]), pady=m["gap_xs"])
-        entry_by_key["series"] = ttk.Entry(series, textvariable=self.var_series,
-                                           style=s["entry"])
-        entry_by_key["series"].grid(row=0, column=1, columnspan=2, sticky="we",
-                                    pady=m["gap_xs"])
-
-        ttk.Label(series, text=label_by_key["series_part"],
-                  style=s["shared_label"]).grid(
-            row=1, column=0, sticky="w", padx=(0, m["gap_sm"]), pady=m["gap_xs"])
-        entry_by_key["series_part"] = ttk.Entry(
-            series, textvariable=self.var_series_part, style=s["entry"], width=10)
-        entry_by_key["series_part"].grid(row=1, column=1, sticky="w",
-                                         pady=m["gap_xs"])
-        self.chk_autonumber = ttk.Checkbutton(
-            series, text="Auto-number across files", variable=self.var_autonumber,
-            style=s["shared_checkbutton"], command=self._update_autonumber_hint,
-        )
-        self.chk_autonumber.grid(row=1, column=2, sticky="w", padx=(m["gap_md"], 0))
-
-        # Field widgets in _FIELDS order — disable_inputs() and the busy state
-        # walk this list, so the order stays the historical one.
-        self._field_widgets = [entry_by_key[key] for key, _attr, _label in _FIELDS]
-        self.var_series_part.trace_add(
-            "write", lambda *_: self._update_autonumber_hint())
-
-        self.lbl_series_readback = ttk.Label(
-            shared_card, textvariable=self.series_readback_var,
-            style=s["shared_secondary"], justify="left",
-        )
-        self.lbl_series_readback.pack(anchor="w", pady=(m["gap_md"], 0))
-        self._wrap_with(self.lbl_series_readback, shared_card, m["card_pad"] * 2)
-
-        self.lbl_autonumber_hint = ttk.Label(
-            shared_card, textvariable=self.autonumber_hint_var,
-            style=s["shared_secondary"], justify="left",
-        )
-        self.lbl_autonumber_hint.pack(anchor="w", pady=(m["gap_xs"], 0))
-        self._wrap_with(self.lbl_autonumber_hint, shared_card, m["card_pad"] * 2)
-
-        # --- card 3: chapter titles ------------------------------------------
-        chap_card = ttk.Labelframe(body, text="Chapter Titles (optional)",
-                                   style=s["labelframe"])
-        chap_card.pack(side=tk.TOP, fill=tk.BOTH, expand=False,
-                       pady=(0, m["card_gap"]))
-        pager = ttk.Frame(chap_card, style=s["card"])
-        pager.pack(fill=tk.X)
-        self.btn_chap_prev = ttk.Button(pager, text="◀", width=3,
-                                        style=s["button"], command=self._chap_prev)
-        self.btn_chap_prev.pack(side=tk.LEFT)
-        ttk.Label(pager, textvariable=self.chap_pager_var, style=s["label"]).pack(
-            side=tk.LEFT, padx=m["gap_sm"])
-        self.btn_chap_next = ttk.Button(pager, text="▶", width=3,
-                                        style=s["button"], command=self._chap_next)
-        self.btn_chap_next.pack(side=tk.LEFT)
-        self.lbl_chap_hint = ttk.Label(chap_card, textvariable=self.chap_hint_var,
-                                       style=s["secondary_label"], justify="left")
-        self.lbl_chap_hint.pack(anchor="w", pady=(m["gap_sm"], 0))
-        self._wrap_with(self.lbl_chap_hint, chap_card, m["card_pad"] * 2)
-        self.chap_text = tk.Text(chap_card, height=6, wrap="none", font=f["mono"])
-        ui_theme.style_tk_widget(self.chap_text, self.theme, "text")
-        self.chap_text.pack(fill=tk.BOTH, expand=True, pady=(m["gap_sm"], 0))
-
-        # --- card 4: output ---------------------------------------------------
-        out_card = ttk.Labelframe(body, text="Output", style=s["labelframe"])
-        out_card.pack(side=tk.TOP, fill=tk.X, pady=(0, m["card_gap"]))
-        outrow = ttk.Frame(out_card, style=s["card"])
-        outrow.pack(fill=tk.X)
-        ttk.Label(outrow, text="Folder", style=s["label"]).pack(side=tk.LEFT)
-        self.entry_outdir = ttk.Entry(outrow, textvariable=self.var_outdir,
-                                      style=s["entry"], state="readonly")
-        self.entry_outdir.pack(side=tk.LEFT, fill=tk.X, expand=True,
-                               padx=(m["gap_sm"], m["gap_sm"]))
-        self.btn_open_out = ttk.Button(outrow, text="Open", style=s["button"],
-                                       command=self.open_outdir)
-        self.btn_open_out.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
-        out_note = ttk.Label(
-            out_card, style=s["secondary_label"], justify="left",
-            text=("Tagged copies are written here. The files you import are never "
-                  "modified."),
-        )
-        out_note.pack(anchor="w", pady=(m["gap_sm"], 0))
-        self._wrap_with(out_note, out_card, m["card_pad"] * 2)
-
-        # --- row 1: action bar (never scrolls away) ---------------------------
-        # Progress sits on its own full-width line above the buttons so it can
-        # never be pushed off the right edge at the 920x600 minimum.
-        action = ttk.Frame(self, style=s["window"],
-                           padding=(m["gap_md"], m["gap_sm"]))
-        action.grid(row=1, column=0, sticky="ew")
-        self.progress = ui_theme.ProgressIndicator(action, length=240)
-        # Per-instance restyling only: ProgressIndicator itself stays generic,
-        # because five unconverted panels build their own from the same class.
-        self.progress.frame.configure(style=s["window"])
-        self.progress.bar.configure(style=s["progressbar"])
-        self.progress.label.configure(style=s["status_label"])
-        # Natural width, left-aligned: a full-width trough reads as an empty box
-        # when the panel is idle, which is most of the time.
-        self.progress.frame.pack(anchor="w", pady=(0, m["gap_sm"]))
-
-        buttons = ttk.Frame(action, style=s["window"])
-        buttons.pack(fill=tk.X)
-        self.btn_save = ttk.Button(buttons, text="Save Tags",
-                                   style=s["primary_button"], command=self.save)
-        self.btn_save.pack(side=tk.LEFT)
-        self.btn_clear_tags = ttk.Button(
-            buttons, text="Clear All Tags (keep chapters)", style=s["danger_button"],
-            command=self.on_clear_all_tags,
-        )
-        self.btn_clear_tags.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
-        self.btn_remove_numbering = ttk.Button(
-            buttons, text="Remove Series Numbering", style=s["danger_button"],
-            command=self.on_remove_series_numbering,
-        )
-        self.btn_remove_numbering.pack(side=tk.LEFT, padx=(m["gap_sm"], 0))
-        self.btn_cancel = ttk.Button(buttons, text="Cancel", style=s["button"],
-                                     command=self.cancel, state=tk.DISABLED)
-        self.btn_cancel.pack(side=tk.RIGHT)
-
-        # --- row 2: log (never scrolls away) ----------------------------------
-        logf = ttk.Labelframe(self, text="Log", style=s["labelframe"])
-        logf.grid(row=2, column=0, sticky="nsew",
-                  padx=m["gap_md"], pady=(0, m["gap_md"]))
-        log_row = ttk.Frame(logf, style=s["card"])
-        log_row.pack(fill=tk.BOTH, expand=True)
-        self.log = tk.Text(log_row, height=8, wrap="word", state=tk.DISABLED,
-                           font=f["mono"])
-        ui_theme.style_tk_widget(self.log, self.theme, "log")
-        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb2 = ttk.Scrollbar(log_row, orient="vertical", style=s["vscrollbar"],
-                            command=self.log.yview)
-        sb2.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log.configure(yscrollcommand=sb2.set)
-
-    # ----- file actions -----
-    def add_files(self):
-        paths = filedialog.askopenfilenames(
-            title="Select M4B file(s)",
-            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
-            filetypes=[("M4B Audiobooks", "*.m4b"), ("MP4 audio", "*.m4a *.mp4"), ("All files", "*.*")],
-        )
-        if not paths:
-            return
-        for f in paths:
-            p = Path(f)
-            if p not in self.files:
-                self.files.append(p)
-                self.listbox.insert(tk.END, str(p))
-        settings.set(KEY_INPUT_DIR, str(Path(paths[0]).parent))
-        self._refresh_mode()
-
-    def add_folder(self):
-        """Load every M4B/M4A/MP4 directly inside a chosen folder (non-recursive)."""
-        d = filedialog.askdirectory(
-            title="Select a folder of M4B files",
-            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
-        )
-        if not d:
-            return
-        folder = Path(d)
-        found = sorted(
-            p for p in folder.iterdir()
-            if p.is_file() and p.suffix.lower() in {".m4b", ".m4a", ".mp4"}
-        )
-        if not found:
-            messagebox.showinfo(
-                "No audiobooks found",
-                f"No .m4b / .m4a / .mp4 files were found directly in:\n{folder}\n\n"
-                "Subfolders are not searched — if the books sit inside a subfolder, "
-                "pick that subfolder instead.",
-            )
-            return
-        for p in found:
-            if p not in self.files:
-                self.files.append(p)
-                self.listbox.insert(tk.END, str(p))
-        settings.set(KEY_INPUT_DIR, str(folder))
-        self._refresh_mode()
-
-    def remove_selected(self):
-        sel = list(self.listbox.curselection())
-        for idx in reversed(sel):
-            del self.files[idx]
-            self.listbox.delete(idx)
-        self._tag_cache.clear()
-        self._refresh_mode()
-
-    def clear_list(self):
-        self.files.clear()
-        self._tag_cache.clear()
-        self.listbox.delete(0, tk.END)
-        self._chap_buffers.clear()
-        self._chap_counts.clear()
-        self._chap_shown = None
-        self._refresh_mode()
-
-    def _clear_fields(self):
-        for _key, attr, _label in _FIELDS:
-            getattr(self, attr).set("")
-        self.var_cover_path.set("")
-        self.series_readback_var.set("")
-        self._prefill = {}
-
-    @staticmethod
-    def _series_readback_text(tags: dict) -> str:
-        """Build the "Detected on file" line from read_m4b_tags() results.
-
-        Four cases (see Phase 3): a full series (real name [+ part]); a part with
-        no real name but an album Audiobookshelf likely groups by; a part with no
-        name and no album; or nothing at all. An ``"album-implied"`` name is *not*
-        a real name — it is shown as the album-grouping hint, not as the series.
-        """
-        series = (tags.get("series") or "").strip()
-        part = (tags.get("series_part") or "").strip()
-        album = (tags.get("album") or "").strip()
-        name_implied = tags.get("series_source") == "album-implied"
-        has_real_name = bool(series) and not name_implied
-
-        if not series and not part:
-            return "Detected on file: none — this file has no series tag"
-
-        if part and not has_real_name:
-            # Part with no real series name (the name is at most album-implied).
-            atom = tags.get("series_part_atom") or tags.get("series_part_source") or "?"
-            if album:
-                return (
-                    f"Detected on file: part #{part} only — no series name on file; "
-                    f"Audiobookshelf likely groups by Album: '{album}'  (source: {atom})"
-                )
-            return f"Detected on file: part #{part} only — no series name  (source: {atom})"
-
-        # Real series name (with or without a part).
-        shown = series + (f" #{part}" if part else "")
-        atom = (
-            tags.get("series_atom")
-            or tags.get("series_part_atom")
-            or tags.get("series_source")
-            or tags.get("series_part_source")
-            or "?"
-        )
-        return f"Detected on file: {shown}  (source: {atom})"
-
-    def _refresh_mode(self):
-        """Update the mode notice and (single-file) pre-fill from the file's tags."""
-        n = len(self.files)
-        if n == 0:
-            self._clear_fields()
-            self.mode_var.set("No files loaded.")
-        elif n == 1:
-            self.mode_var.set("Single file — fields pre-filled from existing tags.")
-            self._prefill_from(self.files[0])
+            buttons, text="Remove Series Numbering",
+            style=style_name(theme, "danger_button"), command=self.on_remove_series_numbering)
+        self.btn_clear_log = ttk.Button(
+            buttons, text="Clear Log", style=style_name(theme, "button"),
+            command=self.clear_log)
+        if hints["actions_layout"] == "row":
+            self.btn_save.grid(row=0, column=0, sticky="w")
+            self.btn_clear_tags.grid(row=0, column=1, sticky="w", padx=(6, 0))
+            self.btn_remove_numbering.grid(row=0, column=2, sticky="w", padx=(6, 0))
+            self.btn_clear_log.grid(row=1, column=0, sticky="w", pady=(4, 0))
         else:
-            self._prefill_shared(n)
-        self._sync_chapter_pager()
-        self._update_autonumber_hint()
+            for row, button in enumerate((self.btn_save, self.btn_clear_tags,
+                                          self.btn_remove_numbering, self.btn_clear_log)):
+                button.grid(row=row, column=0, sticky="ew", pady=(0 if row == 0 else 4, 0))
+        self._jobs_rowspan = 2
 
-    # ----- chapter-title pager -----
-    def _chap_count(self, path: Path) -> int:
-        if path not in self._chap_counts:
+        # -- row 6: the one log region ----------------------------------- #
+        self.log = job_ui.SummaryDetailsView(self, theme=theme, height=2,
+                                             details_label="Detailed", limit=LOG_LIMIT)
+        self.log.frame.grid(row=6, column=0, sticky="nsew", padx=pad, pady=(0, pad))
+
+    def _install_jobs(self, run_id: str, item_ids) -> None:
+        """Point the shared job area at one run. Main thread only.
+
+        A run owns its event stream, so a new attempt gets a new adapter in the
+        same place; the retired one is closed first so the one pump keeps
+        exactly one job drain. The log view is the panel's one region, handed
+        in, and keeps every earlier attempt's lines.
+        """
+        previous = getattr(self, "jobs", None)
+        if previous is not None:
+            previous.close()
+            previous.frame.destroy()
+        theme = self.theme
+        self._event_q = queue.Queue()
+        self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        self.jobs = job_ui.JobAdapter(
+            self.actions,
+            run_id=run_id,
+            pump=self._pump,
+            theme=theme,
+            pull=job_ui.queue_pull(self._event_q),
+            estimator=self._estimator,
+            bridge=self._bridge,
+            item_ids=item_ids,
+            views=self.log,
+            context=self._context,
+            on_pause=self.pause,
+            on_resume=self.resume,
+            on_cancel=self.cancel,
+            on_retry=self.retry_failed,
+            on_event=self._on_job_event,
+            on_terminal=self._on_terminal,
+        )
+        self.jobs.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="ew",
+                             padx=(12, 0))
+        self.jobs.controls.frame.grid_configure(sticky="e")
+        self.controls = self.jobs.controls
+        self.status = self.jobs.status
+        self.lock_group = self.jobs.locks
+        self.status.indicator.frame.configure(style=style_name(theme, "card"))
+        self.status.indicator.bar.configure(style=style_name(theme, "progressbar"))
+        self.status.indicator.label.configure(style=style_name(theme, "status_label"))
+        self.jobs.register_inputs(self.navigator, self._import_lock)
+        self.jobs.register_options(self.surface, self.shared_artwork, self.book_artwork,
+                                   self._options_lock, self._chapters_lock)
+        self.jobs.render()
+
+    class _ButtonLock:
+        """Registers a set of this panel's own widgets with the shared group."""
+
+        def __init__(self, *widgets) -> None:
+            self.widgets = widgets
+
+        def set_locked(self, locked: bool) -> None:
+            for widget in self.widgets:
+                try:
+                    widget.configure(state="disabled" if locked else "normal")
+                except tk.TclError:
+                    pass
+
+    class _TextLock:
+        def __init__(self, text: tk.Text) -> None:
+            self.text = text
+
+        def set_locked(self, locked: bool) -> None:
             try:
-                self._chap_counts[path] = len(metadata.read_chapter_titles(path))
-            except Exception:
-                self._chap_counts[path] = 0
-        return self._chap_counts[path]
+                self.text.configure(state="disabled" if locked else "normal")
+            except tk.TclError:
+                pass
 
-    def _flush_chapter_page(self):
-        """Save the visible text into the buffer for the file it belongs to."""
-        if self._chap_shown is not None:
-            self._chap_buffers[self._chap_shown] = self.chap_text.get("1.0", "end-1c")
+    # ------------------------------------------------------------------ #
+    # Dialog and confirmation seams (main thread, before any worker)
+    # ------------------------------------------------------------------ #
 
-    def _show_chapter_page(self, idx: int):
-        self._flush_chapter_page()
-        self.chap_text.delete("1.0", tk.END)
-        if not self.files:
-            self._chap_page = 0
-            self._chap_shown = None
-            self.chap_pager_var.set("No files loaded.")
-            self.chap_hint_var.set("")
-            self._update_chap_buttons()
-            return
-        idx = max(0, min(idx, len(self.files) - 1))
-        self._chap_page = idx
-        path = self.files[idx]
-        self._chap_shown = path
-        self.chap_text.insert("1.0", self._chap_buffers.get(path, ""))
-        self.chap_pager_var.set(f"File {idx + 1} of {len(self.files)}: {path.name}")
-        k = self._chap_count(path)
-        self.chap_hint_var.set(
-            f"This file has {k} chapters. Paste up to {k} titles, one per line; "
-            "a blank line leaves that chapter's title unchanged."
-        )
-        self._update_chap_buttons()
+    def _ask_files(self):
+        chosen = tuple(filedialog.askopenfilenames(
+            parent=self, title="Select M4B file(s)",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)),
+            filetypes=[("M4B Audiobooks", "*.m4b"), ("MP4 audio", "*.m4a *.mp4"),
+                       ("All files", "*.*")]))
+        if chosen:
+            settings.set(KEY_INPUT_DIR, str(Path(chosen[0]).parent))
+        return chosen
 
-    def _update_chap_buttons(self):
-        n = len(self.files)
-        self.btn_chap_prev.configure(state=tk.NORMAL if self._chap_page > 0 else tk.DISABLED)
-        self.btn_chap_next.configure(
-            state=tk.NORMAL if self._chap_page < n - 1 else tk.DISABLED
-        )
+    def _ask_folder(self):
+        chosen = filedialog.askdirectory(
+            parent=self, title="Select a folder of M4B files",
+            initialdir=str(_remembered_dir(KEY_INPUT_DIR)), mustexist=True)
+        if not chosen:
+            return ()
+        settings.set(KEY_INPUT_DIR, str(chosen))
+        return (str(chosen),)
 
-    def _chap_prev(self):
-        self._show_chapter_page(self._chap_page - 1)
+    def _ask_artwork(self) -> str:
+        chosen = m4b_artwork_ui.ask_artwork(
+            self, initialdir=_remembered_dir(KEY_COVER_DIR), title="Select Artwork")
+        if chosen:
+            settings.set(KEY_COVER_DIR, str(Path(chosen).parent))
+        return chosen
 
-    def _chap_next(self):
-        self._show_chapter_page(self._chap_page + 1)
+    def _ask_confirm(self, title: str, message: str) -> bool:
+        return job_ui.ask_confirm(self, title, message)
 
-    def _sync_chapter_pager(self):
-        """Refresh the pager after the file list changed (clamp the page)."""
-        if self._chap_page >= len(self.files):
-            self._chap_page = max(0, len(self.files) - 1)
-        self._show_chapter_page(self._chap_page)
+    def _confirm_broad_root(self, roots) -> bool:
+        listed = "\n".join(str(entry) for entry in roots)
+        return self._confirm(
+            "Scan a very broad folder?",
+            "This covers a whole drive or your home folder:\n\n"
+            f"{listed}\n\nScanning it can take a long time. Continue?")
 
-    def _prefill_from(self, path: Path):
-        self._clear_fields()
-        try:
-            tags = metadata.read_m4b_tags(path)
-        except Exception as e:
-            self.log_write(f"Could not read tags from {path.name}: {e}\n")
-            return
-        # An album-implied series *name* is display-only: leave the Series Name
-        # field blank so an unedited Save writes nothing (preserve-by-default).
-        # The Series Part is still populated independently — a part-only file must
-        # show its part number even when the name is blank.
-        name_implied = tags.get("series_source") == "album-implied"
-        for key, attr, _label in _FIELDS:
-            if key == "series" and name_implied:
-                continue
-            if key in tags:
-                getattr(self, attr).set(str(tags[key]))
-                self._prefill[key] = str(tags[key])
-        self.series_readback_var.set(self._series_readback_text(tags))
-        if tags.get("has_cover"):
-            self.log_write(f"{path.name}: existing cover present (leave Cover blank to keep it).\n")
+    def _confirm_large_result(self, outcome) -> bool:
+        return self._confirm(
+            "Import a large number of files?",
+            f"{outcome.proposed_count:,} files are ready to be imported, one Book each.\n\n"
+            "Importing this many at once can make the workspace slow. Import them?")
 
-    def _tags_for(self, path: Path) -> dict | None:
-        """Return read_m4b_tags(path), cached. None (logged) if the read fails."""
-        if path in self._tag_cache:
-            return self._tag_cache[path]
-        try:
-            tags = metadata.read_m4b_tags(path)
-        except Exception as e:  # corrupt / locked file — skip, don't abort the load
-            self.log_write(f"Could not read tags from {path.name}: {e}\n")
-            self._tag_cache[path] = None
-            return None
-        self._tag_cache[path] = tags
-        return tags
+    # ------------------------------------------------------------------ #
+    # Rendering
+    # ------------------------------------------------------------------ #
 
-    def _shared_tags(self) -> tuple[dict, set[str]]:
-        """Compute values identical across ALL readable loaded files.
+    def _describe(self, book) -> str:
+        return wf.display_hint(self.workspace.shared, book, self.store)
 
-        Returns (shared, varies): `shared` maps friendly key -> the common value
-        for every editable text field present-and-equal in every readable file;
-        `varies` is the set of editable keys that appear on some files but are not
-        identical across all of them (used to show a "(varies)" hint).
+    def _label_for(self, book, _position: int) -> str:
+        number = self.book_numbers.get(book.book_id, "?")
+        hint = self._describe(book)
+        if len(hint) > HINT_LIMIT:
+            hint = hint[:HINT_LIMIT - 1].rstrip() + "…"
+        return f"Book {number} — {hint}" if hint else f"Book {number}"
 
-        A key is shared only when EVERY readable file has it and all values match
-        after .strip(). album-implied series names and track-implied parts are
-        excluded (display-only, never written).
+    def _assign_book_numbers(self) -> None:
+        ids = [book.book_id for book in self.workspace.books]
+        if not any(book_id in self.book_numbers for book_id in ids):
+            self.book_numbers = {}
+        highest = max(self.book_numbers.values(), default=0)
+        for book_id in ids:
+            if book_id not in self.book_numbers:
+                highest += 1
+                self.book_numbers[book_id] = highest
+        self.book_numbers = {book_id: number for book_id, number in self.book_numbers.items()
+                             if book_id in ids}
+
+    def render(self) -> None:
+        """Show the current workspace. Every value comes from the snapshot and the store.
+
+        Rendering is not an edit: the Book entries are populated with the
+        model's page values while ``_rendering`` holds, and the change
+        callbacks ignore everything that arrives during that window.
         """
-        readable = [t for p in self.files if (t := self._tags_for(p)) is not None]
-        shared: dict = {}
-        varies: set[str] = set()
-        if not readable:
-            return shared, varies
-        for key, _attr, _label in _FIELDS:
-            # series_part is display-only here (owned by the auto-number toggle);
-            # it is summarised in the read-back, never pre-filled for writing.
-            if key == "series_part":
-                continue
-            vals = []
-            missing = False
-            for t in readable:
-                # album-implied series name is display-only -> treat as absent.
-                if key == "series" and t.get("series_source") == "album-implied":
-                    missing = True
-                    break
-                if key in t and str(t[key]).strip():
-                    vals.append(str(t[key]).strip())
-                else:
-                    missing = True
-                    break
-            if missing or not vals:
-                # It appears on *some* files but not identically on all -> "(varies)".
-                if any(key in t for t in readable):
-                    varies.add(key)
-                continue
-            if len(set(vals)) == 1:
-                shared[key] = vals[0]
+        self._guard.require("render")
+        if self._closed:
+            return
+        self._rendering = True
+        try:
+            space = self.workspace
+            book = space.current
+            self._assign_book_numbers()
+            self.navigator.render(space)
+            self.surface.render(space)
+            # What the page shows: Shared -> Book edit -> source prefill. The
+            # surface rendered the stored edits; the prefill is displayed over
+            # them here, and displaying it writes nothing into the Book.
+            shown = wf.page_values(space.shared, book, self.store)
+            for name in self.surface.fields:
+                if self.surface.book_value(name) != shown[name]:
+                    self.surface.set_book_text(name, shown[name])
+            overridden = disabled_fields(space.shared)
+            self.shared_artwork.set_path(str(space.shared.values.get("artwork", "")))
+            self.book_artwork.set_path(str(book.configuration.get("artwork", "")))
+            self.book_artwork.set_enabled("artwork" not in overridden)
+            self._render_readback()
+            self._render_chapters()
+            self._render_status()
+        finally:
+            self._rendering = False
+
+    def _render_readback(self) -> None:
+        """The source facts beside the entries: identity, series, part, cover, chapters."""
+        book = self.workspace.current
+        source = wf.source_of(book)
+        seen = self.store.for_book(book)
+        if source is None:
+            self.var_source.set("No source — use Import Folder or Add Files.")
+            self.var_readback.set("")
+            self.var_facts.set("")
+            return
+        path = source.path
+        if seen is None or not seen.readable:
+            error = seen.error if seen is not None and seen.error else "unreadable"
+            self.var_source.set(f"Source: {path.name}  ({path.parent})  — "
+                                f"the file's tags could not be read: {error}")
+            self.var_readback.set(wf.series_readback(seen))
+            self.var_facts.set("Series Part: —  ·  Artwork: unknown  ·  Chapters: —")
+            return
+        self.var_source.set(f"Source: {path.name}  ({path.parent})  — readable")
+        self.var_readback.set(wf.series_readback(seen))
+        part = seen.series_part.strip() or "—"
+        if seen.series_part_source and seen.series_part.strip():
+            part = f"{part} ({seen.series_part_source})"
+        cover = "on file" if seen.has_cover else "none"
+        self.var_facts.set(f"Series Part: {part}  ·  Artwork: {cover}  ·  "
+                           f"Chapters: {seen.chapter_count}")
+
+    def _render_status(self) -> None:
+        if self._closed:
+            return
+        try:
+            self.status_label.configure(
+                text=self.book_status_for(self.workspace.current.book_id))
+        except tk.TclError:
+            pass
+
+    def _render_light(self) -> None:
+        """After a per-Book text edit: what the edit can change, and no more."""
+        if self._closed:
+            return
+        self._assign_book_numbers()
+        self.navigator.render(self.workspace)
+
+    def _chapter_display(self) -> str:
+        """The stored chapter buffer; until the user edits it, the source's titles."""
+        book = self.workspace.current
+        if "chapter_titles" in book.configuration:
+            return wf.chapter_titles_text(book)
+        seen = self.store.for_book(book)
+        if seen is None or not seen.readable:
+            return ""
+        return "\n".join(seen.chapter_titles)
+
+    def _render_chapters(self) -> None:
+        raw = self._chapter_display()
+        self._chapter_baseline = raw
+        if raw == self.chapter_text.get("1.0", "end-1c"):
+            return
+        self._suspend_chapters = True
+        try:
+            state = str(self.chapter_text.cget("state"))
+            self.chapter_text.configure(state="normal")
+            self.chapter_text.delete("1.0", "end")
+            if raw:
+                self.chapter_text.insert("1.0", raw)
+            self.chapter_text.configure(state=state)
+        finally:
+            self._suspend_chapters = False
+
+    # -- read-back seams --------------------------------------------------- #
+
+    def shared_field_keys(self) -> tuple:
+        return self.surface.fields + ("artwork",)
+
+    def book_field_keys(self) -> tuple:
+        return self.surface.fields + ("artwork", "chapter_titles")
+
+    def book_field_enabled(self, name: str) -> bool:
+        """Whether the current Book's control for *name* is usable right now."""
+        if name == "artwork":
+            return self.book_artwork.enabled
+        if name == "chapter_titles":
+            return str(self.chapter_text.cget("state")) != "disabled"
+        return self.surface.book_field_enabled(name)
+
+    def book_value(self, name: str) -> str:
+        """The text the current Book's control shows for *name*."""
+        return self.surface.book_value(name)
+
+    def book_status_text(self) -> str:
+        return str(self.status_label.cget("text"))
+
+    def source_text(self) -> str:
+        return self.var_source.get()
+
+    def series_readback_text(self) -> str:
+        return self.var_readback.get()
+
+    def facts_text(self) -> str:
+        return self.var_facts.get()
+
+    def chapter_titles_text(self) -> str:
+        return self.chapter_text.get("1.0", "end-1c")
+
+    # ------------------------------------------------------------------ #
+    # Applying model results
+    # ------------------------------------------------------------------ #
+
+    def _apply(self, mutation) -> bool:
+        if mutation.changed:
+            self.workspace = mutation.workspace
+        self.render()
+        return mutation.changed
+
+    def _receive(self, result: wf.ReceiveResult) -> None:
+        """An import's result: the grown store first, then the workspace."""
+        self.store = result.store
+        self._apply(result.mutation)
+
+    def _say(self, line: str, detail: str = "") -> None:
+        if not self._closed:
+            self.log.append(line, detail or line)
+
+    def clear_log(self) -> None:
+        self._guard.require("clear_log")
+        if not self._closed:
+            self.log.clear()
+
+    # ------------------------------------------------------------------ #
+    # Navigator callbacks
+    # ------------------------------------------------------------------ #
+
+    def on_previous(self) -> None:
+        self._apply(previous_book(self.workspace))
+
+    def on_next(self) -> None:
+        self._apply(next_book(self.workspace))
+
+    def on_select(self, book_id: str) -> None:
+        self._apply(select_book(self.workspace, book_id))
+
+    def on_remove(self, meaningful: bool) -> None:
+        """Decision 50A: the model answered; this panel decides to ask."""
+        if meaningful and not self._confirm(
+                "Remove this Book?",
+                "This page holds an imported file or edited values.\n\n"
+                "Remove it from the workspace? (The file itself is not touched.)"):
+            return
+        self._apply(remove_book(self.workspace, id_factory=self._ids))
+
+    # ------------------------------------------------------------------ #
+    # Shared and Book field callbacks
+    # ------------------------------------------------------------------ #
+
+    def on_shared_change(self, field: str, raw: str) -> None:
+        if self._rendering:
+            return
+        values = dict(self.workspace.shared.values)
+        values[field] = raw
+        self._apply(set_shared_metadata(
+            self.workspace, SharedMetadata(wf.SHARED_FIELDS, values)))
+
+    def on_book_change(self, field: str, raw: str) -> None:
+        """A keystroke in a Book entry — the only way a text edit is stored."""
+        if self._rendering:
+            return
+        mutation = wf.set_book_field(self.workspace, field, raw)
+        if mutation.changed:
+            self.workspace = mutation.workspace
+        self._render_light()
+
+    def set_book_field(self, name: str, value) -> None:
+        """Store one raw explicit Book edit and show it. The model owns the write."""
+        self._guard.require("set_book_field")
+        self._apply(wf.set_book_field(self.workspace, name, value))
+
+    def on_chapter_edit(self, _event=None) -> None:
+        if self._suspend_chapters or self._rendering or self._closed:
+            return
+        raw = self.chapter_text.get("1.0", "end-1c")
+        if raw == self._chapter_baseline:
+            return
+        self._chapter_baseline = raw
+        mutation = wf.set_book_field(self.workspace, "chapter_titles", raw)
+        if mutation.changed:
+            self.workspace = mutation.workspace
+        self._render_light()
+
+    def type_chapter_titles(self, raw: str) -> None:
+        """Type into the Chapter Titles box as a person would, then report it."""
+        self.chapter_text.delete("1.0", "end")
+        if raw:
+            self.chapter_text.insert("1.0", raw)
+        self.on_chapter_edit()
+
+    # -- artwork ----------------------------------------------------------- #
+
+    def _artwork_error(self, message: str) -> None:
+        messagebox.showerror(APP_TITLE, f"Artwork: {message}", parent=self)
+
+    def choose_shared_artwork(self) -> None:
+        self._guard.require("choose_shared_artwork")
+        chosen = m4b_artwork_ui.validated_artwork(str(self._choose_artwork() or ""),
+                                                  self._artwork_error)
+        if chosen:
+            self.on_shared_change("artwork", chosen)
+
+    def clear_shared_artwork(self) -> None:
+        self._guard.require("clear_shared_artwork")
+        self.on_shared_change("artwork", "")
+
+    def choose_book_artwork(self) -> None:
+        self._guard.require("choose_book_artwork")
+        if not self.book_artwork.enabled:
+            return
+        chosen = m4b_artwork_ui.validated_artwork(str(self._choose_artwork() or ""),
+                                                  self._artwork_error)
+        if chosen:
+            self.set_book_field("artwork", chosen)
+
+    def clear_book_artwork(self) -> None:
+        self._guard.require("clear_book_artwork")
+        if not self.book_artwork.enabled:
+            return
+        self.set_book_field("artwork", "")
+
+    # ------------------------------------------------------------------ #
+    # Importing
+    # ------------------------------------------------------------------ #
+
+    def _request(self, roots: tuple) -> ScanRequest:
+        return ScanRequest(
+            request_id=self._ids.next_id("req"),
+            roots=roots,
+            catalog=wf.EDITOR_CATALOG,
+            options=ImportOptions.for_catalog(wf.EDITOR_CATALOG),
+            effective_config=self._effective_config,
+            created_at=self._clock(),
+        )
+
+    def import_folder(self) -> None:
+        """Workspace-level: scan one folder, then replace the Books — one per file."""
+        self._guard.require("import_folder")
+        if self._closed or self._coordinator.is_active:
+            return
+        if any(has_meaningful_work(book) for book in self.workspace.books):
+            if not self._confirm(
+                    "Replace the current Books?",
+                    "Import Folder replaces every Book in the workspace with the "
+                    "files it finds, one Book per file.\n\nReplace them?"):
+                return
+        chosen = tuple(self._choose_folder() or ())
+        if not chosen:
+            return
+        roots = tuple(
+            ImportRoot(root_id=self._ids.next_id("root"), path=Path(entry),
+                       order=order, kind=RootKind.FOLDER)
+            for order, entry in enumerate(chosen))
+        self._manager.clear()
+        self._import_kind = "folder"
+        report = self._coordinator.start(self._request(roots))
+        if report.outcome is StartOutcome.STARTED:
+            self.import_status.set_scanning(0)
+            self._poller.start()
+            return
+        self._import_kind = None
+        self.import_status.set_idle(report.display_message)
+        self._say(f"Import Folder: {report.display_message}")
+
+    def add_files(self) -> None:
+        """Append one Book per chosen file; a source already held is skipped."""
+        self._guard.require("add_files")
+        if self._closed or self._coordinator.is_active:
+            return
+        paths_chosen = tuple(self._choose_files() or ())
+        if not paths_chosen:
+            return
+        root = ImportRoot(root_id=self._ids.next_id("root"), path=None, order=0,
+                          kind=RootKind.DIRECT_FILES)
+        self._manager.clear()
+        self._import_kind = "files"
+        outcome = self._coordinator.import_files(self._request((root,)), paths_chosen)
+        self._handle_outcome(outcome)
+
+    def cancel_import(self) -> bool:
+        self._guard.require("cancel_import")
+        if self._closed:
+            return False
+        cancelled = self._coordinator.request_cancel()
+        if cancelled:
+            self.import_status.set_cancelling()
+        return cancelled
+
+    def _handle_outcome(self, outcome: ImportOutcome) -> ImportOutcome:
+        if self._closed:
+            return outcome
+        status = outcome.status
+        if status is OutcomeStatus.RUNNING:
+            self.import_status.set_scanning(outcome.discovered_count)
+            return outcome
+        if status is OutcomeStatus.AWAITING_CONFIRMATION:
+            self.import_status.set_message(
+                f"{outcome.proposed_count:,} files found — waiting for confirmation…")
+            if self._confirm_large(outcome):
+                return self._handle_outcome(self._coordinator.confirm_pending())
+            return self._handle_outcome(self._coordinator.decline_pending())
+        if status in TERMINAL_STATUSES or status is OutcomeStatus.CLOSED:
+            self._poller.stop()
+            kind, self._import_kind = self._import_kind, None
+            self.import_status.set_idle(outcome.display_message)
+            if status is OutcomeStatus.COMMITTED and outcome.commit is not None:
+                self._project_import(kind, outcome)
             else:
-                varies.add(key)
-        return shared, varies
+                label = "Import Folder" if kind == "folder" else "Add Files"
+                self._say(f"{label}: {outcome.display_message}",
+                          outcome.technical_detail or outcome.display_message)
+            for problem in outcome.problems:
+                self._say(f"  {problem.display_message}",
+                          f"  {problem.technical_detail or problem.display_message}")
+            return outcome
+        if status in (OutcomeStatus.BUSY, OutcomeStatus.NO_TYPES_SELECTED):
+            self.import_status.set_message(outcome.display_message)
+        return outcome
 
-    def _prefill_shared(self, n: int):
-        """Batch mode: pre-fill fields whose value is identical across all files.
-
-        Shared values are snapshotted into self._prefill, so an unedited shared
-        Series Name is not written back (preserve-by-default via _SERIES_KEYS,
-        same as single-file mode). Shared NON-series fields left unedited ARE
-        written on Save — a byte-identical rewrite, matching the existing batch
-        rule that any non-blank field overwrites (maintainer ruling, Drop 2).
-        Fields that differ across files are left blank and named in the
-        mode/read-back hints as "(varies)".
-        """
-        self._clear_fields()
-        shared, varies = self._shared_tags()
-        label_by_key = {k: lbl for k, _a, lbl in _FIELDS}
-        for key, attr, _label in _FIELDS:
-            if key in shared:
-                getattr(self, attr).set(shared[key])
-                self._prefill[key] = shared[key]
-        shared_names = ", ".join(label_by_key[k] for k in shared) or "none"
-        self.mode_var.set(
-            f"Batch mode: {n} files — shared fields pre-filled ({shared_names}); "
-            "blank fields are left unchanged."
-        )
-        self.series_readback_var.set(self._batch_series_readback(shared, varies))
-
-    def _batch_series_readback(self, shared: dict, varies: set) -> str:
-        """One-line series summary for batch mode."""
-        if "series" in shared:
-            return f"Detected across all files: Series '{shared['series']}' (identical)"
-        if "series" in varies:
-            return "Detected across files: Series name varies — left blank"
-        return "Detected across files: no shared series name"
-
-    # ----- cover -----
-    def choose_cover(self):
-        p = filedialog.askopenfilename(
-            title="Select Cover Image (JPG/PNG)",
-            initialdir=str(_remembered_dir(KEY_COVER_DIR)),
-            filetypes=[("Image", "*.jpg *.jpeg *.png"), ("All files", "*.*")],
-        )
-        if not p:
+    def _project_import(self, kind: str | None, outcome: ImportOutcome) -> None:
+        """The committed snapshot becomes Books: one per occurrence, observed once."""
+        commit = outcome.commit
+        if kind == "folder":
+            result = wf.import_folder(self.workspace, commit.snapshot,
+                                      id_factory=self._ids, store=self.store)
+            self._receive(result)
+            books = [book for book in self.workspace.books if not book.files.is_empty]
+            unreadable = sum(
+                1 for book in books
+                if (seen := self.store.for_book(book)) is not None and not seen.readable)
+            note = f" {unreadable} could not be read and will be skipped." if unreadable else ""
+            self._say(f"Import Folder: {len(books)} file(s) → {len(books)} Book(s).{note}")
             return
-        settings.set(KEY_COVER_DIR, str(Path(p).parent))
-        self.var_cover_path.set(p)
+        result = wf.add_files(self.workspace, tuple(commit.added), store=self.store,
+                              id_factory=self._ids)
+        self._receive(result)
+        added = len(commit.added) - result.skipped
+        note = (f" {result.skipped} already in the workspace were skipped."
+                if result.skipped else "")
+        self._say(f"Add Files: {added} file(s) added as {added} Book(s).{note}")
 
-    # ----- output folder -----
-    def output_dir(self) -> Path:
-        """The last reserved run, or this tool's parent folder before any run."""
-        if self._last_run_dir is not None:
-            return self._last_run_dir
-        return Path(self.var_outdir.get().strip())
+    # ------------------------------------------------------------------ #
+    # The three actions: validate, reserve one run, freeze one plan, run
+    # ------------------------------------------------------------------ #
+
+    def _run_options(self) -> mp.EditorRunOptions:
+        return mp.EditorRunOptions(auto_number=bool(self.var_auto_number.get()),
+                                   start_part_text=self.var_start_part.get())
 
     def _reserve_run(self):
-        """Reserve one run for a validated action. None means do not start."""
+        """Reserve one standard run for a validated action. None means do not start."""
         try:
-            reservation = output_paths.reserve_run_directory(TOOL_KEY)
+            return output_paths.reserve_run_directory(TOOL_KEY)
         except output_paths.OutputPathError as exc:
-            messagebox.showerror("Output folder", exc.message)
+            messagebox.showerror(APP_TITLE, exc.message, parent=self)
             return None
-        self._last_run_dir = reservation.run_directory
-        self.var_outdir.set(str(reservation.run_directory))
-        return reservation
 
-    def open_outdir(self):
-        """Reveal the actual reserved run, or the tool folder before any run."""
-        if self._last_run_dir is None:
+    def save(self) -> bool:
+        """Write the explicit edits onto copies (preserve-by-default)."""
+        self._guard.require("save")
+        return self._start_action(EditorAction.SAVE_TAGS)
+
+    def on_clear_all_tags(self) -> bool:
+        """Clear every tag and the cover on copies, keep the chapters, reapply edits."""
+        self._guard.require("on_clear_all_tags")
+        if self._closed or self.is_running:
+            return False
+        if not self._confirm(
+                "Clear all tags?",
+                "This writes COPIES with all metadata removed (title, author, album, "
+                "year, genre, comment, series, cover art).\n\n"
+                "Chapters are kept (markers and titles). The imported originals are never "
+                "modified. Only the values you typed here — Book edits and Shared "
+                "values, and any replacement artwork — are re-applied on top of the "
+                "cleared copies; unchanged source values are not.\n\nProceed?"):
+            return False
+        return self._start_action(EditorAction.CLEAR_ALL_TAGS)
+
+    def on_remove_series_numbering(self) -> bool:
+        """Strip the numbering surfaces on copies; the Series Name and every other tag stay."""
+        self._guard.require("on_remove_series_numbering")
+        if self._closed or self.is_running:
+            return False
+        if not self._confirm(
+                "Remove series numbering?",
+                "This writes COPIES with the series/track numbering removed: the "
+                "Series Part, the track number (Explorer's # column) and the movement "
+                "index — across every tagger namespace.\n\n"
+                "The Series Name, chapter markers and titles, cover art and every other "
+                "tag are kept. Pending edits on these pages are not part of this action. "
+                "The imported originals are never modified.\n\nProceed?"):
+            return False
+        return self._start_action(EditorAction.REMOVE_SERIES_NUMBERING)
+
+    def _start_action(self, action: EditorAction) -> bool:
+        """Validate, reserve one run, freeze one plan, start one run."""
+        if self._closed or self.is_running:
+            return False
+        space = self.workspace
+        if all(wf.source_of(book) is None for book in space.books):
+            messagebox.showwarning(APP_TITLE, "Import a folder or add M4B files first.",
+                                   parent=self)
+            return False
+        options = self._run_options()
+        if options.auto_number and action is not EditorAction.REMOVE_SERIES_NUMBERING:
+            try:
+                wf.parse_start_part(options.start_part_text)
+            except wf.EditorValueError as exc:
+                messagebox.showerror(APP_TITLE, f"Start Part: {exc}", parent=self)
+                return False
+        reservation = self._reserve_run()
+        if reservation is None:
+            return False
+        try:
+            plan = mp.plan_run(
+                space, self.store, action=action, options=options, reservation=reservation,
+                catalog=wf.EDITOR_CATALOG,
+                import_options=ImportOptions.for_catalog(wf.EDITOR_CATALOG),
+                effective_config=self._effective_config, id_factory=self._ids,
+                created_at=self._clock())
+        except (wf.EditorValueError, mp.PlanError, output_paths.OutputPathError) as exc:
+            output_paths.release_if_empty(reservation)
+            messagebox.showerror(APP_TITLE, f"{ACTION_LABELS[action]}: {exc}", parent=self)
+            return False
+        if not plan.books:
+            output_paths.release_if_empty(reservation)
+            messagebox.showwarning(
+                APP_TITLE, "None of the imported files could be read, so there is "
+                           "nothing to write.", parent=self)
+            return False
+        self.last_plan = plan
+        self._label = ACTION_LABELS[action]
+        self.run = self._run_factory(plan, id_factory=self._ids, clock=self._clock,
+                                     publish=self._publish)
+        self.var_outdir.set(str(plan.run_directory))
+        self._start_attempt(self.run.start, self._label)
+        return True
+
+    def _start_attempt(self, begin, label: str) -> None:
+        """Begin one attempt through the run and start its one worker thread."""
+        # The queue exists before the run publishes its first event; the
+        # adapter installed just after drains everything the attempt sends.
+        self._event_q = queue.Queue()
+        attempt = begin()
+        self._attempt = attempt
+        item_ids = tuple(book.occurrence_id for book in self.last_plan.books)
+        pending = self._event_q
+        self._install_jobs(attempt.run_id, item_ids)
+        # Events the run published before the adapter existed.
+        while True:
+            try:
+                self._event_q.put(pending.get_nowait())
+            except queue.Empty:
+                break
+        self.lock_group.apply(attempt.controller.state)
+        heading = (f"Retry Failed — attempt {attempt.number}" if attempt.is_retry
+                   else f"{label} — {self.last_plan.run_directory.name}")
+        self.log.divider(f"{DIVIDER_MARK} {heading}")
+        skipped = len(self.last_plan.capture.skipped)
+        if skipped and not attempt.is_retry:
+            self._say(f"{label}: {skipped} unreadable file(s) skipped; the others proceed.")
+        self._render_status()
+        thread = self._thread_factory(attempt.run, f"m4b-metadata-{attempt.run_id}")
+        self._worker_thread = thread
+        thread.start()
+
+    def _publish(self, event) -> None:
+        """Hand one produced event to the queue the shared adapter drains.
+
+        Called from whichever thread produced it. A queue is the only thing
+        that crosses that boundary; no widget is ever touched from the worker.
+        """
+        self._event_q.put(event)
+
+    @staticmethod
+    def _default_thread(target, name: str):
+        import threading
+
+        return threading.Thread(target=target, name=name, daemon=True)
+
+    def _context(self, stage: str | None, item_id: str | None) -> str:
+        """The status line under the bar: ``Alpha.m4b (2 of 3)``."""
+        attempt, plan = self._attempt, self.last_plan
+        if not stage or not stage.startswith("book-") or attempt is None or plan is None:
+            return stage or ""
+        try:
+            number = int(stage[len("book-"):])
+        except ValueError:
+            return stage
+        for index, book in enumerate(attempt.books, start=1):
+            if book.number == number:
+                return f"{book.filename} ({index} of {len(attempt.books)})"
+        return f"Book {number}"
+
+    # -- main-thread projections of the run --------------------------------- #
+
+    def _on_job_event(self, _event) -> None:
+        self._render_status()
+
+    def _on_terminal(self, event) -> None:
+        """The attempt ended: the frozen result is the run's. Main thread only."""
+        attempt = self._attempt
+        if attempt is None or event.run_id != attempt.run_id:
+            return
+        result = self.run.result if self.run is not None else None
+        self.jobs.set_result(result)
+        if result is not None:
+            self._say(f"{self._label}: {result.succeeded_count} Book(s) completed, "
+                      f"{result.failed_count} failed, {result.skipped_invalid_count} "
+                      f"skipped (unreadable), {result.not_attempted_count} not attempted "
+                      f"→ {self.last_plan.run_directory}")
+        self.render()
+
+    @property
+    def is_running(self) -> bool:
+        attempt = self._attempt
+        return attempt is not None and attempt.controller.state not in TERMINAL_STATES
+
+    @property
+    def job_controller(self):
+        attempt = self._attempt
+        return None if attempt is None else attempt.controller
+
+    @property
+    def last_result(self) -> WorkspaceRunResult | None:
+        return None if self.run is None else self.run.result
+
+    def book_status_for(self, book_id: str) -> str:
+        """One Book's compact status, read from the run -- never kept here."""
+        attempt = self._attempt
+        plan = self.last_plan
+        if attempt is None or plan is None:
+            return STATUS_READY
+        if book_id in plan.capture.skipped_book_ids:
+            return STATUS_SKIPPED
+        if self.is_running:
+            for record in attempt.records:
+                if record.book_id == book_id:
+                    return STATUS_COMPLETED if record.succeeded else STATUS_FAILED
+            prior = self.run.result if self.run is not None else None
+            if attempt.is_retry and prior is not None and book_id not in attempt.retry:
+                return self._status_of_disposition(prior.disposition_for(book_id))
+            if any(book.book_id == book_id for book in attempt.books):
+                stage = self._current_stage()
+                book = plan.book_for(book_id)
+                if book is not None and stage == f"book-{book.number}":
+                    return STATUS_PROCESSING
+                return STATUS_QUEUED
+            return STATUS_READY
+        result = self.last_result
+        if result is None:
+            return STATUS_READY
+        return self._status_of_disposition(result.disposition_for(book_id))
+
+    def _current_stage(self) -> str | None:
+        for entry in reversed(self.jobs.stream.events):
+            if entry.kind is JobEventKind.STAGE_CHANGED:
+                return entry.stage
+        return None
+
+    @staticmethod
+    def _status_of_disposition(disposition) -> str:
+        if disposition is BookDisposition.SUCCEEDED:
+            return STATUS_COMPLETED
+        if disposition is BookDisposition.FAILED:
+            return STATUS_FAILED
+        if disposition in (BookDisposition.SKIPPED_EMPTY, BookDisposition.SKIPPED_INVALID):
+            return STATUS_SKIPPED
+        if disposition is BookDisposition.NOT_ATTEMPTED:
+            return STATUS_NOT_ATTEMPTED
+        return STATUS_READY
+
+    # -- the shared control bar's callbacks ---------------------------------- #
+
+    def pause(self) -> None:
+        if self.run is not None and self.is_running:
+            self.run.pause()
+
+    def resume(self) -> None:
+        if self.run is not None and self.is_running:
+            self.run.resume()
+
+    def cancel(self) -> None:
+        if self.run is not None and self.is_running:
+            self.run.cancel()
+
+    def retry_failed(self) -> bool:
+        """Re-run the frozen run's failed Books. A new attempt, not a new run."""
+        self._guard.require("retry_failed")
+        if self._closed or self.is_running or self.run is None:
+            return False
+        result = self.run.result
+        if result is None or not result.can_retry_failed:
+            return False
+        self._start_attempt(self.run.retry_failed, "Retry Failed")
+        return True
+
+    # -- the output folder ---------------------------------------------------- #
+
+    def output_dir(self) -> Path:
+        """The last frozen run's folder, or this tool's parent folder before any run."""
+        if self.last_plan is not None:
+            return self.last_plan.run_directory
+        return Path(self.var_outdir.get().strip())
+
+    def open_outdir(self) -> None:
+        """Reveal the last run, or the tool folder before any run."""
+        self._guard.require("open_outdir")
+        if self.last_plan is None:
             try:
                 sp.reveal_in_file_manager(output_paths.ensure_tool_parent(TOOL_KEY))
             except output_paths.OutputPathError as exc:
-                messagebox.showerror("Output folder", exc.message)
+                messagebox.showerror(APP_TITLE, exc.message, parent=self)
             return
-        out = self.output_dir()
-        out.mkdir(parents=True, exist_ok=True)
-        sp.reveal_in_file_manager(out)
+        sp.reveal_in_file_manager(self.output_dir())
 
-    # ----- logging -----
-    def log_write(self, text: str):
-        self.log.config(state=tk.NORMAL)
-        self.log.insert(tk.END, text)
-        self.log.see(tk.END)
-        self.log.config(state=tk.DISABLED)
+    # ------------------------------------------------------------------ #
+    # Teardown
+    # ------------------------------------------------------------------ #
 
-    def _autonumber_start(self) -> tuple[int | None, bool]:
-        """Parse the Series Part field as the auto-number start.
-
-        Returns ``(start, ok)``: a blank field starts at ``(1, True)``; a whole
-        number gives ``(n, True)``; anything else is ``(None, False)``.
-        """
-        raw = self.var_series_part.get().strip()
-        if not raw:
-            return 1, True
+    def close(self) -> None:
+        """Cancel any scan or run, stop the pump, close every component. Idempotent."""
+        if self._closed:
+            return
+        self._closed = True
+        if self.run is not None:
+            try:
+                self.run.cancel()
+            except Exception:
+                pass
+        for component in (self._poller, self.navigator, self.surface,
+                          self.shared_artwork, self.book_artwork, self.jobs,
+                          self.log, self.import_status):
+            try:
+                component.close()
+            except Exception:
+                pass
         try:
-            return int(raw), True
-        except ValueError:
-            return None, False
-
-    def _update_autonumber_hint(self):
-        """Refresh the live hint describing what the auto-number toggle will write."""
-        n = len(self.files)
-        if not self.var_autonumber.get():
-            self.autonumber_hint_var.set(
-                "Series Part is not written. Tick “Auto-number” to write part "
-                "numbers to the series-part tag."
-            )
-            return
-        start, ok = self._autonumber_start()
-        if not ok:
-            self.autonumber_hint_var.set(
-                "Auto-number on: enter a whole number in Series Part (or leave it blank "
-                "to start at 1)."
-            )
-        elif n <= 1:
-            self.autonumber_hint_var.set(
-                f"Auto-number on: Series Part #{start} will be written."
-            )
-        else:
-            self.autonumber_hint_var.set(
-                f"Auto-number on: Series Parts #{start}–#{start + n - 1} will be "
-                f"written across the {n} files, in list order."
-            )
-
-    # ----- collect non-blank fields -----
-    def _collect_tags(self, *, only_edited: bool = False) -> dict:
-        """Collect the non-blank tag fields shared by every file.
-
-        With ``only_edited`` (used by Clear All Tags), a field that still holds
-        the value auto-loaded from the file in single-file mode is skipped, so
-        the clear genuinely wipes it; only fields the user changed are re-applied.
-
-        ``series_part`` is deliberately NOT collected here — it is governed solely
-        by the auto-number toggle and injected per-file in the worker.
-        """
-        tags: dict = {}
-        for key, attr, _label in _FIELDS:
-            if key == "series_part":
-                continue  # owned by the auto-number toggle (see _save_worker)
-            val = getattr(self, attr).get().strip()
-            if not val:
-                continue
-            # Series name is preserve-by-default even on a normal Save: an unchanged
-            # pre-filled name is not written back, so a value read from a vendor/
-            # movement atom (or an album-implied value) is never silently migrated to
-            # the canonical atom unless the user actually edits it.
-            skip_unchanged = only_edited or key in _SERIES_KEYS
-            if skip_unchanged and val == (self._prefill.get(key, "")).strip():
-                continue
-            tags[key] = val
-        cover = self.var_cover_path.get().strip()
-        if cover:
-            tags["cover_path"] = cover
-        return tags
-
-    # ----- save / clear -----
-    def save(self):
-        """Write the typed tag fields onto a copy of each file (preserve-by-default)."""
-        self._start_job(clear_first=False)
-
-    def on_clear_all_tags(self):
-        """Strip all metadata (keep chapters) on a copy of each file, then apply
-        any typed tag fields on top of the cleared copy."""
-        if not self._busy.is_set() and self.files:
-            if not messagebox.askyesno(
-                "Clear all tags?",
-                "This writes COPIES with ALL metadata removed (title, author, "
-                "album, year, genre, comment, series, cover art).\n\n"
-                "Chapter markers and titles are kept. The imported originals are "
-                "not modified. Any tag fields you have typed will be re-applied "
-                "on top of the cleared copies.\n\nProceed?",
-            ):
-                return
-        # The output copies will have no series tag; clear the read-back so it
-        # doesn't keep advertising the (now-irrelevant) source file's series.
-        self.series_readback_var.set("")
-        self._start_job(clear_first=True)
-
-    def on_remove_series_numbering(self):
-        """Strip all series/track numbering (trkn, freeform series atoms, and
-        movement atoms) on a COPY of each loaded file, keeping chapters and every
-        other tag. Mirrors the Clear All Tags wiring (copy-based, worker thread,
-        Cancel, per-file log) but targets only the numbering surfaces."""
-        if self._busy.is_set():
-            return
-        if not self.files:
-            messagebox.showerror("No files", "Open one or more M4B files first.")
-            return
-        if not messagebox.askyesno(
-            "Remove series numbering?",
-            "This writes COPIES with all series/track numbering removed: the "
-            "track number (Explorer's # column), the Series Name / Series Part, "
-            "and the movement atoms — across every tagger namespace.\n\n"
-            "Chapter markers and titles, cover art, and all other tags are kept. "
-            "The imported originals are not modified.\n\nProceed?",
-        ):
-            return
-
-        files = list(self.files)
-        reservation = self._reserve_run()
-        if reservation is None:
-            return
-        outdir = reservation.run_directory
-        planner = reservation.planner()
-        self.series_readback_var.set("")
-        self._busy.set()
-        self._cancel_event.clear()
-        self.progress.update(0, len(files))
-        self.disable_inputs(True)
-        self.btn_cancel.configure(state=tk.NORMAL)
-        self.log_write(
-            f"\nRemoving series numbering on {len(files)} copy(ies) in {outdir}…\n"
-        )
-        t = threading.Thread(
-            target=self._remove_numbering_worker, args=(files, outdir, planner),
-            daemon=True
-        )
-        t.start()
-
-    def _start_job(self, *, clear_first: bool):
-        if self._busy.is_set():
-            return
-        if not self.files:
-            messagebox.showerror("No files", "Open one or more M4B files first.")
-            return
-
-        tags = self._collect_tags(only_edited=clear_first)
-
-        # Auto-number Series Part (read on the main thread). When on, validate the
-        # starting number now so we fail fast with a clear message.
-        autonumber = bool(self.var_autonumber.get())
-        start_part = 1
-        if autonumber:
-            start_part, ok = self._autonumber_start()
-            if not ok:
-                messagebox.showerror(
-                    "Series Part not a number",
-                    "Auto-number Series Part is on, but the Series Part field is not "
-                    "a whole number.\n\nEnter a starting number, or clear the field to "
-                    "start at 1.",
-                )
-                return
-
-        # Per-file chapter-title lists (parsed from the paged buffers). Flush the
-        # visible page first so the current edits are captured.
-        self._flush_chapter_page()
-        chapter_map: dict[str, list[str]] = {}
-        for p, buf in self._chap_buffers.items():
-            if buf.strip():
-                chapter_map[str(p)] = buf.splitlines()
-
-        if not tags and not clear_first and not chapter_map and not autonumber:
-            messagebox.showinfo(
-                "Nothing to write",
-                "No tag fields, no clear request, no chapter titles, and auto-number "
-                "off — nothing to change.",
-            )
-            return
-
-        cover = tags.get("cover_path")
-        if cover and not Path(cover).exists():
-            messagebox.showerror("Cover not found", f"Cover image not found:\n{cover}")
-            return
-
-        files = list(self.files)
-        reservation = self._reserve_run()
-        if reservation is None:
-            return
-        outdir = reservation.run_directory
-        planner = reservation.planner()
-        self._busy.set()
-        self._cancel_event.clear()
-        self.progress.update(0, len(files))
-        self.disable_inputs(True)
-        self.btn_cancel.configure(state=tk.NORMAL)
-        verb = "Clearing tags on" if clear_first else "Writing tags to"
-        self.log_write(f"\n{verb} {len(files)} copy(ies) in {outdir}…\n")
-        if autonumber:
-            self.log_write(f"Auto-numbering Series Part from #{start_part} (list order).\n")
-
-        t = threading.Thread(
-            target=self._save_worker,
-            args=(files, tags, outdir, clear_first, chapter_map, autonumber,
-                  start_part, planner),
-            daemon=True,
-        )
-        t.start()
-
-    def cancel(self):
-        if not self._busy.is_set() or self._cancel_event.is_set():
-            return
-        self._cancel_event.set()
-        self.btn_cancel.configure(state=tk.DISABLED)
-        self._log_q.put(("log", "Cancelling… will stop after the current file.\n"))
-
-    def disable_inputs(self, state: bool):
-        widgets = [
-            self.btn_add,
-            self.btn_add_folder,
-            self.btn_remove,
-            self.btn_clear,
-            self.btn_save,
-            self.btn_clear_tags,
-            self.btn_remove_numbering,
-            self.btn_cover,
-            self.btn_cover_clear,
-            self.entry_cover,
-            self.entry_outdir,
-            self.chap_text,
-            self.btn_chap_prev,
-            self.btn_chap_next,
-            self.chk_autonumber,
-            *self._field_widgets,
-        ]
-        for w in widgets:
-            w.configure(state=tk.DISABLED if state else tk.NORMAL)
-        # The destination display is never typeable; it only greys out.
-        self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
-        if not state:
-            # Restore the pager arrows to their correct page-bounded state.
-            self._update_chap_buttons()
-
-    # ----- worker -> GUI queue pump (main thread) -----
-    def _pump_queue(self):
-        try:
-            while True:
-                kind, payload = self._log_q.get_nowait()
-                if kind == "log":
-                    self.log_write(payload)
-                elif kind == "progress":
-                    self.progress.update(*payload)
-                elif kind == "done":
-                    ok, fail, cancelled = payload
-                    self._finish_idle()
-                    if cancelled:
-                        self.log_write(f"Cancelled. {ok} saved, {fail} failed.\n")
-                    else:
-                        self.log_write(f"Done. {ok} saved, {fail} failed.\n")
-                        if fail == 0:
-                            messagebox.showinfo("Saved", f"Tags written to {ok} file(s).")
-                        else:
-                            messagebox.showwarning(
-                                "Completed with errors",
-                                f"{ok} file(s) saved, {fail} failed. See the log for details.",
-                            )
-        except queue.Empty:
+            self._coordinator.close()
+        except Exception:
             pass
-        self.after(150, self._pump_queue)
-
-    def _finish_idle(self):
-        self._busy.clear()
-        self._cancel_event.clear()
-        self.disable_inputs(False)
-        self.btn_cancel.configure(state=tk.DISABLED)
-
-    # ----- save worker (worker thread) -----
-    def _save_worker(
-        self,
-        files: list,
-        tags: dict,
-        outdir: Path,
-        clear_first: bool,
-        chapter_map: dict,
-        autonumber: bool,
-        start_part: int,
-        planner,
-    ):
-        cancel_check = self._cancel_event.is_set
-        total = len(files)
-        ok = 0
-        fail = 0
-        cancelled = False
         try:
-            for idx, f in enumerate(files, start=1):
-                raise_if_cancelled(cancel_check)
-                try:
-                    # Per-file order (Phase B/C/D): copy original → output folder,
-                    # then (optionally) clear all metadata keeping chapters, then
-                    # re-apply any typed tag fields, then apply imported chapter
-                    # titles positionally. Only the COPY is ever written; the
-                    # imported original is read-only.
-                    dest = planner.plan(f.name)
-                    output_paths.assert_not_input(dest, files)
-                    shutil.copy2(f, dest)
-                    self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
-                    if clear_first:
-                        metadata.clear_metadata_keep_chapters(dest)
-                        self._log_q.put(
-                            ("log", f"[{idx}/{total}] Cleared all tags (kept chapters)\n")
-                        )
-                    # Shared text/series-name fields, plus the auto-numbered Series
-                    # Part for this file's position (when the toggle is on).
-                    file_tags = dict(tags)
-                    if autonumber:
-                        file_tags["series_part"] = str(start_part + (idx - 1))
-                    if file_tags:
-                        metadata.write_m4b_tags(dest, file_tags, total=total)
-                        msg = f"[{idx}/{total}] Applied typed tag fields"
-                        if autonumber:
-                            msg += f" (Series Part #{file_tags['series_part']})"
-                        self._log_q.put(("log", msg + "\n"))
-                    titles = chapter_map.get(str(f))
-                    if titles:
-                        metadata.apply_chapter_titles(dest, titles)
-                        self._log_q.put(
-                            ("log", f"[{idx}/{total}] Applied imported chapter titles\n")
-                        )
-                    self._log_q.put(("log", f"[{idx}/{total}] ✓ {dest.name}\n"))
-                    ok += 1
-                except Exception as e:
-                    self._log_q.put(("log", f"[{idx}/{total}] ✗ {f.name}: {e}\n"))
-                    fail += 1
-                finally:
-                    self._log_q.put(("progress", (idx, total)))
-        except ConversionCancelled:
-            cancelled = True
-        self._log_q.put(("done", (ok, fail, cancelled)))
-
-    # ----- remove-series-numbering worker (worker thread) -----
-    def _remove_numbering_worker(self, files: list, outdir: Path, planner):
-        cancel_check = self._cancel_event.is_set
-        total = len(files)
-        ok = 0
-        fail = 0
-        cancelled = False
-        try:
-            for idx, f in enumerate(files, start=1):
-                raise_if_cancelled(cancel_check)
-                try:
-                    # Copy original → output folder, then strip numbering on the
-                    # COPY only (chapters/other tags preserved). The imported
-                    # original is read-only.
-                    dest = planner.plan(f.name)
-                    output_paths.assert_not_input(dest, files)
-                    shutil.copy2(f, dest)
-                    self._log_q.put(("log", f"[{idx}/{total}] Copied {f.name} → {dest}\n"))
-                    metadata.clear_series_numbering(dest)
-                    self._log_q.put(
-                        ("log", f"[{idx}/{total}] Removed series numbering (kept chapters)\n")
-                    )
-                    self._log_q.put(("log", f"[{idx}/{total}] ✓ {dest.name}\n"))
-                    ok += 1
-                except Exception as e:
-                    self._log_q.put(("log", f"[{idx}/{total}] ✗ {f.name}: {e}\n"))
-                    fail += 1
-                finally:
-                    self._log_q.put(("progress", (idx, total)))
-        except ConversionCancelled:
-            cancelled = True
-        self._log_q.put(("done", (ok, fail, cancelled)))
+            self._pump.close()
+        except Exception:
+            pass
 
 
-def build_ui(parent: tk.Misc, theme: dict | None = None) -> M4BMetadataEditorUI:
-    """Build the M4B Metadata Editor UI into ``parent`` and return the frame.
-
-    ``theme`` is optional and backwards-compatible: the launcher's existing
-    ``module.build_ui(container)`` call is unchanged, and the panel resolves the
-    platform theme itself when nothing is passed.
-    """
+def build_ui(parent: tk.Misc, theme=None) -> M4BMetadataEditorUI:
+    """Build the M4B Metadata Editor UI into ``parent`` and return the frame."""
     ui = M4BMetadataEditorUI(parent, theme=theme)
     ui.pack(fill=tk.BOTH, expand=True)
     return ui
@@ -1428,8 +1334,8 @@ def build_ui(parent: tk.Misc, theme: dict | None = None) -> M4BMetadataEditorUI:
 def main():
     root = tk.Tk()
     root.title(APP_TITLE)
-    root.geometry("880x900")
-    root.minsize(760, 760)
+    root.geometry(ui_theme.DEFAULT_GEOMETRY)
+    root.minsize(*ui_theme.MIN_SIZE)
     build_ui(root)
     root.mainloop()
 

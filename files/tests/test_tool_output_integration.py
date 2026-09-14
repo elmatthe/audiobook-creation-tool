@@ -567,10 +567,29 @@ def test_cover_declining_confirmation_starts_nothing(fresh_root, output_base, tm
 
 
 def test_metadata_editor_reserves_per_action(output_base):
+    """One reservation per action start, and only there (v0.6.4 Phase 10: the
+    three actions share one start path, ``_start_action``, which reserves
+    through ``_reserve_run`` exactly once after validation)."""
+    import ast
+
     source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_metadata_editor.py"
               ).read_text(encoding="utf-8")
-    assert source.count("def _reserve_run") == 1
-    assert source.count("self._reserve_run()") == 2   # save/clear share one path
+    tree = ast.parse(source)
+    functions = {node.name: node for node in ast.walk(tree)
+                 if isinstance(node, ast.FunctionDef)}
+    reservers = [name for name, node in functions.items()
+                 if any(isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
+                        and inner.func.attr == "reserve_run_directory"
+                        for inner in ast.walk(node))]
+    assert reservers == ["_reserve_run"]
+    callers = [name for name, node in functions.items()
+               if any(isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
+                      and inner.func.attr == "_reserve_run" for inner in ast.walk(node))]
+    assert callers == ["_start_action"]
+    for action in ("save", "on_clear_all_tags", "on_remove_series_numbering"):
+        assert any(isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
+                   and inner.func.attr == "_start_action"
+                   for inner in ast.walk(functions[action])), action
 
 
 def test_metadata_editor_plans_before_copying(output_base, tmp_path):
@@ -593,13 +612,28 @@ def test_metadata_editor_never_targets_an_imported_path(output_base, tmp_path):
     assert planned.parent == reservation.run_directory
 
 
-def test_metadata_editor_workers_take_the_batch_planner():
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_metadata_editor.py"
-              ).read_text(encoding="utf-8")
-    assert "def _save_worker(" in source and "planner," in source
-    assert "def _remove_numbering_worker(self, files: list, outdir: Path, planner)" in source
-    assert "planner.plan(f.name)" in source
-    assert "avoid_input_overwrite" not in source
+def test_metadata_editor_plans_every_output_through_the_reservations_planner():
+    """The invariant the old worker pins protected, where it lives now.
+
+    v0.6.4 Phase 10 retired the panel's private workers; every output name is
+    planned by ``m4b_metadata_plan.plan_run`` through the one reservation's
+    planner, and the panel names no planner, no ``avoid_input_overwrite`` and
+    no output path of its own.
+    """
+    import ast
+
+    panel = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_metadata_editor.py"
+             ).read_text(encoding="utf-8")
+    plan = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_metadata_plan.py"
+            ).read_text(encoding="utf-8")
+    assert "avoid_input_overwrite" not in panel and "avoid_input_overwrite" not in plan
+    panel_calls = {ast.unparse(node.func) for node in ast.walk(ast.parse(panel))
+                   if isinstance(node, ast.Call)}
+    assert not any(call.endswith((".plan", ".plan_directory", "planner")) for call in panel_calls)
+    plan_calls = {ast.unparse(node.func) for node in ast.walk(ast.parse(plan))
+                  if isinstance(node, ast.Call)}
+    assert "reservation.planner" in plan_calls and "planner.plan" in plan_calls
+    assert "output_paths.assert_not_input" in plan_calls
 
 
 # --------------------------------------------------------------------------- #
@@ -867,8 +901,10 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: Editor is still checked below. v0.6.4 Phase 7 adds
 #: ``mp3_tools.m4b_metadata_workflow``, the Editor's Tk-free model; Phase 8
 #: adds ``mp3_tools.m4b_metadata_plan``, its frozen action plans; Phase 9 adds
-#: ``mp3_tools.m4b_metadata_batch``, its Tk-free batch runner; the Editor
-#: panel is still checked.
+#: ``mp3_tools.m4b_metadata_batch``, its Tk-free batch runner; Phase 10 adds
+#: ``mp3_tools.m4b_metadata_editor`` itself: the Editor panel is the third
+#: production adopter of the shared workspace, so no tool panel is left to
+#: check below — the no-adoption guard's remaining set is deliberately empty.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
@@ -878,7 +914,7 @@ PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_maker_batch",
                   "mp3_tools.m4b_artwork_ui", "mp3_tools.m4b_maker",
                   "mp3_tools.m4b_metadata_workflow", "mp3_tools.m4b_metadata_plan",
-                  "mp3_tools.m4b_metadata_batch")
+                  "mp3_tools.m4b_metadata_batch", "mp3_tools.m4b_metadata_editor")
 
 
 def _tool_path(relative: str) -> Path:
@@ -921,9 +957,9 @@ def test_no_unadopted_tool_reached_for_the_plan3_foundation():
         assert_no_plan3_adoption(tree, relative)
         checked.append(relative)
 
-    assert sorted(checked) == [
-        "mp3_tools.m4b_metadata_editor",
-    ], checked
+    # v0.6.4 Phase 10: every tool panel has adopted; the guard keeps running
+    # over the registry so a seventh, unadopted tool would be checked here.
+    assert sorted(checked) == [], checked
 
 
 def test_every_authorized_adopter_really_did_adopt():

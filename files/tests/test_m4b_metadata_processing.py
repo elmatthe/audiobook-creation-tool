@@ -569,10 +569,18 @@ def test_the_engine_uses_the_shared_authorities_and_re_encodes_nothing():
         assert owned_elsewhere not in declared, owned_elsewhere
 
 
-def test_the_editor_panel_is_still_byte_identical():
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_as_checked_out_on_windows
+def test_the_editor_panel_reaches_this_engine_only_through_the_runner():
+    """Phase 9 built the engine behind an untouched panel; v0.6.4 Phase 10 made
+    the runner its one consumer — the panel still names no engine call."""
+    from test_plan6_boundaries import EDITOR_PHASE0_HASH, sha256_as_checked_out_on_windows
 
     panel = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
-    assert sha256_as_checked_out_on_windows(panel) == PHASE0_PANEL_HASHES[
-        "mp3_tools/m4b_metadata_editor.py"]
-    assert "m4b_metadata_processing" not in panel.read_text(encoding="utf-8")
+    assert sha256_as_checked_out_on_windows(panel) != EDITOR_PHASE0_HASH
+    tree = ast.parse(panel.read_text(encoding="utf-8"))
+    modules = {f"{node.module}.{alias.name}" for node in ast.walk(tree)
+               if isinstance(node, ast.ImportFrom) for alias in node.names}
+    modules |= {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    modules |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
+                for alias in node.names}
+    assert "mp3_tools.m4b_metadata_processing" not in modules
+    assert "mp3_tools.m4b_metadata_batch" in modules
