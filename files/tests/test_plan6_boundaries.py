@@ -81,11 +81,15 @@ ALLOCATOR_FORBIDDEN = (
 #: :data:`MP3_TOOL_PHASE0_HASH` so the retirement is proved to be real rather
 #: than assumed, and the two M4B panels stay exactly as protected as before.
 PHASE0_PANEL_HASHES = {
-    "mp3_tools/m4b_maker.py":
-        "55774911516dd0b5b30d51c6a0b6d93ac62005d16fa1adb46e69f8b61e2b7d8d",
     "mp3_tools/m4b_metadata_editor.py":
         "310b27f6d46668782305b54434f5b9bd00f4611e077f6772f3410adb5ffdd180",
 }
+
+#: The M4B Maker as Plan 6 Phase 0 found it, before v0.6.4 Phase 6 converted it
+#: into the second production adopter of the workspace. Evidence, not a gate:
+#: the panel is *required* to differ now, and to name the vocabulary.
+MAKER_PHASE0_HASH = (
+    "55774911516dd0b5b30d51c6a0b6d93ac62005d16fa1adb46e69f8b61e2b7d8d")
 
 #: The MP3 Tool as Plan 6 Phase 0 found it, before the focused MP3 redesign
 #: converted it. Evidence, not a gate: the panel is *required* to differ now.
@@ -1392,8 +1396,27 @@ def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
     assert "WorkspaceSnapshot" in names
     assert "shared.book_workspace_ui" in imported_names(tree)
     assert "mp3_tools.mp3_workflow" in imported_names(tree)
-    assert set(PHASE0_PANEL_HASHES) == {
-        "mp3_tools/m4b_maker.py", "mp3_tools/m4b_metadata_editor.py"}
+    assert set(PHASE0_PANEL_HASHES) == {"mp3_tools/m4b_metadata_editor.py"}
+
+
+def test_the_maker_left_the_hash_gate_by_a_real_conversion():
+    """v0.6.4 Phase 6's one supersession, proved rather than assumed.
+
+    The Maker panel must differ from its Phase 0 bytes *and* be the adopter
+    the v0.6.4 plan makes it: it names the workspace vocabulary, composes the
+    shared navigator/surface and hands its frozen plan to the Phase 5 runner.
+    The Metadata Editor stays exactly as protected as before.
+    """
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/m4b_maker.py")
+            != MAKER_PHASE0_HASH)
+    tree = parse(UNIVERSAL / "mp3_tools/m4b_maker.py")
+    names = referenced_names(tree) | imported_names(tree)
+    assert "shared.book_workspace" in imported_names(tree)
+    assert "WorkspaceSnapshot" in names
+    assert "shared.book_workspace_ui" in imported_names(tree)
+    assert "mp3_tools.m4b_maker_workflow" in imported_names(tree)
+    assert "mp3_tools.m4b_maker_plan" in imported_names(tree)
+    assert "mp3_tools.m4b_maker_batch" in imported_names(tree)
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PLAN5_HASHES))

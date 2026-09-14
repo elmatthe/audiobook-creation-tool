@@ -27,7 +27,7 @@ EXPECTED_TOOLS = ["tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b
 #: EXPECTED_TOOLS must still render through the generic ttk styles.
 CONVERTED_TOOL = "m4b_metadata"
 #: The MP3 Tool joined the converted set at the focused MP3 plan's Phase 4.
-CONVERTED_TOOLS = ("m4b_metadata", "mp3_tool")
+CONVERTED_TOOLS = ("m4b_metadata", "mp3_tool", "m4b_maker")
 UNCONVERTED_TOOLS = [k for k in EXPECTED_TOOLS if k not in CONVERTED_TOOLS]
 
 #: The Windows shell only exists on win32 — ``apply_theme`` routes on the real

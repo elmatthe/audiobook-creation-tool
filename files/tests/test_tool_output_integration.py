@@ -698,7 +698,7 @@ def test_no_tool_reserves_output_outside_an_operation_start():
     starters = {
         "start_convert", "combine_mp3s", "time_edit", "write_id3", "build",
         "start_resize", "convert", "save", "on_clear_all_tags",
-        "on_remove_series_numbering", "run_job", "_reserve_run",
+        "on_remove_series_numbering", "run_job", "_reserve_run", "_destination",
     }
 
     def innermost_reservers(tree_):
@@ -861,13 +861,18 @@ def test_the_cleanup_handoff_still_fails_closed(tmp_path):
 #: Maker's frozen run plan over the shared destination and capture; not a panel.
 #: v0.6.4 Phase 5 adds ``mp3_tools.m4b_maker_batch`` as the fourteenth: the
 #: Maker's Tk-free batch runner over the shared job architecture; not a panel.
+#: v0.6.4 Phase 6 adds ``mp3_tools.m4b_artwork_ui`` (the one M4B artwork Tk
+#: control) and ``mp3_tools.m4b_maker`` itself: the Maker panel is now the
+#: second production adopter of the shared workspace, so only the Metadata
+#: Editor is still checked below.
 PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
                   "mp3_tools.m4b_converter", "mp3_tools.m4b_destinations",
                   "mp3_tools.m4b_plan", "shared.book_workspace",
                   "shared.book_workspace_ui", "mp3_tools.mp3_workflow",
                   "mp3_tools.mp3_tool", "mp3_tools.mp3_plan",
                   "mp3_tools.mp3_processing", "mp3_tools.m4b_maker_workflow",
-                  "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_maker_batch")
+                  "mp3_tools.m4b_maker_plan", "mp3_tools.m4b_maker_batch",
+                  "mp3_tools.m4b_artwork_ui", "mp3_tools.m4b_maker")
 
 
 def _tool_path(relative: str) -> Path:
@@ -911,7 +916,6 @@ def test_no_unadopted_tool_reached_for_the_plan3_foundation():
         checked.append(relative)
 
     assert sorted(checked) == [
-        "mp3_tools.m4b_maker",
         "mp3_tools.m4b_metadata_editor",
     ], checked
 

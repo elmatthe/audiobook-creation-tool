@@ -628,30 +628,38 @@ def test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_onc
         assert live not in names, live
 
 
-def test_the_moved_algorithms_are_the_panels_verbatim():
-    """The panel is hash-pinned, so its helpers are read by AST and compared to ours."""
+def test_the_moved_algorithms_left_the_panel_whole():
+    """Phase 4 proved the helpers verbatim against the hash-pinned panel by AST
+    body equality (recorded in Handoff.md). Phase 6 converted the panel, which
+    now defines none of them: the engine is the one place they live."""
     panel = ast.parse((UNIVERSAL / "mp3_tools" / "m4b_maker.py").read_text(encoding="utf-8"))
     engine = ast.parse(MODULE.read_text(encoding="utf-8"))
-
-    def body_of(tree, name):
-        node = next(n for n in ast.walk(tree)
-                    if isinstance(n, ast.FunctionDef) and n.name == name)
-        statements = [s for s in node.body
-                      if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
-        return ast.dump(ast.Module(body=statements, type_ignores=[]))
-
+    in_panel = {n.name for n in ast.walk(panel) if isinstance(n, ast.FunctionDef)}
+    in_engine = {n.name for n in ast.walk(engine) if isinstance(n, ast.FunctionDef)}
     for name in ("build_ffmetadata_from_starts", "write_concat_list", "wav_duration_ms",
                  "compute_starts_total_fast", "compute_audio_starts_with_silence",
-                 "ffprobe_duration_ms"):
-        assert body_of(panel, name) == body_of(engine, name), name
-    for constant in ("LEADIN_MS", "WAV_SR", "WAV_CH", "WAV_FMT"):
-        assert getattr(proc, constant) is not None
+                 "ffprobe_duration_ms", "normalize_to_wav", "create_silence_wav"):
+        assert name not in in_panel, name
+        assert name in in_engine, name
     assert proc.LEADIN_MS == 250 and proc.WAV_SR == 44100 and proc.WAV_CH == 2
+    assert proc.WAV_FMT == "s16"
 
 
-def test_the_maker_panel_is_still_byte_identical():
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_as_checked_out_on_windows
+def test_the_maker_panel_runs_nothing_itself():
+    """Phase 6 converted the panel; it reaches the engine only through the
+    Phase 5 runner and never imports the engine or FFmpeg directly."""
+    from test_plan6_boundaries import MAKER_PHASE0_HASH, sha256_as_checked_out_on_windows
 
     panel = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
-    assert sha256_as_checked_out_on_windows(panel) == PHASE0_PANEL_HASHES["mp3_tools/m4b_maker.py"]
-    assert "m4b_maker_processing" not in panel.read_text(encoding="utf-8")
+    assert sha256_as_checked_out_on_windows(panel) != MAKER_PHASE0_HASH
+    tree = ast.parse(panel.read_text(encoding="utf-8"))
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            modules.add(node.module or "")
+            modules |= {f"{node.module}.{alias.name}" for alias in node.names}
+    assert "mp3_tools.m4b_maker_processing" not in modules
+    assert "shared.ffmpeg_utils" not in modules
+    assert "mp3_tools.m4b_maker_batch" in modules

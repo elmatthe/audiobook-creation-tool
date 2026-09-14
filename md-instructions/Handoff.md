@@ -2,6 +2,143 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 6 COMPLETE (M4B MAKER PRODUCTION UI ADOPTION — END-TO-END, FULL GATE GREEN); PHASE 7 NOT STARTED (2026-09-13)
+>
+> **This block is the live state.** It supersedes the Phase 5 block beneath it on one point only —
+> that block names **Phase 6** as the next action. Phase 6 is now done: **the M4B Maker is the
+> second production adopter of the shared multi-Book workspace, end to end.** The Phase 0 block's
+> integration fact and active authority still stand; its **guard map** has now been reconciled for
+> the Maker (below) and still governs the Metadata Editor, which is untouched and still protected.
+>
+> **The production panel — `mp3_tools/m4b_maker.py` (rewritten, 1,449 lines; was 1,014).** A
+> thin Tk composition/orchestration adapter, on the `mp3_tool.py` precedent, over the four Maker
+> layers; no business rule lives in a widget.
+> - **Composition (ten regions, no whole-tool scrollbar):** import band (`Import Folder`, shared
+>   `ImportStatusBar`, output hint) → shared `BookNavigator` (default action set, `describe` /
+>   `label_for` hints, stable `book_numbers` display) → `SharedMetadataSurface` (`rows`) over
+>   the five Maker text fields + the common `ArtworkControl` twice → the Book-only row (Title,
+>   Series Part, Output Filename, Status) → local MP3 list (Add Files / Move Up / Move Down /
+>   Remove Selected) | local Chapter Titles box → run options (Auto-number Series Part, Start
+>   Part, Try FAST first, `Choose custom destination` toggle + hidden path row) → `Build M4B(s)` +
+>   Clear Log + the shared `JobAdapter` (control bar, status/progress) → one
+>   `SummaryDetailsView`. Only the track list, chapter box and log scroll; no `Canvas`.
+> - **Workspace:** `wf.new_workspace` at startup; `Import Folder` through the shared
+>   `ImportCoordinator`/`ImportPoller` → `wf.import_folder` (one Book per directory); `Add Files`
+>   → `wf.add_files` (current Book, natural-ordered); Add/Duplicate/Remove/Prev/Next/selector are
+>   the shared operations; Remove asks only when `has_meaningful_work` says so (Decision 50A);
+>   track move/remove are `wf.move_tracks`/`remove_tracks`; every Book-only field is stored raw
+>   through `wf.set_book_field`; the Chapter Titles box shows `wf.default_titles` until edited.
+> - **Shared → Book:** `disabled_fields` decides; a populated Shared value disables the matching
+>   Book entry and the Book artwork control; clearing restores the stored value. Auto-number ON
+>   disables the manual Series Part entry through its own two-reason seam (`_SeriesPartSeam`:
+>   Auto-number + run lock), so the lock matrix unlocking at run end cannot re-enable it.
+> - **Build:** validate (non-empty workspace, every Book's effective Silence, Start Part when
+>   Auto-number) → `_destination()`: **one** `reserve_run_directory` for standard mode, or
+>   `validate_custom_destination` + an operation-owned `tempfile.mkdtemp("act-m4b-build-")`
+>   work root **outside** the chosen folder (the existing Maker's behaviour) → `mp.plan_run`
+>   (a plan failure releases the empty reservation / removes the empty work root) → **one
+>   `MakerRun`** through the injectable `run_factory` → `_start_attempt`: the event queue exists
+>   before `run.start()` publishes, the adapter is installed for the attempt's run id, the
+>   `LockGroup` applies the controller's state, a divider heads the log, and **one worker
+>   thread** runs `Attempt.run`. Pause/Resume/Cancel/Retry Failed are the shared bar's callbacks
+>   forwarded to `MakerRun`; Retry Failed is `run.retry_failed()` — same plan, same run
+>   directory, no reservation, no widget read. `is_running` is the controller's state
+>   (`not in TERMINAL_STATES`); there is no `_busy`, no private cancel event, no private queue.
+> - **Book status** is read from the attempt's progressively published `records` during a run
+>   (Processing/Queued from the current `book-N` stage) and from `WorkspaceRunResult.disposition_for`
+>   afterwards: Completed / Failed / Skipped / Not attempted / Ready. No second model.
+> - **Artwork Tk adapter — the deferred Phase 1 seam, now delivered:**
+>   `mp3_tools/m4b_artwork_ui.py` (new, 223 lines): `ArtworkControl` (caption, in-memory
+>   preview via `m4b_artwork.preview_image`, Choose…/Clear, two disabling reasons kept apart —
+>   Shared override via `set_enabled`, run lock via `set_locked` — `MainThreadGuard` on every
+>   Tk-reaching method, `LOCK_KIND = ControlKind.PROCESSING_OPTION`, `natural_buttons` hint for
+>   aqua), `ask_artwork` (native dialog filtered by `m4b_artwork.artwork_filetypes()` = the
+>   shared probe's decodable suffixes) and `validated_artwork` (decodes through
+>   `m4b_artwork.load_cover`, reports a refusal). No suffix/MIME literal, no colour, no decoder,
+>   no Maker vocabulary — reusable by the Editor as is.
+> - **Presentation:** every widget asks `job_ui.style_name` (ACT on Windows, `""` on aqua /
+>   classic); no hex colour, no `sys.platform`, no generic-style mutation (the prototype
+>   regression's whole-app snapshot passes with the Maker converted). Layout hints read off the
+>   theme through the same `_layout_hints` seam as the MP3 Tool (navigator/actions stacking,
+>   entry width, artwork button width). **Windows 920×600 proved on a deiconified root:** every
+>   region and control is mapped with bottom and right edges inside the window; the Shared/Book
+>   band — the one row this panel widened (five text fields vs the MP3 Tool's four) — requests
+>   ≤ 900 px after narrowing the default entry width to 10 and the Book-only entries to 20/5/16.
+>   The panel's requested height (649) exceeds 600 exactly as the accepted MP3 panel's does
+>   (635): the weighted list/chapter/log rows absorb it, which is what the mapped/edge proof
+>   shows. Aqua: the stacked hints and natural artwork buttons are proved through a test bundle.
+> - **Removed with the single-Book form:** `self.files`, `_busy`, `_cancel_event`, `_log_q`,
+>   `_pump_queue`, `_build_worker`, `disable_inputs`, the FFmpeg helpers and the local filename
+>   logic. `build_ui(parent, theme=None)`, `main()`, `TOOL_KEY`, `SLUG`, `KEY_INPUT_DIR`,
+>   `KEY_COVER_DIR`, `CUSTOM_DEST_LABEL` and the custom-destination widget names are intact;
+>   six launcher tools, no new slug.
+> - **Phase 5 seams adjusted for the UI (both proved by the batch suite, still 20/20):**
+>   `Attempt.run` now composes the settled `WorkspaceRunResult` **before** publishing the
+>   terminal event (a real worker thread could otherwise race the main-thread drain), and
+>   `Attempt.records` is published progressively as each Book settles.
+>
+> **Guard reconciliation — exactly the Phase 0 map, narrow, Editor untouched:**
+> `test_plan6_boundaries`: `PHASE0_PANEL_HASHES` keeps only the Editor; the Maker digest became
+> `MAKER_PHASE0_HASH` evidence with a positive-adoption test
+> (`test_the_maker_left_the_hash_gate_by_a_real_conversion`), MP3-style.
+> `test_plan3_boundaries`: `ADOPTED` 14 → **16** (`m4b_artwork_ui.py`, `m4b_maker.py`; test
+> renamed `..._these_sixteen_...`, `len == 16`); adopting panels pinned at five; the
+> cancellation-API caller pin moved from the panel to the engine + runner.
+> `test_tool_output_integration`: `PLAN3_ADOPTERS` mirrored; the no-adoption check now names only
+> the Editor; `_destination` joined the reserve-site starters. `test_m4b_hardening`: `m4b_`-prefix
+> set names both; the `UNCONVERTED_PANELS` pin drops the Maker. `test_preferences_maintenance_ui`:
+> `UNCONVERTED_PANELS` = 3 (test renamed `..._three_...`). `test_mp3_hardening`: the Maker left
+> the "names no workspace" tuple. `test_ffmpeg_runtime_trust`: expected caller
+> `m4b_maker.py` → `m4b_maker_processing.py`. `test_launcher_smoke` / `test_prototype_regression`
+> / `test_output_location_refresh`: converted-tool lists gain `m4b_maker`.
+> **Behaviour-preservation suites re-pointed, behaviour kept:** `test_maker_custom_destination`
+> (five tests keyed to the old worker now assert the same facts where they live — the Phase 3
+> work-root contract, the engine's `_require_owned` discard, `build()` refusing an invalid
+> folder with no run reserved, the panel carrying no `rmtree`); `test_m4b_maker_smoke`
+> (helpers imported from `m4b_maker_workflow` / `m4b_maker_processing` / `shared.importing`).
+> **Earlier-phase "panel byte-identical" proofs (Phases 2–5) superseded** into "the panel now
+> consumes this layer" assertions; the verbatim-move proofs stand as recorded in the Phase 2 and
+> Phase 4 blocks and are now "the panel defines none of these; the layer does".
+>
+> **RED → GREEN evidence.** `test_m4b_maker_ui.py` (28 tests) and `test_m4b_artwork_ui.py`
+> (13) were both red at collection (`cannot import name 'm4b_artwork_ui'`; the adapter was
+> parked out of tree so its own tests could be proved red, then restored: 12/13 with only the
+> `ADOPTED` pin failing); the panel suite went red on the old constructor
+> (`unexpected keyword argument 'theme'`), then 23/28, 27/28, **28/28** — the remaining
+> failures were my tests' assumptions (the import scan also uses the thread factory; parked
+> threads must be installed after import; the run is built through `_run_factory`; a
+> requested-height assertion stricter than the accepted MP3 panel, replaced by on-screen
+> mapped/edge checks plus the widened row's width). Guard suites: 24 expected failures → 0.
+>
+> **PHASE 6 GATE (plan §11 checkpoint — full, Windows, 2026-09-13).**
+> 1. Focused Maker UI/workspace/job/layout regressions (both new suites + Maker layers +
+>    shared workspace UI + MP3 UI + Editor UI + launcher/prototype/settings + every guard):
+>    **1,444 passed / 0 failed**.
+> 2. **Full pytest: 7,200 collected / 7,171 passed / 29 skipped / 0 failed** in 7:27.
+>    Reconciled against Phase 5 (7,161) to the test: +13 artwork UI, +28 Maker UI,
+>    +1 `test_launch_self_heal` and +1 `test_settings_allowlist` (each parametrised over
+>    production modules; one new module), −2 `test_plan3_boundaries` (two modules left the
+>    parametrised no-adoption guards), −2 `test_plan6_boundaries` (two Maker hash-pin params
+>    retired, one adoption test added) = **+39**. Skips: the Phase 0 set exactly (13 aqua-only,
+>    10 symlink-privilege, 3 case-insensitive filesystem, 3 `JACK_RYAN_M4B_FOLDER`); 1 warning
+>    (pre-existing pydub `audioop`).
+> 3. **`python scripts/verify.py`: **RESULT: PASS** on the first attempt (pytest 7,171 passed / 29 skipped / 1 warning in 7:23; deps / docs / docnames / config PASS).**
+> 4. `compileall` (`scripts/Universal`, `scripts/verify.py`, `files/tests`): exit 0.
+> 5. `git diff --check` (worktree and index): clean.
+> 6. Invariants: branch `feature/0.6.4-m4b-maker-metadata-editor`; `origin/master` unmoved at
+>    `e0bab662`; `launcher.TOOLS` = 6; version `0.6.2`; `config-template.toml` absent; four
+>    canonical doc names; `don't-delete/`, the launcher, **the Metadata Editor** and the version
+>    files byte-identical to the anchor; `verify.py` not modified.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 7 — METADATA EDITOR SOURCE/WORKSPACE MODEL. IT HAS NOT
+> STARTED** and requires separate explicit maintainer approval. Phase 7 is Tk-free
+> (`mp3_tools/m4b_metadata_workflow.py`: frozen source observations, one imported M4B-family
+> occurrence = one Book, Shared starts blank, per-Book prefill, blank = preserve, series
+> provenance, chapter buffers) over the Plan 3 importer; **no metadata writes and no Editor
+> panel change** — `PHASE0_PANEL_HASHES` still pins `m4b_metadata_editor.py` until Phase 10.
+> The Windows manual acceptance of the Maker (Phase 12) waits for the combined hardening
+> matrix (Phase 11) after the Editor phases.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 5 COMPLETE (M4B MAKER BATCH EXECUTION, SUCCESS NUMBERING, RETRY FAILED — MILESTONE GATE GREEN); PHASE 6 NOT STARTED (2026-09-13)
 >
 > **This block is the live state.** It supersedes the Phase 4 block beneath it on one point only —

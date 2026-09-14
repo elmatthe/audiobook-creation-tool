@@ -734,7 +734,7 @@ def test_the_two_adoption_tuples_disagree_about_the_converter_on_purpose():
     assert "mp3_tools/m4b_converter.py" in UNCONVERTED_PANELS
     assert set(UNCONVERTED_PANELS) == {
         "mp3_tools/cover_resizer.py", "mp3_tools/m4b_converter.py",
-        "mp3_tools/m4b_maker.py", "tts/epub2tts_gui.py",
+        "tts/epub2tts_gui.py",
     }
 
 
@@ -748,9 +748,10 @@ def test_the_converter_local_modules_that_adopted_are_exactly_these():
     """
     from test_plan3_boundaries import ADOPTED
 
-    # ``m4b_maker_workflow`` (v0.6.4 Phase 2), ``m4b_maker_plan`` (Phase 3) and
-    # ``m4b_maker_batch`` (Phase 5) share the prefix but are the Maker's, not the
-    # Converter's; they are named here so the Converter set stays exact.
+    # ``m4b_maker_workflow`` (v0.6.4 Phase 2), ``m4b_maker_plan`` (Phase 3),
+    # ``m4b_maker_batch`` (Phase 5), and ``m4b_artwork_ui`` + the ``m4b_maker``
+    # panel (Phase 6) share the prefix but are the Maker's, not the Converter's;
+    # they are named here so the Converter set stays exact.
     converter_local = {name for name in ADOPTED if name.startswith("mp3_tools/m4b_")}
     assert converter_local == {
         "mp3_tools/m4b_converter.py",
@@ -759,6 +760,8 @@ def test_the_converter_local_modules_that_adopted_are_exactly_these():
         "mp3_tools/m4b_maker_workflow.py",
         "mp3_tools/m4b_maker_plan.py",
         "mp3_tools/m4b_maker_batch.py",
+        "mp3_tools/m4b_artwork_ui.py",
+        "mp3_tools/m4b_maker.py",
     }
 
 

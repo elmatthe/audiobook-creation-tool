@@ -400,21 +400,17 @@ def test_the_automatic_title_is_the_makers_cleaned_filename(stem, expected):
     assert wf.normalize_title(stem) == expected
 
 
-def test_the_automatic_title_rule_is_the_existing_makers_verbatim():
-    """The panel is hash-pinned, so its rule is read by AST and compared to ours."""
+def test_the_automatic_title_rule_moved_out_of_the_panel_whole():
+    """Phase 2 proved the rule verbatim against the hash-pinned panel by AST body
+    equality (recorded in Handoff.md). Phase 6 converted the panel, which now
+    defines neither helper: the model is the one place the rule lives."""
     panel = ast.parse((UNIVERSAL / "mp3_tools" / "m4b_maker.py").read_text(encoding="utf-8"))
     model = ast.parse(MODULE.read_text(encoding="utf-8"))
-
-    def body_of(tree, name):
-        """The function's statements with any docstring dropped, as a canonical dump."""
-        node = next(n for n in ast.walk(tree)
-                    if isinstance(n, ast.FunctionDef) and n.name == name)
-        statements = [s for s in node.body
-                      if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
-        return ast.dump(ast.Module(body=statements, type_ignores=[]))
-
+    defined_in_panel = {n.name for n in ast.walk(panel) if isinstance(n, ast.FunctionDef)}
+    defined_in_model = {n.name for n in ast.walk(model) if isinstance(n, ast.FunctionDef)}
     for name in ("strip_leading_numbers", "normalize_title"):
-        assert body_of(panel, name) == body_of(model, name), name
+        assert name not in defined_in_panel, name
+        assert name in defined_in_model, name
 
 
 def test_default_titles_follow_the_books_current_order():
@@ -589,10 +585,11 @@ def test_the_model_is_registered_as_a_plan3_adopter():
     assert "mp3_tools/m4b_maker_workflow.py" in ADOPTED
 
 
-def test_the_maker_panel_is_still_byte_identical_and_adopts_nothing():
-    """Phase 2 builds the model; the panel conversion is Phase 6."""
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_as_checked_out_on_windows
+def test_the_maker_panel_now_consumes_the_model():
+    """Phase 2 built the model behind an untouched panel; Phase 6 made the panel
+    its consumer (the old byte-identity pin retired with the conversion)."""
+    from test_plan6_boundaries import MAKER_PHASE0_HASH, sha256_as_checked_out_on_windows
 
     panel = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
-    assert sha256_as_checked_out_on_windows(panel) == PHASE0_PANEL_HASHES["mp3_tools/m4b_maker.py"]
-    assert "m4b_maker_workflow" not in panel.read_text(encoding="utf-8")
+    assert sha256_as_checked_out_on_windows(panel) != MAKER_PHASE0_HASH
+    assert "m4b_maker_workflow" in panel.read_text(encoding="utf-8")

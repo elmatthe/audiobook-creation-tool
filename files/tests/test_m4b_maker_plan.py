@@ -591,9 +591,11 @@ def test_the_plan_module_is_registered_as_a_plan3_adopter():
     assert "mp3_tools/m4b_maker_plan.py" in ADOPTED
 
 
-def test_the_maker_panel_is_still_byte_identical():
-    from test_plan6_boundaries import PHASE0_PANEL_HASHES, sha256_as_checked_out_on_windows
+def test_the_maker_panel_now_plans_through_this_module():
+    """Phase 3 froze the plan behind an untouched panel; Phase 6 made the panel
+    call ``plan_run`` (the old byte-identity pin retired with the conversion)."""
+    from test_plan6_boundaries import MAKER_PHASE0_HASH, sha256_as_checked_out_on_windows
 
     panel = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
-    assert sha256_as_checked_out_on_windows(panel) == PHASE0_PANEL_HASHES["mp3_tools/m4b_maker.py"]
-    assert "m4b_maker_plan" not in panel.read_text(encoding="utf-8")
+    assert sha256_as_checked_out_on_windows(panel) != MAKER_PHASE0_HASH
+    assert "m4b_maker_plan" in panel.read_text(encoding="utf-8")

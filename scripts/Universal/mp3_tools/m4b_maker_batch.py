@@ -161,22 +161,30 @@ class Attempt:
         self._ran = True
         controller, reporter = self.controller, self.reporter
         records: list[BookRecord] = []
-        try:
-            try:
-                self._execute(records)
-                final = (controller.complete_with_failures()
-                         if any(not entry.succeeded for entry in records)
-                         else controller.succeed())
-                reporter.completed(final)
-            except ConversionCancelled:
-                reporter.cancelled(controller.finish_cancelled())
-            except BaseException as exc:  # noqa: BLE001 - deliberately everything
-                detail = f"{type(exc).__name__}: {exc}"
-                reporter.technical(detail)
-                reporter.completed(controller.fail(FAULT_MESSAGE, detail))
-        finally:
+
+        def settle(final) -> None:
+            # The result exists *before* the terminal event is published, so a
+            # consumer draining that event on another thread always finds it.
             self.records = tuple(records)
-            self.result = self._owner._settle(self, controller.state)
+            self.result = self._owner._settle(self, final.state)
+
+        try:
+            self._execute(records)
+            final = (controller.complete_with_failures()
+                     if any(not entry.succeeded for entry in records)
+                     else controller.succeed())
+            settle(final)
+            reporter.completed(final)
+        except ConversionCancelled:
+            final = controller.finish_cancelled()
+            settle(final)
+            reporter.cancelled(final)
+        except BaseException as exc:  # noqa: BLE001 - deliberately everything
+            detail = f"{type(exc).__name__}: {exc}"
+            reporter.technical(detail)
+            final = controller.fail(FAULT_MESSAGE, detail)
+            settle(final)
+            reporter.completed(final)
         return self.result
 
     # -- the Books ----------------------------------------------------------- #
@@ -190,6 +198,9 @@ class Attempt:
             self.reporter.progress(done, total, item_id=book.occurrence_ids[0],
                                    stage=f"book-{book.number}")
             records.append(self._run_book(book))
+            # Visible as each Book settles, so a live status can be read from
+            # the attempt without a second state model beside it.
+            self.records = tuple(records)
         self.reporter.progress(total, total, stage="done")
 
     def _run_book(self, book: BookPlan) -> BookRecord:
