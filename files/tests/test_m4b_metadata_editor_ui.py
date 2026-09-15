@@ -885,6 +885,31 @@ def test_the_windows_minimum_geometry_keeps_every_region_reachable(tk_root, make
             right = widget.winfo_rootx() - left + widget.winfo_width()
             assert bottom <= height + 1, (widget, bottom, height)
             assert right <= width + 1, (widget, right, width)
+    finally:
+        panel.pack_forget()
+        tk_root.withdraw()
+
+
+@windows_only
+def test_the_shared_book_band_fits_the_padded_windows_minimum(tk_root, make_panel):
+    """The seven-field Shared/Book band must fit inside the padded 920.
+
+    A pixel budget of the accepted Windows composition, so Windows only: the
+    Windows bundle asked for through the theme seam on a Mac still draws with
+    native aqua entries and fonts (``clam`` + the system font, no Segoe UI),
+    where the same band asks for ~1066 px — a number that describes the host's
+    metrics, not the composition. The reachability proof above stays
+    unconditional; the aqua composition has its own gate in
+    ``test_m4b_layout.py`` (v0.6.4 Phase 13).
+    """
+    panel = make_panel()
+    tk_root.deiconify()
+    try:
+        panel.pack(fill="both", expand=True)
+        tk_root.geometry("920x600")
+        for _ in range(6):
+            tk_root.update_idletasks()
+            tk_root.update()
         assert panel.surface.frame.winfo_reqwidth() <= 900, panel.surface.frame.winfo_reqwidth()
     finally:
         panel.pack_forget()
@@ -904,6 +929,71 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
         assert str(panel.btn_save.cget("style")) == ""
         assert [str(w) for w in _walk(panel) if _style_of(w).startswith("ACT.")] == []
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
+        # Without the Phase 13 hints the composition is the Windows one.
+        assert panel.btn_open_out.master is panel.btn_import_folder.master
+        assert panel.surface.field_lines == 1 and panel.surface.field_columns == 7
+        assert panel.btn_clear_log.grid_info()["row"] == 3
+        assert panel.btn_clear_log.grid_info()["column"] == 0
+        assert panel.facts_label.master.grid_info()["row"] == 2
+        assert int(panel.chapter_text.cget("height")) == 3
+    finally:
+        panel.close()
+        panel.destroy()
+
+
+def test_the_phase_13_aqua_hints_fold_the_composition_through_the_same_seam(tk_root):
+    """v0.6.4 Phase 13 (macOS parity): the real aqua bundle's hints, read with
+    the Windows values as defaults. Measured in the real shell by
+    ``test_m4b_layout.py``; pinned here as the seam's contract on any host."""
+    aqua = {"mode": "aqua", "geometry": ui_theme.AQUA_GEOMETRY,
+            "min_size": ui_theme.AQUA_MIN_SIZE,
+            "metrics": {"navigator_layout": "stacked", "actions_layout": "stacked",
+                        "artwork_buttons": "natural", "content_pad": 12,
+                        "import_band_layout": "compact", "group_pad": 4, "field_gap": 6,
+                        "field_columns": 4, "actions_columns": 2,
+                        "navigator_layout_one_action": "row",
+                        "readback_layout": "compact", "note_wrap": 740,
+                        "chapter_rows": 2}}
+    panel = editor.M4BMetadataEditorUI(tk_root, theme=aqua, effective_config=make_config(),
+                                       thread_factory=RecordingThreads(),
+                                       choose_files=lambda: (), choose_folder=lambda: ())
+    try:
+        # The one-action navigator takes the one-line layout the theme allows it.
+        assert panel.navigator.layout == "row"
+        # Import band: the status bar keeps its width, the hint yields.
+        top = panel.btn_import_folder.master
+        assert int(top.grid_columnconfigure(3)["weight"]) == 0
+        assert int(top.grid_columnconfigure(4)["weight"]) == 1
+        assert panel.output_label.grid_info()["sticky"] == "ew"
+        assert panel.import_status.frame.grid_info()["sticky"] == "w"
+        # Open Output Folder is the same control with the same command, in
+        # the actions block, beneath the two destructive actions.
+        assert panel.btn_open_out.master is panel.btn_save.master
+        assert str(panel.btn_open_out.cget("text")) == "Open Output Folder"
+        assert panel.btn_open_out.grid_info()["row"] == 2
+        assert panel.btn_open_out.grid_info()["column"] == 1
+        assert (panel.btn_save.grid_info()["row"], panel.btn_save.grid_info()["column"]) == (0, 0)
+        assert (panel.btn_clear_log.grid_info()["row"],
+                panel.btn_clear_log.grid_info()["column"]) == (1, 0)
+        assert (panel.btn_clear_tags.grid_info()["row"],
+                panel.btn_clear_tags.grid_info()["column"]) == (0, 1)
+        assert (panel.btn_remove_numbering.grid_info()["row"],
+                panel.btn_remove_numbering.grid_info()["column"]) == (1, 1)
+        # Seven fields fold 4 + 3; the artwork spans the field rows only and
+        # the read-back runs the full width beneath, facts on the series line.
+        assert panel.surface.field_columns == 4 and panel.surface.field_lines == 2
+        assert panel.shared_artwork.frame.grid_info()["rowspan"] == 4
+        assert panel.book_artwork.frame.grid_info()["rowspan"] == 4
+        readback = panel.readback_label.master
+        assert readback.grid_info()["row"] == 4
+        assert readback.grid_info()["columnspan"] == 5
+        assert panel.facts_label.master.grid_info()["row"] == 1
+        assert panel.facts_label.master.grid_info()["column"] == 1
+        assert int(panel.hint_label.cget("wraplength")) == 740
+        assert int(panel.chapter_text.cget("height")) == 2
+        # Every control and caption is still there; nothing is platform-named.
+        assert str(panel.hint_label.cget("text")) == editor.PRESERVE_HINT
+        assert [str(w) for w in _walk(panel) if _style_of(w).startswith("ACT.")] == []
     finally:
         panel.close()
         panel.destroy()

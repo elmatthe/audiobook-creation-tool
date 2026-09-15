@@ -72,6 +72,16 @@ Canonical integration fact:
 
 Treat stale wording as a documentation-reconciliation item, **not a production defect**.
 
+### 2.3 Maintainer supersession dated 2026-09-15 — macOS minimum window (Phase 13)
+
+Phase 13 measured both M4B tools in the real launcher under native Aqua at the 1024×720 floor of §3.2 and found a genuine Mac-only layout defect (import band, Shared/Book entries, the Maker's Book-only and run-options rows) whose bounded remedies fold bands onto more lines — which the 604 px content host of a 1024×720 window cannot absorb while keeping the chapter editor and log readable. The maintainer ruled:
+
+- Windows remains unchanged at `920×600`;
+- the macOS / native Aqua minimum becomes **`1024×800`** (`ui_theme.AQUA_MIN_SIZE`), which is also the size the launcher opens at on macOS (`ui_theme.AQUA_GEOMETRY`), through the existing platform/window-sizing authority;
+- this is a platform layout/minimum-size contract change only; business behavior stays identical across platforms, Windows layout is not weakened and no business logic branches by platform.
+
+§3.2 and the Phase 13 manual floor below read accordingly. Permanent-document reconciliation of this ruling belongs to Phase 14.
+
 ---
 
 ## 3. Baseline and invariants
@@ -118,7 +128,7 @@ Windows:
 macOS:
 
 - use native Aqua/Finder presentation;
-- minimum remains `1024×720`.
+- minimum is `1024×800` (§2.3, maintainer ruling 2026-09-15; `1024×720` before Phase 13), and the launcher opens at that size.
 
 Both platforms expose the same functional behavior. Layout may respond to native control metrics through the existing theme/layout seam.
 
@@ -1791,7 +1801,7 @@ Run platform-relevant focused tests followed by one complete macOS suite/verify 
 
 ### Manual
 
-At `1024×720` and larger:
+At `1024×800` (the ruled macOS minimum, §2.3) and larger:
 
 - inspect both layouts;
 - confirm no inaccessible controls or whole-tool scroll dependency;

@@ -92,10 +92,12 @@ def test_apply_theme_on_current_platform(tk_root):
     theme = ui_theme.apply_theme(tk_root, style)
 
     assert REQUIRED_KEYS <= set(theme)
-    assert theme["geometry"] == "1024x720"
-    # The minimum is the platform's (Phase 12 maintainer ruling): native aqua
-    # metrics need the 1024x720 window the launcher opens at; Windows and the
-    # classic branch keep 920x600.
+    # The minimum is the platform's (maintainer rulings, v0.6.3 MP3 Phase 12
+    # and v0.6.4 Phase 13): native aqua metrics need the 1024x800 window the
+    # launcher opens at on macOS; Windows and the classic branch keep 920x600
+    # and open at 1024x720.
+    assert theme["geometry"] == (
+        ui_theme.AQUA_GEOMETRY if theme["mode"] == "aqua" else ui_theme.DEFAULT_GEOMETRY)
     assert theme["min_size"] == (
         ui_theme.AQUA_MIN_SIZE if theme["mode"] == "aqua" else ui_theme.MIN_SIZE)
     assert theme["font_heading"][1:] == (15, "bold")
@@ -103,7 +105,7 @@ def test_apply_theme_on_current_platform(tk_root):
     if sys.platform == "darwin":
         assert theme["mode"] == "aqua"
         assert style.theme_use() == "aqua"
-        assert theme["min_size"] == (1024, 720)
+        assert theme["min_size"] == (1024, 800)
         colors, metrics = theme["colors"], theme["metrics"]
         assert colors and metrics
         for name, value in colors.items():
@@ -633,11 +635,40 @@ def test_classic_branch_other_platform(tk_root):
 # ---------------------------------------------------------------------------
 
 def test_the_minimum_window_is_pinned_per_platform():
-    """Windows stays at 920x600; aqua is 1024x720 (maintainer ruling)."""
+    """Windows stays at 920x600 and opens at 1024x720; aqua is 1024x800
+    (v0.6.4 Phase 13 maintainer ruling, superseding v0.6.3's 1024x720)."""
     assert ui_theme.MIN_SIZE == (920, 600)
-    assert ui_theme.AQUA_MIN_SIZE == (1024, 720)
-    assert ui_theme.DEFAULT_GEOMETRY == "1024x720", (
+    assert ui_theme.DEFAULT_GEOMETRY == "1024x720"
+    assert ui_theme.AQUA_MIN_SIZE == (1024, 800)
+    assert ui_theme.AQUA_GEOMETRY == "1024x800", (
         "the aqua minimum is the size the launcher opens at")
+
+
+#: Every panel-composition hint the aqua bundle carries (v0.6.3 MP3 Phase 12
+#: and v0.6.4 Phase 13). A panel reads each with the accepted Windows value as
+#: its default, so the Windows bundle must carry none of them.
+AQUA_PANEL_HINTS = {
+    "panel_pad", "panel_gap", "panel_gap_small", "navigator_layout", "actions_layout",
+    "field_entry_width", "field_label_wrap", "field_label_wrap_narrow",
+    "artwork_buttons", "artwork_gap",
+    "import_band_layout", "group_pad", "field_gap", "field_columns",
+    "field_label_wrap_short", "book_fields_span", "options_layout", "actions_columns",
+    "navigator_layout_one_action", "readback_layout", "note_wrap", "chapter_rows",
+}
+
+
+def test_the_windows_bundle_carries_no_panel_composition_hint(windows_theme):
+    """The aqua hints live in the aqua bundle only; Windows keeps its accepted
+    Phase 12 composition because its panels see only their own defaults."""
+    _style, theme = windows_theme
+    assert AQUA_PANEL_HINTS.isdisjoint(theme["metrics"])
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the aqua branch needs aqua")
+def test_the_aqua_bundle_carries_every_panel_composition_hint(tk_root):
+    style = ttk.Style(tk_root)
+    theme = ui_theme.apply_theme(tk_root, style)
+    assert AQUA_PANEL_HINTS <= set(theme["metrics"])
 
 
 def test_windows_minimum_stays_920x600_whatever_the_host(windows_theme):
@@ -647,12 +678,12 @@ def test_windows_minimum_stays_920x600_whatever_the_host(windows_theme):
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="the aqua branch needs aqua")
-def test_aqua_minimum_is_1024x720_on_a_real_mac(tk_root):
+def test_aqua_minimum_is_1024x800_on_a_real_mac(tk_root):
     style = ttk.Style(tk_root)
     theme = ui_theme.apply_theme(tk_root, style)
     assert theme["mode"] == "aqua"
-    assert theme["min_size"] == (1024, 720) == ui_theme.AQUA_MIN_SIZE
-    assert theme["geometry"] == "1024x720"
+    assert theme["min_size"] == (1024, 800) == ui_theme.AQUA_MIN_SIZE
+    assert theme["geometry"] == "1024x800" == ui_theme.AQUA_GEOMETRY
 
 
 def test_the_platform_seam_selects_the_branch_without_touching_sys_platform(tk_root):

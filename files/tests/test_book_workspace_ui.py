@@ -1778,6 +1778,62 @@ def test_an_unknown_layout_is_refused(parent, windows_theme):
             SharedMetadataSurface(parent, TWO, theme=windows_theme, layout=wrong)
 
 
+SEVEN = tuple((f"key_{n}", f"Field {n}") for n in range(7))
+
+
+def test_the_rows_layout_folds_the_fields_at_the_requested_column_count(
+        parent, windows_theme):
+    """v0.6.4 Phase 13 (macOS parity): ``columns`` folds the left-to-right
+    fields onto as many lines as they need, ``columns`` per line, each label
+    still directly above its entry. Under native aqua metrics seven fields plus
+    an artwork control on one row squeezed every entry to ~61 px; on Windows
+    the accepted one-line composition is the default and is not touched."""
+    made = SharedMetadataSurface(parent, SEVEN, theme=windows_theme, layout="rows",
+                                 show_header=False, columns=4)
+    try:
+        assert made.field_columns == 4
+        assert made.field_lines == 2
+        for index, (key, _display) in enumerate(SEVEN):
+            line, column = divmod(index, 4)
+            row = made._rows[key]
+            for label, entry in ((row.label, row.shared_entry),
+                                 (row.book_label, row.book_entry)):
+                assert label.grid_info()["column"] == entry.grid_info()["column"] == column
+                assert label.grid_info()["row"] == 2 * line
+                assert entry.grid_info()["row"] == 2 * line + 1
+        # Only the columns in use share the width; a phantom fifth would
+        # reserve slack for nothing.
+        for frame in (made.shared_frame, made.book_frame):
+            assert [int(frame.grid_columnconfigure(c)["weight"]) for c in range(5)] == [
+                1, 1, 1, 1, 0]
+    finally:
+        made.close()
+
+
+def test_the_column_count_defaults_to_one_line_and_is_validated(parent, windows_theme):
+    made = SharedMetadataSurface(parent, SEVEN, theme=windows_theme, layout="rows")
+    try:
+        assert made.field_columns == 7 and made.field_lines == 1
+        for index, (key, _display) in enumerate(SEVEN):
+            assert made._rows[key].shared_entry.grid_info()["column"] == index
+            assert made._rows[key].shared_entry.grid_info()["row"] == 1
+    finally:
+        made.close()
+    wide = SharedMetadataSurface(parent, TWO, theme=windows_theme, layout="rows", columns=9)
+    try:
+        assert wide.field_columns == 2 and wide.field_lines == 1, "never more than the fields"
+    finally:
+        wide.close()
+    for wrong in (0, -1, "2", 2.5):
+        with pytest.raises(BookWorkspaceUiError):
+            SharedMetadataSurface(parent, TWO, theme=windows_theme, layout="rows",
+                                  columns=wrong)
+    # The stacked geometry has one column by definition.
+    with pytest.raises(BookWorkspaceUiError):
+        SharedMetadataSurface(parent, TWO, theme=windows_theme, layout="columns",
+                              columns=2)
+
+
 def test_the_caption_and_header_can_be_dropped_by_a_compact_consumer(
         parent, windows_theme):
     """A consumer that captions the region itself does not get a second caption."""

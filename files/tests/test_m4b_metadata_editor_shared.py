@@ -28,11 +28,18 @@ from mp3_tools.m4b_metadata_workflow import ObservationStore
 
 _IDS = IdFactory("eds-")
 
+#: The canned import root. ``ImportRoot`` requires an absolute path, and
+#: ``C:/canned`` is absolute only on Windows — the v0.6.4 Phase 13 Mac gate
+#: was the first to run this module on a POSIX host (six failures at the
+#: fixture, nothing to do with the behaviour under test). Nothing here is
+#: read from disk, so any absolute path will do.
+CANNED = Path("C:/canned") if Path("C:/canned").is_absolute() else Path("/canned")
+
 
 def imported(name: str) -> ImportedFile:
-    root = ImportRoot("r", Path("C:/canned"), 0)
+    root = ImportRoot("r", CANNED, 0)
     occurrence = _IDS.next_id("occurrence")
-    return ImportedFile(occurrence, Path("C:/canned") / name, root, PurePath(name),
+    return ImportedFile(occurrence, CANNED / name, root, PurePath(name),
                         wf.EDITOR_TYPE.type_id, f"id-{occurrence}")
 
 

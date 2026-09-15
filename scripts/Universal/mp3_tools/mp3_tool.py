@@ -430,6 +430,9 @@ def _layout_hints(theme) -> dict:
         "label_wrap_narrow": metrics.get("field_label_wrap_narrow"),
         "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
         "artwork_gap": int(metrics.get("artwork_gap", 12)),
+        # v0.6.4 Phase 13 (macOS parity): Clear All Imports widened this band
+        # past the aqua host, squeezing the import status bar to one pixel.
+        "import_band_layout": str(metrics.get("import_band_layout", "row")),
     }
 
 
@@ -722,7 +725,6 @@ class MP3ToolUI(ttk.Frame):
         # -- row 0: workspace-level import ------------------------------ #
         top = ttk.Frame(self, style=style_name(theme, "window"))
         top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
-        top.columnconfigure(2, weight=1)
         self.btn_import_folder = ttk.Button(
             top, text="Import Folder", style=style_name(theme, "button"),
             command=self.import_folder)
@@ -735,11 +737,21 @@ class MP3ToolUI(ttk.Frame):
         self.btn_clear_imports.grid(row=0, column=1, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
             top, theme=theme, on_cancel=self.cancel_import)
-        self.import_status.frame.grid(row=0, column=2, sticky="ew", padx=(10, 10))
         self.output_label = ttk.Label(
             top, textvariable=self.var_outdir, anchor="e",
             style=style_name(theme, "secondary_label"))
-        self.output_label.grid(row=0, column=3, sticky="e")
+        if hints["import_band_layout"] == "compact":
+            # The status bar keeps its natural width — it is the only place
+            # a running scan and its Cancel appear — and the output hint is
+            # the one thing that yields: right-anchored, so a path the band
+            # cannot hold in full still shows where the run lands.
+            top.columnconfigure(3, weight=1)
+            self.import_status.frame.grid(row=0, column=2, sticky="w", padx=(10, 10))
+            self.output_label.grid(row=0, column=3, sticky="ew")
+        else:
+            top.columnconfigure(2, weight=1)
+            self.import_status.frame.grid(row=0, column=2, sticky="ew", padx=(10, 10))
+            self.output_label.grid(row=0, column=3, sticky="e")
 
         # -- row 1: the shared navigator --------------------------------- #
         self.navigator = BookNavigator(

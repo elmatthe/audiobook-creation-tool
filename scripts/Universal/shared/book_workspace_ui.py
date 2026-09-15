@@ -748,9 +748,17 @@ class SharedMetadataSurface:
     ``show_header=False`` drops the caption and explanatory line for a consumer that
     captions the region itself; ``wraplength`` lets a long display label fold
     instead of widening its column — one width in pixels for every label, or a
-    mapping of field name to width for just those labels — and ``entry_width``
+    mapping of field name to width for just those labels — ``entry_width``
     sets the entries' minimum width in characters so a wide vocabulary still
-    fits the minimum window. The consumer places ``frame`` — and may place
+    fits the minimum window, and ``columns`` folds the ``"rows"`` geometry's
+    left-to-right fields onto as many lines as they need, that many per line,
+    each label still directly above its entry, and ``field_gap`` is the space
+    between neighbouring fields in pixels (v0.6.4 Phase 13: seven fields
+    beside an artwork control do not fit one line under native aqua metrics,
+    and five plus the artwork need a slightly tighter gap).
+    ``field_columns`` and ``field_lines`` report the resulting shape so the
+    consumer can place its own controls beside or beneath the fields. The
+    consumer places ``frame`` — and may place
     its own non-text controls beside these groups — but nothing tool-specific is
     drawn here.
 
@@ -772,7 +780,7 @@ class SharedMetadataSurface:
     __slots__ = ("_guard", "_theme", "_closed", "_specs", "_rows", "_workspace",
                  "_on_shared_change", "_on_book_change", "_suspended", "_traces",
                  "_layout", "frame", "header", "title_label", "shared_frame",
-                 "book_frame")
+                 "book_frame", "field_columns", "field_lines")
 
     def __init__(
         self,
@@ -788,12 +796,22 @@ class SharedMetadataSurface:
         show_header: bool = True,
         wraplength: int | Mapping[str, int] | None = None,
         entry_width: int | None = None,
+        columns: int | None = None,
+        field_gap: int = 8,
         on_shared_change: Callable[[str, str], object] | None = None,
         on_book_change: Callable[[str, str], object] | None = None,
     ) -> None:
         if layout not in self.LAYOUTS:
             raise BookWorkspaceUiError(
                 f"layout must be one of {self.LAYOUTS!r}, got {layout!r}")
+        if columns is not None:
+            if isinstance(columns, bool) or not isinstance(columns, int) or columns < 1:
+                raise BookWorkspaceUiError(
+                    f"columns must be a positive int or None, got {columns!r}")
+            if layout != "rows":
+                raise BookWorkspaceUiError(
+                    "columns applies to the 'rows' geometry only; the 'columns' "
+                    "geometry stacks every field in one column")
         self._guard = MainThreadGuard(thread_id)
         self._theme = theme
         self._closed = False
@@ -872,6 +890,17 @@ class SharedMetadataSurface:
         # stretch with their column, but a consumer with many fields across
         # one row can keep the row inside the supported minimum window.
         narrow = {} if entry_width is None else {"width": int(entry_width)}
+        # The shape of the "rows" geometry: ``columns`` fields per line, as
+        # many lines as that needs; one line of every field by default. The
+        # "columns" geometry is one column of every field by definition.
+        if layout == "rows":
+            per_line = len(self._specs) if columns is None else min(columns, len(self._specs))
+            per_line = max(1, per_line)
+            self.field_columns = per_line
+            self.field_lines = max(1, -(-len(self._specs) // per_line))
+        else:
+            self.field_columns = 1
+            self.field_lines = len(self._specs)
         for index, (name, display) in enumerate(self._specs):
             row = self._rows[name]
             if layout == "columns":
@@ -880,11 +909,15 @@ class SharedMetadataSurface:
                             "pady": (0 if index == 0 else 8, 0)}
                 entry_at = {"row": index * 2 + 1, "column": 0}
             else:
-                # Side by side: every label on row 0, every entry on row 1.
-                label_at = {"row": 0, "column": index,
-                            "padx": (0 if index == 0 else 8, 0)}
-                entry_at = {"row": 1, "column": index,
-                            "padx": (0 if index == 0 else 8, 0)}
+                # Side by side: labels on one row, entries on the next, the
+                # fields left to right; a folded surface continues on the
+                # next pair of rows.
+                line, column = divmod(index, self.field_columns)
+                label_at = {"row": line * 2, "column": column,
+                            "padx": (0 if column == 0 else int(field_gap), 0),
+                            "pady": (0 if line == 0 else 4, 0)}
+                entry_at = {"row": line * 2 + 1, "column": column,
+                            "padx": (0 if column == 0 else int(field_gap), 0)}
 
             wrap = wrap_for.get(name, {})
             row.label = ttk.Label(self.shared_frame, text=display,
@@ -912,9 +945,8 @@ class SharedMetadataSurface:
         # column to the widest label and push a five-field consumer past the
         # 920px minimum. Each column keeps its own natural width and the slack
         # is shared evenly.
-        field_columns = len(self._specs) if layout == "rows" else 1
         for group in (self.shared_frame, self.book_frame):
-            for column in range(max(1, field_columns)):
+            for column in range(self.field_columns):
                 group.columnconfigure(column, weight=1)
 
     # -- wiring ------------------------------------------------------------- #

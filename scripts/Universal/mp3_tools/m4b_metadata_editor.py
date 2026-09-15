@@ -195,12 +195,29 @@ def _layout_hints(theme) -> dict:
         "pad": int(metrics.get("panel_pad", 10)),
         "gap": int(metrics.get("panel_gap", 6)),
         "gap_small": int(metrics.get("panel_gap_small", 4)),
-        "navigator_layout": str(metrics.get("navigator_layout", "row")),
+        # This navigator carries one action (Remove Book), so a theme may say
+        # it fits on one line where a fuller navigator must stack.
+        "navigator_layout": str(metrics.get(
+            "navigator_layout_one_action", metrics.get("navigator_layout", "row"))),
         "actions_layout": str(metrics.get("actions_layout", "row")),
         "entry_width": int(metrics.get("field_entry_width", 9)),
         "label_wrap": metrics.get("field_label_wrap"),
         "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
         "artwork_gap": int(metrics.get("artwork_gap", 12)),
+        # v0.6.4 Phase 13 (macOS parity), measured on the real launcher at
+        # the aqua floor: the import band pushed Open Output Folder past the
+        # host, seven fields beside the artwork squeezed every entry, and the
+        # fixed bands left the chapter editor and log under two rows. Same
+        # defaults rule: the Windows bundle carries none of these, so its
+        # accepted composition is untouched.
+        "import_band_layout": str(metrics.get("import_band_layout", "row")),
+        "group_pad": int(metrics.get("group_pad", 8)),
+        "field_gap": int(metrics.get("field_gap", 8)),
+        "field_columns": metrics.get("field_columns"),
+        "actions_columns": int(metrics.get("actions_columns", 1)),
+        "readback_layout": str(metrics.get("readback_layout", "rows")),
+        "note_wrap": metrics.get("note_wrap"),
+        "chapter_rows": int(metrics.get("chapter_rows", 3)),
     }
 
 
@@ -341,7 +358,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         # -- row 0: workspace-level import ------------------------------ #
         top = ttk.Frame(self, style=style_name(theme, "window"))
         top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
-        top.columnconfigure(3, weight=1)
+        compact_band = hints["import_band_layout"] == "compact"
+        top.columnconfigure(4 if compact_band else 3, weight=1)
         self.btn_import_folder = ttk.Button(
             top, text="Import Folder", style=style_name(theme, "button"),
             command=self.import_folder)
@@ -359,15 +377,25 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_clear_imports.grid(row=0, column=2, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
             top, theme=theme, on_cancel=self.cancel_import)
-        self.import_status.frame.grid(row=0, column=3, sticky="ew", padx=(10, 10))
         self.output_label = ttk.Label(
             top, textvariable=self.var_outdir, anchor="e",
             style=style_name(theme, "secondary_label"))
-        self.output_label.grid(row=0, column=4, sticky="e")
-        self.btn_open_out = ttk.Button(
-            top, text="Open Output Folder", style=style_name(theme, "button"),
-            command=self.open_outdir)
-        self.btn_open_out.grid(row=0, column=5, sticky="e", padx=(6, 0))
+        if compact_band:
+            # The status bar keeps its natural width — it is the only place
+            # a running scan and its Cancel appear — and the output hint is
+            # the one thing that yields: right-anchored, so a path the band
+            # cannot hold in full still shows where the run lands. Open
+            # Output Folder joins the actions (built below) where the band
+            # has no room for it at all.
+            self.import_status.frame.grid(row=0, column=3, sticky="w", padx=(10, 10))
+            self.output_label.grid(row=0, column=4, sticky="ew")
+        else:
+            self.import_status.frame.grid(row=0, column=3, sticky="ew", padx=(10, 10))
+            self.output_label.grid(row=0, column=4, sticky="e")
+            self.btn_open_out = ttk.Button(
+                top, text="Open Output Folder", style=style_name(theme, "button"),
+                command=self.open_outdir)
+            self.btn_open_out.grid(row=0, column=5, sticky="e", padx=(6, 0))
 
         # -- row 1: the shared navigator, Editor action subset ------------ #
         self.navigator = BookNavigator(
@@ -382,36 +410,49 @@ class M4BMetadataEditorUI(ttk.Frame):
         # -- row 2: Shared above Current Book ----------------------------- #
         text_fields = tuple((key, wf.FIELD_LABELS[key]) for key in wf.TEXT_FIELDS)
         wrap = hints["label_wrap"]
+        columns = hints["field_columns"]
         self.surface = SharedMetadataSurface(
             self, text_fields, theme=theme, layout="rows",
             show_header=False, entry_width=hints["entry_width"],
+            field_gap=hints["field_gap"],
             wraplength=None if wrap is None else int(wrap),
+            columns=None if columns is None else int(columns),
             shared_title=SHARED_TITLE, book_title=BOOK_TITLE,
             on_shared_change=self.on_shared_change,
             on_book_change=self.on_book_change)
         self.surface.frame.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, gap))
-        field_columns = len(text_fields)
+        field_columns = self.surface.field_columns
+        field_rows = 2 * self.surface.field_lines
         for group in (self.surface.shared_frame, self.surface.book_frame):
-            group.configure(padding=(8, 2))
+            group.configure(padding=(hints["group_pad"], 2))
 
+        # "rows": the artwork column runs the height of the Book group and
+        # the read-back lines sit beside it (the accepted Windows
+        # composition). "compact": the artwork spans the field rows only and
+        # the read-back runs the full width beneath, facts and status on the
+        # series line — two lines where aqua metrics cannot afford three.
+        compact_readback = hints["readback_layout"] == "compact"
         natural = hints["artwork_buttons"] == "natural"
         self.shared_artwork = ArtworkControl(
             self.surface.shared_frame, caption=wf.FIELD_LABELS["artwork"],
             theme=theme, shared=True, natural_buttons=natural,
             on_choose=self.choose_shared_artwork, on_clear=self.clear_shared_artwork)
-        self.shared_artwork.frame.grid(row=0, column=field_columns, rowspan=2,
+        self.shared_artwork.frame.grid(row=0, column=field_columns, rowspan=field_rows,
                                        sticky="nw", padx=(hints["artwork_gap"], 0))
         self.book_artwork = ArtworkControl(
             self.surface.book_frame, caption=wf.FIELD_LABELS["artwork"],
             theme=theme, shared=False, natural_buttons=natural,
             on_choose=self.choose_book_artwork, on_clear=self.clear_book_artwork)
-        self.book_artwork.frame.grid(row=0, column=field_columns, rowspan=5,
+        self.book_artwork.frame.grid(row=0, column=field_columns,
+                                     rowspan=field_rows + (0 if compact_readback else 3),
                                      sticky="nw", padx=(hints["artwork_gap"], 0))
 
         # The read-back lines under the Book fields: source identity, the
         # series read-back and the compact facts + status. Display only.
         readback = ttk.Frame(self.surface.book_frame, style=style_name(theme, "surface"))
-        readback.grid(row=2, column=0, columnspan=field_columns, sticky="ew", pady=(4, 0))
+        readback.grid(row=field_rows, column=0,
+                      columnspan=field_columns + (1 if compact_readback else 0),
+                      sticky="ew", pady=(4, 0))
         readback.columnconfigure(0, weight=1)
         self.var_source = tk.StringVar(master=self, value="")
         self.source_label = ttk.Label(readback, textvariable=self.var_source, anchor="w",
@@ -422,7 +463,10 @@ class M4BMetadataEditorUI(ttk.Frame):
                                         style=style_name(theme, "secondary_label"))
         self.readback_label.grid(row=1, column=0, sticky="ew")
         facts = ttk.Frame(readback, style=style_name(theme, "surface"))
-        facts.grid(row=2, column=0, sticky="ew")
+        if compact_readback:
+            facts.grid(row=1, column=1, sticky="e", padx=(12, 0))
+        else:
+            facts.grid(row=2, column=0, sticky="ew")
         self.var_facts = tk.StringVar(master=self, value="")
         self.facts_label = ttk.Label(facts, textvariable=self.var_facts, anchor="w",
                                      style=style_name(theme, "secondary_label"))
@@ -441,7 +485,8 @@ class M4BMetadataEditorUI(ttk.Frame):
         chapters.grid(row=3, column=0, sticky="nsew", padx=pad, pady=(0, gap))
         chapters.columnconfigure(0, weight=1)
         chapters.rowconfigure(0, weight=1)
-        self.chapter_text = tk.Text(chapters, height=3, width=24, wrap="none", undo=True)
+        self.chapter_text = tk.Text(chapters, height=hints["chapter_rows"], width=24,
+                                    wrap="none", undo=True)
         chapter_scroll = ttk.Scrollbar(chapters, orient="vertical",
                                        command=self.chapter_text.yview,
                                        style=style_name(theme, "vscrollbar"))
@@ -471,8 +516,11 @@ class M4BMetadataEditorUI(ttk.Frame):
             options, textvariable=self.var_start_part, width=6,
             style=style_name(theme, "entry"))
         self.entry_start_part.grid(row=0, column=2, sticky="w")
+        note_wrap = hints["note_wrap"]
         self.hint_label = ttk.Label(options, text=PRESERVE_HINT, anchor="w",
-                                    style=style_name(theme, "secondary_label"))
+                                    style=style_name(theme, "secondary_label"),
+                                    **({} if note_wrap is None else
+                                       {"wraplength": int(note_wrap), "justify": "left"}))
         self.hint_label.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 0))
 
         # -- row 5: the three actions, the shared job area, Clear Log ------ #
@@ -493,14 +541,38 @@ class M4BMetadataEditorUI(ttk.Frame):
         self.btn_clear_log = ttk.Button(
             buttons, text="Clear Log", style=style_name(theme, "button"),
             command=self.clear_log)
+        stacked = [self.btn_save, self.btn_clear_tags, self.btn_remove_numbering,
+                   self.btn_clear_log]
+        if compact_band:
+            # Open Output Folder lives here when the import band has no room
+            # for it; the same control, the same callback.
+            self.btn_open_out = ttk.Button(
+                buttons, text="Open Output Folder", style=style_name(theme, "button"),
+                command=self.open_outdir)
+            stacked.append(self.btn_open_out)
         if hints["actions_layout"] == "row":
             self.btn_save.grid(row=0, column=0, sticky="w")
             self.btn_clear_tags.grid(row=0, column=1, sticky="w", padx=(6, 0))
             self.btn_remove_numbering.grid(row=0, column=2, sticky="w", padx=(6, 0))
             self.btn_clear_log.grid(row=1, column=0, sticky="w", pady=(4, 0))
+            if compact_band:
+                self.btn_open_out.grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(4, 0))
+        elif hints["actions_columns"] >= 2:
+            # Two columns, no taller than the job area beside them. A grid
+            # column is as wide as its widest button, so the two long
+            # destructive captions share the second column (with Open Output
+            # Folder beneath them) and the primary action heads the first;
+            # any other split pushes the job controls past the host.
+            cells = [(self.btn_save, 0, 0), (self.btn_clear_log, 1, 0),
+                     (self.btn_clear_tags, 0, 1), (self.btn_remove_numbering, 1, 1)]
+            if compact_band:
+                cells.append((self.btn_open_out, 2, 1))
+            for button, row, column in cells:
+                button.grid(row=row, column=column, sticky="ew",
+                            padx=(0 if column == 0 else 6, 0),
+                            pady=(0 if row == 0 else 4, 0))
         else:
-            for row, button in enumerate((self.btn_save, self.btn_clear_tags,
-                                          self.btn_remove_numbering, self.btn_clear_log)):
+            for row, button in enumerate(stacked):
                 button.grid(row=row, column=0, sticky="ew", pady=(0 if row == 0 else 4, 0))
         self._jobs_rowspan = 2
 

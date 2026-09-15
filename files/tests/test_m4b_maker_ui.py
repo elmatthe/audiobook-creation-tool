@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import sys
 import threading
 from pathlib import Path
 
@@ -45,6 +46,9 @@ from test_importing import make_config  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
 MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
+
+windows_only = pytest.mark.skipif(
+    sys.platform != "win32", reason="the ACT design system only applies on win32")
 
 
 # --------------------------------------------------------------------------- #
@@ -620,8 +624,18 @@ def test_one_summary_detailed_region_and_no_whole_form_scrollbar(make_panel):
     assert len(scrollbars) == 4, "track list, chapter titles, Summary, Detailed"
 
 
+@windows_only
 def test_the_windows_minimum_geometry_keeps_every_region_reachable(tk_root, make_panel):
-    """Deiconified: ``winfo_ismapped`` on a withdrawn toplevel says nothing."""
+    """Deiconified: ``winfo_ismapped`` on a withdrawn toplevel says nothing.
+
+    A claim about the accepted Windows composition at the Windows minimum, so
+    Windows only (v0.6.4 Phase 13): the Windows bundle asked for through the
+    theme seam on a Mac still draws with native aqua buttons, entries and
+    fonts (``clam`` + the system font, no Segoe UI), where the row navigator
+    alone runs to ~936 px and the Shared/Book band asks for ~1080 — numbers
+    that describe the host's metrics, not the composition. The aqua
+    composition has its own gate in ``test_m4b_layout.py``.
+    """
     panel = make_panel()
     tk_root.deiconify()
     try:
@@ -663,6 +677,69 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
         assert panel.navigator.layout == "stacked"
         assert str(panel.btn_build.cget("style")) == ""
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
+        # Without the Phase 13 hints the composition is the Windows one.
+        assert panel.chk_custom_dest.grid_info()["row"] == 0
+        assert panel.chk_custom_dest.grid_info()["column"] == 4
+        assert panel.book_artwork.frame.grid_info()["rowspan"] == 4
+        own = panel.book_entries["title"].master
+        assert own.grid_info()["row"] == 2 and own.grid_info()["columnspan"] == 5
+        assert int(panel.book_entries["title"].cget("width")) == 20
+    finally:
+        panel.close()
+        panel.destroy()
+
+
+def test_the_phase_13_aqua_hints_fold_the_composition_through_the_same_seam(tk_root):
+    """v0.6.4 Phase 13 (macOS parity): the real aqua bundle's hints, read with
+    the Windows values as defaults. Measured in the real shell by
+    ``test_m4b_layout.py``; pinned here as the seam's contract on any host."""
+    aqua = {"mode": "aqua", "geometry": ui_theme.AQUA_GEOMETRY,
+            "min_size": ui_theme.AQUA_MIN_SIZE,
+            "metrics": {"navigator_layout": "stacked", "actions_layout": "stacked",
+                        "artwork_buttons": "natural", "content_pad": 12,
+                        "field_label_wrap": 155, "field_label_wrap_narrow": 100,
+                        "field_label_wrap_short": 110,
+                        "import_band_layout": "compact", "group_pad": 4, "field_gap": 6,
+                        "book_fields_span": "wide", "options_layout": "stacked",
+                        # Editor-only hints the Maker must ignore.
+                        "field_columns": 4, "actions_columns": 2,
+                        "navigator_layout_one_action": "row"}}
+    panel = m4b_maker.M4BMakerUI(tk_root, theme=aqua, effective_config=make_config(),
+                                 thread_factory=RecordingThreads(),
+                                 choose_files=lambda: (), choose_folder=lambda: ())
+    try:
+        assert panel.navigator.layout == "stacked", "a three-action navigator still stacks"
+        # Import band: the status bar keeps its width, the hint yields.
+        top = panel.btn_import_folder.master
+        assert int(top.grid_columnconfigure(2)["weight"]) == 0
+        assert int(top.grid_columnconfigure(3)["weight"]) == 1
+        assert panel.output_label.grid_info()["sticky"] == "ew"
+        assert panel.import_status.frame.grid_info()["sticky"] == "w"
+        # Five fields stay on one line; the Silence caption folds at the
+        # short width, the others at the narrow one.
+        assert panel.surface.field_columns == 5 and panel.surface.field_lines == 1
+        assert int(panel.surface._row("silence").label.cget("wraplength")) == 110
+        assert int(panel.surface._row("artist").label.cget("wraplength")) == 100
+        # The Book-only row runs the full width beneath the artwork, its
+        # Title stretching; Series Part and Output Filename keep their widths.
+        assert panel.book_artwork.frame.grid_info()["rowspan"] == 2
+        own = panel.book_entries["title"].master
+        assert own.grid_info()["row"] == 2 and own.grid_info()["columnspan"] == 6
+        assert panel.book_entries["title"].grid_info()["sticky"] == "ew"
+        assert int(own.grid_columnconfigure(1)["weight"]) == 1
+        assert int(panel.book_entries["series_part"].cget("width")) == 5
+        assert int(panel.book_entries["output_filename"].cget("width")) == 16
+        # The destination toggle has its own line; its path row appears beneath.
+        assert panel.chk_custom_dest.grid_info()["row"] == 1
+        assert panel.chk_custom_dest.grid_info()["column"] == 0
+        assert not panel.customrow.winfo_manager()
+        panel.var_custom_dest.set(True)
+        panel._on_custom_dest_change()
+        assert panel.customrow.grid_info()["row"] == 2
+        panel.var_custom_dest.set(False)
+        panel._on_custom_dest_change()
+        assert not panel.customrow.winfo_manager()
+        assert str(panel.btn_build.cget("style")) == ""
     finally:
         panel.close()
         panel.destroy()

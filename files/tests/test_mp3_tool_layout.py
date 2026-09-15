@@ -31,7 +31,10 @@ maintainer inspected the remediation on the real launcher and ruled: the
 aqua minimum is ``ui_theme.AQUA_MIN_SIZE`` (1024x720, the size the launcher
 opens at); Windows keeps 920x600. So the sizes below are the theme's own
 default and minimum plus one larger window, and the 920x600 case is retired
-by that ruling rather than skipped.
+by that ruling rather than skipped. v0.6.4 Phase 13 raised the aqua minimum
+again, to 1024x800, for the two M4B tools (maintainer ruling, 2026-09-15); the
+sizes below still come from the theme, so this module measures the MP3 Tool at
+whatever the aqua floor is.
 
 **Aqua only.** The assertions describe native aqua metrics; on Windows the
 accepted Phase 11 layout is protected by ``test_mp3_tool_ui.py`` and the
@@ -122,8 +125,9 @@ def _tear_down_shell(root, existing):
     root.withdraw()
 
 
-#: One window larger than the default, to prove the layout grows with it.
-LARGER = "1280x800"
+#: One window larger than the default in both dimensions, to prove the
+#: layout grows with it.
+LARGER = "1280x900"
 
 
 def _geometries(root):
@@ -164,6 +168,12 @@ def _essential_controls(panel) -> dict[str, object]:
     nav = panel.navigator
     controls = {
         "Import Folder": panel.btn_import_folder,
+        # The v0.6.4 Phase 12 amendment widened this band by ``Clear All
+        # Imports``; the Mac parity gate (v0.6.4 Phase 13) found the import
+        # status bar squeezed to one pixel and the output hint past the host.
+        "Clear All Imports": panel.btn_clear_imports,
+        "Import status": panel.import_status.frame,
+        "Output folder": panel.output_label,
         "Previous": nav.buttons[nav.PREVIOUS],
         "Next": nav.buttons[nav.NEXT],
         "Book position": nav.label,
@@ -215,7 +225,10 @@ def test_every_essential_control_is_reachable_in_the_real_shell(
                 problems.append(f"{name}: not on screen")
                 continue
             box = _box(widget)
-            if widget.winfo_width() < widget.winfo_reqwidth() - 1:
+            # The output hint is a display label that may yield width so the
+            # controls beside it stay whole; it must still be inside the host.
+            if (name != "Output folder"
+                    and widget.winfo_width() < widget.winfo_reqwidth() - 1):
                 problems.append(f"{name}: squeezed to {widget.winfo_width()}px "
                                 f"of {widget.winfo_reqwidth()} requested")
             if not _inside(box, host):
@@ -306,24 +319,25 @@ def test_metadata_editing_is_comfortable_at_the_default_size(fake_settings, tk_r
 def test_the_aqua_minimum_is_the_default_and_the_shell_enforces_it(fake_settings, tk_root):
     """The accepted contract, pinned where it is enforced: the real launcher.
 
-    ``ui_theme.AQUA_MIN_SIZE`` is 1024x720 and equals the geometry the shell
-    opens at; the shell's ``minsize`` is that, so a Mac window cannot be
-    dragged to a size the composition was never accepted at. Windows keeps
-    ``ui_theme.MIN_SIZE`` — see ``test_ui_theme.py``.
+    ``ui_theme.AQUA_MIN_SIZE`` is 1024x800 (v0.6.4 Phase 13 ruling; 1024x720
+    under v0.6.3) and equals the geometry the shell opens at; the shell's
+    ``minsize`` is that, so a Mac window cannot be dragged to a size the
+    composition was never accepted at. Windows keeps ``ui_theme.MIN_SIZE`` —
+    see ``test_ui_theme.py``.
     """
-    assert ui_theme.AQUA_MIN_SIZE == (1024, 720)
+    assert ui_theme.AQUA_MIN_SIZE == (1024, 800)
     assert ui_theme.MIN_SIZE == (920, 600)
     existing = set(tk_root.winfo_children())
     try:
-        app = _fresh_shell(tk_root, "1024x720")
+        app = _fresh_shell(tk_root, "1024x800")
         assert app.theme["mode"] == "aqua"
         assert tuple(app.theme["min_size"]) == ui_theme.AQUA_MIN_SIZE
-        assert app.theme["geometry"] == "1024x720"
+        assert app.theme["geometry"] == "1024x800"
         assert tuple(tk_root.minsize()) == ui_theme.AQUA_MIN_SIZE
         # Asking for the old Windows minimum no longer produces a smaller window.
         tk_root.geometry("920x600")
         _settled(tk_root)
-        assert tk_root.winfo_width() >= 1024 and tk_root.winfo_height() >= 720
+        assert tk_root.winfo_width() >= 1024 and tk_root.winfo_height() >= 800
     finally:
         _tear_down_shell(tk_root, existing)
 
@@ -349,6 +363,6 @@ def test_a_larger_window_expands_the_variable_regions(fake_settings, tk_root):
         finally:
             _tear_down_shell(tk_root, existing)
 
-    small, large = measure("1024x720"), measure(LARGER)
+    small, large = measure(_geometries(tk_root)["default"]), measure(LARGER)
     for name in small:
         assert large[name] > small[name], f"{name}: {small[name]} -> {large[name]}"

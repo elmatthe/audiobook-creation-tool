@@ -198,19 +198,37 @@ def _layout_hints(theme) -> dict:
         "label_wrap_narrow": metrics.get("field_label_wrap_narrow"),
         "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
         "artwork_gap": int(metrics.get("artwork_gap", 12)),
+        # v0.6.4 Phase 13 (macOS parity), measured on the real launcher at
+        # the aqua floor: the import band, the Shared / Book band, the
+        # Book-only row and the run options each asked for more width than
+        # the content host has. Same defaults rule: the Windows bundle
+        # carries none of these, so its accepted composition is untouched.
+        "import_band_layout": str(metrics.get("import_band_layout", "row")),
+        "group_pad": int(metrics.get("group_pad", 8)),
+        "field_gap": int(metrics.get("field_gap", 8)),
+        "label_wrap_short": metrics.get("field_label_wrap_short"),
+        "book_fields_span": str(metrics.get("book_fields_span", "beside")),
+        "options_layout": str(metrics.get("options_layout", "row")),
     }
 
 
 def _label_wraps(hints: Mapping[str, object], fields) -> dict[str, int] | None:
-    """Per-field label widths for the metadata surface, or ``None`` for none."""
+    """Per-field label widths for the metadata surface, or ``None`` for none.
+
+    The Silence caption is this panel's long one (~200 px under aqua): it
+    folds once at ``label_wrap_short`` when the theme offers it — the MP3
+    Tool's ~300 px caption needs the wider ``label_wrap`` to fold only once —
+    and at ``label_wrap`` otherwise.
+    """
     wide = hints.get("label_wrap")
     if wide is None:
         return None
+    short = hints.get("label_wrap_short")
     narrow = hints.get("label_wrap_narrow")
     wraps = {}
     for key in fields:
         if key == "silence":
-            wraps[key] = int(wide)
+            wraps[key] = int(wide if short is None else short)
         elif narrow is not None:
             wraps[key] = int(narrow)
     return wraps
@@ -363,7 +381,6 @@ class M4BMakerUI(ttk.Frame):
         # -- row 0: workspace-level import ------------------------------ #
         top = ttk.Frame(self, style=style_name(theme, "window"))
         top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
-        top.columnconfigure(2, weight=1)
         self.btn_import_folder = ttk.Button(
             top, text="Import Folder", style=style_name(theme, "button"),
             command=self.import_folder)
@@ -376,11 +393,21 @@ class M4BMakerUI(ttk.Frame):
         self.btn_clear_imports.grid(row=0, column=1, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
             top, theme=theme, on_cancel=self.cancel_import)
-        self.import_status.frame.grid(row=0, column=2, sticky="ew", padx=(10, 10))
         self.output_label = ttk.Label(
             top, textvariable=self.var_outdir, anchor="e",
             style=style_name(theme, "secondary_label"))
-        self.output_label.grid(row=0, column=3, sticky="e")
+        if hints["import_band_layout"] == "compact":
+            # The status bar keeps its natural width — it is the only place
+            # a running scan and its Cancel appear — and the output hint is
+            # the one thing that yields: right-anchored, so a path the band
+            # cannot hold in full still shows where the run lands.
+            top.columnconfigure(3, weight=1)
+            self.import_status.frame.grid(row=0, column=2, sticky="w", padx=(10, 10))
+            self.output_label.grid(row=0, column=3, sticky="ew")
+        else:
+            top.columnconfigure(2, weight=1)
+            self.import_status.frame.grid(row=0, column=2, sticky="ew", padx=(10, 10))
+            self.output_label.grid(row=0, column=3, sticky="e")
 
         # -- row 1: the shared navigator --------------------------------- #
         self.navigator = BookNavigator(
@@ -398,38 +425,51 @@ class M4BMakerUI(ttk.Frame):
         self.surface = SharedMetadataSurface(
             self, text_fields, theme=theme, layout="rows",
             show_header=False, entry_width=hints["entry_width"],
+            field_gap=hints["field_gap"],
             wraplength=_label_wraps(hints, (key for key, _label in text_fields)),
             shared_title="Shared — applies to every Book and overrides its own value",
             book_title="Current Book",
             on_shared_change=self.on_shared_change,
             on_book_change=self.on_book_change)
         self.surface.frame.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, gap))
-        field_columns = len(text_fields)
+        field_columns = self.surface.field_columns
+        field_rows = 2 * self.surface.field_lines
         for group in (self.surface.shared_frame, self.surface.book_frame):
-            group.configure(padding=(8, 2))
+            group.configure(padding=(hints["group_pad"], 2))
 
+        # "beside": the artwork column runs the height of the Book group and
+        # the Book-only row sits beside it (the accepted Windows composition).
+        # "wide": the artwork spans the field rows only and the Book-only row
+        # runs the full width beneath, its Title stretching — under aqua
+        # metrics that row asks for more than the cell beside the artwork.
+        wide = hints["book_fields_span"] == "wide"
         natural = hints["artwork_buttons"] == "natural"
         self.shared_artwork = ArtworkControl(
             self.surface.shared_frame, caption=wf.FIELD_LABELS["artwork"],
             theme=theme, shared=True, natural_buttons=natural,
             on_choose=self.choose_shared_artwork, on_clear=self.clear_shared_artwork)
-        self.shared_artwork.frame.grid(row=0, column=field_columns, rowspan=2,
+        self.shared_artwork.frame.grid(row=0, column=field_columns, rowspan=field_rows,
                                        sticky="nw", padx=(hints["artwork_gap"], 0))
         self.book_artwork = ArtworkControl(
             self.surface.book_frame, caption=wf.FIELD_LABELS["artwork"],
             theme=theme, shared=False, natural_buttons=natural,
             on_choose=self.choose_book_artwork, on_clear=self.clear_book_artwork)
-        self.book_artwork.frame.grid(row=0, column=field_columns, rowspan=4,
+        self.book_artwork.frame.grid(row=0, column=field_columns,
+                                     rowspan=field_rows + (0 if wide else 2),
                                      sticky="nw", padx=(hints["artwork_gap"], 0))
 
         # The Book-only text fields, on one row of the Book group: Title,
         # Series Part, Output Filename. Stored raw through the model.
         own = ttk.Frame(self.surface.book_frame, style=style_name(theme, "surface"))
-        own.grid(row=2, column=0, columnspan=field_columns, sticky="ew", pady=(4, 0))
+        own.grid(row=field_rows, column=0, columnspan=field_columns + (1 if wide else 0),
+                 sticky="ew", pady=(4, 0))
         self.book_vars: dict[str, tk.StringVar] = {}
         self.book_entries: dict[str, ttk.Entry] = {}
         self._book_traces: dict[str, str] = {}
         widths = {"title": 20, "series_part": 5, "output_filename": 16}
+        if wide:
+            widths["title"] = 12
+            own.columnconfigure(1, weight=1)
         for column, key in enumerate(self.BOOK_TEXT_FIELDS):
             ttk.Label(own, text=f"{wf.FIELD_LABELS[key]}:",
                       style=style_name(theme, "label")).grid(
@@ -437,7 +477,8 @@ class M4BMakerUI(ttk.Frame):
             variable = tk.StringVar(master=self, value="")
             entry = ttk.Entry(own, textvariable=variable, width=widths[key],
                               style=style_name(theme, "entry"))
-            entry.grid(row=0, column=2 * column + 1, sticky="w")
+            entry.grid(row=0, column=2 * column + 1,
+                       sticky="ew" if wide and key == "title" else "w")
             self.book_vars[key] = variable
             self.book_entries[key] = entry
             self._book_traces[key] = variable.trace_add(
@@ -535,7 +576,14 @@ class M4BMakerUI(ttk.Frame):
         self.chk_custom_dest = ttk.Checkbutton(
             options, text=CUSTOM_DEST_LABEL, variable=self.var_custom_dest,
             style=style_name(theme, "checkbutton"), command=self._on_custom_dest_change)
-        self.chk_custom_dest.grid(row=0, column=4, sticky="w", padx=(16, 0))
+        if hints["options_layout"] == "stacked":
+            # Five controls on one line ask for more than the aqua host has;
+            # the destination toggle takes its own line, its path row beneath.
+            self.chk_custom_dest.grid(row=1, column=0, columnspan=5, sticky="w", pady=(4, 0))
+            self._customrow_at = 2
+        else:
+            self.chk_custom_dest.grid(row=0, column=4, sticky="w", padx=(16, 0))
+            self._customrow_at = 1
         self.customrow = ttk.Frame(options, style=style_name(theme, "window"))
         self.customrow.columnconfigure(0, weight=1)
         self.var_custom_path = tk.StringVar(master=self, value="")
@@ -983,7 +1031,8 @@ class M4BMakerUI(ttk.Frame):
     def _on_custom_dest_change(self):
         """Show the path controls only while the custom mode is on."""
         if self.var_custom_dest.get():
-            self.customrow.grid(row=1, column=0, columnspan=6, sticky="ew", pady=(4, 0))
+            self.customrow.grid(row=self._customrow_at, column=0, columnspan=6,
+                                sticky="ew", pady=(4, 0))
         else:
             self.customrow.grid_forget()
 

@@ -53,13 +53,19 @@ from tkinter import ttk
 
 DEFAULT_GEOMETRY = "1024x720"
 MIN_SIZE = (920, 600)
-#: The smallest window the native aqua composition fits (v0.6.3 MP3 Phase 12,
-#: maintainer ruling). Native buttons, entries, labels and bezels are larger
-#: than the ACT design's, so the 920x600 minimum the Windows composition is
-#: accepted at leaves a 484 px content host on macOS — less than the fixed
-#: bands of the MP3 Tool alone. 1024x720 was inspected and accepted on the
-#: real launcher; Windows and the classic branch keep ``MIN_SIZE``.
-AQUA_MIN_SIZE = (1024, 720)
+#: The smallest window the native aqua composition fits, and the size the
+#: launcher opens at on macOS. Native buttons, entries, labels and bezels are
+#: larger than the ACT design's, so the 920x600 minimum the Windows
+#: composition is accepted at leaves a 484 px content host on macOS — less
+#: than the fixed bands of the MP3 Tool alone; 1024x720 was ruled and accepted
+#: for it (v0.6.3 MP3 Phase 12). The two M4B tools carry one more fixed band
+#: each (run options, read-back) and their seven-field Editor vocabulary must
+#: fold onto two lines under aqua metrics, which leaves a 604 px host too
+#: short for a readable chapter editor and log at the same time; the
+#: maintainer ruled 1024x800 for macOS (v0.6.4 Phase 13). Windows and the
+#: classic branch keep ``MIN_SIZE`` and ``DEFAULT_GEOMETRY``.
+AQUA_MIN_SIZE = (1024, 800)
+AQUA_GEOMETRY = "{}x{}".format(*AQUA_MIN_SIZE)
 
 #: Every ttk style this module registers for Windows begins with this prefix.
 #: Nothing outside the prefix is created, redefined or configured, which is
@@ -182,7 +188,7 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
         "font_row": (family, 13),
         "font_section": (family, 11, "bold"),
         "font_status": (family, 11),
-        "geometry": DEFAULT_GEOMETRY,
+        "geometry": AQUA_GEOMETRY,
         "min_size": AQUA_MIN_SIZE,
         "colors": colors,
         "metrics": {
@@ -213,6 +219,27 @@ def _apply_darwin(root: tk.Tk, style: ttk.Style) -> dict:
             "field_label_wrap_narrow": 100,  # px; other labels stay near their entry
             "artwork_buttons": "natural",  # Choose/Clear at their native width
             "artwork_gap": 8,             # px between the text fields and artwork
+            # v0.6.4 Phase 13 (macOS parity). The two M4B tools measured on
+            # the real launcher at the aqua floor: the import band — widened
+            # by Clear All Imports on all three multi-Book tools — squeezed
+            # the import status bar to one pixel and pushed the output hint
+            # (and the Editor's Open Output Folder) past the host; the
+            # Editor's seven fields plus artwork left every entry at ~61 px;
+            # the Maker's Book-only row and run options ran past the host.
+            # Same rule as above: read with Windows defaults, presentation
+            # only, the same controls and captions on both platforms.
+            "import_band_layout": "compact",  # one line; the output hint yields
+            "group_pad": 4,               # px inside the Shared / Book groups
+            "field_gap": 6,               # px between neighbouring fields
+            "field_columns": 4,           # Editor: seven fields fold to 4 + 3
+            "field_label_wrap_short": 110,  # px; a ~200 px caption folds once
+            "book_fields_span": "wide",   # Maker: Book-only row under the artwork
+            "options_layout": "stacked",  # Maker: custom destination on its own line
+            "actions_columns": 2,         # Editor: actions in two columns
+            "navigator_layout_one_action": "row",  # a Remove-only navigator fits
+            "readback_layout": "compact",  # Editor: facts + status on the read-back line
+            "note_wrap": 740,             # px; the Editor's preserve note folds once
+            "chapter_rows": 2,            # the chapter editor's floor; it grows
         },
     }
 
