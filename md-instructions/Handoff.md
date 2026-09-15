@@ -2,6 +2,87 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 13 COMPLETE: macOS PARITY ACCEPTED BY THE MAINTAINER AT `f9247c4`; PHASE 14 NOT STARTED (2026-09-15, HOME-MacOS)
+>
+> **This block is the live state.** It supersedes the Phase 12 block beneath it on one point only —
+> macOS is now **accepted**, after one bounded Mac-only remediation. Nothing in the Phase 0–12 record
+> changes; the Windows acceptance at `6cc3eaa` stands and the Windows composition is unchanged.
+>
+> **Start state (fresh Mac context):** checkout synced to `17c8330` (= upstream; the Mac had been on the
+> merged 0.6.3 branch, a linear ancestor), clean worktree, venv Python 3.12.13 healthy, FFmpeg 9.0.1
+> verified through `shared.ffmpeg_utils`, HEIF decode + encode, Tk 9.0.3 aqua, six tools, VERSION `0.6.2`.
+> `AI-WORKSPACE.md` is gitignored and absent on this Mac (not recreated).
+>
+> **Defect found by the Mac gate (real launcher, aqua, at the then-floor 1024×720; host 771×604):** the
+> import band of all three multi-Book tools — widened by the Phase 12 `Clear All Imports` amendment —
+> squeezed the import status bar to one pixel and pushed the output hint past the host (Maker +51, MP3
+> +39, Editor +170 px), with the Editor's `Open Output Folder` entirely outside it even at 1280×800; the
+> Shared/Book entries were squeezed below their eight characters (Editor 61–64 px, Maker 76–80 of 86);
+> the Maker's Book-only row needed 769 px in a 481 px cell and its run-options row 854 px (`Status` and
+> `Choose custom destination` cut off). Vertically, the fixed bands alone left the Maker 154 px and the
+> Editor 102 px for tracks/chapters/log (two rows need ~175/~137) before any fold. **Maintainer ruling
+> 2026-09-15 (plan §2.3):** macOS minimum = launcher default **1024×800** (`ui_theme.AQUA_MIN_SIZE`,
+> `AQUA_GEOMETRY`); Windows keeps 920×600 / 1024×720; a sizing contract only, no business branch.
+>
+> **Remediation `f9247c4` (13 files, +969/−83), presentation behind the theme seam only:** the aqua bundle
+> gains composition hints read by each panel's `_layout_hints` with the Windows values as defaults
+> (`import_band_layout`, `group_pad`, `field_gap`, `field_columns`, `field_label_wrap_short`,
+> `book_fields_span`, `options_layout`, `actions_columns`, `navigator_layout_one_action`,
+> `readback_layout`, `note_wrap`, `chapter_rows`); `SharedMetadataSurface` gains `columns=` (fold the
+> rows geometry) and `field_gap=`. Import band one line with the hint yielding (all three tools); Editor
+> fields 4 + 3, actions in two columns holding `Open Output Folder`, one-line navigator, two-line
+> read-back, preserve note wrapped, chapter editor two rows at the floor; Maker Book-only row full width
+> with a stretching Title, custom destination on its own line, Silence caption folded at 110 px.
+> `test_ui_theme` pins that the Windows bundle carries no hint; both panel suites pin the default
+> composition to the Phase 6/10 grid. **Regression `test_m4b_layout.py` (25, aqua-only, real shell):**
+> 16 red on the pre-fix layout → green; `test_mp3_tool_layout` gained the import band (3 red → green);
+> `test_book_workspace_ui` pins `columns=`. Mac test-portability without a blanket skip: the Maker's
+> 920×600 test and the Editor's band budget are explicit `windows_only` (Windows-metric claims); the
+> Editor's 920×600 reachability loop stays unconditional; `test_m4b_metadata_editor_shared`'s canned root
+> (`C:/canned`, absolute only on Windows) is absolute on any host. The temporary plan's §3.2 and Phase 13
+> floor were reconciled; permanent documents untouched.
+>
+> **Post-remediation gate (Mac):** focused platform set 1,541 passed / 12 skipped; **full suite 7,372
+> passed / 55 skipped / 0 failed** (7,427 collected = Windows 7,395 + 32 new; every skip a Windows-only
+> or host case); `verify.py` **PASS**; compileall exit 0; `git diff --check` clean; invariants held.
+>
+> **Manual parity (1024×800 and larger).** Maintainer-performed on the real launcher: M1 launcher opens
+> at 1024×800 and cannot shrink below it, six tools; M2 Maker and M3 Editor layouts — every band
+> reachable, no whole-tool scrollbar, regions ≥ 2 rows and growing with the window: **PASS**. The
+> maintainer then directed the conductor to run the rest on the real production panels inside the real
+> `LauncherApp` aqua shell (only modal dialogs answered programmatically; drivers and `evidence-*.json`
+> under `files/dev-work/phase13-macos/`, gitignored): **Maker 112 checks / 0 defects** — Import Folder
+> (3 Books, natural order), navigation and selector, Shared override/disable/restore, Book-only values
+> and chapter edits surviving navigation, JPEG Book preview and **HEIC Shared preview**, Add Files
+> (current Book only), Move Up/Down and Remove Selected, Add/Duplicate/Remove Book, Build (FAST) with
+> **Pause acknowledged PAUSED, nothing published while paused, Resume** → A ✓ / B ✗ (placeholder) / C ✓,
+> outputs with three chapters, tags, HEIC → PNG cover, AAC, decoding end to end, **success-only parts
+> A = 1, C = 2**, Output Filename honoured and a path-like name reduced by the shared sanitiser, repair +
+> late edits → **Retry Failed ran only B = 3** (frozen; A/C byte- and mtime-identical), custom destination
+> on the **Safe** path (outputs directly in the folder, `KEEP-ME.txt` untouched, fresh 1/2/3), Cancel
+> during Book 1 (Not attempted, empty run folder, idle controls), Clear Log, Clear All Imports
+> (pristine asks nothing / populated asks / decline no-op / accept pristine with log history kept), every
+> source byte- and mtime-identical. **Editor 115 checks / 0 defects** — five pages incl. the real
+> Apple-tagged 229 MB `Arazan's Wolves.m4b` and an unreadable file (kept on its page, then
+> SKIPPED_INVALID), prefill and read-back (freeform and `©mvn` series), Add Files / Remove Book,
+> Shared override showing the Shared value then restoring the source value, per-Book title, positional
+> chapter edit, JPEG replacement, **Save Tags with a `chmod 000` source failing at copy while later pages
+> continued**, blank = preserve, untouched fields/chapters/cover preserved, **audio-stream MD5 equal on
+> every page (no re-encode)**, Retry Failed only the failed page (frozen), Clear All Tags (chapters kept,
+> only explicit edits re-applied), Remove Series Numbering (parts/track/©mvi gone, Series Name kept,
+> pending unsaved title not applied), **Shared HEIC** → one HEIC-derived cover on every output with
+> `cover.heic` unchanged and no sidecar, auto-number from 5 → 5..8, Pause/Resume and Cancel on Save,
+> `Open Output Folder` executed for real, Clear Log, Clear All Imports, all sources byte- and
+> mtime-identical. **Limitations recorded:** no human playback/chapter-navigation listening (full ffmpeg
+> decode, ffprobe chapters, tag/cover inspection and audio MD5s instead); the shell cannot screenshot.
+>
+> **macOS acceptance — maintainer answered YES on 2026-09-15** to "Accept Phase 13 macOS validation:
+> YES or NO?". No code changed after `f9247c4`; this commit records the acceptance in Handoff only.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 14 — PERMANENT-DOCUMENT AND ROADMAP RECONCILIATION (incl. the
+> 1024×800 macOS ruling). IT HAS NOT STARTED** and needs separate maintainer authorization. No PR,
+> merge, tag, release, package or VERSION change.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 12 COMPLETE: WINDOWS COMBINED MANUAL ACCEPTANCE ACCEPTED BY THE MAINTAINER AT `6cc3eaa`; PHASE 13 (macOS) NOT STARTED (2026-09-15)
 >
 > **This block is the live state.** It supersedes the Phase 12 in-progress block beneath it on one
