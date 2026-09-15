@@ -207,6 +207,10 @@ STAGE_PREPARE = "prepare"
 #: Rules a line under the previous run's lines in both log panes.
 DIVIDER_MARK = "────"
 
+#: The one label of the destructive workspace reset, shared by the three
+#: multi-Book tools (v0.6.4 Phase 12 maintainer amendment).
+CLEAR_IMPORTS_LABEL = "Clear All Imports"
+
 #: What the user is told when a worker dies with the run unfinished.
 FAULT_MESSAGE = "The run stopped unexpectedly and was not completed."
 
@@ -682,7 +686,7 @@ class MP3ToolUI(ttk.Frame):
         self._tracks_lock = self._ButtonLock(
             self.btn_add_files, self.btn_move_up, self.btn_move_down,
             self.btn_remove_tracks)
-        self._import_lock = self._ButtonLock(self.btn_import_folder)
+        self._import_lock = self._ButtonLock(self.btn_import_folder, self.btn_clear_imports)
         self._book_options_lock = self._ButtonLock(
             self.btn_write_id3, self.btn_combine, self.check_auto_number,
             self.entry_start_number)
@@ -718,18 +722,24 @@ class MP3ToolUI(ttk.Frame):
         # -- row 0: workspace-level import ------------------------------ #
         top = ttk.Frame(self, style=style_name(theme, "window"))
         top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
-        top.columnconfigure(1, weight=1)
+        top.columnconfigure(2, weight=1)
         self.btn_import_folder = ttk.Button(
             top, text="Import Folder", style=style_name(theme, "button"),
             command=self.import_folder)
         self.btn_import_folder.grid(row=0, column=0, sticky="w")
+        # The destructive workspace reset lives with the import controls it
+        # undoes, in the shared destructive treatment (v0.6.4 Phase 12 amendment).
+        self.btn_clear_imports = ttk.Button(
+            top, text=CLEAR_IMPORTS_LABEL, style=style_name(theme, "danger_button"),
+            command=self.clear_all_imports)
+        self.btn_clear_imports.grid(row=0, column=1, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
             top, theme=theme, on_cancel=self.cancel_import)
-        self.import_status.frame.grid(row=0, column=1, sticky="ew", padx=(10, 10))
+        self.import_status.frame.grid(row=0, column=2, sticky="ew", padx=(10, 10))
         self.output_label = ttk.Label(
             top, textvariable=self.var_outdir, anchor="e",
             style=style_name(theme, "secondary_label"))
-        self.output_label.grid(row=0, column=2, sticky="e")
+        self.output_label.grid(row=0, column=3, sticky="e")
 
         # -- row 1: the shared navigator --------------------------------- #
         self.navigator = BookNavigator(
@@ -1444,6 +1454,48 @@ class MP3ToolUI(ttk.Frame):
         if cancelled:
             self.import_status.set_cancelling()
         return cancelled
+
+    def _workspace_has_meaningful_work(self) -> bool:
+        """The shared vocabulary, composed: any Book with files or configuration,
+        or any populated Shared field. Not a fourth definition of "empty"."""
+        space = self.workspace
+        return (any(has_meaningful_work(book) for book in space.books)
+                or bool(space.shared.populated_fields))
+
+    def clear_all_imports(self) -> bool:
+        """Return the tool to its pristine startup state — a workspace reset only.
+
+        The reset authorities are the model's own ``new_workspace`` and an
+        empty observation store; nothing is deleted or written on disk, the
+        log keeps its history (a divider marks the reset), settings are
+        untouched, and a run in progress owns the workspace so the button is
+        locked and this refuses. A pristine workspace asks nothing; meaningful
+        work asks first.
+        """
+        self._guard.require("clear_all_imports")
+        if self._closed or self.is_running or self._coordinator.is_active:
+            return False
+        meaningful = self._workspace_has_meaningful_work()
+        if meaningful and not self._confirm(
+                "Clear all imports?",
+                "This clears every imported Book and file, and any unsaved workspace "
+                "edits, from this tool.\n\nThe original files are not deleted or modified, "
+                "and outputs already written are kept.\n\nClear them?"):
+            return False
+        had_run = self._attempt is not None
+        self.workspace = wf.new_workspace(id_factory=self._ids)
+        self.store = wf.ObservationStore()
+        self.book_numbers = {}
+        self.last_plan = None
+        self._attempt = None
+        self._settled = None
+        self.var_outdir.set(output_paths.destination_hint(TOOL_KEY))
+        if meaningful or had_run:
+            self.log.divider(f"{DIVIDER_MARK} {CLEAR_IMPORTS_LABEL}")
+        self._install_jobs(IDLE_RUN_ID, ())
+        self.status.set_status(STATUS_READY)
+        self.render()
+        return True
 
     def _handle_outcome(self, outcome: ImportOutcome) -> ImportOutcome:
         if self._closed:

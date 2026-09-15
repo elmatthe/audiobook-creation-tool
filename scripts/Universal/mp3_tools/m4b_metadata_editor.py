@@ -160,6 +160,11 @@ PRESERVE_HINT = ("Originals are never modified; each action writes copies to a n
 #: The action labels the run announces and the log headings use.
 ACTION_LABELS = batch.ACTION_LABELS
 
+#: The one label of the destructive workspace reset, shared by the three
+#: multi-Book tools (v0.6.4 Phase 12 maintainer amendment). Not "Clear All":
+#: this tool's "Clear All Tags" is a different action on output copies.
+CLEAR_IMPORTS_LABEL = "Clear All Imports"
+
 
 # ---------------------------
 # Utilities
@@ -302,7 +307,8 @@ class M4BMetadataEditorUI(ttk.Frame):
 
         # Run locking is the shared contract: the adapter's lock group applies
         # the approved matrix to these seams whenever the run's state moves.
-        self._import_lock = self._ButtonLock(self.btn_import_folder, self.btn_add_files)
+        self._import_lock = self._ButtonLock(self.btn_import_folder, self.btn_add_files,
+                                             self.btn_clear_imports)
         self._options_lock = self._ButtonLock(
             self.btn_save, self.btn_clear_tags, self.btn_remove_numbering,
             self.check_auto_number, self.entry_start_part)
@@ -335,7 +341,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         # -- row 0: workspace-level import ------------------------------ #
         top = ttk.Frame(self, style=style_name(theme, "window"))
         top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
-        top.columnconfigure(2, weight=1)
+        top.columnconfigure(3, weight=1)
         self.btn_import_folder = ttk.Button(
             top, text="Import Folder", style=style_name(theme, "button"),
             command=self.import_folder)
@@ -344,17 +350,24 @@ class M4BMetadataEditorUI(ttk.Frame):
             top, text="Add Files", style=style_name(theme, "button"),
             command=self.add_files)
         self.btn_add_files.grid(row=0, column=1, sticky="w", padx=(4, 0))
+        # The destructive workspace reset lives with the import controls it
+        # undoes, in the shared destructive treatment (Phase 12 amendment) --
+        # deliberately not "Clear All": this tool also has Clear All Tags.
+        self.btn_clear_imports = ttk.Button(
+            top, text=CLEAR_IMPORTS_LABEL, style=style_name(theme, "danger_button"),
+            command=self.clear_all_imports)
+        self.btn_clear_imports.grid(row=0, column=2, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
             top, theme=theme, on_cancel=self.cancel_import)
-        self.import_status.frame.grid(row=0, column=2, sticky="ew", padx=(10, 10))
+        self.import_status.frame.grid(row=0, column=3, sticky="ew", padx=(10, 10))
         self.output_label = ttk.Label(
             top, textvariable=self.var_outdir, anchor="e",
             style=style_name(theme, "secondary_label"))
-        self.output_label.grid(row=0, column=3, sticky="e")
+        self.output_label.grid(row=0, column=4, sticky="e")
         self.btn_open_out = ttk.Button(
             top, text="Open Output Folder", style=style_name(theme, "button"),
             command=self.open_outdir)
-        self.btn_open_out.grid(row=0, column=4, sticky="e", padx=(6, 0))
+        self.btn_open_out.grid(row=0, column=5, sticky="e", padx=(6, 0))
 
         # -- row 1: the shared navigator, Editor action subset ------------ #
         self.navigator = BookNavigator(
@@ -964,6 +977,48 @@ class M4BMetadataEditorUI(ttk.Frame):
         if cancelled:
             self.import_status.set_cancelling()
         return cancelled
+
+    def _workspace_has_meaningful_work(self) -> bool:
+        """The shared vocabulary, composed: any Book with a source or an edit, or
+        any populated Shared field. Not a fourth definition of "empty"."""
+        space = self.workspace
+        return (any(has_meaningful_work(book) for book in space.books)
+                or bool(space.shared.populated_fields))
+
+    def clear_all_imports(self) -> bool:
+        """Return the tool to its pristine startup state — a workspace reset only.
+
+        The reset authorities are the model's own ``new_workspace`` and an
+        empty ``ObservationStore``; nothing is deleted or written on disk, no
+        tag is touched (that is Clear All Tags, on output copies, and it is a
+        different button), the log keeps its history (a divider marks the
+        reset), settings are untouched, and a run in progress owns the
+        workspace so the button is locked and this refuses. A pristine
+        workspace asks nothing; meaningful work asks first.
+        """
+        self._guard.require("clear_all_imports")
+        if self._closed or self.is_running or self._coordinator.is_active:
+            return False
+        meaningful = self._workspace_has_meaningful_work()
+        if meaningful and not self._confirm(
+                "Clear all imports?",
+                "This clears every imported file (every Book page) and any unsaved "
+                "workspace edits from this tool.\n\nThe original files are not deleted or "
+                "modified, and outputs already written are kept.\n\nClear them?"):
+            return False
+        had_run = self.run is not None
+        self.workspace = wf.new_workspace(id_factory=self._ids)
+        self.store = wf.ObservationStore()
+        self.book_numbers = {}
+        self.last_plan = None
+        self.run = None
+        self._attempt = None
+        self.var_outdir.set(output_paths.destination_hint(TOOL_KEY))
+        if meaningful or had_run:
+            self.log.divider(f"{DIVIDER_MARK} {CLEAR_IMPORTS_LABEL}")
+        self._install_jobs(IDLE_RUN_ID, ())
+        self.render()
+        return True
 
     def _handle_outcome(self, outcome: ImportOutcome) -> ImportOutcome:
         if self._closed:

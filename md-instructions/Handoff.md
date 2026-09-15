@@ -2,6 +2,88 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 12 IN PROGRESS (WINDOWS MANUAL ACCEPTANCE — ROWS 1–3 ACCEPTED; MAINTAINER-DIRECTED "CLEAR ALL IMPORTS" AMENDMENT LANDED, FULL GATE GREEN); WINDOWS NOT YET ACCEPTED (2026-09-14)
+>
+> **This block is the live state.** It supersedes the Phase 11 block beneath it on one point only —
+> that block names Phase 12 as *not started*. Phase 12 has started and is **paused inside its
+> manual matrix** for one explicitly maintainer-directed amendment, now landed and gated. Nothing
+> in the Phase 0–11 record changes; **Windows is not accepted** until the maintainer answers YES.
+>
+> **Phase 12 so far (real launcher `Setup_and_Run-audiobook-creation-tool.bat`, Windows 11,
+> venv healthy by `bootstrap --venv-check`, FFmpeg 9.0.1 verified through `shared.ffmpeg_utils`,
+> HEIF decode + encode available).** Disposable fixtures under `files/dev-work/phase12-windows/`
+> (gitignored; `FIXTURES.md`, `hashes-before.json`, `make_fixtures.py`, `hold_lock.py`): a
+> four-Book Maker library with one controlled failure (a text placeholder as `Book B/02.mp3`,
+> repair track kept outside the library), JPEG/PNG/HEIC covers, a custom destination holding an
+> unrelated file; five Editor M4Bs (Apple-freeform series #1–#3 with three chapters and a cover,
+> a vendor `com.pilabor.tone` + movement file, a plain file) plus an unreadable `.m4b`, with a
+> byte-range lock as the source-safe controlled failure. **Maintainer-accepted rows:** 1 —
+> launcher opens, six tools, no console; 2 — M4B Maker usable at 920×600 and 1024×720, no
+> whole-tool scrollbar, ACT presentation; 3 — M4B Metadata Editor likewise. Rows 4 onward wait
+> for the amendment below; layout rows will be re-checked only for the import band it touched.
+>
+> **Maintainer-directed Phase 12 amendment — `Clear All Imports` (not a failed row).** One
+> destructive workspace reset on all three shared multi-Book tools, with one label, one
+> confirmation philosophy and one styling authority:
+> - **Architecture:** thin-adapter only. Each panel gained `clear_all_imports()` beside
+>   `import_folder` / `add_files`, whose reset authority is that tool's own established
+>   `new_workspace(id_factory)` (plus an empty `ObservationStore` for the Editor and MP3 Tool);
+>   `book_numbers`, `last_plan`, the run/attempt references and the settled result are dropped,
+>   the output hint returns to `destination_hint(TOOL_KEY)`, a divider marks the reset in the
+>   log and the idle `JobAdapter` is re-installed through the existing `_install_jobs` —
+>   **the log keeps its history**, nothing on disk is touched, settings are untouched. No shared
+>   model name was added (the model's `__all__` pin of 45 is unchanged): "meaningful work" is
+>   the shared vocabulary composed — `has_meaningful_work(book)` for any Book **or** any
+>   `SharedMetadata.populated_fields` — in one identical expression per panel.
+> - **Confirmation:** only when meaningful work exists ("clears every imported Book/file and
+>   any unsaved workspace edits … the original files are not deleted or modified, and outputs
+>   already written are kept"); a pristine workspace asks nothing; declining changes nothing.
+> - **Lock:** the button joins each panel's existing `_import_lock` (the `IMPORTED_INPUT` kind
+>   of the shared `LockGroup`), so a run disables it through the shared matrix; the operation
+>   itself also refuses while a run or an import scan is active and never touches a frozen run.
+> - **Placement / style:** in the import band beside Import Folder (and Add Files on the Editor),
+>   `style_name(theme, "danger_button")` — the ACT destructive treatment on Windows, `""`
+>   (native) on aqua/classic; no colour literal. The Editor keeps two unmistakable actions:
+>   `Clear All Imports` (workspace) and `Clear All Tags (keep chapters)` (output copies) — proved
+>   distinct behaviourally and by AST (the reset never reserves or starts an action; the tag
+>   action never calls `new_workspace`).
+> - **RED → GREEN:** `files/tests/test_clear_all_imports.py` (17) — red as
+>   `AttributeError: … has no attribute 'clear_all_imports'` on all three panels; 14/17 on the
+>   first green run (the pristine shape's `book_numbers` is `{pristine id: 1}`, exactly as a
+>   freshly opened panel renders) → **17/17**: for each tool — populate (import several Books,
+>   Shared value, Book edit, chapters, artwork; Maker Duplicate + Add Files; MP3 Add Book), a
+>   real run first for Maker/Editor → reset → the exact pristine startup shape against
+>   `new_workspace()`, no imported file represented, sources byte-identical, outputs on disk
+>   untouched, log lines kept, the button disabled during a run through the shared group and
+>   the operation refused, pristine asks nothing, a Shared-only value asks, populated asks,
+>   declining changes nothing; the Editor's two actions distinct; import-band placement with the
+>   danger style on Windows and native on aqua; reachable at 920×600 on all three tools.
+> - **Directly affected regressions:** the three panel suites, MP3 layout, prototype regression,
+>   custom destination, combined hardening, structural authority, plan3/plan6, hardening,
+>   output/launcher/refresh guards, workspace UI, job UI, theme: **1,419 passed / 14 skipped /
+>   0 failed** (skips: aqua-only, symlink privilege).
+>
+> **AMENDMENT GATE (full, Windows, 2026-09-14).**
+> 1. **Full pytest: 7,395 collected / 7,364 passed / 31 skipped / 0 failed** in 9:59.
+>    Reconciled against Phase 11 (7,378): **+17** `test_clear_all_imports`; no other file's count
+>    changed. Skips identical to Phase 11 (13 aqua-only, 12 symlink-privilege incl. the two
+>    `test_m4b_staging` cases, 3 case-insensitive filesystem, 3 `JACK_RYAN_M4B_FOLDER`); 1 warning
+>    (pre-existing pydub `audioop`). No intermittent.**
+> 2. **`python scripts/verify.py`: RESULT: PASS** on the first attempt (pytest **7,364 passed / 31
+>    skipped, 1 warning in 10:03**; deps / docs / docnames / config all PASS).**
+> 3. `compileall` (`scripts/Universal`, `scripts/verify.py`, `files/tests`): exit 0.
+> 4. `git diff --check` (worktree and index): clean.
+> 5. Invariants: branch `feature/0.6.4-m4b-maker-metadata-editor`; the plan file's exact name
+>    unchanged; `origin/master` unmoved at `e0bab662`; `launcher.TOOLS` = 6; version `0.6.2`;
+>    `config-template.toml` absent; `don't-delete/`, the launcher, `shared/version.py` and
+>    `verify.py` byte-identical to the anchor; `files/dev-work/` and runtime/session logs preserved.
+>
+> **THE NEXT ACTION IS THE REST OF PHASE 12 — WINDOWS COMBINED MANUAL ACCEPTANCE, resuming at
+> the Maker workspace row** (with one import-band layout re-check on each tool for the new
+> button). Windows acceptance is maintainer-controlled: nothing is accepted until the maintainer
+> answers **YES**. **Phase 13 (macOS) has not started** and needs a fresh Mac context and
+> separate authorization.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 11 COMPLETE (COMBINED AUTOMATED HARDENING MATRIX — TWO DEFECTS FOUND AND FIXED, FULL GATE GREEN); PHASE 12 NOT STARTED (2026-09-14)
 >
 > **This block is the live state.** It supersedes the Phase 10 block beneath it on one point only —
