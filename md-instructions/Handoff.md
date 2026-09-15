@@ -2,6 +2,66 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 12 COMPLETE: WINDOWS COMBINED MANUAL ACCEPTANCE ACCEPTED BY THE MAINTAINER AT `6cc3eaa`; PHASE 13 (macOS) NOT STARTED (2026-09-15)
+>
+> **This block is the live state.** It supersedes the Phase 12 in-progress block beneath it on one
+> point only — Windows is now **accepted**. Nothing in the Phase 0–11 record or the amendment
+> record changes. **No code changed after `6cc3eaa`**: the post-amendment full gate at that commit
+> (7,395 collected / 7,364 passed / 31 skipped / 0 failed; `verify.py` PASS; compileall; diff check)
+> remains the code gate. This commit records the acceptance in Handoff only.
+>
+> **Windows acceptance — maintainer answered YES on 2026-09-14/15** to the question
+> "Accept Phase 12 Windows validation: YES or NO?", with this evidence:
+> - **Environment:** the real launcher `Setup_and_Run-audiobook-creation-tool.bat`, Windows 11,
+>   venv healthy (`bootstrap --venv-check`), FFmpeg 9.0.1 verified through `shared.ffmpeg_utils`,
+>   HEIF decode + encode present. Disposable fixtures `files/dev-work/phase12-windows/`
+>   (gitignored; `FIXTURES.md`, `hashes-before.json`, `evidence.json`, `drive_rows.py`).
+> - **Maintainer-performed rows (real launcher):** 1 launcher/six tools/no console; 2 and 3 both
+>   panels usable at **920×600 and 1024×720**, no whole-tool scrollbar, ACT presentation; 2a/3a/3b
+>   import bands with the red `Clear All Imports` at both sizes (MP3 Tool at 920×600), Editor's
+>   `Clear All Tags (keep chapters)` visibly distinct; 3c/3d Clear All Imports on both tools
+>   (pristine asks nothing; populated asks with the copy-safe wording; No changes nothing; Yes
+>   returns to the pristine Book with the log history kept); 4–9 Maker import/grouping (4 Books,
+>   natural order), navigation and selector, Add Files to the current Book only, Duplicate (config,
+>   no tracks) and Remove, Shared override/disable/restore, Book-specific Title/Album/Output
+>   Filename, Auto-number disabling Series Part, Book-specific chapter titles surviving
+>   navigation, artwork chooser/preview for Book and Shared including a **HEIC preview**.
+> - **Conductor-driven rows 10–22 on the real production panels inside the real `LauncherApp`
+>   shell** (real theme, real worker threads, real import coordinator, real output base; only the
+>   modal dialogs answered programmatically), each mechanically inspected through
+>   `shared.metadata` / `probe_audio_stream` / hashes and recorded in `evidence.json`:
+>   10 — Safe-path standard run: Pause requested during Book 1 → **acknowledged PAUSED**, nothing
+>   published while paused → Resume → **A ✓ / B ✗ / C ✓ / D ✓**, one run folder, no Beta file,
+>   no `.work` left; **success-only numbering A=1, C=2, D=3**. 11 — Book B repaired **only after**
+>   that evidence (placeholder → repair-kit hash verified); live Title/Shared Album edits made
+>   afterwards; **Retry Failed ran only B → B = 4**, none of the late edits reached it; A/C/D byte-
+>   and mtime-identical; no new reservation. 12 — Alpha 270 s AAC, chapters `01 / Second Movement /
+>   03`, JPEG cover equal to the fixture (player playback not performed by the conductor).
+>   13 — custom destination: output directly in the chosen folder, no nested `M4B-Maker-N`,
+>   `KEEP-ME.txt` byte/mtime-identical. 14 — Cancel during Book 1: Cancelled, all four Not
+>   attempted, empty run folder. 15/16 — six Editor pages with correct prefill and read-back
+>   (Apple freeform #1–#3, vendor `com.pilabor.tone` `Tone Saga #4`, plain, unreadable), every
+>   configuration `{}` after visiting every page. 17 — Shared Genre + Saga 1 edits; Saga 2 under a
+>   verified byte-range lock → **failed at `copy`**, later Books continued, `not-really.m4b`
+>   **SKIPPED_INVALID and still on its page**, no partial Saga 2 output, all sources unchanged.
+>   18 — lock released and proved gone; **Retry Failed ran only Saga 2**; earlier outputs
+>   byte/mtime-identical; Saga 1 output: edited title, positional chapter edit, PNG cover, **audio
+>   MD5 equal to the source (no re-encode)**, untouched fields preserved. 19 — Clear All Tags:
+>   metadata and covers gone, chapters kept everywhere, only Saga 1's explicit Title reapplied.
+>   20 — Remove Series Numbering with a pending unsaved Saga 3 title: parts removed, Series Names
+>   kept (Apple and vendor), unrelated metadata/covers/chapters kept, pending title not applied.
+>   21 — HEIC Shared replacement → PNG cover in the outputs, `cover.heic` unchanged, no sidecar.
+>   22 — Cancel right after Save → Cancelled, Not attempted, empty run folder, idle controls.
+> - **Source safety:** all 22 fixture hashes equal the baseline except Book B's `02.mp3`, which
+>   equals the repair-kit file (conductor's fixture repair; unchanged by the application).
+> - **Limitations recorded:** no human playback/chapter-navigation listening (ffprobe and chapter/
+>   metadata inspection instead); the conductor's two driver crashes were its own mistakes
+>   (hashing a locked file; page ordering), not product defects; no error/warning dialog fired.
+>
+> **THE NEXT ACTION IS v0.6.4 PHASE 13 — macOS ACCEPTANCE. IT HAS NOT STARTED**, needs a fresh Mac
+> terminal/coding-agent context and separate maintainer authorization. Phase 14 permanent
+> documentation reconciliation is not started either. No PR, merge, tag, release or VERSION change.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 12 IN PROGRESS (WINDOWS MANUAL ACCEPTANCE — ROWS 1–3 ACCEPTED; MAINTAINER-DIRECTED "CLEAR ALL IMPORTS" AMENDMENT LANDED, FULL GATE GREEN); WINDOWS NOT YET ACCEPTED (2026-09-14)
 >
 > **This block is the live state.** It supersedes the Phase 11 block beneath it on one point only —
