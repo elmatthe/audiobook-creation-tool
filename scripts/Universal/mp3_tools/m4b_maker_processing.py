@@ -211,7 +211,7 @@ def build_ffmetadata_from_starts(titles, starts_ms, meta, total_ms):
             "TIMEBASE=1/1000",
             f"START={start}",
             f"END={end}",
-            f"title={titles[i]}",
+            f"title={metadata.ffmetadata_escape(titles[i])}",
         ]
     return "\n".join(lines)
 

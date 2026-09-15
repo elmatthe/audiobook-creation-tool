@@ -324,7 +324,10 @@ def ffmetadata_header_lines(tags: dict) -> list[str]:
     for key in _FFMPEG_TEXT_FIELDS:
         val = _clean(tags.get(key))
         if val:
-            lines.append(f"{key}={val}")
+            # ``=``, ``;``, ``#``, a backslash and a newline are ffmetadata
+            # syntax: unescaped, FFmpeg truncates or mangles the value
+            # (v0.6.4 Phase 11 finding -- "Harry Potter #1" lost its number).
+            lines.append(f"{key}={ffmetadata_escape(val)}")
     return lines
 
 
@@ -607,6 +610,13 @@ def _ffmeta_escape(value: str) -> str:
         else:
             out.append(ch)
     return "".join(out)
+
+
+#: The one ffmetadata value escape, public for every ffmetadata writer (the
+#: Maker's chapter/tag file as well as the chapter-title remux below).
+def ffmetadata_escape(value: str) -> str:
+    """Escape *value* for an ffmetadata file (``=``, ``;``, ``#``, backslash, newline)."""
+    return _ffmeta_escape(value)
 
 
 def read_chapter_titles(path) -> list[str]:

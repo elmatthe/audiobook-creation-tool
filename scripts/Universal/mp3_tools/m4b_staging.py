@@ -81,37 +81,66 @@ def prepare_staging(plan: StagedOutput, *, work_root: Path) -> Path:
     return plan.staging_dir
 
 
+def _is_link(path: Path) -> bool:
+    """A symlink **or** a Windows junction / reparse point, by the shared authority.
+
+    ``Path.is_symlink`` says no to a junction, and ``os.walk`` would descend
+    into one as if it were an ordinary directory (v0.6.4 Phase 11 finding),
+    so the question is put to ``output_paths`` — the one place that knows what
+    a link is on every platform — rather than answered here a second way.
+    """
+    if path.is_symlink():
+        return True
+    try:
+        output_paths.assert_no_link_in(path.parent, path)
+    except output_paths.OutputPathError:
+        return True
+    return False
+
+
+def _unlink_link(target: Path) -> None:
+    """Remove a link itself — never what it points at."""
+    try:
+        os.unlink(target)
+    except OSError:
+        os.rmdir(target)           # a directory link on a platform that insists
+
+
+def _remove_entries(root: Path, directory: Path) -> int:
+    """Remove *directory*'s entries, bounded to *root*; links are never entered."""
+    removed = 0
+    with os.scandir(directory) as scan:
+        entries = list(scan)
+    for entry in entries:
+        target = Path(entry.path)
+        if _is_link(target):
+            _unlink_link(target)
+            removed += 1
+            continue
+        output_paths.assert_contained(root, target)
+        if entry.is_dir(follow_symlinks=False):
+            removed += _remove_entries(root, target)
+            os.rmdir(target)
+        else:
+            os.unlink(target)
+        removed += 1
+    return removed
+
+
 def discard_staging(plan: StagedOutput, *, work_root: Path) -> int:
     """Delete the staging area and everything inside it, and nothing else.
 
     Bounded to that one directory: every entry is re-checked to lie under it,
-    links are removed as links and never followed. Returns entries removed.
+    links — symlinks and Windows junctions alike — are removed as links and
+    never followed. Returns entries removed.
     """
     require_owned(plan, work_root)
     root = plan.staging_dir
     if not root.exists() and not root.is_symlink():
         return 0
-    if root.is_symlink():
+    if _is_link(root):
         raise StagingError(f"staging {root} is a link and was not touched", stage="staging")
-    removed = 0
-    for current, directories, files in os.walk(root, topdown=False, followlinks=False):
-        current_path = Path(current)
-        if current_path != root:
-            output_paths.assert_contained(root, current_path)
-        for name in files:
-            target = current_path / name
-            if not target.is_symlink():
-                output_paths.assert_contained(root, target)
-            os.unlink(target)
-            removed += 1
-        for name in directories:
-            target = current_path / name
-            if target.is_symlink():
-                os.unlink(target)      # the link itself, never what it points at
-            else:
-                output_paths.assert_contained(root, target)
-                os.rmdir(target)
-            removed += 1
+    removed = _remove_entries(root, root)
     os.rmdir(root)
     return removed + 1
 
@@ -161,10 +190,10 @@ def publish_staged(plan: StagedOutput, *, work_root: Path) -> Path:
 
 
 def prune_work_root(work_root: Path) -> None:
-    """Remove the work root once nothing is left in it. ``rmdir`` only."""
+    """Remove the work root once nothing is left in it. ``rmdir`` only, never a link."""
     work = Path(work_root)
     try:
-        if work.is_dir() and not work.is_symlink() and not any(work.iterdir()):
+        if work.is_dir() and not _is_link(work) and not any(work.iterdir()):
             work.rmdir()
     except OSError:
         pass

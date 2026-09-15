@@ -2,6 +2,157 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 11 COMPLETE (COMBINED AUTOMATED HARDENING MATRIX — TWO DEFECTS FOUND AND FIXED, FULL GATE GREEN); PHASE 12 NOT STARTED (2026-09-14)
+>
+> **This block is the live state.** It supersedes the Phase 10 block beneath it on one point only —
+> that block names **Phase 11** as the next action. Phase 11 is now done: the coordinated v0.6.4
+> drop is proved as **one system** and is ready for the Windows manual acceptance gate. The Phase 0
+> block's integration fact and active authority still stand; the guard map is fully reconciled
+> (Phases 6 and 10) and **no guard was weakened here** — Phase 11 added three suites and two
+> bounded production fixes.
+>
+> **Coverage matrix conclusions (Phase-11 requirement → existing proof → gap closed here).**
+> - *Shared workspace* — stable ids, add/remove/navigation, selector identity after removal,
+>   Shared override→clear→restore, Maker Duplicate (config, no inputs), the two projections: all
+>   pinned by `test_book_workspace(_ui)`, both workflow suites and both panel suites. **Gap:** no
+>   proof the two projections coexist in one process through one architecture →
+>   `test_the_two_projections_coexist_in_one_process_through_one_architecture` (both panels on
+>   one root, disjoint ids, one `BookNavigator` type with two action sets, Maker Duplicate vs no
+>   Editor Duplicate, selector ids after removal on both, Shared cycle on one leaves the other
+>   untouched) + `test_both_workflow_models_project_through_the_shared_workspace_not_a_second_one`
+>   (AST: both import the shared operations, define none; the Maker calls
+>   `replace_workspace_from_import`, the Editor never groups).
+> - *Frozen state* — plan-level immutability (both planners) and single-mutation retry proofs
+>   (both runners, both panels) existed. **Gap:** the plan's full combination of later mutations
+>   through the production panels → `test_maker_run_and_retry_ignore_every_later_live_mutation`
+>   and `test_editor_run_and_retry_ignore_every_later_live_mutation` (parked worker; Shared text
+>   + artwork, Book text, chapters, Add Files, Duplicate/Remove, Auto-number/Start Part,
+>   Fast-first, custom destination all changed after Start; outputs carry the frozen values;
+>   Retry Failed after further mutation re-runs the frozen Book only, prior outputs byte- and
+>   mtime-identical, one reservation, no custom folder created).
+> - *Job control / races* — the controller's own race table (`test_job_controller`), stale-run
+>   rejection (`test_job_ui`), runner pause/cancel (both batch suites) existed. **Gaps closed on
+>   real threads, synchronised with `threading.Event`, no sleeps:** the settled result exists
+>   before the terminal event (both runners); a Cancel arriving **during publication** keeps
+>   that Book and stops at the boundary (both runners; one CANCELLED, no COMPLETED); a Pause
+>   requested at a Book boundary is acknowledged (PAUSE_REQUESTED → PAUSED) before the next
+>   Book and Resume finishes (both runners); a retry starts only after the prior attempt is
+>   terminal — the panel refuses, `EditorRun.retry_failed` raises, then the retry gets its own
+>   controller and adapter on the same run id and the first adapter's stream saw exactly one
+>   ending; a stale run's events pushed into the panel's queue are `STALE_RUN` verdicts and
+>   render nothing (both panels).
+> - *Output/staging safety* — naming, containment, collisions, publish refusal, custom
+>   destination, symlink refusal all pinned (`test_output_paths`, both plan suites,
+>   `test_maker_custom_destination`). **Gap:** the Phase 9 shared pattern had no suite of its
+>   own → **`test_m4b_staging.py` (14)**: ownership refusals, bounded discard, link-safe discard
+>   (directory link via junction on an ordinary Windows account, file symlink where the
+>   privilege exists), a linked staging root refused untouched, publication refusals (unstaged,
+>   existing, linked destination), whole move, the EXDEV temporary-sibling route and its
+>   failure leaving no partial destination, prune only-when-empty and never through a link,
+>   both engines delegating (AST), the pattern pure. Plus Unicode / 180-char / same-named
+>   Editor sources end to end and forbidden-character / reserved-name / Unicode / 300-char
+>   Maker titles end to end.
+> - *Artwork* — the service (JPEG/PNG/HEIC/unavailable/invalid/mismatched/source hash) and the
+>   Maker consumer were pinned; the Editor engine's preserve/replace/clear/remove too.
+>   **Gap:** through the Editor **panel** and HEIC for the Editor →
+>   `test_editor_artwork_preserve_replace_clear_and_remove_through_the_panel` (four runs, four
+>   reservations, image hashes and audio MD5s unchanged),
+>   `test_a_heic_replacement_is_converted_in_memory_for_the_editor_too` (PNG `covr` of the same
+>   size, no sidecar; skips where the machine cannot decode HEIC — it can here),
+>   `test_an_unavailable_heic_capability_is_a_visible_refusal_in_both_panels` (probe stubbed
+>   unavailable: both panels refuse through the shared validator, the chooser filter offers
+>   no HEIC pattern).
+> - *Maker end to end* — FAST / forced Safe / fallback / silence / chapters / metadata / manual
+>   part / auto part / filename fallback pinned by the Phase 4–6 suites. **Gap:** the whole
+>   production chain with A ✓ / B ✗ / C ✓ under Auto-number →
+>   `test_maker_a_b_c_success_numbering_and_retry_through_the_panel` (A=1, C=2 with no gap, C on
+>   the forced-Safe path, B failed; repair + live edits + Retry Failed → B=3, C byte/mtime
+>   untouched, one reservation).
+> - *Editor end to end* — the Phase 10 panel suite already ran every action through the panel.
+>   **Gap:** the chain order → `test_editor_chain_runs_in_order_from_panel_to_publication`
+>   (`[artwork] → [copy] → [tags] → [cover] → [chapters] → [validate]` then the runner's ✓
+>   milestone; staging gone; source hash unchanged).
+> - *Structural authority* — the Plan 3/6 boundary suites pin who adopts and that nobody
+>   re-implements. **Gap:** "exactly one authority per concern" across the whole tree →
+>   **`test_m4b_structural_authority.py` (11)**: every authority name (Book model, navigation
+>   surface, importing, coordination, job control, job UI, output naming/reservation, staging,
+>   image capability, metadata reading/writing, success numbering, artwork service, preview
+>   filter) is defined in exactly one module; the metadata writers are reached only by the two
+>   engines and two runners; the staging pattern only through the engines (+ the Editor
+>   runner's prune); `SuccessNumbers` built only by the two runners; reservations only by the
+>   six panels; no panel asks the image probe; no second Workspace/Controller/Coordinator/
+>   Reservation/Planner/EventStream/Reporter/LockGroup/Pump class anywhere; the Maker and
+>   Editor families import nothing of each other, share no base class, each builds one
+>   `JobController`; the shared M4B modules (`m4b_artwork`, `m4b_artwork_ui`, `m4b_staging`)
+>   define no Run/Attempt/Controller; both panels are thin (no subprocess / ffmpeg / metadata /
+>   mutagen / PIL / probe / numbering / cancellation imports, no image-suffix literal, no write
+>   or plan call); both `Attempt` classes name nothing live and take frozen `books`; six tools;
+>   the `m4b_`-prefixed tree is exactly the two families, the two panels, the three shared
+>   modules and the Converter's own.
+>
+> **Two real defects, found by the matrix, fixed at their authorities (RED → GREEN):**
+> 1. **Windows junctions in staging cleanup.** `m4b_staging.discard_staging` (the Phase 4/9
+>    pattern) treated a junction as an ordinary directory — `Path.is_symlink()` says no and
+>    `os.walk` descends — so a junction planted inside the private staging area was entered;
+>    containment then refused it (**nothing outside was ever deleted**), but the refusal escaped
+>    as `UnsafePathError` and the staging area stayed behind. Fix (bounded to `m4b_staging.py`):
+>    link detection asks the shared authority (`output_paths.assert_no_link_in`, reparse-aware)
+>    instead of `is_symlink()`, the walk is a scandir recursion that never enters a link,
+>    links are unlinked as links, and `prune_work_root` never removes a link. RED:
+>    `test_a_directory_link_planted_inside_staging_is_removed_as_a_link_and_never_followed`
+>    (junction) — the target's files survive, the link and the staging are gone.
+> 2. **ffmetadata special characters (Maker).** `shared.metadata.ffmetadata_header_lines` and
+>    the Maker's chapter `title=` lines never escaped `=`, `;`, `#`, `\` or a newline — FFmpeg
+>    syntax — so a Title like `Harry Potter #1` or a chapter `Part #2` came back truncated and
+>    the Book **failed validation** (no wrong file was ever published; the Book could not be
+>    built at all). Fix: `shared/metadata.py` gains the public `ffmetadata_escape` (the existing
+>    private escape the chapter-title remux already used) and the header lines use it;
+>    `m4b_maker_processing.build_ffmetadata_from_starts` escapes each chapter title. RED:
+>    `test_maker_tags_and_chapter_titles_survive_ffmetadata_special_characters` (Title, Artist,
+>    Album and two chapter titles with every special character come back exactly).
+>
+> **New suites:** `test_m4b_staging.py` (14), `test_m4b_combined_hardening.py` (21),
+> `test_m4b_structural_authority.py` (11). First runs: staging 8/12 green → the junction
+> finding (defect 1) plus one prune assertion and one AST check that read a docstring, then
+> 12/12 (+2 legitimate file-symlink-privilege skips); combined 7/14 green on the first run (a
+> fixture-name clash between the two imported batch suites' `sources`, a parked retry body
+> never run, the ffmetadata finding (defect 2), and test assumptions about the frozen fallback
+> title, the projection call name and the chain's stage names) → 21/21, stable across three
+> consecutive runs; structural 5/11 → 11/11 after reconciling four facts about the real tree
+> (the preview/filter authority is `mp3_artwork`, the Editor engine hands writers to a step
+> runner rather than calling them, the cleanup coordinator's log class, the Converter's own
+> `m4b_naming`/`m4b_winaudio`).
+>
+> **PHASE 11 GATE (plan §11 full gate — Windows, 2026-09-14).**
+> 1. Race-sensitive suites (`test_m4b_combined_hardening` + `test_m4b_staging`): **33 passed /
+>    2 skipped**, identical on three consecutive runs.
+> 2. Combined Maker + Editor focused hardening/regression set (the three new suites, every
+>    Maker / Editor / artwork / workspace / job / importer / output suite and every structural
+>    guard): **3,229 passed / 26 skipped / 0 failed** in 2:04 (the 2 new skips are the
+>    file-symlink-privilege cases in `test_m4b_staging`; the rest are the baseline).
+> 3. **Full pytest: 7,378 collected / 7,347 passed / 31 skipped / 0 failed** in 9:46
+>    (a collection pass and compileall ran beside it). Reconciled against Phase 10 (7,332) to
+>    the test: +14 `test_m4b_staging`, +21 `test_m4b_combined_hardening`, +11
+>    `test_m4b_structural_authority` = **+46**; no other file's count changed. Skips: the Phase 6
+>    set exactly (13 aqua-only, 10 symlink-privilege, 3 case-insensitive filesystem, 3
+>    `JACK_RYAN_M4B_FOLDER`) **+ 2** new file-symlink-privilege cases in `test_m4b_staging`
+>    (legitimate: a file symlink needs the Windows privilege; the directory case is covered by
+>    a junction on this account). 1 warning: the pre-existing pydub `audioop` deprecation. No
+>    intermittent appeared in any run of this phase.**
+> 4. **`python scripts/verify.py`: RESULT: PASS** on the first attempt (pytest **7,347 passed / 31
+>    skipped, 1 warning in 9:51**; deps / docs / docnames / config all PASS).**
+> 5. `compileall` (`scripts/Universal`, `scripts/verify.py`, `files/tests`): exit 0.
+> 6. `git diff --check` (worktree and index): clean.
+> 7. Repository invariants: branch `feature/0.6.4-m4b-maker-metadata-editor`; the plan file's
+>    exact name unchanged; `origin/master` unmoved at `e0bab662`; `launcher.TOOLS` = 6; version
+>    `0.6.2`; `config-template.toml` absent; four canonical doc names; `don't-delete/`, the
+>    launcher, `shared/version.py` and `verify.py` byte-identical to the anchor; `files/dev-work/`
+>    and the gitignored runtime/session logs preserved.
+>
+> **THE NEXT GATE IS v0.6.4 PHASE 12 — WINDOWS COMBINED MANUAL ACCEPTANCE. IT HAS NOT STARTED**
+> and requires separate explicit maintainer authorization. No code change is expected there;
+> both tools are proved as one system through the real launcher only by hand from here.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 10 COMPLETE (METADATA EDITOR PRODUCTION UI ADOPTION — END-TO-END, FULL GATE GREEN); PHASE 11 NOT STARTED (2026-09-14)
 >
 > **This block is the live state.** It supersedes the Phase 9 block beneath it on one point only —
