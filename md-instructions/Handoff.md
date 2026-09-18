@@ -2,6 +2,88 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 15 COMPLETE: THE TWO APPROVED TEMPORARY PLANS ARE RETIRED; THE PLAN IS CLOSED ON THE FEATURE BRANCH — NEXT IS THE INDEPENDENT READ-ONLY INTEGRATION-READINESS REVIEW (2026-09-17, HOME-PC)
+>
+> **This block is the live state.** It supersedes the Phase 14 block beneath it on one point only —
+> the maintainer gave the retirement approval and Phase 15 has run. Nothing in the Phase 0–14 record
+> changes: the Windows acceptance at `6cc3eaa` (recorded `17c8330`), the macOS acceptance at
+> `f9247c4` (recorded `87e1a25`) and the Phase 14 reconciliation at `ead6f35` all stand, and **no code
+> changed in Phase 15** — `f9247c4` remains the last code commit.
+>
+> **Start state (HOME-PC, 2026-09-17):** `git fetch` confirmed the local checkout at
+> `15a470264432700c6ebb6112a7c2f7bc53cdfbce` = upstream tip of `feature/0.6.4-m4b-maker-metadata-editor`,
+> clean worktree except the one untracked maintainer file, VERSION `0.6.2`. The tree of `15a4702` is
+> byte-identical to the tree of `ead6f35` (`7c749e28…`), so the Phase 14 gate is the pre-retirement
+> baseline for exactly this tree. `origin/master` is at `ee8895c` (three maintainer web commits above
+> `e0bab662`, which remains the merge-base; they upload the future `0.6.5-tts-quality-refactor.md` there);
+> **it was not merged, rebased or synchronised into this branch**, by instruction. The local untracked
+> `md-instructions/0.6.5-tts-quality-refactor.md` was left untouched and unstaged (the commit was made by
+> explicit path), as before.
+>
+> **Maintainer approval (explicit, 2026-09-17):** retire BOTH completed temporary plans —
+> (1) `md-instructions/Audiobook Creation Tool v0.6.4 — M4B Maker + M4B Metadata Editor.md` (the plan
+> named itself by the shorter `0.6.4-m4b-maker-metadata-editor.md` spelling — same file) and
+> (2) the retained `md-instructions/0.6.3-drop1-shared-multi-book-workspace.md` (Plan 6, marked
+> ELIGIBLE at Phase 14; its three intended adopters — MP3 Tool, M4B Maker, M4B Metadata Editor — are all
+> on `shared/book_workspace`, its hash gate is empty, its contracts live in `Decisions.md` 2026-09-12 /
+> 2026-09-17).
+>
+> **What Phase 15 did — exactly the approved scope, nothing else:**
+> - `git rm` of the two approved files. **No other file was deleted, added or edited** apart from this
+>   Handoff block. `md-instructions/don't-delete/` is byte-identical to `HEAD~` (`git diff --stat` empty)
+>   and still holds exactly its four permanent references. No test pinned either retired file by name
+>   (`grep` over `files/tests` and `scripts`: no match), so no test was changed or weakened.
+> - `md-instructions/` now contains exactly: the four canonical documents, `don't-delete/`, and the
+>   untracked future-only `0.6.5-tts-quality-refactor.md`. **No temporary drop for v0.6.4 remains.**
+>
+> **Post-retirement gate (plan Phase 15; full, Windows, 2026-09-17) — as green as the Phase 14 gate:**
+> 1. **Full pytest: 7,427 collected / 7,370 passed / 57 skipped / 0 failed**, 1 warning, in 9:32
+>    (`-rs`). Skips reconciled to the identical Phase 14 categories: **39 aqua-only** (25
+>    `test_m4b_layout` + 12 `test_mp3_tool_layout` + 2 `test_ui_theme`), **12 Windows symlink-privilege**
+>    (6 `test_import_traversal`, 2 `test_mp3_plan`, 2 `test_m4b_staging`, 1 `test_output_paths`,
+>    1 `test_cover_source_side`), **3 case-insensitive filesystem** (1 `test_import_traversal`,
+>    2 `test_import_manager`), **3 `JACK_RYAN_M4B_FOLDER`**. The one warning is the pre-existing pydub
+>    `audioop` deprecation. No intermittent, no rerun needed.
+> 2. **`python scripts/verify.py`: RESULT: PASS** on the first attempt (pytest **7,370 passed / 57 skipped, 1 warning in 9:35**; deps / docs / docnames / config all PASS; no intermittent).
+> 3. `compileall -q` (`scripts/Universal`, `scripts/verify.py`, `files/tests`): exit 0, no output.
+> 4. `git diff --check` (staged): exit 0, no output — the change is two whole-file deletions, so not
+>    even the usual CR notices appear; this Handoff block, which landed after the run, is the only
+>    CRLF document touched.
+> 5. **Exact canonical-doc-name check: PASS** — `Briefing.md`, `Changelog.md`, `Decisions.md`,
+>    `Handoff.md` present under exactly those names, no case-variant alias.
+> 6. **Protected-reference check: PASS** — `don't-delete/` holds exactly the four
+>    `Audiobook-Creation-Tool-v0.6.x-*` references and nothing else.
+> 7. `git status --short` before the commit: the two `D` lines and the one `??` maintainer file only.
+>    `git diff --cached --name-status`: the two `D` lines only (plus `M md-instructions/Handoff.md`
+>    once this block was staged).
+> 8. Invariants: branch `feature/0.6.4-m4b-maker-metadata-editor`; `launcher.TOOLS` = 6; version
+>    `0.6.2` (`config.toml`, `shared/version.py`, untouched); `config-template.toml` absent; no
+>    production or test file changed; no AI co-author trailer; no tag, release, package, PR, merge,
+>    rebase, squash, amend or force-push.
+>
+> **Acceptance record (unchanged):** Windows — maintainer YES on 2026-09-14/15 (Phase 12, 22 rows on
+> the real launcher, 0 defects); macOS — maintainer YES on 2026-09-15 (Phase 13, Maker 112 / Editor 115
+> checks on the real launcher, 0 defects after `f9247c4`).
+>
+> **Remaining limitations (carried, not new):** no human playback / chapter-navigation listening on
+> either platform; the macOS shell cannot screenshot; xHE-AAC decode unproven on real media (Plan 5
+> waiver); Windows 125 % / DPI awareness, the three classic panels, the Combobox popdown and title bar,
+> `.DS_Store` packaging and the pronunciation override remain Plan 9 / v0.6.5 items; `verify.py` still
+> keeps only pytest's last line. **One note for the reviewer:** the Master Index (`don't-delete/`) §15
+> block dated 2026-09-17 still names the Phase 14 retirement decision as "the current next action" —
+> Phase 15 is forbidden from touching `don't-delete/`, so it was deliberately not edited; that block
+> already states what Phase 15 does and that the action after it is the read-only review, and this
+> Handoff block is the authoritative live state. Refreshing §15 is a one-line supersession for whichever
+> later phase is authorised to touch the index.
+>
+> **v0.6.4 IS CLOSED ON THE FEATURE BRANCH. THE NEXT ACTION IS AN INDEPENDENT READ-ONLY
+> INTEGRATION-READINESS REVIEW FROM A FRESH CODING-AGENT CONTEXT**, then the maintainer's PR/merge
+> decision. **NOT merged.** No PR, merge, tag, package, release, rebase, squash, amend, force-push,
+> branch deletion or VERSION / `config.toml` change is authorized by anything in this block, and
+> `origin/master` (with the future 0.6.5 plan on it) must not be synchronised into this branch by the
+> reviewer either. The `0.6.5-tts-quality-refactor.md` drop waits until v0.6.4 is integrated and the
+> maintainer opens it.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 14 COMPLETE: PERMANENT DOCUMENTS AND ROADMAP RECONCILED; PHASE 15 NOT STARTED — AWAITING THE MAINTAINER'S RETIREMENT DECISION (2026-09-17, HOME-PC)
 >
 > **This block is the live state.** It supersedes the Phase 13 block beneath it on one point only —
