@@ -4,6 +4,159 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-17 — v0.6.4 closeout: the M4B Maker and M4B Metadata Editor's approved product contracts, and the macOS minimum is 1024×800
+
+**Decision (v0.6.4 — M4B Maker + M4B Metadata Editor, Phase 14 closeout).** Both M4B tools are
+rebuilt on the shared multi-Book foundation, accepted on Windows (2026-09-15, Phase 12) and on macOS
+(2026-09-15, Phase 13), and these are the rules that outlive the temporary plan that carried them.
+Each was approved during the plan, is implemented, and is protected by tests. The Plan 6 Decision
+Register 1–55 under `don't-delete/` is not reopened or rewritten; where this entry departs from a
+numbered decision or from the 2026-07-31 roadmap, the departure is recorded here as a later, dated
+supersession and the original text stands as history.
+
+**One coordinated drop, one branch — the old roadmap split is superseded.** By maintainer ruling on
+2026-09-13 the two tools were delivered together as **v0.6.4** on
+`feature/0.6.4-m4b-maker-metadata-editor`, replacing the roadmap's "Plan 7 / v0.6.3 Drop 2 = M4B
+Maker alone" and "Plan 8 / v0.6.4 = MP3 Tool + M4B Metadata Editor", the later "v0.6.4 Maker, v0.6.5
+Metadata Editor" proposal, and the Master Index §15 branch names `feature/0.6.4-m4b-maker` /
+`feature/0.6.5-m4b-metadata-editor`. The MP3 half of the old Plan 8 had already shipped in the v0.6.3
+focused MP3 redesign. The old Plan 9 assignment — v0.6.5 = final visual parity, hardening, packaging
+and release — is unchanged. The two tools remain **two tools**: separate business models, separate
+Tk-free engines, no shared processing base class, no generic "M4B mega-tool".
+
+**One foundation, reused rather than re-implemented.** Both panels are thin Tk composition layers
+over the same shared authorities the MP3 Tool consumes: `shared/book_workspace(_ui)` (Book identity,
+navigation, Shared → Book precedence, `has_meaningful_work`, frozen run capture, retry dispositions),
+`shared/importing` + `import_coordination` (the scan), `shared/job_control` + `job_ui` (one
+`JobController` / `JobReporter` / `JobAdapter` / `LockGroup` per batch, one `SummaryDetailsView`),
+`shared/output_paths` (reservation, sanitiser, collision planner, containment),
+`shared/image_capabilities` (the one HEIC probe) and `shared/numbering.SuccessNumbers`. Structural
+tests pin that every authority is defined in exactly one module and that no second workspace,
+controller, coordinator, reservation, planner, event stream or pump class exists anywhere. Two things
+are shared by the M4B family only: `mp3_tools/m4b_artwork(_ui)` (the M4B cover service and its Tk
+control) and `mp3_tools/m4b_staging` (the private-staging / atomic-publication pattern both engines
+delegate to). `BookNavigator` gained an opt-in action subset so a consumer may offer fewer Book
+actions; its default is unchanged for the MP3 Tool.
+
+**M4B Maker: one Book = one directory of MP3s = at most one M4B.** `Import Folder` makes one Book per
+directory that directly contains MP3s (natural order, never flattened); `Add Files` extends the
+current Book; Add / Duplicate (configuration, no tracks) / Remove / Previous / Next / selector are the
+shared operations. **Shared fields are exactly six** — Artist / Author, Album Artist / Author, Album,
+Series Name, Silence Between Tracks (seconds), Book Artwork — deliberately not the MP3 Tool's set;
+**Book-only fields are Title, Series Part, Output Filename and Chapter Titles**. A populated Shared
+value overrides and disables the matching Book control and leaves the Book's stored value intact. The
+Maker observes no source ID3 and pre-fills nothing; the metadata vocabulary stays Title, Artist, Album
+Artist, Album, Series Name, Series Part and cover — **no Year, Genre or Comment** were added merely
+because another M4B component supports them. Silence is a **non-negative** gap inserted between
+adjacent tracks only (never after the last; negative refused before any reservation), not the MP3
+Tool's signed Time. Chapter titles are positional, one per line, defaulting to cleaned filenames, and
+are frozen at Build. Fast-first (default ON) with automatic Safe fallback is preserved, Safe being
+mandatory whenever silence is inserted, and the chosen path and any fallback reason are logged.
+
+**Maker naming is Decision 51A through shared authorities only.** The output name resolves from the
+explicit Output Filename → effective Title → effective Album → the unambiguous source folder name →
+`Book N`, sanitised by the shared cross-platform sanitiser, `.m4b` appended exactly once, collision-
+numbered by the shared planner; a blank Title takes the resolved output name as the embedded Title so
+no Book is nameless. Filename and embedded Title are two values. Standard runs go directly inside one
+reserved `M4B-Maker-N`; the explicit custom destination (Decision 10A) writes directly into the chosen
+folder with **no nested run folder**, stages in an operation-owned temporary directory outside it, and
+keeps collision safety.
+
+**Series numbering is success-only, on both tools, through the shared allocator.** With Auto-number
+ON (Start Part blank = 1; Book Series Part controls disabled) a number is proposed for a staged Book,
+written onto the staged file, validated, and **committed only after publication succeeds**; a failed,
+skipped or not-attempted Book consumes nothing, so A ✓ / B ✗ / C ✓ yields 1 and 2 with no gap, and a
+later Retry Failed of B receives 3. The Editor's former position-based numbering (`start + index`),
+which left gaps on failure, is superseded by this contract (Decision 48A applied to both consumers).
+
+**M4B Metadata Editor: one imported file = one Book/page, and blank means preserve.** The Editor
+accepts `.m4b`, `.m4a` and `.mp4`; `Import Folder` (with the shared subfolders option) and `Add Files`
+create one Book per imported occurrence — the directory-to-Book grouping rule is never applied here —
+with Remove / Previous / Next / selector and deliberately **no Add Book and no Duplicate Book**. Each
+page is pre-filled from a frozen `SourceObservation` of its own file (seven text fields, series
+provenance as `read_m4b_tags` resolves it, cover presence, chapter titles); showing a source value is
+never an edit. **Blank Shared + blank/unchanged Book value = preserve the source value; blank does not
+mean remove**, and a value retyped equal to its source writes nothing, so a vendor, movement or
+album-implied series representation is never silently migrated to the canonical atom. **Shared starts
+blank** even when every imported file agrees, so coincidence never becomes a global override; a
+populated Shared value is an explicit edit for every Book and disables the matching Book control. The
+seven Shared/Book text fields are Title, Author / Artist, Album, Year, Genre, Comment and Series Name,
+plus artwork; **Series Part is read-back plus the Auto-number contract, never a text override**.
+Chapter titles are positional with **blank-line-preserve** semantics (line N → chapter N; blank or
+unchanged = leave it; extra lines ignored) — not the MP3 Tool's blank-line-collapse. No action
+re-encodes audio (audio-stream MD5 proved equal).
+
+**Three Editor actions, each a frozen plan.** **Save Tags** writes only actual intent (Shared over
+Book), the explicit artwork (Shared → every Book; Book → that Book; none → preserve source artwork)
+and explicit chapter edits, and touches nothing else. **Clear All Tags (keep chapters)** copies to
+staging, removes identifying metadata and artwork while keeping the chapter structure, and re-applies
+**only explicit** Shared/Book values, explicit replacement artwork and explicit chapter edits —
+prefilled-but-unchanged values are not re-applied, otherwise the action would not clear. **Remove
+Series Numbering** removes the numbering surfaces (`trkn` used as series numbering, movement
+index/count, every vendor `…:PART` / `…:SERIES-PART`) and **keeps the Series Name** and every unrelated
+tag, cover and chapter; `shared.metadata.clear_series_numbering` gained `keep_series_name=` for it, its
+default unchanged. Clear All Tags remains the one wholesale removal. Each action reserves **one**
+standard `M4B-Metadata-N` run (no custom destination) and publishes every Book flat inside it under
+its own source filename, extension kept, collision-numbered.
+
+**Every Book is staged privately and published whole or not at all.** Both engines build in
+`<run>/.work/<stem>/` (the Maker's custom mode in its own temporary root), do all the work there —
+audio assembly, chapters, tags, cover, series part, then a read-back validation through the shared
+probe/metadata readers — and only then `os.replace` into the destination, refusing an existing file
+and routing across filesystems through a plan-owned temporary sibling. A failed or cancelled Book
+leaves no partial output and no staging; a publication failure retains the validated candidate for the
+retry. This closes the Editor's recorded debt of copying to the final path before the tag write.
+Staging cleanup asks the shared reparse-aware link authority: a link inside staging is unlinked as a
+link and never followed (a Windows junction is a link too).
+
+**Artwork on M4B is capability-driven and container-native.** The chooser filter is
+`decodable_suffixes()` from the one shared probe; JPEG and PNG bytes are embedded as their own format;
+HEIC/HEIF are decoded only where the probe says so and converted **in memory** to a PNG `covr` with
+pixel dimensions preserved, no sidecar written, the source never resized, cropped or rewritten; an
+unavailable capability is a visible refusal in both panels. The Maker resolves the cover **before**
+any FFmpeg launch and embeds it on the staged file without re-encoding; the ID3 `apply_artwork` path is
+deliberately not reused for MP4 containers.
+
+**One run model and one log region, common to both.** validate → reserve → plan/freeze → lock →
+execute → settle → publish; workers receive frozen values only and may consult no Tk variable, live
+workspace, Shared value, file list or setting after start; Pause/Resume are acknowledged at safe
+checkpoints, Cancel stops at the next boundary keeping published Books and leaving unreached Books
+*Not attempted* (no Book-level "cancelled"), a failed Book does not stop later Books, and Retry Failed
+re-runs only the failed Books from the original frozen plan in the same run directory. Summary |
+Detailed, history kept across runs with a divider per run and per retry, Clear Log clears the visible
+text only; no Copy button, no severity selector.
+
+**Clear All Imports (maintainer-directed amendment at Phase 12).** All three multi-Book tools carry one
+destructive workspace reset beside Import Folder, styled as the platform's danger button: it returns the
+tool to its pristine startup workspace, keeps the visible log history, touches nothing on disk, asks
+for confirmation only when meaningful work exists (any Book with work or any populated Shared value),
+and is locked out while a run or an import scan is active. The Editor keeps `Clear All Imports`
+(workspace) and `Clear All Tags (keep chapters)` (output copies) as two visibly distinct actions.
+
+**Platform presentation, and the macOS minimum is 1024×800.** Windows draws both tools in the ACT
+design system at the unchanged `MIN_SIZE = (920, 600)`; macOS draws them natively. Phase 13 measured
+both tools in the real launcher under aqua at the 2026-09-12 floor of 1024×720 and found a genuine
+Mac-only layout defect whose bounded remedies fold bands onto more lines than a 1024×720 content host
+can absorb while keeping the chapter editor and log readable; the maintainer ruled on 2026-09-15 that
+**`AQUA_MIN_SIZE = (1024, 800)`, which is also `AQUA_GEOMETRY`, the size the launcher opens at on
+macOS**. *This supersedes, for macOS only, the 1024×720 figure in the 2026-09-12 entry below;* the rule
+of that entry — the minimum is the platform's, presentation differences live behind the theme bundle as
+composition hints the panels read with the Windows values as defaults, and business behaviour never
+branches on platform — is unchanged and is exactly how the Phase 13 remediation was built. The Editor's
+whole-form scrolling canvas, an accepted v0.6.0 Drop 1 limitation, is gone: only the chapter box and
+the log scroll on either tool.
+
+**What deliberately did *not* become a decision record.** The aqua hint token names and values, the
+`ADOPTED` / hash-gate guard reconciliation sequence, the ffmetadata escaping fix and the junction fix
+(Phase 11), the FFmpeg argument shapes, and the exact test counts are implementation mechanics or
+enforcement of rules already approved; they live in `Handoff.md`, `Changelog.md` and the code.
+
+*Approved across the v0.6.4 drop (Windows Phase 12 accepted 2026-09-15, macOS Phase 13 accepted
+2026-09-15) and recorded at Phase 14 closeout by Claude Code. Version identity remains `0.6.2`,
+unreleased; nothing merged, tagged or published.*
+
+---
+
 ## 2026-09-12 — Focused MP3 closeout: the MP3 Tool's approved product contract, and the minimum window is the platform's
 
 **Decision (v0.6.3 focused MP3 redesign, Phase 13 closeout).** The MP3 Tool redesign is complete

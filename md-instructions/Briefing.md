@@ -157,9 +157,10 @@ flashing during use.
   actual reserved run once an operation starts; the base is changed only in Preferences & Data,
   so no per-tool browse control can bypass it. Every output-producing action reserves its own
   run — the MP3 Tool's Write ID3 Tags and Combine each reserve **one** run for the whole
-  multi-Book batch (v0.6.3), as do the editor's Write Tags, Clear All Tags and Remove Series
-  Numbering — and staging (`build/`, the MP3 Tool's private `.work/`, WAV normalisation,
-  ffmetadata) stays inside that run, so cleanup can never reach another run, the tool parent or
+  multi-Book batch (v0.6.3), as do the M4B Maker's Build and the Editor's Save Tags, Clear All
+  Tags and Remove Series Numbering (v0.6.4) — and staging (`build/`, the three multi-Book tools'
+  private `.work/`, WAV normalisation, ffmetadata) stays inside that run, so cleanup can never
+  reach another run, the tool parent or
   the base.
 - **The two destination exceptions (v0.6.0 Drop 2 Phase 5).** Decision 10A allows exactly two
   departures from "everything lands in the reserved run", both opt-in and both expressed in
@@ -344,13 +345,14 @@ flashing during use.
   `files/tests/test_ui_theme.py`, `test_launcher_smoke.py`, `test_m4b_metadata_editor_ui.py`
   and `test_prototype_regression.py` all assert this isolation, the last of them across a
   whole application build.
-- **Conversion boundary (still in force, one addition).** The **Windows launcher shell**, the
-  **M4B Metadata Editor** and — since the v0.6.3 focused MP3 redesign, by that plan's explicit
-  supersession — the **MP3 Tool** are the converted surfaces: on Windows they draw only `ACT.*`
-  styles, on macOS the same lookups return `""` and native aqua draws them. **TTS Audiobook,
-  M4B Converter, M4B Maker and Cover Image Resizer remain classic** and must stay that way until
-  the Plan 9 conversion drop — measured live, they carry **zero** `ACT.*` styles between them.
-  Approval of the prototype did not add them to its scope.
+- **Conversion boundary (still in force, two additions).** The **Windows launcher shell**, the
+  **M4B Metadata Editor** (rebuilt on the same boundary at v0.6.4 Phase 10), the **MP3 Tool**
+  (v0.6.3 focused MP3 redesign, by that plan's explicit supersession) and — since v0.6.4 Phase 6,
+  by that plan's explicit scope — the **M4B Maker** are the converted surfaces: on Windows they
+  draw only `ACT.*` styles, on macOS the same lookups return `""` and native aqua draws them.
+  **TTS Audiobook, M4B Converter and Cover Image Resizer remain classic** and must stay that way
+  until the final parity drop (v0.6.5) — measured live, they carry **zero** `ACT.*` styles between
+  them. Approval of the prototype did not add them to its scope.
 - **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
@@ -359,8 +361,9 @@ flashing during use.
   wrapper) → Edge TTS, or `tts/pdf_extractor.pdf_to_txt` → `tts/kokoro_synth.kokoro_file_to_mp3`
   for the Kokoro path. Batch PDF folders go through `tts/batch_convert.py` (threaded, resume,
   retry). Long operations run on worker threads with a Cancel button and a per-tool progress
-  indicator (determinate with a percentage where the total is known; indeterminate otherwise —
-  e.g. the M4B Maker's single concat/encode); **workers never read Tk variables** (hoisted to
+  indicator (determinate with a percentage where the total is known; indeterminate otherwise;
+  the four job-control adopters use the shared `JobStatusView` progress/ETA instead);
+  **workers never read Tk variables** (hoisted to
   the main thread — see Decisions.md / memory), and progress flows the same way: the worker enqueues
   `("progress", (done, total))` on its existing queue and only the main-thread drain touches
   the widget.
@@ -625,7 +628,9 @@ containment) and `shared/image_capabilities.py` (the one HEIC probe).
   filename prefix; the prefix is at least two digits and widens with the Book's last number;
   `TRCK` is an ordinary unpadded integer; Start # blank means 1.
 - **Platform.** Windows: ACT dark, minimum 920×600. macOS: native aqua, minimum **1024×720**
-  (`ui_theme.AQUA_MIN_SIZE`) — the six fixed bands under aqua metrics exceed the content host a
+  at this plan's closeout (`ui_theme.AQUA_MIN_SIZE`; **raised to 1024×800 by the v0.6.4 Phase 13
+  ruling of 2026-09-15** — see *The M4B Maker and M4B Metadata Editor* below) — the six fixed
+  bands under aqua metrics exceed the content host a
   920×600 window leaves, so the maintainer superseded the universal minimum for macOS only (Phase
   12, 2026-09-12); the aqua composition stacks the navigator's Book actions and the two primary
   buttons, wraps the Time label and balances the entries, driven by hint tokens in the aqua
@@ -635,6 +640,70 @@ containment) and `shared/image_capabilities.py` (the one HEIC probe).
   style, platform="win32")` selects the Windows bundle on any host; rewriting `sys.platform` in a
   fixture is forbidden because real FFmpeg runs through `shared/subprocess_utils`, which must see
   the real host.
+
+### The M4B Maker and M4B Metadata Editor (v0.6.4)
+
+The two M4B tools are the second and third production adopters of the shared multi-Book workspace,
+delivered together in one coordinated drop (branch `feature/0.6.4-m4b-maker-metadata-editor`, cut
+from the PR #10 merge `e0bab662`) and accepted on Windows and macOS on 2026-09-15. They follow the
+MP3 Tool's shape exactly — a thin Tk panel over Tk-free workflow / plan / engine / batch modules —
+but keep **separate business models and separate engines**; nothing processing-related is shared
+between them except the two M4B-family modules below, and `test_m4b_structural_authority.py` pins
+that every authority (workspace, navigation, importing, coordination, job control, job UI, output
+naming/reservation, staging, image capability, metadata readers/writers, success numbering, artwork
+service) is defined in exactly one module across the whole tree. The Maker retains the M4B
+Converter's independent pure helpers (`m4b_numbering`, `m4b_probe`, …) untouched.
+
+| Module | Responsibility |
+|---|---|
+| `mp3_tools/m4b_artwork.py` | The one M4B cover service (Tk-free), reusing `mp3_artwork`'s decode path through `shared/image_capabilities`: `load_cover` (JPG/PNG bytes as their own `MP4Cover` format; HEIC/HEIF decoded only where the probe allows and converted to an **in-memory** PNG, dimensions preserved, no sidecar), `cover_for(plan)` (reads only the frozen artwork value), `apply_cover` / `embed_cover` (exactly one `covr`, a metadata-only rewrite of a **staged** container — packed audio proved unchanged). The ID3 `apply_artwork` is deliberately not reused. |
+| `mp3_tools/m4b_artwork_ui.py` | The Tk `ArtworkControl` both panels compose twice (Shared and Book): caption, in-memory preview, Choose…/Clear, two disabling reasons kept apart (Shared override vs run lock), `MainThreadGuard` on every Tk-reaching method; `ask_artwork` filters the native dialog by the probe's decodable suffixes; `validated_artwork` decodes before accepting. |
+| `mp3_tools/m4b_staging.py` | The private-staging / atomic-publication pattern both engines delegate to (Tk-free, not a Plan 3 adopter): `require_owned` (staging is exactly `<work root>/<stem>`), `prepare_staging`, `discard_staging` (a bounded walk that asks `output_paths.assert_no_link_in` — reparse-aware, so a Windows junction counts — and unlinks a link as a link, never following it, no `rmtree`), `publish_staged` (refuses an existing destination; `os.replace`; EXDEV → plan-owned `temporary_sibling` + `atomic_replace`), `prune_work_root` (`rmdir` only when empty, never through a link). |
+| `mp3_tools/m4b_maker_workflow.py` | The Maker vocabulary over the shared workspace: six Shared fields (Artist / Author, Album Artist / Author, Album, Series Name, Silence Between Tracks, Book Artwork) and four Book-only fields (Title, Series Part, Output Filename, Chapter Titles); `import_folder` = one Book per directory directly containing MP3s (shared `replace_workspace_from_import`, no source-tag prefill — the Maker observes no ID3); `add_files` to the current Book; track move/remove; the existing `strip_leading_numbers` / `normalize_title` preserved verbatim; positional chapter titles (line *n* → chapter *n*, short list keeps defaults, extras ignored); `parse_silence` (blank → 0, negative refused) and `parse_start_part` (blank → 1); `output_name_candidates` = the Decision 51A chain (Output Filename → Title → effective Album → unambiguous folder → `Book N`), unsanitised. |
+| `mp3_tools/m4b_maker_plan.py` | The frozen `RunPlan` Build makes before any media work: `standard_destination` (one reserved `M4B-Maker-N`, staging under its `.work/`) or `custom_destination` (the validated folder used directly, **no nested run folder**, a caller-owned work root that must lie outside it); every Book's silence and the Start Part parsed first; `assert_outside_source_trees` in standard mode; one `DestinationPlanner`; `BookPlan` carries sources, frozen chapter titles, the embedded Title (the Book's, else the resolved output name — no nameless Book), effective metadata, `series_part` (raw text while Auto-number is OFF, `None` while ON), artwork path, silence, and `filename` / `staging_dir` / `staged` / `published` — sanitised and collision-numbered through `output_paths` only, `.m4b` appended exactly once. |
+| `mp3_tools/m4b_maker_processing.py` | The Maker engine for **one** frozen `BookPlan` (Tk-free): the proven concat/encode moved verbatim from the old panel — WAV normalisation, one silence WAV *between* adjacent tracks (never after the last; silence forces Safe), FAST first with automatic Safe fallback emitted as a `fallback` event, ffmetadata with 250 ms lead-in and escaped titles (`shared.metadata.ffmetadata_escape`), every launch through `ffmpeg_utils` — encoding to `BookPlan.staged` never `published`; series tags via `metadata.write_m4b_tags`; the cover resolved **before** any FFmpeg launch and embedded on the staged file; `validate_staged_m4b` reads the result back (duration, exact chapter titles, Title, cover presence); `stage_book` / `publish_book` split so the batch can write a success number between them. |
+| `mp3_tools/m4b_maker_batch.py` | `MakerRun` / `Attempt`: exactly one `JobController` + `JobReporter` per attempt, one worker body, Books in frozen order with `checkpoint()` between and inside them, continue-on-failure, `RunResult.settle` per Book against its exact `RunSnapshot`, `WorkspaceRunResult` over all attempts, `retry_failed_books` for Retry Failed (same run id, same frozen `BookPlan` objects, no re-plan / re-reserve). Auto-number = one `shared.numbering.SuccessNumbers` for the whole retry chain: `propose()` → write the part on the staged file → re-validate → `checkpoint()` → publish → `commit()`; a failure consumes nothing, a publication failure retains the validated candidate for the retry. |
+| `mp3_tools/m4b_maker.py` | The panel, on the `mp3_tool.py` precedent: import band (`Import Folder`, shared `ImportStatusBar`, `Clear All Imports`, output hint) → `BookNavigator` (default action set) → `SharedMetadataSurface` + `ArtworkControl` ×2 → the Book-only row (Title, Series Part, Output Filename, Status) → local track list | Chapter Titles box → run options (Auto-number Series Part, Start Part, Try FAST first, `Choose custom destination`) → `Build M4B(s)` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. No whole-tool scrollbar; only the list, chapter box and log scroll. Every widget asks `job_ui.style_name`; layout hints come off the theme through `_layout_hints`. |
+| `mp3_tools/m4b_metadata_workflow.py` | The Editor vocabulary, with one deliberate contrast: **one imported occurrence = one Book**, whatever directory it came from (`.m4b`, `.m4a`, `.mp4`). Eight Shared fields (Title, Author / Artist, Album, Year, Genre, Comment, Series Name, artwork); `series_part` is **not** a Shared or Book text field — it is read-back plus the batch-level Auto-number contract. `SourceObservation` (frozen, per occurrence, never raises: the seven text fields, series and part with provenance as `read_m4b_tags` resolves them, cover presence, chapter titles) in an immutable `ObservationStore`. A Book's configuration holds **only explicit edits**; `prefill_values` / `page_values` are display, `edit_intent` is what an action would write or `None` = preserve (blank → preserve; equal to source → nothing, so a vendor / movement / album-implied series is never migrated); `shared_intent` (populated Shared only); `artwork_intent`; positional `chapter_edits` with **blank-line-preserve** (not the MP3 collapse rule); `series_readback` reproduces the accepted "Detected on file" lines. |
+| `mp3_tools/m4b_metadata_plan.py` | The frozen plans for the three actions (`SAVE_TAGS`, `CLEAR_ALL_TAGS`, `REMOVE_SERIES_NUMBERING`): `BookPlan` keeps the observation, `shared_overrides`, `book_edits`, `artwork` (explicit replacement or `None`), `chapter_edits` and the action apart — `writes` is a derived view (Shared over Book), `has_intent` says whether a Book asks for anything. Save freezes only actual intent; Clear freezes exactly the same explicit values to re-apply after the clear and nothing prefilled; Remove freezes the action alone (`auto_number=False`, no writes, `artwork=None`). Exactly **one** standard `M4B-Metadata-N` reservation per operation, every Book flat under its source filename (extension kept, sanitised, collision-numbered), staging under the run's `.work/`; unreadable sources are `SKIPPED_INVALID` with their error reachable. |
+| `mp3_tools/m4b_metadata_processing.py` | The Editor engine for one frozen `BookPlan` (Tk-free): preflight the source → load the explicit cover first (unusable → fails **before any copy**) → `prepare_staging` → `shutil.copy2` **into staging** → the action through `shared.metadata` only (Save: `write_m4b_tags`; Clear: `clear_metadata_keep_chapters` then the frozen writes; Remove: `clear_series_numbering(keep_series_name=True)`) → explicit cover (`m4b_artwork.embed_cover`) → positional chapter edits (`apply_chapter_titles`, `-c copy` remux) → `validate_staged` (audio readable; every write present exactly; Clear → non-written text fields absent; Remove → no part, Series Name kept; cover present iff the action leaves one; chapters in order) → publish through `m4b_staging`. No re-encode anywhere (audio MD5 proved equal); a failure after the copy leaves the run directory empty. |
+| `mp3_tools/m4b_metadata_batch.py` | `EditorRun` / `Attempt` on the Maker precedent: one controller + reporter per attempt, continue-on-failure, `SKIPPED_INVALID` kept for unreadable Books, Retry Failed from the same frozen plan, Pause/Resume/Cancel; Auto-number (Save/Clear only) through the same `SuccessNumbers` propose → write → validate → checkpoint → publish → commit sequence, successes only. |
+| `mp3_tools/m4b_metadata_editor.py` | The panel: import band (`Import Folder` with the shared subfolders option, `Add Files`, `ImportStatusBar`, `Clear All Imports`, output hint, `Open Output Folder`) → `BookNavigator` with the action subset `(REMOVE,)` (no Add Book, no Duplicate Book) → `SharedMetadataSurface` over the seven text fields + `ArtworkControl` ×2 → the Book read-back lines (source path/readability, the series read-back, `Series Part · Artwork · Chapters` facts, Status) → local Chapter Titles box → Auto-number Series Part + Start Part + the preserve hint → `Save Tags` / `Clear All Tags (keep chapters)` / `Remove Series Numbering` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. `render()` shows `page_values` under a guard so prefill never becomes an edit; only a keystroke does. The v0.6.0 whole-form scrolling `Canvas` is gone. |
+
+Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with the Phase 1
+`BookNavigator(actions=…)` opt-in subset — the default is behaviour-identical for the MP3 Tool),
+`shared/importing` + `import_coordination`, `shared/job_control` + `job_ui`, `shared/output_paths`,
+`shared/image_capabilities`, `shared/numbering` and `shared/metadata` (which gained the public
+`ffmetadata_escape` and the backward-compatible `clear_series_numbering(keep_series_name=)`).
+
+- **Every Book is staged privately and published whole or not at all**, on both tools, with the
+  read-back validation before `os.replace`; a failed or cancelled Book leaves no partial output and
+  no staging. This closed the Editor's recorded "copy lands on the final path before the tag write"
+  debt at Phase 9.
+- **Series numbering is success-only on both tools** through the one shared allocator; the Editor's
+  former position-based numbering is gone.
+- **Blank means preserve on the Editor and blank means blank on the Maker/MP3 Tool** — the two
+  semantics are deliberate and live in the two workflow modules, not in the shared model.
+- **Clear All Imports** (maintainer-directed at Phase 12) exists on all three multi-Book tools: a
+  thin reset to the tool's pristine `new_workspace()`, log history kept, nothing on disk touched,
+  confirmation only when `has_meaningful_work` or a populated Shared value says there is something
+  to lose, locked through the shared `LockGroup` during a run or import scan; styled
+  `style_name(theme, "danger_button")`.
+- **Platform.** Windows: ACT dark, minimum 920×600, both panels proved on a deiconified root. macOS:
+  native aqua, minimum **1024×800** (`ui_theme.AQUA_MIN_SIZE`, also `AQUA_GEOMETRY`, the launcher's
+  opening size) — the maintainer's Phase 13 ruling of 2026-09-15, superseding the 1024×720 floor of
+  2026-09-12 for macOS only, after the real launcher showed the two M4B tools' fixed bands folding
+  onto more lines than a 1024×720 content host can absorb. The aqua bundle carries composition hints
+  (`import_band_layout`, `group_pad`, `field_gap`, `field_columns`, `field_label_wrap_short`,
+  `book_fields_span`, `options_layout`, `actions_columns`, `navigator_layout_one_action`,
+  `readback_layout`, `note_wrap`, `chapter_rows`) each panel reads with the Windows values as
+  defaults; `test_ui_theme` pins that the Windows bundle carries none. `test_m4b_layout.py` measures
+  the real launcher on aqua; the two panel suites protect the Windows composition.
+- **Structural guards reconciled, never weakened.** `PHASE0_PANEL_HASHES` in `test_plan6_boundaries`
+  is now **empty** — every consumer panel left it by a proved conversion (the old digests survive as
+  evidence with positive-adoption tests); `test_plan3_boundaries.ADOPTED` is twenty modules and the
+  adopting panels are six; `UNCONVERTED_PANELS` is the three classic panels; `test_ffmpeg_runtime_trust`
+  expects `m4b_maker_processing.py` rather than the panel.
 
 ## Features
 
@@ -688,7 +757,14 @@ containment) and `shared/image_capabilities.py` (the one HEIC probe).
   *The MP3 Tool* below.
 - **M4B Maker** (`mp3_tools/m4b_maker.py`) — MP3s → chaptered M4B with cover art, metadata, and
   Audiobookshelf-compatible series tags (freeform `----:com.apple.iTunes:SERIES`/`SERIES-PART`
-  atoms — what ABS's ffprobe scanner actually reads).
+  atoms — what ABS's ffprobe scanner actually reads). Since v0.6.4 a **multi-Book workspace**: one
+  Book per folder of MP3s, at most one `.m4b` per Book, six Shared fields (Artist / Author, Album
+  Artist / Author, Album, Series Name, Silence Between Tracks, artwork) over per-Book Title / Series
+  Part / Output Filename / Chapter Titles, Decision 51A output naming, Fast-first with automatic Safe
+  fallback, success-only Auto-number Series Part, one `M4B-Maker-N` run (or the explicit custom
+  destination with no nested run folder), atomic per-Book publication, one `JobController`,
+  Pause/Resume/Cancel, Retry Failed from the frozen plan, one Summary | Detailed log. See *The M4B
+  Maker and M4B Metadata Editor* above.
 - **Cover Image Converter** (`mp3_tools/cover_resizer.py`) — pad/crop cover art to square;
   JPG/PNG/HEIC (HEIC in → HEIC out; never a silent JPEG substitution). Adopts the shared importer
   and the shared job controls, and adds a **three-view browser — Details, List and Medium
@@ -702,44 +778,38 @@ containment) and `shared/image_capabilities.py` (the one HEIC probe).
   5,000-image import would decode 5,000 previews. A bounded LRU (96 entries, deliberately a count
   and not a byte budget) is the single owner of a decoded image. Late results are dropped inertly
   and nothing is lost: the next refresh asks again for whatever is still visible.
-- **M4B Metadata Editor** (`mp3_tools/m4b_metadata_editor.py`) — edit existing M4B tags without
-  re-encoding; preserve-by-default (blank = unchanged); series detection across vendor freeform
-  + movement atoms; auto-number series parts; per-file chapter-title import; writes copies.
-  Batch mode (multiple files or the "Open Folder…" picker, non-recursive) pre-fills fields
-  whose value is identical across all loaded files and marks differing ones "(varies)";
-  single-file mode is unchanged. The tag/settings sections scroll in a TTS-style canvas
-  (wheel/trackpad via `enable_mousewheel`); the action buttons and a fixed Log sit
-  below the scroll area, always visible.
-  **Presentation (v0.6.0 Drop 1):** the panel forks on `theme["mode"]`. On Windows it builds
-  a card layout from the `ACT.*` design system — an "Audiobook Files" card, the **Shared
-  Metadata** surface, "Chapter Titles (optional)", "Output", then the always-visible action
-  bar and Log. **Every other mode builds the historical layout byte-for-byte**, so macOS and
-  Linux are untouched. The fork is presentation only: both branches create the same widgets
-  and attributes, and every callback, worker, queue, progress, cancel path and busy/idle
-  transition below the builders is shared and unaware of which one drew the screen. Nothing
-  about metadata reading/writing, field precedence, file order, output paths, filenames, tag
-  namespaces, chapter logic, thread boundaries or cancellation timing differs between them.
-- **Shared Metadata (visual treatment only).** The editor's existing batch-wide fields are
-  grouped on a distinct muted-navy surface with an accent border, accent header and a
-  caption reading "These values are written to every loaded file. Blank fields are left
-  unchanged." **This is a visual statement of behaviour that already existed** — the same
-  shared-value / "(varies)" detection shipped in v0.5.0. It adds **no** per-book override,
-  **no** field precedence, **no** disabling and **no** workspace: Decision 20B's full
-  populated-global-overrides model needs the Plan 6 data model and the Plan 8 editor
-  workflow. The data model now exists (v0.6.3, `shared/book_workspace.py`) and the **MP3 Tool**
-  adopted it; the editor has **not**, and its surface is still visual only.
-  `test_shared_metadata_grouping_adds_no_precedence_or_disabling` pins that down.
+- **M4B Metadata Editor** (`mp3_tools/m4b_metadata_editor.py`) — edit existing `.m4b` / `.m4a` /
+  `.mp4` tags without re-encoding; writes copies. Since v0.6.4 a **multi-Book workspace with one
+  page per imported file**, pre-filled from a frozen observation of that file (series detection
+  across vendor freeform + movement atoms, with provenance); **preserve-by-default is binding**
+  (blank or unchanged = keep the file's value; a retyped source value writes nothing; a vendor or
+  implied series is never migrated by being displayed); **Shared starts blank** and a populated
+  Shared value overrides and disables the matching page field; three frozen actions — **Save
+  Tags**, **Clear All Tags (keep chapters)** (re-applies only explicit edits), **Remove Series
+  Numbering** (keeps the Series Name) — each reserving one flat `M4B-Metadata-N` run and publishing
+  every file atomically from private staging; positional per-page chapter titles with
+  blank-line-preserve; success-only Auto-number; one `JobController`, Pause/Resume/Cancel, Retry
+  Failed from the frozen plan, one Summary | Detailed log. The v0.6.0 whole-form scrolling canvas
+  and the batch-global "(varies)" form are gone. See *The M4B Maker and M4B Metadata Editor* above.
+  **Presentation:** every widget asks `job_ui.style_name` — `ACT.*` on Windows, native aqua on
+  macOS through the same lookups returning `""`; no `theme["mode"]` fork remains.
+- **Shared Metadata is now the real Decision 20B model on all three multi-Book tools** (MP3 Tool
+  v0.6.3; M4B Maker and M4B Metadata Editor v0.6.4): the distinct Shared surface introduced visually
+  at v0.6.0 Drop 1 carries per-Book override, field precedence and disabling through
+  `shared/book_workspace(_ui)`, with each tool's own field set and semantics (blank = blank on the
+  MP3 Tool and Maker; blank = preserve on the Editor).
 - **Summary/Details specimen (presentation only, developer-only).**
   `files/tests/manual_windows_ui_prototype.py` is a developer fixture, **not part of the
   product and not part of the test suite**: pytest cannot collect it, it is not in
   `launcher.TOOLS`, it lives under `files/` rather than the shipped `scripts/` tree, and
   nothing in the product imports it. It renders the *production* theme primitives and the
   *production* editor to reach populated, active-run and Summary/Details states that are
-  otherwise slow or non-deterministic to photograph. Its Summary/Details sheet is a visual
-  component specimen carrying its own on-screen disclaimer: there is **no** filtering, **no**
-  dual log buffers, **no** technical-log routing, **no** job snapshot, **no** ETA, **no**
-  Retry Failed and **no** Pause/Resume. That behaviour belongs to Plan 3 and is absent from
-  the shipped panel, which contains no notebook at all.
+  otherwise slow or non-deterministic to photograph; since v0.6.4 Phase 10 its canned states drive
+  the production model (one Book per file through `wf.import_folder` with injected readers, frozen
+  observations, blank Shared) and a mid-run presentation through the shared `LockGroup`, control bar
+  and progress indicator. Its Summary/Details sheet predates the shared log region and is kept as
+  the visual reference it always was, carrying its own on-screen disclaimer; the shipped panels'
+  real Summary | Detailed region is the shared `SummaryDetailsView`.
 
 ## Project Layout Notes
 
@@ -796,16 +866,45 @@ with `feature/0.6.2-m4b-converter-upgrade` retained at `393a5625` — but mergin
 and release remains Plan 9's. v0.6.0 Drops 1–3 (Plans 1–3) never carried a
 version of their own and still do not; v0.6.1 was the first bump since v0.5.1 and v0.6.2 the
 second. The wider v0.6.x initiative is **not** complete. Plan 6 (the shared multi-Book
-workspace) is drafted and its foundation plus the MP3 Tool adoption are implemented and accepted
-on both platforms under the v0.6.3 focused MP3 redesign (branch
-`feature/0.6.3-drop1-shared-multi-book-workspace`, checkpoint `bd6a30f4`, **not merged, not
-released**, version identity still `0.6.2`); its M4B Maker and M4B Metadata Editor adoptions are
-unscheduled. Plans 7–9 remain undrafted.
+workspace) and its MP3 Tool adoption (the v0.6.3 focused MP3 redesign) are implemented, accepted on
+both platforms, and **merged into `master` through pull request #10** on 2026-09-13 as merge commit
+`e0bab662b385734807bf264d8f450aebac053dcc` (parent 1 `83a2bfc7`, parent 2 `4b988676`); branch
+`feature/0.6.3-drop1-shared-multi-book-workspace` retained. The M4B Maker and M4B Metadata Editor
+adoptions were delivered together as **v0.6.4** on `feature/0.6.4-m4b-maker-metadata-editor` (cut
+from that merge) and accepted on both platforms on 2026-09-15 — **not merged, not released**,
+version identity still `0.6.2`. The roadmap's separate Plan 7 (Maker alone) / Plan 8 (MP3 + Editor)
+split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisions.md`,
+2026-09-17); the old Plan 9 assignment — v0.6.5 = final visual parity, hardening, packaging and
+release — is unchanged and undrafted.
 
 ## High-Level State
 
+**v0.6.4 — M4B Maker + M4B Metadata Editor — COMPLETE and ACCEPTED on both platforms on 2026-09-15
+(Phases 0–14 of the temporary plan); not merged and not released.** Both M4B tools became thin
+panels over Tk-free workflow / plan / engine / batch modules on the shared multi-Book workspace, with
+separate business models: the Maker builds one chaptered `.m4b` per Book (one Book per folder of
+MP3s) from six Shared fields and four Book-only fields, Decision 51A naming, Fast-first with Safe
+fallback, silence between tracks, and a standard run or the explicit custom destination; the Editor
+gives every imported file its own page, preserves by default (blank ≠ remove), starts Shared blank,
+and offers Save Tags / Clear All Tags (keep chapters) / Remove Series Numbering as frozen plans with
+positional blank-line-preserve chapter edits and no audio re-encode. Both stage privately and publish
+each Book atomically after a read-back validation, number series parts success-only through the shared
+allocator, run under one `JobController` with Pause/Resume/Cancel and Retry Failed from the frozen
+plan, and show one Summary | Detailed log. `Clear All Imports` was added to all three multi-Book tools
+by maintainer direction at Phase 12. Windows (Phase 12) and macOS (Phase 13) were each accepted by the
+maintainer on the real launcher with real media; the macOS minimum window became **1024×800** by the
+Phase 13 ruling. Phase 11's combined hardening matrix found and fixed two real defects (ffmetadata
+escaping; junctions in staging cleanup). Latest gates: Windows (Phase 12 amendment, `6cc3eaa`)
+7,395 / 7,364 / 31 / 0; macOS (`f9247c4`) 7,427 / 7,372 / 55 / 0; the Phase 14 Windows gate is
+recorded in `Handoff.md`; `verify.py` PASS. `launcher.TOOLS` still holds exactly six tools. The
+retained Plan-6 drop `0.6.3-drop1-shared-multi-book-workspace.md` and the v0.6.4 plan are both
+**eligible for retirement**, pending the maintainer's explicit approval at the Phase 14 gate; Phase
+15 (retirement and closeout) follows only on that approval, then an independent read-only
+integration-readiness review.
+
 **v0.6.3 focused MP3 redesign (Plan 6 foundation + MP3 Tool adoption) — COMPLETE and ACCEPTED
-on both platforms on 2026-09-12; not merged and not released.** The MP3 Tool became a multi-Book
+on both platforms on 2026-09-12; MERGED into `master` through pull request #10 (`e0bab662`,
+2026-09-13); not released.** The MP3 Tool became a multi-Book
 workspace with Shared → Book → blank metadata precedence, one signed Time, explicit previewed
 artwork (JPG/PNG embedded as-is, HEIC/HEIF converted in memory when the machine can decode them),
 per-Book Chapter Titles and numbering, exactly two actions — Write ID3 Tags and Combine MP3s → One
@@ -813,9 +912,9 @@ MP3 — run sequentially from one frozen plan under one `JobController` with ato
 publication, Pause/Resume/Cancel and Retry Failed, one Summary | Detailed log, and a clean tag
 whitelist. Windows Phase 11 and macOS Phase 12 were each accepted by the maintainer on the real
 launcher with real media (playback, source safety, failure isolation and retry included); the
-macOS minimum window became 1024×720 by ruling, Windows keeps 920×600. Latest gates: Windows
-6,925 / 6,909 / 16 / 0; macOS 6,945 / 6,888 / 57 / 0, `verify.py` PASS. `launcher.TOOLS` still
-holds exactly six tools. The next action is the maintainer's integration decision.
+macOS minimum window became 1024×720 by ruling (since raised to 1024×800 at v0.6.4 Phase 13),
+Windows keeps 920×600. Latest gates at that closeout: Windows 6,925 / 6,909 / 16 / 0; macOS
+6,945 / 6,888 / 57 / 0, `verify.py` PASS. `launcher.TOOLS` still holds exactly six tools.
 
 All six tools are built, live-verified on Windows (v0.1.0 test matrix: 18/18 applicable rows
 PASS; later releases re-verified their areas) **and on macOS (2026-07-08: full per-tool live
@@ -1057,18 +1156,22 @@ the exact five-step smoke test is written out in `Handoff.md`.
   section is simultaneously visible — the requirement is graceful adaptation: no unreachable
   primary action, no unresolvable overlap, no clipped confirmation button. `MIN_SIZE` and
   `DEFAULT_GEOMETRY` are unchanged (below). The M4B Metadata Editor's permanently scrolling
-  form is an accepted Plan 1 limitation, not the final target; Plan 9 owns the reflow.
+  form was an accepted Plan 1 limitation, not the final target; **v0.6.4 Phase 10 discharged it** —
+  the rebuilt Editor has no whole-form canvas and only its chapter box and log scroll.
 - **Windows geometry, deliberately unchanged; macOS has its own minimum since v0.6.3.**
   `MIN_SIZE = (920, 600)` and `DEFAULT_GEOMETRY = "1024x720"` stay as they are on Windows and
-  the classic branch. The aqua bundle returns `AQUA_MIN_SIZE = (1024, 720)` — the maintainer's
-  Phase 12 ruling (2026-09-12), see *The MP3 Tool* above and `Decisions.md`; the launcher
+  the classic branch. The aqua bundle returns `AQUA_MIN_SIZE = (1024, 800)` and opens the launcher
+  at `AQUA_GEOMETRY` (the same size) — the maintainer's v0.6.4 Phase 13 ruling (2026-09-15), which
+  raised the v0.6.3 Phase 12 floor of 1024×720 (2026-09-12); see *The M4B Maker and M4B Metadata
+  Editor* above and `Decisions.md` (2026-09-17); the launcher
   applies whatever `theme["min_size"]` says. At the 920×600 minimum the **M4B
   Converter's** primary action and Log are still clipped (~19 px and ~108 px bottom + 75 px
   right, identical at both scaling levels). That panel is unconverted and Plan 9 will rebuild
   it, so the clipping is deferred there rather than fixed by widening the minimum on behalf
-  of a layout that is about to change. The converted editor clips nothing at any size or
-  scaling; its long form is a deliberate scroll region at every size, with the action bar and
-  Log outside it.
+  of a layout that is about to change. The converted Editor, Maker and MP3 Tool clip nothing at
+  any size or scaling — every region is mapped inside a 920×600 window on Windows (proved on a
+  deiconified root) and at 1024×800 on macOS; since v0.6.4 the Editor has no scroll region other
+  than its chapter box and log.
 - **The Windows `ttk.Combobox` popdown is unthemed** (Tk draws it as a native list ttk
   cannot restyle), and the **window title bar stays light** above the dark app (Tk would need
   a Win32 `DwmSetWindowAttribute` call). Both are Plan 9 items.

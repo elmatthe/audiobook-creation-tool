@@ -243,3 +243,55 @@ Plans 1–8 ──> Plan 9 parity, QA, docs, packaging, release
 - No implementation files.
 - No edits to current repository docs.
 - The produced plan markdowns are planning artifacts for user review, not executed changes.
+
+---
+
+## Maintainer supersession — 2026-09-13 (recorded 2026-09-17 at v0.6.4 Phase 14)
+
+**The approved 2026-07-31 map above is not erased; this section records how execution departed from
+it, by explicit maintainer ruling, and what stands unchanged.**
+
+**What was superseded.** The map assigned v0.6.3 Drop 2 / Plan 7 to the M4B Maker alone and v0.6.4 /
+Plan 8 to the MP3 Tool plus the M4B Metadata Editor. In execution:
+
+- **v0.6.3** delivered Plan 6 (the shared multi-Book workspace foundation, Phases 0–8) **and the MP3
+  Tool half of old Plan 8** as the *focused MP3 redesign* (temporary plan
+  `0.6.3-plan6-mp3-tool-redesign.md`, Phases 1–13, retired at its closeout), accepted on both
+  platforms on 2026-09-12 and **merged into `master` through pull request #10** on 2026-09-13 as
+  `e0bab662b385734807bf264d8f450aebac053dcc`. v0.6.3 closed there; no separate Maker drop followed.
+- **v0.6.4** delivered the **M4B Maker (old Plan 7) and the M4B Metadata Editor (the remaining half of
+  old Plan 8) together, in one implementation plan and one feature branch**:
+  `md-instructions/Audiobook Creation Tool v0.6.4 — M4B Maker + M4B Metadata Editor.md` on
+  `feature/0.6.4-m4b-maker-metadata-editor`, cut from that merge. The maintainer ruled this on
+  2026-09-13, superseding the two-drop split, the later proposal "v0.6.4 = Maker, v0.6.5 = Metadata
+  Editor", and the Master Index §15 branch names `feature/0.6.4-m4b-maker` /
+  `feature/0.6.5-m4b-metadata-editor` — none of which were ever created. The proposed filenames
+  `0.6.3-drop2-m4b-maker-multi-book.md` and `0.6.4-mp3-and-m4b-metadata-workflows.md` were never
+  created either. That drop is complete through Phase 14, accepted on Windows and macOS on
+  2026-09-15, and not merged.
+
+**What the combined v0.6.4 drop covered**, against the two "Covers" lists above: every Plan 7 item
+(multiple M4B outputs in one run; per-Book MP3 lists, metadata, cover, silence, filename and
+processing state; shared-series metadata; auto-numbering with a starting part, success-only;
+custom-destination behaviour preserved; safe filename fallbacks and collision numbering;
+continue-on-failure, retry and success-only part assignment; Fast-first + fallback preserved) and
+every Metadata Editor item of Plan 8 (one prefilled page per M4B; a Shared row that starts blank;
+existing chapter titles visible and independently editable per page; Shared/per-Book override rules
+with preserve-by-default binding; the shared importing / output / job-control foundations). The MP3
+Tool items of Plan 8 had been delivered in v0.6.3 with the maintainer's later rulings (two actions
+only, blank means blank, Title-derived filenames — `Decisions.md`, 2026-09-12); the "Remove-all
+mode", "preserve-majority normalization" and "existing-tag preservation and clear-all-first option"
+wordings above were resolved by those rulings and are not separate features.
+
+**What stands unchanged.** The nine-plan structure as history; Plans 1–6 exactly as recorded in the
+Master Index; **Plan 9 / v0.6.5 — full visual conversion of the remaining classic panels (TTS
+Audiobook, M4B Converter, Cover Image Resizer), macOS parity, QA, docs, packaging and release** — is
+unchanged and undrafted, and remains the only release-owning plan. The dependency overview's
+`Plans 1–8 ──> Plan 9` edge now reads, in effect, `v0.6.3 (Plan 6 + MP3 Tool) → v0.6.4 (Maker +
+Editor) → Plan 9`.
+
+**One further platform ruling recorded for completeness:** the macOS minimum window is **1024×800**
+since v0.6.4 Phase 13 (2026-09-15; it was 1024×720 from v0.6.3 Phase 12, and universal 920×600 before
+that). Windows remains 920×600. Business behaviour never branches on platform; only presentation does,
+behind the theme bundle. Version identity remains `0.6.2`, unreleased; the published GitHub release
+remains `v0.4.0`.

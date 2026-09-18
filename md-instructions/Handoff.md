@@ -2,6 +2,113 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 PHASE 14 COMPLETE: PERMANENT DOCUMENTS AND ROADMAP RECONCILED; PHASE 15 NOT STARTED — AWAITING THE MAINTAINER'S RETIREMENT DECISION (2026-09-17, HOME-PC)
+>
+> **This block is the live state.** It supersedes the Phase 13 block beneath it on one point only —
+> Phase 14 is now done. Nothing in the Phase 0–13 record changes: the Windows acceptance at
+> `6cc3eaa` (recorded `17c8330`) and the macOS acceptance at `f9247c4` (recorded `87e1a25`) stand,
+> and **no code changed in Phase 14** — this is a documentation-only checkpoint; `f9247c4` remains
+> the last code commit.
+>
+> **Start state (HOME-PC, 2026-09-17):** the local checkout was two commits behind upstream (the two
+> Phase 13 commits made on the Mac); `git fetch` + `merge --ff-only` brought it to `87e1a25` = upstream,
+> clean worktree, `origin/master` unmoved at `e0bab662`, VERSION `0.6.2`. One untracked maintainer
+> file is present and deliberately left alone: `md-instructions/0.6.5-tts-quality-refactor.md` — by
+> maintainer instruction it is **future-only reference material**, not authority for v0.6.4, not
+> modified, and not staged in this checkpoint (the commit was made by explicit path). The delegation
+> protocol added to `.claude/CLAUDE.md` (`files/dev-work/qwen_worker.py`, gitignored) is likewise
+> reserved for that later plan and was not used here.
+>
+> **Completed phases: 0–14 of 15.** Phases 0–11 implemented and gated (2026-09-13/14); Phase 12
+> Windows manual acceptance **ACCEPTED by the maintainer 2026-09-15**; Phase 13 macOS parity
+> **ACCEPTED by the maintainer 2026-09-15** (one bounded Mac-only remediation, `f9247c4`, and the
+> **1024×800 macOS minimum** ruling, plan §2.3); Phase 14 this reconciliation.
+>
+> **What Phase 14 transferred (seven documents plus this Handoff block, no code, no test):**
+> - `Decisions.md` — one new dated entry (**2026-09-17**, newest on top, append-only): the combined
+>   Maker + Editor drop and the supersession of the Plan 7 / Plan 8 split; shared-infrastructure reuse
+>   with the two M4B-family modules named; the Maker's six Shared / four Book-only fields, Decision 51A
+>   naming, non-negative silence, Fast-first/Safe; success-only series numbering on both tools; the
+>   Editor's one-file-per-Book model, binding blank = preserve, Shared starts blank, Series Part as
+>   read-back only, blank-line-preserve chapters, the three actions (Remove Series Numbering keeps the
+>   Series Name); atomic staged publication with read-back validation; the M4B artwork capability
+>   behaviour; the common JobController / Summary | Detailed model; `Clear All Imports`; and the
+>   platform ruling — **`AQUA_MIN_SIZE = (1024, 800)` = `AQUA_GEOMETRY`**, superseding the 2026-09-12
+>   entry's 1024×720 for macOS only. No older ADR text was edited.
+> - `Changelog.md` — five new entries under `[Unreleased]` (Maker rebuilt; Editor one page per file;
+>   `Clear All Imports` added; macOS minimum 1024×800; Fixed — ffmetadata escaping, junction cleanup,
+>   the Editor's partial-copy and numbering-gap debts, the Mac layout defect). **No `[0.6.4]` heading.**
+> - `Briefing.md` — new architecture section *The M4B Maker and M4B Metadata Editor (v0.6.4)* with the
+>   twelve-module table; the conversion boundary now lists four converted surfaces and three classic
+>   panels; the per-action reservation, progress and geometry paragraphs updated; the Features entries
+>   for both tools rewritten; the stale "Shared Metadata (visual treatment only)" and "editor has not
+>   adopted" statements replaced; *Current Version* records PR #10 merged at `e0bab662` and v0.6.4
+>   complete-but-unmerged; *High-Level State* gains the v0.6.4 paragraph; the Editor's whole-form
+>   scrolling limitation recorded as discharged.
+> - `README.md` — the Maker and Editor feature bullets and how-to paragraphs rewritten to the
+>   implemented behaviour; the stale Maker "title/author/album/year/genre … pick an output folder"
+>   sentence is gone (**no Year/Genre was added to make it true** — the README now says so).
+> - Master Index (`don't-delete/`) — §5: the Plan 6 row now records PR #10 **merged** at `e0bab662` and
+>   the retained drop **eligible for retirement**; the Plan 7 row **superseded 2026-09-13** (delivered
+>   inside v0.6.4, no separate drop/branch ever created); the Plan 8 row carries the exact v0.6.4 plan
+>   filename, the scope supersession, delivery, evidence, gates and the not-merged state; the Plan 9 row
+>   says the v0.6.5 assignment is unchanged; a new dated status note sits above the 2026-09-13 note; §6
+>   gains a supersession note under the unchanged diagram; §7 Plan 7/8 gain supersession notes; §14
+>   updates three dispositions (three classic panels; Editor scrolling **discharged** at Phase 10;
+>   partial-copy debt **closed** at Phase 9); §15 gains the current next-action block. Every older
+>   status block and note is kept and marked superseded, none rewritten.
+> - Approved Plan Series Map (`don't-delete/`) — the 2026-07-31 map untouched; one appended, clearly
+>   dated **Maintainer supersession** section explaining the combined mapping, what v0.6.4 covered
+>   against the old Plan 7/8 lists, and what stands (Plan 9 / v0.6.5). Decision Register 1–55: **not
+>   edited**.
+> - Retained `md-instructions/0.6.3-drop1-shared-multi-book-workspace.md` — one dated status line
+>   added under its retention rule: **ELIGIBLE FOR RETIREMENT — not yet deleted**. The plan's mechanical
+>   check holds: MP3 Tool, M4B Maker and M4B Metadata Editor all import `shared/book_workspace`
+>   (`test_plan3_boundaries.ADOPTED` = 20, adopting panels = 6), `test_plan6_boundaries.PHASE0_PANEL_HASHES`
+>   is empty, and the lasting contracts are in `Decisions.md` (2026-09-12, 2026-09-17).
+>
+> **Phase 14 gate (plan §11 checkpoint 6 — documentation closeout; full, Windows, 2026-09-17).**
+> 1. **Full pytest: 7,427 collected / 7,370 passed / 57 skipped / 0 failed**, 1 warning, in 10:05 —
+>    collection equals the Mac's Phase 13 count (7,427 = the Windows Phase 12 7,395 + 32 Phase 13
+>    tests). Skips reconciled to the test: **39 aqua-only** (the 13 baseline + 25 `test_m4b_layout` +
+>    1 `test_ui_theme` aqua case added by Phase 13), **12 Windows symlink-privilege** (6
+>    `test_import_traversal`, 2 `test_mp3_plan`, 2 `test_m4b_staging`, 1 `test_output_paths`, 1
+>    `test_cover_source_side`), **3 case-insensitive filesystem**, **3 `JACK_RYAN_M4B_FOLDER`**. The one
+>    warning is the pre-existing pydub `audioop` deprecation. No intermittent.
+> 2. **`python scripts/verify.py`: RESULT: PASS** on the first attempt (pytest **7,370 passed / 57 skipped, 1 warning in 9:52**; deps / docs / docnames / config all PASS; no intermittent).
+> 3. `compileall` (`scripts/Universal`, `scripts/verify.py`, `files/tests`): exit 0, no output.
+> 4. `git diff --check`: only the CR notices on the CRLF-committed documents (the known noise);
+>    no real whitespace issue; the eight changed files (these seven plus this Handoff block,
+>    which landed after the run) are documents only.
+> 5. Invariants: branch `feature/0.6.4-m4b-maker-metadata-editor`; the v0.6.4 plan file's exact name
+>    unchanged; `origin/master` unmoved at `e0bab662`; `launcher.TOOLS` = 6; version `0.6.2`
+>    (`config.toml`, `shared/version.py`, untouched); `config-template.toml` absent; the four canonical
+>    doc names; `don't-delete/` still exactly its four files (two edited additively, two byte-identical);
+>    no production or test file changed; no AI co-author trailer.
+>
+> **Acceptance record (unchanged):** Windows — maintainer YES on 2026-09-14/15 (Phase 12, 22 rows on
+> the real launcher, 0 defects); macOS — maintainer YES on 2026-09-15 (Phase 13, Maker 112 / Editor 115
+> checks on the real launcher, 0 defects after `f9247c4`).
+>
+> **Remaining limitations (carried, not new):** no human playback / chapter-navigation listening on
+> either platform (mechanical decode, ffprobe chapters, tag/cover inspection and audio MD5s instead);
+> the macOS shell cannot screenshot; xHE-AAC decode unproven on real media (Plan 5 waiver); Windows
+> 125 % / DPI awareness, the three classic panels, the Combobox popdown and title bar, `.DS_Store`
+> packaging and the pronunciation override all remain Plan 9 / v0.6.5 items; `verify.py` still keeps
+> only pytest's last line (the Phase 5 suggestion to retain `-rf` stands, unimplemented).
+>
+> **THE NEXT ACTION IS THE MAINTAINER'S DECISION AT THE PHASE 14 CLOSEOUT GATE: approve or reject
+> the retirement of (1) `md-instructions/Audiobook Creation Tool v0.6.4 — M4B Maker + M4B Metadata
+> Editor.md` (the plan's own text names it by the shorter `0.6.4-m4b-maker-metadata-editor.md`
+> spelling — same file) and (2) the retained `md-instructions/0.6.3-drop1-shared-multi-book-workspace.md`.**
+> Neither is deleted without that explicit approval. **Phase 15 has NOT started**: on approval it
+> deletes exactly those two files, re-runs full pytest + `verify.py` + compileall + `git diff --check`
+> + the canonical-name and protected-reference checks, and makes one normal closeout commit pushed to
+> the feature branch; the action after that is an independent **READ-ONLY integration-readiness
+> review** from a fresh context. No PR, merge, tag, package, release, rebase, squash, amend,
+> force-push or VERSION / `config.toml` change is authorized by anything in this block. The
+> `0.6.5-tts-quality-refactor.md` drop waits until v0.6.4 is closed and the maintainer opens it.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 13 COMPLETE: macOS PARITY ACCEPTED BY THE MAINTAINER AT `f9247c4`; PHASE 14 NOT STARTED (2026-09-15, HOME-MacOS)
 >
 > **This block is the live state.** It supersedes the Phase 12 block beneath it on one point only —
