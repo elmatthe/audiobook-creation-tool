@@ -1,24 +1,36 @@
-"""Behaviour preservation: M4B Maker title/chapter helpers (no ffmpeg spawned)."""
+"""Behaviour preservation: M4B Maker title/chapter helpers (no ffmpeg spawned).
+
+v0.6.4 moved these helpers out of the panel: natural ordering is the shared
+importer's, the title rule is ``m4b_maker_workflow``'s (preserved verbatim and
+pinned to the old panel by AST in ``test_m4b_maker_workflow``), and the
+ffmetadata/concat-list writers are ``m4b_maker_processing``'s.
+"""
 
 from __future__ import annotations
 
-from mp3_tools import m4b_maker
+from pathlib import Path
+
+from shared.importing import natural_key
+
+from mp3_tools import m4b_maker_processing as m4b_maker
+from mp3_tools import m4b_maker_workflow as wf
 
 
 def test_natural_sort_orders_chapters_numerically():
     names = ["Chapter 10.mp3", "Chapter 2.mp3", "Chapter 1.mp3"]
-    ordered = sorted(names, key=m4b_maker.natural_key)
+    ordered = sorted(names, key=natural_key)
     assert ordered == ["Chapter 1.mp3", "Chapter 2.mp3", "Chapter 10.mp3"]
 
 
 def test_title_normalization():
-    assert m4b_maker.strip_leading_numbers("01 - Intro") == "Intro"
+    assert wf.strip_leading_numbers("01 - Intro") == "Intro"
     # Purely numeric stems fall back to themselves rather than emptying out.
-    assert m4b_maker.strip_leading_numbers("42") == "42"
+    assert wf.strip_leading_numbers("42") == "42"
     # First underscore becomes a colon separator; possessive _s becomes ’s.
-    assert m4b_maker.normalize_title("03 Book One_ The Beginning") == "Book One: The Beginning"
+    assert wf.normalize_title("03 Book One_ The Beginning") == "Book One: The Beginning"
     # The first underscore becomes the colon; a later `_s` reads as a possessive.
-    assert m4b_maker.compute_titles(["/x/01 Book_ A_s Tale.mp3"]) == ["Book: A’s Tale"]
+    assert [wf.normalize_title(Path(p).stem) for p in ["/x/01 Book_ A_s Tale.mp3"]] == [
+        "Book: A’s Tale"]
 
 
 def test_build_ffmetadata_chapters_are_well_formed():

@@ -425,7 +425,7 @@ def test_no_production_module_spawns_a_bare_ffmpeg_name():
 def test_every_ffmpeg_execution_resolves_through_the_shared_helpers():
     """Positive half: the consumers that do run FFmpeg ask the authority."""
     expected = {
-        "mp3_tools/m4b_maker.py", "mp3_tools/m4b_probe.py",
+        "mp3_tools/m4b_maker_processing.py", "mp3_tools/m4b_probe.py",
         "mp3_tools/mp3_processing.py", "mp3_tools/m4b_converter.py",
         "shared/metadata.py", "tts/chatterbox_synth.py",
         "tts/epub2tts_edge/epub2tts_edge.py",

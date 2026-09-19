@@ -15,6 +15,130 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — **The M4B Maker builds several audiobooks in one run** (v0.6.4, accepted on Windows and macOS 2026-09-15)
+
+The M4B Maker no longer works on one flat list of MP3s producing one file. It now holds **several
+Books at once** — each a folder of MP3s that becomes one chaptered `.m4b` — and builds them in one go.
+
+- **Books, not a file list.** `Import Folder` scans a folder and makes **one Book per directory that
+  directly contains MP3s**, tracks in natural order, separate folders never merged. `Add Files` adds
+  MP3s to the current Book. Move between Books with **Previous / Next** or the **Book selector**;
+  **Add**, **Duplicate** (settings copied, tracks not) and **Remove** Books; reorder or remove tracks
+  inside a Book. One Book produces at most one `.m4b`; Books are never joined.
+- **Shared settings sit above the current Book.** Artist / Author, Album Artist / Author, Album,
+  Series Name, *Silence Between Tracks (seconds)* and artwork exist once for every Book and once per
+  Book. A filled Shared value applies to every Book and **disables** the matching Book field; clear
+  it and each Book's own value comes back. **Title, Series Part, Output Filename and Chapter Titles
+  are per Book only.** The Maker still writes exactly Title, Artist, Album Artist, Album, Series Name,
+  Series Part and the cover — no Year, Genre or Comment fields were added.
+- **Silence is a gap between tracks, never after the last one,** and a negative value is refused
+  before anything starts. Inserting silence uses the Safe path automatically; otherwise **Try FAST
+  first (auto-fallback to Safe)** — on by default — does what it says, and the Detailed log tells you
+  which path ran and why.
+- **Chapter Titles per Book, one per line,** pre-filled from the cleaned filenames; line *n* names
+  chapter *n*, a shorter list leaves the rest on their defaults, and the titles are frozen the
+  moment you press **Build M4B(s)**.
+- **Output name resolution you can predict.** An optional per-Book **Output Filename** wins;
+  otherwise the Title, then the Album, then the source folder's name, then `Book N` — sanitised for
+  every platform, `.m4b` added exactly once, numbered on collision (`Dune.m4b`, `Dune-1.m4b`). The
+  filename and the embedded Title are separate things, and a Book with no Title is embedded with
+  its resolved name rather than left nameless.
+- **Auto-number Series Part gives numbers to successes only.** With it on (**Start Part** blank
+  means 1) the Book Series Part fields are disabled and parts are handed out in order to the Books
+  that actually publish: if Book A succeeds, B fails and C succeeds, they are parts 1 and 2 with no
+  gap, and a later **Retry Failed** of B gets part 3.
+- **Artwork is chosen explicitly, previewed, and never touched.** JPG and PNG are embedded as they
+  are; **HEIC/HEIF** are offered when this machine can decode them and are converted **in memory** for
+  the cover only — no converted file beside your picture, nothing resized or cropped. An unusable
+  image is refused before any encoding starts.
+- **Where the output goes.** One numbered `M4B-Maker-N` run folder per build, with every finished
+  `.m4b` directly inside it; **Choose custom destination** still writes straight into the folder you
+  pick, with no nested run folder and the same collision safety. Each Book is built in a private
+  staging area and **appears only when it is complete** — audio, chapters, tags, cover and series
+  part all checked by reading the file back; a failed Book leaves nothing behind and the run
+  continues with the next one. **Retry Failed** rebuilds just the failed Books from the settings the
+  run started with. Pause / Resume / Cancel come from the shared run controls; a cancelled run keeps
+  every Book it already finished and marks the rest *Not attempted*. Source MP3s are only ever read.
+- **One log region, Summary | Detailed,** with history kept across runs and **Clear Log**, like the
+  MP3 Tool. **Windows** draws the tool in the ACT dark design system; **macOS** draws it natively.
+
+### Changed — **The M4B Metadata Editor gives every file its own page** (v0.6.4, accepted on Windows and macOS 2026-09-15)
+
+The Editor no longer applies one form to every loaded file. Each imported `.m4b` / `.m4a` / `.mp4`
+is now **its own Book/page**, pre-filled from that file, with a Shared row above for values you want
+on all of them.
+
+- **One file, one page.** `Import Folder` (optionally including subfolders) and `Add Files` create
+  one page per file — two files in one folder are two pages, never grouped. Move with **Previous /
+  Next** or the selector and **Remove** a page; there is no Add Book or Duplicate Book here because
+  a page is always a real file. A file that cannot be read stays visible on its page and is reported
+  as skipped rather than stopping the others.
+- **Blank means keep what the file has.** Every page shows its file's Title, Author / Artist, Album,
+  Year, Genre, Comment and Series Name, its detected Series Part, whether it has a cover, and its
+  chapter titles. Leaving a field alone — or blank — **preserves** the file's value; retyping the
+  same value writes nothing; only a change is written. A series stored in a vendor or movement
+  representation is shown as detected and is never rewritten just because it was displayed.
+- **Shared starts empty on purpose**, even when every file agrees, so nothing becomes a global
+  override by coincidence. Fill a Shared field and it is written to every page and disables that
+  page's own field; clear it and the pages' own values return. Shared artwork works the same way.
+- **Three actions, each written to copies in one numbered `M4B-Metadata-N` folder, each file
+  published only when its whole edit succeeded:**
+  **Save Tags** writes exactly what you changed (Shared over page), plus replacement artwork and
+  chapter-title edits, and leaves every other tag alone — **the audio is never re-encoded**.
+  **Clear All Tags (keep chapters)** strips identifying metadata and the cover while keeping the
+  chapter markers and titles, then re-applies **only what you explicitly typed or chose** — values
+  that merely came from the file are not put back. **Remove Series Numbering** removes the series
+  part, a track number used as one, and movement numbering, and **keeps the Series Name** and every
+  other tag, cover and chapter.
+- **Chapter Titles per page, one per line:** line *n* renames chapter *n*, a blank or unchanged line
+  leaves that chapter alone, extra lines are ignored. Chapter boundaries are never moved.
+- **Auto-number Series Part (Save / Clear; successes only)** with a **Start Part** now numbers only
+  the files that actually publish, so a failed file leaves no gap, and **Retry Failed** takes the next
+  number.
+- **A failed edit leaves no half-written copy.** Every action works on a private staged copy and
+  publishes it whole; before v0.6.4 a copy could land in the output folder before a failing tag write.
+- **Artwork:** JPG/PNG embedded as they are; HEIC/HEIF converted in memory when the machine can
+  decode them; no Shared or page replacement means the file's own cover is kept (Save) or removed
+  (Clear). **Open Output Folder** sits beside the import buttons. The whole-form scrollbar is gone:
+  everything is reachable at the minimum window size and only the chapter box and the log scroll.
+  **Windows** draws the tool in the ACT dark design system; **macOS** draws it natively.
+
+### Added — **Clear All Imports** on the MP3 Tool, M4B Maker and M4B Metadata Editor (v0.6.4 Phase 12, 2026-09-14)
+
+A red **Clear All Imports** button beside **Import Folder** returns the tool to its empty starting
+state — every imported Book/file and any unsaved edits are dropped. It asks first only when there is
+something to lose, it never deletes or modifies your files or outputs already written, it keeps the
+log history, and it is disabled while a run or an import is in progress. On the Editor it is
+deliberately distinct from **Clear All Tags (keep chapters)**, which acts on output copies.
+
+### Changed — **The macOS window minimum is 1024×800** (v0.6.4 Phase 13, 2026-09-15)
+
+On macOS the launcher now opens at, and cannot shrink below, **1024×800** (it was 1024×720 since
+v0.6.3). The two M4B tools carry more fixed rows than the MP3 Tool, and under native aqua control
+sizes those rows fold onto more lines than a 1024×720 window can hold while still leaving the chapter
+editor and the log readable. The Windows minimum stays **920×600**. Both M4B tools' macOS
+compositions were adjusted to native metrics — the import band on one line, the Editor's fields in
+two groups with the actions in two columns, the Maker's Book-only row across the full width with the
+custom destination on its own line. Only where things sit differs from Windows; every control and
+behaviour is the same.
+
+### Fixed (v0.6.4, 2026-09-13 → 2026-09-15)
+
+- **M4B Maker:** a Title, Artist, Album or chapter title containing `=`, `;`, `#`, `\` or a line
+  break came back truncated from FFmpeg's metadata file and the Book failed validation; the values
+  are now escaped and round-trip exactly (Phase 11).
+- **M4B Maker / Editor staging cleanup:** a Windows directory junction planted inside a Book's
+  private staging area was walked into as an ordinary directory and the cleanup abandoned; links are
+  now detected through the shared reparse-aware authority and removed as links, never followed
+  (Phase 11).
+- **M4B Metadata Editor:** a failing tag/chapter/cover write no longer leaves a partial copy in the
+  output folder (Phase 9), and automatic series numbering no longer skips a number for a failed file
+  (Phase 9).
+- **macOS, both M4B tools:** the import status bar was squeezed to one pixel and the output hint /
+  `Open Output Folder` were pushed outside the window at the old floor; the Shared and Book entries
+  were narrower than eight characters; the Maker's Book-only row and run-options row were cut off
+  (Phase 13, with the 1024×800 minimum above).
+
 ### Changed — **The MP3 Tool is rebuilt as a multi-Book workspace** (v0.6.3 focused MP3 redesign, accepted 2026-09-12)
 
 The MP3 Tool no longer works on one flat list of files with three separate operations. It now

@@ -104,7 +104,11 @@ ADOPTED = ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
             "mp3_tools/m4b_plan.py", "shared/book_workspace.py",
             "shared/book_workspace_ui.py", "mp3_tools/mp3_workflow.py",
             "mp3_tools/mp3_tool.py", "mp3_tools/mp3_plan.py",
-            "mp3_tools/mp3_processing.py")
+            "mp3_tools/mp3_processing.py", "mp3_tools/m4b_maker_workflow.py",
+            "mp3_tools/m4b_maker_plan.py", "mp3_tools/m4b_maker_batch.py",
+            "mp3_tools/m4b_artwork_ui.py", "mp3_tools/m4b_maker.py",
+            "mp3_tools/m4b_metadata_workflow.py", "mp3_tools/m4b_metadata_plan.py",
+            "mp3_tools/m4b_metadata_batch.py", "mp3_tools/m4b_metadata_editor.py")
 
 
 def relative_name(path: Path) -> str:
@@ -658,7 +662,7 @@ def test_job_control_depends_on_importing_and_not_the_other_way_round():
 # --------------------------------------------------------------------------- #
 
 
-def test_exactly_these_eleven_production_modules_are_authorized_to_adopt():
+def test_exactly_these_twenty_production_modules_are_authorized_to_adopt():
     """``ADOPTED`` is the whole authorization, stated once and pinned here.
 
     Phase 11 stated it as its own assertion rather than leaving it implicit in a
@@ -745,9 +749,95 @@ def test_exactly_these_eleven_production_modules_are_authorized_to_adopt():
     controller, no adapter. The composition guard below asks that of it
     positively as a result-side adopter.
 
-    The name says "these eleven" rather than "ten" because the count is part of what
-    is pinned: a widening that did not have to rename this test would be a widening
-    nobody had to think about.
+    v0.6.4 Phase 2 adds the **twelfth**: ``mp3_tools/m4b_maker_workflow.py`` is
+    the M4B Maker's pure model — the Maker ``SupportedTypeCatalog``, folder-to-Book
+    and Add-Files projection over the Plan 6 workspace, the Maker's own chapter
+    title, Silence and Start Part contracts, and the Decision 51A naming inputs.
+    Like ``mp3_workflow`` it names ``ImportedFile``, ``ImportedFileSnapshot``,
+    ``SupportedType``, ``IdFactory`` and ``natural_key`` because those are the
+    importer's own values and a second spelling of any of them would be a second
+    importer. It builds no manager, coordinator, controller or widget, observes
+    no source tags, and ``files/tests/test_m4b_maker_workflow.py`` holds it to
+    that. **The Maker panel itself is still unadopted and still checked below.**
+
+    v0.6.4 Phase 3 adds the **thirteenth**: ``mp3_tools/m4b_maker_plan.py``
+    freezes one Maker operation into an immutable run plan — one shared
+    destination (a reserved run or a validated custom folder), the Plan 6
+    capture and its exact ``RunSnapshot`` per Book, every name and path — and
+    names ``IdFactory``, ``ImportOptions`` and ``SupportedTypeCatalog`` only to
+    hand them to that capture, and ``RunSnapshot`` only as the type it carries.
+    It is the Maker counterpart of ``mp3_plan.py`` and, like it, builds no
+    manager, coordinator, controller or widget; ``files/tests/test_m4b_maker_plan.py``
+    holds it to that. **The Maker panel is still unadopted and still checked.**
+
+    v0.6.4 Phase 5 adds the **fourteenth**: ``mp3_tools/m4b_maker_batch.py``
+    runs one frozen Maker plan through the shared job architecture — one
+    ``JobController`` and one ``JobReporter`` per batch attempt, the Plan 3
+    ``RunResult`` / ``FailureRecord`` vocabulary per Book, the Plan 6
+    ``WorkspaceRunResult`` and ``retry_failed_books``, and the shared
+    ``SuccessNumbers`` allocator — and names ``IdFactory`` only to mint the run
+    id. It is the Maker's Tk-free counterpart of the orchestration the MP3 Tool
+    keeps in its panel; it starts no thread, defines no controller, adapter or
+    widget, and ``files/tests/test_m4b_maker_batch.py`` holds it to that.
+    **The Maker panel is still unadopted and still checked.**
+
+    v0.6.4 Phase 6 adds the **fifteenth and sixteenth**:
+    ``mp3_tools/m4b_artwork_ui.py`` is the one M4B artwork Tk control (the
+    Phase 1 seam, due at its first consumer), naming ``MainThreadGuard``,
+    ``style_name`` and ``ControlKind`` so the shared lock group can hold it;
+    and ``mp3_tools/m4b_maker.py`` is the M4B Maker panel, redesigned as the
+    **second** production adopter of the Plan 6 workspace — the shared
+    ``BookNavigator`` and ``SharedMetadataSurface``, the Phase 2 model, the
+    Plan 3 ``ImportCoordinator`` / ``ImportedFileManager`` / job-control shells
+    and the Phase 5 ``MakerRun`` — exactly as the MP3 Tool composes them. **The
+    M4B Metadata Editor stays unadopted and is still checked below.**
+
+    v0.6.4 Phase 7 adds the **seventeenth**: ``mp3_tools/m4b_metadata_workflow.py``
+    is the M4B Metadata Editor's pure model — the Editor ``SupportedTypeCatalog``,
+    the one-occurrence-one-Book projection over the Plan 6 workspace, frozen
+    source observations through ``shared.metadata`` and the source-versus-edit
+    intent rules. Like the two other workflow models it names ``ImportedFile``,
+    ``ImportedFileSnapshot``, ``SupportedType`` and ``IdFactory`` because those
+    are the importer's own values. It builds no manager, coordinator, controller
+    or widget, and ``files/tests/test_m4b_metadata_workflow.py`` holds it to
+    that. **The Metadata Editor panel itself stays unadopted and still checked.**
+
+    v0.6.4 Phase 8 adds the **eighteenth**: ``mp3_tools/m4b_metadata_plan.py``
+    freezes one Editor action into an immutable run plan — one shared
+    reservation, the Plan 6 capture and its exact ``RunSnapshot`` per Book, the
+    explicit intent kept apart from the source observation, every name and
+    path — and names ``IdFactory``, ``ImportOptions`` and ``SupportedTypeCatalog``
+    only to hand them to that capture, and ``RunSnapshot`` only as the type it
+    carries. It is the Editor counterpart of ``m4b_maker_plan.py`` and, like
+    it, builds no manager, coordinator, controller or widget;
+    ``files/tests/test_m4b_metadata_plan.py`` holds it to that. **The Metadata
+    Editor panel itself stays unadopted and still checked.**
+
+    v0.6.4 Phase 9 adds the **nineteenth**: ``mp3_tools/m4b_metadata_batch.py``
+    runs one frozen Editor plan through the shared job architecture — one
+    ``JobController`` / ``JobReporter`` per attempt, the Plan 3 ``RunResult`` /
+    ``FailureRecord`` / ``FailureLog`` vocabulary per Book, the Plan 6
+    ``WorkspaceRunResult`` and ``retry_failed_books`` for Retry Failed, and the
+    shared ``SuccessNumbers`` for Auto-number — over the Tk-free Phase 9 engine
+    ``m4b_metadata_processing.py`` (not an adopter: it imports only the media
+    authorities and the shared staging pattern). It is the Editor counterpart
+    of ``m4b_maker_batch.py``, starts no thread and touches no widget;
+    ``files/tests/test_m4b_metadata_batch.py`` holds it to that. **The Metadata
+    Editor panel itself stays unadopted and still checked.**
+
+    v0.6.4 Phase 10 adds the **twentieth**: ``mp3_tools/m4b_metadata_editor.py``
+    itself — the Metadata Editor panel, rewritten as a thin Tk adapter that
+    composes the shared navigator (with the Editor's action subset), the
+    Shared surface, the common artwork control, the Plan 3 importer and job
+    adapters, and hands each frozen Editor plan to ``m4b_metadata_batch``. It
+    is the third production panel on the shared workspace and the last
+    consumer panel to leave the Plan 6 hash gate; ``files/tests/
+    test_m4b_metadata_editor_ui.py`` holds it to that. **No panel is left
+    unadopted and unchecked: ``UNADOPTED_PANELS`` is now the launcher alone.**
+
+    The name says "these twenty" rather than "nineteen" because the count is
+    part of what is pinned: a widening that did not have to rename this test
+    would be a widening nobody had to think about.
     """
     assert ADOPTED == ("mp3_tools/cover_resizer.py", "tts/epub2tts_gui.py",
                        "mp3_tools/m4b_converter.py",
@@ -758,11 +848,18 @@ def test_exactly_these_eleven_production_modules_are_authorized_to_adopt():
                        "mp3_tools/mp3_workflow.py",
                        "mp3_tools/mp3_tool.py",
                        "mp3_tools/mp3_plan.py",
-                       "mp3_tools/mp3_processing.py")
+                       "mp3_tools/mp3_processing.py",
+                       "mp3_tools/m4b_maker_workflow.py",
+                       "mp3_tools/m4b_maker_plan.py",
+                       "mp3_tools/m4b_maker_batch.py",
+                       "mp3_tools/m4b_artwork_ui.py",
+                       "mp3_tools/m4b_maker.py",
+                       "mp3_tools/m4b_metadata_workflow.py",
+                       "mp3_tools/m4b_metadata_plan.py",
+                       "mp3_tools/m4b_metadata_batch.py",
+                       "mp3_tools/m4b_metadata_editor.py")
     assert set(UNADOPTED_PANELS) == {
         "launcher.py",
-        "mp3_tools/m4b_maker.py",
-        "mp3_tools/m4b_metadata_editor.py",
     }
 
 
@@ -815,7 +912,7 @@ def test_exactly_these_production_modules_have_adopted_the_foundation():
         if imports_the_plan3_foundation(parse(path))
     }
     assert importers == set(ADOPTED), importers
-    assert len(importers) == 11, importers
+    assert len(importers) == 20, importers
 
 
 def test_the_adopting_panel_composes_the_foundation_and_reimplements_none_of_it():
@@ -897,6 +994,8 @@ def test_every_adopting_panel_is_still_checked_for_the_full_composition():
     assert sorted(panels) == [
         "mp3_tools/cover_resizer.py",
         "mp3_tools/m4b_converter.py",
+        "mp3_tools/m4b_maker.py",
+        "mp3_tools/m4b_metadata_editor.py",
         "mp3_tools/mp3_tool.py",
         "tts/epub2tts_gui.py",
     ], panels
@@ -965,12 +1064,19 @@ def test_every_pre_existing_caller_of_the_cancellation_api_still_resolves():
     The MP3 Tool was a caller until the focused MP3 plan's Phase 4 replaced its
     ad-hoc worker with the shared job-control shell; its processing phases run
     through ``JobController``, whose cooperative cancellation is Plan 3's, so
-    the panel no longer names the primitive itself. The remaining callers are
-    unchanged.
+    the panel no longer names the primitive itself. The M4B Maker followed at
+    v0.6.4 Phase 6 for the same reason: its engine (``m4b_maker_processing``)
+    and batch runner (``m4b_maker_batch``) are the callers now, and the panel
+    only forwards the controller's requests. The Metadata Editor followed at
+    v0.6.4 Phase 10 the same way — its engine (``m4b_metadata_processing``,
+    Phase 9) and runner (``m4b_metadata_batch``) are the callers. The
+    remaining callers are unchanged.
     """
     callers = {
-        "mp3_tools/m4b_maker.py": ("ConversionCancelled", "raise_if_cancelled"),
-        "mp3_tools/m4b_metadata_editor.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "mp3_tools/m4b_maker_processing.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "mp3_tools/m4b_maker_batch.py": ("ConversionCancelled",),
+        "mp3_tools/m4b_metadata_processing.py": ("ConversionCancelled", "raise_if_cancelled"),
+        "mp3_tools/m4b_metadata_batch.py": ("ConversionCancelled",),
         "tts/epub2tts_gui.py": ("ConversionCancelled",),
         "tts/epub2tts_edge/epub2tts_edge.py": ("ConversionCancelled",),
         "tts/kokoro_synth.py": ("ConversionCancelled",),

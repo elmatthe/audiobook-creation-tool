@@ -79,13 +79,23 @@ ALLOCATOR_FORBIDDEN = (
 #: supersession that plan records (its section 4: the protection is superseded
 #: "for ``mp3_tool.py`` only"). Its Phase 0 digest is kept below as
 #: :data:`MP3_TOOL_PHASE0_HASH` so the retirement is proved to be real rather
-#: than assumed, and the two M4B panels stay exactly as protected as before.
-PHASE0_PANEL_HASHES = {
-    "mp3_tools/m4b_maker.py":
-        "55774911516dd0b5b30d51c6a0b6d93ac62005d16fa1adb46e69f8b61e2b7d8d",
-    "mp3_tools/m4b_metadata_editor.py":
-        "310b27f6d46668782305b54434f5b9bd00f4611e077f6772f3410adb5ffdd180",
-}
+#: than assumed. **The M4B Maker left at v0.6.4 Phase 6 and the Metadata
+#: Editor at v0.6.4 Phase 10** — the two supersessions the v0.6.4 plan records
+#: — each with its digest kept as evidence below, so the gate is now empty
+#: and every consumer panel is proved to have been converted for real.
+PHASE0_PANEL_HASHES: dict[str, str] = {}
+
+#: The Metadata Editor as Plan 6 Phase 0 found it, before v0.6.4 Phase 10
+#: converted it into the third production adopter of the workspace. Evidence,
+#: not a gate: the panel is *required* to differ now, and to name the vocabulary.
+EDITOR_PHASE0_HASH = (
+    "310b27f6d46668782305b54434f5b9bd00f4611e077f6772f3410adb5ffdd180")
+
+#: The M4B Maker as Plan 6 Phase 0 found it, before v0.6.4 Phase 6 converted it
+#: into the second production adopter of the workspace. Evidence, not a gate:
+#: the panel is *required* to differ now, and to name the vocabulary.
+MAKER_PHASE0_HASH = (
+    "55774911516dd0b5b30d51c6a0b6d93ac62005d16fa1adb46e69f8b61e2b7d8d")
 
 #: The MP3 Tool as Plan 6 Phase 0 found it, before the focused MP3 redesign
 #: converted it. Evidence, not a gate: the panel is *required* to differ now.
@@ -1370,10 +1380,21 @@ def test_exactly_one_place_advances_the_workspace_revision():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES))
-def test_the_consumer_panels_are_byte_identical_to_the_phase_zero_baseline(relative):
-    """The two M4B panels are still adopted by nothing. Proved by hash, not by reading."""
-    assert sha256_as_checked_out_on_windows(UNIVERSAL / relative) == PHASE0_PANEL_HASHES[relative]
+def test_the_consumer_panels_are_byte_identical_to_the_phase_zero_baseline():
+    """A panel still in the gate is adopted by nothing. Proved by hash, not by reading.
+
+    The gate is empty since v0.6.4 Phase 10 (every consumer panel has left it
+    by a real conversion, each proved below); the mechanism stays — iterating
+    inside the test rather than parametrising over it, so an empty gate is a
+    pass and not a permanent skip — and a future plan can pin a panel again by
+    adding it back.
+    """
+    for relative, pinned in sorted(PHASE0_PANEL_HASHES.items()):
+        assert sha256_as_checked_out_on_windows(UNIVERSAL / relative) == pinned, relative
+
+
+def test_the_hash_gate_is_empty_because_every_consumer_panel_left_it_for_real():
+    assert PHASE0_PANEL_HASHES == {}
 
 
 def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
@@ -1392,8 +1413,46 @@ def test_the_mp3_tool_left_the_hash_gate_by_a_real_conversion():
     assert "WorkspaceSnapshot" in names
     assert "shared.book_workspace_ui" in imported_names(tree)
     assert "mp3_tools.mp3_workflow" in imported_names(tree)
-    assert set(PHASE0_PANEL_HASHES) == {
-        "mp3_tools/m4b_maker.py", "mp3_tools/m4b_metadata_editor.py"}
+
+
+def test_the_maker_left_the_hash_gate_by_a_real_conversion():
+    """v0.6.4 Phase 6's one supersession, proved rather than assumed.
+
+    The Maker panel must differ from its Phase 0 bytes *and* be the adopter
+    the v0.6.4 plan makes it: it names the workspace vocabulary, composes the
+    shared navigator/surface and hands its frozen plan to the Phase 5 runner.
+    The Metadata Editor stays exactly as protected as before.
+    """
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/m4b_maker.py")
+            != MAKER_PHASE0_HASH)
+    tree = parse(UNIVERSAL / "mp3_tools/m4b_maker.py")
+    names = referenced_names(tree) | imported_names(tree)
+    assert "shared.book_workspace" in imported_names(tree)
+    assert "WorkspaceSnapshot" in names
+    assert "shared.book_workspace_ui" in imported_names(tree)
+    assert "mp3_tools.m4b_maker_workflow" in imported_names(tree)
+    assert "mp3_tools.m4b_maker_plan" in imported_names(tree)
+    assert "mp3_tools.m4b_maker_batch" in imported_names(tree)
+
+
+def test_the_editor_left_the_hash_gate_by_a_real_conversion():
+    """v0.6.4 Phase 10's one supersession, proved rather than assumed.
+
+    The Metadata Editor panel must differ from its Phase 0 bytes *and* be the
+    adopter the v0.6.4 plan makes it: it names the workspace vocabulary,
+    composes the shared navigator/surface and hands its frozen plan to the
+    Phase 9 runner. With it, every consumer panel has left the gate.
+    """
+    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/m4b_metadata_editor.py")
+            != EDITOR_PHASE0_HASH)
+    tree = parse(UNIVERSAL / "mp3_tools/m4b_metadata_editor.py")
+    names = referenced_names(tree) | imported_names(tree)
+    assert "shared.book_workspace" in imported_names(tree)
+    assert "WorkspaceSnapshot" in names
+    assert "shared.book_workspace_ui" in imported_names(tree)
+    assert "mp3_tools.m4b_metadata_workflow" in imported_names(tree)
+    assert "mp3_tools.m4b_metadata_plan" in imported_names(tree)
+    assert "mp3_tools.m4b_metadata_batch" in imported_names(tree)
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PLAN5_HASHES))
@@ -1427,13 +1486,18 @@ def test_the_phase_zero_pins_hold_on_lf_and_crlf_checkouts_and_only_there(relati
     assert sha256_as_checked_out_on_windows(changed_copy) != pinned[relative]
 
 
-@pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES))
-def test_no_consumer_panel_names_any_plan6_vocabulary(relative):
-    tree = parse(UNIVERSAL / relative)
-    names = referenced_names(tree) | imported_names(tree)
-    for owned in ("BookJob", "WorkspaceSnapshot", "book_workspace", "new_book_id",
-                  "field_role", "FIELD_ROLES"):
-        assert owned not in names, (relative, owned)
+def test_no_consumer_panel_names_any_plan6_vocabulary():
+    """Every panel still in the hash gate names nothing of the workspace.
+
+    Iterates inside the test for the same reason as the hash check above: the
+    gate is empty since v0.6.4 Phase 10, and an empty gate is a pass.
+    """
+    for relative in sorted(PHASE0_PANEL_HASHES):
+        tree = parse(UNIVERSAL / relative)
+        names = referenced_names(tree) | imported_names(tree)
+        for owned in ("BookJob", "WorkspaceSnapshot", "book_workspace", "new_book_id",
+                      "field_role", "FIELD_ROLES"):
+            assert owned not in names, (relative, owned)
 
 
 def test_the_launcher_gained_no_seventh_tool_and_names_no_plan6_vocabulary():

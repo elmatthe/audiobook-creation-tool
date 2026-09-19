@@ -20,6 +20,8 @@ tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
 from mp3_tools import m4b_maker as mk  # noqa: E402
+from mp3_tools import m4b_maker_plan as mp  # noqa: E402
+from mp3_tools import m4b_maker_processing as proc  # noqa: E402
 from shared import config, output_paths as op  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
 import tk_gate  # noqa: E402
@@ -220,20 +222,24 @@ def test_a_valid_destination_is_accepted_and_left_clean(tmp_path):
 
 def test_validation_failure_reserves_no_standard_run(fresh_root, output_base, tmp_path,
                                                     monkeypatch):
+    """v0.6.4 Phase 6: the Book carries the input now, not a raw ``ui.files``."""
     shown = []
     monkeypatch.setattr(mk.messagebox, "showerror",
                         lambda *a, **k: shown.append(a))
 
     ui = mk.build_ui(ttk.Frame(fresh_root))
-    ui.files = [fake_mp3(tmp_path / "src" / "01.mp3")]
+    ui._choose_files = lambda: (str(fake_mp3(tmp_path / "src" / "01.mp3")),)
+    ui.add_files()
+    assert not ui.workspace.current.is_empty
     ui.var_custom_dest.set(True)
     ui.var_custom_path.set(str(tmp_path / "does-not-exist"))
 
-    ui.build()
+    assert ui.build() is False
 
     assert shown, "the user must be told why it did not start"
     assert not output_base.exists(), "an invalid destination must not reserve a run"
-    assert not ui._busy.is_set(), "no worker may have started"
+    assert ui.run is None and not ui.is_running, "no run may have started"
+    ui.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -308,11 +314,24 @@ def test_a_planned_output_never_escapes_the_chosen_directory(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_custom_mode_stages_outside_the_users_directory():
-    """Staging must not litter a folder the user chose."""
+def test_custom_mode_stages_outside_the_users_directory(tmp_path):
+    """Staging must not litter a folder the user chose.
+
+    v0.6.4 Phase 3 made this a planning contract: a custom destination carries
+    an operation-owned work root that may not be, or lie inside, the chosen
+    folder; the panel makes that root in the system temp area.
+    """
+    chosen = tmp_path / "Chosen"
+    chosen.mkdir()
+    with pytest.raises(mp.PlanError):
+        mp.custom_destination(chosen, work_root=chosen)
+    with pytest.raises(mp.PlanError):
+        mp.custom_destination(chosen, work_root=chosen / "staging")
+    elsewhere = mp.custom_destination(chosen, work_root=tmp_path / "op-work")
+    assert elsewhere.work_root.parent == tmp_path
     source = Path(mk.__file__).read_text(encoding="utf-8")
     assert "tempfile.mkdtemp(prefix=" in source
-    assert "owns_tmp" in source
+    assert "WORK_ROOT_PREFIX" in source
 
 
 def test_cancellation_never_removes_the_chosen_directory():
@@ -333,23 +352,50 @@ def test_cancellation_never_removes_the_chosen_directory():
 
 
 def test_cancellation_cleanup_is_guarded_in_source():
-    """Split on the next *top-level* except; the block contains a nested one."""
-    source = Path(mk.__file__).read_text(encoding="utf-8")
-    tail = source.split("except ConversionCancelled:", 1)[1]
-    cancel_block = tail.split("\n        except ", 1)[0]
+    """The panel deletes nothing; the engine's cleanup is bounded to its staging.
 
-    assert "custom_destination" in cancel_block, \
-        "cancellation must distinguish the user's folder from a reserved run"
-    assert "drop_staging()" in cancel_block, "custom mode cleans only its own staging"
-    assert "shutil.rmtree(out_dir" in cancel_block, "the reserved-run branch still cleans up"
-    # The destructive rmtree must sit *after* the custom-mode guard, never before.
-    assert cancel_block.index("custom_destination") < cancel_block.index("shutil.rmtree(out_dir")
+    v0.6.4 Phase 4 moved cancellation cleanup into ``m4b_maker_processing``:
+    ``discard_staging`` refuses a staging directory that is not directly under
+    the operation's work root and never removes a destination folder, so a
+    cancelled custom build cannot reach the user's folder. The panel itself
+    carries no ``rmtree`` at all.
+    """
+    import ast
+
+    from mp3_tools import m4b_staging
+
+    panel = Path(mk.__file__).read_text(encoding="utf-8")
+    assert "rmtree" not in panel and "ConversionCancelled" not in panel
+    # v0.6.4 Phase 9 extracted the bounded discard into the shared M4B staging
+    # module; the Maker engine delegates to it and adds nothing of its own.
+    engine = ast.parse(Path(proc.__file__).read_text(encoding="utf-8"))
+    delegate = next(node for node in ast.walk(engine)
+                    if isinstance(node, ast.FunctionDef) and node.name == "discard_staging")
+    assert "m4b_staging.discard_staging" in ast.unparse(delegate)
+    staging = ast.parse(Path(m4b_staging.__file__).read_text(encoding="utf-8"))
+    discard = next(node for node in ast.walk(staging)
+                   if isinstance(node, ast.FunctionDef) and node.name == "discard_staging")
+    called = {node.func.id for node in ast.walk(discard)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    assert "require_owned" in called, "staging is proved operation-owned before anything goes"
+    assert "rmtree" not in ast.dump(discard), "entries are removed one by one, inside the root"
 
 
-def test_drop_staging_only_removes_operation_owned_directories():
-    source = Path(mk.__file__).read_text(encoding="utf-8")
-    block = source.split("def drop_staging():", 1)[1].split("try:", 1)[0]
-    assert "if owns_tmp:" in block, "staging is removed only when this run created it"
+def test_drop_staging_only_removes_operation_owned_directories(tmp_path):
+    """The engine's discard refuses a staging area outside the work root."""
+    from test_m4b_maker_plan import book, plan, workspace  # noqa: F401
+
+    chosen = tmp_path / "Chosen"
+    chosen.mkdir()
+    destination = mp.custom_destination(chosen, work_root=tmp_path / "op-work")
+    sources = tmp_path / "Sources"
+    sources.mkdir()
+    made = plan(workspace(book(sources, "A", ["1.mp3"], title="A")), destination)
+    entry = made.books[0]
+    with pytest.raises(proc.ProcessingError):
+        proc.discard_staging(entry, work_root=chosen)
+    assert proc.discard_staging(entry, work_root=made.work_root) == 0
+    assert chosen.exists() and [p.name for p in chosen.iterdir()] == []
 
 
 def test_source_mp3s_and_cover_are_never_written(tmp_path):
@@ -366,11 +412,22 @@ def test_source_mp3s_and_cover_are_never_written(tmp_path):
     assert "os.replace" not in source
 
 
-def test_no_plan_seven_multi_book_or_filename_template_arrived():
+def test_the_maker_is_now_the_multi_book_workspace(fresh_root, output_base):
+    """v0.6.4 Phase 6 retired the old "no multi-Book yet" guard: the Maker is
+    the second production adopter of the shared workspace, and the Book actions
+    are the shared navigator's, not strings this panel spells."""
+    from shared.book_workspace_ui import BookNavigator
+
+    ui = mk.build_ui(ttk.Frame(fresh_root))
+    try:
+        assert isinstance(ui.navigator, BookNavigator)
+        assert ui.navigator.actions == BookNavigator.BOOK_ACTIONS
+        assert ui.workspace.count == 1 and ui.workspace.current.is_empty
+        assert not hasattr(ui, "files")
+    finally:
+        ui.close()
     source = Path(mk.__file__).read_text(encoding="utf-8")
-    for plan_seven in ("Add Book", "Duplicate Book", "Remove Book", "Book X of Y",
-                       "filename template", "per-book"):
-        assert plan_seven not in source
+    assert "filename template" not in source, "naming is the Phase 3 planner's"
 
 
 def test_standard_mode_still_reserves_exactly_one_run(fresh_root, output_base, tmp_path):

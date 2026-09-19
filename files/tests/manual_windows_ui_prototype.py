@@ -3,6 +3,12 @@
 
 **This is not part of the product and not part of the test suite.**
 
+v0.6.4 Phase 10: the Metadata Editor is now the shared multi-Book workspace
+panel, so the canned states drive the *production* model (one Book per file,
+frozen source observations, blank Shared) and the *shared* job UI seams; the
+Summary / Details specimen sheet below predates the shared log region and is
+kept as the visual reference it always was.
+
 - pytest never collects it: the filename is not ``test_*`` and it declares no
   test functions.
 - The launcher cannot reach it: it is not registered in ``launcher.TOOLS``, it
@@ -91,45 +97,69 @@ _FAKE_CHAPTERS = (
 
 
 def _populate(ui) -> None:
-    """Load canned books through the editor's own state, touching no disk.
+    """Load canned Books through the panel's own model, touching no disk.
 
-    Seeding ``_tag_cache`` and ``_chap_counts`` is what keeps this deterministic
-    and offline: ``_refresh_mode`` then runs the real shared-value detection and
-    the real chapter pager over them.
+    v0.6.4 Phase 10: the panel is the shared multi-Book workspace, so the
+    canned files become Books through the Phase 7 ``import_folder`` projection
+    with the tag and chapter readers injected — the real one-file-per-Book
+    model, the real observation store, the real Shared/Book rendering, and no
+    file is opened. Shared starts blank exactly as it does in production, even
+    though every canned source agrees on Author and Album.
     """
+    from pathlib import PurePath
+
+    from mp3_tools import m4b_metadata_workflow as wf
+    from shared.importing import ImportRoot, ImportedFile, ImportedFileSnapshot, Revision
+
     folder = Path.home() / "Audiobooks" / "Samples"
-    for name, tags in _FAKE_BOOKS:
-        path = folder / name
-        ui.files.append(path)
-        ui._tag_cache[path] = tags
-        ui._chap_counts[path] = 6
-        ui._chap_buffers[path] = _FAKE_CHAPTERS
-        ui.listbox.insert(tk.END, str(path))
-    ui._refresh_mode()
-    ui.var_cover_path.set(str(folder / "cover.jpg"))
+    tags_by_path = {folder / name: tags for name, tags in _FAKE_BOOKS}
+
+    def canned_reader(path):
+        found = dict(tags_by_path[Path(path)])
+        found.setdefault("has_cover", True)
+        found.setdefault("series_source", "freeform:com.apple.iTunes")
+        found.setdefault("series_part_source", "freeform:com.apple.iTunes")
+        return found
+
+    def canned_chapters(_path):
+        return _FAKE_CHAPTERS.splitlines()
+
+    root = ImportRoot(root_id="fixture-root", path=folder, order=0)
+    entries = tuple(
+        ImportedFile(f"fixture-occ-{index}", path, root, PurePath(path.name),
+                     wf.EDITOR_TYPE.type_id, f"fixture-id-{index}")
+        for index, path in enumerate(tags_by_path, start=1))
+    result = wf.import_folder(ui.workspace, ImportedFileSnapshot(Revision(1), entries),
+                              id_factory=ui._ids, store=ui.store,
+                              reader=canned_reader, chapters=canned_chapters)
+    ui._receive(result)
 
 
 def _make_busy(ui) -> None:
-    """Freeze the editor in a controlled mid-run state.
+    """Freeze the panel in a controlled mid-run presentation.
 
-    Only the editor's own public busy-state methods are used — the same ones
-    the real worker drives through its queue — so what is on screen is the real
-    active-run presentation, not a mock of it.
+    Only the shared job UI's own public methods are used — the lock group
+    applying the RUNNING matrix, the control bar and the shared progress
+    indicator — so what is on screen is the real active-run presentation, not
+    a mock of it. No run is started and no file is touched.
     """
-    ui._busy.set()  # nothing may start a real job from this window
-    ui.progress.update(2, len(ui.files))
-    ui.disable_inputs(True)
-    ui.btn_cancel.configure(state=tk.NORMAL)
-    ui.log_write(
-        "\nWriting tags to 3 copy(ies) in C:\\Users\\you\\Downloads\\M4B-Metadata-1…\n"
-        "Auto-numbering Series Part from #1 (list order).\n"
-        "[1/3] Copied Sample Audiobook - Book 1.m4b → M4B-Metadata-1\n"
-        "[1/3] Applied typed tag fields (Series Part #1)\n"
-        "[1/3] Applied imported chapter titles\n"
-        "[1/3] \u2713 Sample Audiobook - Book 1.m4b\n"
-        "[2/3] Copied Sample Audiobook - Book 2.m4b → M4B-Metadata-1\n"
-        "[2/3] Applied typed tag fields (Series Part #2)\n"
-    )
+    from shared.job_control import JobState
+
+    ui.lock_group.apply(JobState.RUNNING)
+    ui.jobs.controls.apply(JobState.RUNNING)
+    ui.jobs.status.indicator.update(2, 3)
+    ui.log.divider("──── Save Tags — M4B-Metadata-1 (fixture)")
+    ui.log.append("[book-1] Sample Audiobook - Book 1.m4b: ✓ Sample Audiobook - Book 1.m4b")
+    ui.log.append("[book-2] Sample Audiobook - Book 2.m4b: writing title, series")
+
+
+def _make_idle(ui) -> None:
+    """Undo :func:`_make_busy` through the same shared seams."""
+    from shared.job_control import JobState
+
+    ui.lock_group.apply(JobState.IDLE)
+    ui.jobs.controls.apply(JobState.IDLE)
+    ui.jobs.status.indicator.reset()
 
 
 def _build_specimen(root: tk.Tk, theme: dict) -> None:
