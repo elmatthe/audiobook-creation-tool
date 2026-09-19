@@ -2,6 +2,55 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 INTEGRATION-BLOCKER REMEDIATION COMPLETE: PHASE 15 RECORDS RECONCILED AND THE 7,427-NODE GATE REPROVED — NEXT IS THE INDEPENDENT READ-ONLY INTEGRATION-READINESS RECHECK (2026-09-18, HOME-PC)
+>
+> **This block is the live state.** It supersedes the Phase 15 block immediately below on two review
+> findings only; every implementation, acceptance and closeout fact in that block still stands.
+> v0.6.4 Phase 15 completed at `41361ab`; both approved temporary plans are retired; v0.6.4 is
+> complete and closed on `feature/0.6.4-m4b-maker-metadata-editor`, and remains **not merged and not
+> released** at version identity `0.6.2`.
+>
+> **Bounded permanent-record remediation.** The independent integration-readiness review returned
+> NOT READY on two evidence/record blockers and found no production defect or merge-topology blocker.
+> This checkpoint changes only `Briefing.md`, this `Handoff.md`, the protected Approved Plan Series
+> Map and the protected Master Implementation Plan Index. The current blocks now say unambiguously
+> that Phase 15 ran, both temporary plans were retired, and the next action is the independent
+> read-only integration-readiness recheck followed by the maintainer's PR/merge decision if READY.
+> Older Phase-14-and-earlier blocks remain verbatim as dated history and are expressly superseded.
+>
+> **The 7,427-versus-7,419 discrepancy is resolved mechanically, not guessed.** In the reviewer's
+> restricted sandbox `shared.ffmpeg_utils.have_ffmpeg()` was false, so pytest module-skipped before
+> collection all **5** nodes in `test_batch_convert_folders.py` and all **3** nodes in
+> `test_kokoro_timing_wiring.py`: 7,427 − 5 − 3 = 7,419. In the normal HOME-PC environment the
+> repository-provisioned FFmpeg is visible and all **7,427 tests collect**. `JACK_RYAN_M4B_FOLDER`
+> is unset and independently accounts for its normal three skips; it did not cause the eight-node
+> difference. Collection was repeated with `-B`, without the cache provider, and with both together
+> in the normal environment; every variant still collected 7,427, isolating FFmpeg visibility as
+> the difference.
+>
+> **Normal HOME-PC gate on the remediated records.** The direct full run collected **7,427** and
+> ended **7,369 passed / 57 skipped / 1 failed / 1 warning** in 10:22 on the already-recorded Plan-5
+> intermittent
+> `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates`; the established one
+> fresh-process retry passed **1/1** in 0.35 s. No source or test was changed and the intermittent is
+> not called fixed. The independent full run inside `scripts/verify.py` then passed cleanly on the
+> remediated tree: **7,370 passed / 57 skipped / 0 failed / 1 warning** in 10:12; deps, docs,
+> canonical doc names, all four protected references and config each PASS; **RESULT: PASS**. The 57
+> skips remain the recorded Windows set: 39 aqua-only, 12 symlink-privilege, 3 case-insensitive
+> filesystem and 3 Jack Ryan fixture skips. The warning remains pydub's pre-existing `audioop`
+> deprecation.
+> After this live block landed, the final exact-tree direct run was also clean: **7,427 collected /
+> 7,370 passed / 57 skipped / 0 failed / 1 warning** in 10:17. The final exact-tree
+> `scripts/verify.py` invocation independently repeated that result (**7,370 passed / 57 skipped /
+> 0 failed / 1 warning** in 10:13) and again returned **RESULT: PASS** for pytest, deps, docs,
+> canonical names, protected references and config.
+>
+> **THE CURRENT ACTION IS ONE INDEPENDENT READ-ONLY INTEGRATION-READINESS RECHECK** over the
+> remediation commit, followed by the maintainer's PR/merge decision if and only if the verdict is
+> READY. No merge, PR, version bump, tag, package, release, branch deletion or v0.6.5 work is
+> authorized here. The untracked future `md-instructions/0.6.5-tts-quality-refactor.md` remains
+> untouched and unstaged.
+
 > ## ⟢ CURRENT STATE — v0.6.4 PHASE 15 COMPLETE: THE TWO APPROVED TEMPORARY PLANS ARE RETIRED; THE PLAN IS CLOSED ON THE FEATURE BRANCH — NEXT IS THE INDEPENDENT READ-ONLY INTEGRATION-READINESS REVIEW (2026-09-17, HOME-PC)
 >
 > **This block is the live state.** It supersedes the Phase 14 block beneath it on one point only —

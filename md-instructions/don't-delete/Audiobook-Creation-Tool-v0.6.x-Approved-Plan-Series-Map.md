@@ -267,8 +267,10 @@ Plan 8 to the MP3 Tool plus the M4B Metadata Editor. In execution:
   Editor", and the Master Index §15 branch names `feature/0.6.4-m4b-maker` /
   `feature/0.6.5-m4b-metadata-editor` — none of which were ever created. The proposed filenames
   `0.6.3-drop2-m4b-maker-multi-book.md` and `0.6.4-mp3-and-m4b-metadata-workflows.md` were never
-  created either. That drop is complete through Phase 14, accepted on Windows and macOS on
-  2026-09-15, and not merged.
+  created either. That drop completed through Phase 15 at `41361ab`, was accepted on Windows and
+  macOS on 2026-09-15, is closed, and is not merged or released. Phase 15 retired both the completed
+  v0.6.4 temporary plan and the retained Plan-6 drop after explicit maintainer approval; their
+  lasting contracts remain in the permanent records.
 
 **What the combined v0.6.4 drop covered**, against the two "Covers" lists above: every Plan 7 item
 (multiple M4B outputs in one run; per-Book MP3 lists, metadata, cover, silence, filename and
@@ -295,3 +297,8 @@ since v0.6.4 Phase 13 (2026-09-15; it was 1024×720 from v0.6.3 Phase 12, and un
 that). Windows remains 920×600. Business behaviour never branches on platform; only presentation does,
 behind the theme bundle. Version identity remains `0.6.2`, unreleased; the published GitHub release
 remains `v0.4.0`.
+
+**Current action after the Phase 15 closeout:** an independent read-only integration-readiness
+recheck of `feature/0.6.4-m4b-maker-metadata-editor`, followed by the maintainer's PR/merge decision
+if the recheck returns READY. Nothing here authorizes a merge, release, version bump or the start of
+v0.6.5.

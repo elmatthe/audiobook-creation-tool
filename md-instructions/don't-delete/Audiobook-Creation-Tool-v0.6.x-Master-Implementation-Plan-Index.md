@@ -112,6 +112,17 @@ The observed `master` SHA is orientation evidence, not permission to overwrite a
 
 ## 5. Program status
 
+**Current status — 2026-09-18, after the v0.6.4 Phase 15 closeout at `41361ab`. This paragraph
+supersedes the Plan 6 and Plan 8 rows and the 2026-09-17 Phase-14 status note below wherever they say
+either temporary plan is retained, merely eligible for retirement, awaiting approval, or that
+v0.6.4 is complete only through Phase 14.** With the maintainer's explicit approval, Phase 15 retired
+both `0.6.3-drop1-shared-multi-book-workspace.md` and
+`Audiobook Creation Tool v0.6.4 — M4B Maker + M4B Metadata Editor.md`. v0.6.4 is complete and closed,
+accepted on Windows and macOS, and remains **not merged and not released** at version identity
+`0.6.2`. The current action is the independent read-only integration-readiness recheck, followed by
+the maintainer's PR/merge decision if the recheck returns READY. The older rows and notes remain
+verbatim as dated Phase-14-and-earlier history, not current instructions.
+
 | Plan | Release checkpoint | Temporary drop | Status | Depends on |
 |---:|---|---|---|---|
 | 1 | v0.6.0 Drop 1 | `0.6.0-drop1-windows-ui-prototype.md` | **Complete, approved, and merged through PR #2** | v0.5.1 baseline |
@@ -449,6 +460,21 @@ Do not absorb these into an unrelated plan:
 | Open Issue #2: CLI-only `kokoro_synth.py` cp1252 `UnicodeEncodeError` | Separate issue; do not fold into Plan 2 |
 
 ## 15. Immediate next action
+
+**Updated 2026-09-18, after the v0.6.4 Phase 15 closeout at `41361ab`. This is the current
+next-action record and supersedes every block below it wherever an older block names Phase 15, a
+retirement decision, or another completed action as still pending.**
+
+- **v0.6.4 Phase 15 is COMPLETE.** With explicit maintainer approval, the completed v0.6.4 temporary
+  plan and the retained Plan-6 drop were both retired. Their contracts remain in the permanent
+  records. v0.6.4 is complete and closed on `feature/0.6.4-m4b-maker-metadata-editor` at `41361ab`.
+- **v0.6.4 is NOT merged and NOT released.** Version identity remains `0.6.2`; there is no v0.6.4
+  pull request, merge, tag, package, release or publication recorded here.
+- **THE CURRENT ACTION is the independent READ-ONLY integration-readiness recheck**, followed by the
+  maintainer's PR/merge decision if and only if that recheck returns READY. Neither this record nor
+  the recheck itself performs or pre-authorizes a merge.
+- **v0.6.5 has not started.** Its future plan remains outside this branch's committed tree and does
+  not become active until v0.6.4 is integrated and the maintainer separately opens it.
 
 **Updated 2026-09-17, at the v0.6.4 Phase 14 documentation closeout. This block is the current
 next-action record. It supersedes the 2026-09-13 block below it on every point that describes PR #10

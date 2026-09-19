@@ -879,8 +879,8 @@ release — is unchanged and undrafted.
 
 ## High-Level State
 
-**v0.6.4 — M4B Maker + M4B Metadata Editor — COMPLETE and ACCEPTED on both platforms on 2026-09-15
-(Phases 0–14 of the temporary plan); not merged and not released.** Both M4B tools became thin
+**v0.6.4 — M4B Maker + M4B Metadata Editor — COMPLETE, ACCEPTED on both platforms on 2026-09-15,
+and CLOSED at Phase 15 on 2026-09-17 (`41361ab`); not merged and not released.** Both M4B tools became thin
 panels over Tk-free workflow / plan / engine / batch modules on the shared multi-Book workspace, with
 separate business models: the Maker builds one chaptered `.m4b` per Book (one Book per folder of
 MP3s) from six Shared fields and four Book-only fields, Decision 51A naming, Fast-first with Safe
@@ -896,11 +896,12 @@ maintainer on the real launcher with real media; the macOS minimum window became
 Phase 13 ruling. Phase 11's combined hardening matrix found and fixed two real defects (ffmetadata
 escaping; junctions in staging cleanup). Latest gates: Windows (Phase 12 amendment, `6cc3eaa`)
 7,395 / 7,364 / 31 / 0; macOS (`f9247c4`) 7,427 / 7,372 / 55 / 0; the Phase 14 Windows gate is
-recorded in `Handoff.md`; `verify.py` PASS. `launcher.TOOLS` still holds exactly six tools. The
-retained Plan-6 drop `0.6.3-drop1-shared-multi-book-workspace.md` and the v0.6.4 plan are both
-**eligible for retirement**, pending the maintainer's explicit approval at the Phase 14 gate; Phase
-15 (retirement and closeout) follows only on that approval, then an independent read-only
-integration-readiness review.
+recorded in `Handoff.md`; `verify.py` PASS. `launcher.TOOLS` still holds exactly six tools. At Phase
+15, after explicit maintainer approval, both the retained Plan-6 drop
+`0.6.3-drop1-shared-multi-book-workspace.md` and the completed v0.6.4 temporary plan were
+**retired**. Their lasting contracts remain in the permanent records. The current action is the
+independent read-only integration-readiness recheck, followed by the maintainer's PR/merge decision
+if it returns READY.
 
 **v0.6.3 focused MP3 redesign (Plan 6 foundation + MP3 Tool adoption) — COMPLETE and ACCEPTED
 on both platforms on 2026-09-12; MERGED into `master` through pull request #10 (`e0bab662`,
