@@ -2,6 +2,74 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 1 MECHANICAL WORK COMPLETE: FULL BASELINE MANIFEST (31/31 OK) CAPTURED — AWAITING THE MANDATORY MANUAL LISTENING GATE (2026-09-19, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — Phase 1 is now authorized, executed, and mechanically complete — and adds the full Phase 1
+> record. Every Phase 0 fact in the block below still stands verbatim as dated history.
+>
+> **1. Harness + corpus built (`6fd29ee`).** `scripts/Universal/tts/quality_corpus.py` (original,
+> copyright-safe QA text covering every Section 7 false-boundary case, structural-stress passages
+> that deliberately cross Chatterbox's 300-char and Kokoro/Edge's ~3,000-char chunk ceilings, and a
+> sustained/longer narration pair) and a new `--quality-suite` mode on
+> `generate_voice_samples.py` (per-sample manifest with commit SHA, corpus identity, duration,
+> loudness, leading/trailing silence, and throughput — P12). 6 new tracked, network-independent
+> tests added.
+>
+> **2. A real harness bug was found and fixed before any evidence was trusted (`493d5fb`).** The
+> first full run showed Chatterbox's sustained/longer samples finishing in ~0.2s at −80 dBFS instead
+> of several minutes at a normal level, with no error. Root cause: the harness called Chatterbox's
+> single-shot `synthesize_text_to_mp3` (one `model.generate()` call, no chunking — its only prior
+> caller was the fixed, short `SAMPLE_TEXT`) directly on 5,050/8,875-character text. Production never
+> does this — it chunks through `chatterbox_file_to_mp3` via `split_for_chatterbox`. Fixed: Chatterbox
+> text over `CHATTERBOX_MAX_CHUNK_CHARS` now routes through the real chunked path; verified on a
+> 342-char/2-chunk sample. Edge and Kokoro were unaffected — both already handle long text internally
+> and produced correctly-scaled durations throughout.
+>
+> **3. The second full run was killed by the OS for low system memory, not a command fault.** Claude
+> Code's own kill message was explicit: *"this is not a failure of the command... says nothing about
+> the command or its own memory use."* 25 of 31 samples had already completed cleanly by then (all of
+> Edge/Kokoro, plus Chatterbox Female-1/Female-2/Male-1's difficult-text baseline), preserved intact
+> by the manifest's per-sample incremental write.
+>
+> **4. Bounded resource-lifecycle diagnosis performed before resuming, per explicit maintainer
+> instruction — scoped to the Phase-1 runner and engine model lifecycle only, not general
+> performance work.** System state after the kill: 15+ GB free RAM, no orphaned processes.
+> Chatterbox's `_MODEL_CACHE` was already correct (model loaded once per device, reused for every
+> chunk). `kokoro_synth._get_pipeline` had **no cache at all** — every call rebuilt a whole
+> `KPipeline` from scratch. Measured with a repeated-instantiation probe (PowerShell `WorkingSet64`
+> sampling): 5 calls grew process RSS from ~996 MB to ~1,316 MB before a fix; after caching per
+> `lang_code` (mirroring the Chatterbox pattern), RSS is flat at 1,387 MB across all 5 calls. **This
+> did not directly cause the kill** — Kokoro had long finished and its footprint had already
+> plateaued before the run reached the later Chatterbox chunks where the kill actually happened —
+> but it is a real, independently-worth-fixing inefficiency the harness exercises by design (multiple
+> Kokoro voices in one process), so it was fixed (`7745175`) rather than left in place, with 3 new
+> regression tests (`files/tests/test_kokoro_pipeline_cache.py`) and the full suite reconfirmed green.
+> **Conclusion: the termination is recorded as genuine external machine memory pressure**, not a
+> harness defect; resumption proceeded once resources were confirmed healthy.
+>
+> **5. Resumption completed the 6 remaining samples without regenerating the 25 already-good ones.**
+> A one-off script (not committed — it only reuses already-tested harness functions) loaded the
+> existing 25-row manifest, asserted the count, and appended only: Chatterbox Male-1's
+> sustained/longer samples, Chatterbox Male-2's difficult-text baseline, and the Edge
+> raw-chunk/folder-batch/direct path-comparison evidence. **Final manifest: 31/31 OK, 0 failures.**
+> Every retained voice (16) has its short difficult-text baseline; all 6 representative voices (Edge
+> Steffan/Jenny, Kokoro Heart/Michael, Chatterbox Female 1/Male 1) have sustained + longer samples.
+>
+> **6. Evidence location (gitignored, local-only — `files/dev-work/quality-suite/`):** per-voice
+> subfolders `<backend>_<voice_id>/{difficult_short,sustained_narration,longer_stress}.mp3`;
+> `edge_path_comparison/{raw_chunk.mp3, folder_batch/structural_stress.mp3, direct/structural_stress
+> (en-US-SteffanNeural).mp3}`; `manifest.md` / `manifest.jsonl` with the full mechanical record. The
+> Edge path-comparison evidence already shows a measurable trailing-silence progression worth Phase
+> 3's attention: raw chunk 860ms → folder/batch 3,930ms → direct 5,860ms, and a dBFS shift on the
+> direct path (−21.4 vs. −19.2/−19.8 for raw/batch) — evidence only, no cause diagnosed and no
+> subjective judgment made.
+>
+> **v0.6.5 PHASE 1 MECHANICAL WORK IS COMPLETE. NOTHING HERE AUTHORIZES STARTING PHASE 2** or any
+> production/quality change. The next action is the maintainer's manual listening pass (P6) against
+> the manifest above, then an explicit go-ahead for Phase 2 (voice inventory + Chatterbox
+> candidates).
+
 > ## ⟢ CURRENT STATE — v0.6.4 CONFIRMED MERGED (PR #11); v0.6.5 PHASE 0 (TTS QUALITY REFINEMENT) COMPLETE — AWAITING EXPLICIT AUTHORIZATION TO START PHASE 1 (2026-09-18, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly two
