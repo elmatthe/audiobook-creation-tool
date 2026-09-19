@@ -111,11 +111,38 @@ def _synthesize_for_voice(v, text: str, dest: Path, log: Callable[[str], None] =
 
         synthesize_text_to_mp3(text, str(dest), voice_id=v.voice_id)
     elif v.backend == "chatterbox":
-        from tts.chatterbox_synth import (
-            synthesize_text_to_mp3 as chatterbox_text_to_mp3,
-        )
+        from tts.chatterbox_synth import CHATTERBOX_MAX_CHUNK_CHARS
 
-        chatterbox_text_to_mp3(text, str(dest), voice_id=v.voice_id, log=log)
+        if len(text) > CHATTERBOX_MAX_CHUNK_CHARS:
+            # synthesize_text_to_mp3 below is a single model.generate() call
+            # with no chunking — correct only for a short one-shot sample
+            # (its one caller before this harness was the fixed, short
+            # SAMPLE_TEXT). Text past the chunk ceiling must go through the
+            # real chunked production path instead, or the model silently
+            # returns a few hundred milliseconds of near-silent audio with
+            # no error (discovered running this harness's own sustained/
+            # longer corpus items — a harness bug, not a production one:
+            # nothing production-side ever called the single-shot function
+            # with long text).
+            import tempfile
+
+            from tts.chatterbox_synth import chatterbox_file_to_mp3
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8",
+            ) as tmp:
+                tmp.write(text)
+                tmp_path = tmp.name
+            try:
+                chatterbox_file_to_mp3(tmp_path, str(dest), voice_id=v.voice_id, log=log)
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+        else:
+            from tts.chatterbox_synth import (
+                synthesize_text_to_mp3 as chatterbox_text_to_mp3,
+            )
+
+            chatterbox_text_to_mp3(text, str(dest), voice_id=v.voice_id, log=log)
     elif v.backend == "edge":
         import asyncio
 
@@ -497,7 +524,7 @@ def _capture_edge_path_evidence(
             _new_row("direct", direct_out_dir, "audio_format=mp3, engine defaults"),
             lambda: edge_runner.run_conversion_job(
                 str(src_txt), output_dir=str(direct_out_dir),
-                speaker=v.voice_id, audio_format="mp3",
+                speaker=v.voice_id, audio_format="mp3", overwrite=True,
             ),
             direct_out_dir, log, rows, out_root,
         )
@@ -513,6 +540,17 @@ def run_quality_suite(patterns: list[str], log: Callable[[str], None] = print) -
     P6, P12)."""
     from tts import batch_convert
     from tts import quality_corpus as qc
+
+    # chatterbox_file_to_mp3's default logging prints a unicode arrow; a
+    # non-UTF-8 Windows console (cp1252) raises UnicodeEncodeError on it
+    # otherwise. Harness-side only — production callers supply their own
+    # log sink (a GUI queue), so this never touches production code.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(errors="replace")
+            except Exception:
+                pass
 
     selected = _select(patterns) if patterns else list(VOICES)
     commit_sha = _git_commit_sha()
