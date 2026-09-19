@@ -2,6 +2,71 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.4 CONFIRMED MERGED (PR #11); v0.6.5 PHASE 0 (TTS QUALITY REFINEMENT) COMPLETE — AWAITING EXPLICIT AUTHORIZATION TO START PHASE 1 (2026-09-18, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly two
+> points — v0.6.4's merge state and the v0.6.5/Plan 9 version assignment — and adds the new v0.6.5
+> Phase 0 record. Every implementation, acceptance, and remediation fact in the block below still
+> stands verbatim as dated history.
+>
+> **1. v0.6.4 is confirmed merged.** A fresh `git fetch origin` showed `origin/master` advanced to
+> `1f9bdcf347edaad36d68e237933d3ac6036d0a42` — the merge commit for **pull request #11**, merging
+> `feature/0.6.4-m4b-maker-metadata-editor` (tip `f5f3926`). The independent read-only
+> integration-readiness recheck named in the block below therefore ran and returned READY, and the
+> maintainer merged. No tag, package, release, or version bump accompanied it; version identity
+> remains `0.6.2`, unreleased.
+>
+> **2. `feature/0.6.5-tts-quality-refactor` created; v0.6.5 Phase 0 complete.** The branch was
+> created fresh from that verified `origin/master` (it did not already exist). The tracked
+> `md-instructions/0.6.5-tts-quality-refactor.md` was confirmed byte-identical to the approved v4
+> Final the maintainer had pushed directly to `origin/master`. Phase 0 findings, all mechanical /
+> read-only, no production change:
+> - **Baseline synthesis confirmed on this machine** for all three engines using the current
+>   `.venv` (Python 3.12.10; `edge-tts` 7.2.8, `kokoro` 0.9.4, `chatterbox-tts` 0.1.7): Edge
+>   (`en-US-SteffanNeural`), Kokoro (`af_heart`), and Chatterbox (`chatterbox-female-1`, real
+>   reference conditioning) all synthesized successfully via `generate_voice_samples.py`. Samples in
+>   `files/test-for-manual-listen-elmatthe/` (gitignored) — a synthesis-works smoke check only, not
+>   the Phase 1 quality baseline.
+> - **TTS audit:** 18 TTS-related test files identified across `files/tests/`; the plan's §8
+>   "no live network in tracked Edge tests" rule is already mechanically enforced by an autouse
+>   `conftest.py` fixture that raises on any real `urllib.request.urlopen` call during tests; the
+>   registry currently holds the correct pre-Phase-2 baseline of 16 voices (7 Edge including both
+>   multilingual, 5 Kokoro, 4 Chatterbox); `test_chatterbox_tuning.py` /
+>   `test_chatterbox_selected_tuning.py` already guard the Ascended/Tamar pronunciation-stability
+>   evidence against word hacks (P9).
+> - **v0.5.0 Edge-reference history located:** commit `d915b34` (2026-07-19) and its matching
+>   `Decisions.md` ADR record a full "batch-timing-parity" rewrite (per-file subprocess delegation +
+>   per-path timing presets) that hit its numeric targets and was then abandoned in full after
+>   maintainer A/B listening judged it worse on every voice — this is the exact prior attempt the
+>   plan's §15 Phase 5 says not to repeat without new evidence. The confirmed-preferred original path
+>   remains `split_into_chunks` (~3,000 chars) → one `edge_tts.Communicate` call per chunk →
+>   `merge_mp3s` (flat 50ms join). A separate 2026-08-18 ADR already fixed a real duration/
+>   container-metadata bug (32kbps default breaking Xing/Info headers) via a 64kbps floor and an
+>   explicit `mp3_export_options()` contract for Kokoro/Chatterbox/the Edge folder path's final
+>   encode; that same ADR documents the Edge folder path's one remaining lossy re-generation
+>   (network-delivered MP3 chunks merged) as accepted/unavoidable at the time — a reasonable Phase 3
+>   starting point, not yet re-investigated.
+> - **Local-worker / project-status observations (unchanged):** `files/dev-work/local-model-worker.py`
+>   is absent — only `files/dev-work/local-model-worker-template.py` exists, and
+>   `.ai/ENVIRONMENT.md`'s worker-pool table is still unfilled placeholder text. No containment
+>   validation was attempted and nothing was provisioned, per the plan's §12 rule that this is never
+>   a phase prerequisite. `scripts/project-status.py` ran cleanly but reports "Handoff state:
+>   unavailable" because its parser looks for a `## Execution Snapshot` header this file doesn't use;
+>   noted only, not fixed, per instruction not to modify workflow infrastructure just to make it
+>   report more fields.
+>
+> **3. Roadmap reconciliation — the displaced Plan 9 / old v0.6.5 allocation is resolved by explicit
+> maintainer ruling (2026-09-18, recorded in `Decisions.md`):** preserve Plan 9's full scope
+> ("remaining Windows UI conversion, macOS parity, QA, docs, and packaging") intact as approved
+> future work, but mark it **DISPLACED — FUTURE ALLOCATION UNASSIGNED** rather than inventing a new
+> version, branch, or plan number for it now. The Approved Plan Series Map and the Master
+> Implementation Plan Index each gained a matching dated supersession section/note; neither
+> document's original 2026-07-31/2026-08-03 text was rewritten.
+>
+> **v0.6.5 PHASE 0 IS COMPLETE. NOTHING HERE AUTHORIZES STARTING PHASE 1**, drafting Plan 9, or any
+> merge/tag/release/branch-deletion. The next action is the maintainer's explicit go-ahead to begin
+> v0.6.5 Phase 1 (quality harness + baseline listening).
+
 > ## ⟢ CURRENT STATE — v0.6.4 INTEGRATION-BLOCKER REMEDIATION COMPLETE: PHASE 15 RECORDS RECONCILED AND THE 7,427-NODE GATE REPROVED — NEXT IS THE INDEPENDENT READ-ONLY INTEGRATION-READINESS RECHECK (2026-09-18, HOME-PC)
 >
 > **This block is the live state.** It supersedes the Phase 15 block immediately below on two review

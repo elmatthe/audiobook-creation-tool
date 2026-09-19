@@ -302,3 +302,44 @@ remains `v0.4.0`.
 recheck of `feature/0.6.4-m4b-maker-metadata-editor`, followed by the maintainer's PR/merge decision
 if the recheck returns READY. Nothing here authorizes a merge, release, version bump or the start of
 v0.6.5.
+
+---
+
+## Maintainer supersession — 2026-09-18 (v0.6.4 merged; v0.6.5 identity reassigned; Plan 9 displaced)
+
+**This section supersedes the paragraph immediately above it on exactly two points and leaves
+everything else in this document, including the 2026-07-31 map and the 2026-09-13 supersession above,
+unchanged as history.**
+
+**1. v0.6.4 is now merged.** A fresh `git fetch origin` confirmed `origin/master` at
+`1f9bdcf347edaad36d68e237933d3ac6036d0a42` — the merge commit for **pull request #11**, merging
+`feature/0.6.4-m4b-maker-metadata-editor` (tip `f5f3926`). The independent read-only
+integration-readiness recheck named above therefore ran and returned READY, and the maintainer
+merged. `feature/0.6.5-tts-quality-refactor` was created from that verified `origin/master`.
+
+**2. v0.6.5 has been opened, but not as Plan 9.** The 2026-07-31 map above and the 2026-09-13
+section above it both assign v0.6.5 to **Plan 9 — remaining Windows UI conversion, macOS parity,
+QA, docs, and packaging** (`0.6.5-ui-parity-hardening-release.md`). The maintainer instead opened
+v0.6.5 as a different, unrelated plan: `md-instructions/0.6.5-tts-quality-refactor.md` ("TTS Quality
+Refinement", v4 Final), scoped to `scripts/Universal/tts/` audio-quality/UI work only, on
+`feature/0.6.5-tts-quality-refactor`.
+
+**Plan 9's scope is preserved in full, by explicit maintainer ruling (2026-09-18).** Every item under
+"### v0.6.5 — Full visual conversion and release hardening" / "#### Plan 9" above — remaining
+Windows panel conversion, macOS Finder-appearance parity, the full regression matrix, DPI/scaling and
+accessibility review, long-run Pause/Resume/Cancel/retry drills, large-import/collision edge cases,
+fresh/repaired setup checks, HEIC capability checks, release ZIP contents and launch tests, and the
+final version/release checkpoint documentation — remains real, approved future work. Nothing is
+discarded, merged into another plan, or reassigned to a different owner. **Only its version-number
+binding is removed.**
+
+**Status: DISPLACED — FUTURE ALLOCATION UNASSIGNED.** Plan 9 is no longer "= v0.6.5." No new version,
+branch, or plan number is invented or assigned by this note. The dependency overview's
+`Plans 1–8 ──> Plan 9` edge remains structurally accurate (Plan 9 still depends on Plans 1–8
+finishing first) and is no longer read as also meaning "v0.6.5." A future maintainer decision will
+separately assign Plan 9 its release checkpoint, filename, and branch name when it is ready to be
+opened.
+
+**Current action:** v0.6.5 Phase 0 (TTS Quality Refinement) is in progress on
+`feature/0.6.5-tts-quality-refactor`. Nothing here authorizes starting v0.6.5 Phase 1 or drafting
+Plan 9.

@@ -4,6 +4,54 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-18 — v0.6.4 confirmed merged (PR #11); v0.6.5 identity reassigned to the TTS Quality
+Refinement plan; the displaced Plan 9 scope is preserved and marked DISPLACED — FUTURE ALLOCATION
+UNASSIGNED
+
+**Decision (v0.6.5 — TTS Quality Refinement, Phase 0).** Fresh `git fetch origin` confirmed
+`origin/master` advanced to `1f9bdcf347edaad36d68e237933d3ac6036d0a42` — the merge commit for pull
+request #11, merging `feature/0.6.4-m4b-maker-metadata-editor` (tip `f5f3926`). v0.6.4 is therefore
+**confirmed merged**, superseding every "not merged" statement recorded in `Handoff.md` and the
+Master Index as of the v0.6.4 Phase 15 closeout — those statements were accurate when written and are
+not being called wrong, only overtaken by the maintainer's subsequent integration decision.
+`feature/0.6.5-tts-quality-refactor` was created from that verified `origin/master` and Phase 0's
+baseline/audit work is recorded in `Handoff.md`.
+
+**The v0.6.5 identity is reassigned.** The 2026-07-31 roadmap and every later note through the
+2026-09-17 v0.6.4 closeout (including this file's own 2026-09-17 entry) assigned v0.6.5 to **Plan 9 —
+remaining Windows UI conversion, macOS parity, QA, docs, and packaging** (proposed filename
+`0.6.5-ui-parity-hardening-release.md`). The maintainer has now opened v0.6.5 as a different,
+unrelated plan instead: `md-instructions/0.6.5-tts-quality-refactor.md` ("TTS Quality Refinement",
+v4 Final), scoped to `scripts/Universal/tts/` audio-quality/UI work, on
+`feature/0.6.5-tts-quality-refactor`. Plan 9 was never drafted and no code was ever written against
+it, so nothing is reverted — only the version-number binding moves.
+
+**Explicit maintainer ruling on disposition (2026-09-18):** preserve Plan 9's full scope intact —
+conversion of all remaining Windows tool panels (TTS Audiobook, M4B Converter, Cover Image Resizer),
+macOS parity, full regression/long-run drills, release-package launch testing, and the final
+version/tag/release checkpoint — but mark it **"displaced / future allocation unassigned"** rather
+than inventing a new version, branch, or plan number for it now. Plan 9 remains real, approved-scope
+future work; it simply has no version identity until a later, separate maintainer decision assigns
+one.
+
+**Why:** The maintainer chose to spend the v0.6.5 identity on the TTS quality work now rather than on
+Plan 9, and preferred to leave Plan 9's renumbering as a genuinely separate future decision rather
+than have this Phase 0 checkpoint guess at a v0.6.6 (or later) slot, a branch name, or a sequencing
+relative to other future work.
+
+**Consequences:** `don't-delete/Audiobook-Creation-Tool-v0.6.x-Approved-Plan-Series-Map.md` and
+`don't-delete/Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md` each gain a dated
+supersession note recording this exact reassignment, following their own existing append/supersede
+conventions; neither document's original 2026-07-31/2026-08-03 text is rewritten. Every other
+reference to "Plan 9" throughout both documents (ownership of DPI awareness, `.DS_Store` packaging,
+the M4B Converter's `920×600` clipping, the three remaining classic panels, the Combobox/title-bar
+theming review, the final release-package gate) is unaffected — Plan 9 still owns all of it; only its
+"= v0.6.5" binding is removed. No production behavior changed in this checkpoint.
+
+— Decided by maintainer (Elijah Matthew), recorded by Claude Code, 2026-09-18
+
+---
+
 ## 2026-09-17 — v0.6.4 closeout: the M4B Maker and M4B Metadata Editor's approved product contracts, and the macOS minimum is 1024×800
 
 **Decision (v0.6.4 — M4B Maker + M4B Metadata Editor, Phase 14 closeout).** Both M4B tools are
