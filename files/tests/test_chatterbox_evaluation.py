@@ -391,8 +391,13 @@ def test_the_generator_contains_no_audio_slicing_logic_of_its_own():
     ``ffmpeg_utils.configure_pydub()`` is deliberately not in this list — it is the
     pre-existing Edge/Kokoro setup call, not reference decoding.
     """
+    # "subprocess" itself is deliberately not in this list: the v0.6.5 Phase 1
+    # quality suite uses it once, for `git rev-parse HEAD` (a manifest
+    # reproducibility field, P12) — unrelated to audio decoding. These four
+    # tokens are the actual ffmpeg-CLI markers a raw reimplementation would
+    # need, so they remain the precise guard.
     src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
-    for token in ("subprocess", "pcm_s16le", "0:a:0", "map_metadata", "librosa"):
+    for token in ("pcm_s16le", "0:a:0", "map_metadata", "librosa"):
         assert token not in src, f"generate_voice_samples re-implements decoding via {token!r}"
 
 
@@ -701,9 +706,20 @@ def test_the_manifest_lives_under_the_ignored_runtime_tree():
 
 
 def test_the_evaluation_writes_no_manifest_of_its_own():
-    """Phase 8 already established one; a second would compete with it."""
+    """Phase 8 already established the reference/conditional-cache manifest
+    under ``reference_clips_dir()``; the Chatterbox evaluation must not write
+    a second, competing one there.
+
+    The unrelated v0.6.5 Phase 1 QA-evidence manifest
+    (``files/dev-work/quality-suite/``) is a different concept entirely —
+    sample-generation evidence, not reference/conditional-cache bookkeeping —
+    and is explicitly authorized by the plan (Section 8, P12), so the guard
+    now names the Phase 8 manifest's own symbols instead of banning the word
+    "manifest" outright.
+    """
     src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
-    assert "manifest" not in src.lower()
+    assert "reference_clips_dir" not in src
+    assert "_record_manifest" not in src
 
 
 # --------------------------------------------------------------------------- #

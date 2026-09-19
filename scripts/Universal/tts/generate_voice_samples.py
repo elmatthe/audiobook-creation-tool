@@ -27,10 +27,11 @@ voices, which an ordinary sample refresh must never trigger by accident.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 import wave
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -99,6 +100,33 @@ def _select(patterns: list[str]) -> list:
         return list(VOICES)
     lowered = [p.lower() for p in patterns]
     return [v for v in VOICES if any(_matches(v, p) for p in lowered)]
+
+
+def _synthesize_for_voice(v, text: str, dest: Path, log: Callable[[str], None] = print) -> None:
+    """Dispatch synthesis to voice ``v``'s backend. The one place backend
+    dispatch lives, shared by the ordinary per-voice loop and the
+    ``--quality-suite`` harness so the two cannot drift apart."""
+    if v.backend == "kokoro":
+        from tts.kokoro_synth import synthesize_text_to_mp3
+
+        synthesize_text_to_mp3(text, str(dest), voice_id=v.voice_id)
+    elif v.backend == "chatterbox":
+        from tts.chatterbox_synth import (
+            synthesize_text_to_mp3 as chatterbox_text_to_mp3,
+        )
+
+        chatterbox_text_to_mp3(text, str(dest), voice_id=v.voice_id, log=log)
+    elif v.backend == "edge":
+        import asyncio
+
+        import edge_tts
+
+        async def _speak() -> None:
+            await edge_tts.Communicate(text, v.voice_id).save(str(dest))
+
+        asyncio.run(_speak())
+    else:
+        raise ValueError(f"No sample path for backend {v.backend!r} ({v.voice_id}).")
 
 
 @dataclass
@@ -282,6 +310,298 @@ def _report_chatterbox_evaluation(results: list[ChatterboxEvalResult],
     return 0 if ok == len(results) else 1
 
 
+# --------------------------------------------------------------------------- #
+# Quality suite (v0.6.5 Phase 1 — plan Section 8)
+# --------------------------------------------------------------------------- #
+#: Baseline (plan Section 8): sustained/longer samples are captured for these
+#: six voices at minimum. Every other retained voice still gets the short
+#: difficult-text baseline below.
+REPRESENTATIVE_VOICE_IDS: frozenset[str] = frozenset({
+    "en-US-SteffanNeural",
+    "en-US-JennyNeural",
+    "af_heart",
+    "am_michael",
+    "chatterbox-female-1",
+    "chatterbox-male-1",
+})
+
+
+def _quality_suite_dir() -> Path:
+    """Local-only evidence: files/dev-work/ is repository-wide gitignored, so
+    generated audio and manifests here never reach git (plan Section 8)."""
+    d = paths.REPO_ROOT / "files" / "dev-work" / "quality-suite"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _git_commit_sha() -> str:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(paths.REPO_ROOT),
+            capture_output=True, text=True, timeout=10,
+        )
+        return out.stdout.strip() if out.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+@dataclass
+class QualitySample:
+    """One manifest row (P12): enough to redo or understand this one sample
+    without keeping the audio itself in git. Mechanical fields only — never
+    a pass/fail judgment; human listening is the only authority (P6)."""
+
+    voice_id: str
+    backend: str
+    corpus_item: str
+    assembly_path: str  # "standard" | "raw_chunk" | "folder_batch" | "direct"
+    output_path: str
+    commit_sha: str
+    corpus_identity: str
+    effective_settings: str
+    sample_rate: int | None = None
+    approx_bitrate_kbps: float | None = None
+    duration_s: float | None = None
+    wall_s: float | None = None
+    rtf: float | None = None
+    dbfs: float | None = None
+    leading_silence_ms: int | None = None
+    trailing_silence_ms: int | None = None
+    ok: bool = False
+    detail: str = ""
+
+    def apply_evidence(self, evidence: dict) -> None:
+        for key, value in evidence.items():
+            setattr(self, key, value)
+
+
+def _measure_audio(path: Path) -> dict:
+    """Lightweight mechanical evidence only (plan Section 7): loudness,
+    duration, and leading/trailing silence are diagnostic, not a mandate to
+    refactor, and never decide anything on their own (P6)."""
+    from pydub import AudioSegment
+    from pydub.silence import detect_leading_silence
+
+    seg = AudioSegment.from_file(path)
+    duration_s = len(seg) / 1000.0
+    leading_ms = detect_leading_silence(seg)
+    trailing_ms = detect_leading_silence(seg.reverse())
+    size_bytes = path.stat().st_size
+    bitrate_kbps = (size_bytes * 8 / 1000.0) / duration_s if duration_s else None
+    dbfs = seg.dBFS
+    return {
+        "sample_rate": seg.frame_rate,
+        "duration_s": round(duration_s, 3),
+        "dbfs": round(dbfs, 2) if dbfs != float("-inf") else None,
+        "leading_silence_ms": leading_ms,
+        "trailing_silence_ms": trailing_ms,
+        "approx_bitrate_kbps": round(bitrate_kbps, 1) if bitrate_kbps else None,
+    }
+
+
+def _run_quality_sample(
+    row: QualitySample, synth: Callable[[], str | None], dest: Path,
+    log: Callable[[str], None], rows: list[QualitySample], out_root: Path,
+) -> QualitySample:
+    """Run one synthesis call, measure it, and record the row — success or
+    failure, never dropped (mirrors ``ChatterboxEvalResult``'s contract).
+
+    Appends to ``rows`` and rewrites the manifest immediately, so a long
+    run interrupted partway (Chatterbox's sustained/longer samples can take
+    tens of minutes) still leaves every sample completed so far as evidence
+    instead of losing it to a manifest written only at the very end."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    log(f"[{row.assembly_path}] {row.voice_id} / {row.corpus_item} -> {dest}")
+    started = time.perf_counter()
+    try:
+        produced = synth()
+        row.wall_s = round(time.perf_counter() - started, 2)
+        actual = Path(produced) if produced else dest
+        row.output_path = str(actual)
+        evidence = _measure_audio(actual)
+        row.apply_evidence(evidence)
+        row.rtf = round(row.wall_s / row.duration_s, 3) if row.duration_s else None
+        row.ok = True
+        row.detail = "OK"
+    except Exception as exc:
+        row.wall_s = round(time.perf_counter() - started, 2)
+        row.detail = str(exc) or repr(exc)
+        log(f"FAIL [{row.assembly_path}] {row.voice_id} / {row.corpus_item}: {exc!r}")
+    rows.append(row)
+    _write_manifest(out_root, rows)
+    return row
+
+
+def _capture_edge_path_evidence(
+    v, out_root: Path, commit_sha: str, identity: str, log: Callable[[str], None],
+) -> list[QualitySample]:
+    """Matched raw-chunk / folder-batch / direct-file evidence for one Edge
+    voice (plan Sections 6-8) — evidence only; the assembly investigation
+    itself is Phase 3's job. The folder/batch call runs the confirmed-
+    preferred original pipeline unchanged since v0.5.0 (Decisions.md,
+    2026-07-19), so it doubles as that historical reference."""
+    import tempfile
+
+    from tts import batch_convert
+    from tts import quality_corpus as qc
+    from tts.epub2tts_edge import runner as edge_runner
+
+    item = qc.STRUCTURAL_STRESS_KOKORO_EDGE
+    edge_dir = out_root / "edge_path_comparison"
+    edge_dir.mkdir(parents=True, exist_ok=True)
+    rows: list[QualitySample] = []
+
+    def _new_row(assembly_path: str, output_path: Path, settings: str) -> QualitySample:
+        return QualitySample(
+            voice_id=v.voice_id, backend=v.backend, corpus_item=item.name,
+            assembly_path=assembly_path, output_path=str(output_path),
+            commit_sha=commit_sha, corpus_identity=identity,
+            effective_settings=settings,
+        )
+
+    # 1. Raw Edge chunk: one direct edge_tts.Communicate call, no assembly.
+    raw_dest = edge_dir / "raw_chunk.mp3"
+    _run_quality_sample(
+        _new_row("raw_chunk", raw_dest, "rate=+0%"),
+        lambda: batch_convert.synthesize_chunk_mp3(item.text, str(raw_dest), v.voice_id, "+0%"),
+        raw_dest, log, rows, out_root,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="qsuite_edge_src_") as tmp_src:
+        src_txt = Path(tmp_src) / "structural_stress.txt"
+        src_txt.write_text(item.text, encoding="utf-8")
+
+        # 2. Folder/batch path.
+        batch_out = edge_dir / "folder_batch"
+        produced_batch = batch_out / "structural_stress.mp3"
+
+        def _run_batch() -> str:
+            ok, fail, _errlog = batch_convert.run_batch_convert(
+                tmp_src, batch_out, speaker=v.voice_id, workers=1,
+                rate="+0%", use_tqdm=False, log=log,
+            )
+            if ok != 1 or not produced_batch.is_file():
+                raise RuntimeError(f"batch reported ok={ok} fail={fail}")
+            return str(produced_batch)
+
+        _run_quality_sample(
+            _new_row("folder_batch", produced_batch, "workers=1, rate=+0%"),
+            _run_batch, produced_batch, log, rows, out_root,
+        )
+
+        # 3. Direct/rich path.
+        direct_out_dir = edge_dir / "direct"
+        _run_quality_sample(
+            _new_row("direct", direct_out_dir, "audio_format=mp3, engine defaults"),
+            lambda: edge_runner.run_conversion_job(
+                str(src_txt), output_dir=str(direct_out_dir),
+                speaker=v.voice_id, audio_format="mp3",
+            ),
+            direct_out_dir, log, rows, out_root,
+        )
+
+    return rows
+
+
+def run_quality_suite(patterns: list[str], log: Callable[[str], None] = print) -> list[QualitySample]:
+    """Phase 1 harness (plan Section 8): short difficult-text baseline for
+    every selected voice, sustained/longer baselines for the representative
+    voices, and matched Edge direct/folder/raw-chunk evidence. Produces
+    evidence and stops — no production change, no subjective judgment (P1,
+    P6, P12)."""
+    from tts import batch_convert
+    from tts import quality_corpus as qc
+
+    selected = _select(patterns) if patterns else list(VOICES)
+    commit_sha = _git_commit_sha()
+    identity = qc.corpus_identity()
+    out_root = _quality_suite_dir()
+    rows: list[QualitySample] = []
+
+    ffmpeg_utils.configure_pydub()
+
+    for v in selected:
+        dest_dir = out_root / f"{v.backend}_{v.voice_id}"
+        difficult_dest = dest_dir / "difficult_short.mp3"
+        _run_quality_sample(
+            QualitySample(
+                voice_id=v.voice_id, backend=v.backend,
+                corpus_item=qc.DIFFICULT_SHORT.name, assembly_path="standard",
+                output_path=str(difficult_dest), commit_sha=commit_sha,
+                corpus_identity=identity, effective_settings="engine defaults",
+            ),
+            lambda v=v, d=difficult_dest: _synthesize_for_voice(v, qc.DIFFICULT_SHORT.text, d, log)
+            or str(d),
+            difficult_dest, log, rows, out_root,
+        )
+        if v.voice_id in REPRESENTATIVE_VOICE_IDS:
+            for item in (qc.SUSTAINED_NARRATION, qc.LONGER_STRESS):
+                dest = dest_dir / f"{item.name}.mp3"
+                _run_quality_sample(
+                    QualitySample(
+                        voice_id=v.voice_id, backend=v.backend,
+                        corpus_item=item.name, assembly_path="standard",
+                        output_path=str(dest), commit_sha=commit_sha,
+                        corpus_identity=identity, effective_settings="engine defaults",
+                    ),
+                    lambda v=v, t=item.text, d=dest: _synthesize_for_voice(v, t, d, log) or str(d),
+                    dest, log, rows, out_root,
+                )
+
+    edge_selected = [v for v in selected if v.backend == "edge"]
+    if edge_selected:
+        v = next(
+            (x for x in edge_selected if x.voice_id == batch_convert.DEFAULT_SPEAKER),
+            edge_selected[0],
+        )
+        rows.extend(_capture_edge_path_evidence(v, out_root, commit_sha, identity, log))
+
+    _write_manifest(out_root, rows)
+    return rows
+
+
+def _write_manifest(out_root: Path, rows: list[QualitySample]) -> None:
+    manifest_path = out_root / "manifest.jsonl"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(asdict(row)) + "\n")
+
+    lines = [
+        "| Voice | Backend | Corpus item | Path | Duration | RTF | dBFS | "
+        "Lead/Trail silence | Result |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        duration = f"{r.duration_s:.2f}s" if r.duration_s is not None else "—"
+        rtf = f"{r.rtf:.3f}" if r.rtf is not None else "—"
+        dbfs = f"{r.dbfs:.1f}" if r.dbfs is not None else "—"
+        silence = (
+            f"{r.leading_silence_ms}/{r.trailing_silence_ms} ms"
+            if r.leading_silence_ms is not None else "—"
+        )
+        verdict = "OK" if r.ok else f"FAIL — {r.detail}"
+        lines.append(
+            f"| {r.voice_id} | {r.backend} | {r.corpus_item} | {r.assembly_path} | "
+            f"{duration} | {rtf} | {dbfs} | {silence} | {verdict} |"
+        )
+    (out_root / "manifest.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _report_quality_suite(rows: list[QualitySample], out_root: Path,
+                          log: Callable[[str], None] = print) -> int:
+    ok = sum(1 for r in rows if r.ok)
+    log("")
+    log(f"Quality suite: {ok}/{len(rows)} samples generated OK.")
+    log(f"Manifest: {out_root / 'manifest.md'}")
+    log(f"Audio + manifest under: {out_root}  (gitignored — local listening only)")
+    log("")
+    log("Listening decision belongs to the maintainer (P6). Nothing was "
+        "registered or judged automatically.")
+    return 0 if ok == len(rows) else 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
@@ -296,6 +616,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="render the four Chatterbox listening-evaluation WAVs and stop "
              "(expensive: loads the local model and clones four voices)",
     )
+    ap.add_argument(
+        "--quality-suite",
+        dest="quality_suite",
+        action="store_true",
+        help="v0.6.5 Phase 1 baseline harness: short difficult-text sample "
+             "for every selected voice, sustained/longer samples for the "
+             "representative voices, and matched Edge direct/folder/"
+             "raw-chunk evidence. Writes to files/dev-work/quality-suite/ "
+             "(gitignored, local listening only).",
+    )
     return ap
 
 
@@ -305,6 +635,10 @@ def main() -> int:
     if args.chatterbox_eval:
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_evaluation(run_chatterbox_evaluation())
+
+    if args.quality_suite:
+        rows = run_quality_suite(args.patterns)
+        return _report_quality_suite(rows, _quality_suite_dir())
 
     selected = _select(args.patterns)
     if not selected:
@@ -322,36 +656,11 @@ def main() -> int:
     for v in selected:
         dest = out / f"{v.backend}_{v.voice_id}.mp3"
         try:
-            # Dispatch on the row's own backend. This used to read "kokoro, else
-            # Edge", which was only ever true because every non-Kokoro row was an
-            # Edge row; registering the Chatterbox voices made it post cloned-voice
-            # ids to the Edge service. An unknown backend is now an error rather
-            # than a silent fall-through to whichever engine is listed last.
-            if v.backend == "kokoro":
-                from tts.kokoro_synth import synthesize_text_to_mp3
-
-                synthesize_text_to_mp3(SAMPLE_TEXT, str(dest), voice_id=v.voice_id)
-            elif v.backend == "chatterbox":
-                # The ordinary sample, not the Phase 9 listening evaluation: the
-                # same SAMPLE_TEXT and the same <backend>_<voice_id>.mp3 name as
-                # every other row. The four evaluation WAVs stay behind their flag.
-                from tts.chatterbox_synth import (
-                    synthesize_text_to_mp3 as chatterbox_text_to_mp3,
-                )
-
-                chatterbox_text_to_mp3(SAMPLE_TEXT, str(dest), voice_id=v.voice_id)
-            elif v.backend == "edge":
-                import asyncio
-
-                import edge_tts
-
-                async def _speak() -> None:
-                    await edge_tts.Communicate(SAMPLE_TEXT, v.voice_id).save(str(dest))
-
-                asyncio.run(_speak())
-            else:
-                raise ValueError(
-                    f"No sample path for backend {v.backend!r} ({v.voice_id}).")
+            # The ordinary sample, not the Phase 9 listening evaluation: the
+            # same SAMPLE_TEXT and the same <backend>_<voice_id>.mp3 name for
+            # every voice. The four Chatterbox evaluation WAVs stay behind
+            # their own flag.
+            _synthesize_for_voice(v, SAMPLE_TEXT, dest)
             print(f"OK   {v.display_label} -> {dest.name}")
             ok += 1
         except Exception as e:  # keep going; QA wants the survivors

@@ -60,6 +60,9 @@ PRODUCTION_TTS_SOURCES = (
     # in scope for every EPUB-retirement guard below, which is the point: a new
     # production TTS module must not be a place EPUB can quietly come back.
     "tts/chatterbox_synth.py",
+    # Added by v0.6.5 Phase 1. The QA corpus text consumed by --quality-suite;
+    # same reasoning as chatterbox_synth.py above.
+    "tts/quality_corpus.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them

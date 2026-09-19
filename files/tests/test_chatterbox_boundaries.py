@@ -268,6 +268,17 @@ def _sample_generator_main() -> tuple[str, ast.FunctionDef]:
     return src, main
 
 
+def _sample_generator_synthesize_for_voice() -> tuple[str, ast.FunctionDef]:
+    """The one place ordinary per-voice backend dispatch lives (v0.6.5 Phase 1
+    remediation): both ``main()``'s ordinary loop and ``--quality-suite``
+    call this shared function, so there is exactly one seam to guard."""
+    src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
+    tree = _tree(TTS_DIR / "generate_voice_samples.py")
+    fn = next(n for n in tree.body
+              if isinstance(n, ast.FunctionDef) and n.name == "_synthesize_for_voice")
+    return src, fn
+
+
 def _sample_generator_main_split() -> tuple[str, str]:
     """``main()`` cut in two: the ``--chatterbox-eval`` branch, and everything else."""
     src, main = _sample_generator_main()
@@ -316,11 +327,15 @@ def test_ordinary_sample_generation_dispatches_on_the_voice_row_backend():
     everything else -> Edge" silently reclassified the four newly registered
     Chatterbox rows as Edge. Every branch must compare ``VoiceEntry.backend``
     against a named backend, so there is no "everything else" to fall into.
+
+    v0.6.5 Phase 1 moved this dispatch out of ``main()`` into the shared
+    ``_synthesize_for_voice`` (both ``main()`` and ``--quality-suite`` call
+    it), so the guard now targets that function directly.
     """
-    _src, main = _sample_generator_main()
+    src, fn = _sample_generator_synthesize_for_voice()
 
     compared: list[str] = []
-    for node in ast.walk(main):
+    for node in ast.walk(fn):
         if not isinstance(node, ast.Compare):
             continue
         left = node.left
@@ -332,24 +347,24 @@ def test_ordinary_sample_generation_dispatches_on_the_voice_row_backend():
     assert set(compared) == {"edge", "kokoro", "chatterbox"}, (
         "ordinary sample dispatch does not test all three backends by name")
 
-    _inside, outside = _sample_generator_main_split()
-    assert "chatterbox_synth" in outside, (
+    body = ast.get_source_segment(src, fn)
+    assert "chatterbox_synth" in body, (
         "the ordinary Chatterbox branch does not reach the engine module")
-    assert "edge_tts" in outside and "kokoro_synth" in outside
+    assert "edge_tts" in body and "kokoro_synth" in body
 
 
 def test_the_ordinary_chatterbox_branch_is_not_the_edge_branch():
     """A Chatterbox voice_id posted to the Edge service is exactly the old bug."""
-    src, main = _sample_generator_main()
+    src, fn = _sample_generator_synthesize_for_voice()
 
-    edge_calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+    edge_calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
                   and isinstance(n.func, ast.Attribute)
                   and n.func.attr == "Communicate"]
     assert len(edge_calls) == 1, "the Edge sample call is no longer a single seam"
 
     # An if/elif chain nests, so several ``If`` nodes contain the call; the one
     # that actually guards it is the innermost, i.e. the smallest subtree.
-    enclosing = [n for n in ast.walk(main) if isinstance(n, ast.If)
+    enclosing = [n for n in ast.walk(fn) if isinstance(n, ast.If)
                  and edge_calls[0] in list(ast.walk(n))]
     branch = min(enclosing, key=lambda n: len(list(ast.walk(n))))
     assert isinstance(branch.test, ast.Compare)
