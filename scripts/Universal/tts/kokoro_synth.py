@@ -65,6 +65,14 @@ def _export_mp3(arr: np.ndarray, sample_rate: int, output_path: str,
 # are real errors and must not be retried/swallowed.
 _first_pipeline_load_attempted = False
 
+# Cached per lang_code. Discovered by the v0.6.5 Phase 1 quality-suite harness:
+# without this, every call rebuilt a whole KPipeline from scratch — harmless
+# for the ordinary one-conversion-per-run app usage, but a real, measurable
+# resource cost (~300+ MB working set, converging rather than growing further)
+# for any single process that synthesizes with multiple Kokoro voices, as the
+# harness does.
+_PIPELINE_CACHE: dict = {}
+
 _KOKORO_LANG_MAP: dict[str, str] = {
     "af_": "a",
     "am_": "a",
@@ -98,7 +106,8 @@ def _instantiate_pipeline(lang_code: str):
 
 
 def _get_pipeline(lang_code: str):
-    """Import and instantiate a KPipeline, with a single retry on the first load.
+    """Load (once per ``lang_code`` per process) a KPipeline, with a single
+    retry on the first load.
 
     On a fresh Windows install, the very first attempt to load Kokoro's native
     extensions can fail while Smart App Control / WDAC evaluates the unsigned DLLs
@@ -109,11 +118,15 @@ def _get_pipeline(lang_code: str):
     fires on the first load per process (guarded by the module flag); any later
     failure is a real error and propagates immediately.
     """
+    cached = _PIPELINE_CACHE.get(lang_code)
+    if cached is not None:
+        return cached
+
     global _first_pipeline_load_attempted
     if not _first_pipeline_load_attempted:
         _first_pipeline_load_attempted = True
         try:
-            return _instantiate_pipeline(lang_code)
+            pipeline = _instantiate_pipeline(lang_code)
         except (OSError, RuntimeError, ImportError) as exc:
             print(
                 "Kokoro pipeline load blocked on first attempt (likely Windows "
@@ -121,10 +134,14 @@ def _get_pipeline(lang_code: str):
             )
             time.sleep(2)
             try:
-                return _instantiate_pipeline(lang_code)
+                pipeline = _instantiate_pipeline(lang_code)
             except (OSError, RuntimeError, ImportError) as exc2:
                 raise exc2 from exc
-    return _instantiate_pipeline(lang_code)
+    else:
+        pipeline = _instantiate_pipeline(lang_code)
+
+    _PIPELINE_CACHE[lang_code] = pipeline
+    return pipeline
 
 
 def synthesize_text_to_mp3(
