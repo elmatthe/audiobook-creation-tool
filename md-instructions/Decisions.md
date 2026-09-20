@@ -4,6 +4,47 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-20 — The chapter-title remux pins its movie timescale, an ffmpeg error is a failure at any exit status, and chapter validation reads structure, not titles
+
+**Decision (v0.6.4 defect, bounded remediation carried onto `feature/0.6.5-tts-quality-refactor`
+as a cherry-picked fix commit; no v0.6.5 plan phase is affected).** Three rules, each protected by
+a real-FFmpeg test in `files/tests/test_m4b_chapter_remux_timescale.py` and the Editor engine
+suite:
+
+1. **`shared.metadata.apply_chapter_titles` passes `-movie_timescale 1000`
+   (`CHAPTER_REMUX_MOVIE_TIMESCALE`) and stays `-c copy`.** FFmpeg 9's mov muxer defaults the
+   movie timescale to the lcm of the mapped streams' timescales; with 44.1 kHz audio beside a
+   1/90000 cover-art video stream the chapter text track lands at 4,410,000 ticks per second and
+   every chapter longer than INT_MAX / 4,410,000 ≈ 487 s is dropped from it with exit status 0.
+   1000 is what every earlier FFmpeg wrote, what the sources themselves carry, and what the
+   Editor's outputs must keep carrying. The M4B Maker's concat maps audio only (lcm 44100, ~13.5 h
+   per chapter) and is not changed; the Editor's remux is the one path that maps the cover video.
+
+2. **A `-loglevel error` ffmpeg step that prints anything did not succeed.** At that level the
+   only thing ffmpeg can print is an error, and the muxer's "Application provided duration … is
+   invalid" was printed and ignored while the exit status said 0. `_run_chapter_remux_step`
+   raises `ChapterRemuxError` on any stderr; the copy under edit is untouched and the temporary
+   sibling removed. Scoped to the chapter remux — no other ffmpeg call site changed.
+
+3. **Staged validation compares chapter structure with the source.** `validate_chapter_structure`
+   requires the same chapter count, boundaries equal within 10 ms (a 1/44100 source rescaled to
+   1/1000 moves at most half a millisecond), and — exactly when the remux ran
+   (`chapter_titles_retitled`, the same predicate `stage_book` uses) — a QuickTime chapter text
+   track with one sample per chapter; when it did not run, the track must simply be unchanged, so
+   a `chpl`-only source stays valid. ffprobe merges `chpl` and the text track by id, which is why
+   titles alone passed a one-sample track whose surviving title sat at id 0.
+
+**Why the tests missed it.** Every generated fixture had chapters of a few seconds, the Phase 13
+positional chapter edit ran on a 50-second fixture, and the real hour-per-chapter file received no
+chapter edit. The new fixtures are 660 s with a cover and a 600 s chapter; the negative control
+forces the pathological timescale explicitly so the proof does not depend on the host FFmpeg's
+default.
+
+**Signed:** maintainer (investigation, remediation and carry-forward directed 2026-09-20);
+implemented by the AI session on the maintainer's authorization.
+
+---
+
 ## 2026-09-18 — v0.6.4 confirmed merged (PR #11); v0.6.5 identity reassigned to the TTS Quality
 Refinement plan; the displaced Plan 9 scope is preserved and marked DISPLACED — FUTURE ALLOCATION
 UNASSIGNED

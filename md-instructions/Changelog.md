@@ -15,6 +15,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — **M4B Metadata Editor chapter titles were displaced on real audiobooks** (v0.6.4 defect found and fixed 2026-09-20 on macOS; carried onto the v0.6.5 branch)
+
+Saving or clearing tags on an M4B with an embedded cover and any chapter longer than about
+eight minutes failed every Book with *chapter titles do not match the plan* — the titles of the
+last short chapters had moved onto the first positions (`Intro, Outro, Chapter 2, …, Outro`).
+Nothing wrong was published (the run folders stayed empty and every source was untouched), but
+the edit could not be made at all. Six real audiobooks reproduced it on macOS; the same FFmpeg
+ships on Windows, so it was not platform-specific — only the test media had been too short to
+show it.
+
+- **Cause.** FFmpeg 9 changed the MP4 muxer's default *movie timescale* from 1000 to
+  *automatic*, the least common multiple of the streams' timescales. With 44.1 kHz audio beside
+  the cover-art video stream that is 4,410,000 ticks per second; the chapter text track inherits
+  it, so any chapter longer than ~487 s could not be represented, was dropped from the track with
+  a message on stderr, and ffmpeg still exited 0. The Nero `chpl` list stayed complete, and the
+  read-back merged the two by chapter id, which is what displaced the surviving short titles.
+- **Fix.** The chapter-title remux (`shared.metadata.apply_chapter_titles`) now pins
+  `-movie_timescale 1000` — what every earlier FFmpeg wrote and what the sources carry — and is
+  still a pure `-c copy`: the audio stream is byte-identical before and after (MD5-proved on the
+  real file and in the tests). Both ffmpeg steps of the remux now refuse to count as success when
+  ffmpeg *reported an error* at `-loglevel error`, whatever the exit status; a refused remux
+  leaves the staged copy exactly as it was.
+- **Validation.** The Editor's read-back now compares the staged copy's chapter **count and
+  boundaries** with the source's and, whenever the remux rebuilt the chapter track, requires that
+  track to hold **one sample per chapter** — the merged titles alone could not tell a truncated
+  track from a good one when the short chapters happened to lead. A Book that fails any of these
+  publishes nothing, as before.
+- **Tests.** `test_m4b_chapter_remux_timescale.py` (real FFmpeg, a cover-art video stream and a
+  ten-minute chapter between two short ones; the false-pass shape; the pathological timescale
+  forced as a negative control; the argv contract; the exit-status-zero guard) and end-to-end
+  Editor engine cases through the real chapter writer for Save Tags, Clear All Tags, unchanged
+  lines, and the refused truncated/displaced results.
+
 ### Changed — **The M4B Maker builds several audiobooks in one run** (v0.6.4, accepted on Windows and macOS 2026-09-15)
 
 The M4B Maker no longer works on one flat list of MP3s producing one file. It now holds **several

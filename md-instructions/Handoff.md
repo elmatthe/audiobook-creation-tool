@@ -2,6 +2,61 @@
 
 ## Current Focus
 
+> ## ⟢ RECORD — v0.6.4 METADATA EDITOR CHAPTER-TITLE DEFECT FOUND ON macOS, FIXED, AND CARRIED ONTO THIS BRANCH AS ONE FIX COMMIT; THE v0.6.5 LIVE STATE BELOW IS UNCHANGED (2026-09-20, HOME-MacOS)
+>
+> **This block adds one dated record and supersedes nothing.** The v0.6.5 Phase 1 block beneath it
+> remains the live state: Phase 1 is mechanically complete, the next action is still the maintainer's
+> manual listening gate, and nothing here authorizes Phase 2. The record: after v0.6.4 was merged,
+> the maintainer reproduced a real defect in the M4B Metadata Editor with six real audiobooks on the
+> Mac, directed a read-only investigation, approved it, directed a bounded remediation, reviewed it,
+> and directed that **only** that remediation be carried onto this branch (no other v0.6.4-branch
+> commit came with it). Source commit `3dd0602` on `feature/0.6.4-m4b-maker-metadata-editor` (an
+> unpushed local commit on the Mac's old `87e1a25` base), cherry-picked here with `-x`; the three
+> permanent documents were reconciled by hand into their current v0.6.5 text rather than replayed.
+>
+> **The defect (runs `m4b-meta-run-000024` Clear All Tags and `…000031` Save Tags, six "7th Time
+> Loop" M4Bs, 8–12 chapters of 37 s to 105 min each, embedded cover).** Every Book failed at
+> `[validate] chapter titles do not match the plan` with the last short chapters' titles moved onto
+> the first positions (Book 1 found `('Intro','Outro','Chapter 2',…,'Outro')`, planned
+> `('Intro','Chapter 1',…,'Outro')`; Book 6 lost Chapters 1–3 to its two Bonus titles and Outro).
+> The launch log carried one `[ipod] Application provided duration: N in stream 2 is invalid` line
+> per dropped chapter. Both run folders were empty and every source byte- and mtime-identical:
+> staging and atomic publication held. The chapter lines were genuine edits (`Opening
+> Credits`→`Intro`, `End Credits`→`Outro`, …): plan construction was sound.
+>
+> **Root cause (reproduced on a copy of Book 1 and on generated media).** FFmpeg 9.0.1's mov/ipod
+> muxer defaults `-movie_timescale` to auto = lcm of the mapped streams' timescales; the remux maps
+> `0:a` (1/44100) and `0:v?` (the cover, 1/90000), so the chapter-track timescale became 4,410,000
+> (source: 1000). Any chapter longer than INT_MAX/4,410,000 ≈ 487 s was refused and dropped from the
+> rebuilt text track with exit status 0; the `chpl` atom stayed complete; ffprobe merges the two by
+> chapter id, so the k surviving short chapters overwrote chapters 0..k−1. **Not macOS-specific**
+> (Windows runs the same 9.0.1); the Maker's concat maps audio only and is unaffected. A latent
+> second gap was proved on a 30 s + 600 s fixture: with the short chapter leading, the merged
+> titles equal the plan while the text track holds one sample — a titles-only validation passed it.
+>
+> **The fix commit (5 code/test files, +585/−15 with the docs):** `shared/metadata.py` —
+> `apply_chapter_titles` pins `-movie_timescale 1000` (`CHAPTER_REMUX_MOVIE_TIMESCALE`), still
+> `-c copy`; both ffmpeg steps run through `_run_chapter_remux_step`, which raises
+> `ChapterRemuxError` on any stderr at `-loglevel error` and removes the temporary sibling; new
+> `ChapterStructure` + `read_chapter_structure(path)`. `mp3_tools/m4b_metadata_processing.py` —
+> `validate_staged` also reads the structure of the staged copy and the source and calls
+> `validate_chapter_structure` (equal count; boundaries within `CHAPTER_BOUNDARY_TOLERANCE` = 10 ms;
+> a one-sample-per-chapter text track exactly when `chapter_titles_retitled(book)`, the predicate
+> `stage_book` now shares; otherwise the track unchanged). Tests: new
+> `files/tests/test_m4b_chapter_remux_timescale.py` (9, real FFmpeg: 660 s cover-art fixture with
+> 30/600/30 chapters, the leading-short false-pass shape, the pathological timescale forced as the
+> negative control, the argv contract, the exit-status-zero guard, the reader); 12 new cases in
+> `test_m4b_metadata_processing.py` (end to end through `build_book` with the real writer for Save,
+> Clear All, unchanged lines, the refused truncated and displaced results; six media-free structural
+> cases); the metadata authority pin in `test_m4b_structural_authority.py`.
+>
+> **Verification on the Mac, on the 0.6.4 base:** real Book 1 copy through the fixed writer → 8/8
+> chapters, boundaries equal, 8-sample text track at 1/1000, audio MD5 identical, no stderr; focused
+> set 553 passed / 4 skipped; full `verify.py` PASS (7,393 passed / 55 skipped). The same focused set
+> and full gate were re-run on this branch after the cherry-pick — results recorded in the session
+> report that accompanied the push. **Recommended acceptance:** re-run Save Tags on the six real
+> Books in the real launcher on either platform and confirm 6/6 succeed with every chapter present.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 1 MECHANICAL WORK COMPLETE: FULL BASELINE MANIFEST (31/31 OK) CAPTURED — AWAITING THE MANDATORY MANUAL LISTENING GATE (2026-09-19, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one
