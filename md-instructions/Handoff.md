@@ -2,6 +2,36 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 1 CLOSED: MAINTAINER LISTENING PASS (P6) COMPLETE — AWAITING EXPLICIT AUTHORIZATION FOR PHASE 2 (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the v0.6.5 Phase 1 status block further below on
+> exactly one point — the mandatory manual listening gate (P6) has now run — and adds the
+> maintainer's verdict. Every mechanical fact in that block (the 31/31 manifest, the two fixes, the
+> OOM diagnosis) still stands verbatim. The dated macOS record immediately below this block is
+> unrelated (a v0.6.4 Metadata Editor fix cherry-picked onto this branch) and is not touched by this
+> supersession — it already says so itself.
+>
+> **Maintainer listening verdict (2026-09-20), against the full manifest recorded below:**
+> - **Edge — passed, no observed quality defects.**
+> - **Kokoro — passed, no observed quality defects.**
+> - **Chatterbox — baseline findings recorded for later investigation, not a Phase 1 harness
+>   failure:** a reproducible pronunciation inconsistency; one confirmed internal-silence defect on
+>   Male-1 (~11.8 seconds); and comparatively slow Male-1 pacing versus the other Chatterbox voices.
+>   Exact sample/corpus-item locations for these three findings are not yet pinned down in this
+>   record — that localization is Phase 3/4 work (P2's investigation order: source/segmentation
+>   first, then assembly/silence, then generation parameters), not something to chase now.
+>
+> **This is a pass at the Phase 1 gate, not a rejection.** The plan's §14 manual-gate-failure/
+> rollback protocol does not apply here — the maintainer explicitly characterized these as baseline
+> evidence to carry forward, matching P1 (preserve-first; investigate only a *demonstrated* defect)
+> and P6 (mechanical/acoustic evidence and human listening both feed the record; no agent declares
+> a winner). No pronunciation hack, silence trim, or pacing change is authorized by this entry (P9,
+> P3) — any fix waits for Phase 3-5's investigation order.
+>
+> **v0.6.5 PHASE 1 IS FULLY CLOSED** (mechanical work + manual gate). **NOTHING HERE AUTHORIZES
+> STARTING PHASE 2** (voice inventory + Chatterbox candidates) or any other later phase. The next
+> action is the maintainer's explicit go-ahead to begin Phase 2.
+
 > ## ⟢ RECORD — v0.6.4 METADATA EDITOR CHAPTER-TITLE DEFECT FOUND ON macOS, FIXED, AND CARRIED ONTO THIS BRANCH AS ONE FIX COMMIT; THE v0.6.5 LIVE STATE BELOW IS UNCHANGED (2026-09-20, HOME-MacOS)
 >
 > **This block adds one dated record and supersedes nothing.** The v0.6.5 Phase 1 block beneath it
