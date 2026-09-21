@@ -4,6 +4,74 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-20 — v0.6.5 Phase 3 findings: Edge's direct/rich path has a demonstrable avoidable-re-encode
+defect; Chatterbox Male-1's ~11.8s gap is generation output, not assembly
+
+**Finding, not a fix (Phase 3 is investigation-only per plan §15; no production file changed).**
+Root-caused, with mechanical instrumentation rather than arithmetic guesswork, the trailing-silence
+and re-encode questions plan §6/§7 raised about Edge's three assembly paths, and localized (without
+opening Phase 4's text-correlation work) the Chatterbox Male-1 long-silence class of defect.
+
+**1. Edge's direct/rich path (`epub2tts_edge.py`) re-encodes the same sentence audio 3–5 times
+before the paragraph ever reaches lossless FLAC.** `trim_tts_chunk_file` and `append_silence` are
+both pure PCM edits (trim silence; append digital zeros) but both write back through
+`_export_audio`, which re-encodes to MP3 purely because the temp file's extension is `.mp3`. A
+temporary instrumentation wrapper around `_export_audio`/`run_edgespeak` (removed immediately after
+one measurement call; no production line touched) counted, on a real run: raw-network(1) →
+trim-reencode(2) → pause-reencode(3) for a plain sentence, and up to 5 generations for a
+comma/ellipsis/dash-split one. `folder_batch` (`batch_convert.merge_mp3s`) needs only 2 (raw +
+one unavoidable merge-encode to stitch independently-fetched network chunks) — the same overhead its
+historical v0.5.0-era reference already carried. This is the *identical* anti-pattern this codebase
+already found and fixed for both other engines: Chatterbox's own code comment records measuring
+5.67 dB of SNR lost to one unnecessary MP3 generation before switching to assemble-in-PCM/encode-once
+(v0.6.1 Plan 4 Phase 12); Kokoro already does the same. Measured confirmation: speech-only dBFS
+(leading/trailing silence excluded, so this cannot be silence dilution) is −19.20 dBFS raw, −19.66
+dBFS folder/batch, **−21.32 dBFS direct** — a genuine ~2.1 dB shift consistent with the maintainer's
+"more noticeable background/static" report on the direct path specifically.
+
+**2. The three-path trailing-silence progression (raw 860 ms → folder/batch 3,930 ms → direct
+5,860 ms) is fully explained by configured constants stacking, not a bug in any single constant.**
+Direct's 5,860 ms = `paragraphpause` (850 ms, baked into the last sentence) + `chapter_trailing_pause`
+(2,000 ms) + `end_of_book_pause` (3,000 ms) = 5,850 ms configured + ~10 ms natural residual, confirmed
+stage-by-stage by the same instrumentation. Folder/batch's 3,930 ms = the raw chunk's own ~860 ms
+tail + `CHUNK_PAUSE_MS` (50 ms, applied unconditionally even after the last chunk) +
+`END_RECORDING_SILENCE_MS` (3,000 ms) = 3,910 ms predicted vs. 3,930 ms measured. Left as an open
+question for Phase 4/5: `chapter_trailing_pause`/`end_of_book_pause` each fire only once per real
+book (the true last chapter), so this 5.86 s stack may be an artifact of testing a short
+single-chapter QA item rather than a defect that shows up in a real multi-chapter book — not tested.
+
+**3. Chatterbox Male-1's confirmed ~11.8 s internal near-silence is generation output, not
+assembly/silence-insertion, not encoding, and not duration/container handling.** Localized (no
+resynthesis — read the existing Phase 1 evidence file) to
+`files/dev-work/quality-suite/chatterbox_chatterbox-male-1/longer_stress.mp3`, 140.520 s–152.300 s
+(11,780 ms, matching "~11.8 seconds" exactly), using the same exact-zero-sample-run-vs-model-floor
+technique the v0.6.1 Plan 4 Phase 12 silence audit used to separate assembly's inserted `np.zeros`
+(which survive MP3 encode as literal digital zero) from the model's own near-silent output (never
+exact zero). The span is 99.5% non-exact-zero, RMS −66.79 dBFS against ≈−26 dBFS in the immediately
+surrounding speech, with a measurable −32.7 dBFS peak — not digital silence, and not bordered by any
+assembly-inserted exact-zero run (the file's only long exact-zero run is its intentional 3.05 s
+terminal end-silence). Same *class* of defect as the historically-diagnosed Chapter 1144
+dialogue-quote sentence-boundary case, but the specific text cause was deliberately not chased —
+that correlation work belongs to Phase 4, per the plan's explicit investigation order.
+
+**4. Kokoro inspected, confirmed clean, not touched.** `kokoro_synth.py` already assembles every
+chunk in PCM and encodes to MP3 exactly once, matching Chatterbox's fixed pattern; no defect found,
+nothing retuned.
+
+**Consequences:** No `voice_registry.py`, `epub2tts_edge.py`, `batch_convert.py`,
+`chatterbox_synth.py`, or `kokoro_synth.py` line changed. Two disposable, gitignored QA scripts were
+written under `files/dev-work/` (`v0.6.5-phase3-edge-audit/instrument_direct_path.py`,
+`v0.6.5-phase3-chatterbox-audit/localize_silence.py`) for Phase 5 to reuse when A/B-testing a
+candidate PCM-domain redesign of the direct/rich path's trim/pause steps — no candidate was selected
+or integrated. Phase 4 inherits: the Male-1 text-correlation question, and whether the direct path's
+silence stacking is a real-book problem. Phase 5 inherits: the demonstrated avoidable-re-encode
+finding as its leading Edge assembly candidate.
+
+— Investigated by Claude Code per the maintainer's Phase 3 authorization; no maintainer ruling
+required (investigation-only, no subjective judgment made), 2026-09-20
+
+---
+
 ## 2026-09-20 — MP3 Time calculations and validation use fully decoded audio duration
 
 **Decision (maintainer-authorized MP3 defect remediation on the v0.6.5 branch; no phase
