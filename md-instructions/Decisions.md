@@ -4,6 +4,32 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 — v0.6.5 Phase 5 iteration 1 verdict: Edge PCM-domain assembly (candidate B) approved
+for Phase 6 integration, not integrated yet
+
+**Decision.** Having listened to the neutral-labeled `A.mp3` (real production direct/rich assembly)
+and `B.mp3` (the same raw Edge network audio, same segmentation, same pause constants/order, same
+final format, reassembled in a PCM/lossless domain with exactly one final MP3 encode instead of A's
+3–5 avoidable intermediate re-encodes per multi-sub sentence) from the first Phase 5 A/B experiment,
+the maintainer **preferred candidate B — it sounds clearer.**
+
+**Ruling:** carry candidate B forward as the **approved** assembly candidate for later Phase 6
+integration. **Do not integrate it yet** — Phase 5 continues with further isolated experiments
+(segmentation, pause policy, Chatterbox) before any integration phase begins.
+
+**What this does and does not authorize.** This is a listening verdict on the *mechanically
+demonstrated* difference (196 vs. 61 MP3 encode generations for the measured corpus item; 1.56 dB
+speech-only level shift; identical duration, trailing silence, and segmentation otherwise) — it does
+not by itself authorize touching `epub2tts_edge.py`, does not combine with any other Phase 5
+variable (segmentation, pause values), and does not open Phase 6. The disposable build script and
+evidence remain at `files/dev-work/v0.6.5-phase5-edge-ab/` (gitignored), for reference when Phase 6
+integration is eventually authorized.
+
+— Decided by maintainer (Elijah Matthew) after listening to the Phase 5 iteration 1 A/B artifacts;
+recorded by Claude Code, 2026-09-21
+
+---
+
 ## 2026-09-20 — v0.6.5 Phase 4 findings: a real NLTK/Punkt false-split on Edge's direct path;
 Male-1's gap and slow cadence are model-native, not segmentation
 

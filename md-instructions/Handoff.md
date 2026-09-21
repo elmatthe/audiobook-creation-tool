@@ -2,6 +2,93 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 1 VERDICT RECORDED (CANDIDATE B APPROVED FOR PHASE 6, NOT YET INTEGRATED); ITERATION 2 (i.e./e.g. SEGMENTATION FIX) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 1's assembly A/B now has a maintainer verdict — and adds iteration 2's record.
+> Iteration 1's full construction/measurement/caveats stand exactly as recorded below. **No
+> production file was edited by either iteration. No candidate is integrated yet.**
+>
+> **Maintainer verdict, iteration 1 (2026-09-21):** listened to `A.mp3`/`B.mp3` from the Edge
+> assembly experiment and **preferred candidate B by ear — sounds clearer.** Ruling: **carry B
+> forward as the approved assembly candidate for later Phase 6 integration; do not integrate it
+> yet.** Recorded in `Decisions.md` (below) as a dated ADR, per the plan's convention for a real
+> maintainer ruling (as opposed to investigation-only evidence).
+>
+> **Iteration 2 — the i.e./e.g. segmentation defect, isolated as its own variable.** Per explicit
+> instruction, this does **not** combine with the now-approved-but-unintegrated PCM assembly
+> candidate: B here still round-trips through MP3 at every trim/pause step, the exact same code A
+> uses — only the sentence-boundary decision differs.
+>
+> **1. A vs. B construction.** `files/dev-work/v0.6.5-phase5-segmentation-ab/build_candidate_ab.py`
+> (disposable, gitignored). **A = production, unmodified**, run for real
+> (`epub2tts_edge.runner.run_conversion_job`) against `quality_corpus.DIFFICULT_SHORT` (the plan's
+> Section 7 false-boundary item — contains i.e./e.g. plus every already-proven control marker) on
+> `en-US-SteffanNeural`. **B = the identical production code, run again for real, with exactly one
+> monkeypatched name**: `epub2tts_edge.sent_tokenize` swapped for NLTK's own default English Punkt
+> model with `"i.e"` and `"e.g"` added to its `PunktParameters.abbrev_types` set — the same
+> extension point its 156 pretrained entries (including `"mr"`, `"dr"`, `"prof"`, `"vs"`, confirmed
+> present) already live in. Not a new dependency, not a word-specific pronunciation hack, not text
+> rewriting. **Assembly/encoding path, pause constants, voice, and source text are held constant —
+> only segmentation differs**, so unlike iteration 1, B's raw Edge network audio is **not** reused
+> from A (different sentence boundaries necessarily produce different network requests for the
+> merged region); this is an expected, named difference from iteration 1's design, not an oversight.
+> The candidate was checked against every other corpus item first — it changes nothing on
+> `structural_stress_chatterbox`/`structural_stress_kokoro_edge`/`sustained_narration`/
+> `longer_stress` (identical sentence count and content on all four), confirming the fix is narrowly
+> targeted with no observed side effect elsewhere.
+>
+> **2. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-segmentation-ab/evidence/listening/A.mp3` and `.../listening/B.mp3`.
+>
+> **3. Exact boundary/pause behavior.** A splits `DIFFICULT_SHORT` into **10 sentences**; sentence 4
+> ends `"...Prof. Whitfield's theory, i.e."` and sentence 5 ends `"...circling back to her, e.g."` —
+> both false boundaries, each earning an unwanted 800 ms `sentencepause`. B splits into **8
+> sentences**; the same span is now one sentence, `"Mr. Okafor and Mrs. Yates both blamed the
+> storm; Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back
+> to her, e.g. it had simply gone unwatched, vs. gone out entirely."` — **no sentence in B ends in
+> "i.e." or "e.g." anywhere.** Every control marker (Dr., initials, both times, the ratio, the
+> decimal, Mr./Mrs./Prof., "vs.", the URL, the ellipsis, both dialogue-quote spans, the
+> parenthetical) is intact inside exactly one sentence in **both** A and B — content preservation
+> holds for both (squeeze-compared against the source).
+>
+> **4. Mechanical comparison.** Trailing silence: **both exactly 5,880 ms** — pause stacking
+> untouched, as required. Leading silence: both 0 ms. dBFS (speech-only): A −21.82, B −21.72 (≈0.1 dB
+> — negligible, as expected, since assembly/encoding is held constant this time, unlike iteration
+> 1's ~1.56 dB assembly-driven shift). Peak: A −3.28 dBFS, B −3.89 dBFS — **neither clips.** Duration:
+> A 69.870 s, B 68.028 s — **1,842 ms shorter**, closely tracking the expected ~1,600 ms from 2 fewer
+> 800 ms sentence-pauses (the remaining ~242 ms is ordinary Edge prosody/timing variance for the
+> differently-bounded network request, not a defect). Both were real synthesis end to end (wall 30.0
+> s vs. 23.1 s — a legitimate throughput comparison this time, unlike iteration 1's, because both
+> sides made real network calls).
+>
+> **5. New dependency?** **No.** pysbd (evaluated in Phase 4) was not used. The candidate is NLTK's
+> own already-installed, already-imported Punkt tokenizer with two more entries in a set it already
+> populates 156 other entries into — no new import, no `requirements.txt` change, nothing pip-
+> installed for this iteration at all.
+>
+> **6. Focused verification.** `files/tests/test_segmentation_source_span.py` (37) +
+> `test_tts_importing.py` (75) re-run clean (112 passed) after the experiment, confirming the
+> monkeypatch left no residue and production's own `sent_tokenize` binding is unaffected outside the
+> experiment's own `try`/`finally`. No tracked file changed besides this Handoff/Decisions update, so
+> the full suite was not re-run (nothing it covers moved).
+>
+> **7. Caveats.** (a) Single corpus item/voice/run — no repetition for run-to-run Edge-service
+> variance. (b) The ~242 ms residual duration delta beyond the pure pause-count arithmetic is
+> Edge's own prosody for a differently-shaped network request, not separately isolated further. (c)
+> `abbrev_types` is a general Punkt extension point, not scoped to only "i.e."/"e.g." — it is
+> possible (not observed on any of the five corpus items) that a real book contains a genuine
+> sentence that happens to end in literal "i.e." or "e.g." as its own complete thought; that
+> scenario was not constructed or tested. (d) Assembly/encoding is deliberately unchanged here, so
+> this evidence says nothing about whether the segmentation fix and the approved PCM-assembly
+> candidate combine cleanly — that is explicitly a later Phase 5 iteration, not this one.
+>
+> **v0.6.5 PHASE 5 ITERATION 2 IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, NO CANDIDATE WAS
+> ADOPTED INTO PRODUCTION, AND NO OTHER VARIABLE WAS TOUCHED.** The maintainer's listening pass
+> against this iteration's A.mp3/B.mp3 is the next action. Nothing here authorizes the pause-policy
+> experiment, Chatterbox generation-parameter research, integrating either approved-but-pending
+> candidate, or Phase 6.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, FIRST ITERATION: EDGE DIRECT/RICH ASSEMBLY A/B BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
 >
 > **This block is the live state.** It supersedes nothing below it — Phase 4's evidence stands
