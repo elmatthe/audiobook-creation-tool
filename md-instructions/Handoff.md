@@ -2,6 +2,68 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 MECHANICAL WORK COMPLETE — AWAITING THE MANDATORY MALE-3/MALE-4 MANUAL LISTENING GATE (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — Phase 2 is now authorized, executed, and mechanically complete — and adds the full Phase
+> 2 record. Every Phase 1 fact in the block below (the 31/31 manifest, the maintainer's listening
+> verdict, the two fixes) still stands verbatim as dated history; the Phase 1 Chatterbox findings
+> (pronunciation inconsistency, Male-1's ~11.8s silence, slow Male-1 pacing) are carried forward,
+> unchanged and not investigated here, per explicit instruction.
+>
+> **1. Voice inventory: the two multilingual Edge voices are removed entirely** (plan Section 3),
+> not relabeled — `en-US-AndrewMultilingualNeural` and `en-US-AvaMultilingualNeural` are gone from
+> `voice_registry.VOICES`, the GUI dropdown, and every test expectation. **Retained inventory: 14
+> voices** — 5 Edge (`en-US-SteffanNeural` default, `AndrewNeural`, `AriaNeural`, `AvaNeural`,
+> `JennyNeural`), 5 Kokoro (`af_heart`, `af_bella`, `am_michael`, `bf_emma`, `bm_george`), 4
+> Chatterbox (`chatterbox-female-1`, `chatterbox-female-2`, `chatterbox-male-1`,
+> `chatterbox-male-2`). Ordinary Andrew and Ava are unaffected. Eight tracked test files had their
+> count/index expectations updated (16→14, 12→10, 7→5) to match — no invariant was weakened, only
+> retargeted; `Briefing.md`'s feature line updated to match.
+>
+> **2. Male-3/Male-4 sources verified and hash-bound (plan Section 4), originals untouched.**
+> `files/Chatterbox-Voice-Uploads/Male-3.mp3` → SHA-256
+> `0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4`;
+> `Male-4.mp3` → SHA-256 `1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5`. Both
+> computed and cross-verified by two independent methods (`certutil` and Python `hashlib`) on
+> HOME-PC, 2026-09-20. `git status` confirms no change under `files/Chatterbox-Voice-Uploads/`; the
+> hashes were re-verified identical immediately after rendering the candidate WAVs. Recorded in
+> `chatterbox_synth.CANDIDATE_REFERENCE_VOICES` — a new, separate dict from the frozen
+> four-entry `REFERENCE_VOICES` (an existing test already pins that count).
+>
+> **3. Separate candidate-evaluation path built and used (plan Section 5) — the historical
+> four-voice evaluation is untouched.** `get_reference_voice()` now checks `REFERENCE_VOICES` then
+> `CANDIDATE_REFERENCE_VOICES`, so every existing reference/derivative/conditioning function
+> (hash verification, derivative caching, P8 safety) works for candidates with no duplicated
+> machinery. `run_chatterbox_candidate_evaluation()` (new, independent of
+> `run_chatterbox_evaluation`) renders under **current production settings**
+> (`generation_params()`, not the historical Phase 9 temperature), using the same evaluation
+> sentence as the four approved voices, to a separate output subfolder
+> (`chatterbox-candidates/`, distinct from `chatterbox-eval/`). No `voice_registry.VOICES` entry
+> exists for either candidate — no GUI registry change before approval, exactly as the plan
+> requires.
+>
+> **4. Lossless Male-3/Male-4 candidate samples generated — both succeeded, 8.56s and 8.16s.**
+> Real run on HOME-PC via `--chatterbox-candidates`:
+> `files/test-for-manual-listen-elmatthe/chatterbox-candidates/chatterbox-male-3.wav` and
+> `.../chatterbox-male-4.wav` (gitignored, local listening only). Generation parameters recorded
+> per voice: `temperature=0.72, top_p=0.95, top_k=1000, repetition_penalty=1.2` (current
+> production, confirmed different from the historical Phase 9 `temperature=0.8`). Throughput:
+> Male-3 wall 43.60s / audio 8.56s (RTF 5.09, cold conditional compute); Male-4 wall 12.15s / audio
+> 8.16s (RTF 1.49).
+>
+> **5. Regression coverage:** new `files/tests/test_chatterbox_candidates.py` (20 tests, fully
+> mocked — no real recording, model, or network touched, matching the existing Chatterbox test
+> convention) covers registry isolation, the frozen four-entry production set, hash-bound
+> reference resolution and its fallback, current-vs-historical generation settings, separate output
+> subfolders, and setup-required/failure handling. Full suite: **7420 passed / 57 skipped / 0
+> failed** / 1 warning (pre-existing pydub `audioop` deprecation) in 10:03; `compileall` clean.
+>
+> **v0.6.5 PHASE 2 MECHANICAL WORK IS COMPLETE. NOTHING HERE APPROVES MALE-3 OR MALE-4, AND NOTHING
+> HERE AUTHORIZES STARTING PHASE 3.** The next action is the maintainer's manual listening pass
+> against the two candidate WAVs above (plan Section 5) — YES/NO per voice, no automatic
+> substitute — then an explicit go-ahead for Phase 3.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 1 CLOSED: MAINTAINER LISTENING PASS (P6) COMPLETE — AWAITING EXPLICIT AUTHORIZATION FOR PHASE 2 (2026-09-20, HOME-PC)
 >
 > **This block is the live state.** It supersedes the v0.6.5 Phase 1 status block further below on

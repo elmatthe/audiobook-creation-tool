@@ -308,7 +308,7 @@ def test_the_four_approved_voices_are_still_registered():
     registry = importlib.import_module("tts.voice_registry")
     chatterbox = [v for v in registry.VOICES if v.backend == "chatterbox"]
     assert len(chatterbox) == 4
-    assert len(registry.VOICES) == 16
+    assert len(registry.VOICES) == 14
 
 
 def test_the_diagnostic_touched_no_engine_module():

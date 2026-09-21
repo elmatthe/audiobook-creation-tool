@@ -708,7 +708,8 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
 ## Features
 
 - **TTS Audiobook** (`tts/epub2tts_gui.py`) — **PDF/TXT → MP3** (v0.6.1: EPUB retired, see
-  below); **16 voices** (7 Edge network + 5 Kokoro local AI + 4 Chatterbox local AI); **one
+  below); **14 voices** (5 Edge network + 5 Kokoro local AI + 4 Chatterbox local AI — v0.6.5
+  Phase 2 removed the two multilingual Edge voices); **one
   unified queue** in which direct files and whole folders coexist in a single run — folder-derived
   items are mirrored into the output so same-named files in different books never collide, direct
   files are placed flat, and occurrence identity, deliberate duplicates, provenance and natural

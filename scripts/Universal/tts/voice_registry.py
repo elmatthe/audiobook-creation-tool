@@ -142,10 +142,12 @@ def _chatterbox_preset(
 #: dropdown separator only and never part of a voice's name.
 CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 
-# Sixteen rows: seven Edge, five Kokoro, then the four approved Chatterbox voices.
-# The first twelve keep the order, the voice ids and the timing they had before
-# Phase 10 — adding a third engine did not change the other two — and carry the
-# display wording the maintainer specified in Phase 13A.3.
+# Fourteen rows: five Edge, five Kokoro, then the four approved Chatterbox
+# voices. v0.6.5 Phase 2 removed the two multilingual Edge rows
+# (en-US-AndrewMultilingualNeural, en-US-AvaMultilingualNeural) per the plan's
+# final voice inventory (Section 3) — ordinary Andrew and Ava are unaffected.
+# The remaining rows keep the order, voice ids and timing they had before, and
+# carry the display wording the maintainer specified in Phase 13A.3.
 VOICES: list[VoiceEntry] = [
     VoiceEntry(
         backend="edge",
@@ -153,13 +155,6 @@ VOICES: list[VoiceEntry] = [
         display_label="Edge Male - Steffan (en-US)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(),
-    ),
-    VoiceEntry(
-        backend="edge",
-        voice_id="en-US-AndrewMultilingualNeural",
-        display_label="Edge Male - Andrew (en-Multilingual)",
-        group_label="Microsoft Edge TTS — English (US)",
-        timing_preset=_edge_preset(sentence=820, paragraph=870),
     ),
     VoiceEntry(
         backend="edge",
@@ -172,13 +167,6 @@ VOICES: list[VoiceEntry] = [
         backend="edge",
         voice_id="en-US-AriaNeural",
         display_label="Edge Female - Aria (en-US)",
-        group_label="Microsoft Edge TTS — English (US)",
-        timing_preset=_edge_preset(sentence=780, paragraph=830),
-    ),
-    VoiceEntry(
-        backend="edge",
-        voice_id="en-US-AvaMultilingualNeural",
-        display_label="Edge Female - Ava (en-Multilingual)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(sentence=780, paragraph=830),
     ),

@@ -4,6 +4,73 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-20 — v0.6.5 Phase 2: multilingual Edge voices removed; Male-3/Male-4 evaluated on a
+separate candidate path that reuses the production reference/conditioning machinery without
+touching it
+
+**Decision (v0.6.5 Phase 2 — voice inventory + Chatterbox candidates).**
+
+**1. `en-US-AndrewMultilingualNeural` and `en-US-AvaMultilingualNeural` are removed from
+`voice_registry.VOICES` entirely**, not relabeled or deprecated in place, per the plan's final
+voice inventory (Section 3). Fourteen rows remain: five Edge, five Kokoro, four Chatterbox.
+Ordinary Andrew and Ava are unaffected. Every count-based test that assumed sixteen/twelve/seven
+rows (`test_tts_smoke.py`, `test_voice_labels.py`, `test_chatterbox_boundaries.py`,
+`test_chatterbox_evaluation.py`, `test_chatterbox_integration.py`, `test_chatterbox_selected_tuning.py`,
+`test_epub_retirement.py`, `test_fatal_diagnostics.py`, `test_tts_importing.py`, `test_tts_jobs.py`)
+was updated to the new counts/indices; none had its actual invariant weakened.
+
+**2. Male-3/Male-4 get a genuinely separate evaluation path, not a widened historical one.**
+`chatterbox_synth.REFERENCE_VOICES` (the four approved, production voices) is frozen at exactly
+four entries — an existing test already pins this
+(`test_mp3_finalization.py::test_the_settled_chatterbox_values_are_untouched`) and continues to.
+The two candidates live in a new, separate `CANDIDATE_REFERENCE_VOICES` dict instead.
+`get_reference_voice(voice_id)` now checks `REFERENCE_VOICES` first, then
+`CANDIDATE_REFERENCE_VOICES` — the one seam every existing reference/derivative/conditioning
+function (`resolve_reference`, `prepare_reference_clip`, `derivative_path`, `conditionals_path`,
+`voice_availability`) already goes through, so candidates get the exact same hash-binding,
+derivative-caching and P8 safety contract as the four approved voices for free, with no
+duplicated machinery and no risk of a parallel implementation drifting from the original.
+
+**3. Candidates render under current production generation settings
+(`generation_params()`), not the historical Phase 9 temperature
+(`phase9_evaluation_params()`).** The plan (Section 5) is explicit that candidates are judged
+against what an audiobook actually sounds like today, not the historical approval contract the
+four-voice evaluation must keep reproducing untouched. `run_chatterbox_evaluation` (the historical
+four-voice command) is not modified at all; `run_chatterbox_candidate_evaluation` is a new,
+independent function reusing only the generic, already-shared table/report formatters
+(`format_chatterbox_table`, and a candidate-specific report wrapper with its own approval-language
+footer). Both candidates read the same evaluation sentence the four approved voices did
+(`CHATTERBOX_CANDIDATE_TEXT = CHATTERBOX_EVAL_TEXT`), so the comparison is about the voice, not a
+different script.
+
+**4. Hashes computed and cross-verified by two independent methods (certutil and Python
+hashlib) on HOME-PC, 2026-09-20, against the maintainer-placed files:**
+`files/Chatterbox-Voice-Uploads/Male-3.mp3` →
+`0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4`;
+`files/Chatterbox-Voice-Uploads/Male-4.mp3` →
+`1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5`. Both files were only ever
+read, never written to; `git status` shows no change under `files/Chatterbox-Voice-Uploads/`, and
+the hashes were re-verified identical immediately after the candidate WAVs were rendered.
+
+**5. No tracked test touches the real recordings.** Every existing Chatterbox test stubs
+`resolve_reference`/`prepare_reference_clip`/etc. at the engine seam rather than reading real
+files (`protected_uploads_dir()` monkeypatched to `tmp_path`); the new
+`files/tests/test_chatterbox_candidates.py` follows the same convention, so the suite runs
+identically on a machine that has never seen the two candidate recordings. Hash verification
+against the real files is a one-off manual check recorded here and in `Handoff.md`, not a tracked
+test — consistent with how the four approved voices' real files were never asserted against in
+the tracked suite either.
+
+**Consequences:** `voice_registry.VOICES` is untouched by this drop — no `chatterbox-male-3` or
+`chatterbox-male-4` row exists there, and none will unless and until the maintainer's listening
+gate (Section 5) returns a `YES` for a given candidate in a later phase. `REFERENCE_VOICES`
+remaining frozen at four is a private implementation detail of `chatterbox_synth.py`, not
+something Phase 2 is scoped to change.
+
+— Decided by maintainer (Elijah Matthew) per the plan; implemented by Claude Code, 2026-09-20
+
+---
+
 ## 2026-09-20 — The chapter-title remux pins its movie timescale, an ffmpeg error is a failure at any exit status, and chapter validation reads structure, not titles
 
 **Decision (v0.6.4 defect, bounded remediation carried onto `feature/0.6.5-tts-quality-refactor`

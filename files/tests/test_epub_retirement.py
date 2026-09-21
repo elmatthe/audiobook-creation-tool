@@ -548,9 +548,9 @@ def test_the_edge_and_kokoro_voices_and_the_default_label_are_unchanged():
     """
     from tts import voice_registry as vr
 
-    assert len(vr.VOICES) == 16
+    assert len(vr.VOICES) == 14
     assert vr.DEFAULT_VOICE_LABEL == vr.display_labels()[0]
-    assert len([v for v in vr.VOICES if v.backend == "edge"]) == 7
+    assert len([v for v in vr.VOICES if v.backend == "edge"]) == 5
     assert len([v for v in vr.VOICES if v.backend == "kokoro"]) == 5
     assert len([v for v in vr.VOICES if v.backend == "chatterbox"]) == 4
     for voice in vr.VOICES:

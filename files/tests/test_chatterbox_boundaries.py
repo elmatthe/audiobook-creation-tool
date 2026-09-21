@@ -80,17 +80,16 @@ def test_the_chatterbox_preset_disables_edge_chunk_trimming():
 
 
 # --------------------------------------------------------------------------- #
-# The twelve existing rows, asserted by value
+# The ten existing rows, asserted by value
+#
+# v0.6.5 Phase 2 removed the two multilingual Edge rows (Andrew/Ava
+# Multilingual) from the registry per the plan's final voice inventory
+# (Section 3); this table follows. Ordinary Andrew and Ava are unaffected.
 # --------------------------------------------------------------------------- #
 EXPECTED_VOICES = [
     ("edge", "en-US-SteffanNeural", "Edge Male - Steffan (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "800", "paragraphpause": "850", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
-      "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AndrewMultilingualNeural", "Edge Male - Andrew (en-Multilingual)",
-     "Microsoft Edge TTS — English (US)",
-     {"sentencepause": "820", "paragraphpause": "870", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-AndrewNeural", "Edge Male - Andrew (en-US)",
@@ -99,11 +98,6 @@ EXPECTED_VOICES = [
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-AriaNeural", "Edge Female - Aria (en-US)",
-     "Microsoft Edge TTS — English (US)",
-     {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
-      "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AvaMultilingualNeural", "Edge Female - Ava (en-Multilingual)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
@@ -146,11 +140,12 @@ EXPECTED_VOICES = [
 ]
 
 
-def test_the_twelve_pre_existing_rows_are_still_the_first_twelve():
-    """Phase 10 appended; it did not insert, re-order or replace."""
-    assert len(voice_registry.VOICES) == 16
-    assert len([v for v in voice_registry.VOICES[:12]
-                if v.backend in ("edge", "kokoro")]) == 12
+def test_the_ten_pre_existing_rows_are_still_the_first_ten():
+    """Phase 10 appended; it did not insert, re-order or replace. Phase 2 of
+    v0.6.5 removed two multilingual Edge rows, so twelve became ten."""
+    assert len(voice_registry.VOICES) == 14
+    assert len([v for v in voice_registry.VOICES[:10]
+                if v.backend in ("edge", "kokoro")]) == 10
 
 
 @pytest.mark.parametrize("index,expected", list(enumerate(EXPECTED_VOICES)))
@@ -177,15 +172,15 @@ def test_the_default_voice_is_still_steffan():
     assert voice_registry.DEFAULT_VOICE_LABEL == voice_registry.VOICES[0].display_label
 
 
-def test_the_dropdown_still_opens_with_the_same_twelve_labels_in_order():
-    assert voice_registry.display_labels()[:12] == [v[2] for v in EXPECTED_VOICES]
+def test_the_dropdown_still_opens_with_the_same_ten_labels_in_order():
+    assert voice_registry.display_labels()[:10] == [v[2] for v in EXPECTED_VOICES]
 
 
-def test_exactly_four_chatterbox_rows_exist_and_all_sit_after_the_twelve():
+def test_exactly_four_chatterbox_rows_exist_and_all_sit_after_the_ten():
     """The set is closed at four (drop §5.7) and none of them displaced a row."""
     chatterbox = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
     assert len(chatterbox) == 4
-    assert voice_registry.VOICES[12:] == chatterbox
+    assert voice_registry.VOICES[10:] == chatterbox
 
 
 def test_the_em_dash_labels_this_drop_proposed_are_not_what_was_registered():
@@ -200,11 +195,11 @@ def test_the_registry_source_declares_exactly_the_rows_it_should():
     tree = _tree(TTS_DIR / "voice_registry.py")
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 16
+    assert len(rows) == 14
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
-    assert backends[:12] == ["edge"] * 7 + ["kokoro"] * 5
-    assert backends[12:] == ["chatterbox"] * 4
+    assert backends[:10] == ["edge"] * 5 + ["kokoro"] * 5
+    assert backends[10:] == ["chatterbox"] * 4
 
 
 # --------------------------------------------------------------------------- #

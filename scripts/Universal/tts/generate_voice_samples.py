@@ -338,6 +338,142 @@ def _report_chatterbox_evaluation(results: list[ChatterboxEvalResult],
 
 
 # --------------------------------------------------------------------------- #
+# Chatterbox candidate evaluation (v0.6.5 Phase 2 — plan Sections 4/5)
+# --------------------------------------------------------------------------- #
+#: Same evaluation sentence as the historical four-voice command, so the
+#: maintainer compares candidates against the same reference recording used
+#: for the four already-approved voices, not a different one.
+CHATTERBOX_CANDIDATE_TEXT = CHATTERBOX_EVAL_TEXT
+
+#: Male-3 and Male-4 only (plan Section 3) — an independent closed pair, not
+#: merged with CHATTERBOX_EVAL_VOICE_IDS. A `NO` from the maintainer leaves a
+#: voice_id here forever; there is no automatic substitute (plan Section 5).
+CHATTERBOX_CANDIDATE_VOICE_IDS: tuple[str, ...] = (
+    "chatterbox-male-3",
+    "chatterbox-male-4",
+)
+
+#: A separate subfolder from CHATTERBOX_EVAL_SUBDIR — candidates are not the
+#: historical evaluation and must not be mistaken for it or overwrite it.
+CHATTERBOX_CANDIDATE_SUBDIR = "chatterbox-candidates"
+
+
+def _chatterbox_candidate_dir(create: bool = True) -> Path:
+    d = _out_dir() / CHATTERBOX_CANDIDATE_SUBDIR
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def run_chatterbox_candidate_evaluation(
+    log: Callable[[str], None] = print,
+    device: str | None = None,
+) -> list[ChatterboxEvalResult]:
+    """Render one evaluation WAV per Male-3/Male-4 candidate (plan Sections 4/5).
+
+    Deliberately **not** a variant of ``run_chatterbox_evaluation`` — that
+    function's four-voice, Phase-9-temperature contract must stay exactly
+    reproducible, untouched by anything this function does. The two
+    differences from it, both required by the plan: **current production**
+    generation settings (``generation_params()``, not the historical Phase 9
+    temperature — Section 5), and a separate closed pair of candidate voice
+    ids that never appear in ``voice_registry.VOICES`` unless and until the
+    maintainer approves one (Section 5's manual gate; no GUI registry change
+    before that).
+
+    Same two-stage shape as the historical evaluation: sources are proved
+    (hash-verified, derivative prepared) before anything is generated, and a
+    generation failure is recorded as a FAIL row rather than stopping the
+    other candidate.
+    """
+    from tts import chatterbox_synth as cbx
+
+    resolved_device = device or cbx.select_device()
+    generation = cbx.generation_params()
+    parameters = {
+        "package": cbx.PACKAGE_REQUIREMENT,
+        "model": cbx.MODEL_REPO_ID,
+        "device": resolved_device,
+        "reference": cbx.derivative_spec(),
+        "generation": generation,
+    }
+
+    results = [
+        ChatterboxEvalResult(
+            voice_id=voice_id,
+            label=cbx.get_reference_voice(voice_id).label,
+            source_sha256=cbx.get_reference_voice(voice_id).source_sha256,
+            device=resolved_device,
+            parameters=parameters,
+        )
+        for voice_id in CHATTERBOX_CANDIDATE_VOICE_IDS
+    ]
+
+    # --- stage one: prove both sources before generating any audio ---------- #
+    for result in results:
+        try:
+            source = cbx.resolve_reference(result.voice_id)
+            derivative = cbx.prepare_reference_clip(result.voice_id, log=log)
+        except Exception as exc:
+            result.detail = str(exc)
+            log(f"Setup required for {result.label}: {exc}")
+            continue
+        cached = cbx.conditionals_path(result.voice_id, result.source_sha256)
+        result.source_path = str(source)
+        result.derivative_path = str(derivative)
+        result.conditional_path = str(cached)
+        result.conditional_state = "reused" if cached.is_file() else "computed"
+
+    # --- stage two: one generation per candidate whose source proved out ---- #
+    out_dir = _chatterbox_candidate_dir()
+    for result in results:
+        if not result.source_path:
+            result.detail = result.detail or "Setup required — see above."
+            continue
+        dest = out_dir / f"{result.voice_id}.wav"
+        result.output_path = str(dest)
+        log(f"Chatterbox candidate: {result.label} -> {dest.name}")
+        started = time.perf_counter()
+        try:
+            cbx.synthesize_text_to_wav(
+                CHATTERBOX_CANDIDATE_TEXT, str(dest), result.voice_id,
+                log=log, device=resolved_device, generation=generation,
+            )
+            result.wall_seconds = time.perf_counter() - started
+            result.audio_seconds = _wav_seconds(dest)
+            result.rtf = result.wall_seconds / result.audio_seconds
+            result.ok = True
+            result.detail = "OK"
+        except Exception as exc:
+            result.wall_seconds = time.perf_counter() - started
+            result.detail = str(exc) or repr(exc)
+            log(f"FAIL {result.label}: {exc!r}")
+
+    return results
+
+
+def _report_chatterbox_candidate_evaluation(
+    results: list[ChatterboxEvalResult], log: Callable[[str], None] = print,
+) -> int:
+    log("")
+    log(format_chatterbox_table(results))
+    log("")
+    for r in results:
+        wall = f"{r.wall_seconds:.2f} s" if r.wall_seconds is not None else "—"
+        audio = f"{r.audio_seconds:.2f} s" if r.audio_seconds is not None else "—"
+        rtf = f"{r.rtf:.3f}" if r.rtf is not None else "—"
+        log(f"{r.voice_id}: wall {wall}, audio {audio}, RTF {rtf}, "
+            f"conditional {r.conditional_state}")
+    ok = sum(1 for r in results if r.ok)
+    log("")
+    log(f"Successes: {ok}   Failures: {len(results) - ok}   "
+        f"Device: {results[0].device if results else 'unknown'}")
+    log("Approval decision belongs to the maintainer, per voice, by listening "
+        "(plan Section 5). Nothing was registered in voice_registry.VOICES.")
+    return 0 if ok == len(results) else 1
+
+
+# --------------------------------------------------------------------------- #
 # Quality suite (v0.6.5 Phase 1 — plan Section 8)
 # --------------------------------------------------------------------------- #
 #: Baseline (plan Section 8): sustained/longer samples are captured for these
@@ -655,6 +791,15 @@ def _build_parser() -> argparse.ArgumentParser:
              "(expensive: loads the local model and clones four voices)",
     )
     ap.add_argument(
+        "--chatterbox-candidates",
+        dest="chatterbox_candidates",
+        action="store_true",
+        help="v0.6.5 Phase 2: render the Male-3/Male-4 candidate listening WAVs "
+             "and stop (current production settings, not the historical Phase "
+             "9 temperature; separate from --chatterbox-eval and never touches "
+             "voice_registry.VOICES).",
+    )
+    ap.add_argument(
         "--quality-suite",
         dest="quality_suite",
         action="store_true",
@@ -673,6 +818,10 @@ def main() -> int:
     if args.chatterbox_eval:
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_evaluation(run_chatterbox_evaluation())
+
+    if args.chatterbox_candidates:
+        ffmpeg_utils.configure_pydub()
+        return _report_chatterbox_candidate_evaluation(run_chatterbox_candidate_evaluation())
 
     if args.quality_suite:
         rows = run_quality_suite(args.patterns)

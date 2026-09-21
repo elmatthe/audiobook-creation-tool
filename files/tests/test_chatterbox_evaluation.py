@@ -221,10 +221,11 @@ def test_the_ordinary_sample_text_is_untouched_by_phase_nine():
 def test_the_ordinary_selection_still_covers_every_registered_voice():
     """``_select`` means "every registered voice", and it still does.
 
-    Phase 10 registered four more, so the number moved from twelve to sixteen.
-    ``_select`` itself is unchanged and its contract is unchanged.
+    Phase 10 registered four more (twelve to sixteen); v0.6.5 Phase 2 then
+    removed the two multilingual Edge rows (sixteen to fourteen). ``_select``
+    itself is unchanged and its contract is unchanged.
     """
-    assert len(gvs._select([])) == len(voice_registry.VOICES) == 16
+    assert len(gvs._select([])) == len(voice_registry.VOICES) == 14
 
 
 def test_the_ordinary_backend_filters_still_work():
@@ -632,7 +633,7 @@ def test_the_evaluation_ids_match_the_voices_phase_ten_registered():
     """
     registered = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
     assert len(registered) == 4
-    assert len(voice_registry.VOICES) == 16
+    assert len(voice_registry.VOICES) == 14
     assert sorted(v.voice_id for v in registered) == sorted(
         gvs.CHATTERBOX_EVAL_VOICE_IDS)
 
@@ -674,9 +675,9 @@ def test_no_chatterbox_dispatch_reached_a_conversion_engine(filename):
         f"{filename} references Chatterbox — the engines stay untouched"
 
 
-def test_the_gui_voice_dropdown_offers_the_twelve_plus_the_four_approved():
+def test_the_gui_voice_dropdown_offers_the_ten_plus_the_four_approved():
     labels = voice_registry.display_labels()
-    assert len(labels) == 16 == len(set(labels))
+    assert len(labels) == 14 == len(set(labels))
 
 
 def test_the_generator_is_the_only_production_file_phase_nine_widened():
@@ -735,10 +736,8 @@ def test_the_evaluation_writes_no_manifest_of_its_own():
 # writes outside ``tmp_path``.
 ORDINARY_EDGE_IDS = (
     "en-US-SteffanNeural",
-    "en-US-AndrewMultilingualNeural",
     "en-US-AndrewNeural",
     "en-US-AriaNeural",
-    "en-US-AvaMultilingualNeural",
     "en-US-AvaNeural",
     "en-US-JennyNeural",
 )
@@ -824,11 +823,11 @@ def test_no_chatterbox_voice_is_ever_handed_to_edge_tts(sample_seams, monkeypatc
         assert voice_id not in sample_seams.voices("edge")
 
 
-def test_an_ordinary_run_covers_all_sixteen_rows_split_by_backend(sample_seams,
+def test_an_ordinary_run_covers_all_fourteen_rows_split_by_backend(sample_seams,
                                                                  monkeypatch):
     _main(monkeypatch)
-    assert len(sample_seams.calls) == 16
-    assert len(sample_seams.voices("edge")) == 7
+    assert len(sample_seams.calls) == 14
+    assert len(sample_seams.voices("edge")) == 5
     assert len(sample_seams.voices("kokoro")) == 5
     assert len(sample_seams.voices("chatterbox")) == 4
 
@@ -891,7 +890,7 @@ def test_ordinary_mode_never_calls_the_phase_nine_evaluation(sample_seams, monke
                         lambda *a, **k: called.append("ran") or [])
     _main(monkeypatch)
     assert called == []
-    assert len(sample_seams.calls) == 16
+    assert len(sample_seams.calls) == 14
 
 
 def test_the_evaluation_flag_never_enters_ordinary_dispatch(sample_seams, monkeypatch):
@@ -921,7 +920,7 @@ def test_a_fully_successful_ordinary_run_reports_success(sample_seams, monkeypat
                                                          capsys):
     code = _main(monkeypatch)
     assert code == 0
-    assert "16 ok, 0 failed" in capsys.readouterr().out
+    assert "14 ok, 0 failed" in capsys.readouterr().out
 
 
 def test_edge_and_kokoro_sample_naming_is_unchanged(sample_seams, monkeypatch,

@@ -553,6 +553,30 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     ),
 }
 
+# v0.6.5 Phase 2 candidates (plan Section 4/5) — evaluated on the separate
+# candidate-evaluation path below, NOT registered as VoiceEntry rows. A `YES`
+# from the maintainer's listening gate is what would move a voice_id from here
+# into voice_registry.VOICES in a later phase; a `NO` leaves it here,
+# unregistered, permanently. Hashes computed and cross-verified (certutil +
+# Python hashlib) on HOME-PC on 2026-09-20 against the files the maintainer
+# placed at files/Chatterbox-Voice-Uploads/; this dict is what now binds those
+# two files' identity going forward, exactly as the four rows above already do
+# for their own sources.
+CANDIDATE_REFERENCE_VOICES: dict[str, ReferenceVoice] = {
+    "chatterbox-male-3": ReferenceVoice(
+        voice_id="chatterbox-male-3",
+        label="Chatterbox — Male 3 (candidate)",
+        source_name="Male-3.mp3",
+        source_sha256="0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4",
+    ),
+    "chatterbox-male-4": ReferenceVoice(
+        voice_id="chatterbox-male-4",
+        label="Chatterbox — Male 4 (candidate)",
+        source_name="Male-4.mp3",
+        source_sha256="1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5",
+    ),
+}
+
 
 # --------------------------------------------------------------------------- #
 # Locations
@@ -619,8 +643,21 @@ def package_status() -> tuple[bool, str]:
 
 
 def get_reference_voice(voice_id: str) -> ReferenceVoice:
+    """Look up a voice's reference identity — the four production voices
+    first, then the v0.6.5 Phase 2 unapproved candidates.
+
+    Checking ``CANDIDATE_REFERENCE_VOICES`` here (rather than duplicating this
+    module's entire reference/derivative/conditioning machinery for
+    candidates) is what lets the separate candidate-evaluation path reuse it
+    unmodified, while ``REFERENCE_VOICES`` itself stays the frozen four-entry
+    production set (plan Section 5) throughout the candidate evaluation.
+    """
     try:
         return REFERENCE_VOICES[voice_id]
+    except KeyError:
+        pass
+    try:
+        return CANDIDATE_REFERENCE_VOICES[voice_id]
     except KeyError:
         raise ChatterboxUnavailable(
             f"Unknown Chatterbox voice '{voice_id}'. Known voices: "
