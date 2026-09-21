@@ -2,6 +2,72 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, FIRST ITERATION: EDGE DIRECT/RICH ASSEMBLY A/B BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes nothing below it — Phase 4's evidence stands
+> exactly as recorded. This is Phase 5's *first* controlled A/B experiment only, per explicit
+> instruction: isolate Edge direct/rich assembly/re-encoding as the one variable. **No production
+> file was edited. No candidate was integrated. No winner was declared.**
+>
+> **1. What A and B are.** `files/dev-work/v0.6.5-phase5-edge-ab/build_candidate_ab.py` (disposable,
+> gitignored) runs **A = real, unmodified production** (`epub2tts_edge.runner.run_conversion_job`,
+> the exact call `convert_with_edge_engine` makes) once, for real, against
+> `quality_corpus.STRUCTURAL_STRESS_KOKORO_EDGE` (the same item Phase 3 measured) on
+> `en-US-SteffanNeural`. A temporary wrapper around `run_edgespeak` — read-only, no behavior change —
+> captured every one of A's **60 raw per-sentence/sub-chunk network MP3s, in call order**, with no
+> second network round-trip. **B replays those exact same 60 raw bytes** through the unmodified
+> production `get_book`, `sent_tokenize`, `intra_sentence_chunks`, and `trim_silence_segment`
+> functions (reused verbatim — same segmentation, same i.e./e.g. behavior, same trim threshold), and
+> the same pause constants in the same order (sentence 800 ms / paragraph 850 ms / title 1200 ms /
+> chapter 2000 ms / end-of-book 3000 ms) — but keeps every intermediate result as an in-memory
+> `pydub.AudioSegment` (PCM) instead of re-exporting it to MP3 at each trim/pause step, encoding to
+> MP3 exactly once at the very end, matching the pattern `chatterbox_synth`/`kokoro_synth` already
+> use. Nothing else differs.
+>
+> **2. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-edge-ab/evidence/listening/A.mp3` and `.../listening/B.mp3` (neutral
+> labels, no quality claim implied) — identical content to
+> `evidence/A_production/structural_stress (en-US-SteffanNeural).mp3` and
+> `evidence/B_pcm_domain/structural_stress (en-US-SteffanNeural) [B-pcm-domain].mp3` respectively.
+> Source text: `evidence/structural_stress.txt`.
+>
+> **3. Mechanical comparison.** Duration: A 211.658 s, B 211.655 s (3 ms apart — rounding, not a real
+> difference). **Trailing silence: both exactly 5,860 ms** — confirms the separate pause-stacking
+> variable was not touched. Leading silence: both 30 ms. **dBFS (speech-only, silence excluded): A
+> −21.31, B −19.75** — a 1.56 dB shift, corroborating Phase 3's original direct-path measurement
+> (−21.32) almost exactly, with B landing close to Phase 3's raw/batch reference range (−19.20/
+> −19.66). Peak level: A −1.89 dBFS, B −2.05 dBFS — **neither clips** (both far under 0 dBFS).
+> File size: A 4,235,084 bytes, B 4,234,604 bytes (essentially identical). **Encode-generation count,
+> computed exactly for this run's actual 17-sentence/60-sub-segment structure: A performs 196 total
+> MP3 encodes (60 raw + 135 avoidable intermediate trim/intra-pause/merge/sentence-pause re-encodes +
+> 1 final); B performs 61 (the same 60 unavoidable raw network encodes + exactly 1 final) — B
+> eliminates all 135 avoidable generations and adds none.**
+>
+> **4. Does B mechanically remove the identified problem without changing the other variables? Yes,
+> by direct measurement — not by construction alone.** Segmentation, i.e./e.g. handling, and every
+> pause value/order are byte-for-byte the same code path in both (proven by matching duration and
+> identical trailing silence to the millisecond); the raw network material is identical (B reused A's
+> own captured bytes, not a fresh synthesis); the only variable that moved is the MP3
+> encode-generation count and the corresponding measured level shift.
+>
+> **5. Caveats that could invalidate or qualify this A/B, recorded rather than smoothed over:**
+> (a) **The wall-time figures in the script's own printout (A 70.16 s vs. B 3.26 s) are NOT a
+> throughput comparison** — B skipped 60 real network round-trips entirely by design (it reused A's
+> captured bytes), so this reflects the experiment's methodology, not B's real-world relative speed;
+> a fair throughput comparison would need B to perform its own live synthesis, not attempted here.
+> (b) Single corpus item, single voice, single run of each — no repetition to characterize run-to-run
+> MP3-encoder or network variance. (c) B is disposable script code, not integrated into
+> `epub2tts_edge.py`; its fidelity to production's exact paragraph/chapter/title nesting was checked
+> by code correspondence and by the consumed-raw-segment count matching exactly (60 = 60, an
+> assertion in the script itself), not by an independent second implementation. (d) Only the
+> direct/rich path was touched — folder/batch's already-near-minimal 2-generation overhead was not
+> re-examined and is not part of this experiment.
+>
+> **v0.6.5 PHASE 5's FIRST ITERATION IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, CANDIDATE B WAS
+> NOT INTEGRATED, AND NO OTHER VARIABLE WAS TOUCHED.** The maintainer's listening pass against A.mp3
+> and B.mp3 is the next action. Nothing here authorizes the i.e./e.g. segmentation experiment, the
+> pause-policy experiment, Chatterbox generation-parameter research, or Phase 6.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 4 COMPLETE WITH EVIDENCE: SOURCE-SPAN COVERAGE PROVEN ON FOUR PATHS; A REAL NLTK/PUNKT FALSE-SPLIT FOUND ON EDGE'S DIRECT PATH; MALE-1'S GAP IS NON-REPRODUCIBLE MODEL SAMPLING, NOT SEGMENTATION — NO FIX APPLIED, NO PARAMETER TUNED (2026-09-20, HOME-PC)
 >
 > **This block is the live state.** It supersedes nothing below it — Phase 3's evidence stands
