@@ -210,10 +210,12 @@ def module_source(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_registry_now_holds_fifteen_voices():
+def test_the_registry_now_holds_sixteen_voices():
     """Sixteen at Phase 10; v0.6.5 Phase 2 then removed the two multilingual
-    Edge rows entirely (fourteen), then approved Male 4 (fifteen)."""
-    assert len(vr.VOICES) == 15
+    Edge rows entirely (fourteen), then approved the original Male 3 candidate
+    and Male 4 (sixteen) — the maintainer's final ruling rejected only the
+    bounded pitch-retry variant of Male 3, not the voice itself."""
+    assert len(vr.VOICES) == 16
 
 
 def test_the_ten_existing_rows_keep_their_engine_values_and_order():
@@ -238,10 +240,11 @@ def test_the_ten_existing_rows_keep_their_engine_values_and_order():
 
 
 def test_the_four_approved_rows_are_appended_in_the_approved_order():
-    """The historical four (Phase 10), immediately followed by Male 4
+    """The historical four (Phase 10), immediately followed by Male 3 and Male 4
     (v0.6.5 Phase 2) — appended, not interleaved or reordered."""
     tail = vr.VOICES[10:]
     assert [(e.voice_id, e.display_label) for e in tail] == list(APPROVED) + [
+        ("chatterbox-male-3", "Chatterbox - Male 3"),
         ("chatterbox-male-4", "Chatterbox - Male 4")]
 
 
@@ -294,22 +297,23 @@ def test_the_default_voice_is_still_steffan():
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
 
 
-def test_the_dropdown_offers_the_ten_then_the_five():
+def test_the_dropdown_offers_the_ten_then_the_six():
     labels = vr.display_labels()
-    assert len(labels) == 15 == len(set(labels))
-    assert labels[10:] == [label for _voice_id, label in APPROVED] + ["Chatterbox - Male 4"]
+    assert len(labels) == 16 == len(set(labels))
+    assert labels[10:] == [label for _voice_id, label in APPROVED] + [
+        "Chatterbox - Male 3", "Chatterbox - Male 4"]
 
 
-def test_the_registry_source_declares_exactly_fifteen_rows():
+def test_the_registry_source_declares_exactly_sixteen_rows():
     """An AST count, so a commented-out or duplicated row cannot creep in."""
     tree = ast.parse(module_source(TTS_DIR / "voice_registry.py"))
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 15
+    assert len(rows) == 16
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
     assert backends[:10] == ["edge"] * 5 + ["kokoro"] * 5
-    assert backends[10:] == ["chatterbox"] * 5
+    assert backends[10:] == ["chatterbox"] * 6
 
 
 def test_the_registry_imports_no_engine_module():

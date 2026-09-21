@@ -143,9 +143,9 @@ EXPECTED_VOICES = [
 def test_the_ten_pre_existing_rows_are_still_the_first_ten():
     """Phase 10 appended; it did not insert, re-order or replace. Phase 2 of
     v0.6.5 removed two multilingual Edge rows (twelve became ten) and later
-    appended a fifth Chatterbox row (Male 4, approved), so the registry total
-    is fifteen even though these first ten are unaffected."""
-    assert len(voice_registry.VOICES) == 15
+    appended two more Chatterbox rows (Male 3 and Male 4, both approved), so
+    the registry total is sixteen even though these first ten are unaffected."""
+    assert len(voice_registry.VOICES) == 16
     assert len([v for v in voice_registry.VOICES[:10]
                 if v.backend in ("edge", "kokoro")]) == 10
 
@@ -178,11 +178,11 @@ def test_the_dropdown_still_opens_with_the_same_ten_labels_in_order():
     assert voice_registry.display_labels()[:10] == [v[2] for v in EXPECTED_VOICES]
 
 
-def test_exactly_five_chatterbox_rows_exist_and_all_sit_after_the_ten():
-    """Closed at four by drop §5.7, then five after Male 4's Phase 2 approval;
-    none of them displaced a row."""
+def test_exactly_six_chatterbox_rows_exist_and_all_sit_after_the_ten():
+    """Closed at four by drop §5.7, then six after Male 3 and Male 4's final
+    Phase 2 approval; none of them displaced a row."""
     chatterbox = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
-    assert len(chatterbox) == 5
+    assert len(chatterbox) == 6
     assert voice_registry.VOICES[10:] == chatterbox
 
 
@@ -198,11 +198,11 @@ def test_the_registry_source_declares_exactly_the_rows_it_should():
     tree = _tree(TTS_DIR / "voice_registry.py")
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 15
+    assert len(rows) == 16
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
     assert backends[:10] == ["edge"] * 5 + ["kokoro"] * 5
-    assert backends[10:] == ["chatterbox"] * 5
+    assert backends[10:] == ["chatterbox"] * 6
 
 
 # --------------------------------------------------------------------------- #

@@ -142,11 +142,12 @@ def _chatterbox_preset(
 #: dropdown separator only and never part of a voice's name.
 CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 
-# Fifteen rows: five Edge, five Kokoro, then five approved Chatterbox voices
-# (the original four plus Male 4, approved 2026-09-20). v0.6.5 Phase 2 also
-# removed the two multilingual Edge rows (en-US-AndrewMultilingualNeural,
-# en-US-AvaMultilingualNeural) per the plan's final voice inventory
-# (Section 3) — ordinary Andrew and Ava are unaffected.
+# Sixteen rows: five Edge, five Kokoro, then six approved Chatterbox voices
+# (the original four plus Male 3 and Male 4, both approved 2026-09-20).
+# v0.6.5 Phase 2 also removed the two multilingual Edge rows
+# (en-US-AndrewMultilingualNeural, en-US-AvaMultilingualNeural) per the
+# plan's final voice inventory (Section 3) — ordinary Andrew and Ava are
+# unaffected.
 # The remaining rows keep the order, voice ids and timing they had before, and
 # carry the display wording the maintainer specified in Phase 13A.3.
 VOICES: list[VoiceEntry] = [
@@ -260,10 +261,21 @@ VOICES: list[VoiceEntry] = [
         group_label=CHATTERBOX_GROUP_LABEL,
         timing_preset=_chatterbox_preset(),
     ),
-    # ---- v0.6.5 Phase 2: Male 4 approved by the maintainer's listening gate
-    # (plan Section 5) on 2026-09-20. Same shared, unmodified preset as the
-    # other four Chatterbox rows (no per-voice tuning, per §6/the Phase 9
-    # convention); display label per plan Section 3.
+    # ---- v0.6.5 Phase 2: Male 3 and Male 4 approved by the maintainer's
+    # final listening ruling on 2026-09-20. Male 3 is the ORIGINAL candidate
+    # sample — a separate bounded pitch-retry variant was tried and rejected;
+    # the maintainer preferred the voice exactly as it was before that retry,
+    # so no pitch/timbre adjustment of any kind reached this registration.
+    # Both take the same shared, unmodified preset as the other four
+    # Chatterbox rows (no per-voice tuning, per §6/the Phase 9 convention);
+    # display labels per plan Section 3.
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-male-3",
+        display_label="Chatterbox - Male 3",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
+    ),
     VoiceEntry(
         backend="chatterbox",
         voice_id="chatterbox-male-4",

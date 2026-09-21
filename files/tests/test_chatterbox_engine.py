@@ -229,12 +229,14 @@ def test_a_missing_package_breaks_neither_the_launcher_nor_the_other_engines():
 # --------------------------------------------------------------------------- #
 # D/E. Reference resolution — presence and hash
 # --------------------------------------------------------------------------- #
-def test_the_five_reference_voices_are_declared_and_closed():
-    """Four at Phase 10, plus Male 4 (v0.6.5 Phase 2, approved 2026-09-20 via
-    the separate candidate path — moved in verbatim, same hash)."""
+def test_the_six_reference_voices_are_declared_and_closed():
+    """Four at Phase 10, plus the original Male 3 candidate and Male 4
+    (v0.6.5 Phase 2, both approved 2026-09-20 — Male 3's separate bounded
+    pitch-retry variant was rejected and never reached this dict)."""
     assert sorted(cbx.REFERENCE_VOICES) == [
         "chatterbox-female-1", "chatterbox-female-2",
-        "chatterbox-male-1", "chatterbox-male-2", "chatterbox-male-4",
+        "chatterbox-male-1", "chatterbox-male-2",
+        "chatterbox-male-3", "chatterbox-male-4",
     ]
 
 
@@ -247,6 +249,8 @@ def test_the_five_reference_voices_are_declared_and_closed():
      "6258dde294a91b0c2e965e8579aafde10e9cff48957c2138432be4c6c80165ae"),
     ("chatterbox-male-2", "Male-2.mp3",
      "7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2"),
+    ("chatterbox-male-3", "Male-3.mp3",
+     "0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4"),
     ("chatterbox-male-4", "Male-4.mp3",
      "1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5"),
 ])

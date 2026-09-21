@@ -57,11 +57,12 @@ APPROVED_OUTPUT_NAMES = (
     "chatterbox-male-2.wav",
 )
 
-#: The historical four plus Male 4 (approved 2026-09-20 via the *separate*
-#: candidate path, test_chatterbox_candidates.py) — what ordinary sampling
-#: actually iterates now, since it reads the live registry, not
-#: CHATTERBOX_EVAL_VOICE_IDS. Registry order, not alphabetical.
-REGISTERED_CHATTERBOX_IDS = APPROVED_VOICE_IDS + ("chatterbox-male-4",)
+#: The historical four plus Male 3 and Male 4 (both approved 2026-09-20 via
+#: the *separate* candidate path, test_chatterbox_candidates.py — Male 3 is
+#: the original candidate sample, not the rejected pitch-retry variant) —
+#: what ordinary sampling actually iterates now, since it reads the live
+#: registry, not CHATTERBOX_EVAL_VOICE_IDS. Registry order, not alphabetical.
+REGISTERED_CHATTERBOX_IDS = APPROVED_VOICE_IDS + ("chatterbox-male-3", "chatterbox-male-4")
 
 
 # --------------------------------------------------------------------------- #
@@ -229,10 +230,10 @@ def test_the_ordinary_selection_still_covers_every_registered_voice():
 
     Phase 10 registered four more (twelve to sixteen); v0.6.5 Phase 2 then
     removed the two multilingual Edge rows (sixteen to fourteen) and later
-    approved Male 4 (fourteen to fifteen). ``_select`` itself is unchanged
-    and its contract is unchanged.
+    approved both Male 3 and Male 4 (fourteen to sixteen). ``_select`` itself
+    is unchanged and its contract is unchanged.
     """
-    assert len(gvs._select([])) == len(voice_registry.VOICES) == 15
+    assert len(gvs._select([])) == len(voice_registry.VOICES) == 16
 
 
 def test_the_ordinary_backend_filters_still_work():
@@ -637,7 +638,7 @@ def test_the_generator_names_no_write_target_inside_the_protected_folder():
 def test_every_historical_evaluation_id_is_still_registered():
     """Phase 9 registered nothing; Phase 10 registered exactly what it evaluated.
 
-    v0.6.5 Phase 2 began approving further candidates (Male 4) through a
+    v0.6.5 Phase 2 approved further candidates (Male 3 and Male 4) through a
     separate evaluation path (test_chatterbox_candidates.py) that never
     touches CHATTERBOX_EVAL_VOICE_IDS, so the registry may now legitimately
     hold more Chatterbox rows than the historical four-voice evaluation
@@ -645,8 +646,8 @@ def test_every_historical_evaluation_id_is_still_registered():
     """
     registered_ids = {v.voice_id for v in voice_registry.VOICES if v.backend == "chatterbox"}
     assert set(gvs.CHATTERBOX_EVAL_VOICE_IDS) <= registered_ids
-    assert len(registered_ids) == 5
-    assert len(voice_registry.VOICES) == 15
+    assert len(registered_ids) == 6
+    assert len(voice_registry.VOICES) == 16
 
 
 def test_running_the_evaluation_registers_nothing(engine):
@@ -686,9 +687,9 @@ def test_no_chatterbox_dispatch_reached_a_conversion_engine(filename):
         f"{filename} references Chatterbox — the engines stay untouched"
 
 
-def test_the_gui_voice_dropdown_offers_the_ten_plus_the_five_approved():
+def test_the_gui_voice_dropdown_offers_the_ten_plus_the_six_approved():
     labels = voice_registry.display_labels()
-    assert len(labels) == 15 == len(set(labels))
+    assert len(labels) == 16 == len(set(labels))
 
 
 def test_the_generator_is_the_only_production_file_phase_nine_widened():
@@ -834,13 +835,13 @@ def test_no_chatterbox_voice_is_ever_handed_to_edge_tts(sample_seams, monkeypatc
         assert voice_id not in sample_seams.voices("edge")
 
 
-def test_an_ordinary_run_covers_all_fifteen_rows_split_by_backend(sample_seams,
+def test_an_ordinary_run_covers_all_sixteen_rows_split_by_backend(sample_seams,
                                                                  monkeypatch):
     _main(monkeypatch)
-    assert len(sample_seams.calls) == 15
+    assert len(sample_seams.calls) == 16
     assert len(sample_seams.voices("edge")) == 5
     assert len(sample_seams.voices("kokoro")) == 5
-    assert len(sample_seams.voices("chatterbox")) == 5
+    assert len(sample_seams.voices("chatterbox")) == 6
 
 
 def test_no_backend_reaches_another_backends_synthesis_seam(sample_seams, monkeypatch):
@@ -901,7 +902,7 @@ def test_ordinary_mode_never_calls_the_phase_nine_evaluation(sample_seams, monke
                         lambda *a, **k: called.append("ran") or [])
     _main(monkeypatch)
     assert called == []
-    assert len(sample_seams.calls) == 15
+    assert len(sample_seams.calls) == 16
 
 
 def test_the_evaluation_flag_never_enters_ordinary_dispatch(sample_seams, monkeypatch):
@@ -921,7 +922,7 @@ def test_a_failing_chatterbox_sample_does_not_stop_the_remaining_voices(sample_s
     code = _main(monkeypatch, "chatterbox")
     assert sample_seams.voices("chatterbox") == [
         "chatterbox-female-1", "chatterbox-male-1", "chatterbox-male-2",
-        "chatterbox-male-4"]
+        "chatterbox-male-3", "chatterbox-male-4"]
     out = capsys.readouterr().out
     assert "FAIL Chatterbox - Female 2" in out
     assert "1 failed" in out
@@ -932,7 +933,7 @@ def test_a_fully_successful_ordinary_run_reports_success(sample_seams, monkeypat
                                                          capsys):
     code = _main(monkeypatch)
     assert code == 0
-    assert "15 ok, 0 failed" in capsys.readouterr().out
+    assert "16 ok, 0 failed" in capsys.readouterr().out
 
 
 def test_edge_and_kokoro_sample_naming_is_unchanged(sample_seams, monkeypatch,

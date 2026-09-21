@@ -2,6 +2,59 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 IS FULLY COMPLETE: MALE-3 (ORIGINAL) AND MALE-4 BOTH APPROVED, THE REJECTED PITCH-RETRY VARIANT REMOVED — 16-VOICE REGISTRY CLOSED (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — the maintainer's final Male-3 listening verdict has now been acted on — and closes Phase 2
+> mechanically and by ruling. Every fact in the block below about the rejected retry mechanism
+> (its ffmpeg technique, the caught duration-math bug, its file locations) stands as dated history of
+> an approach that was tried and is no longer part of the codebase; nothing there describes current
+> behavior any more.
+>
+> **Maintainer's final ruling (2026-09-20):** **Male-4 — approved, unchanged.** **Male-3 original
+> candidate — approved.** **Male-3 pitch-retry variant — rejected**: "I prefer the original voice
+> exactly as it was before the retry."
+>
+> **1. Original Male-3 is now the registered production voice, with no pitch/timbre adjustment of
+> any kind.** `chatterbox_synth.REFERENCE_VOICES["chatterbox-male-3"]` binds to `Male-3.mp3` by its
+> already-recorded hash (never recomputed — the source file was never touched by the retry or by
+> this closeout), and `voice_registry.VOICES` carries `chatterbox-male-3` / "Chatterbox - Male 3"
+> immediately before `chatterbox-male-4`, using the exact shared, unmodified `_chatterbox_preset()`
+> every other Chatterbox row uses — no per-voice tuning. `CANDIDATE_REFERENCE_VOICES` is now `{}`
+> (both candidates resolved) but left in place, empty, as reusable infrastructure for a future
+> candidate — it is not retry-specific and was not removed.
+>
+> **2. Final registry: 16 voices — 5 Edge, 5 Kokoro, 6 Chatterbox**
+> (`chatterbox-female-1`, `chatterbox-female-2`, `chatterbox-male-1`, `chatterbox-male-2`,
+> `chatterbox-male-3`, `chatterbox-male-4`), both multilingual Edge voices still absent. Twelve
+> tracked test files' count/index expectations were retargeted from 15/5 to 16/6 (never weakened) —
+> `test_chatterbox_boundaries.py`, `test_chatterbox_candidates.py`, `test_chatterbox_engine.py`,
+> `test_chatterbox_evaluation.py`, `test_chatterbox_integration.py`, `test_epub_retirement.py`,
+> `test_fatal_diagnostics.py`, `test_mp3_finalization.py`, `test_tts_importing.py`,
+> `test_tts_jobs.py`, `test_tts_smoke.py`, `test_voice_labels.py`.
+>
+> **3. The rejected pitch-retry machinery is removed entirely, not just unused.** From
+> `generate_voice_samples.py`: `MALE3_RETRY_PITCH_RATIO`, `MALE3_RETRY_SUBDIR`,
+> `_pitch_shift_preserve_tempo()`, `render_male3_pitch_retry()`, and the
+> `--chatterbox-male3-pitch-retry` CLI flag and its dispatch branch — all deleted, not deprecated.
+> `test_chatterbox_candidates.py` gained explicit regression tests asserting each of those symbols
+> and that CLI flag no longer exist, so the rejected path cannot silently return.
+> `CHATTERBOX_CANDIDATE_VOICE_IDS` is now `()`. No other voice's generation parameters, pacing,
+> segmentation, or conditioning were touched.
+>
+> **4. Source-hash integrity, re-verified immediately before this closeout commit:** Male-3.mp3 →
+> `0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4`; Male-4.mp3 →
+> `1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5` — both byte-for-byte identical
+> to every prior checkpoint. `git status` confirms no change under
+> `files/Chatterbox-Voice-Uploads/`.
+>
+> **5. Verification: full suite 7428 passed, 57 skipped, 0 failed**, 1 warning (pre-existing pydub
+> deprecation), in 9:53; `compileall` clean over `scripts/Universal/tts` and `files/tests`.
+> `Briefing.md`'s feature line updated to 16 voices / 6 Chatterbox.
+>
+> **v0.6.5 PHASE 2 IS FULLY COMPLETE. NOTHING HERE AUTHORIZES STARTING PHASE 3** — that requires a
+> separate, explicit authorization per the plan's phase-gate discipline.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 §14 REMEDIATION COMPLETE: MALE-4 REGISTERED, MALE-3 BOUNDED PITCH RETRY RENDERED — AWAITING THE SAME MALE-3 MANUAL LISTENING GATE (2026-09-20, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one

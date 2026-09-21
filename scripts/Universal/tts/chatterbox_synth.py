@@ -523,10 +523,10 @@ class ReferenceVoice:
     source_sha256: str
 
 
-# The closed set of five (drop §5.7 plus v0.6.5 Phase 2's approved Male 4).
-# These are engine-internal identifiers: they are deliberately NOT VoiceEntry
-# rows on their own, so nothing reaches the GUI dropdown until a phase
-# registers them.
+# The closed set of six (drop §5.7 plus v0.6.5 Phase 2's approved Male 3 and
+# Male 4). These are engine-internal identifiers: they are deliberately NOT
+# VoiceEntry rows on their own, so nothing reaches the GUI dropdown until a
+# phase registers them.
 REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     "chatterbox-female-1": ReferenceVoice(
         voice_id="chatterbox-female-1",
@@ -552,6 +552,19 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
         source_name="Male-2.mp3",
         source_sha256="7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2",
     ),
+    # v0.6.5 Phase 2: approved by the maintainer's final listening ruling on
+    # 2026-09-20 — the ORIGINAL candidate sample (a separate bounded
+    # pitch-retry variant was rejected; the maintainer preferred the voice
+    # exactly as it was before that retry). Moved here from
+    # CANDIDATE_REFERENCE_VOICES verbatim (same source_name, same hash, same
+    # label wording minus "(candidate)"). No hash was recomputed for this
+    # move; the source file was never touched.
+    "chatterbox-male-3": ReferenceVoice(
+        voice_id="chatterbox-male-3",
+        label="Chatterbox — Male 3",
+        source_name="Male-3.mp3",
+        source_sha256="0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4",
+    ),
     # v0.6.5 Phase 2: approved by the maintainer's listening gate (Section 5)
     # on 2026-09-20 — moved here from CANDIDATE_REFERENCE_VOICES verbatim
     # (same source_name, same hash, same label wording minus "(candidate)").
@@ -568,20 +581,12 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
 # 4/5) — evaluated on the separate candidate-evaluation path below, NOT
 # registered as VoiceEntry rows. A `YES` moves a voice_id from here into
 # REFERENCE_VOICES and voice_registry.VOICES; a `NO` leaves it here,
-# unregistered, permanently. Hashes computed and cross-verified (certutil +
-# Python hashlib) on HOME-PC on 2026-09-20 against the files the maintainer
-# placed at files/Chatterbox-Voice-Uploads/; this dict is what binds this
-# file's identity going forward, exactly as REFERENCE_VOICES does for its own
-# five sources. Male-4's candidate entry was removed from here when it was
-# approved and moved above.
-CANDIDATE_REFERENCE_VOICES: dict[str, ReferenceVoice] = {
-    "chatterbox-male-3": ReferenceVoice(
-        voice_id="chatterbox-male-3",
-        label="Chatterbox — Male 3 (candidate)",
-        source_name="Male-3.mp3",
-        source_sha256="0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4",
-    ),
-}
+# unregistered, permanently. Currently empty: both Male 3 and Male 4 were
+# resolved (both approved, 2026-09-20) and moved into REFERENCE_VOICES above.
+# The dict — and the separate dev-only candidate-evaluation path that reads
+# it — remain in place for whatever future candidate a later phase
+# introduces; this is reusable infrastructure, not retry-specific machinery.
+CANDIDATE_REFERENCE_VOICES: dict[str, ReferenceVoice] = {}
 
 
 # --------------------------------------------------------------------------- #

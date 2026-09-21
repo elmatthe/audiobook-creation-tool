@@ -542,9 +542,10 @@ def test_the_settled_chatterbox_values_are_untouched():
     assert cbx.GENERATION_TEMPERATURE == 0.72
     assert cbx.PHASE9_EVALUATION_TEMPERATURE == 0.8
     assert cbx.COLON_PAUSE_MS == 75
-    # Four at Phase 10; v0.6.5 Phase 2 approved Male 4 through the separate
-    # candidate path (test_chatterbox_candidates.py), moving it in as a fifth.
-    assert len(cbx.REFERENCE_VOICES) == 5
+    # Four at Phase 10; v0.6.5 Phase 2 approved the original Male 3 candidate
+    # and Male 4 (Male 3's bounded pitch-retry variant was rejected and
+    # removed), bringing the production reference set to six.
+    assert len(cbx.REFERENCE_VOICES) == 6
 
 
 def test_the_version_and_tool_count_are_unchanged():

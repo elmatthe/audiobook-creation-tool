@@ -4,6 +4,56 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-20 — v0.6.5 Phase 2 closeout: original Male-3 candidate approved and registered; the
+bounded pitch-retry variant rejected and its machinery removed entirely
+
+**Decision (v0.6.5 Phase 2, final maintainer ruling).** After hearing both the original Male-3
+candidate sample and the §14 bounded pitch-retry variant, the maintainer's ruling: **Male-4 —
+approved, unchanged.** **Male-3 original candidate — approved.** **Male-3 pitch-retry variant —
+rejected:** "I prefer the original voice exactly as it was before the retry." This supersedes the
+2026-09-20 entry below on Male-3's disposition only; that entry's account of what the retry was and
+how it was built stands as an accurate historical record of a rejected approach, not of anything
+still in the codebase.
+
+**1. Original Male-3 is registered exactly as its untouched candidate sample, with no pitch or
+timbre adjustment reaching production.** `chatterbox_synth.REFERENCE_VOICES["chatterbox-male-3"]`
+binds to the already-recorded `Male-3.mp3` hash (never recomputed — the source file was never
+written to at any point in Phase 2, including during the retry), and `voice_registry.VOICES` gains
+`chatterbox-male-3` / "Chatterbox - Male 3" immediately before `chatterbox-male-4`, using the same
+shared, unmodified `_chatterbox_preset()` as every other Chatterbox row. `REFERENCE_VOICES` grows
+from five to six; the registry total moves from 15 to 16 rows. `CANDIDATE_REFERENCE_VOICES` is now
+`{}` — both candidates resolved — but is kept in place as reusable infrastructure for whatever
+future candidate a later phase introduces; it is explicitly not retry-specific and was not removed.
+
+**2. The rejected retry's machinery is deleted outright, not deprecated.** Because the maintainer's
+own words ("no longer represents supported behavior") ruled out keeping it as dead code behind a
+flag, `generate_voice_samples.py` loses `MALE3_RETRY_PITCH_RATIO`, `MALE3_RETRY_SUBDIR`,
+`_pitch_shift_preserve_tempo()`, `render_male3_pitch_retry()`, and the
+`--chatterbox-male3-pitch-retry` CLI flag with its dispatch branch. `CHATTERBOX_CANDIDATE_VOICE_IDS`
+is now `()`. New regression tests in `test_chatterbox_candidates.py` assert each of those symbols
+and that CLI flag are gone, so the rejected path cannot silently reappear. The reusable
+candidate-evaluation path itself (`run_chatterbox_candidate_evaluation`, the `--chatterbox-candidates`
+flag, the candidate text/subdir helpers) is untouched — it is generic infrastructure, not the
+rejected mechanism.
+
+**3. No other voice or generation behavior was touched.** Chatterbox generation parameters, pacing,
+segmentation, and conditioning logic for every other voice are unchanged; only the registration
+state of Male-3 moved from candidate-only to production.
+
+**Consequences:** Twelve tracked test files' Chatterbox-count/voice-count assumptions moved from
+15/5 to 16/6 (retargeted, never weakened): `test_chatterbox_boundaries.py`,
+`test_chatterbox_candidates.py`, `test_chatterbox_engine.py`, `test_chatterbox_evaluation.py`,
+`test_chatterbox_integration.py`, `test_epub_retirement.py`, `test_fatal_diagnostics.py`,
+`test_mp3_finalization.py`, `test_tts_importing.py`, `test_tts_jobs.py`, `test_tts_smoke.py`,
+`test_voice_labels.py`. Full suite: 7428 passed, 57 skipped, 0 failed, in 9:53; `compileall` clean.
+Both `Male-3.mp3` and `Male-4.mp3` re-verified byte-for-byte unchanged against their registered
+hashes immediately before this closeout. Phase 2 is fully complete; Phase 3 requires its own
+separate authorization.
+
+— Decided by maintainer (Elijah Matthew); implemented by Claude Code, 2026-09-20
+
+---
+
 ## 2026-09-20 — v0.6.5 Phase 2 §14 remediation: Male-4 approved and registered; Male-3 rejected for
 a single bounded pitch-only retry on a scratch reference-conditioning clip
 
