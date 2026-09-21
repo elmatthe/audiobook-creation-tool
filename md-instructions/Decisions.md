@@ -4,6 +4,89 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-20 — v0.6.5 Phase 4 findings: a real NLTK/Punkt false-split on Edge's direct path;
+Male-1's gap and slow cadence are model-native, not segmentation
+
+**Finding, not a fix (Phase 4 is investigation-only per plan §15; no production file changed, no
+generation parameter tuned).** Proved source-span coverage across all four segmentation paths and
+traced every demonstrated Phase 1/3 Chatterbox defect to its cause, per the plan's explicit
+investigation order (segmentation/context first, generation-parameter tuning only later and only if
+authorized).
+
+**1. Source-span coverage proven for all four current paths, two of which had no runtime guard
+before this phase.** New `files/tests/test_segmentation_source_span.py` (37 tests) proves, against
+the real QA corpus, that `chatterbox_synth.split_for_chatterbox`, `batch_convert.split_into_chunks`,
+`kokoro_synth.split_into_chunks`, and the Edge direct/rich path's own NLTK `sent_tokenize` +
+`intra_sentence_chunks` composition all preserve every non-whitespace character, in order.
+Chatterbox already enforced this in production (`ChunkPlanError`); the other three did not.
+
+**2. One real, demonstrated segmentation defect was found, specific to Edge's direct/rich path.**
+That path inserts an audible 800 ms `sentencepause` after every NLTK `sent_tokenize` boundary, and
+Punkt incorrectly treats "i.e." and "e.g." as sentence-ending abbreviations on the plan's
+`DIFFICULT_SHORT` false-boundary corpus — splitting one continuous sentence into three, each
+boundary earning an unwanted mid-sentence pause. "vs." and every title abbreviation (Dr./Mr./Mrs./
+Prof.) are handled correctly by the same tokenizer on the same text, so this is a specific, narrow
+gap, not a general failure. Chatterbox's final packed chunks never split any of the 13 false-boundary
+markers (over-splitting at the sentence level is harmless there — packing rejoins consecutive units
+with a plain space and no pause, absent a coincidence with the 300-char ceiling); Edge folder/batch
+and Kokoro never split this corpus item at all (under both ceilings). The defect is therefore
+Edge-direct-path-specific: the other three paths never pause per NLTK sentence.
+
+**3. A bounded pysbd evaluation was performed and is not adopted.** The i.e./e.g. finding meets the
+plan's bar for comparing NLTK/Punkt against pysbd. pysbd was installed only into an isolated
+`pip install --target` scratch directory under `files/dev-work/` — never added to
+`requirements.txt`, never imported by production code or by the tracked test suite — and run against
+the identical corpus: zero false splits at "i.e."/"e.g." and no regression on any of the other 12
+markers, with content-preservation intact. This is real, evidence-backed grounds for Phase 5's
+decision gate (adopt pysbd, patch an abbreviation exception list, or accept the gap as-is); no
+dependency was added and no code path was changed.
+
+**4. Times, a ratio, and the HTTPS URL reach every engine's model input as one intact, unsplit
+string.** "6:45", "7:15", "3:1", and `https://example.com/lighthouse-log` survive whole in all four
+paths — the prose-colon rule correctly excludes them because none has whitespace immediately after
+its colon. Since the text is byte-identical across voices, any cross-voice reading inconsistency for
+these strings is necessarily model-native sampling behavior, not a segmentation or context-loss
+defect. No dictionary replacement, per-word hack, or source-text rewrite was made or considered.
+
+**5. Chatterbox Male-1's ~11.8 s gap (Phase 3: localized to generation output) does not reproduce on
+identical input, confirming model-native sampling rather than a structural/chunk defect.** Real
+production `chatterbox_file_to_mp3` was re-run against the exact `LONGER_STRESS` text for
+`chatterbox-male-1`, instrumented to scan each chunk's own raw PCM for internal quiet spans before
+MP3 encoding. Result: 51 chunks, zero raw newlines survived into any `generate()` call (the v0.6.1
+Phase 12 fix still holds), and zero chunks produced an internal quiet span ≥3 s anywhere — the exact
+class of anomaly Phase 3 found. This run's own reconstructed timeline places chunk 10 of 51 at
+130.540 s–151.895 s, almost exactly bracketing Phase 3's original 140.520 s–152.300 s gap — strong
+circumstantial localization to that chunk's text (clean prose, one ordinary mid-sentence colon, no
+newline/ellipsis/dialogue quote), which rendered normally this time. The same clean text and the
+same deterministic chunk boundaries produced the anomaly once and not the next time: this rules out a
+chunk-boundary or segmentation cause and is consistent with rare, non-deterministic model-sampling
+behavior, unlike the historical Chapter 1144 newline defect, which was 100% text-reproducible.
+
+**6. Male-1's slower cadence is cleared of a segmentation cause by the same logic.**
+`split_for_chatterbox` takes no voice parameter, so chunk boundaries, chunk count, and total
+inserted pause time are identical across Chatterbox voices for the same text. Yet the Phase 1
+manifest shows Male-1 consistently renders ~13–15% more total duration than Female-1 for the exact
+same text across three different-length samples (76.00 vs 67.12 s; 335.86 vs 294.77 s; 730.40 vs
+637.80 s) — a consistency across text lengths far exceeding what the one isolated 11.8 s anomaly
+could explain, pointing to a genuinely slower per-word speech rate as an inherent characteristic of
+that voice's reference conditioning: model-native, not segmentation-driven.
+
+**Consequences:** No `chatterbox_synth.py`, `batch_convert.py`, `kokoro_synth.py`, or
+`epub2tts_edge.py` line changed; no generation parameter tuned. `files/tests/test_segmentation_source_
+span.py` added (37 tests, all passing) — content preservation (20), false-boundary marker survival
+in Chatterbox and Edge folder/batch (14), and one test documenting (not asserting as correct) the
+NLTK i.e./e.g. false split, in the same spirit as the existing Ascended/Tamar guards (P9): expected to
+need updating if a future phase fixes it. Phase 5 inherits three real decisions: whether to address
+the NLTK false split (pysbd is now an evidenced, non-adopted candidate); how to treat Male-1's slower
+cadence and rare silence anomaly (both model-native — mitigation, if any, is generation-parameter
+research, or accept as inherent voice character); and that no segmentation remedy exists for the
+times/URL pronunciation variance, so P9's no-hack rule leaves it either accepted or unaddressed.
+
+— Investigated by Claude Code per the maintainer's Phase 4 authorization; no maintainer ruling
+required (investigation-only, no subjective judgment made), 2026-09-20
+
+---
+
 ## 2026-09-20 — v0.6.5 Phase 3 findings: Edge's direct/rich path has a demonstrable avoidable-re-encode
 defect; Chatterbox Male-1's ~11.8s gap is generation output, not assembly
 
