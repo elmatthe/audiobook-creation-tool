@@ -271,6 +271,99 @@ def split_at_prose_colon(text: str) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# Structural-colon normalization patch
+#
+# v0.6.5 Phase 5 (iteration 5) proved the pinned chatterbox-tts==0.1.7 wheel's
+# own chatterbox.tts_turbo.punc_norm() -- called unconditionally, immediately
+# before tokenization, inside ChatterboxTurboTTS.generate() -- performs a
+# blanket text.replace(":", ",") with no context awareness at all, before this
+# module's code ever sees the text. That corrupts every structured colon this
+# module hands it: "6:45" becomes "6,45", "3:1" becomes "3,1", and
+# "https://example.com" becomes "https,//example.com" (destroying the URL
+# scheme separator entirely, proven at the tokenizer level). An ordinary prose
+# colon becoming a comma is correct and unaffected by this fix; only the
+# structured cases were wrong. See md-instructions/Decisions.md, 2026-09-21
+# entries, for the full instrumentation/candidate-evaluation record.
+#
+# This is a different symptom from the prose-colon PAUSE recovery above:
+# _PROSE_COLON/COLON_PAUSE_MS restore the lost pause *duration* after an
+# ordinary prose colon; this patch restores pronunciation *correctness* for
+# structured colons, which _PROSE_COLON never touches (no whitespace follows
+# them, so they always reached generate() and the wheel's own blanket replace
+# unprotected).
+#
+# There is no supported extension point to configure the pinned wheel's own
+# normalization, so the narrowest maintainable seam is to monkeypatch
+# chatterbox.tts_turbo's module-level punc_norm at model-load time -- the
+# installed wheel is never edited on disk, and the patch is applied exactly
+# once per process (idempotent) the first time a real model is instantiated.
+# --------------------------------------------------------------------------- #
+
+#: A colon immediately followed by a non-whitespace character (any digit:digit
+#: form, any "://" URL scheme, or any other structural use) is structural, not
+#: prose, and must survive normalization untouched.
+_STRUCTURAL_COLON = re.compile(r":(?!\S)")
+
+
+def _structural_colon_punc_norm(text: str) -> str:
+    """The pinned wheel's own ``punc_norm``, byte-for-byte, except the colon
+    step: a colon becomes a comma only when it is a prose colon (followed by
+    whitespace or end-of-string -- the same rule :data:`_PROSE_COLON` already
+    applies above); a structural colon is left untouched.
+
+    Verified in the Phase 5 iteration 5 A/B (evidence at
+    ``files/dev-work/v0.6.5-phase5-chatterbox-colon-ab/``, gitignored) to
+    differ from the real wheel's output only at structural-colon character
+    positions, and to be byte-identical to it for text with no colon at all.
+    A companion test guards that parity against a future wheel version bump.
+    """
+    if len(text) == 0:
+        return "You need to add some text for me to talk."
+    if text[0].islower():
+        text = text[0].upper() + text[1:]
+    text = " ".join(text.split())
+    text = _STRUCTURAL_COLON.sub(",", text)
+    punc_to_replace = [
+        ("…", ", "),
+        ("—", "-"),
+        ("–", "-"),
+        (" ,", ","),
+        ("“", "\""),
+        ("”", "\""),
+        ("‘", "'"),
+        ("’", "'"),
+    ]
+    for old_char_sequence, new_char in punc_to_replace:
+        text = text.replace(old_char_sequence, new_char)
+    text = text.rstrip(" ")
+    sentence_enders = {".", "!", "?", "-", ","}
+    if not any(text.endswith(p) for p in sentence_enders):
+        text += "."
+    return text
+
+
+_colon_patch_applied = False
+
+
+def _ensure_structural_colon_patch(tts_turbo_module) -> None:
+    """Replace ``tts_turbo_module.punc_norm`` with the structural-colon
+    candidate, exactly once per process.
+
+    Idempotent: a second call (e.g. a later ``_get_model`` for a different
+    device) does not re-patch or stack. Never edits the installed wheel on
+    disk -- only the module attribute this process holds is reassigned, and
+    ``ChatterboxTurboTTS.generate()`` looks up ``punc_norm`` by name from this
+    same module at call time, so every subsequent ``generate()`` call in this
+    process picks up the replacement.
+    """
+    global _colon_patch_applied
+    if _colon_patch_applied:
+        return
+    tts_turbo_module.punc_norm = _structural_colon_punc_norm
+    _colon_patch_applied = True
+
+
+# --------------------------------------------------------------------------- #
 # Text boundaries
 #
 # Added by the v0.6.1 Plan 4 Phase 12 uncontrolled-silence remediation.
@@ -991,8 +1084,10 @@ def _instantiate_model(device: str):
     ChatterboxTTS / ChatterboxVC / ChatterboxMultilingualTTS, so importing the
     Turbo class from the root would raise ImportError.
     """
+    import chatterbox.tts_turbo as tts_turbo
     from chatterbox.tts_turbo import ChatterboxTurboTTS
 
+    _ensure_structural_colon_patch(tts_turbo)
     return ChatterboxTurboTTS.from_pretrained(device)
 
 

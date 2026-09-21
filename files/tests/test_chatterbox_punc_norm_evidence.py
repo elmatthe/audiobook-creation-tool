@@ -31,7 +31,16 @@ here. A v0.6.5 Phase 5 A/B experiment (evidence at
 structural, non-word-specific candidate — a colon is a comma only when
 followed by whitespace or end-of-string, otherwise left untouched — removes
 this corruption for every digit:digit and ``://`` case tested, with zero
-change to ordinary prose colons, and is not yet adopted into production.
+change to ordinary prose colons.
+
+**As of v0.6.5 Phase 6, that candidate is integrated** as
+``chatterbox_synth._structural_colon_punc_norm``, applied by monkeypatching
+this exact module's ``punc_norm`` at model-load time (see
+``chatterbox_synth._ensure_structural_colon_patch`` and
+``test_chatterbox_colon_integration.py``). This file intentionally keeps
+testing the pinned wheel's *own*, unpatched ``punc_norm`` directly (imported
+here before any patch is ever applied) — it documents what the raw upstream
+dependency does on its own, which remains true and unchanged by the patch.
 
 If a future ``chatterbox-tts`` release changes this behavior, these tests
 are expected to need updating — that would mean the upstream defect is

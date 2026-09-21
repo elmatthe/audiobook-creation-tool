@@ -22,12 +22,18 @@ path's own pipeline (NLTK ``sent_tokenize`` + ``intra_sentence_chunks``),
 which is not a single function but the composition ``read_book`` actually
 calls.
 
-The NLTK/Punkt false-split section documents a **found, not fixed** defect,
-in the same spirit as the existing Ascended/Tamar Chatterbox pronunciation
-guards (P9): it is evidence for a later phase's decision, not a correctness
-assertion. If a future phase changes the sentence-boundary rule (Phase 5+,
-after a maintainer decision), this section is expected to need updating —
-that is a sign the fix landed, not a broken test.
+The NLTK/Punkt false-split section originally documented a **found, not
+fixed** defect in the same spirit as the existing Ascended/Tamar Chatterbox
+pronunciation guards (P9): evidence for a later phase's decision, not a
+correctness assertion. **As of v0.6.5 Phase 6, the fix landed**: production's
+``epub2tts_edge.sent_tokenize`` extends the stock tokenizer's own
+``abbrev_types`` set with "i.e"/"e.g" (approved by the maintainer's Phase 5
+iteration 2/4 verdict) and no longer false-splits at this boundary. The
+section below is kept as a **stock-NLTK regression baseline** — it exercises
+``nltk.tokenize.sent_tokenize`` directly, not production's own tokenizer, and
+documents the behavior that motivated the fix. See
+``test_edge_direct_pcm_assembly.py`` for tests against the integrated
+production tokenizer.
 """
 
 from __future__ import annotations
@@ -60,13 +66,21 @@ def squeeze(text: str) -> str:
 
 
 def edge_direct_units(text: str) -> list[str]:
-    """Exactly what the Edge direct/rich path hands to synthesis, per sentence.
+    """A content-preservation baseline for the Edge direct/rich path's
+    two-stage pipeline: sentence splitting, then ``intra_sentence_chunks``
+    per sentence for the comma/ellipsis/dash intra-sentence sub-splits.
 
-    Mirrors ``read_book``'s own composition: NLTK ``sent_tokenize`` on one
-    paragraph/line, then ``intra_sentence_chunks`` per sentence for the
-    comma/ellipsis/dash intra-sentence sub-splits. Every corpus item here is
-    a single physical line (no embedded ``\\n``), matching how ``get_book``
-    would hand each of them to ``read_book`` as one paragraph.
+    Uses NLTK's stock ``sent_tokenize`` rather than ``read_book``'s own
+    sentence tokenizer (as of v0.6.5 Phase 6, ``epub2tts_edge.sent_tokenize``
+    -- the same Punkt model extended with "i.e"/"e.g" in its
+    ``abbrev_types`` set; see ``test_edge_direct_pcm_assembly.py`` for the
+    integrated production behavior). Content preservation (section A below)
+    holds under either tokenizer, since resegmenting sentences never drops or
+    duplicates characters -- this baseline is retained rather than switched,
+    so this file's proof does not depend on the production tokenizer's
+    current abbreviation set. Every corpus item here is a single physical
+    line (no embedded ``\\n``), matching how ``get_book`` would hand each of
+    them to ``read_book`` as one paragraph.
     """
     units: list[str] = []
     for sentence in sent_tokenize(text):
@@ -186,24 +200,28 @@ def test_edge_folder_batch_never_splits_at_a_false_boundary_marker():
 
 
 def test_nltk_sent_tokenize_currently_splits_mid_sentence_at_ie_and_eg():
-    """**Documents a found defect; this is not correctness.**
+    """**Documents NLTK's own stock behavior; no longer what production uses.**
 
-    The Edge direct/rich path (``read_book``) inserts an audible
-    ``sentencepause`` (800 ms default) after every NLTK ``sent_tokenize``
-    boundary. On ``DIFFICULT_SHORT``, Punkt incorrectly treats "i.e." and
-    "e.g." as sentence-ending abbreviations, splitting what is written as one
-    continuous sentence into three NLTK "sentences" — each boundary earning
-    an unwanted 800 ms pause mid-sentence on the direct/rich path only
-    (Chatterbox/Edge-batch/Kokoro never see this, because none of them pause
-    per NLTK sentence). "vs." and every title abbreviation (Dr./Mr./Mrs./
-    Prof.) are handled correctly and do NOT split. A bounded pysbd evaluation
-    (v0.6.5 Phase 4, not adopted — no new dependency was added to this
-    repository) reproduced the same corpus with zero false splits at "i.e."/
-    "e.g." and no regression on any other marker; that comparison is Phase
-    5's decision to act on, not this test's.
+    This asserts ``nltk.tokenize.sent_tokenize`` (the stock, unextended Punkt
+    model) incorrectly treats "i.e." and "e.g." as sentence-ending
+    abbreviations, splitting what is written as one continuous sentence into
+    three NLTK "sentences". It originally documented a live defect: before
+    v0.6.5 Phase 6, the Edge direct/rich path (``read_book``) called this
+    exact stock function, so each false boundary earned an unwanted 800 ms
+    ``sentencepause`` mid-sentence.
 
-    If a future phase fixes this, this exact assertion is expected to start
-    failing — update it then, rather than treating it as a regression.
+    **As of Phase 6, production no longer calls this stock function.**
+    ``epub2tts_edge.sent_tokenize`` wraps the same Punkt model with "i.e"/
+    "e.g" added to its ``abbrev_types`` set (approved by the maintainer's
+    Phase 5 iteration 2/4 listening verdict) and no longer false-splits here
+    -- see ``test_edge_direct_pcm_assembly.py`` for that integrated
+    production behavior. This test is kept as a stock-NLTK regression
+    baseline: it is what motivated the fix, not a description of current
+    production behavior, and it is expected to keep passing regardless of
+    this project's own tokenizer, since it exercises NLTK's unextended
+    default. "vs." and every title abbreviation (Dr./Mr./Mrs./Prof.) are
+    handled correctly and do NOT split, on both the stock and the extended
+    tokenizer.
     """
     sentences = sent_tokenize(qc.DIFFICULT_SHORT.text)
     joined = " ".join(sentences)

@@ -4,6 +4,79 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 — v0.6.5 Phase 6: approved Phase 5 audio changes integrated into
+production (Edge PCM assembly + i.e./e.g. fix; Chatterbox structural-colon normalization)
+
+**Decision/integration (not a new listening judgment — implements verdicts already
+recorded below, in this same file).** Per the maintainer's authorization to close Phase 5
+and execute only the Phase 6 AUDIO-INTEGRATION subtask, the following previously-approved-
+but-unintegrated candidates are now live in production:
+
+1. **Edge direct/rich PCM-domain assembly** (approved iteration 1/4, below):
+`epub2tts_edge.read_book`'s per-sentence/per-sub-chunk trim/intra-pause/sentence-pause work
+now stays in memory as pydub `AudioSegment` objects, from the raw Edge network bytes through
+to each paragraph's own FLAC export, removing the 3-5 avoidable intermediate lossy MP3
+re-encodes per multi-sub sentence that existed before. Paragraph/chapter FLAC and the final
+single lossy encode (`make_mp3`/`make_m4b`) are unchanged.
+2. **NLTK/Punkt `abbrev_types` extension** (approved iteration 2/4, below):
+`epub2tts_edge.sent_tokenize` now wraps a deep-copied Punkt tokenizer with "i.e"/"e.g" added
+to its `abbrev_types` set, fixing the false sentence-boundary split with zero regression on
+any other false-boundary marker. NLTK's own shared cached tokenizer is never mutated (a
+deep copy is extended instead).
+3. **Chatterbox structural-colon normalization** (approved iteration 5, below):
+`chatterbox_synth._structural_colon_punc_norm` replaces the pinned wheel's own blanket
+colon-to-comma replacement, preserving structured colons (times, ratios, `://` URL schemes)
+while retaining today's prose-colon-to-comma behavior. Applied by monkeypatching
+`chatterbox.tts_turbo.punc_norm` at model-load time (`_ensure_structural_colon_patch`,
+called from `_instantiate_model`) -- the installed wheel is never edited on disk, and the
+patch is idempotent (applied once per process).
+4. **Terminal pause-supersede candidate remains rejected** (iteration 3 verdict, below) --
+current pause constants/stacking are completely untouched by this integration.
+5. **Chatterbox HTTPS URL pronunciation remains model-native/deferred** (iteration 6
+finding, below) -- no dictionary/word hack was added; this residual issue is unchanged.
+6. **Current Chatterbox generation settings (`generation_params()`) are unchanged. Kokoro
+is unchanged.**
+
+**Direct-vs-folder audio-quality semantics unified.** Before this integration, the Edge
+direct/rich path performed multiple avoidable lossy MP3 re-encodes per multi-sub sentence
+while the Edge folder/batch path (`batch_convert.merge_mp3s`) already decoded each network
+chunk once and performed exactly one final lossy encode. Both paths now share the same
+contract: raw Edge network audio is decoded once and assembled in PCM, with exactly one
+final lossy encode producing the output artifact. Segmentation/pause granularity between
+the two paths remains intentionally different (a separate, larger, unauthorized scope --
+plan Section 15 explicitly forbids the previously-rejected sentence-pause-parity rewrite
+without new evidence); "quality semantics" here means the no-avoidable-lossy-generation
+contract, not identical segmentation.
+
+**Retry Failed reproduces the original attempt.** Neither integrated change is a new
+user-facing option -- both are unconditional engine-internal behavior with no new field in
+`epub2tts_gui.freeze_tts_options`. `retry_failed` re-uses the original frozen `RunSnapshot`
+rather than re-reading configuration, so nothing about this integration can behave
+differently between an original attempt and its retry.
+
+**Verification.** Full `pytest` suite: 7517 passed, 57 skipped, zero failures (611-623s).
+`scripts/verify.py` -> **RESULT: PASS** (pytest/deps/docs/docnames/config all PASS). New
+tracked tests: `files/tests/test_edge_direct_pcm_assembly.py` (9 tests -- zero intermediate
+MP3 encodes during `read_book`, valid decodable output, pause values preserved, the
+i.e./e.g. fix proven against production's own tokenizer with no regression on any other
+false-boundary marker, and proof NLTK's shared cached tokenizer is never mutated) and
+`files/tests/test_chatterbox_colon_integration.py` (9 tests -- structural colons preserved,
+prose colons still converted, byte-parity with the real wheel's `punc_norm` on non-colon
+text as a future-wheel-version drift guard, patch-helper idempotency/narrowness, and a
+static guard that `_instantiate_model` still calls the patch). `test_segmentation_source_
+span.py`'s and `test_chatterbox_punc_norm_evidence.py`'s "found, not fixed" sections were
+updated (docstrings only, no assertion changed) to document that they exercise the raw,
+unpatched upstream/stock behavior that motivated -- and remains distinct from -- the
+now-integrated production fix.
+
+**Not touched in this drop:** the Phase 6 file-worker/concurrency subtask (explicitly out
+of scope for this run -- a hard stop per instruction).
+
+-- Integrated by Claude Code per the maintainer's Phase 6 audio-integration authorization
+(implementing verdicts already recorded below, not a new subjective judgment), 2026-09-21
+
+---
+
 ## 2026-09-21 — v0.6.5 Phase 5 iteration 6 finding: residual Chatterbox URL pronunciation is
 model-native under the pinned tokenizer; no general structural candidate justified
 
