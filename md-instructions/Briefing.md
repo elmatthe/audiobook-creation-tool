@@ -617,6 +617,16 @@ Shared authorities it consumes unchanged: `shared/importing.py` + `import_coordi
 `MainThreadPump`), `shared/output_paths.py` (reservation, sanitiser, collision planner,
 containment) and `shared/image_capabilities.py` (the one HEIC probe).
 
+- **MP3 duration means decodable audio (2026-09-20 defect fix).** Split files can retain stale
+  Info/Xing frame totals; ffprobe format/stream duration and Mutagen can agree and still be wrong.
+  The historical `mp3_processing.ffprobe_duration_seconds` API now fully decodes audio using
+  the proved FFmpeg, rebuilds timestamps from decoded samples (`asetpts=N/SR/TB`), discards PCM
+  through the null muxer and reads final `out_time_us`. Source covers are not decoded for this
+  measurement. Failed/incomplete audio decoding is refused. This authority governs signed-Time
+  expectations/trim endpoints, staged validation, and Combine durations/timestamps/validation;
+  tolerances and whole-Book publication remain unchanged. It costs a full decode pass and uses
+  no new dependency or OS branch. `test_mp3_duration_authority.py` covers synthetic stale CBR/VBR
+  headers, all Time signs, Combine FAST/Safe and genuinely damaged staged output.
 - **Blank means blank.** Source tags pre-fill Artist / Album Artist / Album once (folder import,
   or an empty Book's first files) and are never consulted again; a cleared field stores `""` and
   the output carries no such frame. The one source fallback is a track's own default Title.

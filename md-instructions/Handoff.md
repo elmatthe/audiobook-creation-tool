@@ -2,6 +2,70 @@
 
 ## Current Focus
 
+> ## ⟢ RECORD — MP3 TOOL STALE SPLIT-HEADER DURATION FIXED; macOS REAL-BOOK ACCEPTANCE PASSED (2026-09-20, HOME-MacOS)
+>
+> **This is the maintainer-authorized bounded MP3 defect fix, not a v0.6.5 phase advance.**
+> Remote reconciliation found four already-approved commits through `a99d26f`: Phase 1 listening
+> passed and Phase 2 closed with original Male-3 / Male-4 approved. Those commits were preserved
+> by fast-forward synchronization before this fix; Phase 3 remains unauthorized. The maintainer authorized
+> full verification, commit and push of this bounded fix on the current feature branch after
+> macOS acceptance; no merge, tag, release, version change, or unrelated TTS work is included.
+>
+> **Evidence.** Write ID3 Tags, 49 tracks, Time +0.1, run `MP3-Tool-5` / `mp3-run-000056`:
+> track 48 failed at 426.04 s versus expected 460.17 s. Imported `The Personal Librarian -
+> 046-01.mp3` retained an Info header claiming 17,612 frames / 3,680,757 MPEG bytes, but held
+> only 16,306 audio frames. Companion `046-02` held the remaining 1,306; their MPEG regions
+> sum exactly to the header's byte total. The original decodes to 425.940658 s. The +0.1
+> transformation correctly yielded 426.040658 s; tags/artwork left audio bytes unchanged.
+> Both quick ffprobe duration and Mutagen trusted the stale header. The application deleted
+> the failed staged track itself, retained the other 48, and correctly published nothing.
+>
+> **Fix.** `mp3_processing.ffprobe_duration_seconds` keeps its historical public name but
+> measures a full audio-only decode through the proved FFmpeg. `asetpts=N/SR/TB` rebuilds
+> timestamps from decoded samples; PCM goes to the null muxer and final `out_time_us` supplies
+> duration. `-nofind_stream_info` avoids decoding source cover images that staging discards.
+> `-xerror`, error-level stderr, a successful exit, positive duration and `progress=end` guard
+> against partial/bad decodes. No header-duration fallback, dependency or OS branch was added.
+> The shared helper now governs source expectations, negative-Time endpoints, staged read-back,
+> Combine constituent durations/timestamps and final validation. Existing duration tolerances
+> and atomic publication are unchanged; zero Time still stream-copies audio.
+>
+> **Regression and verification.** New `test_mp3_duration_authority.py`: 24 cases, including
+> synthetic stale Info (44.1 kHz mono) / Xing (24 kHz stereo) splits, +0.1/zero/-0.1 publication,
+> excessive trim, Combine FAST/Safe trims and timestamps, genuinely truncated output with a
+> lying header, corrupt output, headerless audio with a discarded bad cover, and failed/incomplete
+> measurement refusal. Independent raw PCM lengths are the oracle. **484 unique focused tests
+> passed:** new cases 24; existing Write ID3/Combine 47; concat/artwork/plan/workflow/FFmpeg trust/
+> finalization/repository contracts 300; output integration/orchestration/hardening 113. An initial
+> sandboxed Tk run aborted; the GUI integration set passed outside the sandbox. Only existing
+> dependency deprecation warnings remain. Compile checks and `git diff --check` passed. The full
+> gate was initially deferred as instructed, then authorized at this accepted-defect checkpoint.
+> The pre-sync tree passed `scripts/verify.py` (7,430 passed / 55 skipped / 6 warnings); a fresh
+> full gate on the synchronized Phase-2 tree is required before the fix is committed and pushed.
+>
+> **Real-media proof.** In separate `files/dev-work/mp3-track48-diagnosis/fix-proof/` outputs,
+> track 48 passed the production stage/tag/validate path at +0.1, zero and -0.1, respectively
+> adding 4,410, preserving, and removing 4,410 decoded samples. All 49 originals measured
+> successfully (about 21 s for the full decode pass on this Mac). SHA-256/size/mtime checks
+> confirmed all 49 sources and 48 surviving staged files unchanged. Diagnosis and proof artifacts
+> remain local and retained; the lasting evidence and synthetic reproduction now live in tests
+> and the four permanent documents. The running GUI and failed run were not changed.
+>
+> **macOS manual acceptance PASSED (maintainer report, 2026-09-20).** The same 49-track
+> *The Personal Librarian* Book was rerun through MP3 Tool → Write ID3 Tags with Time +0.1 s.
+> Previously failing track 48 succeeded; Book completed 49/49; 1 Book completed, 0 failed,
+> 0 skipped, 0 not attempted; output published successfully to `MP3-Tool-6`.
+> Windows uses the same pinned-tool/subprocess path and remains untested for this fix. The
+> active v0.6.5 plan imposes no Windows MP3 acceptance gate at this checkpoint; that smoke can
+> remain in the later cross-platform validation matrix. Full decoding adds I/O/CPU cost;
+> genuinely undecodable audio is now refused instead of trusting its header.
+>
+> **Next active-plan task: obtain explicit authorization for Phase 3 — Assembly/encoding/
+> duration root-cause investigation.** Isolate Edge raw chunks, batch/rich/direct assembly and
+> final metadata per §§6–7; inspect Kokoro/Chatterbox without changing them absent a demonstrated
+> defect; preserve production for A/B and stop with evidence. Phase 2 is already closed per the
+> synchronized live-state record below. This MP3 checkpoint does not authorize Phase 3.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 IS FULLY COMPLETE: MALE-3 (ORIGINAL) AND MALE-4 BOTH APPROVED, THE REJECTED PITCH-RETRY VARIANT REMOVED — 16-VOICE REGISTRY CLOSED (2026-09-20, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one

@@ -15,6 +15,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — **MP3 Tool Time edits on split MP3s with stale duration headers** (2026-09-20)
+
+Write ID3 Tags could falsely reject intact output after a split MP3 retained its original
+whole-track Info/Xing duration. Negative Time could also calculate an endpoint beyond actual
+EOF and remove nothing, including in Combine. Duration calculations and validation now fully
+decode audio through the verified FFmpeg, measure its sample-based timeline, and refuse partial
+or failed decodes. Source cover images slated for removal do not affect the audio measurement.
+Positive, zero and negative Time use the same authority; existing validation tolerances and
+whole-Book publication protection are unchanged. No source file is modified.
+
+Synthetic CBR/Info and VBR/Xing split regressions cover all Time signs, Combine FAST/Safe,
+excessive trimming, and real staged truncation with a misleading header. Headerless audio and
+bad source artwork are covered too. Full decoding adds processing cost but avoids trusting
+metadata for playable length. Focused macOS verification and the maintainer's real 49-track
+GUI rerun passed (acceptance details in `Handoff.md`). Windows smoke remains for later
+cross-platform validation. The active v0.6.5 phase state is unchanged.
+
 ### Fixed — **M4B Metadata Editor chapter titles were displaced on real audiobooks** (v0.6.4 defect found and fixed 2026-09-20 on macOS; carried onto the v0.6.5 branch)
 
 Saving or clearing tags on an M4B with an embedded cover and any chapter longer than about

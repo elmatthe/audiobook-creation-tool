@@ -4,6 +4,48 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-20 — MP3 Time calculations and validation use fully decoded audio duration
+
+**Decision (maintainer-authorized MP3 defect remediation on the v0.6.5 branch; no phase
+advance).** Keep the public `mp3_processing.ffprobe_duration_seconds` name for compatibility,
+but replace its header-only ffprobe query with a full decode through the existing proved
+FFmpeg and hidden-console subprocess wrapper. Map `0:a:0`, rebuild timestamps using
+`asetpts=N/SR/TB`, encode PCM to the null muxer, and read the final machine-readable
+`out_time_us` in seconds. This measures actual decoded samples after decoder delay/padding,
+without retaining PCM or per-frame JSON in Python and without writing temporary audio.
+
+Require exit zero, no error-level stderr, positive duration and `progress=end`; use `-xerror`
+to stop on decoding errors. Disable speculative stream-info decoding with
+`-nofind_stream_info`: malformed source cover images are discarded by the MP3 Tool and
+must not invalidate otherwise good audio. Audio decoding itself remains strict. The same
+measurement applies before trim endpoints are calculated and when staged/combined audio is
+validated. Existing tolerances, transforms, metadata rules and atomic publication stay intact.
+
+**Why.** A 49-track Write ID3 +0.1 run failed only its split author-note source: its Info
+header claimed 17,612 frames / 3,680,757 bytes, but the first piece held 16,306 frames and the
+companion the other 1,306; their combined MPEG byte counts matched the retained header exactly.
+Quick ffprobe and Mutagen both reported 460.068571 s, whereas only 425.940658 s decoded. The
+transformation correctly produced 426.040658 s and tag/artwork writes did not alter the audio.
+Zero Time also false-failed; -0.1 targeted an endpoint beyond EOF and removed nothing. Combine
+shares that endpoint calculation, so a fallback only after failed Write ID3 validation would
+leave a real trim defect. Broadening tolerance, swapping to Mutagen/stream.duration, and
+special-casing this source were rejected. No FFmpeg upgrade is needed.
+
+**Tradeoff and proof.** A full sequential decode costs more than reading a header, but observes
+the exact audio available to the operation, catches decode errors and works for CBR/VBR and
+headerless inputs. On this Mac all 49 real originals measured in about 21 s. Production
+stage/tag/validate reproductions at +0.1/zero/-0.1 changed decoded sample counts by exactly
++4,410/0/-4,410. The 24-case synthetic regression in `test_mp3_duration_authority.py` uses raw
+PCM length independently, includes MPEG-1 Info and MPEG-2 Xing splits and Combine FAST/Safe,
+and refuses genuinely shortened output even when its header still claims the correct length.
+No source or failed-run evidence was modified. Windows shares the implementation; its runtime
+acceptance remains pending. No v0.6.5 listening or phase gate is superseded.
+
+**Signed:** maintainer (diagnosis approved and implementation directed 2026-09-20);
+implemented by the AI session on that authorization.
+
+---
+
 ## 2026-09-20 — v0.6.5 Phase 2 closeout: original Male-3 candidate approved and registered; the
 bounded pitch-retry variant rejected and its machinery removed entirely
 

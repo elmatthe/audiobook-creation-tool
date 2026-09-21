@@ -179,24 +179,37 @@ def write_concat_listfile(paths: List[Path], listfile: Path):
 
 
 def ffprobe_duration_seconds(path: Path) -> Optional[float]:
-    code, out, _ = run_ff(
-        [
-            ffmpeg_utils.ffprobe_cmd(),
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(path),
-        ]
-    )
-    if code == 0:
-        try:
-            return float(out.strip())
-        except Exception:
-            return None
-    return None
+    """Measure decodable audio, not the MPEG header's claimed duration.
+
+    The historical helper name is retained for the panel's public re-export.
+    Split MP3s can retain the original Info/Xing frame count; both ffprobe's
+    format/stream duration and Mutagen then describe audio no longer present.
+    Fully decode through the pinned FFmpeg instead. ``asetpts`` starts at zero
+    and builds timestamps from decoded samples (after decoder skip/padding),
+    so the final PCM end time measures the audio the Time operation will use.
+    The null muxer discards PCM; only small progress records reach Python.
+    Skip speculative stream-info decoding: an invalid source cover (which
+    staging strips) must not prevent measuring otherwise valid MP3 audio.
+
+    Require a complete, error-free decode. A partial result, including an
+    error reported with exit status zero, must not authorize publication.
+    """
+    code, out, err = run_ff([
+        ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-nostdin", "-v", "error",
+        "-xerror", "-nofind_stream_info", "-i", str(path), "-map", "0:a:0",
+        "-af", "asetpts=N/SR/TB", "-c:a", "pcm_s16le",
+        "-f", "null", "-", "-nostats", "-progress", "pipe:1",
+    ])
+    if code != 0 or err.strip():
+        return None
+    progress = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    if progress.get("progress") != "end":
+        return None
+    try:
+        microseconds = int(progress["out_time_us"])
+        return microseconds / 1_000_000 if microseconds > 0 else None
+    except (KeyError, ValueError, OverflowError):
+        return None
 
 
 def seconds_to_hms(sec: float) -> str:
@@ -714,7 +727,7 @@ def _stage_clean_copy(book: mp3_plan.BookPlan, track: mp3_plan.TrackPlan) -> flo
     """
     source_duration = ffprobe_duration_seconds(track.source)
     if source_duration is None:
-        raise ProcessingError("the source could not be read by ffprobe", stage="probe",
+        raise ProcessingError("the source has no readable audio duration", stage="probe",
                               detail=str(track.source))
     delta = float(book.time_delta)
     if delta > 0:
