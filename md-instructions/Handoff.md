@@ -2,6 +2,84 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 5 VERDICT RECORDED (STRUCTURAL-COLON CANDIDATE CARRIED FORWARD; URL STILL FAILS); ITERATION 6 LOCALIZES THE RESIDUAL URL FAILURE TO THE TOKENIZER'S DOMAIN-DOT/SENTENCE-DOT AMBIGUITY — NO GENERAL CANDIDATE JUSTIFIED, DIAGNOSIS CLOSED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 5's colon A/B now has a maintainer verdict — and adds iteration 6's diagnostic
+> record. Iterations 1–5's full construction/measurement/caveats and verdicts stand exactly as
+> recorded below. **No production file was edited by any iteration; no generation parameter was
+> tuned; no candidate was integrated.**
+>
+> **Maintainer verdict, iteration 5 (2026-09-21), per seed and per test case:** Seed 0/1/2: **B
+> preferred, all three.** 6:45/7:15: **B PASS.** 3:1: **B PASS.** Ordinary prose colon: **B PASS.**
+> **HTTPS URL: still FAIL** (both A and B render it incorrectly). **Overall: B preferred.** Ruling:
+> **carry the structural-colon normalization candidate forward for later Phase 6 integration; do
+> not integrate it yet.** The URL's separate residual problem is carried into iteration 6 rather
+> than blocking this candidate's approval. Recorded in `Decisions.md` (below) as a dated ADR.
+>
+> **Iteration 6 — isolating the residual URL failure only, using the approved colon candidate as
+> the fixed baseline for both sides so colon corruption is no longer a variable.**
+>
+> **1. Mechanical localization, stopping exactly where the phase's instruction stops — at
+> generation input, not at judging generated audio.** A 10-case tokenizer-level diagnostic matrix
+> (`files/dev-work/v0.6.5-phase5-chatterbox-url-diagnostic/diagnose.py`, gitignored) loaded the real
+> production model/tokenizer and inspected the exact token sequence for: the original failing URL;
+> a generic-path variant (removes the "lighthouse" word-choice confound); domain-only; no-scheme;
+> `ftp://` and `http://` scheme variants; a bare domain; a query-string variant (`?`/`=`/`&`, not
+> present in the original but tested for completeness); and a domain-dot-immediately-before-a-real-
+> sentence-boundary control.
+>
+> **2. Findings, mapped to the five candidate correlates:**
+> — **Scheme token/text:** `"https"`/`"http"` each tokenize as a single, ordinary, unfragmented
+> token in every variant — not a rarity/fragmentation pattern. (`"ftp"` does fragment into two
+> tokens; untested by the maintainer, not pursued further.)
+> — **`"://"` syntax:** a single dedicated token, confirmed present and unchanged across every
+> scheme variant — the approved colon candidate's fix holds completely.
+> — **Path/query punctuation:** `/`, `-`, `?`, `=`, `&` all tokenize as clean, ordinary, unambiguous
+> single tokens in every variant — no fragmentation or anomaly found anywhere in this class.
+> — **Hostname/domain punctuation:** **the one confirmed structural fact.** The `"."` in
+> `"example.com"` is the *same token id* as an ordinary sentence-final period, in every variant
+> tested, with or without a scheme, with or without a path. The tokenizer gives the model no signal
+> distinguishing a domain-ending dot from a sentence-ending dot.
+> — **The original URL's own confound, ruled out:** `"lighthouse-log"` fragmenting into `"l"` +
+> `"ighthouse"` is an artifact of that specific English word's rarity in this vocabulary, **not a
+> URL-structural issue** — a generic path word (`"page"`) tokenizes as one clean token in the
+> identical position, in every variant that swaps it in.
+>
+> **3. No general structural candidate is justified — diagnosis stops here, per the phase's
+> explicit fallback.** The domain-dot/sentence-dot token identity is real, but nothing permitted can
+> fix it: any normalization that made the model reliably render a domain dot differently from a
+> sentence-ending dot would amount to inserting a pronunciation cue (effectively spelling "dot"),
+> which is the exact forbidden word-substitution/phonetic-respelling class this phase explicitly
+> ruled out — not a structural rule in the sense the colon fix was. Every other URL component
+> already tokenizes cleanly with no fixable ambiguity to target. **The residual URL-reading
+> imperfection is classified as model-native** — an inherently rare "read a URL aloud" utterance
+> shape and/or the model's own acronym/domain-dot handling — not a text-normalization gap this
+> investigation can close. No A/B was built; no candidate exists to compare.
+>
+> **4. Verification.** `test_chatterbox_punc_norm_evidence.py` (6) + `test_segmentation_source_
+> span.py` (37) re-run clean (43 passed) — no tracked file changed besides this Handoff/Decisions
+> update. No new tracked test was added for this iteration's own finding: it requires loading the
+> real pinned model/tokenizer, which does not belong in the ordinary fast tracked suite (the same
+> reasoning that kept the Phase 3 Male-1 gap analysis as documented evidence rather than a tracked
+> test).
+>
+> **5. Caveats.** (a) The diagnostic matrix covers the failing URL's actual shape (scheme, domain,
+> path, query) but not every conceivable URL form (no IP-literal host, no port number, no fragment
+> `#anchor`, no internationalized domain). (b) No audio was generated or listened to in this
+> iteration — the localization deliberately stopped at tokenizer input, per instruction; the actual
+> perceptual failure mode (what specifically sounds wrong) was not characterized acoustically. (c)
+> `"ftp"`'s two-token fragmentation was noticed but not pursued, since the maintainer's complaint was
+> specifically about the HTTPS case. (d) The rare Male-1 long-silence anomaly was not investigated
+> further, per instruction. (e) No generation parameter was tuned or considered.
+>
+> **v0.6.5 PHASE 5 ITERATION 6 IS COMPLETE. THE RESIDUAL URL-PRONUNCIATION ISSUE IS DOCUMENTED AND
+> DEFERRED AS MODEL-NATIVE, NOT FORCED INTO A WORKAROUND.** No candidate was built or integrated; no
+> subjective winner was chosen (none was possible — no candidate exists to compare); the rare
+> long-silence anomaly was not investigated; no generation parameter was tuned. Nothing here
+> authorizes generation-parameter research, another Phase 5 experiment, integrating any approved
+> Edge or Chatterbox candidate, or Phase 6.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 4 VERDICT RECORDED (COMBINED EDGE CANDIDATE APPROVED FOR PHASE 6); ITERATION 5 (CHATTERBOX PINNED-WHEEL COLON NORMALIZATION) INSPECTED, CONFIRMED, AND CANDIDATE-EVALUATED — NO LISTENING VERDICT REQUESTED, NOT INTEGRATED (2026-09-21, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one

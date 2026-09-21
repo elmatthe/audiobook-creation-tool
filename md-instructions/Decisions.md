@@ -4,6 +4,83 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 — v0.6.5 Phase 5 iteration 6 finding: residual Chatterbox URL pronunciation is
+model-native under the pinned tokenizer; no general structural candidate justified
+
+**Finding, not a fix (investigation-only; no production file changed, no generation parameter
+tuned, no candidate built or integrated).** Per the maintainer's iteration 5 verdict (below), the
+approved structural-colon candidate was used as the baseline for this diagnostic, so colon
+corruption is no longer a variable.
+
+**1. Mechanical localization, source URL → approved normalization → tokenizer text/tokens →
+generation input, across a 10-case diagnostic matrix** (scheme presence/absence/word choice,
+domain-only, path-only, a generic path word, query-string punctuation, and a domain-dot-at-a-real-
+sentence-boundary control), all using the real production tokenizer loaded from the pinned model:
+- The scheme word (`"https"`/`"http"`) tokenizes as a single, ordinary, unfragmented token in every
+  case — not the rarity/fragmentation pattern that would explain an unstable reading by itself.
+  (`"ftp"`, untested by the maintainer, does fragment into two tokens — noted, not pursued further.)
+- `"://"` is a single dedicated token, confirmed present and unchanged regardless of scheme choice —
+  the approved colon candidate's fix holds.
+- Path and query punctuation (`/`, `-`, `?`, `=`, `&`) all tokenize as clean, ordinary, unambiguous
+  single tokens in every variant tested — no fragmentation or structural anomaly found there.
+- **The one confirmed structural fact:** the domain-boundary `"."` in `"example.com"` is the *same
+  token id* as an ordinary sentence-final period, in every variant tested, with or without a scheme,
+  with or without a path. The pinned tokenizer gives the model no signal distinguishing "this period
+  ends a domain" from "this period ends a sentence."
+- The original test URL's `"lighthouse-log"` path fragmenting into `"l"` + `"ighthouse"` was
+  confirmed to be an artifact of that specific English word's rarity in this vocabulary, **not a URL-
+  structural issue** — a generic path word (`"page"`) tokenizes as one clean token in the identical
+  position.
+
+**2. No general structural candidate is justified.** The domain-dot/sentence-dot token identity is
+real, but no permitted normalization can resolve it: any change that would make the model reliably
+render a domain dot differently from a sentence-ending dot amounts to inserting a pronunciation cue
+(effectively spelling out "dot"), which is a forbidden word-substitution/phonetic-respelling
+technique, not a structural rule. Every other URL component (scheme word, `"://"`, path, query
+punctuation) already tokenizes cleanly with no fixable ambiguity to target. **Per the phase's explicit
+fallback, this stops here rather than forcing a workaround: the residual URL-reading imperfection is
+best classified as model-native** (an inherently rare "read a URL aloud" utterance shape, and/or the
+model's own acronym/domain-dot handling) — not a text-normalization gap this investigation can close.
+
+**Consequences:** No candidate was built; no A/B was run; no tracked test was added (the finding
+requires loading the real pinned model/tokenizer, which does not belong in the ordinary fast tracked
+suite, matching how other model-requiring findings — e.g., the Phase 3 Male-1 gap analysis — were
+handled: documented as evidence, not promoted to a tracked test). The disposable diagnostic script
+and its full output remain at `files/dev-work/v0.6.5-phase5-chatterbox-url-diagnostic/`
+(gitignored). This closes the URL-pronunciation thread for Phase 5 unless new evidence (e.g., a
+demonstrated case with a genuinely different failure shape) reopens it; per instruction, this does
+not move to generation-parameter research in this run.
+
+— Investigated by Claude Code per the maintainer's Phase 5 authorization; no maintainer ruling
+required (investigation-only, no subjective judgment made), 2026-09-21
+
+---
+
+## 2026-09-21 — v0.6.5 Phase 5 iteration 5 verdict: approved structural-colon candidate carried
+forward for later integration; HTTPS URL pronunciation still fails
+
+**Decision.** Having listened to all three seeded A/B pairs from the fifth Phase 5 A/B experiment
+(the structural-colon-preserving `punc_norm` candidate against the pinned wheel's own blanket
+colon-to-comma replacement, on `chatterbox-male-1`), the maintainer reported, per seed and per test
+case:
+
+- **Seed 0: B preferred. Seed 1: B preferred. Seed 2: B preferred.**
+- **6:45 / 7:15: B PASS. 3:1: B PASS. Ordinary prose colon: B PASS.**
+- **HTTPS URL: still FAIL** (both A and B render it incorrectly — the colon fix did not resolve the
+  URL specifically).
+- **Overall: B preferred.**
+
+**Ruling: carry the structural-colon normalization candidate forward for later Phase 6
+integration. Do not integrate it yet.** The residual URL failure is carried into a further,
+targeted Phase 5 iteration (recorded separately above) rather than blocking this candidate's
+approval — the colon fix demonstrably resolved times, ratios, and prose colons; the URL's remaining
+problem is evidently a separate, additional issue.
+
+— Decided by maintainer (Elijah Matthew) after listening to the Phase 5 iteration 5 A/B artifacts;
+recorded by Claude Code, 2026-09-21
+
+---
+
 ## 2026-09-21 — v0.6.5 Phase 5 iteration 5 finding: the pinned chatterbox-tts==0.1.7 wheel corrupts
 structural colons before tokenization; a structural (non-word-specific) candidate fixes it, not adopted
 
