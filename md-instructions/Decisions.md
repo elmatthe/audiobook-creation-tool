@@ -4,6 +4,29 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 — v0.6.5 Phase 5 iteration 3 verdict: terminal pause-supersede candidate REJECTED
+
+**Decision.** Having listened to the neutral-labeled A/B pairs for both test texts
+(`structural_stress` and `two_chapter`) from the third Phase 5 A/B experiment — current production's
+stacked terminal silence (paragraphpause + chapter_trailing_pause + end_of_book_pause, ~5.9–5.97 s)
+against the candidate that lets `end_of_book_pause` supersede the lower-level pauses at the book's
+terminal boundary (~3.0–3.1 s) — the maintainer reported **no preference on either text and could
+not perceive a meaningful difference.**
+
+**Ruling: the terminal-pause-supersede candidate is NOT approved for integration.** Current
+production pause behavior — including the terminal stacking the candidate targeted — is
+**preserved unless later evidence justifies revisiting it.** This is a rejection, not a deferral:
+future Phase 5 work should not re-propose the same candidate without new evidence.
+
+**What remains approved:** only the two candidates from iterations 1 and 2 (PCM-domain assembly;
+NLTK `abbrev_types` i.e./e.g. extension) — both still unintegrated, pending further Phase 5 work
+(including a combined-compatibility check) before any Phase 6 integration.
+
+— Decided by maintainer (Elijah Matthew) after listening to the Phase 5 iteration 3 A/B artifacts;
+recorded by Claude Code, 2026-09-21
+
+---
+
 ## 2026-09-21 — v0.6.5 Phase 5 iteration 2 verdict: NLTK abbrev_types i.e./e.g. segmentation
 candidate approved for later integration, not integrated yet
 

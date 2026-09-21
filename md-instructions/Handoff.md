@@ -2,6 +2,100 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 3 VERDICT RECORDED (TERMINAL PAUSE-SUPERSEDE CANDIDATE REJECTED); ITERATION 4 (COMBINED-COMPATIBILITY CHECK OF THE TWO APPROVED CANDIDATES) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 3's terminal-pause A/B now has a maintainer verdict — and adds iteration 4's
+> record. Iterations 1–3's full construction/measurement/caveats and verdicts stand exactly as
+> recorded below. **No production file was edited by any iteration.**
+>
+> **Maintainer verdict, iteration 3 (2026-09-21):** listened to both `structural_stress` and
+> `two_chapter` A/B pairs from the terminal-pause-supersede experiment and reported **no
+> preference on either text — could not perceive a meaningful difference.** Ruling: **the
+> terminal-pause-supersede candidate is NOT approved for integration; current production pause
+> behavior is preserved unless later evidence justifies revisiting it.** Recorded in `Decisions.md`
+> (below) as a dated ADR — a rejection, not a deferral.
+>
+> **Only two candidates remain approved (both still unintegrated):** the PCM-domain assembly
+> (iteration 1) and the NLTK `abbrev_types` i.e./e.g. extension (iteration 2).
+>
+> **Iteration 4 — the one combined-compatibility check between the two approved candidates, and
+> nothing else.** Per explicit instruction: current production pause constants and terminal
+> stacking stay completely unchanged (the rejected iteration 3 candidate is not revived); no
+> Chatterbox work; no production integration.
+>
+> **1. A vs. B construction.**
+> `files/dev-work/v0.6.5-phase5-combined-ab/build_candidate_ab.py` (disposable, gitignored). **A =
+> production, unmodified**, run for real. **B = only the two approved candidates combined**: trim/
+> pause/merge work stays as in-memory PCM with exactly one final MP3 encode (iteration 1), sentence
+> boundaries come from NLTK's own Punkt model with `"i.e"`/`"e.g"` added to its existing
+> `abbrev_types` set (iteration 2), and **current production pause constants/terminal stacking are
+> untouched** — every other production behavior (voice, source text, Edge settings, final format)
+> held constant. **Raw Edge network audio is reused between A and B wherever the two candidates'
+> segmentation agrees**: for `structural_stress_kokoro_edge` (17 sentences under both tokenizers,
+> confirmed identical in iteration 2) reuse is **100%** — zero fresh network calls for B. For
+> `difficult_short`, every sentence unaffected by the merge is reused by exact-text match against
+> A's own captured bytes (grouped by A's own precomputed sentence structure, not by call order,
+> since call order breaks once segmentation differs); **exactly the one newly-merged sentence
+> (i.e./e.g.) required a fresh, real network call** — there is no raw audio to reuse for text that
+> was never requested from the network under stock segmentation.
+>
+> **2. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-combined-ab/listening/{A,B}_difficult_short.mp3` and
+> `{A,B}_structural_stress.mp3`.
+>
+> **3. Segmentation/boundary proof.** `difficult_short`: A produces 10 sentences with false
+> boundaries ending `"...i.e."` and `"...e.g."`; **B produces 8 sentences, no false boundary
+> anywhere** — the same fix iteration 2 already proved, now inside the combined path. Every one of
+> the 13 false-boundary control markers (Dr./Mr./Mrs./Prof., initials, both times, the ratio, the
+> decimal, "vs.", the URL, the ellipsis, both dialogue spans, the parenthetical) remains correctly
+> intact in both A and B — **zero regressions on any control marker.** `structural_stress_kokoro_
+> edge`: 17 sentences in both, byte-identical segmentation, as expected. **Source-span coverage
+> (no omission/duplication/reordering) holds exactly for both A and B on both texts** (squeeze-
+> compared against source).
+>
+> **4. Encode-path and acoustic measurements.** `difficult_short`: **B performs exactly 1 MP3
+> encode** (vs. A's per-sentence round-tripping); 1 sentence fresh-synthesized, all others reused.
+> Trailing/terminal silence: A 5,880 ms / 5,953 ms precise, B 5,880 ms / 5,948 ms precise —
+> **pause policy confirmed unchanged** (not the rejected supersede value). Duration: 69.870 s →
+> 68.028 s (matches iteration 2's ~1.84 s, from 2 fewer sentence-pauses). Speech-only dBFS: A
+> −21.83, B −20.15 (1.68 dB shift, consistent with the assembly candidate's own effect). Peak: A
+> −2.69, B −1.78 dBFS — **neither clips.** `structural_stress_kokoro_edge`: **B performs exactly 1
+> MP3 encode** (vs. A's 196 for this item, per Phase 3's count); 0 fresh syntheses (full reuse).
+> Trailing/terminal silence: both 5,860 ms / ≈5.96–5.97 s precise — **unchanged.** Duration:
+> 211.647 s → 211.645 s (2 ms — no change, as expected, since segmentation is untouched for this
+> text). Speech-only dBFS: A −21.32, B −19.75 (**1.57 dB shift — matches iteration 1's original
+> 1.56 dB finding almost exactly**, strong replication). Peak: A −3.10, B −1.87 dBFS — neither
+> clips. Both files re-decode without error on both texts (decode validity confirmed).
+>
+> **5. Interaction/regression check: none found.** The two candidates' effects are cleanly
+> additive and independent: the segmentation fix's duration/sentence-count change appears only on
+> `difficult_short` (the only text it touches) and is numerically identical to iteration 2's
+> standalone result; the assembly candidate's dBFS shift appears on both texts and is numerically
+> consistent with iteration 1's standalone result (1.56–1.68 dB across all three measurements now
+> on record). Neither candidate's own signature was diminished, amplified, or altered by the
+> other's presence. Pause policy stayed byte-for-byte at production's current (stacked) values on
+> both texts, confirming the rejected iteration 3 candidate was not accidentally reintroduced.
+>
+> **6. Verification.** Both runs assert exact reuse-vs-fresh bookkeeping in code (fresh-count
+> printed and matches expectation: 1 for `difficult_short`, 0 for `structural_stress_kokoro_edge`).
+> `files/tests/test_segmentation_source_span.py` (37) + `test_tts_importing.py` (75) re-run clean
+> (112 passed). No tracked file changed besides this Handoff/Decisions update.
+>
+> **7. Caveats.** (a) Single run per text, no repetition for Edge-service variance on the one
+> freshly-synthesized sentence. (b) The script's title-handling helper would route a title clip
+> through `intra_sentence_chunks` if a text had one (production never intra-splits a title) — dead
+> code for both test texts (both have a skipped "blank" title) but not fixed, since it never
+> executes here; would need correcting before reuse on a titled text. (c) Two corpus items only —
+> the QA corpus's other items (sustained_narration, longer_stress, structural_stress_chatterbox)
+> were not separately re-run through the combined path.
+>
+> **v0.6.5 PHASE 5 ITERATION 4 IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, NEITHER CANDIDATE WAS
+> ADOPTED INTO PRODUCTION, AND NO REJECTED CANDIDATE WAS REVIVED.** The maintainer's listening pass
+> against this iteration's artifacts is the next action. Nothing here authorizes Chatterbox
+> generation-parameter research, production integration of either candidate, another Phase 5
+> experiment, or Phase 6.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 2 VERDICT RECORDED (SEGMENTATION CANDIDATE APPROVED FOR LATER INTEGRATION, NOT YET INTEGRATED); ITERATION 3 (TERMINAL PAUSE-STACKING) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one
