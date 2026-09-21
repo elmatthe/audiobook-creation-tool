@@ -2,6 +2,107 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 4 VERDICT RECORDED (COMBINED EDGE CANDIDATE APPROVED FOR PHASE 6); ITERATION 5 (CHATTERBOX PINNED-WHEEL COLON NORMALIZATION) INSPECTED, CONFIRMED, AND CANDIDATE-EVALUATED — NO LISTENING VERDICT REQUESTED, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 4's combined-Edge A/B now has a maintainer verdict — and adds iteration 5's
+> record, which moves from Edge to Chatterbox for the first time. Iterations 1–4's full
+> construction/measurement/caveats and verdicts stand exactly as recorded below. **No production
+> file was edited by any iteration; no generation parameter was tuned.**
+>
+> **Maintainer verdict, iteration 4 (2026-09-21):** listened to both `difficult_short` and
+> `structural_stress` A/B pairs from the combined-compatibility experiment and **preferred candidate
+> B on both texts.** Ruling: **the combined Edge candidate — PCM-domain assembly (one final encode)
+> + NLTK `abbrev_types` i.e./e.g. extension — is APPROVED for later Phase 6 integration.** Current
+> production terminal-pause behavior remains unchanged (iteration 3 stays rejected). **Do not
+> integrate any Edge candidate yet.** Recorded in `Decisions.md` (below) as a dated ADR.
+>
+> **Iteration 5 — moving to Chatterbox, starting with instrumentation, not an A/B.** Per explicit
+> instruction: inspect the exact installed pinned `chatterbox-tts==0.1.7` wheel before assuming
+> anything; only build a candidate A/B if the suspected destructive colon normalization is confirmed.
+>
+> **1. The pinned wheel's own defect, confirmed mechanically, at both the string and token level.**
+> `chatterbox.tts_turbo.punc_norm()` — called unconditionally, immediately before tokenization,
+> inside `ChatterboxTurboTTS.generate()` (confirmed by reading the installed 0.1.7 source: `text =
+> punc_norm(text)` is the line immediately before `self.tokenizer(text, ...)`) — performs a blanket
+> `text.replace(":", ",")` with no context awareness. String level: `"It was 6:45..."` →
+> `"It was 6,45..."`; `"...3:1..."` → `"...3,1..."`; `"https://example.com/..."` →
+> `"https,//example.com/..."`. **Token level (loaded the real production model and tokenizer
+> directly):** `"6:45"` tokenizes to `[21, 25, 2231]`, but what the model actually receives after
+> `punc_norm`, `"6,45"`, tokenizes to `[21, 11, 2231]` — token 25 (`":"`) replaced by token 11
+> (`","`), a real, measurable input change, not a no-op. The URL case is worse: `"://"` has its own
+> dedicated single token (1378) in this vocabulary, entirely lost when corrupted to `"https,//"`
+> (which re-tokenizes into unrelated `","` and `"//"` pieces). **The suspected destructive
+> normalization is confirmed** — the experiment proceeded to a candidate per the plan's own
+> branching instruction.
+>
+> **2. This is a different symptom from the historical Phase 12 finding already on record.**
+> `chatterbox_synth.py`'s own comments already documented (from an earlier drop) that
+> `chatterbox.tts.punc_norm` blanket-replaces colons, concluding "a text-only fix is impossible... the
+> pause therefore has to come from assembly" — but that investigation was about recovering *pause
+> duration* after a prose colon (spacing tricks all collapse identically, so `COLON_PAUSE_MS`/
+> `split_at_prose_colon` supply the pause at the assembly level instead, and remain completely
+> unchanged and unrelated to this finding). This iteration is about *pronunciation correctness* of
+> structured digit:digit and URL-scheme colons specifically — a case `split_at_prose_colon` never
+> reaches, since no whitespace follows those colons, so they pass straight through to `generate()`
+> and this same blanket replace, unprotected. Not previously investigated at the tokenizer level.
+>
+> **3. The candidate: one structural regex, reusing a principle already proven elsewhere in this
+> codebase.** A colon becomes a comma only when followed by whitespace or end-of-string (a prose
+> colon — the exact same rule `chatterbox_synth._PROSE_COLON` already applies for the assembly-level
+> pause decision); a colon immediately followed by a non-whitespace character (any digit:digit form,
+> any `://` scheme, or any other structural use) is left untouched. Not a dictionary, not a word
+> list, not special-cased to "6:45"/"7:15"/"3:1"/this one URL — it generalizes to the whole class by
+> structure alone. Implemented as a monkeypatch of `chatterbox.tts_turbo.punc_norm` for the duration
+> of the experiment's own calls only; the installed wheel was never edited on disk.
+>
+> **4. Verified: the candidate changes nothing else.** Diffed against the real wheel's output
+> character-by-character across all 4 real chunks `split_for_chatterbox` produces for
+> `quality_corpus.DIFFICULT_SHORT` (unmodified, real production chunking): the two differ at exactly
+> 4 character positions total (2 in chunk 0 — both times; 1 in chunk 1 — the ratio; 1 in chunk 2 —
+> the URL; 0 in chunk 3, which has no colon), every one of them a comma-where-the-real-wheel-put-one
+> vs. a colon-the-candidate-kept — **nowhere else does the candidate's output differ.** The ordinary
+> prose-colon case (`"The pattern held: two full turns..."`) produces **byte-identical tokenizer
+> output** between the real wheel and the candidate — confirmed no change to existing prose-colon
+> behavior.
+>
+> **5. Real synthesis across 3 matched seeds, `chatterbox-male-1`, current production settings
+> unchanged.** `torch.manual_seed` reset to the same value immediately before each chunk's
+> corresponding A/B `generate()` call (seeds 0/1/2), so any audible difference traces to the text
+> divergence rather than independent sampling luck; `generation_params()` (temperature 0.72, top_p
+> 0.95, top_k 1000, repetition_penalty 1.2), the real Male-1 reference conditioning, segmentation,
+> chunk plan, pause constants, and assembly are all completely unchanged from production. All 6
+> files (3 seeds × A/B) decoded and measured cleanly: durations 74.08–82.1 s wall / 74.08–77.48 s
+> audio (in the expected range for this text/voice), **no clipping in any of the 6 files.**
+>
+> **6. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-chatterbox-colon-ab/listening/{A,B}_seed{0,1,2}.mp3`.
+>
+> **7. Tracked evidence added.** `files/tests/test_chatterbox_punc_norm_evidence.py` (6 tests, all
+> passing) — documents the found (not fixed) defect at the string level, confirms the ordinary
+> prose-colon case is unaffected, and pins the exact call-site adjacency the finding depends on.
+> Requires no model weights, no reference recording, no network — pure text-function tests, fast,
+> fits the ordinary tracked suite like every other test here. `test_segmentation_source_span.py`
+> (37) + `test_chatterbox_engine.py` + `test_chatterbox_chunking.py` re-run clean alongside it (175
+> passed total). No production file changed besides this new tracked test.
+>
+> **8. Caveats.** (a) No listening verdict was requested or given — this iteration is instrumentation
+> plus a candidate-evaluation, not a decision gate; the 6 seeded files exist for the maintainer to
+> review at their own pace. (b) 3 seeds is a small repeated set, not an exhaustive stochasticity
+> study. (c) The candidate cannot be "integrated" by editing the installed third-party wheel on disk
+> (fragile, breaks on any reinstall/upgrade) — if ever adopted, the mechanism (e.g., a
+> `chatterbox_synth`-side monkeypatch applied at import time, analogous to how this experiment did it
+> temporarily) is an open question for a later iteration or Phase 6, not decided here. (d) The rare
+> Male-1 long-silence anomaly (Phase 3/4) was deliberately not investigated further in this run, per
+> instruction. (e) No generation parameter was tuned or evaluated in this iteration.
+>
+> **v0.6.5 PHASE 5 ITERATION 5 IS COMPLETE. NO LISTENING WINNER WAS CHOSEN OR REQUESTED, NO
+> GENERATION PARAMETER WAS TUNED, THE RARE MALE-1 SILENCE ANOMALY WAS NOT FURTHER INVESTIGATED, AND
+> NOTHING WAS INTEGRATED.** The maintainer's review of the 6 seeded listening files (whenever
+> convenient) is the next action for this specific finding. Nothing here authorizes another Phase 5
+> experiment, Chatterbox generation-parameter tuning, integrating any approved Edge candidate, or
+> Phase 6.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 3 VERDICT RECORDED (TERMINAL PAUSE-SUPERSEDE CANDIDATE REJECTED); ITERATION 4 (COMBINED-COMPATIBILITY CHECK OF THE TWO APPROVED CANDIDATES) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one

@@ -4,6 +4,86 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 — v0.6.5 Phase 5 iteration 5 finding: the pinned chatterbox-tts==0.1.7 wheel corrupts
+structural colons before tokenization; a structural (non-word-specific) candidate fixes it, not adopted
+
+**Finding, not a fix (investigation-only; no production file changed, no generation parameter
+tuned).** Traced Phase 4's cleared-for-segmentation times/ratio/URL pronunciation inconsistency one
+level deeper, into the exact installed `chatterbox-tts==0.1.7` wheel `chatterbox.tts_turbo` uses.
+
+**1. Root cause: `chatterbox.tts_turbo.punc_norm()`, called unconditionally immediately before
+tokenization inside `ChatterboxTurboTTS.generate()`, performs a blanket `text.replace(":", ",")`
+with no context awareness.** This is internal to the pinned wheel — nothing in `chatterbox_synth.py`
+does this or could prevent it without intercepting `punc_norm` itself. "6:45" becomes "6,45"; "3:1"
+becomes "3,1"; "https://example.com" becomes "https,//example.com", destroying the URL scheme
+separator. Tokenizer-level proof (not just string-level): "6:45" tokenizes to `[21, 25, 2231]` but
+what the model actually receives, "6,45", tokenizes to `[21, 11, 2231]` — token 25 (":") replaced by
+token 11 (","), a real change to the model's input. The URL case loses a dedicated single token for
+"://" (1378) entirely, re-tokenizing into unrelated pieces instead.
+
+**2. This is a different symptom from the historical Phase 12 finding already recorded in
+`chatterbox_synth.py`'s own comments** ("a text-only fix is impossible... the pause therefore has to
+come from assembly"). That investigation was about recovering *pause duration* after a prose colon
+(every spacing variant collapses to the same comma, so `COLON_PAUSE_MS`/`split_at_prose_colon`
+supply the pause at the assembly level instead, unchanged by this finding). This finding is about
+*pronunciation correctness* of structured digit:digit and URL-scheme colons, which
+`split_at_prose_colon` never touches (no whitespace follows those colons, so they reach `generate()`
+unprotected).
+
+**3. A structural, non-word-specific candidate was built and evaluated, not adopted.** A colon is
+replaced with a comma only when followed by whitespace or end-of-string (a prose colon — the same
+principle `chatterbox_synth._PROSE_COLON` already uses elsewhere in this codebase); a colon
+immediately followed by a non-whitespace character (any digit:digit form, any `://` URL scheme, or
+any other structural use) is left untouched. One general regex rule, not a dictionary, not special-
+cased to any exact string. Verified: preserves all four structural cases tested (both times, the
+ratio, the URL) and leaves the ordinary prose-colon case byte-for-byte identical to today's behavior
+(tokenizer ids confirmed identical for that case). Verified against the real, unmodified production
+chunking of `quality_corpus.DIFFICULT_SHORT`: the candidate's output differs from the real wheel's
+at exactly the 4 structural-colon character positions across the 4 real chunks, and nowhere else.
+
+**4. Evaluated across 3 matched seeds (`chatterbox-male-1`, real reference conditioning, current
+production `generation_params()` unchanged) for a small repeated set rather than one pair, since
+generation is stochastic.** All 6 files (3 seeds × 2 sides) produced valid, non-clipping audio;
+durations stayed in the expected 74–82 s range for this text at this voice. No listening verdict was
+requested or given in this finding — evidence only, per the plan's investigation order.
+
+**Consequences:** `files/tests/test_chatterbox_punc_norm_evidence.py` added (6 tests, all passing,
+no model/network required — pure text-function tests) documenting the found defect and the
+ordinary-prose-colon non-defect, in the same "found, not fixed" spirit as the existing Ascended/
+Tamar and NLTK i.e./e.g. guards. No `chatterbox_synth.py` line changed; the installed wheel was never
+edited on disk. The candidate remains a Phase 5 finding only — whether to adopt it (and by what
+mechanism, since it cannot be shipped by editing the pinned third-party wheel) is a decision for a
+later Phase 5 iteration or Phase 6, not made here.
+
+— Investigated by Claude Code per the maintainer's Phase 5 authorization; no maintainer ruling
+required (investigation/candidate-evaluation only, no subjective judgment made), 2026-09-21
+
+---
+
+## 2026-09-21 — v0.6.5 Phase 5 iteration 4 verdict: combined Edge candidate (PCM assembly +
+abbrev_types segmentation) APPROVED for Phase 6 integration, not integrated yet
+
+**Decision.** Having listened to the neutral-labeled A/B pairs on both `difficult_short` and
+`structural_stress` from the fourth Phase 5 A/B experiment — production's Edge direct/rich path
+against the two approved candidates combined (PCM-domain assembly, one final encode; NLTK
+`abbrev_types` i.e./e.g. fix; current pause behavior unchanged) — the maintainer **preferred
+candidate B on both texts.**
+
+**Ruling:** the **combined Edge candidate is APPROVED for later Phase 6 integration**:
+1. PCM-domain direct/rich assembly with one final MP3 encode.
+2. NLTK/Punkt `abbrev_types` extension for i.e./e.g.
+
+**Current production terminal-pause behavior remains unchanged** (iteration 3's candidate stays
+rejected). **Do not integrate any Edge candidate yet** — Phase 5 continues (Chatterbox work is next)
+before any Phase 6 integration phase begins. The disposable build scripts and evidence for all four
+Edge iterations remain under `files/dev-work/v0.6.5-phase5-*-ab/` (gitignored), for reference when
+Phase 6 integration is eventually authorized.
+
+— Decided by maintainer (Elijah Matthew) after listening to the Phase 5 iteration 4 A/B artifacts;
+recorded by Claude Code, 2026-09-21
+
+---
+
 ## 2026-09-21 — v0.6.5 Phase 5 iteration 3 verdict: terminal pause-supersede candidate REJECTED
 
 **Decision.** Having listened to the neutral-labeled A/B pairs for both test texts
