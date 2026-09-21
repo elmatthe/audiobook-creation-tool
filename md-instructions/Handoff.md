@@ -2,6 +2,108 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 2 VERDICT RECORDED (SEGMENTATION CANDIDATE APPROVED FOR LATER INTEGRATION, NOT YET INTEGRATED); ITERATION 3 (TERMINAL PAUSE-STACKING) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 2's segmentation A/B now has a maintainer verdict — and adds iteration 3's
+> record. Iterations 1 and 2's full construction/measurement/caveats and verdicts stand exactly as
+> recorded below. **No production file was edited by any iteration. Two candidates are now approved
+> but neither is integrated: the PCM-domain assembly candidate (iteration 1) and the NLTK
+> `abbrev_types` segmentation candidate (iteration 2).**
+>
+> **Maintainer verdict, iteration 2 (2026-09-21):** listened to `A.mp3`/`B.mp3` from the
+> segmentation experiment and **preferred candidate B**, noting the audible difference was subtle,
+> and preferred **B's slightly shorter/more natural gaps.** Ruling: **carry the NLTK/Punkt
+> `abbrev_types` i.e./e.g. candidate forward for later integration; do not integrate it yet.**
+> Recorded in `Decisions.md` (below) as a dated ADR.
+>
+> **Iteration 3 — the terminal pause-stacking issue, isolated as its own variable.** Per explicit
+> instruction, this does **not** combine with either approved-but-unintegrated candidate: B here
+> uses current production segmentation (stock Punkt, including the i.e./e.g. false split, unchanged)
+> and the current production MP3 round-tripping assembly path (not the PCM-domain candidate) —
+> **only the terminal-boundary pause decision differs, using existing configured constants, with no
+> new numeric value introduced anywhere.**
+>
+> **1. A vs. B construction.**
+> `files/dev-work/v0.6.5-phase5-pause-policy-ab/build_candidate_ab.py` (disposable, gitignored).
+> **A = production, unmodified**, run for real. **B = a disposable reimplementation calling the
+> exact same production primitives** (`trim_tts_chunk_file`, `append_silence`,
+> `intra_sentence_chunks`, `get_book` — reused verbatim) on **A's own captured raw Edge bytes**
+> (same technique as iteration 1; valid here because, unlike iteration 2, segmentation is
+> unchanged, so the raw network material is identical), with **exactly one control-flow change**:
+> for the paragraph that is simultaneously the book's last paragraph, its own last chapter, and the
+> book's end — production today appends `paragraphpause` (850 ms) to its last sentence, *then*
+> `chapter_trailing_pause` (2000 ms) to its chapter, *then* `end_of_book_pause` (3000 ms) to the
+> book, summing to 5,850 ms of deliberate silence at one point. **B skips the `paragraphpause` and
+> `chapter_trailing_pause` appends only at that one coinciding point** and applies
+> `end_of_book_pause` alone, exactly as production already computes it — `END_OF_BOOK` supersedes
+> rather than sums. Every *other* paragraph and chapter boundary in the book — including every other
+> paragraph in the terminal chapter, and (proven below) an earlier chapter's own ending — keeps
+> current production's unmodified stacking behavior. **The existing boundary model supported this
+> cleanly**: it already tracks "last sentence of paragraph," "last paragraph of chapter," and "last
+> chapter of book" as three independent, inspectable conditions, so the supersede fix was a
+> conditional skip, not a redesign.
+>
+> **2. Two corpus texts, because every tracked corpus item is single-chapter.**
+> `quality_corpus.STRUCTURAL_STRESS_KOKORO_EDGE` (7 paragraphs, 1 chapter, real Edge material) is
+> the primary comparison and proves ordinary (non-terminal) *paragraph* pauses are unchanged. A
+> small **disposable two-chapter fixture**, defined only inside the experiment script (never added
+> to `quality_corpus.py`), built from sentences already in the tracked corpus with two "#" chapter
+> headings, is the only way to exercise and prove an ordinary (non-terminal) *chapter* boundary
+> (paragraph+chapter_trailing_pause still stacking, unchanged) — no tracked item has a second
+> chapter.
+>
+> **3. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-pause-policy-ab/listening/{A,B}_structural_stress.mp3` and
+> `{A,B}_two_chapter.mp3`.
+>
+> **4. Terminal silence and total duration.** Measured with `pydub.silence.detect_silence` at 1 ms
+> seek resolution (not a coarse fixed-window scan). `structural_stress_kokoro_edge`: terminal
+> silence A 5,968 ms → B 3,115 ms; total duration 211.667 s → 208.817 s (−2,850 ms, exactly the
+> `paragraphpause`+`chapter_trailing_pause` sum removed). `two_chapter_fixture`: terminal silence A
+> 5,929 ms → B 3,079 ms; total duration 46.890 s → 44.042 s (−2,848 ms). Both residual-above-3000ms
+> amounts (115–118 ms) closely match each file's own pre-fix residual-above-5850ms amount (79–118
+> ms) — the natural trailing decay before the deliberate pause is unaffected, only the deliberate
+> portion changed. Neither file clips (peak ≤ −2.6 dBFS in both); dBFS shifts are within 0.1–0.4 dB,
+> consistent with assembly being held constant.
+>
+> **5. Proof that non-terminal pauses are unchanged — with one honestly-reported, small,
+> explained exception.** Fine-resolution (1 ms) silence-span comparison against A, span by span:
+> — **`two_chapter_fixture`: the earlier, non-terminal chapter boundary (Chapter 1's own ending,
+> which still stacks `paragraphpause`+`chapter_trailing_pause` = 2,850 ms) is bit-for-bit identical
+> between A and B** (17,105–20,277 ms in both) — direct proof the fix does not touch an ordinary
+> chapter ending.
+> — **`structural_stress_kokoro_edge`: 55 of 62 non-terminal quiet spans (89%) are bit-for-bit
+> identical** (0 ms start/length delta). The remaining 7 — all located *inside* the terminal
+> paragraph's own internal comma-pause structure (a single 7-sub sentence; none in any earlier
+> paragraph) — show sub-100ms jitter (max 73 ms, most single-digit ms). Root-caused to: in A, that
+> paragraph's `.flac` is decoded, has `chapter_trailing_pause` appended, and is re-encoded once more
+> before the final combine; in B, that same paragraph's `.flac` is never touched again after its
+> initial combine (its trailing pause is superseded, not appended-then-re-encoded). One extra
+> lossless decode/re-encode pass in A vs. one fewer in B is consistent with the tiny, localized
+> jitter observed — **no configured pause *value* changed anywhere, and no discrepancy appears
+> outside that one paragraph's own internal boundaries.**
+>
+> **6. Focused verification.** Both scripts assert their consumed raw-segment count exactly matches
+> what was captured (60=60 and 16=16) before exporting, and content-preservation was implicit in
+> reusing production's own unmodified `get_book`/`intra_sentence_chunks`/trim/pause functions.
+> `files/tests/test_segmentation_source_span.py` (37) + `test_tts_importing.py` (75) re-run clean
+> (112 passed) after the experiment. No tracked file changed besides this Handoff/Decisions update.
+>
+> **7. Caveats.** (a) The §5 jitter above — small, explained, localized, not a value change, but
+> real and reported rather than hidden. (b) Single run per text, no repetition for Edge-service
+> variance. (c) The two-chapter fixture is synthetic (built from existing corpus sentences, never
+> added to `quality_corpus.py`) specifically because no tracked item has a second chapter — its
+> chapter-boundary proof is real but the *text itself* was constructed for this experiment. (d) This
+> evidence says nothing about how the pause-supersede fix interacts with either approved-but-pending
+> candidate (PCM assembly, i.e./e.g. segmentation) — combining them is explicitly a later iteration.
+>
+> **v0.6.5 PHASE 5 ITERATION 3 IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, NO CANDIDATE WAS
+> ADOPTED INTO PRODUCTION, AND NO OTHER APPROVED CANDIDATE WAS COMBINED IN.** The maintainer's
+> listening pass against this iteration's artifacts is the next action. Nothing here authorizes
+> Chatterbox generation-parameter research, integrating any approved-but-pending candidate, or
+> Phase 6.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 1 VERDICT RECORDED (CANDIDATE B APPROVED FOR PHASE 6, NOT YET INTEGRATED); ITERATION 2 (i.e./e.g. SEGMENTATION FIX) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one

@@ -4,6 +4,34 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 — v0.6.5 Phase 5 iteration 2 verdict: NLTK abbrev_types i.e./e.g. segmentation
+candidate approved for later integration, not integrated yet
+
+**Decision.** Having listened to the neutral-labeled `A.mp3` (current production Punkt
+segmentation, which false-splits at "i.e."/"e.g.") and `B.mp3` (the same production code with
+`sent_tokenize` swapped for NLTK's own default Punkt model plus `"i.e"`/`"e.g"` added to its
+existing `abbrev_types` set — no new dependency, assembly/encoding held constant) from the second
+Phase 5 A/B experiment, the maintainer **preferred candidate B**, noting the audible difference was
+subtle, and preferred **B's slightly shorter/more natural gaps.**
+
+**Ruling:** carry the NLTK/Punkt `abbrev_types` candidate forward for later integration. **Do not
+integrate it yet** — Phase 5 continues with further isolated experiments before any integration
+phase begins.
+
+**What this does and does not authorize.** This is a listening verdict on the mechanically
+demonstrated difference (10 vs. 8 sentences on `DIFFICULT_SHORT`; identical trailing silence and
+segmentation on every other corpus item; ~1,842 ms shorter duration from two fewer 800 ms
+sentence-pauses; ~0.1 dB dBFS difference, consistent with assembly being held constant) — it does not
+by itself authorize touching `epub2tts_edge.py`, does not combine with the iteration 1 assembly
+candidate (also approved, also not yet integrated), and does not open Phase 6. The disposable build
+script and evidence remain at `files/dev-work/v0.6.5-phase5-segmentation-ab/` (gitignored), for
+reference when Phase 6 integration is eventually authorized.
+
+— Decided by maintainer (Elijah Matthew) after listening to the Phase 5 iteration 2 A/B artifacts;
+recorded by Claude Code, 2026-09-21
+
+---
+
 ## 2026-09-21 — v0.6.5 Phase 5 iteration 1 verdict: Edge PCM-domain assembly (candidate B) approved
 for Phase 6 integration, not integrated yet
 
