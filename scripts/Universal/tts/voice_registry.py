@@ -142,10 +142,11 @@ def _chatterbox_preset(
 #: dropdown separator only and never part of a voice's name.
 CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 
-# Fourteen rows: five Edge, five Kokoro, then the four approved Chatterbox
-# voices. v0.6.5 Phase 2 removed the two multilingual Edge rows
-# (en-US-AndrewMultilingualNeural, en-US-AvaMultilingualNeural) per the plan's
-# final voice inventory (Section 3) — ordinary Andrew and Ava are unaffected.
+# Fifteen rows: five Edge, five Kokoro, then five approved Chatterbox voices
+# (the original four plus Male 4, approved 2026-09-20). v0.6.5 Phase 2 also
+# removed the two multilingual Edge rows (en-US-AndrewMultilingualNeural,
+# en-US-AvaMultilingualNeural) per the plan's final voice inventory
+# (Section 3) — ordinary Andrew and Ava are unaffected.
 # The remaining rows keep the order, voice ids and timing they had before, and
 # carry the display wording the maintainer specified in Phase 13A.3.
 VOICES: list[VoiceEntry] = [
@@ -256,6 +257,17 @@ VOICES: list[VoiceEntry] = [
         backend="chatterbox",
         voice_id="chatterbox-male-2",
         display_label="Chatterbox - Male 2",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
+    ),
+    # ---- v0.6.5 Phase 2: Male 4 approved by the maintainer's listening gate
+    # (plan Section 5) on 2026-09-20. Same shared, unmodified preset as the
+    # other four Chatterbox rows (no per-voice tuning, per §6/the Phase 9
+    # convention); display label per plan Section 3.
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-male-4",
+        display_label="Chatterbox - Male 4",
         group_label=CHATTERBOX_GROUP_LABEL,
         timing_preset=_chatterbox_preset(),
     ),

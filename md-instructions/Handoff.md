@@ -2,6 +2,72 @@
 
 ## Current Focus
 
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 §14 REMEDIATION COMPLETE: MALE-4 REGISTERED, MALE-3 BOUNDED PITCH RETRY RENDERED — AWAITING THE SAME MALE-3 MANUAL LISTENING GATE (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — the maintainer's Male-3/Male-4 listening verdict has now been acted on, per the plan's
+> §14 manual-gate-failure/rollback protocol — and adds the remediation record. Every mechanical fact
+> in the block below (candidate hashes, verification counts, evidence paths) still stands as dated
+> history for the pre-verdict state.
+>
+> **Maintainer verdict (2026-09-20):** **Male-4 — approve.** **Male-3 — reject for bounded retry
+> only:** "otherwise good, make it ever so slightly deeper... only a very small timbre/pitch
+> reduction. Do not otherwise change its pacing, generation settings, clarity, or character."
+>
+> **1. Male-4 is now a registered production voice.** Moved verbatim (same `source_name`, same
+> hash — never recomputed, the source file was never touched) from
+> `chatterbox_synth.CANDIDATE_REFERENCE_VOICES` into the production `REFERENCE_VOICES` (now five
+> entries), and appended to `voice_registry.VOICES` as `chatterbox-male-4` / "Chatterbox - Male 4"
+> using the exact shared, unmodified `_chatterbox_preset()` every other Chatterbox row uses — no
+> per-voice tuning. **Registry now holds 15 voices** (5 Edge, 5 Kokoro, 5 Chatterbox). Nine tracked
+> test files' four-vs-five-Chatterbox-row assumptions were retargeted to match (not weakened).
+>
+> **2. Male-3's retry: a pitch-only shift on a scratch copy of its reference-conditioning clip,
+> never on `Male-3.mp3` and never on the cached production derivative.** New
+> `generate_voice_samples.render_male3_pitch_retry()` reuses
+> `chatterbox_synth.build_reference_clip` (the same 15s leading-window extraction production uses)
+> to build a throwaway copy, applies one ffmpeg `asetrate`+`atempo` pitch shift to that copy only
+> (no new dependency — ffmpeg is already required, already the exact binary
+> `build_reference_clip` shells out to), and conditions the model on the shifted copy directly via
+> `model.prepare_conditionals()` — bypassing the cached `derivative_path`/`conditionals_path`
+> identity system entirely, so no other voice and no global generation parameter is touched.
+> Generation uses the unmodified current-production `generation_params()` and the same
+> `CHATTERBOX_CANDIDATE_TEXT` every other candidate reads — pacing, clarity, and character are
+> otherwise unchanged by construction, not just by intent.
+>
+> **3. The adjustment: `MALE3_RETRY_PITCH_RATIO = 0.97`** (~3% lower, roughly half a semitone) — one
+> bounded value, not a ladder, per instruction. **A real bug was caught and fixed before this value
+> was trusted:** the first filter attempt used `atempo=pitch_ratio`, which stretched the reference
+> clip's duration by ~6.3% (15.00s → 15.94s) instead of preserving it. The corrected filter
+> (`atempo=1/pitch_ratio`) was verified on the same clip to hold duration to within 0.05%
+> (15.0000s → 15.0075s) before the real retry was generated.
+>
+> **4. Original Male-3 candidate sample preserved untouched for direct A/B**, at
+> `files/test-for-manual-listen-elmatthe/chatterbox-candidates/chatterbox-male-3.wav` (unmodified,
+> same file from the original Phase 2 run). **New pitch-retry sample:**
+> `files/test-for-manual-listen-elmatthe/chatterbox-candidates/chatterbox-male-3-pitch-retry.wav`
+> (9.00s audio, wall 10.95s, RTF 1.217; current production parameters:
+> `temperature=0.72, top_p=0.95, top_k=1000, repetition_penalty=1.2`). Both gitignored, local
+> listening only. Retry scratch artifacts (plain + pitch-shifted reference clips) live separately
+> under `files/dev-work/male-3-pitch-retry/`, never mixed with listening artifacts.
+>
+> **5. Both source hashes re-verified unchanged immediately before this checkpoint:** Male-3.mp3 →
+> `0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4`; Male-4.mp3 →
+> `1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5`. `git status` confirms no
+> change under `files/Chatterbox-Voice-Uploads/`.
+>
+> **6. Regression coverage:** `files/tests/test_chatterbox_candidates.py` substantially rewritten —
+> Male-4 moved out of "candidate" scope, `CHATTERBOX_CANDIDATE_VOICE_IDS` now holds only
+> `chatterbox-male-3`, and a new section (mocked — no real recording/model/ffmpeg) covers the retry
+> mechanism: duration preservation within 0.5%, the source file never written to, the scratch copy
+> (not the cached derivative) being what's shifted and conditioned on, current-production settings,
+> a clearly distinct output filename, and no registry side effect. **Full suite: 7434 passed / 57
+> skipped / 0 failed**, 1 warning (pre-existing pydub deprecation), in 9:46; `compileall` clean.
+>
+> **v0.6.5 PHASE 2 §14 REMEDIATION IS MECHANICALLY COMPLETE. MALE-3 IS NOT APPROVED BY THIS ENTRY,
+> AND NOTHING HERE AUTHORIZES STARTING PHASE 3.** The next action is the maintainer's listening pass
+> comparing the two Male-3 samples above, at the same manual gate.
+
 > ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 MECHANICAL WORK COMPLETE — AWAITING THE MANDATORY MALE-3/MALE-4 MANUAL LISTENING GATE (2026-09-20, HOME-PC)
 >
 > **This block is the live state.** It supersedes the block immediately below it on exactly one

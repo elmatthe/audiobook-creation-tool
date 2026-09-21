@@ -1,19 +1,27 @@
-"""v0.6.5 Phase 2 — the Chatterbox Male-3/Male-4 candidate-evaluation path.
+"""v0.6.5 Phase 2 — the Chatterbox candidate-evaluation path.
 
 Section 5 of the plan requires candidates to be evaluated on a **separate**
 path from the historical four-voice evaluation, under **current production**
 settings (not the historical Phase 9 temperature), with **no GUI registry
 change before approval**. This file pins exactly those three requirements,
-plus the P8 contract (hash-bound, never substituted) the two candidates share
-with the four approved voices.
+plus the P8 contract (hash-bound, never substituted) every candidate shares
+with the approved voices.
+
+Male-4 was approved by the maintainer's listening gate on 2026-09-20 and
+moved into ``chatterbox_synth.REFERENCE_VOICES`` /
+``voice_registry.VOICES`` — it is a registered production voice now, not a
+candidate, so this file no longer exercises it as one.
+``chatterbox-male-3`` is the sole remaining pending candidate (a bounded
+§14 pitch-retry is in progress for it; the retry mechanism itself is tested
+separately, in the section at the bottom of this file).
 
 Nothing here loads real weights, reads a real recording, or reaches the
 network: the engine is stubbed at the same seams
 ``test_chatterbox_evaluation.py`` already stubs, and every audio fixture is
-generated into ``tmp_path``. The real local recordings at
-files/Chatterbox-Voice-Uploads/Male-3.mp3 and Male-4.mp3 are verified by hand
-once per Phase 2 checkpoint (recorded in Handoff.md) — never by a tracked
-test, which must run identically on a machine that has never seen them.
+generated into ``tmp_path``. The real local recording at
+files/Chatterbox-Voice-Uploads/Male-3.mp3 is verified by hand once per Phase
+2 checkpoint (recorded in Handoff.md) — never by a tracked test, which must
+run identically on a machine that has never seen it.
 """
 from __future__ import annotations
 
@@ -26,7 +34,7 @@ from tts import chatterbox_synth as cbx
 from tts import generate_voice_samples as gvs
 from tts import voice_registry
 
-CANDIDATE_VOICE_IDS = ("chatterbox-male-3", "chatterbox-male-4")
+CANDIDATE_VOICE_IDS = ("chatterbox-male-3",)
 
 
 def _write_wav(path: Path, seconds: float = 1.5, rate: int = 24000) -> None:
@@ -99,15 +107,21 @@ def candidate_engine(monkeypatch, tmp_path):
 # --------------------------------------------------------------------------- #
 # A. Registry isolation — no GUI registry change before approval (Section 5)
 # --------------------------------------------------------------------------- #
-def test_candidates_are_not_registered_voices():
+def test_male_3_is_not_a_registered_voice():
     ids = {v.voice_id for v in voice_registry.VOICES}
     assert "chatterbox-male-3" not in ids
-    assert "chatterbox-male-4" not in ids
 
 
-def test_the_registry_still_holds_exactly_four_chatterbox_rows():
+def test_male_4_was_approved_and_is_now_registered():
+    """The counterpart fact: Male 4's approval (2026-09-20) is what moved it
+    out of this file's scope entirely."""
+    ids = {v.voice_id for v in voice_registry.VOICES}
+    assert "chatterbox-male-4" in ids
+
+
+def test_the_registry_holds_exactly_five_chatterbox_rows():
     chatterbox = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
-    assert len(chatterbox) == 4
+    assert len(chatterbox) == 5
 
 
 def test_running_the_candidate_evaluation_registers_nothing(candidate_engine):
@@ -119,9 +133,12 @@ def test_running_the_candidate_evaluation_registers_nothing(candidate_engine):
 # --------------------------------------------------------------------------- #
 # B. The historical four-voice evaluation stays exactly as it was (Section 5)
 # --------------------------------------------------------------------------- #
-def test_the_production_reference_set_stays_at_exactly_four():
-    assert len(cbx.REFERENCE_VOICES) == 4
-    assert set(CANDIDATE_VOICE_IDS).isdisjoint(cbx.REFERENCE_VOICES)
+def test_the_production_reference_set_now_holds_five():
+    """Four at Phase 10, plus Male 4 moved in on approval — Male 3 is not
+    among them, since it remains an unapproved candidate."""
+    assert len(cbx.REFERENCE_VOICES) == 5
+    assert "chatterbox-male-3" not in cbx.REFERENCE_VOICES
+    assert "chatterbox-male-4" in cbx.REFERENCE_VOICES
 
 
 def test_the_historical_evaluation_ids_are_untouched():
@@ -137,12 +154,11 @@ def test_candidate_and_historical_outputs_use_different_subfolders():
 
 
 # --------------------------------------------------------------------------- #
-# C. Reference identity — hash-bound like the four approved voices (P8)
+# C. Reference identity — hash-bound like the approved voices (P8)
 # --------------------------------------------------------------------------- #
-def test_candidate_reference_voices_are_exactly_male_3_and_4():
+def test_candidate_reference_voices_are_exactly_male_3():
     assert set(cbx.CANDIDATE_REFERENCE_VOICES) == set(CANDIDATE_VOICE_IDS)
     assert cbx.CANDIDATE_REFERENCE_VOICES["chatterbox-male-3"].source_name == "Male-3.mp3"
-    assert cbx.CANDIDATE_REFERENCE_VOICES["chatterbox-male-4"].source_name == "Male-4.mp3"
 
 
 def test_candidate_hashes_are_real_sha256_strings():
@@ -151,9 +167,14 @@ def test_candidate_hashes_are_real_sha256_strings():
         int(voice.source_sha256, 16)  # a hex string
 
 
-def test_get_reference_voice_finds_candidates_via_fallback():
+def test_get_reference_voice_finds_male_3_via_the_candidate_fallback():
     assert cbx.get_reference_voice("chatterbox-male-3").source_name == "Male-3.mp3"
+    assert "chatterbox-male-3" not in cbx.REFERENCE_VOICES  # via the fallback, not primary
+
+
+def test_get_reference_voice_finds_male_4_via_the_primary_production_set():
     assert cbx.get_reference_voice("chatterbox-male-4").source_name == "Male-4.mp3"
+    assert "chatterbox-male-4" in cbx.REFERENCE_VOICES  # primary lookup, not the fallback
 
 
 def test_get_reference_voice_still_rejects_a_truly_unknown_id():
@@ -161,13 +182,12 @@ def test_get_reference_voice_still_rejects_a_truly_unknown_id():
         cbx.get_reference_voice("chatterbox-nonexistent")
 
 
-def test_a_hash_mismatch_is_reported_without_stopping_the_other_candidate(candidate_engine):
+def test_a_hash_mismatch_for_the_sole_candidate_is_reported_accurately(candidate_engine):
     candidate_engine.fail_hash_for = "chatterbox-male-3"
     results = gvs.run_chatterbox_candidate_evaluation(log=lambda _m: None)
-    by_id = {r.voice_id: r for r in results}
-    assert by_id["chatterbox-male-3"].ok is False
-    assert "sha256" in by_id["chatterbox-male-3"].detail.lower()
-    assert by_id["chatterbox-male-4"].ok is True
+    assert len(results) == 1
+    assert results[0].ok is False
+    assert "sha256" in results[0].detail.lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -201,7 +221,7 @@ def test_the_candidate_flag_is_distinct_from_the_historical_eval_flag():
     assert ns.chatterbox_eval is False
 
 
-def test_the_candidate_evaluation_covers_exactly_the_two_candidates_in_order(candidate_engine):
+def test_the_candidate_evaluation_covers_exactly_the_one_remaining_candidate(candidate_engine):
     results = gvs.run_chatterbox_candidate_evaluation(log=lambda _m: None)
     assert [r.voice_id for r in results] == list(CANDIDATE_VOICE_IDS)
 
@@ -214,13 +234,13 @@ def test_candidate_outputs_land_only_in_their_own_subfolder(candidate_engine):
         assert r.output_path.endswith(f"{r.voice_id}.wav")
 
 
-def test_the_report_function_returns_zero_only_when_both_succeed(candidate_engine):
+def test_the_report_function_returns_zero_only_when_it_succeeds(candidate_engine):
     results = gvs.run_chatterbox_candidate_evaluation(log=lambda _m: None)
     assert gvs._report_chatterbox_candidate_evaluation(results, log=lambda _m: None) == 0
 
 
-def test_the_report_function_returns_nonzero_on_any_failure(candidate_engine):
-    candidate_engine.fail_generation_for = "chatterbox-male-4"
+def test_the_report_function_returns_nonzero_on_failure(candidate_engine):
+    candidate_engine.fail_generation_for = "chatterbox-male-3"
     results = gvs.run_chatterbox_candidate_evaluation(log=lambda _m: None)
     assert gvs._report_chatterbox_candidate_evaluation(results, log=lambda _m: None) == 1
 
@@ -238,3 +258,142 @@ def test_a_missing_local_recording_reports_setup_required_not_a_crash(
     results = gvs.run_chatterbox_candidate_evaluation(log=lambda _m: None)
     assert all(not r.ok for r in results)
     assert all("setup required" in r.detail.lower() for r in results)
+
+
+# --------------------------------------------------------------------------- #
+# F. The Male-3 §14 bounded pitch retry (2026-09-20 remediation)
+# --------------------------------------------------------------------------- #
+# The maintainer's verdict on Male-3: "otherwise good, make it ever so
+# slightly deeper... only a very small timbre/pitch reduction. Do not
+# otherwise change its pacing, generation settings, clarity, or character."
+# These tests cover the retry mechanism only (mocked); the real bounded
+# pitch value and its actual audio output are recorded in Handoff.md.
+def test_the_retry_pitch_ratio_is_a_small_reduction_not_a_ladder():
+    """"Ever so slightly deeper" — a single bounded value, comfortably inside
+    a small fraction of a semitone-scale adjustment, not a wide or upward
+    shift."""
+    assert 0.9 < gvs.MALE3_RETRY_PITCH_RATIO < 1.0
+
+
+def test_pitch_shift_preserves_duration_within_half_a_percent(tmp_path):
+    source = tmp_path / "in.wav"
+    dest = tmp_path / "out.wav"
+    _write_wav(source, seconds=15.0, rate=24000)
+
+    gvs._pitch_shift_preserve_tempo(source, dest, gvs.MALE3_RETRY_PITCH_RATIO)
+
+    with wave.open(str(source), "rb") as w:
+        original_seconds = w.getnframes() / w.getframerate()
+    with wave.open(str(dest), "rb") as w:
+        shifted_seconds = w.getnframes() / w.getframerate()
+    assert abs(shifted_seconds - original_seconds) / original_seconds < 0.005
+
+
+def test_pitch_shift_never_writes_to_the_source_file(tmp_path):
+    source = tmp_path / "in.wav"
+    dest = tmp_path / "out.wav"
+    _write_wav(source, seconds=15.0, rate=24000)
+    before = source.read_bytes()
+
+    gvs._pitch_shift_preserve_tempo(source, dest, gvs.MALE3_RETRY_PITCH_RATIO)
+
+    assert source.read_bytes() == before
+
+
+@pytest.fixture
+def retry_engine(monkeypatch, tmp_path):
+    """Stub the reference/model seams the pitch retry uses, plus a fake
+    pitch-shift step that just copies the file (no real ffmpeg call), so
+    this stays fast, deterministic, and network/model-free."""
+    stub = _CandidateEngine(tmp_path)
+    monkeypatch.setattr(cbx, "resolve_reference", stub.resolve_reference)
+    monkeypatch.setattr(cbx, "select_device", lambda: "cpu")
+
+    built_clips: list[Path] = []
+
+    def _fake_build_reference_clip(source, dest):
+        built_clips.append(Path(dest))
+        _write_wav(Path(dest), seconds=15.0)
+        return Path(dest)
+
+    monkeypatch.setattr(cbx, "build_reference_clip", _fake_build_reference_clip)
+
+    shift_calls: list[tuple[Path, Path, float]] = []
+
+    def _fake_pitch_shift(source, dest, pitch_ratio):
+        shift_calls.append((Path(source), Path(dest), pitch_ratio))
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(Path(source).read_bytes())
+
+    monkeypatch.setattr(gvs, "_pitch_shift_preserve_tempo", _fake_pitch_shift)
+
+    class _StubModel:
+        sr = 24000
+
+        def __init__(self) -> None:
+            self.prepared_with: str | None = None
+            self.generate_calls: list[str] = []
+
+        def prepare_conditionals(self, clip_path, exaggeration=None) -> None:
+            self.prepared_with = clip_path
+
+        def generate(self, text, **kwargs):
+            import numpy as np
+
+            self.generate_calls.append(text)
+            return np.zeros((1, int(self.sr * 1.5)), dtype="float32")
+
+    model = _StubModel()
+    monkeypatch.setattr(cbx, "_get_model", lambda device=None: model)
+
+    stub.model = model
+    stub.built_clips = built_clips
+    stub.shift_calls = shift_calls
+    monkeypatch.setattr(gvs, "_out_dir", lambda: _made(tmp_path / "manual-listen"))
+    return stub
+
+
+def test_the_retry_never_touches_male_3_mp3_directly(retry_engine):
+    """The retry reads the resolved (hash-verified) source but never opens
+    it for writing, and never passes it straight into the pitch shift."""
+    gvs.render_male3_pitch_retry(log=lambda _m: None)
+    for source, _dest, _ratio in retry_engine.shift_calls:
+        assert source.name != "Male-3.mp3"
+
+
+def test_the_retry_shifts_a_scratch_copy_not_the_cached_derivative(retry_engine):
+    gvs.render_male3_pitch_retry(log=lambda _m: None)
+    assert len(retry_engine.built_clips) == 1
+    assert len(retry_engine.shift_calls) == 1
+    shifted_source, _dest, ratio = retry_engine.shift_calls[0]
+    assert shifted_source == retry_engine.built_clips[0]
+    assert ratio == gvs.MALE3_RETRY_PITCH_RATIO
+
+
+def test_the_retry_conditions_the_model_on_the_shifted_clip(retry_engine):
+    gvs.render_male3_pitch_retry(log=lambda _m: None)
+    _source, shifted_dest, _ratio = retry_engine.shift_calls[0]
+    assert retry_engine.model.prepared_with == str(shifted_dest)
+
+
+def test_the_retry_uses_current_production_settings(retry_engine):
+    gvs.render_male3_pitch_retry(log=lambda _m: None)
+    assert retry_engine.model.generate_calls == [gvs.CHATTERBOX_CANDIDATE_TEXT]
+
+
+def test_the_retry_output_has_a_clearly_distinct_filename(retry_engine):
+    result = gvs.render_male3_pitch_retry(log=lambda _m: None)
+    assert result.ok is True
+    assert "pitch-retry" in Path(result.output_path).name
+    assert Path(result.output_path).name != "chatterbox-male-3.wav"
+
+
+def test_the_retry_records_the_pitch_ratio_in_its_parameters(retry_engine):
+    result = gvs.render_male3_pitch_retry(log=lambda _m: None)
+    assert result.parameters["retry_pitch_ratio"] == gvs.MALE3_RETRY_PITCH_RATIO
+
+
+def test_the_retry_does_not_register_or_alter_the_registry(retry_engine):
+    before = list(voice_registry.VOICES)
+    gvs.render_male3_pitch_retry(log=lambda _m: None)
+    assert voice_registry.VOICES == before

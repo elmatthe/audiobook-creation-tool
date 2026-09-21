@@ -210,10 +210,10 @@ def module_source(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_registry_now_holds_fourteen_voices():
+def test_the_registry_now_holds_fifteen_voices():
     """Sixteen at Phase 10; v0.6.5 Phase 2 then removed the two multilingual
-    Edge rows entirely (not a relabeling), so fourteen is now correct."""
-    assert len(vr.VOICES) == 14
+    Edge rows entirely (fourteen), then approved Male 4 (fifteen)."""
+    assert len(vr.VOICES) == 15
 
 
 def test_the_ten_existing_rows_keep_their_engine_values_and_order():
@@ -238,8 +238,11 @@ def test_the_ten_existing_rows_keep_their_engine_values_and_order():
 
 
 def test_the_four_approved_rows_are_appended_in_the_approved_order():
+    """The historical four (Phase 10), immediately followed by Male 4
+    (v0.6.5 Phase 2) — appended, not interleaved or reordered."""
     tail = vr.VOICES[10:]
-    assert [(e.voice_id, e.display_label) for e in tail] == list(APPROVED)
+    assert [(e.voice_id, e.display_label) for e in tail] == list(APPROVED) + [
+        ("chatterbox-male-4", "Chatterbox - Male 4")]
 
 
 def test_every_appended_row_declares_the_chatterbox_backend():
@@ -291,22 +294,22 @@ def test_the_default_voice_is_still_steffan():
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
 
 
-def test_the_dropdown_offers_the_ten_then_the_four():
+def test_the_dropdown_offers_the_ten_then_the_five():
     labels = vr.display_labels()
-    assert len(labels) == 14 == len(set(labels))
-    assert labels[10:] == [label for _voice_id, label in APPROVED]
+    assert len(labels) == 15 == len(set(labels))
+    assert labels[10:] == [label for _voice_id, label in APPROVED] + ["Chatterbox - Male 4"]
 
 
-def test_the_registry_source_declares_exactly_fourteen_rows():
+def test_the_registry_source_declares_exactly_fifteen_rows():
     """An AST count, so a commented-out or duplicated row cannot creep in."""
     tree = ast.parse(module_source(TTS_DIR / "voice_registry.py"))
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 14
+    assert len(rows) == 15
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
     assert backends[:10] == ["edge"] * 5 + ["kokoro"] * 5
-    assert backends[10:] == ["chatterbox"] * 4
+    assert backends[10:] == ["chatterbox"] * 5
 
 
 def test_the_registry_imports_no_engine_module():

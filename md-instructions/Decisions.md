@@ -4,6 +4,63 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-20 — v0.6.5 Phase 2 §14 remediation: Male-4 approved and registered; Male-3 rejected for
+a single bounded pitch-only retry on a scratch reference-conditioning clip
+
+**Decision (v0.6.5 Phase 2, §14 manual-gate-failure/rollback protocol).** The maintainer's listening
+verdict against the two candidate WAVs: **Male-4 — approve.** **Male-3 — reject for bounded retry
+only:** "otherwise good, make it ever so slightly deeper... only a very small timbre/pitch
+reduction. Do not otherwise change its pacing, generation settings, clarity, or character."
+
+**1. Male-4 is now a registered production voice, exactly as approved.** Moved verbatim from
+`chatterbox_synth.CANDIDATE_REFERENCE_VOICES` into the production `REFERENCE_VOICES` (same
+`source_name`, same hash — no hash was recomputed, the source file was never touched) and appended
+to `voice_registry.VOICES` as `chatterbox-male-4` / "Chatterbox - Male 4", using the exact shared,
+unmodified `_chatterbox_preset()` every other Chatterbox row uses (no per-voice tuning, per §6).
+`REFERENCE_VOICES` grows from four to five; the existing frozen-set test
+(`test_mp3_finalization.py::test_the_settled_chatterbox_values_are_untouched`) is updated to five
+with an explanatory comment, not weakened. The registry total moves from 14 to 15 rows; every
+count/index-based test across nine files was retargeted to match.
+
+**2. Male-3's retry is a pitch-only adjustment to a scratch copy of its reference-conditioning
+clip, never to `Male-3.mp3` and never to the cached production derivative.** New
+`generate_voice_samples.render_male3_pitch_retry()` reuses `chatterbox_synth.build_reference_clip`
+(the same 15s leading-window extraction production uses) to make a scratch copy, applies a single
+ffmpeg `asetrate`+`atempo` pitch shift (no new dependency — ffmpeg is already required and already
+the exact binary `build_reference_clip` shells out to) to that copy only, and conditions the model
+on the shifted copy directly via `model.prepare_conditionals()` — bypassing the cached
+`derivative_path`/`conditionals_path` identity system entirely, so no other voice's cache and no
+global generation parameter is touched. Generation itself uses the unmodified
+`generation_params()` (current production temperature/top_p/top_k/repetition_penalty) and the same
+`CHATTERBOX_CANDIDATE_TEXT` every other candidate reads.
+
+**3. The bounded value: `MALE3_RETRY_PITCH_RATIO = 0.97`** (~3% lower, roughly half a semitone) —
+a single value, not a ladder, per the explicit instruction to try one minimal adjustment before
+considering anything broader. A real ffmpeg math error was caught and fixed before this value was
+trusted: the first attempt used `atempo=pitch_ratio`, which lengthened the reference clip's
+duration by ~6.3% instead of preserving it; the corrected filter (`atempo=1/pitch_ratio`) was
+verified to hold duration to within 0.05% (15.0000s → 15.0075s) before the real retry was run.
+
+**4. Output goes to a clearly distinct filename beside the original candidate sample, which is
+never regenerated or overwritten.** `chatterbox-male-3-pitch-retry.wav`, alongside the untouched
+original `chatterbox-male-3.wav`, both under `files/test-for-manual-listen-elmatthe/
+chatterbox-candidates/` (gitignored). The retry's own scratch artifacts (the plain and pitch-shifted
+reference-conditioning clips) live under `files/dev-work/male-3-pitch-retry/`, separate from any
+listening artifact.
+
+**Consequences:** `CHATTERBOX_CANDIDATE_VOICE_IDS` now holds only `chatterbox-male-3`; Male-4 is
+removed from the candidate pool entirely (it is production now, not pending). Nine tracked test
+files' Chatterbox-count assumptions moved from four to five approved voices, and
+`test_chatterbox_candidates.py` was substantially rewritten to reflect Male-4's departure from
+"candidate" status and to add coverage for the new retry mechanism (mocked — no real recording,
+model, or ffmpeg call). Male-3 remains unapproved and unregistered; only the maintainer's next
+listening pass decides whether this one bounded adjustment is sufficient.
+
+— Decided by maintainer (Elijah Matthew) per the plan's §14 protocol; implemented by Claude Code,
+2026-09-20
+
+---
+
 ## 2026-09-20 — v0.6.5 Phase 2: multilingual Edge voices removed; Male-3/Male-4 evaluated on a
 separate candidate path that reuses the production reference/conditioning machinery without
 touching it

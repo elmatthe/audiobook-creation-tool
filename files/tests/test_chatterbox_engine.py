@@ -229,10 +229,12 @@ def test_a_missing_package_breaks_neither_the_launcher_nor_the_other_engines():
 # --------------------------------------------------------------------------- #
 # D/E. Reference resolution — presence and hash
 # --------------------------------------------------------------------------- #
-def test_the_four_reference_voices_are_declared_and_closed():
+def test_the_five_reference_voices_are_declared_and_closed():
+    """Four at Phase 10, plus Male 4 (v0.6.5 Phase 2, approved 2026-09-20 via
+    the separate candidate path — moved in verbatim, same hash)."""
     assert sorted(cbx.REFERENCE_VOICES) == [
         "chatterbox-female-1", "chatterbox-female-2",
-        "chatterbox-male-1", "chatterbox-male-2",
+        "chatterbox-male-1", "chatterbox-male-2", "chatterbox-male-4",
     ]
 
 
@@ -245,6 +247,8 @@ def test_the_four_reference_voices_are_declared_and_closed():
      "6258dde294a91b0c2e965e8579aafde10e9cff48957c2138432be4c6c80165ae"),
     ("chatterbox-male-2", "Male-2.mp3",
      "7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2"),
+    ("chatterbox-male-4", "Male-4.mp3",
+     "1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5"),
 ])
 def test_each_voice_maps_to_its_exact_source_and_hash(voice_id, name, sha):
     voice = cbx.REFERENCE_VOICES[voice_id]

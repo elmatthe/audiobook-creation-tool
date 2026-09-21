@@ -345,12 +345,14 @@ def _report_chatterbox_evaluation(results: list[ChatterboxEvalResult],
 #: for the four already-approved voices, not a different one.
 CHATTERBOX_CANDIDATE_TEXT = CHATTERBOX_EVAL_TEXT
 
-#: Male-3 and Male-4 only (plan Section 3) — an independent closed pair, not
-#: merged with CHATTERBOX_EVAL_VOICE_IDS. A `NO` from the maintainer leaves a
-#: voice_id here forever; there is no automatic substitute (plan Section 5).
+#: Still-pending candidates only (plan Section 3), not merged with
+#: CHATTERBOX_EVAL_VOICE_IDS. A `NO` from the maintainer leaves a voice_id
+#: here forever; there is no automatic substitute (plan Section 5). Male-4
+#: was approved 2026-09-20 and removed from this tuple — it is now a
+#: registered production voice (voice_registry.VOICES,
+#: chatterbox_synth.REFERENCE_VOICES), not a candidate.
 CHATTERBOX_CANDIDATE_VOICE_IDS: tuple[str, ...] = (
     "chatterbox-male-3",
-    "chatterbox-male-4",
 )
 
 #: A separate subfolder from CHATTERBOX_EVAL_SUBDIR — candidates are not the
@@ -471,6 +473,148 @@ def _report_chatterbox_candidate_evaluation(
     log("Approval decision belongs to the maintainer, per voice, by listening "
         "(plan Section 5). Nothing was registered in voice_registry.VOICES.")
     return 0 if ok == len(results) else 1
+
+
+# --------------------------------------------------------------------------- #
+# Male-3 §14 bounded pitch retry (v0.6.5 Phase 2 remediation, 2026-09-20)
+# --------------------------------------------------------------------------- #
+#: The maintainer's verdict: "otherwise good, make it ever so slightly
+#: deeper... only a very small timbre/pitch reduction. Do not otherwise
+#: change its pacing, generation settings, clarity, or character." ~3% lower
+#: (roughly half a semitone) is the single bounded adjustment tried here, per
+#: instruction not to build a ladder of variants unless this one proves
+#: mechanically unusable.
+MALE3_RETRY_PITCH_RATIO = 0.97
+
+MALE3_RETRY_SUBDIR = "male-3-pitch-retry"
+
+
+def _pitch_shift_preserve_tempo(source: Path, dest: Path, pitch_ratio: float) -> None:
+    """Shift ``source``'s pitch by ``pitch_ratio`` (1.0 = unchanged, <1.0 =
+    lower/deeper) while preserving its tempo/duration, via ffmpeg's standard
+    ``asetrate`` + ``atempo`` pair. No new dependency: ffmpeg is already a
+    project requirement and this is the same binary
+    ``chatterbox_synth.build_reference_clip`` already shells out to for the
+    ordinary reference-window extraction.
+
+    ``asetrate=rate*pitch_ratio`` relabels the existing samples' playback
+    rate, which shifts pitch by exactly ``pitch_ratio`` but also **stretches**
+    duration by ``1/pitch_ratio`` (a lower declared rate means the same
+    sample count now spans more wall-clock time); ``atempo=1/pitch_ratio``
+    then speeds playback back up by that same factor, restoring the original
+    duration without touching pitch a second time (atempo is a time-domain
+    algorithm that never touches pitch). ``aresample`` returns the stream to
+    the original sample rate label afterward so the file plays at the same
+    rate every other derivative uses.
+    """
+    import subprocess
+
+    with wave.open(str(source), "rb") as handle:
+        rate = handle.getframerate()
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ffmpeg_utils.ffmpeg_cmd(), "-y", "-loglevel", "error",
+        "-i", str(source),
+        "-filter:a",
+        f"asetrate={rate * pitch_ratio},atempo={1.0 / pitch_ratio},aresample={rate}",
+        "-ac", "1",
+        str(dest),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0 or not dest.is_file():
+        raise RuntimeError(
+            f"ffmpeg pitch-shift failed: {(result.stderr or '').strip() or 'no output produced'}")
+
+
+def render_male3_pitch_retry(
+    pitch_ratio: float = MALE3_RETRY_PITCH_RATIO,
+    log: Callable[[str], None] = print,
+    device: str | None = None,
+) -> ChatterboxEvalResult:
+    """One bounded plan-§14 remediation retry for the rejected Male-3
+    candidate (maintainer verdict, 2026-09-20 — see module docstring above
+    for the exact wording).
+
+    Applies the pitch shift to a **scratch copy** of the standard 15-second
+    reference-conditioning clip — never to ``Male-3.mp3`` itself, and never
+    to the cached production derivative
+    (``chatterbox_synth.derivative_path``) any other call might reuse — then
+    conditions the model on that copy directly and generates one new WAV
+    under the exact same current-production ``generation_params()`` and
+    evaluation text as the original candidate render. Nothing else about
+    Male-3's evaluation changes: same text, same
+    temperature/top_p/top_k/repetition_penalty, same device selection, same
+    reference-conditioning exaggeration.
+
+    This is a one-off remediation tool, not new production voice-processing
+    machinery: the pitch shift is a single ffmpeg filter, applied once, to
+    one temporary file, for one voice, on this one retry call. It is not
+    wired into ``voice_registry``, the production derivative/identity-digest
+    cache, or any other voice's synthesis path, and it changes nothing about
+    ``chatterbox_synth.build_reference_clip`` or any global generation
+    parameter.
+    """
+    from tts import chatterbox_synth as cbx
+
+    voice_id = "chatterbox-male-3"
+    resolved_device = device or cbx.select_device()
+    generation = cbx.generation_params()
+    voice = cbx.get_reference_voice(voice_id)
+
+    result = ChatterboxEvalResult(
+        voice_id=voice_id,
+        label=f"{voice.label} (pitch retry x{pitch_ratio})",
+        source_sha256=voice.source_sha256,
+        device=resolved_device,
+        parameters={
+            "package": cbx.PACKAGE_REQUIREMENT,
+            "model": cbx.MODEL_REPO_ID,
+            "device": resolved_device,
+            "reference": cbx.derivative_spec(),
+            "generation": generation,
+            "retry_pitch_ratio": pitch_ratio,
+        },
+    )
+
+    retry_dir = paths.REPO_ROOT / "files" / "dev-work" / MALE3_RETRY_SUBDIR
+    base_clip = retry_dir / "reference_clip_original.wav"
+    shifted_clip = retry_dir / f"reference_clip_pitch{pitch_ratio:.2f}.wav"
+    dest = _chatterbox_candidate_dir() / "chatterbox-male-3-pitch-retry.wav"
+
+    try:
+        source = cbx.resolve_reference(voice_id)  # hash-verified, read-only
+        result.source_path = str(source)
+
+        # Same 15s leading-window extraction the production path uses,
+        # written to a scratch copy — never the cached production derivative.
+        cbx.build_reference_clip(source, base_clip)
+        _pitch_shift_preserve_tempo(base_clip, shifted_clip, pitch_ratio)
+        result.derivative_path = str(shifted_clip)
+
+        model = cbx._get_model(resolved_device)
+        model.prepare_conditionals(str(shifted_clip), exaggeration=cbx.REFERENCE_EXAGGERATION)
+
+        started = time.perf_counter()
+        arr = cbx._audio_array(model.generate(CHATTERBOX_CANDIDATE_TEXT, **generation))
+        if arr.size == 0:
+            raise cbx.ChatterboxUnavailable(
+                "Chatterbox produced no audio for the Male-3 pitch retry.")
+        import soundfile as sf
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(dest), arr, model.sr)
+        result.output_path = str(dest)
+        result.wall_seconds = time.perf_counter() - started
+        result.audio_seconds = _wav_seconds(dest)
+        result.rtf = result.wall_seconds / result.audio_seconds
+        result.ok = True
+        result.detail = "OK"
+    except Exception as exc:
+        result.detail = str(exc) or repr(exc)
+        log(f"FAIL Male-3 pitch retry: {exc!r}")
+
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -794,10 +938,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--chatterbox-candidates",
         dest="chatterbox_candidates",
         action="store_true",
-        help="v0.6.5 Phase 2: render the Male-3/Male-4 candidate listening WAVs "
-             "and stop (current production settings, not the historical Phase "
-             "9 temperature; separate from --chatterbox-eval and never touches "
-             "voice_registry.VOICES).",
+        help="v0.6.5 Phase 2: render a listening WAV for each still-pending "
+             "Chatterbox candidate (currently Male-3 only — Male-4 was "
+             "approved 2026-09-20 and is now a registered production voice) "
+             "and stop (current production settings, not the historical "
+             "Phase 9 temperature; separate from --chatterbox-eval and never "
+             "touches voice_registry.VOICES).",
+    )
+    ap.add_argument(
+        "--chatterbox-male3-pitch-retry",
+        dest="chatterbox_male3_pitch_retry",
+        action="store_true",
+        help="v0.6.5 Phase 2 Section 14 remediation: render one Male-3 "
+             "listening WAV with a small pitch-only reduction applied to a "
+             "scratch copy of its reference-conditioning clip (never to "
+             "Male-3.mp3 or the cached production derivative), under "
+             "otherwise unchanged current-production settings, and stop.",
     )
     ap.add_argument(
         "--quality-suite",
@@ -822,6 +978,21 @@ def main() -> int:
     if args.chatterbox_candidates:
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_candidate_evaluation(run_chatterbox_candidate_evaluation())
+
+    if args.chatterbox_male3_pitch_retry:
+        ffmpeg_utils.configure_pydub()
+        result = render_male3_pitch_retry()
+        print()
+        print(format_chatterbox_table([result]))
+        print()
+        if result.ok:
+            print(f"OK  wall {result.wall_seconds:.2f}s  audio {result.audio_seconds:.2f}s  "
+                  f"RTF {result.rtf:.3f}")
+        else:
+            print(f"FAIL  {result.detail}")
+        print("Approval decision belongs to the maintainer, by listening "
+              "(plan Section 5). Nothing was registered in voice_registry.VOICES.")
+        return 0 if result.ok else 1
 
     if args.quality_suite:
         rows = run_quality_suite(args.patterns)
