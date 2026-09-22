@@ -103,6 +103,7 @@ except (ImportError, ModuleNotFoundError) as _tk_err:  # Tk-less / headless Pyth
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 # Ensure the scripts/ root is importable so `tts.*` resolves whether this GUI is
@@ -136,7 +137,6 @@ from shared.job_control import (
     capture_run,
 )
 from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
-from shared.ui_theme import enable_mousewheel
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
     DEFAULT_END_OF_BOOK_PAUSE_MS,
@@ -155,6 +155,9 @@ from tts.voice_registry import (
 
 #: How long ``close()`` waits for a conversion worker to unwind.
 WORKER_JOIN_TIMEOUT = 5.0
+
+#: Visible rows in the imported-file list before it scrolls locally.
+IMPORTER_LIST_HEIGHT = 6
 
 #: The run id the shared controls carry before the first conversion. A panel that
 #: has never run still shows its Pause/Cancel/Retry row, uniformly disabled.
@@ -771,16 +774,21 @@ class TtsPanel(ttk.Frame):
         )
 
         # ---- layout ------------------------------------------------------- #
-        # The imported queue sits OUTSIDE the scrollable options area, alongside
-        # the action buttons and the log, so Add and Remove stay reachable however
-        # far the form is scrolled. The form itself is untouched: this tool's
-        # options are ~1300 px of controls against ~660 px of visible window, so
-        # they still live in a vertically scrollable canvas.
-        self.rowconfigure(0, weight=0)   # the imported queue — fixed, always visible
-        self.rowconfigure(1, weight=1)   # scrollable options grow with the window
-        self.rowconfigure(2, weight=0)   # Start — fixed, always visible
-        self.rowconfigure(3, weight=1)   # the shared run controls and Summary
-        self.rowconfigure(4, weight=0)   # engine transcript — fixed height
+        # v0.6.5 Phase 7 (final layout-refinement pass): the options form is no
+        # longer ~1300 px of controls against a ~660 px window -- the Compact
+        # UI pass shrank it to ~445 px -- so the page-canvas/scrollbar it used
+        # to need is gone entirely (mirrors the MP3 Tool/M4B Converter, which
+        # solved the exact same "fixed bands exceed the 920x600 minimum"
+        # problem the same way: no whole-tool scrollbar at all, only the
+        # variable-length regions -- the imported queue and the engine log --
+        # keep their own local scrollbar and compress under weight, while the
+        # options form and the Start row are pinned at weight=0 so their
+        # controls are never squeezed below what they ask for).
+        self.rowconfigure(0, weight=4)   # imported queue -- scrolls locally
+        self.rowconfigure(1, weight=0)   # Voice/Engine + Audio/Processing -- pinned
+        self.rowconfigure(2, weight=0)   # Start / Open Output Folder / Clear Log -- pinned
+        self.rowconfigure(3, weight=2)   # shared run controls, progress, Summary
+        self.rowconfigure(4, weight=4)   # engine transcript -- scrolls locally
         self.columnconfigure(0, weight=1)
 
         self.importer = job_ui.ImportAdapter(
@@ -802,41 +810,14 @@ class TtsPanel(ttk.Frame):
             confirm_large_result=(self._confirm_large_result
                                   if confirm_large_result is None
                                   else confirm_large_result),
-            list_height=6,
+            list_height=IMPORTER_LIST_HEIGHT,
         )
         self.importer.frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 6))
+        self._hold_importer_open()
 
-        canvas_wrap = ttk.Frame(self)
-        canvas_wrap.grid(row=1, column=0, sticky="nsew")
-        canvas_wrap.rowconfigure(0, weight=1)
-        canvas_wrap.columnconfigure(0, weight=1)
-        options_canvas = tk.Canvas(canvas_wrap, highlightthickness=0, borderwidth=0)
-        options_canvas.grid(row=0, column=0, sticky="nsew")
-        options_sb = ttk.Scrollbar(
-            canvas_wrap, orient="vertical", command=options_canvas.yview
-        )
-        options_sb.grid(row=0, column=1, sticky="ns")
-        options_canvas.configure(yscrollcommand=options_sb.set)
-
-        frm = ttk.Frame(options_canvas, padding=10)
-        _frm_window = options_canvas.create_window((0, 0), window=frm, anchor="nw")
+        frm = ttk.Frame(self, padding=10)
+        frm.grid(row=1, column=0, sticky="ew")
         frm.columnconfigure(1, weight=1)
-
-        def _sync_scrollregion(_event: object | None = None) -> None:
-            options_canvas.configure(scrollregion=options_canvas.bbox("all"))
-
-        def _sync_form_width(event: object) -> None:
-            # Make the form fill the canvas width so "ew" rows expand as before.
-            options_canvas.itemconfigure(_frm_window, width=event.width)
-
-        frm.bind("<Configure>", _sync_scrollregion)
-        options_canvas.bind("<Configure>", _sync_form_width)
-
-        # The launcher reuses one root across tools, so wheel binding is scoped to
-        # while the pointer is over this panel (the wrap frame, not the canvas —
-        # the form frame covers the canvas, so the canvas itself almost never gets
-        # the pointer).
-        enable_mousewheel(options_canvas, hover_region=canvas_wrap)
 
         r = 0
         ttk.Label(frm, text="Output folder").grid(
@@ -859,8 +840,8 @@ class TtsPanel(ttk.Frame):
         # Band 3 (Audio/Processing) -- the rate control that Band 3 keeps depends
         # on which backend Band 2 selected, so the dependent widgets exist before
         # _on_voice_selected() is ever called (moved to the end of both bands).
-        voice_frm = ttk.LabelFrame(frm, text="Voice / Engine", padding=8)
-        voice_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        voice_frm = ttk.LabelFrame(frm, text="Voice / Engine", padding=6)
+        voice_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         voice_frm.columnconfigure(1, weight=1)
         r += 1
 
@@ -915,8 +896,8 @@ class TtsPanel(ttk.Frame):
         # unified direct/folder dispatch); this replaces the two separate
         # "files added directly" / "imported from a folder" groups, which had
         # become misleading once that unification landed.
-        audio_frm = ttk.LabelFrame(frm, text="Audio / Processing", padding=8)
-        audio_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        audio_frm = ttk.LabelFrame(frm, text="Audio / Processing", padding=6)
+        audio_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         audio_frm.columnconfigure(1, weight=1)
         r += 1
         ar = 0
@@ -939,16 +920,11 @@ class TtsPanel(ttk.Frame):
         ar += 1
         ttk.Label(
             audio_frm,
-            text=(
-                "Concurrency is between whole files only, never inside one file's "
-                "own synthesis. The effective cap actually used this run — limited "
-                "by files queued, the selected engine, and this computer — is "
-                "reported truthfully at the top of Engine output below."
-            ),
-            wraplength=560,
+            text="Whole files only, never within one — effective cap logged below.",
+            wraplength=680,
             justify=tk.LEFT,
             foreground="gray",
-        ).grid(row=ar, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ).grid(row=ar, column=0, columnspan=2, sticky="w", pady=(0, 4))
         ar += 1
 
         # Exactly one of these two is shown, chosen by the selected voice's
@@ -990,7 +966,7 @@ class TtsPanel(ttk.Frame):
         self._on_voice_selected()
 
         run_opts = ttk.Frame(frm)
-        run_opts.grid(row=r, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        run_opts.grid(row=r, column=0, columnspan=2, sticky="w", pady=(6, 0))
         r += 1
         ttk.Checkbutton(run_opts, text="Resume (skip existing MP3s)",
                         variable=self.resume_var).pack(side=tk.LEFT)
@@ -999,22 +975,19 @@ class TtsPanel(ttk.Frame):
             variable=self.overwrite_var)
         self.chk_overwrite.pack(side=tk.LEFT, padx=(16, 0))
 
-        # Footer help text — last row of the scrollable form.
+        # Footer help text — last row of the form. Shortened in the final
+        # v0.6.5 Phase 7 layout pass: the per-engine detail this used to spell
+        # out (Kokoro's local download, a cloned voice's setup-required state)
+        # already appears contextually above via kokoro_notice_lbl/voice_
+        # status_lbl the moment a voice that needs it is selected, so only the
+        # one fact those do not cover -- which voice is the default -- earns a
+        # permanent line here.
         ttk.Label(
             frm,
-            text=(
-                "Default voice: Microsoft Edge TTS — Steffan (en-US-SteffanNeural). "
-                "Edge TTS voices use network synthesis via edge-tts (no Natural "
-                "Reader login). Kokoro voices (Heart, Bella, Michael, Emma, George) "
-                "run locally using the Kokoro-82M open-source AI model; ~300 MB "
-                "model download required on first use. The cloned voices run "
-                "locally too, from reference recordings kept on this computer; if "
-                "a recording is not present here, that voice reports what it needs "
-                "and the other voices are unaffected."
-            ),
-            wraplength=620,
+            text=("Default voice: Microsoft Edge TTS — Steffan "
+                  "(en-US-SteffanNeural)."),
             justify=tk.LEFT,
-        ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ).grid(row=r, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         # --- Start (row 2): always visible, outside the scroll area. -----------
         # Start stays this panel's own button: the shared JobControlBar owns Pause,
@@ -1052,9 +1025,10 @@ class TtsPanel(ttk.Frame):
         logf.rowconfigure(0, weight=1)
         logf.columnconfigure(0, weight=1)
         self.log = scrolledtext.ScrolledText(
-            logf, height=8, state=tk.DISABLED, wrap=tk.WORD, font=log_font
+            logf, height=4, state=tk.DISABLED, wrap=tk.WORD, font=log_font
         )
         self.log.grid(row=0, column=0, sticky="nsew")
+        self._hold_log_open()
 
         # The worker->GUI queue is a drain on the one pump, not a second chain.
         self._pump.add_drain(self._drain_worker_queue)
@@ -1341,6 +1315,7 @@ class TtsPanel(ttk.Frame):
         if previous is not None:
             previous.close()
             previous.frame.destroy()
+            self.rowconfigure(3, minsize=0)
         retiring = getattr(self, "_publisher", None)
         if retiring is not None:
             retiring.close()
@@ -1364,15 +1339,106 @@ class TtsPanel(ttk.Frame):
             on_resume=self.resume,
             on_cancel=self.cancel_job,
             on_retry=self.retry_failed,
-            details_height=8,
+            details_height=4,
         )
         self.jobs.frame.grid(row=0, column=0, sticky="nsew")
+        self._hold_job_area_open()
         # One progress model, not two: this panel's indicator *is* the shared status
         # view's, so nothing can draw a second, disagreeing bar.
         self.progress = self.jobs.status.indicator
         self.jobs.register_inputs(self.importer)
         self.jobs.register_options(self)
         self.jobs.render()
+
+    def _hold_importer_open(self) -> None:
+        """Stop ``grid`` shrinking the imported queue's row below what its own
+        Add Files/Import Folder/Include Subfolders controls and its import
+        status bar need, with a small floor left over for the file list itself.
+
+        ``ImportAdapter`` gives its own file-list row (row 0 inside ``importer.
+        frame``) all the weight, exactly so *that* is the row which compresses
+        and scrolls locally -- its options row (Add Files/Import Folder/
+        Include Subfolders) and its status row (the running-scan bar) are both
+        weight=0 and meant to stay full size. Without a floor here, this
+        panel's own outer queue row (row 0) can be squeezed smaller than those
+        two need; ``grid`` does not clip a child to a cell smaller than its
+        own request, so the effect is not a smaller options/status row -- it
+        is those rows overlapping whatever this panel grids below its own
+        row 0 instead. Called once, from ``__init__``: unlike the job area,
+        this adapter is never rebuilt, so there is no stale floor to clear.
+        """
+        self.importer.frame.update_idletasks()
+        options_h = self.importer.options.frame.winfo_reqheight()
+        status_h = self.importer.status.frame.winfo_reqheight()
+
+        def _top_pad(widget) -> int:
+            pady = widget.grid_info().get("pady", 0)
+            return pady[0] if isinstance(pady, (tuple, list)) else int(pady or 0)
+
+        # A small allowance for the file list itself, so the queue does not
+        # collapse to zero visible rows at the supported minimum -- about two
+        # rows' worth, derived from the adapter's own configured list height
+        # rather than a hard-coded pixel count.
+        list_row_px = self.importer.list.frame.winfo_reqheight() / IMPORTER_LIST_HEIGHT
+        list_floor = int(list_row_px * 2)
+
+        floor = (options_h + _top_pad(self.importer.options.frame)
+                 + status_h + _top_pad(self.importer.status.frame)
+                 + list_floor)
+        if floor > 0:
+            self.rowconfigure(0, minsize=floor)
+
+    def _hold_log_open(self) -> None:
+        """Stop ``grid`` shrinking the engine-output log to nothing at all.
+
+        Row 4 carries the same weight as the imported queue's row (row 0), so
+        it is a legitimate scroll-locally target too -- but unlike the queue,
+        this widget has no fixed options/status children to protect, only
+        itself, so an unprotected weight=4 row lets it absorb the *entire*
+        deficit down to a sliver a pixel tall: mapped, technically
+        "scrollable", but showing nothing and not usefully resizable back
+        without knowing to drag exactly the right divider. A floor of two
+        visible lines matches the "at least two rows" bar this codebase
+        already holds every other variable-length list/text region to.
+        """
+        self.log.update_idletasks()
+        line = tkfont.Font(font=self.log.cget("font")).metrics("linespace")
+        logf = self.log.master
+        pady = logf.grid_info().get("pady", 0)
+        bottom = pady[1] if isinstance(pady, (tuple, list)) else int(pady or 0)
+        chrome = logf.winfo_reqheight() - self.log.winfo_reqheight()
+        floor = chrome + 2 * line + bottom
+        if floor > 0:
+            self.rowconfigure(4, minsize=floor)
+
+    def _hold_job_area_open(self) -> None:
+        """Stop ``grid`` shrinking row 3 past the point where Summary shows text.
+
+        Mirrors the M4B Converter's own fix for the identical problem: this
+        panel asks for more content height than the supported 920x600 minimum
+        has to give, so ``grid`` shrinks every weighted row. Row 3 is not
+        freely elastic the way the queue (row 0) and the log (row 4) are:
+        below the job area's own floor, Summary collapses to a sliver —
+        mapped, full width, showing nothing. Row 0 and row 4 scroll locally,
+        so they are the right rows to absorb the shortfall; this only stops
+        row 3 absorbing more than it can afford.
+
+        The floor is measured by the shared adapter, never hard-coded, and is
+        re-applied on every adapter rebuild (cleared first in ``_install_jobs``)
+        so a stale floor from a previous run cannot accumulate.
+        """
+        floor = self.jobs.minimum_height()
+        if floor <= 0:
+            try:
+                self.job_area.update_idletasks()
+            except tk.TclError:  # pragma: no cover - torn down
+                return
+            floor = self.jobs.minimum_height()
+        if floor <= 0:
+            return
+        pady = self.jobs.frame.grid_info().get("pady", 0)
+        bottom = pady[1] if isinstance(pady, (tuple, list)) else int(pady or 0)
+        self.rowconfigure(3, minsize=floor + int(bottom))
 
     def _on_state(self, snapshot):
         """The controller's listener: copy its state into the event stream.

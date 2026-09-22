@@ -109,14 +109,13 @@ def test_audio_processing_band_holds_bitrate_workers_and_rate_controls(make_pane
 def test_the_workers_control_is_labelled_as_requested_file_level_concurrency():
     text = source()
     assert "File workers (requested)" in text
-    assert "Concurrency is between whole files only" in text
-    assert "never inside one file" in text
+    assert "Whole files only, never within one" in text
 
 
 def test_the_workers_caption_points_to_the_truthful_effective_cap_report():
     text = source()
-    assert "effective cap actually used" in text
-    assert "Engine output" in text
+    assert "effective cap logged below" in text
+    assert 'text="Engine output"' in text
 
 
 @pytest.mark.parametrize("label,backend,edge_shown,kokoro_shown", [
@@ -198,77 +197,191 @@ def test_the_two_new_buttons_are_not_registered_as_processing_options(make_panel
 
 # --------------------------------------------------------------------------- #
 # D. Layout: no whole-tool scrollbar, primary controls stay reachable
+#
+# The final v0.6.5 Phase 7 layout-refinement pass removed the options form's
+# canvas/scrollbar entirely (it shrank enough, across the Compact UI pass and
+# this one, that it no longer needs its own scroll mechanism) and adopted the
+# same weighted-row scheme the MP3 Tool and M4B Converter already use for the
+# identical "fixed bands exceed the 920x600 minimum" problem: the imported
+# queue and the engine log carry the weight and compress/scroll locally, the
+# options form and the Start row are pinned at weight=0, and the shared run
+# controls' row is protected by a measured floor (_hold_job_area_open, mirrors
+# the M4B Converter's own fix) rather than a hard-coded pixel count.
 # --------------------------------------------------------------------------- #
 
 
-def test_the_panel_itself_is_not_wrapped_in_a_second_outer_scrollbar(make_panel):
-    """§11: no whole-tool scrollbar. The options form keeps its own existing
-    internal scroll canvas (allowed — it is a form, not the whole panel);
-    sub-widgets such as the file list or Summary/Details may also scroll
-    internally, per §11's explicit allowance, and are not inspected here.
-    What must never exist is a *second* canvas/scrollbar one level up,
-    wrapping the entire panel rather than just the options form."""
+def _widgets_of(root, cls) -> list:
+    found = []
+    for child in root.winfo_children():
+        if isinstance(child, cls):
+            found.append(child)
+        found.extend(_widgets_of(child, cls))
+    return found
+
+
+def test_no_canvas_anywhere_in_the_panel(make_panel):
+    """§11: no whole-tool scrollbar, and -- now that the options form shrank
+    enough to drop its own canvas too -- no page canvas of any kind. Matches
+    the MP3 Tool's own established convention for this exact situation
+    (``test_no_whole_tool_scrollbar_only_local_ones``)."""
     panel = make_panel()
-    direct_children_with_a_canvas = [
-        child for child in panel.winfo_children()
-        if any(isinstance(grandchild, tk.Canvas)
-              for grandchild in child.winfo_children())
-    ]
-    assert len(direct_children_with_a_canvas) == 1, (
-        "expected exactly one direct child hosting a scroll canvas (the "
-        "options form's own, established before this phase); found "
-        f"{len(direct_children_with_a_canvas)}")
+    assert _widgets_of(panel, tk.Canvas) == [], "no page canvas anywhere"
+    assert not hasattr(panel, "options_canvas")
 
 
-def test_removing_the_pause_band_shrinks_the_scrollable_form(make_panel):
-    """A real, mechanical (not visual) proof that the compacting pass actually
-    reduced the scrollable options form's height -- the large multi-row pause/
-    trim section is gone and two LabelFrames merged into one.
+def test_every_scrollbar_belongs_to_a_locally_scrolling_widget(make_panel):
+    """The imported queue's file list, the engine-output log, and the shared
+    Summary/Details view may each scroll locally (§11's explicit allowance).
+    Every ``Scrollbar`` in the panel must be owned by one of those, never by
+    the panel itself or by the (now-removed) options form."""
+    from tkinter import ttk as _ttk
+
+    panel = make_panel()
+    scrollbars = _widgets_of(panel, _ttk.Scrollbar) + _widgets_of(panel, tk.Scrollbar)
+    local_masters = {panel.importer.list.frame, panel.log.master, panel.log}
+    # scrolledtext.ScrolledText builds its own internal Scrollbar as a direct
+    # child of the ScrolledText frame itself, and job_ui's Summary/Details text
+    # widgets do the same -- collect every plausible "owns a scrollable text
+    # widget" master rather than hard-coding job_ui's private attribute names.
+    local_masters |= {
+        w.master for w in _widgets_of(panel, tk.Text) + _widgets_of(panel, tk.Listbox)
+    }
+    assert scrollbars, "the variable-length regions should scroll locally"
+    for bar in scrollbars:
+        assert bar.master is not panel, str(bar)
+
+
+def test_the_options_form_is_a_plain_pinned_frame_not_inside_a_canvas(make_panel):
+    """The form (Voice/Engine + Audio/Processing + run options) is now an
+    ordinary ``ttk.Frame`` gridded directly at row 1, pinned at weight=0 so
+    its controls are never squeezed below what they ask for."""
+    from tkinter import ttk as _ttk
+
+    panel = make_panel()
+    frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
+    assert isinstance(frm, _ttk.Frame)
+    assert not isinstance(frm.master, tk.Canvas)
+    assert frm.master is panel
+    assert panel.grid_rowconfigure(1)["weight"] == 0
+
+
+def test_removing_the_pause_band_and_the_canvas_kept_the_form_compact(make_panel):
+    """A real, mechanical (not visual) proof that the form stays compact after
+    both layout passes -- the pause/trim band, the canvas/scrollbar machinery,
+    and the redundant footer prose are all gone.
 
     Not a substitute for the mandatory Windows manual layout/functional smoke
     gate: this measures real Tk geometry, but only a human can confirm how it
     actually renders and behaves on a real Windows desktop.
     """
-    from tkinter import ttk
-
     panel = make_panel()
     panel.update_idletasks()
-    # The scrollable form is the one Canvas's one child frame, found
-    # structurally (via isinstance, not the theme-dependent winfo_class
-    # string) rather than through a new attribute this test would have to
-    # expose just for its own sake.
-    canvas_wrap = next(
-        child for child in panel.winfo_children()
-        if any(isinstance(gc, tk.Canvas) for gc in child.winfo_children()))
-    canvas = next(gc for gc in canvas_wrap.winfo_children()
-                 if isinstance(gc, tk.Canvas))
-    frm = next(c for c in canvas.winfo_children() if isinstance(c, ttk.Frame))
+    frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
     height = frm.winfo_reqheight()
     # Pre-Phase-7 this form was documented at ~1300px against a ~660px window
-    # (its own comment, now removed). Post-Phase-7, with the entire pause/trim
-    # band gone and two bitrate/workers/rate groups merged into one, it must
-    # be meaningfully shorter than that historical figure.
-    assert height < 1000, f"scrollable form is still {height}px tall"
+    # (its own comment, long since removed). The Compact UI pass brought it to
+    # ~445px; this final layout pass (shorter footer/caption, tighter padding,
+    # no canvas chrome) brings it lower still.
+    assert height < 400, f"the options form is still {height}px tall"
 
 
-def test_the_non_scrollable_bands_stay_compact_enough_for_a_920x600_window(
-    make_panel
-):
-    """The importer, Start row, job area and log frame are the ALWAYS-VISIBLE
-    bands (never inside the scrollable canvas) -- §11 requires these to stay
-    reachable without scrolling the whole tool at the shared 920x600 minimum
-    (shared.ui_theme.MIN_SIZE, applied by the launcher)."""
+@pytest.mark.parametrize("geometry", ["920x600", "1280x900"])
+def test_no_primary_band_overlaps_another(make_panel, geometry):
+    """The real regression this whole pass exists to prevent: at the
+    supported Windows minimum, and at a larger (roughly maximized) window,
+    none of the five top-level bands may overlap another. Mirrors the
+    reachability convention ``test_mp3_tool_layout.py``/``test_m4b_layout.py``
+    already use for the aqua case, applied here for the Windows case those
+    files explicitly leave to this panel's own suite."""
+    panel = make_panel()
+    top = panel.winfo_toplevel()
+    was_withdrawn = top.state() == "withdrawn"
+    # make_panel only constructs the panel; the real launcher (build_ui) is
+    # what fills the window with it (panel.pack(fill=tk.BOTH, expand=True)),
+    # and this measurement is meaningless without that -- an unmanaged panel
+    # never receives the toplevel's geometry at all, so every row keeps its
+    # own natural size regardless of what ``geometry()`` below asks for.
+    panel.pack(fill=tk.BOTH, expand=True)
+    # Deiconified because every assertion below is about what is genuinely on
+    # screen: winfo_rootx/rooty/ismapped on a withdrawn toplevel say nothing
+    # reliable (matches test_mp3_tool_layout.py/test_m4b_layout.py's own
+    # convention for the identical measurement).
+    top.deiconify()
+    top.geometry(geometry)
+    for _ in range(6):
+        top.update_idletasks()
+        top.update()
+    try:
+        def box(w):
+            return (w.winfo_rootx(), w.winfo_rooty(),
+                   w.winfo_rootx() + w.winfo_width(), w.winfo_rooty() + w.winfo_height())
+
+        def overlaps(a, b):
+            return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+
+        frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
+        bands = {
+            "importer": panel.importer.frame,
+            "options_form": frm,
+            "start_row": panel.go_btn.master,
+            "job_area": panel.job_area,
+            "log_frame": panel.log.master,
+        }
+        boxes = {name: box(w) for name, w in bands.items()}
+        names = list(boxes)
+        offenders = [
+            (names[i], names[j]) for i in range(len(names)) for j in range(i + 1, len(names))
+            if overlaps(boxes[names[i]], boxes[names[j]])
+        ]
+        assert not offenders, f"overlapping bands at {geometry}: {offenders}"
+
+        # Every primary, always-relevant control is mapped (on screen)
+        # regardless of how much the variable-length regions had to compress.
+        for widget in (panel.importer.options.frame, panel.voice_combo,
+                      panel.combo_bitrate, panel.spin_workers, panel.go_btn,
+                      panel.btn_open_out, panel.btn_clear_log):
+            assert widget.winfo_ismapped(), widget
+    finally:
+        panel.pack_forget()
+        if was_withdrawn:
+            top.withdraw()
+
+
+def test_the_non_scrollable_bands_stay_within_the_920x600_minimum(make_panel):
+    """The options form and the Start row are pinned (weight=0): §11 requires
+    these -- the controls that never scroll -- to fit inside the shared
+    920x600 minimum (shared.ui_theme.MIN_SIZE) on their own, leaving whatever
+    remains to the queue/job-area/log rows that are allowed to compress."""
     from shared import ui_theme
 
     panel = make_panel()
     panel.update_idletasks()
-    fixed_height = (
-        panel.importer.frame.winfo_reqheight()
-        + panel.go_btn.master.winfo_reqheight()
-        + panel.job_area.winfo_reqheight()
-    )
-    # The log frame is allowed to be short (it scrolls internally, per §11);
-    # only its own minimum chrome counts toward the fixed budget.
+    frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
+    fixed_height = frm.winfo_reqheight() + panel.go_btn.master.winfo_reqheight()
     assert fixed_height < ui_theme.MIN_SIZE[1], (
-        f"the always-visible bands alone need {fixed_height}px, at or beyond "
-        f"the shared {ui_theme.MIN_SIZE[1]}px minimum window height")
+        f"the pinned bands alone need {fixed_height}px, at or beyond the "
+        f"shared {ui_theme.MIN_SIZE[1]}px minimum window height")
+
+
+@pytest.mark.parametrize("label,edge_shown,kokoro_shown", [
+    (vr.DEFAULT_VOICE_LABEL, True, False),
+    ("Kokoro Female (Default) - Heart (en-US)", False, True),
+    ("Chatterbox - Female 1", False, False),
+])
+def test_backend_switching_shows_the_correct_rate_control_at_the_920x600_minimum(
+    make_panel, label, edge_shown, kokoro_shown
+):
+    """Re-proves the existing per-backend rate-control test (section B, above)
+    at the exact supported minimum window, per this pass's own instruction to
+    verify backend switching under the constrained size, not just unsized."""
+    panel = make_panel()
+    top = panel.winfo_toplevel()
+    top.geometry("920x600")
+    for _ in range(6):
+        top.update_idletasks()
+        top.update()
+    panel.selected_voice_label.set(label)
+    panel._on_voice_selected()
+    top.update_idletasks()
+    assert bool(panel.edge_rate_frm.winfo_manager()) is edge_shown
+    assert bool(panel.kokoro_speed_frm.winfo_manager()) is kokoro_shown

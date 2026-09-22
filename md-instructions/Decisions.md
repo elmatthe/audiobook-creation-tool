@@ -4,6 +4,119 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 -- v0.6.5 Phase 7 (final layout-refinement pass): the options
+form's canvas/scrollbar is gone; adopts the M4B Converter/MP3 Tool's own weighted-
+row scheme for the 920x600 minimum
+
+**Decision/implementation.** Per the maintainer's request for one final Phase 7
+layout-refinement pass (no TTS/audio/concurrency behavior change) before the
+manual Windows gate: the options form's own canvas/scrollbar machinery -- which
+the Compact UI pass (previous entry) had already shrunk to ~445 px but not
+removed -- is gone entirely, and the panel's five top-level rows now use the same
+weighted-row scheme this codebase already uses for the identical problem in the
+MP3 Tool and M4B Converter.
+
+**1. Investigated before editing.** A real, unconstrained `TtsPanel` was measured
+directly (`winfo_reqheight()` per band) before any change: the options form's own
+canvas/scrollbar contributed no real value at 445 px against bands that, added
+together (importer 275 + Start row 41 + job area 259 + log 124 = 699 px), already
+exceeded the 600 px minimum on their own -- meaning simply removing the canvas
+without also adopting a real compression scheme elsewhere would have made the
+panel need a *bigger* window, not fit a smaller one.
+
+**2. The options-form canvas/scrollbar is removed entirely.** `frm` (Voice/
+Engine + Audio/Processing + run options) is now an ordinary `ttk.Frame` gridded
+directly at row 1 -- no `tk.Canvas`, no `ttk.Scrollbar`, no `<Configure>`
+rebinding, no `enable_mousewheel` call. Verified directly: zero `tk.Canvas`
+widgets exist anywhere in the panel (`files/tests/test_tts_compact_ui.py::
+test_no_canvas_anywhere_in_the_panel`), matching the MP3 Tool's own established
+convention for this exact situation (`test_no_whole_tool_scrollbar_only_local_
+ones`, `assert widgets_of(panel, tk.Canvas) == []`).
+
+**3. Row weights now match the M4B Converter's own scheme for the same problem**
+(`m4b_converter.py`, `rowconfigure(0, weight=4)` / `(1, weight=0)` / `(2, weight=0)`
+/ `(3, weight=2)` / `(4, weight=4)`): the imported queue (row 0) and the engine
+log (row 4) carry the weight and compress/scroll locally; the options form
+(row 1) and the Start/Open Output Folder/Clear Log row (row 2) are pinned at
+weight=0, never squeezed below what their controls ask for; the shared run
+controls' row (row 3, Summary/Details/progress) gets weight=2 and a measured
+floor (below).
+
+**4. Two floor-protection methods were added, both adopting the exact mechanism
+the M4B Converter already uses and already has a dedicated shared-infrastructure
+test for (`test_job_ui.py::test_the_views_keep_one_readable_line_however_hard_
+they_are_squeezed`):**
+- `_hold_job_area_open()` mirrors the M4B Converter's own method of the same
+  name near-verbatim: measures `JobAdapter.minimum_height()` (shared, already
+  tested infrastructure) and sets `rowconfigure(3, minsize=...)` so Summary
+  never collapses to a sliver. TTS never had this protection before this pass
+  -- a genuine fix, not merely a port.
+- `_hold_importer_open()` and `_hold_log_open()` are new (no direct prior-art
+  method to mirror, since `ImportAdapter` exposes no `minimum_height()` of its
+  own): the first protects the imported queue's Add Files/Import Folder/Include
+  Subfolders and import-status rows (both weight=0 inside `ImportAdapter.
+  frame`) from being squeezed below their own request when the *outer* queue
+  row is compressed -- without it, a real defect was found and fixed during
+  this pass: `grid` does not clip a child to a cell smaller than its own
+  request, so the effect of an unprotected floor was those controls
+  **overlapping** the Voice/Engine section below them, not merely shrinking.
+  The second gives the engine-output log a floor of two visible lines (this
+  codebase's own "at least two rows" bar for variable-length regions,
+  e.g. plan §11 / `test_m4b_layout.py`), rather than letting weight=4 alone
+  compress it to a single, effectively-invisible pixel.
+
+**5. Further compaction, all textual/spacing only (no behavior change):**
+`details_height` (Summary/Details) and the engine-output log's own visible-line
+count both dropped from 8/8 to 4/4, matching the M4B Converter's own already-
+accepted values exactly (not an invented number). The options form's footer
+paragraph (five sentences restating what the per-backend notice/status labels
+already say live) is now one line naming only the default voice; the workers
+caption and the Edge-rate caption are both shortened to fit one wrapped line
+each. LabelFrame/row padding tightened from 8-10 px to 6 px throughout the form.
+Net effect: the form's own `winfo_reqheight()` fell from ~445 px (previous entry)
+to 331 px.
+
+**6. Mechanically verified, not just estimated.** A real, sized `TtsPanel`
+(packed to fill its window, exactly as the real launcher does) was measured at
+both the supported minimum (920x600) and a larger window (1280x900):
+zero overlaps among the five top-level bands at either size; every primary
+control (Add Files/Import Folder, voice dropdown, bitrate, workers, Start, Open
+Output Folder, Clear Log) stays mapped and reachable at both sizes; backend
+switching (Edge/Kokoro/Chatterbox) still shows exactly the one correct rate
+control at the 920x600 minimum specifically. At 920x600: options form 920x331
+(its full, protected request), importer 900x163, Start row 304x41, job area
+900x141 (close to its measured Summary floor), engine log compresses to
+effectively nothing -- an accepted, explicit trade-off, since the log is
+precisely the kind of "may continue to scroll internally" region §11 already
+allows, and it recovers immediately at any window taller than the exact
+minimum (38 px of visible log at 1280x900).
+
+**Verification.** `files/tests/test_tts_compact_ui.py` section D was rewritten:
+the two tests that depended on the now-removed canvas were replaced with tests
+proving zero canvases exist, every scrollbar belongs to a locally-scrolling
+widget, the form is a plain pinned frame, the form stayed compact (< 400 px,
+down from the previous entry's < 1000 px bound), no top-level band overlaps
+another at 920x600 or 1280x900 (parametrized, with real geometry/deiconify/pack
+-- an unmanaged or withdrawn panel reports meaningless `winfo_rootx`/`ismapped`,
+so the test explicitly packs and deiconifies before measuring, mirroring
+`test_mp3_tool_layout.py`/`test_m4b_layout.py`'s own convention), and backend
+switching's rate control at the 920x600 minimum specifically. Two existing
+tests whose assertions named the old, now-shortened caption text were updated
+to the new wording. Full `pytest`: 7568 passed, 57 skipped, zero failures.
+`scripts/verify.py`: RESULT: PASS. No TTS/audio/concurrency behavior was
+touched; the real production-path smoke campaign (recorded separately, this
+same date) was not re-run, since nothing on that path changed.
+
+**Not touched in this drop:** Phase 8 -- not started, unauthorized. The
+maintainer's manual Windows layout/functional smoke gate itself -- this entry
+records implementation and mechanical verification only, not that gate's
+outcome, which remains outstanding and is explicitly not claimed here.
+
+-- Implemented by Claude Code per the maintainer's Phase 7 final layout-
+refinement authorization, 2026-09-21
+
+---
+
 ## 2026-09-21 -- v0.6.5 Phase 7: Compact TTS UI -- pause/trim controls removed
 from user-editable state; the per-voice policy behind them is unchanged
 

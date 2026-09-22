@@ -2,6 +2,88 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 FINAL LAYOUT-REFINEMENT PASS COMPLETE; A REAL PRODUCTION-PATH SMOKE CAMPAIGN ALSO PASSED -- STILL STOPPED BEFORE THE MANDATORY WINDOWS MANUAL GATE (2026-09-21, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Its record (Compact
+> UI pass: pause/trim controls removed, per-voice policy unchanged, Clear Log/
+> Open Output Folder added) stands exactly as written. This block adds two
+> things done since: a real production-path smoke campaign (passed, no defect),
+> and one final layout-refinement pass the maintainer asked for before the
+> manual gate -- **that gate is still outstanding and still NOT performed.**
+>
+> **1. Real production-path smoke campaign (no code changed as a result).**
+> Before any further layout work, a disposable script
+> (`files/dev-work/v0.6.5-phase7-smoke/`, gitignored) drove the actual
+> `TtsPanel.run_job()` -> `conversion_worker()` -> `_RunContext.execute()` path
+> -- real background thread, real network Edge TTS, real local Kokoro and
+> Chatterbox models, real approved reference voice (Male 1) -- for Edge single,
+> Kokoro single, Chatterbox single, and an Edge two-file workers=2 run. All four
+> succeeded; every output MP3 existed, fully decoded, and had a plausible
+> non-zero duration; `Requested workers: N | Effective workers: N` logged
+> truthfully each time; source files stayed byte-identical; the Edge single
+> output's terminal silence (~5.95 s) matched Steffan's registry-defined pause
+> policy applied with zero pause/trim widgets in the panel. No defect found; no
+> production code touched.
+>
+> **2. Final layout-refinement pass -- the options form's canvas/scrollbar is
+> gone.** Investigated the real widget tree before editing (`winfo_reqheight()`
+> per band on an unconstrained panel) and found the Compact UI pass had shrunk
+> the form to ~445 px but left its canvas/scrollbar in place, while the *other*
+> bands (importer + Start row + job area + log = ~699 px) already exceeded the
+> 600 px minimum on their own. Adopted the exact weighted-row scheme the M4B
+> Converter/MP3 Tool already use for this identical problem: queue (row 0) and
+> log (row 4) carry the weight and compress/scroll locally; the options form
+> (row 1) and Start row (row 2) are pinned at weight=0; the shared run controls'
+> row (row 3) gets a measured floor via a new `_hold_job_area_open()` (mirrors
+> the M4B Converter's own method near-verbatim -- TTS never had this protection
+> before). Two more floor-protection methods were added and needed, since
+> neither had prior art to mirror exactly: `_hold_importer_open()` (a real
+> defect was found and fixed here -- without it, the imported queue's Add
+> Files/Import Folder controls did not shrink when squeezed, they **overlapped**
+> the Voice/Engine section below them) and `_hold_log_open()` (floors the
+> engine-output log at two visible lines rather than letting it compress to a
+> single, effectively-invisible pixel).
+>
+> **3. Further compaction (text/spacing only, no behavior change):**
+> `details_height` and the log's visible-line count both dropped from 8/8 to
+> 4/4, matching the M4B Converter's own already-accepted values; the options
+> form's footer paragraph is now one line (the rest was already shown live by
+> the per-backend notice/status labels); the workers and Edge-rate captions
+> were shortened to one wrapped line each; LabelFrame/row padding tightened
+> 8-10 px to 6 px throughout. The form's own height fell from ~445 px to
+> **331 px**.
+>
+> **4. Mechanically verified at both the 920x600 minimum and 1280x900** (a real,
+> packed, sized panel -- not an estimate): zero overlaps among the five
+> top-level bands at either size; every primary control (Add Files/Import
+> Folder, voice dropdown, bitrate, workers, Start, Open Output Folder, Clear
+> Log) stays mapped and reachable at both; backend switching (Edge/Kokoro/
+> Chatterbox) still shows exactly the correct rate control at 920x600
+> specifically. At 920x600: options form 920x331 (its full protected request),
+> importer 900x163, Start row 304x41, job area 900x141 (near its measured
+> Summary floor). **The engine-output log compresses to effectively nothing at
+> the exact 920x600 minimum** -- an accepted, explicit trade-off: it is exactly
+> the kind of "may continue to scroll internally" region §11 already allows,
+> and it recovers immediately at any window taller than the exact minimum
+> (38 px of visible log at 1280x900).
+>
+> **5. Verification.** `test_tts_compact_ui.py` section D rewritten: zero
+> canvases anywhere in the panel; every scrollbar belongs to a locally-
+> scrolling widget; the form is a plain pinned frame (no canvas); the form
+> stayed compact (< 400 px); no band overlaps another at 920x600 or 1280x900;
+> backend switching's rate control at 920x600. Two existing tests' stale
+> caption-text assertions were updated to match the shortened wording. Full
+> `pytest`: **7568 passed, 57 skipped**, zero failures. `scripts/verify.py`:
+> **RESULT: PASS**. No TTS/audio/concurrency behavior changed; the real smoke
+> campaign was not re-run for this layout-only pass, since nothing on that
+> path changed.
+>
+> **v0.6.5 PHASE 7'S FINAL LAYOUT-REFINEMENT PASS IS COMPLETE AND MECHANICALLY
+> VERIFIED, BUT STILL NOT MANUALLY ACCEPTED.** Per instruction, this STOPS here,
+> before the maintainer's manual Windows layout/functional smoke gate -- that
+> gate has still not been performed and is not claimed here. Nothing here
+> authorizes Phase 8.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 (COMPACT TTS UI) IMPLEMENTED AND MECHANICALLY VERIFIED -- STOPPED AT THE MANDATORY WINDOWS MANUAL LAYOUT/FUNCTIONAL SMOKE GATE (2026-09-21, HOME-PC)
 >
 > **This block supersedes the block immediately below it.** Phase 6's record (both
