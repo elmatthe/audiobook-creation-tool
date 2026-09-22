@@ -460,6 +460,10 @@ def test_pause_is_a_request_until_the_worker_acknowledges_it(
 ):
     """Truthfulness: an indivisible engine call keeps running while pausing."""
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "second.txt")
+    # v0.6.5 Phase 6 (P14): direct items now share the run's pooled file-worker
+    # concurrency too. Pinned to 1 so "second.txt" cannot start concurrently
+    # with "gate.txt" -- this test is about the pause boundary, not worker count.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
@@ -489,6 +493,10 @@ def test_cancel_while_paused_wakes_the_worker_and_outranks_the_pause(
     make_panel, output_base, tmp_path, gated_stubs
 ):
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "second.txt")
+    # v0.6.5 Phase 6 (P14): pinned to 1 so "second.txt" cannot start concurrently
+    # with "gate.txt" -- this test is about the pause/cancel boundary, not
+    # worker count.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
@@ -990,6 +998,10 @@ def test_retrying_one_duplicate_occurrence_leaves_the_other_alone(
     panel.importer.options.set_allow_duplicates(True)
     panel.importer.add_files()
     panel._pump.tick()
+    # v0.6.5 Phase 6 (P14): pinned to 1 so the two duplicate occurrences are
+    # deterministically ordered -- ``flaky`` above relies on being the second
+    # call, not on a race between two concurrent workers.
+    panel.workers_var.set("1")
 
     first = run_attempt(panel)
     result = panel._result
@@ -1223,6 +1235,10 @@ def test_a_cancelled_run_keeps_the_outputs_that_already_finished(
     # the shared contract refuses to call a run cancelled if the work finished.
     panel, _chosen = direct_panel(
         make_panel, tmp_path, "first.txt", "gate.txt", "third.txt")
+    # v0.6.5 Phase 6 (P14): pinned to 1 so "first.txt" deterministically
+    # finishes strictly before "gate.txt" starts, rather than racing it
+    # concurrently -- this test is about cancellation cleanup, not worker count.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
@@ -1274,6 +1290,12 @@ def test_closing_the_panel_during_a_paused_run_is_safe(
     make_panel, output_base, tmp_path, gated_stubs
 ):
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "second.txt")
+    # v0.6.5 Phase 6 (P14): pinned to 1 so "second.txt" has not yet run (and
+    # therefore still hits a checkpoint that can acknowledge the pause) by the
+    # time this test asks for one -- otherwise both files start concurrently,
+    # "second.txt" finishes immediately, and no later checkpoint call remains
+    # to ever transition the controller into PAUSED.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller

@@ -4,6 +4,112 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 -- v0.6.5 Phase 6: bounded file-worker concurrency (P14) implemented;
+a real os.chdir race discovered and fixed in the Edge direct/rich engine
+
+**Decision/implementation.** Per the maintainer's authorization to close the audio-
+integration subtask and execute only the file-worker/concurrency subtask, P14 is now
+implemented: concurrency exists only between whole source files (never inside one
+file's own synthesis units), and effective workers are resolved at run start rather
+than trusting the raw requested count.
+
+**1. Direct and folder items now share one pool and one resolved worker count.**
+`epub2tts_gui._RunContext.run_all_items` replaces the old two-phase design
+(`run_direct_items` -- strictly sequential, one at a time -- followed by
+`run_folder_items`/`convert_folder_items` -- pooled, folder-only). Every queued item,
+regardless of provenance, now goes through one `ThreadPoolExecutor` sized by one
+resolved effective-worker count. A direct Edge file still takes the rich chapter/
+pause engine and a folder-derived Edge file still takes the chunked batch worker
+(P10 -- provenance selects the engine, never audio quality); Kokoro/Chatterbox take
+the same engine call regardless of provenance, as before.
+
+**2. `resolve_effective_workers(requested, queued_files, backend)`** is the one place
+the cap is computed: `min(requested, queued_files, backend_safe_ceiling,
+device_safe_ceiling)`, floored at 1. Backend-safe ceilings are unchanged from the
+pre-existing folder-pool code (Edge 32, Kokoro 8, Chatterbox 1 -- a correctness
+constraint, not a tuning choice). The device-safe ceiling is new: read from the real
+machine's `os.cpu_count()` (via a small patchable seam, `_cpu_count()`), not an
+invented formula -- Edge (network-bound locally) is offered up to one worker per
+logical core, Kokoro (sustained local CPU inference per file) is offered half the
+cores, leaving headroom for the OS/UI/FFmpeg either way. An oversized request (e.g.
+"100") degrades safely to whatever the machine/backend/queue can actually support and
+is never silently ignored: `run.log` always states
+"Requested workers: X | Effective workers: Y".
+
+**3. A real, previously-latent bug was found and fixed while implementing this:**
+`epub2tts_edge.runner.run_conversion_job` isolates one conversion's relative-path
+scratch files (`part1.flac`, `sntnc0.mp3`, `FFMETADATAFILE`, etc.) by `os.chdir`'ing
+into a private temp directory for the whole call. This was safe only because direct
+Edge items were previously guaranteed to run one at a time; `os.chdir` is process-wide
+state, not thread-local, so two concurrent direct Edge conversions would have raced,
+each potentially writing one book's chapter/paragraph scratch files into the other's
+temp directory. Fixed with `runner._CWD_ISOLATION_LOCK`, serializing only that
+chdir'd critical section -- not the whole engine, so a folder-derived Edge file or any
+Kokoro/Chatterbox file dispatched to a different pool worker still runs fully
+concurrently with a gated direct Edge file (neither of those paths ever calls
+`os.chdir`). A conversion that is cancelled while queued behind this lock re-checks
+`cancel_check()` immediately on acquiring it, so it never starts a whole new
+conversion no one wants, even though the wait itself cannot be interrupted early (the
+same "indivisible operation" contract every other checkpoint in this codebase already
+accepts). Rewriting the vendored engine to take an explicit working directory instead
+of relying on cwd would remove the need for this lock entirely, but that is a larger
+change to vendored internals than this bounded subtask justifies (P11/P14).
+
+**4. A second, related correctness gap in the pre-existing folder-only pool was
+fixed while unifying it:** the old code broke out of its results loop and called
+`future.cancel()` on remaining futures as soon as it noticed a cancellation, but
+`future.cancel()` only succeeds for a future that has not yet started -- an
+already-running task's eventual successful result was then silently discarded when
+the pool's context manager finished waiting for it, leaving a real output file on
+disk that the run never counted, logged, or could offer for retry. The new unified
+loop drains every submitted future's result unconditionally; nothing is silently
+dropped because the run was cancelled overall.
+
+**5. Chatterbox investigated for a bounded >1-file proof, per the plan's own
+conditional instruction, and found not justified.** `chatterbox_synth._get_model`
+caches exactly one model instance per device; `load_conditionals` mutates that
+instance's `.conds` attribute in place immediately before each `generate()` call --
+a genuine shared-mutable-state race if two files' conversions overlapped, not a
+theoretical concern. Making two concurrent files safe would require either a second
+~3.86 GiB model instance per extra worker (disproportionate VRAM/RAM cost the plan
+explicitly warns against) or an invasive rearchitecture of the pinned wheel's
+stateful conditioning mechanism -- both out of proportion for this bounded subtask.
+**Chatterbox's cap remains 1**, verified directly: a real test drives two files with
+two distinct reference voices at a requested worker count of 4, and confirms the
+second file's engine call never starts while the first is in flight.
+
+**6. Pause/Cancel/Retry Failed all remain correct under concurrency.** Pause is still
+honoured at the same cooperative boundary (`controller.checkpoint()`) each task hits
+before starting real work, now shared by every item regardless of provenance. Four
+existing tests in `test_tts_jobs.py` that assert exact pause/cancel *ordering* between
+two direct files now explicitly pin `workers_var.set("1")` (matching a convention this
+codebase already established for one folder-based pause test) -- they test the
+boundary semantics, not worker count, and pinning isolates that concern cleanly rather
+than leaving them to race real concurrency. Retry Failed needed no change: neither
+change here is a new user-facing option, so `epub2tts_gui.freeze_tts_options` is
+unaffected and a retry still replays the original frozen `RunSnapshot` untouched.
+
+**Verification.** New `files/tests/test_tts_worker_concurrency.py` (25 tests):
+`resolve_effective_workers` at representative 1/2/4/oversized requests and backend
+differences; the unified dispatch still routes every item through its correct engine;
+truthful requested-vs-effective logging including an oversized-request case; real
+overlap proof for folder-Edge and Kokoro under workers=2/4; the Chatterbox
+non-overlap proof; a proof that a success finishing during cancellation is still
+recorded, not orphaned; and two focused tests against the real
+`runner.run_conversion_job` proving the new cwd-isolation lock actually prevents two
+direct conversions from being inside `read_book` at once, and that a conversion
+cancelled while queued behind that lock never starts real work. Full `pytest`: 7542
+passed, 57 skipped, zero failures. `scripts/verify.py`: RESULT: PASS.
+
+**Not touched in this drop:** Phase 7 (Compact TTS UI) -- the workers spinbox's
+1-16 range and its display are unchanged; showing the resolved effective count in the
+UI itself belongs to that later phase, not this one.
+
+-- Implemented by Claude Code per the maintainer's Phase 6 concurrency-subtask
+authorization, 2026-09-21
+
+---
+
 ## 2026-09-21 — v0.6.5 Phase 6: approved Phase 5 audio changes integrated into
 production (Edge PCM assembly + i.e./e.g. fix; Chatterbox structural-colon normalization)
 

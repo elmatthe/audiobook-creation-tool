@@ -8,6 +8,7 @@ import re
 import unicodedata
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 from .epub2tts_edge import (
@@ -103,6 +104,26 @@ def _ensure_pdf_txt_has_chapter_heading(work_txt: str) -> None:
             f.write(prepended)
 
 
+#: ``run_conversion_job`` isolates one conversion's relative-path scratch
+#: files (``epub2tts_edge.read_book``/``make_mp3``/``make_m4b`` all write
+#: bare relative names like ``part1.flac``, ``sntnc0.mp3``, ``FFMETADATAFILE``)
+#: by chdir'ing into a private temp directory for the whole call. ``os.chdir``
+#: is process-wide state, not thread-local: two concurrent calls would race,
+#: each potentially writing one book's chapter/paragraph scratch files into
+#: the other's temp directory. v0.6.5 Phase 6 (P14) made concurrent direct-
+#: file workers possible for the first time, so this call is no longer
+#: guaranteed to run one-at-a-time by its caller -- this lock is the smallest
+#: correct fix: it serializes only this chdir'd critical section, not the
+#: whole engine, so a caller with multiple concurrent workers still gets true
+#: parallelism for anything that does not go through this specific function
+#: (every other local synthesis path, plus the Edge folder/batch path, all
+#: avoid os.chdir entirely). Rewriting this module to take an explicit working directory
+#: instead of relying on cwd would remove the need for this lock, but that is
+#: a larger change to vendored engine internals than this bounded subtask
+#: justifies -- see P11/P14's "disproportionate rewrite" guidance.
+_CWD_ISOLATION_LOCK = threading.Lock()
+
+
 def run_conversion_job(
     sourcefile: str,
     *,
@@ -139,62 +160,75 @@ def run_conversion_job(
     if suffix not in (".pdf", ".txt"):
         raise ValueError(f"Unsupported input type: {suffix}")
 
-    tmp = tempfile.mkdtemp(prefix="epub2tts_")
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(tmp)
-        work_txt = os.path.join(tmp, f"{stem}.txt")
+    # See _CWD_ISOLATION_LOCK's own comment: os.chdir is process-wide, so the
+    # whole chdir'd critical section -- not just the chdir calls themselves --
+    # must be held by one caller at a time. A second concurrent direct-file
+    # worker therefore waits here rather than truly overlapping; if a cancel
+    # was requested while it waited, re-checking immediately on acquiring the
+    # lock stops it from starting a whole new conversion no one wants, even
+    # though the wait itself (like any other in-flight indivisible operation
+    # in this codebase) cannot be interrupted early.
+    with _CWD_ISOLATION_LOCK:
+        if cancel_check is not None and cancel_check():
+            from shared.cancellation import ConversionCancelled
 
-        if suffix == ".pdf":
-            from tts.pdf_extractor import pdf_to_txt
+            raise ConversionCancelled("Conversion cancelled by user.")
+        tmp = tempfile.mkdtemp(prefix="epub2tts_")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp)
+            work_txt = os.path.join(tmp, f"{stem}.txt")
 
-            pdf_to_txt(sourcefile, work_txt)
-            _ensure_pdf_txt_has_chapter_heading(work_txt)
-        else:
-            shutil.copy2(sourcefile, work_txt)
+            if suffix == ".pdf":
+                from tts.pdf_extractor import pdf_to_txt
 
-        book_contents, book_title, book_author, chapter_titles = get_book(work_txt)
-        files = read_book(
-            book_contents,
-            speaker,
-            paragraphpause,
-            sentencepause,
-            title_trailing_pause=title_trailing_pause,
-            chapter_trailing_pause=chapter_trailing_pause,
-            end_of_book_pause=end_of_book_pause,
-            trim_tts_padding=trim_tts_padding,
-            trim_silence_db=trim_silence_db,
-            cancel_check=cancel_check,
-            progress_callback=progress_callback,
-        )
-
-        cover_local = None
-        if cover and os.path.isfile(cover):
-            cbase = os.path.basename(cover)
-            cover_local = os.path.join(tmp, cbase)
-            shutil.copy2(cover, cover_local)
-
-        if audio_format == "m4b":
-            generate_metadata(files, book_author, book_title, chapter_titles)
-            artifact = make_m4b(files, work_txt, speaker)
-            if cover_local:
-                add_cover(cover_local, artifact)
-        elif audio_format == "mp3":
-            artifact = make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate)
-        else:
-            raise ValueError(f"Unknown audio_format: {audio_format}")
-
-        dest_dir = Path(output_dir).resolve() if output_dir else Path(old_cwd)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / os.path.basename(artifact)
-        if dest.exists():
-            if overwrite:
-                dest.unlink()
+                pdf_to_txt(sourcefile, work_txt)
+                _ensure_pdf_txt_has_chapter_heading(work_txt)
             else:
-                raise FileExistsError(str(dest))
-        shutil.move(artifact, str(dest))
-        print(f"Saved: {dest}")
-        return str(dest)
-    finally:
-        os.chdir(old_cwd)
-        shutil.rmtree(tmp, ignore_errors=True)
+                shutil.copy2(sourcefile, work_txt)
+
+            book_contents, book_title, book_author, chapter_titles = get_book(work_txt)
+            files = read_book(
+                book_contents,
+                speaker,
+                paragraphpause,
+                sentencepause,
+                title_trailing_pause=title_trailing_pause,
+                chapter_trailing_pause=chapter_trailing_pause,
+                end_of_book_pause=end_of_book_pause,
+                trim_tts_padding=trim_tts_padding,
+                trim_silence_db=trim_silence_db,
+                cancel_check=cancel_check,
+                progress_callback=progress_callback,
+            )
+
+            cover_local = None
+            if cover and os.path.isfile(cover):
+                cbase = os.path.basename(cover)
+                cover_local = os.path.join(tmp, cbase)
+                shutil.copy2(cover, cover_local)
+
+            if audio_format == "m4b":
+                generate_metadata(files, book_author, book_title, chapter_titles)
+                artifact = make_m4b(files, work_txt, speaker)
+                if cover_local:
+                    add_cover(cover_local, artifact)
+            elif audio_format == "mp3":
+                artifact = make_mp3(files, work_txt, speaker, bitrate=mp3_bitrate)
+            else:
+                raise ValueError(f"Unknown audio_format: {audio_format}")
+
+            dest_dir = Path(output_dir).resolve() if output_dir else Path(old_cwd)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / os.path.basename(artifact)
+            if dest.exists():
+                if overwrite:
+                    dest.unlink()
+                else:
+                    raise FileExistsError(str(dest))
+            shutil.move(artifact, str(dest))
+            print(f"Saved: {dest}")
+            return str(dest)
+        finally:
+            os.chdir(old_cwd)
+            shutil.rmtree(tmp, ignore_errors=True)

@@ -35,8 +35,9 @@ gone: there is one cancellation authority for a run, and ``CANCELLED`` means a w
 acknowledged it at a checkpoint and cleaned up, never that a button was pressed.
 
 Several threads have something to report — the Tk thread while a button moves the
-controller, the conversion worker, and every folder-pool thread that reaches a
-checkpoint — so they all report through one :class:`RunPublisher`. It holds a single
+controller, the conversion worker, and every file-worker pool thread (v0.6.5 Phase 6
+onward: direct and folder items alike) that reaches a checkpoint — so they all report
+through one :class:`RunPublisher`. It holds a single
 lock across the whole of minting and publishing, which is what makes the order events
 reach the adapter's queue the order the shared reporter numbered them.
 
@@ -79,6 +80,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import queue
 import shutil
 import sys
@@ -173,6 +175,80 @@ RESULT_MESSAGE = "result"
 
 #: The queue message carrying one finished file's measured duration.
 TIMING_MESSAGE = "timing"
+
+
+# --------------------------------------------------------------------------- #
+# v0.6.5 Phase 6 (P14) -- requested vs. effective file-worker concurrency
+#
+# ``Workers = X`` is a requested WHOLE-FILE concurrency level, never permission
+# to parallelize the chunks inside one source file: one worker owns one file
+# and processes that file's synthesis units sequentially/in order, exactly as
+# every engine call below already does on its own. Effective concurrency is
+# min(requested, queued files, a backend-safety ceiling, a conservative
+# device-safe ceiling) -- never a fake universal hardware formula, and never
+# silently ignored: the run log always states requested vs. effective.
+# --------------------------------------------------------------------------- #
+
+#: Hard backend-safety ceilings. Edge/Kokoro's are sanity limits against a
+#: pathological request (e.g. "100"); Chatterbox's is a correctness
+#: constraint, not a tuning choice -- see ``_device_safe_workers`` below and
+#: ``chatterbox_synth._get_model``/``load_conditionals``: one cached model
+#: instance per device holds mutable conditioning state
+#: (``model.conds``) that a second concurrent file would race.
+EDGE_BACKEND_SAFE_WORKERS = 32
+KOKORO_BACKEND_SAFE_WORKERS = 8
+CHATTERBOX_BACKEND_SAFE_WORKERS = 1
+
+
+def _cpu_count() -> int | None:
+    """A thin, patchable seam over ``os.cpu_count()``.
+
+    Exists only so a test can substitute a known core count without touching
+    the real, shared ``os`` module -- this app's actual behavior always reads
+    the real machine.
+    """
+    return os.cpu_count()
+
+
+def _device_safe_workers(backend: str) -> int:
+    """A conservative per-backend ceiling from the real machine's own CPU
+    count -- evidence, not an invented formula -- leaving headroom for the
+    OS/UI/FFmpeg rather than trying to consume every core.
+
+    Edge is network-bound locally: each worker's own CPU cost is a short
+    trim/re-encode burst, not sustained inference, so up to one worker per
+    logical core is offered. Kokoro is a local model doing sustained CPU
+    inference per file, so only half the logical cores are offered, leaving
+    the other half as headroom. Chatterbox's limit is a correctness
+    constraint (see the module docstring above), not a capacity guess, so it
+    is always 1 regardless of the machine.
+    """
+    if backend == "chatterbox":
+        return 1
+    cpu = _cpu_count() or 4
+    if backend == "kokoro":
+        return max(1, cpu // 2)
+    return max(1, cpu)
+
+
+def resolve_effective_workers(requested: int, queued_files: int, backend: str) -> int:
+    """The one place P14's worker cap is computed for a run.
+
+    Bounded by the user's own request, how many files are actually queued
+    (concurrency beyond the queue is meaningless), a backend-safety ceiling,
+    and a conservative device-safe ceiling read from the real machine. An
+    oversized request (e.g. "100" on a 4-core machine with 2 files queued)
+    degrades safely to whatever is actually supportable; it never raises and
+    never returns less than 1.
+    """
+    backend_safe = {
+        "edge": EDGE_BACKEND_SAFE_WORKERS,
+        "kokoro": KOKORO_BACKEND_SAFE_WORKERS,
+        "chatterbox": CHATTERBOX_BACKEND_SAFE_WORKERS,
+    }.get(backend, 1)
+    device_safe = _device_safe_workers(backend)
+    return max(1, min(int(requested), int(queued_files), backend_safe, device_safe))
+
 
 #: What the engine line says when a locally cloned voice is selected. Engine
 #: wording lives here and never in a voice's name: the four voice labels are the
@@ -447,7 +523,8 @@ class RunPublisher:
     holding a lock across caller code. Its docstring states the rule that follows:
     one run reports from one producer. This panel has several — the Tk thread while
     a button moves the controller, the conversion worker, and every thread in the
-    folder pool that reaches a checkpoint and dispatches a state change — so this
+    run's file-worker pool (direct and folder items alike, v0.6.5 Phase 6 onward)
+    that reaches a checkpoint and dispatches a state change — so this
     is the one producer they share.
 
     **Why N + 1 cannot overtake N.** The authority is held across the *whole* of
@@ -1647,11 +1724,14 @@ class TtsPanel(ttk.Frame):
         that can only reach ``_log_q`` is a worker that cannot read a Tk variable by
         accident.
 
-        Directly added items take the rich chapter/pause engine one at a time, which
-        is what the retired single-file mode did. Folder-derived items take the
-        chunked batch worker under a pool, which is what the retired batch mode did.
-        Both engines are called unchanged, each with the destination the main thread
-        planned for it and each with the controller's own cancel predicate.
+        Every item -- direct and folder-derived alike -- goes through one pool of
+        file-level workers (P14): a directly added file still takes the rich
+        chapter/pause engine and a folder-derived file still takes the chunked
+        batch worker, exactly as before, but both provenances now share one
+        resolved effective-worker count instead of running direct items strictly
+        one at a time ahead of a separately pooled folder half. Both engines are
+        called unchanged, each with the destination the main thread planned for
+        it and each with the controller's own cancel predicate.
         """
         log_q = self._log_q
         run = _RunContext(params, log_q)
@@ -1740,9 +1820,7 @@ class _RunContext:
         try:
             ensure_punkt()
             self.filter_resumable()
-            self.run_direct_items()
-            if not self.cancelled:
-                self.run_folder_items()
+            self.run_all_items()
         except ConversionCancelled:
             self.cancelled = True
         except Exception as exc:  # noqa: BLE001 - settled as a job failure below
@@ -1783,51 +1861,94 @@ class _RunContext:
         self.items = kept
         self._total = len(self.items)
 
-    def run_direct_items(self) -> None:
-        """Directly added files, one at a time, through the rich engine."""
+    def run_all_items(self) -> None:
+        """Every queued item -- direct and folder alike -- through one resolved
+        pool of file-level workers (P14).
+
+        One worker owns one whole source file through completion; a file's own
+        synthesis units stay strictly sequential/in-order inside whichever
+        engine call handles it (unchanged, below). Concurrency exists only
+        *between* files. Pause is honoured at the one cooperative boundary
+        each task hits before it starts real work -- ``controller.checkpoint()``
+        -- so a task not yet dispatched waits there while paused, and a task
+        already inside an indivisible engine call finishes it, exactly as
+        this run has always behaved for a folder-pooled item.
+
+        Every submitted future's result is drained, even one that finishes
+        after cancellation was noticed elsewhere: silently discarding an
+        already-completed conversion would leave a real output file on disk
+        that this run never counted, logged or could retry -- an orphan, not
+        a clean stop.
+        """
+        if not self.items:
+            return
+        from tts import batch_convert
+
         params = self.params
         backend = params["backend"]
-        for item in [entry for entry in self.items if entry["direct"]]:
+        requested = int(params["workers"])
+        effective = resolve_effective_workers(requested, len(self.items), backend)
+        self.log(f"Requested workers: {requested} | Effective workers: {effective}")
+
+        def convert(item):
             try:
-                # The one cooperative boundary, and it sits *between* source files:
-                # a pause asked for during a chapter is honoured here, not there.
+                # The one cooperative boundary, and it sits *between* source
+                # files: a pause or cancellation asked for during a chapter/
+                # chunk is honoured here, not there.
                 self.controller.checkpoint()
             except ConversionCancelled:
-                self.cancelled = True
-                return
+                return "cancelled", item, None, None
             self.publisher.current_item(
                 item["item_id"], f"Converting {item['source'].name}")
             started = self.clock()
             try:
-                # The one place the three engines differ, and it is three calls
-                # deep in one shared loop — not three pipelines. Everything either
-                # side of this line is identical for all of them.
+                # The one place the engines differ -- three calls deep in one
+                # shared dispatch, not three pipelines. A direct Edge file
+                # takes the rich chapter/pause engine; a folder-derived Edge
+                # file takes the chunked batch worker. Kokoro/Chatterbox take
+                # the same engine call regardless of provenance (P10).
                 if backend == "kokoro":
                     convert_with_kokoro(item, params, self.log_q, self.log,
                                         self.cancel_check)
                 elif backend == "chatterbox":
                     convert_with_chatterbox(item, params, self.log_q, self.log,
                                             self.cancel_check)
-                else:
+                elif item["direct"]:
                     convert_with_edge_engine(item, params, self.log_q,
                                              self.cancel_check)
+                else:
+                    status, _path, message = batch_convert.convert_single_pdf(
+                        item["source"], params["run_directory"], params["speaker"],
+                        params["rate"], self.log, None, self.cancel_check,
+                        item["destination"], bitrate=params["bitrate"],
+                    )
+                    if status != "success":
+                        return status, item, message, None
             except ConversionCancelled:
                 discard_partial(item["destination"], params["run_directory"])
-                self.cancelled = True
-                return
+                return "cancelled", item, None, None
             except Exception as exc:  # noqa: BLE001 - one item, not the run
-                self.record_failure(item, f"{type(exc).__name__}: {exc}")
-            else:
-                self.record_success(
-                    item, self.clock() - started, ETA_CATEGORY_DIRECT)
-            self.advance(item)
+                return "failed", item, f"{type(exc).__name__}: {exc}", None
+            category = ETA_CATEGORY_DIRECT if item["direct"] else ETA_CATEGORY_FOLDER
+            return "success", item, None, (self.clock() - started, category)
 
-    def run_folder_items(self) -> None:
-        """Folder-derived files through the existing per-file batch worker, pooled."""
-        folder_items = [entry for entry in self.items if not entry["direct"]]
-        if not folder_items:
-            return
-        convert_folder_items(folder_items, self)
+        with ThreadPoolExecutor(max_workers=effective) as pool:
+            futures = {pool.submit(convert, item): item for item in self.items}
+            for future in as_completed(futures):
+                status, item, message, extra = future.result()
+                if status == "success":
+                    duration, category = extra
+                    self.record_success(item, duration, category)
+                elif status == "cancelled":
+                    self.cancelled = True
+                    stamp = datetime.now().strftime("%H:%M:%S")
+                    self.log(f"[{stamp}] {item['source'].name} — skipped (cancelled)")
+                    discard_partial(item["destination"], params["run_directory"])
+                else:
+                    self.record_failure(item, message or "the conversion failed")
+                self.advance(item)
+                if self.cancel_check():
+                    self.cancelled = True
 
     # -- settlement --------------------------------------------------------- #
 
@@ -2065,96 +2186,6 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
         text_path = str(Path(work) / f"{source.stem}.txt")
         pdf_to_txt(str(source), text_path)
         synthesize(text_path)
-
-
-def convert_folder_items(folder_items, run) -> None:
-    """Every folder-derived file through the existing per-file batch worker.
-
-    ``convert_single_pdf`` is ``run_batch_convert``'s own per-file body, and it
-    already accepts the mirrored target as ``out_mp3`` because that is how the batch
-    runner has always handed it one. So the queue supplies the list and the planner
-    supplies the destination, while the engine keeps its PDF and chunk retries, its
-    inter-chunk delay and its per-source temp-chunk directory exactly as they are —
-    the temp key is still derived from the target's path under the run root, so two
-    same-named files in different subfolders stay isolated.
-
-    **The pool is where pause is honoured for this half of the queue.** Each task
-    calls the controller's checkpoint *before* it begins its source, so a paused run
-    starts no new file: a task that arrives during a pause waits on the controller's
-    condition — woken, never polled — and a task already inside an indivisible
-    conversion finishes it. Cancellation keeps reaching the engine through the same
-    ``cancel_check`` seam it always has, so it still takes effect between chunks.
-    """
-    from tts import batch_convert
-
-    params = run.params
-    backend = params["backend"]
-    run_directory = params["run_directory"]
-    if backend == "edge":
-        workers = max(1, min(32, params["workers"]))
-    elif backend == "kokoro":
-        workers = max(1, min(params["workers"], 8))
-    else:
-        # One at a time for the cloning engine, and this is correctness rather
-        # than tuning: every item in a run shares one cached model object whose
-        # voice conditioning is attached to it, so concurrent generations would be
-        # racing one another's state. Edge is network-bound and Kokoro is
-        # per-call independent; this one is neither.
-        workers = 1
-
-    def convert(item):
-        try:
-            run.controller.checkpoint()
-        except ConversionCancelled:
-            return "cancelled", item, None, None
-        started = run.clock()
-        try:
-            if backend == "kokoro":
-                convert_with_kokoro(item, params, run.log_q, run.log,
-                                    run.cancel_check)
-                return "success", item, None, run.clock() - started
-            if backend == "chatterbox":
-                convert_with_chatterbox(item, params, run.log_q, run.log,
-                                        run.cancel_check)
-                return "success", item, None, run.clock() - started
-            status, _path, message = batch_convert.convert_single_pdf(
-                item["source"],
-                run_directory,
-                params["speaker"],
-                params["rate"],
-                run.log,
-                None,
-                run.cancel_check,
-                item["destination"],
-                # Same run-level choice the direct paths use, so the folder half
-                # of a queue cannot finish to a different contract.
-                bitrate=params["bitrate"],
-            )
-            return status, item, message, run.clock() - started
-        except ConversionCancelled:
-            return "cancelled", item, None, None
-        except Exception as exc:  # noqa: BLE001 - reported per item, never raised
-            return "failed", item, f"{type(exc).__name__}: {exc}", None
-
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(convert, item): item for item in folder_items}
-        for future in as_completed(futures):
-            status, item, message, duration = future.result()
-            if status == "success":
-                run.record_success(item, duration, ETA_CATEGORY_FOLDER)
-            elif status == "cancelled":
-                run.cancelled = True
-                stamp = datetime.now().strftime("%H:%M:%S")
-                run.log(f"[{stamp}] {item['source'].name} — skipped (cancelled)")
-                discard_partial(item["destination"], run_directory)
-            else:
-                run.record_failure(item, message or "the conversion failed")
-            run.advance(item)
-            if run.cancel_check():
-                run.cancelled = True
-                for pending in futures:
-                    pending.cancel()
-                break
 
 
 class QueueWriter(io.TextIOBase):
