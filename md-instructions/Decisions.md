@@ -4,6 +4,97 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 -- v0.6.5 Phase 7: Compact TTS UI -- pause/trim controls removed
+from user-editable state; the per-voice policy behind them is unchanged
+
+**Decision/implementation.** Per the maintainer's authorization for the plan's Section
+10 compacting pass, the TTS panel's user-facing surface is reduced to exactly the
+bands Section 10 specifies, with no change to any approved TTS/audio/concurrency
+behavior from Phases 1-6.
+
+**1. Removed from user-editable state:** sentence/paragraph/title/chapter pause,
+end-silence, trim threshold, and trim-edge-chunks. Their Tk StringVar/BooleanVar
+backing (`sentence_ms_var`, `paragraph_ms_var`, `title_ms_var`, `chapter_ms_var`,
+`end_pause_var`, `trim_edge_chunks_var`, `trim_dbfs_var`) and the "Pause timing" and
+two provenance-scoped ("files added directly" / "imported from a folder") LabelFrames
+are gone entirely, along with the now-unused `_parse_pause_ms`/`_parse_trim_dbfs`
+input-validation helpers they existed only to serve.
+
+**2. The maintainer-approved per-voice policy behind those controls is unchanged.**
+`voice_registry.VoiceEntry.timing_preset` still varies per voice exactly as before
+(e.g. Edge Andrew's 820/870 ms sentence/paragraph pause vs. Steffan's 800/850) --
+`epub2tts_gui.TtsPanel.run_job` now reads it directly from the registry at run time
+instead of from a widget, so the values a run actually uses are byte-identical to
+before, just no longer editable. `voice_registry.py`'s own module docstring is updated
+to state this plainly (its `timing_preset` keys no longer name live Tk StringVars).
+
+**3. Retained exactly as Section 10 specifies:** the unified PDF/TXT queue/importer,
+voice dropdown and backend/setup-required status, MP3 bitrate, the requested
+file-worker control with P14's truthful effective-cap reporting, and the one
+rate control the selected backend actually supports -- Edge shows a "%"-rate entry,
+Kokoro shows its speed spinbox, and **Chatterbox now shows neither** (previously the
+Edge-rate entry was shown, inertly, regardless of backend -- a real "fake control"
+this pass corrects, not a new restriction). The Edge rate control is captioned
+honestly: it has only ever affected folder-imported Edge conversions (the direct/rich
+engine has never accepted a rate parameter), a pre-existing asymmetry now stated
+rather than left implicit.
+
+**4. Bitrate and workers are no longer framed as provenance-specific.** Both already
+applied to every queued item regardless of direct-vs-folder origin (bitrate always
+did; workers did so precisely because Phase 6 unified dispatch), so the two old
+LabelFrame headings implying otherwise were already misleading before this pass. Both
+now live in one consolidated "Audio / Processing" LabelFrame (§10 Band 3), alongside
+the rate control, ordered after a new "Voice / Engine" LabelFrame (§10 Band 2) so the
+backend-dependent rate control's own band follows the choice that determines it.
+
+**5. Resume and Overwrite** (neither explicitly named in Section 10's table, neither
+in its Remove column) are kept, moved together into one small "run options" row
+rather than left split across the two retired provenance-specific groups.
+
+**6. Added: Clear Log and Open Output Folder**, bringing this panel to parity with
+the sibling MP3/M4B tools that already have both (`mp3_tool.py`, `m4b_converter.py`,
+`m4b_maker.py`, `m4b_metadata_editor.py`). Neither is a processing option and neither
+locks through the shared matrix, matching those tools' own convention exactly.
+`open_output_folder` reveals this run's own reserved directory once one exists, or
+the tool's parent folder before any run -- reusing `output_paths.ensure_tool_parent`
+and `shared.subprocess_utils.reveal_in_file_manager`, both already used by the
+sibling tools for the identical purpose.
+
+**7. Layout.** No whole-tool scrollbar: the options form keeps the one internal
+scroll canvas it already had before this phase (unchanged architecture), and no
+second canvas/scrollbar wraps the panel itself. Removing the entire pause/trim band
+and merging two LabelFrames into one measurably shrank the scrollable form (a real,
+mechanical Tk measurement: 445 px, down from the ~1300 px the form's own prior
+comment documented) and the panel's always-visible bands (importer + Start row +
+job area) measure ~575 px total -- comfortably under the shared 920x600 minimum
+window (`shared.ui_theme.MIN_SIZE`) the launcher already applies. This is a
+mechanical proxy, not the mandatory Windows manual layout/functional smoke gate,
+which remains outstanding.
+
+**Verification.** Two pre-existing tests that asserted the removed StringVars
+directly (`test_tts_importing.py::test_the_voice_dropdown_still_applies_a_timing_
+preset`, `test_chatterbox_integration.py::test_selecting_a_chatterbox_voice_applies_
+its_timing_preset`) were rewritten to prove the same underlying per-voice values
+still reach the frozen run params with no widget in the path, rather than asserting
+on removed attributes. New `files/tests/test_tts_compact_ui.py` (18 tests) covers:
+removed attributes/helpers/wording are gone; the consolidated Audio/Processing band
+holds bitrate/workers/rate; exactly the backend-supported rate control is shown per
+voice (Edge/Kokoro/Chatterbox, parametrized); Clear Log and Open Output Folder behave
+correctly and are not registered as processing options; no second outer scrollbar
+exists; and the real, mechanical form-height/fixed-band-height measurements above.
+Full `pytest`: 7561 passed, 57 skipped, zero failures. `scripts/verify.py`:
+RESULT: PASS.
+
+**Not touched in this drop:** Phase 8 (final voice acceptance + macOS validation) --
+not started, unauthorized. The mandatory Windows manual layout/functional smoke gate
+this phase's own instruction requires is also still outstanding -- this entry records
+implementation and mechanical verification only, not that gate's outcome.
+
+-- Implemented by Claude Code per the maintainer's Phase 7 (Compact TTS UI)
+authorization, 2026-09-21
+
+---
+
 ## 2026-09-21 -- v0.6.5 Phase 6: bounded file-worker concurrency (P14) implemented;
 a real os.chdir race discovered and fixed in the Edge direct/rich engine
 

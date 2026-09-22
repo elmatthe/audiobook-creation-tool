@@ -333,18 +333,27 @@ def test_the_registry_imports_no_engine_module():
 
 
 def test_selecting_a_chatterbox_voice_applies_its_timing_preset(
-    make_panel, chatterbox
+    make_panel, output_base, tmp_path, stubs, chatterbox
 ):
-    panel = make_panel(chatterbox_status=chatterbox.status)
-    select(panel)
+    """v0.6.5 Phase 7 removed the pause/trim widgets; the shared Chatterbox
+    preset (identical across all six voices, per §6 -- no per-voice tuning)
+    must still reach the run's frozen params with no widget in the path."""
     entry = pick()
+    panel, _chosen = direct_panel(make_panel, tmp_path, "solo.txt",
+                                  chatterbox_status=chatterbox.status)
+    select(panel)
+    params = run_attempt(panel)
+
     assert panel.voice_var.get() == entry.voice_id
-    assert panel.sentence_ms_var.get() == entry.timing_preset["sentencepause"]
-    assert panel.paragraph_ms_var.get() == entry.timing_preset["paragraphpause"]
-    assert panel.title_ms_var.get() == entry.timing_preset["title_ms"]
-    assert panel.chapter_ms_var.get() == entry.timing_preset["chapter_ms"]
-    assert panel.end_pause_var.get() == entry.timing_preset["end_pause"]
-    assert panel.trim_edge_chunks_var.get() is False
+    assert params["end_pause"] == int(entry.timing_preset["end_pause"]) == 3000
+    assert (params["paragraph_pause"]
+           == int(entry.timing_preset["paragraphpause"]) == 700)
+    assert params["pause_kw"] == {}, "pause_kw only ever applies to the Edge engine"
+    for removed in ("sentence_ms_var", "paragraph_ms_var", "title_ms_var",
+                   "chapter_ms_var", "end_pause_var", "trim_edge_chunks_var",
+                   "trim_dbfs_var"):
+        assert not hasattr(panel, removed), (
+            f"{removed} must not still exist as user-editable panel state")
 
 
 def test_the_engine_label_names_chatterbox_and_neither_other_engine(

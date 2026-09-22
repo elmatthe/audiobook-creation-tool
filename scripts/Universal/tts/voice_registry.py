@@ -6,15 +6,24 @@ Each entry defines:
   - voice_id:       The voice identifier passed to the TTS engine
   - display_label:  Short human-readable name shown in the GUI dropdown
   - group_label:    Category header shown in the dropdown (cosmetic only)
-  - timing_preset:  Dict of GUI timing field values to apply when voice is selected.
-                    Keys match the tkinter StringVar names in epub2tts_gui.py.
+  - timing_preset:  Dict of this voice's approved pause/trim/rate policy.
+                    **v0.6.5 Phase 7 (Compact TTS UI)** removed the user-editable
+                    sentence/paragraph/title/chapter pause, end-silence and trim
+                    controls these keys used to back one-to-one as tkinter
+                    StringVar names in epub2tts_gui.py. The maintainer-approved
+                    values are unchanged; ``epub2tts_gui.TtsPanel.run_job`` now
+                    reads this dict directly at run time instead, so a voice's
+                    policy can no longer be edited from the panel at all — only
+                    ``rate``/``kokoro_speed`` remain live, user-editable Band 3
+                    controls (and still take their default from here).
                     For edge voices: sentencepause, paragraphpause, title_ms, chapter_ms,
                                      end_pause, trim_dbfs, trim_edge_chunks, rate.
                     For kokoro voices: speed (float str), sentencepause, paragraphpause,
                                        title_ms, chapter_ms, end_pause.
                     trim_edge_chunks is always False for kokoro.
-                    For chatterbox voices: the same field names as kokoro (the GUI
-                    reads one set of timing fields for every backend).
+                    For chatterbox voices: the same field names as kokoro (one shared
+                    shape read for every backend, regardless of which fields that
+                    backend's engine actually consumes — see each preset helper).
 
 The "chatterbox" backend was admitted here in v0.6.1 Plan 4 Phase 8 so the engine
 module and the preset helper have somewhere to land. **Phase 10 registered the four

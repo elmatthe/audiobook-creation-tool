@@ -1397,6 +1397,9 @@ def test_the_panel_reimplements_no_engine_and_changes_no_timing_default():
 
 
 def test_the_voice_dropdown_still_applies_a_timing_preset(make_panel):
+    """v0.6.5 Phase 7 removed the per-voice pause/trim widgets; the two
+    retained, user-editable Band 3 controls (rate/Kokoro speed) still take
+    their per-voice default from the same registry preset."""
     from tts import voice_registry as vr
 
     panel = make_panel()
@@ -1404,8 +1407,37 @@ def test_the_voice_dropdown_still_applies_a_timing_preset(make_panel):
     panel.selected_voice_label.set(kokoro.display_label)
     panel._on_voice_selected()
     assert panel.voice_var.get() == kokoro.voice_id
-    assert panel.sentence_ms_var.get() == kokoro.timing_preset["sentencepause"]
-    assert panel.trim_edge_chunks_var.get() is False
+    assert panel.kokoro_speed_var.get() == kokoro.timing_preset["kokoro_speed"]
+    assert panel.rate_var.get() == kokoro.timing_preset["rate"]
+    for removed in ("sentence_ms_var", "paragraph_ms_var", "title_ms_var",
+                   "chapter_ms_var", "end_pause_var", "trim_edge_chunks_var",
+                   "trim_dbfs_var"):
+        assert not hasattr(panel, removed), (
+            f"{removed} must not still exist as user-editable panel state")
+
+
+def test_a_non_default_voices_timing_preset_still_reaches_the_engine(
+    make_panel, output_base, tmp_path, stubs
+):
+    """The pause/trim widgets are gone, but the per-voice policy behind them
+    is not: Andrew's preset genuinely differs from the default Steffan preset
+    (already proven by test_a_directly_added_file_still_reaches_the_rich_edge_
+    engine, above), and it must still reach the engine with no widget in the
+    path at all."""
+    from tts import voice_registry as vr
+
+    andrew = vr.get_voice("Edge Male - Andrew (en-US)")
+    assert andrew is not None
+    chosen = sources(tmp_path / "books", "solo.txt")
+    panel = make_panel(choose_files=lambda: chosen)
+    panel.importer.add_files()
+    panel.selected_voice_label.set(andrew.display_label)
+    panel._on_voice_selected()
+    _run_to_completion(panel)
+
+    job = stubs.conversion_jobs[0]
+    assert job["sentencepause"] == int(andrew.timing_preset["sentencepause"]) == 820
+    assert job["paragraphpause"] == int(andrew.timing_preset["paragraphpause"]) == 870
 
 
 # --------------------------------------------------------------------------- #

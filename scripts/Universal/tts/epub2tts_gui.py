@@ -116,6 +116,7 @@ from shared import ffmpeg_utils
 from shared import job_control
 from shared import job_ui
 from shared import output_paths
+from shared import subprocess_utils as sp
 
 #: Central tool identifier for the shared output services.
 TOOL_KEY = "tts"
@@ -344,24 +345,24 @@ def build_catalog() -> SupportedTypeCatalog:
     ))
 
 
-def _parse_pause_ms(raw: str, label: str) -> int:
-    try:
-        v = int(str(raw).strip())
-    except ValueError as e:
-        raise ValueError(f"{label} must be a whole number (milliseconds).") from e
-    if v < 0 or v > 10000:
-        raise ValueError(f"{label} must be between 0 and 10000 ms.")
-    return v
+def _default_timing_preset() -> dict:
+    """Defensive fallback matching voice_registry's own Edge defaults.
 
-
-def _parse_trim_dbfs(raw: str, label: str) -> float:
-    try:
-        v = float(str(raw).strip())
-    except ValueError as e:
-        raise ValueError(f"{label} must be a number (dBFS).") from e
-    if v > -30.0 or v < -90.0:
-        raise ValueError(f"{label} must be between -90 and -30 dBFS.")
-    return v
+    Used only if the selected label somehow matches no registered voice,
+    which should not happen — the dropdown only ever offers registered
+    labels (readonly combobox, values from ``display_labels()``).
+    """
+    return {
+        "sentencepause": str(DEFAULT_SENTENCE_PAUSE_MS),
+        "paragraphpause": str(DEFAULT_PARAGRAPH_PAUSE_MS),
+        "title_ms": str(DEFAULT_TITLE_PAUSE_MS),
+        "chapter_ms": str(DEFAULT_CHAPTER_PAUSE_MS),
+        "end_pause": str(DEFAULT_END_OF_BOOK_PAUSE_MS),
+        "trim_dbfs": str(int(DEFAULT_TRIM_SILENCE_DB)),
+        "trim_edge_chunks": True,
+        "rate": "+0%",
+        "kokoro_speed": "1.0",
+    }
 
 
 def direct_output_name(source: Path, speaker: str) -> str:
@@ -735,14 +736,16 @@ class TtsPanel(ttk.Frame):
         self.overwrite_var = tk.BooleanVar(value=True)
         self.workers_var = tk.StringVar(value="2")
         self.resume_var = tk.BooleanVar(value=True)
+        # v0.6.5 Phase 7 (Compact TTS UI, P1/P10/P14): sentence/paragraph/title/
+        # chapter pause, end-silence and trim-threshold/trim-edge-chunks are no
+        # longer user-editable Tk state. The maintainer-approved per-voice
+        # policy behind them (voice_registry.VoiceEntry.timing_preset) is
+        # applied directly in options() from the selected voice at run time --
+        # unchanged in value, no longer exposed as a control (P9/P11: removing
+        # a control is not license to change the policy it used to show).
+        # rate/kokoro_speed remain live, user-editable controls (Band 3 keeps
+        # them) and still take their per-voice default from the same preset.
         self.rate_var = tk.StringVar(value="+0%")
-        self.sentence_ms_var = tk.StringVar(value=str(DEFAULT_SENTENCE_PAUSE_MS))
-        self.paragraph_ms_var = tk.StringVar(value=str(DEFAULT_PARAGRAPH_PAUSE_MS))
-        self.title_ms_var = tk.StringVar(value=str(DEFAULT_TITLE_PAUSE_MS))
-        self.chapter_ms_var = tk.StringVar(value=str(DEFAULT_CHAPTER_PAUSE_MS))
-        self.end_pause_var = tk.StringVar(value=str(DEFAULT_END_OF_BOOK_PAUSE_MS))
-        self.trim_edge_chunks_var = tk.BooleanVar(value=True)
-        self.trim_dbfs_var = tk.StringVar(value=str(int(DEFAULT_TRIM_SILENCE_DB)))
         self.kokoro_speed_var = tk.StringVar(value="1.0")
         self.selected_voice_label = tk.StringVar(value=DEFAULT_VOICE_LABEL)
 
@@ -852,113 +855,14 @@ class TtsPanel(ttk.Frame):
         ).grid(row=r, column=1, sticky="w", pady=(2, 0))
         r += 1
 
-        # Both option groups used to be named for the retired modes. They now name
-        # the halves of the one queue they actually govern; what each setting does
-        # is unchanged.
-        opts = ttk.LabelFrame(frm, text="MP3 options — files added directly",
-                              padding=8)
-        opts.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        opts.columnconfigure(1, weight=1)
-        r += 1
-        sr = 0
-        ttk.Label(opts, text="MP3 bitrate").grid(row=sr, column=0, sticky="w",
-                                                 pady=(6, 0))
-        self.combo_bitrate = ttk.Combobox(
-            opts,
-            textvariable=self.bitrate_var,
-            values=("128k", "192k", "320k"),
-            width=10,
-            state="readonly",
-        )
-        self.combo_bitrate.grid(row=sr, column=1, sticky="w", pady=(6, 0))
-        sr += 1
-
-        pause_frm = ttk.LabelFrame(
-            frm,
-            text="Pause timing — files added directly (milliseconds)",
-            padding=8,
-        )
-        pause_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        pr = 0
-        ttk.Checkbutton(
-            pause_frm,
-            text=(
-                "Trim Edge TTS padding on sentence clips only (chapter title clip is "
-                "never trimmed; title/chapter pauses below still apply)"
-            ),
-            variable=self.trim_edge_chunks_var,
-        ).grid(row=pr, column=0, columnspan=2, sticky="w")
-        pr += 1
-        ttk.Label(
-            pause_frm,
-            text=("Trim threshold (dBFS; more negative = trim less, keeps slightly "
-                  "more pause)"),
-        ).grid(row=pr, column=0, sticky="w", pady=(6, 0))
-        ttk.Spinbox(
-            pause_frm,
-            from_=-90,
-            to=-35,
-            increment=1,
-            textvariable=self.trim_dbfs_var,
-            width=8,
-        ).grid(row=pr, column=1, sticky="w", padx=(12, 0), pady=(6, 0))
-        pr += 1
-        pause_rows = [
-            ("Between sentences (within a paragraph)", self.sentence_ms_var),
-            ("After each paragraph block", self.paragraph_ms_var),
-            ("After spoken chapter title", self.title_ms_var),
-            ("Before merging last paragraph of chapter", self.chapter_ms_var),
-            ("End of recording (final silence)", self.end_pause_var),
-        ]
-        for lbl, var in pause_rows:
-            ttk.Label(pause_frm, text=lbl).grid(row=pr, column=0, sticky="w",
-                                                pady=(4, 0))
-            ttk.Spinbox(
-                pause_frm,
-                from_=0,
-                to=10000,
-                increment=50,
-                textvariable=var,
-                width=8,
-            ).grid(row=pr, column=1, sticky="w", padx=(12, 0), pady=(4, 0))
-            pr += 1
-        ttk.Label(
-            pause_frm,
-            text=(
-                "Defaults: 800 ms between sentences; 850 ms after each paragraph "
-                "block; 1200 ms after chapter title; 2000 ms before last paragraph "
-                "merge; 3000 ms end silence; trim at -58 dBFS. Folder speech rate "
-                "+0%. Try -62 dBFS if audio still feels too tight."
-            ),
-            wraplength=560,
-            justify=tk.LEFT,
-        ).grid(row=pr, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        r += 1
-
-        batch_opts = ttk.LabelFrame(
-            frm, text="Options for files imported from a folder", padding=8)
-        batch_opts.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        br = 0
-        ttk.Label(batch_opts, text="Workers").grid(row=br, column=0, sticky="w")
-        self.spin_workers = ttk.Spinbox(
-            batch_opts, from_=1, to=16, textvariable=self.workers_var, width=6)
-        self.spin_workers.grid(row=br, column=1, sticky="w")
-        br += 1
-        ttk.Label(batch_opts, text="Speech rate").grid(row=br, column=0, sticky="w",
-                                                       pady=(6, 0))
-        ttk.Entry(batch_opts, textvariable=self.rate_var, width=10).grid(
-            row=br, column=1, sticky="w", pady=(6, 0)
-        )
-        br += 1
-        ttk.Checkbutton(batch_opts, text="Resume (skip existing MP3s)",
-                        variable=self.resume_var).grid(
-            row=br, column=0, columnspan=2, sticky="w", pady=(6, 0)
-        )
-        r += 1
-
-        voice_frm = ttk.LabelFrame(frm, text="Voice", padding=8)
+        # v0.6.5 Phase 7 (Compact TTS UI): Band 2 (Voice/Engine) built first, then
+        # Band 3 (Audio/Processing) -- the rate control that Band 3 keeps depends
+        # on which backend Band 2 selected, so the dependent widgets exist before
+        # _on_voice_selected() is ever called (moved to the end of both bands).
+        voice_frm = ttk.LabelFrame(frm, text="Voice / Engine", padding=8)
         voice_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         voice_frm.columnconfigure(1, weight=1)
+        r += 1
 
         ttk.Label(voice_frm, text="Voice / Engine").grid(row=0, column=0, sticky="w")
         self.voice_combo = ttk.Combobox(
@@ -975,9 +879,95 @@ class TtsPanel(ttk.Frame):
                   foreground="navy").grid(row=1, column=0, columnspan=2, sticky="w",
                                           pady=(4, 0))
 
-        self.kokoro_speed_frm = ttk.Frame(voice_frm)
-        self.kokoro_speed_frm.grid(row=2, column=0, columnspan=2, sticky="w",
-                                   pady=(6, 0))
+        self.kokoro_notice_var = tk.StringVar(value="")
+        self.kokoro_notice_lbl = ttk.Label(
+            voice_frm,
+            textvariable=self.kokoro_notice_var,
+            wraplength=560,
+            foreground="darkorange",
+            justify=tk.LEFT,
+        )
+        self.kokoro_notice_lbl.grid(row=2, column=0, columnspan=2, sticky="w",
+                                    pady=(4, 0))
+        self.kokoro_notice_lbl.grid_remove()
+
+        # The truthful "this voice cannot run here" line. Same row of the same
+        # frame as every other voice message — this is the existing pattern, not a
+        # new voice-management screen. It is empty and hidden unless the selected
+        # voice genuinely needs setting up on this computer.
+        self.voice_status_var = tk.StringVar(value="")
+        self.voice_status_lbl = ttk.Label(
+            voice_frm,
+            textvariable=self.voice_status_var,
+            wraplength=560,
+            foreground="firebrick",
+            justify=tk.LEFT,
+        )
+        self.voice_status_lbl.grid(row=3, column=0, columnspan=2, sticky="w",
+                                   pady=(4, 0))
+        self.voice_status_lbl.grid_remove()
+
+        # Band 3 — Audio/Processing (§10): MP3 bitrate, requested file workers
+        # with truthful effective-cap reporting (P14), and the one rate control
+        # the selected backend actually supports (Edge %, Kokoro speed, or
+        # neither for Chatterbox Turbo — never a fake control). Bitrate and
+        # workers apply to every queued item regardless of provenance (Phase 6
+        # unified direct/folder dispatch); this replaces the two separate
+        # "files added directly" / "imported from a folder" groups, which had
+        # become misleading once that unification landed.
+        audio_frm = ttk.LabelFrame(frm, text="Audio / Processing", padding=8)
+        audio_frm.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        audio_frm.columnconfigure(1, weight=1)
+        r += 1
+        ar = 0
+        ttk.Label(audio_frm, text="MP3 bitrate").grid(row=ar, column=0, sticky="w")
+        self.combo_bitrate = ttk.Combobox(
+            audio_frm,
+            textvariable=self.bitrate_var,
+            values=("128k", "192k", "320k"),
+            width=10,
+            state="readonly",
+        )
+        self.combo_bitrate.grid(row=ar, column=1, sticky="w")
+        ar += 1
+
+        ttk.Label(audio_frm, text="File workers (requested)").grid(
+            row=ar, column=0, sticky="w", pady=(6, 0))
+        self.spin_workers = ttk.Spinbox(
+            audio_frm, from_=1, to=16, textvariable=self.workers_var, width=6)
+        self.spin_workers.grid(row=ar, column=1, sticky="w", pady=(6, 0))
+        ar += 1
+        ttk.Label(
+            audio_frm,
+            text=(
+                "Concurrency is between whole files only, never inside one file's "
+                "own synthesis. The effective cap actually used this run — limited "
+                "by files queued, the selected engine, and this computer — is "
+                "reported truthfully at the top of Engine output below."
+            ),
+            wraplength=560,
+            justify=tk.LEFT,
+            foreground="gray",
+        ).grid(row=ar, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ar += 1
+
+        # Exactly one of these two is shown, chosen by the selected voice's
+        # backend in _on_voice_selected(); Chatterbox Turbo shows neither, since
+        # the pinned engine exposes no rate/speed parameter at all.
+        self.edge_rate_frm = ttk.Frame(audio_frm)
+        self.edge_rate_frm.grid(row=ar, column=0, columnspan=2, sticky="w")
+        ttk.Label(self.edge_rate_frm, text="Edge speech rate:").pack(side=tk.LEFT)
+        ttk.Entry(self.edge_rate_frm, textvariable=self.rate_var, width=10).pack(
+            side=tk.LEFT, padx=(8, 0))
+        ttk.Label(
+            self.edge_rate_frm,
+            text=("  e.g. +0%, -10%  (folder-imported Edge files only — direct "
+                  "Edge files always use Edge's own natural pace)"),
+            foreground="gray",
+        ).pack(side=tk.LEFT, padx=(6, 0))
+
+        self.kokoro_speed_frm = ttk.Frame(audio_frm)
+        self.kokoro_speed_frm.grid(row=ar, column=0, columnspan=2, sticky="w")
         ttk.Label(self.kokoro_speed_frm, text="Kokoro speed (0.5 – 2.0):").pack(
             side=tk.LEFT)
         ttk.Spinbox(
@@ -994,45 +984,20 @@ class TtsPanel(ttk.Frame):
             text="  (1.0 = normal; <1.0 slower; >1.0 faster)",
             foreground="gray",
         ).pack(side=tk.LEFT, padx=(6, 0))
-        self.kokoro_speed_frm.grid_remove()
-
-        self.kokoro_notice_var = tk.StringVar(value="")
-        self.kokoro_notice_lbl = ttk.Label(
-            voice_frm,
-            textvariable=self.kokoro_notice_var,
-            wraplength=560,
-            foreground="darkorange",
-            justify=tk.LEFT,
-        )
-        self.kokoro_notice_lbl.grid(row=3, column=0, columnspan=2, sticky="w",
-                                    pady=(4, 0))
-        self.kokoro_notice_lbl.grid_remove()
-
-        # The truthful "this voice cannot run here" line. Same row of the same
-        # frame as every other voice message — this is the existing pattern, not a
-        # new voice-management screen. It is empty and hidden unless the selected
-        # voice genuinely needs setting up on this computer.
-        self.voice_status_var = tk.StringVar(value="")
-        self.voice_status_lbl = ttk.Label(
-            voice_frm,
-            textvariable=self.voice_status_var,
-            wraplength=560,
-            foreground="firebrick",
-            justify=tk.LEFT,
-        )
-        self.voice_status_lbl.grid(row=4, column=0, columnspan=2, sticky="w",
-                                   pady=(4, 0))
-        self.voice_status_lbl.grid_remove()
+        ar += 1
 
         self.voice_combo.bind("<<ComboboxSelected>>", self._on_voice_selected)
         self._on_voice_selected()
 
+        run_opts = ttk.Frame(frm)
+        run_opts.grid(row=r, column=0, columnspan=2, sticky="w", pady=(10, 0))
         r += 1
+        ttk.Checkbutton(run_opts, text="Resume (skip existing MP3s)",
+                        variable=self.resume_var).pack(side=tk.LEFT)
         self.chk_overwrite = ttk.Checkbutton(
-            frm, text="Overwrite existing outputs without asking",
+            run_opts, text="Overwrite existing outputs without asking",
             variable=self.overwrite_var)
-        self.chk_overwrite.grid(row=r, column=0, columnspan=2, sticky="w", pady=(6, 0))
-        r += 1
+        self.chk_overwrite.pack(side=tk.LEFT, padx=(16, 0))
 
         # Footer help text — last row of the scrollable form.
         ttk.Label(
@@ -1059,6 +1024,16 @@ class TtsPanel(ttk.Frame):
         btn_row.grid(row=2, column=0, sticky="w")
         self.go_btn = ttk.Button(btn_row, text="Start", command=self.run_job)
         self.go_btn.pack(side=tk.LEFT)
+        # Neither of these is a processing option, so neither locks through the
+        # shared matrix — matching the sibling MP3/M4B tools' own convention
+        # (m4b_converter.py/mp3_tool.py): opening the output folder or clearing
+        # the visible transcript never interferes with a run in flight.
+        self.btn_open_out = ttk.Button(
+            btn_row, text="Open Output Folder", command=self.open_output_folder)
+        self.btn_open_out.pack(side=tk.LEFT, padx=(8, 0))
+        self.btn_clear_log = ttk.Button(
+            btn_row, text="Clear Log", command=self.clear_log)
+        self.btn_clear_log.pack(side=tk.LEFT, padx=(8, 0))
 
         # --- The shared run controls (row 3): progress, ETA, Summary/Details. ---
         self.job_area = ttk.Frame(self)
@@ -1151,28 +1126,26 @@ class TtsPanel(ttk.Frame):
 
         self.voice_var.set(entry.voice_id)
 
+        # Only the two retained, user-editable controls (Band 3) take a default
+        # from the preset now; the pause/trim fields Phase 7 removed are read
+        # directly from entry.timing_preset in options() instead, at run time.
         preset = entry.timing_preset
-        self.sentence_ms_var.set(preset["sentencepause"])
-        self.paragraph_ms_var.set(preset["paragraphpause"])
-        self.title_ms_var.set(preset["title_ms"])
-        self.chapter_ms_var.set(preset["chapter_ms"])
-        self.end_pause_var.set(preset["end_pause"])
-        self.trim_dbfs_var.set(preset["trim_dbfs"])
-        self.trim_edge_chunks_var.set(preset["trim_edge_chunks"])
         self.rate_var.set(preset["rate"])
         self.kokoro_speed_var.set(preset["kokoro_speed"])
 
         if entry.backend == "chatterbox":
-            # No speed control: the pinned engine exposes no speed parameter, so
-            # showing Kokoro's would be a lie about what it does. No temperature,
-            # exaggeration or cfg_weight control either — the maintainer approved
-            # these four voices at the engine's own defaults, and this phase
-            # integrates them rather than building a tuning console.
+            # No speed/rate control at all: the pinned engine exposes no such
+            # parameter, so showing Kokoro's (or Edge's) would be a lie about
+            # what it does. No temperature, exaggeration or cfg_weight control
+            # either — the maintainer approved these voices at the engine's own
+            # defaults, and this phase integrates them rather than building a
+            # tuning console.
             self.backend_label_var.set(
                 f"Engine: {CHATTERBOX_ENGINE_LABEL}  |  Voice: {entry.voice_id}  "
                 f"|  Group: {entry.group_label}"
             )
             self.kokoro_speed_frm.grid_remove()
+            self.edge_rate_frm.grid_remove()
             self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
         elif entry.backend == "kokoro":
@@ -1180,6 +1153,7 @@ class TtsPanel(ttk.Frame):
                 f"Engine: Kokoro local AI  |  Voice code: {entry.voice_id}  "
                 f"|  Group: {entry.group_label}"
             )
+            self.edge_rate_frm.grid_remove()
             self.kokoro_speed_frm.grid()
             notice = (
                 "Kokoro voices run locally. On first use, ~300 MB of model weights "
@@ -1194,7 +1168,6 @@ class TtsPanel(ttk.Frame):
                 )
             self.kokoro_notice_var.set(notice)
             self.kokoro_notice_lbl.grid()
-            self.trim_edge_chunks_var.set(False)
             self._refresh_voice_status(entry)
         else:
             self.backend_label_var.set(
@@ -1202,6 +1175,7 @@ class TtsPanel(ttk.Frame):
                 f"|  Group: {entry.group_label}"
             )
             self.kokoro_speed_frm.grid_remove()
+            self.edge_rate_frm.grid()
             self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
 
@@ -1245,6 +1219,25 @@ class TtsPanel(ttk.Frame):
         self.log.insert(tk.END, msg)
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
+
+    def clear_log(self) -> None:
+        """Clear the visible transcript only. The run's own history — its event
+        stream, its frozen result, Summary/Details above — is untouched."""
+        self.log.configure(state=tk.NORMAL)
+        self.log.delete("1.0", tk.END)
+        self.log.configure(state=tk.DISABLED)
+
+    def open_output_folder(self) -> None:
+        """Reveal this run's own numbered output folder, or the tool's parent
+        folder before any run has reserved one -- matching the sibling MP3/M4B
+        tools' own Open Output Folder behavior."""
+        try:
+            target = (self._run_directory if self._run_directory is not None
+                      else output_paths.ensure_tool_parent(TOOL_KEY))
+        except output_paths.OutputPathError as exc:
+            messagebox.showerror("Output folder", exc.message)
+            return
+        sp.reveal_in_file_manager(target)
 
     def _drain_worker_queue(self) -> None:
         """Drain the conversion worker's queue. Registered once, on the pump.
@@ -1454,35 +1447,26 @@ class TtsPanel(ttk.Frame):
             messagebox.showwarning("Voice unavailable", unavailable_reason)
             return
 
+        # v0.6.5 Phase 7 removed the user-editable pause/trim controls this used
+        # to read from widgets; the maintainer-approved per-voice policy behind
+        # them is unchanged and is applied here directly from the registry
+        # instead (P9/P11 — removing a control is not license to change the
+        # policy it used to show). These values are fixed, known-good literals
+        # from voice_registry.py, never user input, so there is nothing left to
+        # validate here the way the removed widgets once needed.
+        preset = (current_voice_entry.timing_preset if current_voice_entry is not None
+                 else _default_timing_preset())
         pause_kw: dict = {}
-        trim_chunks = self.trim_edge_chunks_var.get()
         if backend == "edge":
-            try:
-                pause_kw = {
-                    "sentencepause": _parse_pause_ms(
-                        self.sentence_ms_var.get(), "Between sentences"
-                    ),
-                    "paragraphpause": _parse_pause_ms(
-                        self.paragraph_ms_var.get(), "After each paragraph block"
-                    ),
-                    "title_trailing_pause": _parse_pause_ms(
-                        self.title_ms_var.get(), "After spoken chapter title"
-                    ),
-                    "chapter_trailing_pause": _parse_pause_ms(
-                        self.chapter_ms_var.get(),
-                        "Before merging last paragraph of chapter"
-                    ),
-                    "end_of_book_pause": _parse_pause_ms(
-                        self.end_pause_var.get(), "End of recording"
-                    ),
-                    "trim_tts_padding": trim_chunks,
-                    "trim_silence_db": _parse_trim_dbfs(
-                        self.trim_dbfs_var.get(), "Trim threshold"
-                    ),
-                }
-            except ValueError as e:
-                messagebox.showwarning("Pause settings", str(e))
-                return
+            pause_kw = {
+                "sentencepause": int(preset["sentencepause"]),
+                "paragraphpause": int(preset["paragraphpause"]),
+                "title_trailing_pause": int(preset["title_ms"]),
+                "chapter_trailing_pause": int(preset["chapter_ms"]),
+                "end_of_book_pause": int(preset["end_pause"]),
+                "trim_tts_padding": bool(preset["trim_edge_chunks"]),
+                "trim_silence_db": float(preset["trim_dbfs"]),
+            }
 
         # Read every remaining Tk variable here on the main thread. The worker runs
         # off-thread, and touching Tk vars/widgets from another thread raises "main
@@ -1496,14 +1480,8 @@ class TtsPanel(ttk.Frame):
             kokoro_speed = float(self.kokoro_speed_var.get())
         except ValueError:
             kokoro_speed = 1.0
-        try:
-            end_pause = int(self.end_pause_var.get() or "3000")
-        except ValueError:
-            end_pause = 3000
-        try:
-            paragraph_pause = int(self.paragraph_ms_var.get() or "700")
-        except ValueError:
-            paragraph_pause = 700
+        end_pause = int(preset["end_pause"])
+        paragraph_pause = int(preset["paragraphpause"])
 
         # Decision 9A, in one call: the imported queue, the catalog, the import
         # options, the effective configuration and every output-affecting setting

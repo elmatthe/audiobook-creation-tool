@@ -2,6 +2,69 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 (COMPACT TTS UI) IMPLEMENTED AND MECHANICALLY VERIFIED -- STOPPED AT THE MANDATORY WINDOWS MANUAL LAYOUT/FUNCTIONAL SMOKE GATE (2026-09-21, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Phase 6's record (both
+> subtasks: approved audio-quality candidates live, P14 file-worker concurrency
+> implemented) stands exactly as written below, unchanged by this drop. This block
+> adds Phase 7 -- the plan's Section 10 compacting pass -- and STOPS at the manual
+> gate the phase's own instruction requires; **that gate has not yet been performed.**
+>
+> **1. Removed from user-editable state:** sentence/paragraph/title/chapter pause,
+> end-silence, trim threshold, trim-edge-chunks -- their Tk StringVar/BooleanVar
+> backing, the "Pause timing" LabelFrame, and the two provenance-scoped ("files added
+> directly" / "imported from a folder") LabelFrames are gone. **The maintainer-
+> approved per-voice policy behind them is unchanged**: `voice_registry.VoiceEntry.
+> timing_preset` still varies per voice exactly as before (Andrew's 820/870 ms vs.
+> Steffan's 800/850, proven by a rewritten test), read directly from the registry at
+> run time instead of from a widget.
+>
+> **2. Retained per §10:** unified queue/importer, voice dropdown + backend/setup-
+> required status, MP3 bitrate, requested file workers with P14's truthful
+> effective-cap reporting, and exactly the rate control the selected backend
+> supports -- Edge "%", Kokoro speed, **Chatterbox now shows neither** (previously the
+> Edge-rate entry stayed visible, inertly, for every backend -- a real fake control
+> this pass corrects). The Edge rate control is now honestly captioned as
+> folder-imported-Edge-only (the direct/rich engine has never accepted a rate
+> parameter -- a pre-existing asymmetry, now stated rather than left implicit).
+>
+> **3. Consolidated Band 3 ("Audio / Processing").** Bitrate, workers, and the rate
+> area now live in one LabelFrame (previously split across a bitrate-only group and a
+> workers/rate/resume group both misleadingly scoped as provenance-specific, even
+> though bitrate and workers already applied to every item regardless of provenance).
+> Ordered after a new "Voice / Engine" LabelFrame (Band 2), so the rate control's own
+> band follows the choice that determines which variant is shown. Resume and
+> Overwrite (not named in §10's table either way) are kept, moved into one small run-
+> options row together.
+>
+> **4. Added: Clear Log and Open Output Folder**, bringing this panel to parity with
+> the sibling MP3/M4B tools (`mp3_tool.py`, `m4b_converter.py`, `m4b_maker.py`,
+> `m4b_metadata_editor.py`) that already have both. Neither locks through the shared
+> matrix, matching those tools' convention. Reuses `output_paths.ensure_tool_parent`
+> and `shared.subprocess_utils.reveal_in_file_manager`, already used identically
+> elsewhere.
+>
+> **5. Layout, mechanically measured (real Tk geometry, not a screenshot):** the
+> scrollable options form is now **445 px** tall (its own prior comment documented
+> ~1300 px before this pass); the panel's always-visible bands (importer + Start row +
+> job area) measure **~575 px** total, comfortably under the shared **920x600**
+> minimum window (`shared.ui_theme.MIN_SIZE`) the launcher already applies. No second
+> outer scrollbar wraps the panel -- the options form keeps the one internal canvas it
+> already had, unchanged architecture. **This is a mechanical proxy only, per the
+> phase's own instruction to stop at the manual gate below.**
+>
+> **6. Verification.** Two pre-existing tests asserting the removed StringVars
+> directly were rewritten to prove the same per-voice values still reach the frozen
+> run params with no widget in the path. New `files/tests/test_tts_compact_ui.py`
+> (18 tests) covers every point above. Full `pytest`: **7561 passed, 57 skipped**,
+> zero failures. `scripts/verify.py`: **RESULT: PASS**.
+>
+> **v0.6.5 PHASE 7 IS IMPLEMENTED AND MECHANICALLY VERIFIED, BUT NOT YET MANUALLY
+> ACCEPTED.** Per this phase's own explicit instruction, this STOPS here at the
+> mandatory Windows manual layout/functional smoke gate -- the maintainer must
+> resize/inspect the real panel on Windows and confirm it behaves as reported before
+> this phase can be considered closed. Nothing here authorizes Phase 8.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 6 COMPLETE (BOTH SUBTASKS) -- APPROVED AUDIO-QUALITY CANDIDATES LIVE, AND BOUNDED FILE-WORKER CONCURRENCY (P14) IMPLEMENTED; A REAL os.chdir RACE IN THE EDGE DIRECT ENGINE WAS FOUND AND FIXED; PHASE 7 NOT STARTED (2026-09-21, HOME-PC)
 >
 > **This block supersedes the block immediately below it on exactly one point** --
