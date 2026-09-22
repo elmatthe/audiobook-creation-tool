@@ -2,6 +2,86 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 UI/UX REDESIGN: RESPONSIVE FOUR-SECTION TTS LAYOUT -- STOPPED FOR THE MAINTAINER'S SCREENSHOT/MANUAL UI REVIEW (2026-09-22, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Its record (one
+> persistent Summary | Detailed log, engine transcript in Detailed only,
+> `append_detail`) stands, with **one correction**: that block said the log was
+> "900x61 px, real, readable" at 920x600. Re-measured this session with the
+> window's own bounds checked, the log sat at y=650-711 of a 600 px window --
+> **entirely below the visible area** -- and the job controls were partly
+> clipped. The overlap test passed only because clipped bands do not overlap.
+> The fixed bands needed ~720 px against 600. This redesign is the real fix.
+>
+> **Also flagged, not fixed:** commit `99195a2` (the remediation checkpoint)
+> carries a `Co-Authored-By: Claude` trailer, which violates the standing
+> no-AI-trailer ADR. It is pushed; it was not rewritten. The maintainer decides
+> whether to leave it (as with the 2026-09-05 waiver) or rewrite it.
+>
+> **1. Composition.** The panel is four sections: **1. Sources** (imported
+> list, Add Files/Add Folder, Move Up/Down, Remove, Clear All, PDF/TXT,
+> subfolders/hidden/duplicates, import status/Cancel), **2. Voice & Audio**
+> (voice, engine line, Kokoro notice, setup-required message, bitrate + file
+> workers side by side, the backend's one truthful rate control), **3. Output &
+> Run** (output path + Open Output Folder, Resume, Overwrite, then **Start**
+> leading Pause/Resume/Cancel/Retry Failed with progress + ETA beneath), and
+> **Activity** (the one Summary | Detailed log, a one-line caption, Clear Log).
+> Every widget was re-parented into its section; nothing was duplicated and no
+> state, callback or job semantic changed.
+>
+> **2. Responsive, from measured sizes.** `_choose_layout` is a pure function of
+> the panel's size. Two columns (workflow left, Activity right) only when both
+> fit at their natural widths and the workflow's floor fits the height;
+> Voice & Audio | Output & Run go side by side whenever the width allows;
+> otherwise Activity drops beneath. Measured natural widths on HOME-PC: workflow
+> stacked 511 px, side-by-side 880 px, Activity 465 px (LOG_WIDTH_CHARS=52 --
+> the one content-chosen number). Result: 920x600 stacked (sections 2|3 side by
+> side), 1024x720 and 1280x900 two columns with sections stacked, 1920x1009 two
+> columns with sections side by side. In two columns the workflow gets its
+> natural width plus one third of the spare width; the log gets the rest.
+>
+> **3. Measured (log text area, lines at 16 px):** 920x600 855x72 (~4 lines;
+> was 0 -- off-screen); 1024x720 432x603 (~37); 1280x900 603x792 (~49; was
+> ~5); 1920x1009 784x901 (~56; was ~9). Imported list: 2 rows at 920x600, 618
+> px tall at 1920x1009. Every section is inside the window and nothing
+> overlaps at all four sizes.
+>
+> **4. Two real bugs found and fixed while building it.** (a) A column-width
+> ratchet: captions re-wrapping to their *allocated* width made the workflow
+> column's request chase its allocation, squeezing the log below its natural
+> width; wrap widths now come from the layout math and the workflow column
+> width is set explicitly. (b) Caption-spanning columns spread the audio
+> controls apart; a weighted filler column fixes it. Both have regressions,
+> mutation-checked (each regression fails when its bug is reintroduced).
+>
+> **5. Floors.** List keeps 2 rows, log keeps 3 lines, via measured row
+> minsizes. Honest finding: **at every supported size, including 920x600 with
+> the longest voice messages, the floors never bind** -- grid absorbs the
+> shortfall first. They are a guard for larger fonts/scaling, proven wired by
+> a structural test, not exercised by the supported sizes.
+>
+> **6. Copy (no behavior change).** The Kokoro notice no longer names
+> `~/.cache/huggingface/` (the cache is in-tree) or tells users to `pip
+> install` (setup self-heals Kokoro). The workers caption now says the
+> effective count is "shown in the Detailed log" -- "logged below" is not true
+> when the log is to the right. The "Default voice: ..." footer is gone (the
+> dropdown shows it). Standalone `main()` now uses the shared 1024x720 default
+> and 920x600 minimum, like the sibling tools.
+>
+> **7. Verification.** `test_tts_compact_ui.py` section D rewritten (47 tests
+> in the file): section ownership/order, Start primacy, fit + no overlap at
+> four sizes, stacked-vs-wide switch, floors (incl. Kokoro/setup messages at
+> 920x600), exact column math from both a minimum and a maximized start,
+> deterministic resizing, ghost-control-free backend switching at two sizes,
+> setup-required expansion. TTS/job_ui/Chatterbox/Kokoro/launcher sweep: 1231
+> passed. `scripts/verify.py`: **RESULT: PASS (full pytest 7602 passed, 57 skipped)**. Real screenshots reviewed at all
+> four sizes plus Kokoro and Chatterbox-setup-required variants. No synthesis,
+> audio, worker, importing, output-planning or job-control code changed, so no
+> real TTS audio was regenerated.
+>
+> **PHASE 7 IS NOT PASSED.** Stopped for the maintainer's screenshot/manual UI
+> review. Nothing here authorizes Phase 8.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 REMEDIATION: TTS LOG CONSOLIDATED TO ONE SUMMARY/DETAILED REGION -- STILL STOPPED BEFORE THE MANDATORY WINDOWS MANUAL GATE (2026-09-21, HOME-PC)
 >
 > **This block supersedes the block immediately below it.** Its record (the

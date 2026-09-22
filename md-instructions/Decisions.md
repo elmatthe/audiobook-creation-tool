@@ -4,6 +4,63 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-22 -- v0.6.5 Phase 7 UI/UX redesign: the TTS panel becomes four sections
+arranged responsively from measured sizes (workflow left, Activity right when
+both fit; stacked below that)
+
+**Decision.** Per the maintainer's redesign request after the Phase 7 manual
+review, the TTS panel is recomposed into 1. Sources, 2. Voice & Audio,
+3. Output & Run, and Activity (the one persistent Summary | Detailed log). The
+arrangement is chosen by `TtsPanel._choose_layout` as a pure function of the
+panel's size, using natural sizes measured from the live widgets
+(`_measure_layout`): two columns only when the workflow and Activity both fit
+at their natural widths and the workflow's floor fits the height; sections 2
+and 3 side by side whenever the width allows; otherwise Activity drops beneath
+the workflow. No whole-tool scrollbar in any arrangement.
+
+**Why these rules, not a fixed ratio.** The maintainer's 60/40 was offered as a
+starting point, not a requirement. The workflow's controls are fixed-size, so
+spare width in that column is empty band -- the exact complaint about the old
+full-width Voice/Audio bands. So each column first gets its natural width and
+the spare width goes one third to the workflow, two thirds to the log
+(workflow/log widths 517/477 at 1024x720, 602/648 at 1280x900, 1061/829 at
+1920x1009, where sections 2 and 3 sit side by side). The one content-chosen number is
+the log's minimum width, LOG_WIDTH_CHARS=52, sized to a typical Detailed line;
+every other threshold is measured, so the breakpoints follow real fonts and
+scaling. On HOME-PC that puts the 1024x720 launcher default in the two-column
+layout and the 920x600 minimum in the stacked one.
+
+**Why the column width is set explicitly.** Wrapped captions re-wrap to their
+section's width, which makes a column's request follow its allocation. Left to
+grid weights, the workflow column ratcheted wider on every resize and squeezed
+the log below its natural width (found and measured during this drop). Wrap
+widths now come from the layout arithmetic, and the workflow column's width is
+set by `_size_columns`. Regressions are mutation-checked.
+
+**Correction to the previous entry.** The remediation entry below recorded the
+log as "900x61 px (a real, multi-line, readable region)" at 920x600. That
+measured its size without checking it was inside the window: it sat at
+y=650-711 in a 600 px window, fully off-screen. This redesign supersedes that
+claim; the log now shows ~4 lines at 920x600 and ~37-56 lines on larger
+windows.
+
+**Unchanged.** Every capability and behavior listed in the redesign request:
+unified PDF/TXT queue and its options, voice/setup-required behavior, bitrate,
+requested workers with truthful effective reporting, Edge rate / Kokoro speed /
+no Chatterbox control, Resume, Overwrite, Start/Pause/Resume/Cancel/Retry
+Failed, progress + ETA, one persistent log with the transcript in Detailed
+only, Clear Log, Open Output Folder, output planning, and all Phase 5/6 audio
+and worker behavior. No timing/trim control was reintroduced and no voice
+preset changed. `scripts/verify.py`: RESULT: PASS (full pytest 7602 passed, 57 skipped).
+
+**Not touched in this drop:** Phase 8 -- not started, unauthorized. Phase 7 is
+not marked passed; the maintainer's screenshot/manual UI review is outstanding.
+
+-- Implemented by Claude Code per the maintainer's Phase 7 UI/UX redesign
+authorization, 2026-09-22
+
+---
+
 ## 2026-09-21 -- v0.6.5 Phase 7 remediation: TTS's Summary/Details view and its
 separate "Engine output" box are consolidated into one persistent
 job_ui.SummaryDetailsView, matching the MP3 Tool/M4B Maker/M4B Metadata Editor

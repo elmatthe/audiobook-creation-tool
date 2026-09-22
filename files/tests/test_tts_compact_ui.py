@@ -95,15 +95,16 @@ def test_the_two_provenance_scoped_group_headings_are_gone():
 # --------------------------------------------------------------------------- #
 
 
-def test_audio_processing_band_holds_bitrate_workers_and_rate_controls(make_panel):
-    from tkinter import ttk
-
+def test_audio_group_holds_bitrate_workers_and_rate_controls(make_panel):
+    """One audio group inside section 2 (Voice & Audio): bitrate, workers and
+    whichever rate control the backend supports, in one place."""
     panel = make_panel()
-    assert panel.combo_bitrate.master is panel.spin_workers.master
-    assert panel.combo_bitrate.master is panel.edge_rate_frm.master
-    assert panel.combo_bitrate.master is panel.kokoro_speed_frm.master
-    assert isinstance(panel.combo_bitrate.master, ttk.LabelFrame)
-    assert panel.combo_bitrate.master.cget("text") == "Audio / Processing"
+    assert panel.combo_bitrate.master is panel.audio_group
+    assert panel.spin_workers.master is panel.audio_group
+    assert panel.edge_rate_frm.master is panel.audio_group
+    assert panel.kokoro_speed_frm.master is panel.audio_group
+    assert panel.audio_group.master is panel.voice_section
+    assert panel.voice_section.cget("text") == "2. Voice & Audio"
 
 
 def test_the_workers_control_is_labelled_as_requested_file_level_concurrency():
@@ -114,10 +115,11 @@ def test_the_workers_control_is_labelled_as_requested_file_level_concurrency():
 
 def test_the_workers_caption_points_to_the_truthful_effective_cap_report():
     text = source()
-    assert "effective cap logged below" in text
-    # v0.6.5 Phase 7 remediation: the separate "Engine output" LabelFrame is
-    # gone -- the effective-workers line the caption refers to now lands in
-    # the one Summary/Detailed log's Detailed tab instead.
+    # The effective-workers line is written to the Detailed log; the caption
+    # names that place rather than a position ("below"), which the responsive
+    # layout does not guarantee -- on a wide window the log is to the right.
+    assert "effective count shown" in text and "in the Detailed log" in text
+    assert "logged below" not in text
     assert 'text="Engine output"' not in text
 
 
@@ -201,23 +203,24 @@ def test_the_two_new_buttons_are_not_registered_as_processing_options(make_panel
 
 
 # --------------------------------------------------------------------------- #
-# D. Layout: no whole-tool scrollbar, primary controls stay reachable
+# D. Layout: a measured, responsive four-section composition
 #
-# The final v0.6.5 Phase 7 layout-refinement pass removed the options form's
-# canvas/scrollbar entirely (it shrank enough, across the Compact UI pass and
-# this one, that it no longer needs its own scroll mechanism) and adopted the
-# same weighted-row scheme the MP3 Tool and M4B Converter already use for the
-# identical "fixed bands exceed the 920x600 minimum" problem: the imported
-# queue and the one Summary/Detailed log carry the weight and compress/scroll
-# locally, the options form and the Start row are pinned at weight=0, and the
-# shared run controls' row is protected by a measured floor
-# (_hold_job_area_open, mirrors the M4B Converter's own fix) rather than a
-# hard-coded pixel count. A remediation pass then consolidated the JobAdapter's
-# own Summary/Details view and the separate "Engine output" ScrolledText into
-# this one panel-owned job_ui.SummaryDetailsView (matches the MP3 Tool/M4B
-# Maker/M4B Metadata Editor pattern), so row 3 (the shared run controls) is now
-# pinned too and row 4 (the log) absorbed the weight it gave up.
+# v0.6.5 Phase 7 UI/UX redesign. The panel is 1. Sources, 2. Voice & Audio,
+# 3. Output & Run (the workflow) plus Activity (the one Summary | Detailed log).
+# ``TtsPanel._choose_layout`` arranges them from the panel's size alone, using
+# thresholds measured from the live widgets: two columns (workflow left,
+# Activity right) when both fit at their natural widths, otherwise Activity
+# drops beneath the workflow; Voice & Audio and Output & Run sit side by side
+# whenever the width allows. Never a whole-tool scrollbar -- only the imported
+# list and the log scroll, and each keeps a measured floor.
+#
+# Every geometry test packs and deiconifies the panel: make_panel only
+# constructs it, and winfo_* geometry of an unmanaged panel or a withdrawn
+# toplevel says nothing reliable (the convention test_mp3_tool_layout.py and
+# test_m4b_layout.py already use).
 # --------------------------------------------------------------------------- #
+
+GEOMETRIES = ("920x600", "1024x720", "1280x900", "1920x1009")
 
 
 def _widgets_of(root, cls) -> list:
@@ -229,21 +232,92 @@ def _widgets_of(root, cls) -> list:
     return found
 
 
+def _is_inside(widget, ancestor) -> bool:
+    node = widget
+    while node is not None:
+        if node is ancestor:
+            return True
+        node = node.master
+    return False
+
+
+class _Shown:
+    """Pack the panel into its toplevel at one size, and undo that afterwards."""
+
+    def __init__(self, panel, geometry):
+        self.panel = panel
+        self.top = panel.winfo_toplevel()
+        self.geometry = geometry
+
+    def __enter__(self):
+        self.was_withdrawn = self.top.state() == "withdrawn"
+        self.panel.pack(fill=tk.BOTH, expand=True)
+        self.top.deiconify()
+        self.resize(self.geometry)
+        return self
+
+    def resize(self, geometry):
+        self.top.geometry(geometry)
+        for _ in range(10):
+            self.top.update_idletasks()
+            self.top.update()
+
+    def __exit__(self, *exc):
+        self.panel.pack_forget()
+        if self.was_withdrawn:
+            self.top.withdraw()
+        return False
+
+
+def _box(panel, widget):
+    x = widget.winfo_rootx() - panel.winfo_rootx()
+    y = widget.winfo_rooty() - panel.winfo_rooty()
+    return (x, y, x + widget.winfo_width(), y + widget.winfo_height())
+
+
+def _overlaps(a, b):
+    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+
+
+def _regions(panel):
+    return {"sources": panel.sources_section, "voice": panel.voice_section,
+            "run": panel.run_section, "activity": panel.activity}
+
+
+def _assert_composed(panel, where):
+    """No region overlaps another, every region is wholly inside the panel, and
+    every primary control is on screen."""
+    width, height = panel.winfo_width(), panel.winfo_height()
+    boxes = {name: _box(panel, widget) for name, widget in _regions(panel).items()}
+    for name, (left, top, right, bottom) in boxes.items():
+        assert left >= 0 and top >= 0, (where, name, boxes[name])
+        assert right <= width and bottom <= height, (where, name, boxes[name], width, height)
+    names = list(boxes)
+    offenders = [(a, b) for i, a in enumerate(names) for b in names[i + 1:]
+                 if _overlaps(boxes[a], boxes[b])]
+    assert not offenders, (where, offenders)
+    for widget in (panel.importer.list.listbox, panel.importer.options.frame,
+                   panel.importer.list.buttons["add_files"], panel.voice_combo,
+                   panel.combo_bitrate, panel.spin_workers, panel.entry_outdir,
+                   panel.btn_open_out, panel.chk_resume, panel.chk_overwrite,
+                   panel.go_btn, panel.jobs.controls.frame, panel.jobs.status.frame,
+                   panel.btn_clear_log, panel.log.frame):
+        assert widget.winfo_ismapped(), (where, str(widget))
+        wbox = _box(panel, widget)
+        assert wbox[2] <= width and wbox[3] <= height, (where, str(widget), wbox)
+
+
 def test_no_canvas_anywhere_in_the_panel(make_panel):
-    """§11: no whole-tool scrollbar, and -- now that the options form shrank
-    enough to drop its own canvas too -- no page canvas of any kind. Matches
-    the MP3 Tool's own established convention for this exact situation
-    (``test_no_whole_tool_scrollbar_only_local_ones``)."""
+    """§11: no whole-tool scrollbar and no page canvas of any kind. Matches the
+    MP3 Tool's own convention (``test_no_whole_tool_scrollbar_only_local_ones``)."""
     panel = make_panel()
     assert _widgets_of(panel, tk.Canvas) == [], "no page canvas anywhere"
     assert not hasattr(panel, "options_canvas")
 
 
 def test_exactly_one_summary_details_notebook_and_no_engine_output_widget(make_panel):
-    """v0.6.5 Phase 7 remediation: the JobAdapter's own internally built
-    Summary/Details view and the separate "Engine output" ScrolledText below
-    it are gone, replaced by one panel-owned job_ui.SummaryDetailsView --
-    mirrors the sibling tools' own proof of the identical shape
+    """One panel-owned job_ui.SummaryDetailsView and no separate "Engine
+    output" box -- mirrors the sibling tools' proof of the same shape
     (test_mp3_tool_ui.py)."""
     from tkinter import scrolledtext as _scrolledtext
     from tkinter import ttk as _ttk
@@ -259,185 +333,212 @@ def test_exactly_one_summary_details_notebook_and_no_engine_output_widget(make_p
     assert not any("Engine output" in text for text in label_texts)
 
 
-def test_every_scrollbar_belongs_to_a_locally_scrolling_widget(make_panel):
-    """The imported queue's file list and the one shared Summary/Detailed log
-    may each scroll locally (§11's explicit allowance). Every ``Scrollbar`` in
-    the panel must be owned by one of those, never by the panel itself or by
-    the (now-removed) options form."""
+def test_every_scrollbar_belongs_to_the_list_or_the_log(make_panel):
+    """Only the imported list and the Summary | Detailed log scroll (§11's
+    explicit allowance); no scrollbar belongs to the panel or a section."""
     from tkinter import ttk as _ttk
 
     panel = make_panel()
     scrollbars = _widgets_of(panel, _ttk.Scrollbar) + _widgets_of(panel, tk.Scrollbar)
-    local_masters = {panel.importer.list.frame,
+    local_masters = {panel.importer.list.listbox.master,
                      panel.log.summary_text.master, panel.log.details_text.master}
-    # job_ui's Summary/Details text widgets each sit beside their own Scrollbar
-    # in a private page frame -- collect every plausible "owns a scrollable
-    # text widget" master rather than hard-coding job_ui's private attributes.
-    local_masters |= {
-        w.master for w in _widgets_of(panel, tk.Text) + _widgets_of(panel, tk.Listbox)
-    }
     assert scrollbars, "the variable-length regions should scroll locally"
     for bar in scrollbars:
-        assert bar.master is not panel, str(bar)
+        assert bar.master in local_masters, str(bar)
 
 
-def test_the_options_form_is_a_plain_pinned_frame_not_inside_a_canvas(make_panel):
-    """The form (Voice/Engine + Audio/Processing + run options) is now an
-    ordinary ``ttk.Frame`` gridded directly at row 1, pinned at weight=0 so
-    its controls are never squeezed below what they ask for."""
+def test_the_sections_follow_the_workflow_and_own_their_controls(make_panel):
+    """Numbered in the order a first-time user works, and every control lives
+    in the section it belongs to -- re-parented, never duplicated."""
     from tkinter import ttk as _ttk
 
     panel = make_panel()
-    frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
-    assert isinstance(frm, _ttk.Frame)
-    assert not isinstance(frm.master, tk.Canvas)
-    assert frm.master is panel
-    assert panel.grid_rowconfigure(1)["weight"] == 0
+    titles = [str(section.cget("text")) for section in
+              (panel.sources_section, panel.voice_section, panel.run_section,
+               panel.activity)]
+    assert titles == ["1. Sources", "2. Voice & Audio", "3. Output & Run", "Activity"]
+    for section in _regions(panel).values():
+        assert isinstance(section, _ttk.LabelFrame)
+    assert _is_inside(panel.importer.frame, panel.sources_section)
+    for widget in (panel.voice_combo, panel.backend_lbl, panel.kokoro_notice_lbl,
+                   panel.voice_status_lbl, panel.combo_bitrate, panel.spin_workers,
+                   panel.edge_rate_frm, panel.kokoro_speed_frm):
+        assert _is_inside(widget, panel.voice_section), str(widget)
+    for widget in (panel.entry_outdir, panel.btn_open_out, panel.chk_resume,
+                   panel.chk_overwrite, panel.go_btn, panel.job_area,
+                   panel.jobs.frame):
+        assert _is_inside(widget, panel.run_section), str(widget)
+    for widget in (panel.log.frame, panel.btn_clear_log):
+        assert _is_inside(widget, panel.activity), str(widget)
+    # One of each: no second importer, log, Start or job area anywhere.
+    starts = [b for b in _widgets_of(panel, _ttk.Button) if str(b.cget("text")) == "Start"]
+    assert starts == [panel.go_btn]
 
 
-def test_removing_the_pause_band_and_the_canvas_kept_the_form_compact(make_panel):
-    """A real, mechanical (not visual) proof that the form stays compact after
-    both layout passes -- the pause/trim band, the canvas/scrollbar machinery,
-    and the redundant footer prose are all gone.
-
-    Not a substitute for the mandatory Windows manual layout/functional smoke
-    gate: this measures real Tk geometry, but only a human can confirm how it
-    actually renders and behaves on a real Windows desktop.
-    """
+def test_start_is_the_primary_action_leading_the_job_controls(make_panel):
     panel = make_panel()
-    panel.update_idletasks()
-    frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
-    height = frm.winfo_reqheight()
-    # Pre-Phase-7 this form was documented at ~1300px against a ~660px window
-    # (its own comment, long since removed). The Compact UI pass brought it to
-    # ~445px; this final layout pass (shorter footer/caption, tighter padding,
-    # no canvas chrome) brings it lower still.
-    assert height < 400, f"the options form is still {height}px tall"
+    assert str(panel.go_btn.cget("default")) == "active"
+    assert panel.go_btn.master is panel.job_area.master
+    assert panel.go_btn.grid_info()["column"] == 0
+    assert panel.job_area.grid_info()["column"] == 1
 
 
-@pytest.mark.parametrize("geometry", ["920x600", "1280x900"])
-def test_no_primary_band_overlaps_another(make_panel, geometry):
-    """The real regression this whole pass exists to prevent: at the
-    supported Windows minimum, and at a larger (roughly maximized) window,
-    none of the five top-level bands may overlap another. Mirrors the
-    reachability convention ``test_mp3_tool_layout.py``/``test_m4b_layout.py``
-    already use for the aqua case, applied here for the Windows case those
-    files explicitly leave to this panel's own suite."""
+@pytest.mark.parametrize("geometry", GEOMETRIES)
+def test_every_region_fits_and_nothing_overlaps(make_panel, geometry):
+    """The regression the redesign exists for: at the 920x600 minimum the old
+    stacked bands needed ~720 px, so the log sat wholly below the window. At
+    every measured size now, each section is inside the panel, none overlaps
+    another, and every primary control is on screen."""
     panel = make_panel()
-    top = panel.winfo_toplevel()
-    was_withdrawn = top.state() == "withdrawn"
-    # make_panel only constructs the panel; the real launcher (build_ui) is
-    # what fills the window with it (panel.pack(fill=tk.BOTH, expand=True)),
-    # and this measurement is meaningless without that -- an unmanaged panel
-    # never receives the toplevel's geometry at all, so every row keeps its
-    # own natural size regardless of what ``geometry()`` below asks for.
-    panel.pack(fill=tk.BOTH, expand=True)
-    # Deiconified because every assertion below is about what is genuinely on
-    # screen: winfo_rootx/rooty/ismapped on a withdrawn toplevel say nothing
-    # reliable (matches test_mp3_tool_layout.py/test_m4b_layout.py's own
-    # convention for the identical measurement).
-    top.deiconify()
-    top.geometry(geometry)
-    for _ in range(6):
-        top.update_idletasks()
-        top.update()
-    try:
-        def box(w):
-            return (w.winfo_rootx(), w.winfo_rooty(),
-                   w.winfo_rootx() + w.winfo_width(), w.winfo_rooty() + w.winfo_height())
-
-        def overlaps(a, b):
-            return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
-
-        frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
-        bands = {
-            "importer": panel.importer.frame,
-            "options_form": frm,
-            "start_row": panel.go_btn.master,
-            "job_area": panel.job_area,
-            "log_frame": panel.log.frame,
-        }
-        boxes = {name: box(w) for name, w in bands.items()}
-        names = list(boxes)
-        offenders = [
-            (names[i], names[j]) for i in range(len(names)) for j in range(i + 1, len(names))
-            if overlaps(boxes[names[i]], boxes[names[j]])
-        ]
-        assert not offenders, f"overlapping bands at {geometry}: {offenders}"
-
-        # Every primary, always-relevant control is mapped (on screen)
-        # regardless of how much the variable-length regions had to compress.
-        for widget in (panel.importer.options.frame, panel.voice_combo,
-                      panel.combo_bitrate, panel.spin_workers, panel.go_btn,
-                      panel.btn_open_out, panel.btn_clear_log):
-            assert widget.winfo_ismapped(), widget
-    finally:
-        panel.pack_forget()
-        if was_withdrawn:
-            top.withdraw()
+    with _Shown(panel, geometry):
+        _assert_composed(panel, geometry)
 
 
-def test_the_non_scrollable_bands_stay_within_the_920x600_minimum(make_panel):
-    """The options form and the Start row are pinned (weight=0): §11 requires
-    these -- the controls that never scroll -- to fit inside the shared
-    920x600 minimum (shared.ui_theme.MIN_SIZE) on their own, leaving whatever
-    remains to the queue/job-area/log rows that are allowed to compress."""
-    from shared import ui_theme
-
+def test_the_minimum_window_stacks_and_large_windows_use_two_columns(make_panel):
+    """At 920x600 the two columns cannot both have their natural widths, so
+    Activity sits beneath the workflow; maximized, it is a column to its right."""
     panel = make_panel()
-    panel.update_idletasks()
-    frm = next(c for c in panel.winfo_children() if c.grid_info().get("row") == 1)
-    fixed_height = frm.winfo_reqheight() + panel.go_btn.master.winfo_reqheight()
-    assert fixed_height < ui_theme.MIN_SIZE[1], (
-        f"the pinned bands alone need {fixed_height}px, at or beyond the "
-        f"shared {ui_theme.MIN_SIZE[1]}px minimum window height")
+    with _Shown(panel, "920x600") as shown:
+        assert panel._layout_mode[0] == "stacked"
+        assert _box(panel, panel.activity)[1] >= _box(panel, panel.run_section)[3]
+        shown.resize("1920x1009")
+        assert panel._layout_mode[0] == "wide"
+        assert _box(panel, panel.activity)[0] >= _box(panel, panel.workflow)[2]
 
 
-@pytest.mark.parametrize("label,edge_shown,kokoro_shown", [
-    (vr.DEFAULT_VOICE_LABEL, True, False),
-    ("Kokoro Female (Default) - Heart (en-US)", False, True),
-    ("Chatterbox - Female 1", False, False),
+LONG_SETUP_REASON = (
+    "Setup required: this voice's reference recording is missing on this "
+    "computer. Edge and Kokoro voices are still available; re-run setup to "
+    "restore the local cloning voices, then choose this voice again.")
+
+
+@pytest.mark.parametrize("geometry,voice", [
+    *[(g, None) for g in GEOMETRIES],
+    ("920x600", "Kokoro Female (Default) - Heart (en-US)"),
+    ("920x600", "Chatterbox - Female 1"),
 ])
-def test_backend_switching_shows_the_correct_rate_control_at_the_920x600_minimum(
-    make_panel, label, edge_shown, kokoro_shown
+def test_the_log_and_the_list_keep_their_floors(make_panel, geometry, voice):
+    """Neither scrolling region collapses: the log keeps LOG_FLOOR_LINES lines
+    and the imported list IMPORTER_FLOOR_ROWS rows, at every size -- including
+    the minimum window with the tallest voice messages showing, which is where
+    the floors actually bind."""
+    import tkinter.font as tkfont
+
+    panel = make_panel(chatterbox_status=lambda voice_id: (False, LONG_SETUP_REASON))
+    with _Shown(panel, geometry) as shown:
+        if voice is not None:
+            panel.selected_voice_label.set(voice)
+            panel._on_voice_selected()
+            shown.resize(geometry)
+            _assert_composed(panel, (geometry, voice))
+        line = tkfont.Font(font=panel.log.summary_text.cget("font")).metrics("linespace")
+        assert panel.log.summary_text.winfo_height() >= panel_module.LOG_FLOOR_LINES * line
+        listbox = panel.importer.list.listbox
+        row = listbox.winfo_reqheight() / panel_module.IMPORTER_LIST_HEIGHT
+        assert listbox.winfo_height() >= int(panel_module.IMPORTER_FLOOR_ROWS * row) - 2
+
+
+@pytest.mark.parametrize("geometry", ("920x600", "1280x900"))
+def test_the_floors_are_the_measured_values(make_panel, geometry):
+    """The floors are wired to live measurements: the list row keeps
+    IMPORTER_FLOOR_ROWS rows and the log row LOG_FLOOR_LINES lines. At the
+    supported sizes grid absorbs the shortfall before either floor binds (the
+    test above), so this is the proof the guard exists for larger fonts or
+    scaling, where it would."""
+    panel = make_panel()
+    with _Shown(panel, geometry):
+        needs = panel._needs
+        assert int(panel.workflow.grid_rowconfigure(0)["minsize"]) == (
+            panel.sources_section.winfo_reqheight() - needs["list_give"])
+        assert int(panel.activity.grid_rowconfigure(1)["minsize"]) == (
+            panel.log.frame.winfo_reqheight() - needs["log_give"])
+        assert needs["list_give"] > 0 and needs["log_give"] > 0
+
+
+def test_the_log_grows_substantially_on_larger_windows(make_panel):
+    areas = {}
+    for geometry in ("920x600", "1280x900", "1920x1009"):
+        panel = make_panel()
+        with _Shown(panel, geometry):
+            text = panel.log.summary_text
+            areas[geometry] = text.winfo_width() * text.winfo_height()
+    assert areas["1280x900"] >= 4 * areas["920x600"], areas
+    assert areas["1920x1009"] >= 6 * areas["920x600"], areas
+
+
+@pytest.mark.parametrize("start", ("920x600", "1920x1009"))
+@pytest.mark.parametrize("geometry", ("1024x720", "1280x900", "1600x900", "1920x1009"))
+def test_two_column_widths_are_exactly_the_layout_math(make_panel, geometry, start):
+    """Regression for a bug found while building this layout: captions that
+    re-wrapped to their *allocated* width let the workflow column's request
+    chase its allocation, so after starting at the stacked minimum and
+    widening to 1024x720 the log was squeezed below its own natural width.
+    In every two-column size the workflow is exactly its natural width plus a
+    third of the spare, and Activity is never below its natural width."""
+    panel = make_panel()
+    with _Shown(panel, start) as shown:
+        shown.resize(geometry)
+        assert panel._layout_mode[0] == "wide", geometry
+        expected = panel._left_width(panel.winfo_width(), panel._layout_mode[1])
+        assert abs(panel.workflow.winfo_width() - expected) <= 1, (
+            geometry, panel.workflow.winfo_width(), expected)
+        assert panel.activity.winfo_width() >= panel._needs["activity"][0], geometry
+
+
+def test_resizing_is_deterministic_and_never_ratchets_a_column(make_panel):
+    """Regression for a bug found while building this layout: wrapped captions
+    re-wrapping to their allocated width let the workflow column's request
+    chase its allocation and grow on every resize. Widths are now a pure
+    function of the window size, whatever sizes came before."""
+    panel = make_panel()
+    with _Shown(panel, "1280x900") as shown:
+        first = (panel.workflow.winfo_width(), panel.activity.winfo_width(),
+                 panel._layout_mode)
+        for geometry in ("1920x1009", "1024x720", "920x600", "1600x900", "1280x900"):
+            shown.resize(geometry)
+            _assert_composed(panel, geometry)
+        again = (panel.workflow.winfo_width(), panel.activity.winfo_width(),
+                 panel._layout_mode)
+    assert again == first
+
+
+@pytest.mark.parametrize("geometry", ("920x600", "1920x1009"))
+def test_backend_switching_leaves_no_ghost_controls(make_panel, geometry):
+    """Each backend shows exactly its own rate control (Chatterbox: none) and
+    its own notices, and the layout stays whole after every switch."""
+    panel = make_panel()
+    expected = [
+        ("Kokoro Female (Default) - Heart (en-US)", False, True, True),
+        ("Chatterbox - Female 1", False, False, False),
+        (vr.DEFAULT_VOICE_LABEL, True, False, False),
+        ("Kokoro Female (Default) - Heart (en-US)", False, True, True),
+        (vr.DEFAULT_VOICE_LABEL, True, False, False),
+    ]
+    with _Shown(panel, geometry) as shown:
+        for label, edge, kokoro, notice in expected:
+            panel.selected_voice_label.set(label)
+            panel._on_voice_selected()
+            shown.resize(geometry)
+            assert bool(panel.edge_rate_frm.winfo_manager()) is edge, label
+            assert bool(panel.kokoro_speed_frm.winfo_manager()) is kokoro, label
+            assert bool(panel.kokoro_notice_lbl.winfo_manager()) is notice, label
+            _assert_composed(panel, (geometry, label))
+
+
+@pytest.mark.parametrize("geometry", ("920x600", "1024x720"))
+def test_a_setup_required_message_expands_without_corrupting_the_layout(
+    make_panel, geometry
 ):
-    """Re-proves the existing per-backend rate-control test (section B, above)
-    at the exact supported minimum window, per this pass's own instruction to
-    verify backend switching under the constrained size, not just unsized."""
-    panel = make_panel()
-    top = panel.winfo_toplevel()
-    top.geometry("920x600")
-    for _ in range(6):
-        top.update_idletasks()
-        top.update()
-    panel.selected_voice_label.set(label)
-    panel._on_voice_selected()
-    top.update_idletasks()
-    assert bool(panel.edge_rate_frm.winfo_manager()) is edge_shown
-    assert bool(panel.kokoro_speed_frm.winfo_manager()) is kokoro_shown
-
-
-def test_the_log_region_keeps_a_real_visible_floor_at_the_920x600_minimum(make_panel):
-    """Regression for a remediation-pass bug: ``_hold_job_area_open`` and
-    ``_hold_log_open`` each read the JobAdapter's/view's widgets for a floor
-    immediately after building them, before Tk's geometry manager had settled
-    a placeholder reqheight into a real one -- which silently pinned row 3's
-    floor at a few pixels and left row 4 (the log) with no floor at all, so it
-    could be squeezed to a 1x1 sliver at the supported minimum. Both methods
-    now force an idle-task pass before measuring; this proves the log stays a
-    real, visible, multi-line region rather than collapsing."""
-    panel = make_panel()
-    top = panel.winfo_toplevel()
-    panel.pack(fill=tk.BOTH, expand=True)
-    top.deiconify()
-    top.geometry("920x600")
-    for _ in range(8):
-        top.update_idletasks()
-        top.update()
-    try:
-        assert panel.log.frame.winfo_ismapped()
-        assert panel.log.frame.winfo_height() > 30, panel.log.frame.winfo_height()
-        assert panel.job_area.winfo_height() >= panel.jobs.controls.frame.winfo_reqheight()
-    finally:
-        panel.pack_forget()
-        top.withdraw()
+    reason = ("Setup required: this voice's reference recording is missing on "
+              "this computer. Edge and Kokoro voices are still available; "
+              "re-run setup to restore the local cloning voices.")
+    panel = make_panel(chatterbox_status=lambda voice_id: (False, reason))
+    with _Shown(panel, geometry) as shown:
+        panel.selected_voice_label.set("Chatterbox - Female 1")
+        panel._on_voice_selected()
+        shown.resize(geometry)
+        assert panel.voice_status_lbl.winfo_manager()
+        assert panel.voice_status_lbl.winfo_ismapped()
+        wrap = int(float(str(panel.voice_status_lbl.cget("wraplength"))))
+        assert 0 < wrap <= panel.voice_section.winfo_width()
+        _assert_composed(panel, (geometry, "setup required"))
