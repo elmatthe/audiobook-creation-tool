@@ -115,7 +115,10 @@ def test_the_workers_control_is_labelled_as_requested_file_level_concurrency():
 def test_the_workers_caption_points_to_the_truthful_effective_cap_report():
     text = source()
     assert "effective cap logged below" in text
-    assert 'text="Engine output"' in text
+    # v0.6.5 Phase 7 remediation: the separate "Engine output" LabelFrame is
+    # gone -- the effective-workers line the caption refers to now lands in
+    # the one Summary/Detailed log's Detailed tab instead.
+    assert 'text="Engine output"' not in text
 
 
 @pytest.mark.parametrize("label,backend,edge_shown,kokoro_shown", [
@@ -147,12 +150,14 @@ def test_no_rate_control_is_shown_for_chatterbox_confirming_no_fake_control():
 
 def test_clear_log_empties_the_visible_transcript_only(make_panel):
     panel = make_panel()
-    panel.append_log("hello world\n")
-    assert "hello world" in panel.log.get("1.0", "end")
+    panel._append_engine_output("hello world\n")
+    assert "hello world" in panel.log.rendered(panel.log.details_text)
     panel.clear_log()
-    assert panel.log.get("1.0", "end").strip() == ""
-    # The log widget must return to its normal read-only state, not stay editable.
-    assert str(panel.log.cget("state")) == "disabled"
+    assert panel.log.rendered(panel.log.details_text).strip() == ""
+    assert panel.log.rendered(panel.log.summary_text).strip() == ""
+    # Both panes must return to their normal read-only state, not stay editable.
+    assert str(panel.log.details_text.cget("state")) == "disabled"
+    assert str(panel.log.summary_text.cget("state")) == "disabled"
 
 
 def test_open_output_folder_reveals_the_tool_parent_before_any_run(
@@ -203,10 +208,15 @@ def test_the_two_new_buttons_are_not_registered_as_processing_options(make_panel
 # this one, that it no longer needs its own scroll mechanism) and adopted the
 # same weighted-row scheme the MP3 Tool and M4B Converter already use for the
 # identical "fixed bands exceed the 920x600 minimum" problem: the imported
-# queue and the engine log carry the weight and compress/scroll locally, the
-# options form and the Start row are pinned at weight=0, and the shared run
-# controls' row is protected by a measured floor (_hold_job_area_open, mirrors
-# the M4B Converter's own fix) rather than a hard-coded pixel count.
+# queue and the one Summary/Detailed log carry the weight and compress/scroll
+# locally, the options form and the Start row are pinned at weight=0, and the
+# shared run controls' row is protected by a measured floor
+# (_hold_job_area_open, mirrors the M4B Converter's own fix) rather than a
+# hard-coded pixel count. A remediation pass then consolidated the JobAdapter's
+# own Summary/Details view and the separate "Engine output" ScrolledText into
+# this one panel-owned job_ui.SummaryDetailsView (matches the MP3 Tool/M4B
+# Maker/M4B Metadata Editor pattern), so row 3 (the shared run controls) is now
+# pinned too and row 4 (the log) absorbed the weight it gave up.
 # --------------------------------------------------------------------------- #
 
 
@@ -229,20 +239,40 @@ def test_no_canvas_anywhere_in_the_panel(make_panel):
     assert not hasattr(panel, "options_canvas")
 
 
+def test_exactly_one_summary_details_notebook_and_no_engine_output_widget(make_panel):
+    """v0.6.5 Phase 7 remediation: the JobAdapter's own internally built
+    Summary/Details view and the separate "Engine output" ScrolledText below
+    it are gone, replaced by one panel-owned job_ui.SummaryDetailsView --
+    mirrors the sibling tools' own proof of the identical shape
+    (test_mp3_tool_ui.py)."""
+    from tkinter import scrolledtext as _scrolledtext
+    from tkinter import ttk as _ttk
+
+    panel = make_panel()
+    notebooks = _widgets_of(panel, _ttk.Notebook)
+    assert len(notebooks) == 1
+    assert notebooks[0] is panel.log.frame
+    tabs = [notebooks[0].tab(tab_id, "text") for tab_id in notebooks[0].tabs()]
+    assert tabs == ["Summary", "Detailed"]
+    assert _widgets_of(panel, _scrolledtext.ScrolledText) == []
+    label_texts = [str(w.cget("text")) for w in _widgets_of(panel, _ttk.LabelFrame)]
+    assert not any("Engine output" in text for text in label_texts)
+
+
 def test_every_scrollbar_belongs_to_a_locally_scrolling_widget(make_panel):
-    """The imported queue's file list, the engine-output log, and the shared
-    Summary/Details view may each scroll locally (§11's explicit allowance).
-    Every ``Scrollbar`` in the panel must be owned by one of those, never by
-    the panel itself or by the (now-removed) options form."""
+    """The imported queue's file list and the one shared Summary/Detailed log
+    may each scroll locally (§11's explicit allowance). Every ``Scrollbar`` in
+    the panel must be owned by one of those, never by the panel itself or by
+    the (now-removed) options form."""
     from tkinter import ttk as _ttk
 
     panel = make_panel()
     scrollbars = _widgets_of(panel, _ttk.Scrollbar) + _widgets_of(panel, tk.Scrollbar)
-    local_masters = {panel.importer.list.frame, panel.log.master, panel.log}
-    # scrolledtext.ScrolledText builds its own internal Scrollbar as a direct
-    # child of the ScrolledText frame itself, and job_ui's Summary/Details text
-    # widgets do the same -- collect every plausible "owns a scrollable text
-    # widget" master rather than hard-coding job_ui's private attribute names.
+    local_masters = {panel.importer.list.frame,
+                     panel.log.summary_text.master, panel.log.details_text.master}
+    # job_ui's Summary/Details text widgets each sit beside their own Scrollbar
+    # in a private page frame -- collect every plausible "owns a scrollable
+    # text widget" master rather than hard-coding job_ui's private attributes.
     local_masters |= {
         w.master for w in _widgets_of(panel, tk.Text) + _widgets_of(panel, tk.Listbox)
     }
@@ -325,7 +355,7 @@ def test_no_primary_band_overlaps_another(make_panel, geometry):
             "options_form": frm,
             "start_row": panel.go_btn.master,
             "job_area": panel.job_area,
-            "log_frame": panel.log.master,
+            "log_frame": panel.log.frame,
         }
         boxes = {name: box(w) for name, w in bands.items()}
         names = list(boxes)
@@ -385,3 +415,29 @@ def test_backend_switching_shows_the_correct_rate_control_at_the_920x600_minimum
     top.update_idletasks()
     assert bool(panel.edge_rate_frm.winfo_manager()) is edge_shown
     assert bool(panel.kokoro_speed_frm.winfo_manager()) is kokoro_shown
+
+
+def test_the_log_region_keeps_a_real_visible_floor_at_the_920x600_minimum(make_panel):
+    """Regression for a remediation-pass bug: ``_hold_job_area_open`` and
+    ``_hold_log_open`` each read the JobAdapter's/view's widgets for a floor
+    immediately after building them, before Tk's geometry manager had settled
+    a placeholder reqheight into a real one -- which silently pinned row 3's
+    floor at a few pixels and left row 4 (the log) with no floor at all, so it
+    could be squeezed to a 1x1 sliver at the supported minimum. Both methods
+    now force an idle-task pass before measuring; this proves the log stays a
+    real, visible, multi-line region rather than collapsing."""
+    panel = make_panel()
+    top = panel.winfo_toplevel()
+    panel.pack(fill=tk.BOTH, expand=True)
+    top.deiconify()
+    top.geometry("920x600")
+    for _ in range(8):
+        top.update_idletasks()
+        top.update()
+    try:
+        assert panel.log.frame.winfo_ismapped()
+        assert panel.log.frame.winfo_height() > 30, panel.log.frame.winfo_height()
+        assert panel.job_area.winfo_height() >= panel.jobs.controls.frame.winfo_reqheight()
+    finally:
+        panel.pack_forget()
+        top.withdraw()

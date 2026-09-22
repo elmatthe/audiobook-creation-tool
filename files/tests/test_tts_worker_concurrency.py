@@ -171,7 +171,7 @@ def test_the_run_log_states_requested_and_effective_workers_truthfully(
     panel, _chosen = direct_panel(make_panel, tmp_path, "a.txt", "b.txt", "c.txt")
     panel.workers_var.set("2")
     run_attempt(panel)
-    log_text = panel.log.get("1.0", "end")
+    log_text = "\n".join(panel.log.details)
     assert "Requested workers: 2 | Effective workers: 2" in log_text
 
 
@@ -182,7 +182,7 @@ def test_an_oversized_workers_request_degrades_safely_and_is_logged_truthfully(
     panel, _chosen = direct_panel(make_panel, tmp_path, "a.txt", "b.txt", "c.txt")
     panel.workers_var.set("100")
     run_attempt(panel)
-    log_text = panel.log.get("1.0", "end")
+    log_text = "\n".join(panel.log.details)
     # 3 queued files is the binding constraint here (3 < 8 cores < the Edge
     # backend-safe ceiling of 32) -- an oversized request never OOMs, thrashes,
     # or silently ignores itself; it degrades to what is actually supportable.

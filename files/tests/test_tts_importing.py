@@ -315,8 +315,8 @@ def test_the_drain_still_delivers_the_engine_transcript_and_the_ending(make_pane
     panel._log_q.put(("log", "hello\n"))
     panel._log_q.put(("done", "Conversion finished."))
     panel._pump.tick()
-    assert "hello" in panel.log.get("1.0", "end")
-    assert "Conversion finished." in panel.log.get("1.0", "end")
+    assert "hello" in panel.log.details
+    assert "Conversion finished." in panel.log.details
     assert panel._busy.is_set() is False
 
     drain = ast.unparse(method_named("_drain_worker_queue"))
@@ -1363,7 +1363,7 @@ def test_the_worker_stops_at_the_existing_cancellation_checkpoint(
     _run_to_completion(panel, before_worker=lambda: panel._controller.request_cancel())
 
     assert stubs.conversion_jobs == [], "a cancelled run converts nothing"
-    assert "Cancelled." in panel.log.get("1.0", "end")
+    assert "Cancelled." in panel.log.details
     assert panel._controller.state.value == "cancelled"
 
 

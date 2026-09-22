@@ -4,6 +4,110 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-21 -- v0.6.5 Phase 7 remediation: TTS's Summary/Details view and its
+separate "Engine output" box are consolidated into one persistent
+job_ui.SummaryDetailsView, matching the MP3 Tool/M4B Maker/M4B Metadata Editor
+
+**Decision/implementation.** The maintainer's manual Phase 7 gate ran and came
+back FAIL: the TTS panel showed two separate log regions -- the JobAdapter's
+own internally built Summary/Details notebook, plus a second, standalone
+"Engine output" `scrolledtext.ScrolledText` immediately below it -- duplicating
+and fragmenting run information and wasting the vertical space the previous
+layout-refinement pass had just fought to recover. The correction: TTS adopts
+the exact persistent-view pattern the MP3 Tool, M4B Maker and M4B Metadata
+Editor already use, while keeping the panel's own classic (no design-system
+theme) styling -- this was a structural fix, not a visual-parity pass.
+
+**1. One view, built once, handed to every adapter.** `self.log =
+job_ui.SummaryDetailsView(self, theme=None, height=2, details_label=
+"Detailed", limit=LOG_LIMIT)` is built in `__init__` and gridded at row 4 in
+place of the deleted "Engine output" `LabelFrame`/`ScrolledText`; `_install_
+jobs` passes `views=self.log` into every run's `JobAdapter`, so the adapter
+never builds or grids its own view and history survives a rebuild. `LOG_LIMIT
+= 400` and `DIVIDER_MARK = "────"` are the same constants the three
+sibling tools already use, copied rather than reinvented.
+
+**2. `shared/job_ui.py` gained one additive method: `SummaryDetailsView.
+append_detail()`.** No existing method could write to Details alone --
+`append()` always writes both panes, which conflicts directly with keeping raw
+engine chatter out of Summary. `append_detail()` mirrors `append()`'s
+freeze-then-extend-then-trim-then-redraw contract exactly, touching only the
+Details history. Backward compatible: every existing caller of `append()`,
+`set_summary()`, `set_details()`, `divider()` and `clear()` is unchanged.
+
+**3. Engine transcript routing.** The worker->GUI `_log_q` "log" kind already
+carried both raw stdout/stderr (via `QueueWriter`, `contextlib.redirect_
+stdout`/`redirect_stderr`) and the worker's own milestone strings (`_RunContext.
+log`, e.g. "[12:00:00] file.txt -- completed", "Requested workers: N |
+Effective workers: N") -- both were already going into one visual box before
+this drop, so no worker-side code changed. Only the panel's own routing
+changed: `_append_engine_output()` line-buffers this channel across drain
+ticks and calls `self.log.append_detail()` with complete lines only, and
+`_flush_engine_output_buffer()` catches a trailing partial line when a "done"
+message ends the run, so nothing already reaching the log is lost. Summary is
+unaffected by any of this: it is still exactly job_control.project_summary's
+own state/progress/warnings/failures/completion projection, driven from the
+job event stream and nothing else.
+
+**4. Row weights: row 3 (shared run controls) pinned, row 4 (the log)
+absorbed its weight.** Row 3 held Summary/Details until this drop, which made
+weight=2 (elastic) the correct choice; now it holds only the JobAdapter's
+fixed-height control bar and status view, so weight=0 is correct and row 4
+rose from weight=4 to weight=6 to receive the difference, exactly the "give
+the recovered space to the one log" instruction this drop was scoped to.
+`_hold_job_area_open()` was rewritten to measure `controls.frame`/
+`status.frame` directly rather than call `JobAdapter.minimum_height()`, which
+still unconditionally adds `views.minimum_height()` regardless of whether the
+caller owns those views -- with `views` now external to `job_area`, that
+method would misattribute row 4's own floor onto row 3.
+
+**5. A real floor-computation bug was found and fixed, not merely designed
+around.** Both `_hold_job_area_open()` and `_hold_log_open()` read their
+target widgets' `winfo_reqheight()` immediately after those widgets were
+built, in the same call that built them, before Tk's geometry manager had
+necessarily settled a real value in place of a small-but-positive placeholder
+-- which is well above zero, so the existing `floor <= 0` retry guard never
+fired. Measured directly: row 3's floor landed at ~10 px (needed: 93 px) and
+row 4 got no floor at all, so the log collapsed to a real, mechanically
+measured 1x1 px sliver at the 920x600 minimum -- worse than the *previous*
+drop's already-accepted "compresses to effectively nothing" trade-off for the
+old Engine output box, not an improvement on it. Both methods now force an
+idle-task pass unconditionally before their first measurement, matching the
+pattern `_hold_importer_open()` already used. Corrected and mechanically
+re-measured at the exact 920x600 minimum: log 900x61 px (a real, multi-line,
+readable region), job area 900x93 px, importer 900x163 px, options form
+920x331 px, Start row 304x41 px; at 1280x900 the log grows to 1260x108 px.
+Zero overlaps among the five top-level bands at either size.
+
+**6. Tests.** `files/tests/test_job_ui.py`: 5 new focused tests for
+`append_detail` (details-only, multi-line, freeze-then-extend interaction with
+a live Summary re-render, divider interaction, limit). `test_tts_compact_ui.
+py`: 5 existing tests fixed for the new `self.log` shape (no longer a raw Text
+widget), plus 2 new tests (exactly one Notebook and no "Engine output" widget
+anywhere in the tree; the floor-computation regression at 920x600).
+`test_tts_jobs.py`: a new "P. Summary/Detailed log consolidation" section (7
+tests) proving persistent-view identity across an adapter rebuild, raw log
+lines and a partial unterminated line both landing in Detailed only, a real
+run's transcript in Detailed while Summary carries only its own completion
+wording, history surviving both a retry and a second fresh run with the
+correct divider text, and Clear Log emptying both panes without touching the
+frozen `RunResult`. `test_tts_importing.py`/`test_tts_worker_concurrency.py`:
+4 pre-existing tests updated from `panel.log.get(...)` to `panel.log.details`.
+Full TTS + job_ui sweep: 465 passed. Full `pytest`: 7582 passed, 57
+skipped, zero failures. `scripts/verify.py`: RESULT: PASS. No TTS synthesis,
+audio quality, timing, worker, importing or output-planning behavior changed.
+
+**Not touched in this drop:** Phase 8 -- not started, unauthorized. The
+maintainer's manual Windows layout/functional smoke gate -- this entry
+records implementation and mechanical verification only, not that gate's
+outcome, which remains outstanding and is explicitly not claimed here, and
+Phase 7 is explicitly not marked passed by this entry.
+
+-- Implemented by Claude Code per the maintainer's Phase 7 remediation
+authorization, 2026-09-21
+
+---
+
 ## 2026-09-21 -- v0.6.5 Phase 7 (final layout-refinement pass): the options
 form's canvas/scrollbar is gone; adopts the M4B Converter/MP3 Tool's own weighted-
 row scheme for the 920x600 minimum

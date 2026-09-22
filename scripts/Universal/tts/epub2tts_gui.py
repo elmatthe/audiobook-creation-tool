@@ -103,8 +103,7 @@ except (ImportError, ModuleNotFoundError) as _tk_err:  # Tk-less / headless Pyth
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-import tkinter.font as tkfont
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, ttk
 
 # Ensure the scripts/ root is importable so `tts.*` resolves whether this GUI is
 # run directly (python scripts/tts/epub2tts_gui.py) or imported by the launcher.
@@ -158,6 +157,15 @@ WORKER_JOIN_TIMEOUT = 5.0
 
 #: Visible rows in the imported-file list before it scrolls locally.
 IMPORTER_LIST_HEIGHT = 6
+
+#: History cap for the one Summary/Detailed log region -- matches the sibling
+#: MP3 Tool/M4B Maker/M4B Metadata Editor convention (job_ui.SummaryDetailsView).
+LOG_LIMIT = 400
+
+#: The rule printed between one attempt's history and the next -- identical to
+#: the sibling tools' own constant, so a maintainer sees one visual convention
+#: across every panel that shares this log region.
+DIVIDER_MARK = "────"
 
 #: The run id the shared controls carry before the first conversion. A panel that
 #: has never run still shows its Pause/Cancel/Retry row, uniformly disabled.
@@ -699,6 +707,10 @@ class TtsPanel(ttk.Frame):
         self._log_q: queue.Queue[tuple[str, object]] = queue.Queue()
         self._event_q: queue.Queue = queue.Queue()
         self._worker = None
+        # Line-buffers raw engine stdout/stderr between drain ticks, so a
+        # fragment split mid-line by the queue does not turn into two ragged
+        # Detailed entries -- see _append_engine_output.
+        self._engine_output_buffer = ""
 
         # One run's job-control state. All of it is replaced wholesale when a run
         # is accepted; a controller belongs to one attempt and is never revived.
@@ -780,15 +792,28 @@ class TtsPanel(ttk.Frame):
         # to need is gone entirely (mirrors the MP3 Tool/M4B Converter, which
         # solved the exact same "fixed bands exceed the 920x600 minimum"
         # problem the same way: no whole-tool scrollbar at all, only the
-        # variable-length regions -- the imported queue and the engine log --
-        # keep their own local scrollbar and compress under weight, while the
-        # options form and the Start row are pinned at weight=0 so their
-        # controls are never squeezed below what they ask for).
+        # variable-length regions -- the imported queue and the one Summary/
+        # Detailed log -- keep their own local scrollbar and compress under
+        # weight, while the options form and the Start row are pinned at
+        # weight=0 so their controls are never squeezed below what they ask
+        # for).
+        #
+        # v0.6.5 Phase 7 remediation: row 3 (the shared run controls) dropped
+        # to weight=0. It used to also carry the JobAdapter's own internally
+        # built Summary/Details notebook, which made it genuinely elastic; now
+        # that the one log region is built once by this panel and handed to
+        # every adapter via ``views=`` (job_ui.SummaryDetailsView, matching
+        # the MP3 Tool/M4B Maker/M4B Metadata Editor pattern), row 3 holds only
+        # the fixed-height control bar and status view, so it is pinned like
+        # the options form and the Start row. The weight it gave up moves to
+        # row 4, which is now the single place Summary/Detailed lives and the
+        # region this pass explicitly asks to give "a useful variable-height
+        # area" now that the separate Engine output box is gone.
         self.rowconfigure(0, weight=4)   # imported queue -- scrolls locally
         self.rowconfigure(1, weight=0)   # Voice/Engine + Audio/Processing -- pinned
         self.rowconfigure(2, weight=0)   # Start / Open Output Folder / Clear Log -- pinned
-        self.rowconfigure(3, weight=2)   # shared run controls, progress, Summary
-        self.rowconfigure(4, weight=4)   # engine transcript -- scrolls locally
+        self.rowconfigure(3, weight=0)   # shared run controls -- fixed, no log of its own
+        self.rowconfigure(4, weight=6)   # Summary/Detailed log -- scrolls locally
         self.columnconfigure(0, weight=1)
 
         self.importer = job_ui.ImportAdapter(
@@ -1008,26 +1033,27 @@ class TtsPanel(ttk.Frame):
             btn_row, text="Clear Log", command=self.clear_log)
         self.btn_clear_log.pack(side=tk.LEFT, padx=(8, 0))
 
-        # --- The shared run controls (row 3): progress, ETA, Summary/Details. ---
+        # --- The shared run controls (row 3): the control bar and status view only.
+        # Summary/Details used to live here too, inside the JobAdapter's own
+        # internally built view. v0.6.5 Phase 7 remediation moved that view out
+        # to row 4 (below) so it is one persistent region shared by every run's
+        # adapter, matching the MP3 Tool/M4B Maker/M4B Metadata Editor pattern.
         self.job_area = ttk.Frame(self)
         self.job_area.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 6))
         self.job_area.rowconfigure(0, weight=1)
         self.job_area.columnconfigure(0, weight=1)
 
-        # --- Engine transcript (row 4): raw stdout/stderr, not the job record. ---
-        # The engines are unchanged and chatty; their output is captured here as a
-        # transcript. What *happened* in the run — its state, its progress, what
-        # failed and how it ended — is the job adapter's Summary and Details above,
-        # and this box reports none of it.
-        log_font = ("Consolas", 10) if sys.platform == "win32" else ("Menlo", 11)
-        logf = ttk.LabelFrame(self, text="Engine output", padding=(8, 4))
-        logf.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        logf.rowconfigure(0, weight=1)
-        logf.columnconfigure(0, weight=1)
-        self.log = scrolledtext.ScrolledText(
-            logf, height=4, state=tk.DISABLED, wrap=tk.WORD, font=log_font
-        )
-        self.log.grid(row=0, column=0, sticky="nsew")
+        # --- The one Summary/Detailed log (row 4). ---------------------------
+        # Built once and handed to every run's JobAdapter via views= below, so a
+        # fresh adapter's empty first render can never drop an earlier run's
+        # lines (job_ui.SummaryDetailsView's own history/divider contract).
+        # Summary is the adapter's own state/progress/warnings/failures/
+        # completion projection; Detailed is that same technical detail plus
+        # the raw engine stdout/stderr transcript, routed in through
+        # _append_engine_output/append_detail so it never reaches Summary.
+        self.log = job_ui.SummaryDetailsView(
+            self, theme=None, height=2, details_label="Detailed", limit=LOG_LIMIT)
+        self.log.frame.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self._hold_log_open()
 
         # The worker->GUI queue is a drain on the one pump, not a second chain.
@@ -1188,18 +1214,35 @@ class TtsPanel(ttk.Frame):
 
     # ------- worker -> GUI queue drain (main thread, on the one pump) -------
 
-    def append_log(self, msg: str) -> None:
-        self.log.configure(state=tk.NORMAL)
-        self.log.insert(tk.END, msg)
-        self.log.see(tk.END)
-        self.log.configure(state=tk.DISABLED)
+    def _append_engine_output(self, chunk: str) -> None:
+        """Route raw engine stdout/stderr text into Detailed only, line-buffered.
+
+        The engines write partial lines and multi-line bursts through
+        ``QueueWriter``, and the worker's own milestone strings (``_RunContext.
+        log``) arrive through the same ``"log"`` queue kind; both belong in
+        Detailed, never Summary, which is why this never touches
+        ``self.log.append``/``set_summary``. Buffering until a complete line is
+        seen avoids one full-widget redraw per ragged fragment -- no worse than
+        the single insert per queue item this replaces -- and ``LOG_LIMIT``
+        keeps the total bounded exactly as the sibling tools' own log does.
+        """
+        self._engine_output_buffer += chunk
+        if "\n" not in self._engine_output_buffer:
+            return
+        *complete, self._engine_output_buffer = self._engine_output_buffer.split("\n")
+        if complete:
+            self.log.append_detail(complete)
+
+    def _flush_engine_output_buffer(self) -> None:
+        """Push any partial, not-yet-newline-terminated engine text to Detailed."""
+        if self._engine_output_buffer:
+            self.log.append_detail(self._engine_output_buffer)
+            self._engine_output_buffer = ""
 
     def clear_log(self) -> None:
-        """Clear the visible transcript only. The run's own history — its event
-        stream, its frozen result, Summary/Details above — is untouched."""
-        self.log.configure(state=tk.NORMAL)
-        self.log.delete("1.0", tk.END)
-        self.log.configure(state=tk.DISABLED)
+        """Clear the visible Summary + Detailed text only. The run's own
+        history — its event stream, its frozen result — is untouched."""
+        self.log.clear()
 
     def open_output_folder(self) -> None:
         """Reveal this run's own numbered output folder, or the tool's parent
@@ -1226,13 +1269,14 @@ class TtsPanel(ttk.Frame):
             while True:
                 kind, payload = self._log_q.get_nowait()
                 if kind == "log":
-                    self.append_log(payload)
+                    self._append_engine_output(payload)
                 elif kind == TIMING_MESSAGE:
                     self._record_timing(payload)
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
                 elif kind == "done":
-                    self.append_log(str(payload) + "\n")
+                    self._flush_engine_output_buffer()
+                    self.log.append_detail(str(payload))
                     self._finish_idle()
         except queue.Empty:
             pass
@@ -1339,7 +1383,10 @@ class TtsPanel(ttk.Frame):
             on_resume=self.resume,
             on_cancel=self.cancel_job,
             on_retry=self.retry_failed,
-            details_height=4,
+            # The panel's one persistent Summary/Detailed log, not a fresh view
+            # per adapter -- matches the MP3 Tool/M4B Maker/M4B Metadata Editor
+            # pattern. The adapter renders into it; it neither places nor closes it.
+            views=self.log,
         )
         self.jobs.frame.grid(row=0, column=0, sticky="nsew")
         self._hold_job_area_open()
@@ -1389,51 +1436,67 @@ class TtsPanel(ttk.Frame):
             self.rowconfigure(0, minsize=floor)
 
     def _hold_log_open(self) -> None:
-        """Stop ``grid`` shrinking the engine-output log to nothing at all.
+        """Stop ``grid`` shrinking the Summary/Detailed log to nothing at all.
 
-        Row 4 carries the same weight as the imported queue's row (row 0), so
-        it is a legitimate scroll-locally target too -- but unlike the queue,
-        this widget has no fixed options/status children to protect, only
-        itself, so an unprotected weight=4 row lets it absorb the *entire*
-        deficit down to a sliver a pixel tall: mapped, technically
+        Row 4 carries the bulk of this panel's weight, so it is a legitimate
+        scroll-locally target -- but an unprotected weighted row lets it absorb
+        the *entire* deficit down to a sliver a pixel tall: mapped, technically
         "scrollable", but showing nothing and not usefully resizable back
-        without knowing to drag exactly the right divider. A floor of two
-        visible lines matches the "at least two rows" bar this codebase
-        already holds every other variable-length list/text region to.
+        without knowing to drag exactly the right divider. The floor comes
+        straight from the shared view's own ``minimum_height`` (one readable
+        line, chrome included), matching how every other variable-length
+        region in this panel is protected.
+
+        Forces an idle-task pass first: this runs immediately after the view is
+        first gridded in ``__init__``, before Tk's geometry manager has
+        necessarily settled it, and an unsettled read can return a placeholder
+        reqheight that yields a floor far smaller than the view actually needs.
         """
-        self.log.update_idletasks()
-        line = tkfont.Font(font=self.log.cget("font")).metrics("linespace")
-        logf = self.log.master
-        pady = logf.grid_info().get("pady", 0)
+        try:
+            self.log.frame.update_idletasks()
+        except tk.TclError:  # pragma: no cover - torn down
+            return
+        floor = self.log.minimum_height()
+        if floor <= 0:
+            return
+        pady = self.log.frame.grid_info().get("pady", 0)
         bottom = pady[1] if isinstance(pady, (tuple, list)) else int(pady or 0)
-        chrome = logf.winfo_reqheight() - self.log.winfo_reqheight()
-        floor = chrome + 2 * line + bottom
-        if floor > 0:
-            self.rowconfigure(4, minsize=floor)
+        self.rowconfigure(4, minsize=floor + int(bottom))
 
     def _hold_job_area_open(self) -> None:
-        """Stop ``grid`` shrinking row 3 past the point where Summary shows text.
+        """Stop ``grid`` shrinking row 3 below what the control bar/status need.
 
         Mirrors the M4B Converter's own fix for the identical problem: this
         panel asks for more content height than the supported 920x600 minimum
-        has to give, so ``grid`` shrinks every weighted row. Row 3 is not
-        freely elastic the way the queue (row 0) and the log (row 4) are:
-        below the job area's own floor, Summary collapses to a sliver —
-        mapped, full width, showing nothing. Row 0 and row 4 scroll locally,
-        so they are the right rows to absorb the shortfall; this only stops
-        row 3 absorbing more than it can afford.
+        has to give, so ``grid`` shrinks every weighted row. Row 3 no longer
+        holds Summary/Details -- that moved to row 4's persistent, panel-owned
+        view -- so it holds only the JobAdapter's fixed-height control bar and
+        status view now, and this is not ``self.jobs.minimum_height()``:
+        that method still adds ``views.minimum_height()`` regardless of
+        whether the caller owns those views, which would misattribute row 4's
+        own floor onto row 3 now that ``views=self.log`` is external to it.
 
-        The floor is measured by the shared adapter, never hard-coded, and is
+        The floor is measured from the live widgets, never hard-coded, and is
         re-applied on every adapter rebuild (cleared first in ``_install_jobs``)
         so a stale floor from a previous run cannot accumulate.
         """
-        floor = self.jobs.minimum_height()
-        if floor <= 0:
+        def _measure() -> int:
             try:
-                self.job_area.update_idletasks()
+                return (self.jobs.controls.frame.winfo_reqheight() + 8
+                        + self.jobs.status.frame.winfo_reqheight())
             except tk.TclError:  # pragma: no cover - torn down
-                return
-            floor = self.jobs.minimum_height()
+                return 0
+
+        # Forced unconditionally, not just when the first read looks like zero:
+        # a control bar/status view built moments ago (inside this same
+        # ``_install_jobs`` call) can report a small-but-positive placeholder
+        # reqheight before Tk's geometry manager has actually settled them, which
+        # would sail past a bare ``floor <= 0`` guard and pin row 3 far too small.
+        try:
+            self.job_area.update_idletasks()
+        except tk.TclError:  # pragma: no cover - torn down
+            return
+        floor = _measure()
         if floor <= 0:
             return
         pady = self.jobs.frame.grid_info().get("pady", 0)
@@ -1639,6 +1702,16 @@ class TtsPanel(ttk.Frame):
         self._snapshot = snapshot
         self._result = None
         self._attempt += 1
+        # The divider first: it freezes the previous attempt's lines into the
+        # log's history, so the fresh adapter's empty first render cannot drop
+        # them (mirrors the MP3 Tool/M4B Maker/M4B Metadata Editor convention).
+        # ``run_directory`` is only ever non-None from a fresh run_job() call;
+        # retry_failed() passes neither it nor destinations, which is exactly
+        # the distinction a retry heading needs.
+        heading = (f"Retry Failed — attempt {self._attempt}"
+                  if run_directory is None
+                  else f"Run {self._run_count} — {run_directory.name}")
+        self.log.divider(f"{DIVIDER_MARK} {heading}")
         self._controller = job_control.JobController(
             snapshot.snapshot_id, listener=self._on_state)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
@@ -1707,8 +1780,9 @@ class TtsPanel(ttk.Frame):
         if controller is None or controller.is_terminal:
             return
         controller.request_cancel()
-        self.append_log(
-            "Cancelling… will stop at the next checkpoint (chapter / chunk).\n")
+        # A panel-authored status line, not engine transcript: it belongs in
+        # both panes, matching the sibling tools' own ``_say``/``append`` use.
+        self.log.append("Cancelling… will stop at the next checkpoint (chapter / chunk).")
 
     # ------- teardown -------
 
