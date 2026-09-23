@@ -2,6 +2,53 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 FINAL LAYOUT REFINEMENT: VERTICAL WORKFLOW BESIDE A DOMINANT ACTIVITY COLUMN -- STOPPED FOR THE MAINTAINER'S SCREENSHOT REVIEW (2026-09-22, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** That block's
+> redesign (four sections, measured responsive layout, one persistent log)
+> stands, refined per the maintainer's screenshot feedback. Layout only: no
+> TTS, audio, import, output-planning or job-control code changed. The
+> `99195a2` AI-trailer issue is still open and deliberately untouched.
+>
+> **1. Beside Activity the workflow is always one vertical column:** 1. Sources,
+> 2. Voice & Audio directly beneath it, 3. Output & Run directly beneath that,
+> top-anchored. The previous large-window arrangement that put 2 and 3 side by
+> side is removed; `_choose_layout` can no longer return it (a sweep of every
+> width 920-2560 x height 600-1440 pins this).
+>
+> **2. Sources is compact.** Beside Activity the list shows at most
+> `WIDE_LIST_ROWS` = 8 rows (fewer if the height needs it, never below 2), sized
+> from the list's measured row height, and does not stretch; a larger queue
+> scrolls inside it (60 files verified). Leftover height stays below Output &
+> Run instead of becoming an empty list.
+>
+> **3. Activity is dominant.** The workflow gets its measured natural width
+> (511 px on HOME-PC) plus at most `WORKFLOW_BREATHING` = 48 px; Activity gets
+> everything else and the full height.
+>
+> **4. Measured on HOME-PC (workflow / Activity width; list rows; log text):**
+> 920x600 stacked, 2|3 side by side, Activity beneath 900x160; list 2 rows; log
+> 855x72 (~4 lines). 1024x720 520 / 474x700; list 4 rows; log 429x603 (~37).
+> 1280x900 559 / 691x880; list 8 rows; log 646x792 (~49). 1920x1009 559 /
+> 1331x989; list 8 rows; log 1286x901 (~56 lines, was 784 px wide with a
+> 1061 px workflow and a 618 px-tall list).
+>
+> **5. The 920x600 exception, measured.** Sections 2 and 3 still share a row
+> there because nothing else fits: the vertical workflow's floor alone is 655
+> px against 580 px of content height, and the two columns' natural widths
+> (511 + 465 + gap) exceed 890 px. A test pins that justification.
+>
+> **6. Verification.** `test_tts_compact_ui.py`: 61 passed, including new pins
+> for the vertical column at five sizes, the size sweep, the measured 920x600
+> fallback, compact Sources, the 1024x720 row give-back, a 60-file queue at all
+> four sizes, and Activity dominance; both "2|3 side by side" and "Sources
+> stretches" were mutation-checked (6 and 4 failures). TTS/job_ui/Chatterbox/
+> Kokoro/launcher sweep: 1245 passed. `scripts/verify.py`: **RESULT: PASS (full pytest 7616 passed, 57 skipped)**. No
+> audio regenerated (no execution path changed).
+>
+> **PHASE 7 IS NOT PASSED.** Stopped for the maintainer's screenshot review.
+> Nothing here authorizes Phase 8.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 UI/UX REDESIGN: RESPONSIVE FOUR-SECTION TTS LAYOUT -- STOPPED FOR THE MAINTAINER'S SCREENSHOT/MANUAL UI REVIEW (2026-09-22, HOME-PC)
 >
 > **This block supersedes the block immediately below it.** Its record (one

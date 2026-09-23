@@ -402,8 +402,124 @@ def test_the_minimum_window_stacks_and_large_windows_use_two_columns(make_panel)
         assert panel._layout_mode[0] == "stacked"
         assert _box(panel, panel.activity)[1] >= _box(panel, panel.run_section)[3]
         shown.resize("1920x1009")
-        assert panel._layout_mode[0] == "wide"
+        assert panel._layout_mode == ("wide", "stack")
         assert _box(panel, panel.activity)[0] >= _box(panel, panel.workflow)[2]
+
+
+def _assert_vertical_workflow(panel, where):
+    """Sources, then Voice & Audio directly beneath it, then Output & Run
+    directly beneath that: one column, same left edge and width, in order."""
+    sources_box, voice, run = (_box(panel, panel.sources_section),
+                               _box(panel, panel.voice_section),
+                               _box(panel, panel.run_section))
+    assert sources_box[0] == voice[0] == run[0], (where, sources_box, voice, run)
+    assert sources_box[2] == voice[2] == run[2], (where, sources_box, voice, run)
+    gap = panel_module.SECTION_GAP
+    assert 0 <= voice[1] - sources_box[3] <= gap + 2, (where, sources_box, voice)
+    assert 0 <= run[1] - voice[3] <= gap + 2, (where, voice, run)
+
+
+@pytest.mark.parametrize("geometry", ("1024x720", "1280x900", "1600x900", "1920x1009",
+                                      "2560x1400"))
+def test_beside_activity_the_workflow_is_one_vertical_column(make_panel, geometry):
+    """The maintainer's final composition: whenever Activity is beside the
+    workflow, it reads 1. Sources, 2. Voice & Audio, 3. Output & Run from
+    top to bottom -- never 2 and 3 side by side -- with Activity to the right
+    of all three and filling the height."""
+    panel = make_panel()
+    with _Shown(panel, geometry):
+        assert panel._layout_mode == ("wide", "stack"), geometry
+        _assert_vertical_workflow(panel, geometry)
+        activity = _box(panel, panel.activity)
+        assert activity[0] >= _box(panel, panel.run_section)[2]
+        assert activity[1] == panel_module.OUTER_PAD
+        assert activity[3] == panel.winfo_height() - panel_module.OUTER_PAD
+        _assert_composed(panel, geometry)
+
+
+def test_no_size_ever_puts_sections_2_and_3_side_by_side_beside_activity(make_panel):
+    """``_choose_layout`` is a pure function of size, so sweep it: across every
+    width from the 920 minimum to 2560 and every height from 600 to 1440, a
+    two-column result is always the vertical workflow."""
+    panel = make_panel()
+    seen = set()
+    for width in range(920, 2561, 20):
+        for height in range(600, 1441, 40):
+            mode = panel._choose_layout(width, height)
+            seen.add(mode)
+            if mode[0] == "wide":
+                assert mode[1] == "stack", (width, height, mode)
+    assert ("wide", "stack") in seen and ("stacked", "side") in seen, seen
+
+
+def test_the_minimum_falls_back_only_because_the_vertical_workflow_cannot_fit(
+    make_panel
+):
+    """Why 920x600 is the one place 2 and 3 share a row: measured, the vertical
+    workflow at its floors is taller than the window's content height by
+    itself -- before Activity gets a single pixel -- and it cannot sit beside
+    Activity because both columns' natural widths exceed the window width."""
+    panel = make_panel()
+    flow_w, flow_floor = panel._workflow_needs("stack")
+    room_w = 920 - 2 * panel_module.OUTER_PAD
+    room_h = 600 - 2 * panel_module.OUTER_PAD
+    assert flow_floor > room_h, (flow_floor, room_h)
+    assert flow_w + panel._needs["activity"][0] + panel_module.COLUMN_GAP > room_w
+    assert panel._choose_layout(920, 600) == ("stacked", "side")
+
+
+@pytest.mark.parametrize("geometry", ("1280x900", "1920x1009", "2560x1400"))
+def test_sources_stays_compact_beside_activity(make_panel, geometry):
+    """Sources is only as tall as a useful queue needs: WIDE_LIST_ROWS rows at
+    most, the list does not stretch, and whatever height the workflow does not
+    need is left below Output & Run rather than handed to an empty list."""
+    panel = make_panel()
+    with _Shown(panel, geometry):
+        listbox = panel.importer.list.listbox
+        rows = int(listbox.cget("height"))
+        assert rows == panel_module.WIDE_LIST_ROWS, (geometry, rows)
+        row_px = panel._needs["list_row_px"]
+        assert listbox.winfo_height() <= rows * row_px + 6, (geometry, listbox.winfo_height())
+        assert (panel.sources_section.winfo_height()
+                <= panel.sources_section.winfo_reqheight())
+
+
+def test_a_short_two_column_window_shows_fewer_list_rows_not_less_workflow(make_panel):
+    """At the 1024x720 launcher default the list gives up rows (never below
+    IMPORTER_FLOOR_ROWS) so sections 2 and 3 stay whole and on screen."""
+    panel = make_panel()
+    with _Shown(panel, "1024x720"):
+        rows = int(panel.importer.list.listbox.cget("height"))
+        assert panel_module.IMPORTER_FLOOR_ROWS <= rows < panel_module.WIDE_LIST_ROWS
+        _assert_vertical_workflow(panel, "1024x720")
+        _assert_composed(panel, "1024x720")
+
+
+def test_a_large_queue_scrolls_inside_the_compact_list(make_panel, tmp_path):
+    names = [f"Chapter {index:02d}.txt" for index in range(1, 61)]
+    chosen = sources(tmp_path / "Big", *names)
+    panel = make_panel(choose_files=lambda: chosen)
+    panel.importer.add_files()
+    for geometry in GEOMETRIES:
+        with _Shown(panel, geometry):
+            listbox = panel.importer.list.listbox
+            assert listbox.size() == 60
+            first, last = listbox.yview()
+            assert first == 0.0 and last < 0.5, (geometry, first, last)
+            _assert_composed(panel, (geometry, "60 files"))
+
+
+@pytest.mark.parametrize("geometry", ("1280x900", "1920x1009"))
+def test_activity_is_the_dominant_region_on_wide_windows(make_panel, geometry):
+    """The workflow keeps its measured natural width plus at most
+    WORKFLOW_BREATHING; every other pixel of width goes to Activity."""
+    panel = make_panel()
+    with _Shown(panel, geometry):
+        natural, _ = panel._workflow_needs("stack")
+        assert panel.workflow.winfo_width() <= natural + panel_module.WORKFLOW_BREATHING
+        assert panel.activity.winfo_width() > panel.workflow.winfo_width()
+        if geometry == "1920x1009":
+            assert panel.activity.winfo_width() >= 2 * panel.workflow.winfo_width()
 
 
 LONG_SETUP_REASON = (
@@ -440,16 +556,21 @@ def test_the_log_and_the_list_keep_their_floors(make_panel, geometry, voice):
 
 @pytest.mark.parametrize("geometry", ("920x600", "1280x900"))
 def test_the_floors_are_the_measured_values(make_panel, geometry):
-    """The floors are wired to live measurements: the list row keeps
-    IMPORTER_FLOOR_ROWS rows and the log row LOG_FLOOR_LINES lines. At the
+    """The floors are wired to live measurements: the log row keeps
+    LOG_FLOOR_LINES lines everywhere, and at the stacked minimum -- the one
+    layout where the list is elastic -- the list row keeps IMPORTER_FLOOR_ROWS
+    rows (beside Activity the list's rows are set explicitly instead). At the
     supported sizes grid absorbs the shortfall before either floor binds (the
     test above), so this is the proof the guard exists for larger fonts or
     scaling, where it would."""
     panel = make_panel()
     with _Shown(panel, geometry):
         needs = panel._needs
-        assert int(panel.workflow.grid_rowconfigure(0)["minsize"]) == (
-            panel.sources_section.winfo_reqheight() - needs["list_give"])
+        if panel._layout_mode[0] == "stacked":
+            assert int(panel.workflow.grid_rowconfigure(0)["minsize"]) == (
+                panel.sources_section.winfo_reqheight() - needs["list_give"])
+        else:
+            assert int(panel.workflow.grid_rowconfigure(0)["weight"]) == 0
         assert int(panel.activity.grid_rowconfigure(1)["minsize"]) == (
             panel.log.frame.winfo_reqheight() - needs["log_give"])
         assert needs["list_give"] > 0 and needs["log_give"] > 0
@@ -473,8 +594,9 @@ def test_two_column_widths_are_exactly_the_layout_math(make_panel, geometry, sta
     re-wrapped to their *allocated* width let the workflow column's request
     chase its allocation, so after starting at the stacked minimum and
     widening to 1024x720 the log was squeezed below its own natural width.
-    In every two-column size the workflow is exactly its natural width plus a
-    third of the spare, and Activity is never below its natural width."""
+    In every two-column size the workflow is exactly its natural width plus
+    its breathing room (``_left_width``), and Activity is never below its
+    natural width."""
     panel = make_panel()
     with _Shown(panel, start) as shown:
         shown.resize(geometry)

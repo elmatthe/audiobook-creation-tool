@@ -4,6 +4,44 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-22 -- v0.6.5 Phase 7 final layout refinement: beside Activity the TTS
+workflow is one vertical column with a compact Sources; Activity takes the rest
+
+**Decision.** Per the maintainer's screenshot feedback on the responsive
+redesign: whenever Activity is beside the workflow, sections 1, 2 and 3 are one
+top-anchored vertical column -- never Voice & Audio beside Output & Run. The
+imported list shows at most WIDE_LIST_ROWS = 8 rows there (fewer when the
+height needs them, never below IMPORTER_FLOOR_ROWS = 2) and scrolls locally
+instead of stretching. The workflow column is its measured natural width plus
+at most WORKFLOW_BREATHING = 48 px, replacing the earlier one-third-of-spare
+rule; Activity takes all remaining width and the full height (1331 of 1920 px
+on HOME-PC, up from 829).
+
+**Why.** The workflow reads as a sequence (sources, voice/audio, output/run),
+and side-by-side sections broke that order on the very windows where space was
+plentiful. A tall list with few files was empty space that pushed sections 2
+and 3 away from Sources; a queue that long is better scrolled. Width beyond what
+the workflow's fixed-size controls need was empty band; the log turns it into
+readable lines.
+
+**The one exception.** At the supported 920x600 minimum, Activity drops beneath
+the workflow and sections 2 and 3 still share a row. Measured, it is the only
+arrangement that fits: the vertical workflow's floor alone is 655 px against
+580 px of content height, and the two columns' natural widths exceed the
+window. The maintainer's instruction to preserve the minimum layout governs
+there, and a test pins the measured reason.
+
+**Unchanged.** Every capability and behavior; no TTS, audio, import, output-
+planning or job-control code changed. `scripts/verify.py`: RESULT: PASS (full pytest 7616 passed, 57 skipped).
+
+**Not touched in this drop:** the `99195a2` trailer (left for a separate
+authorization), Phase 8 (unauthorized). Phase 7 is not marked passed.
+
+-- Implemented by Claude Code per the maintainer's final Phase 7 layout-
+refinement authorization, 2026-09-22
+
+---
+
 ## 2026-09-22 -- v0.6.5 Phase 7 UI/UX redesign: the TTS panel becomes four sections
 arranged responsively from measured sizes (workflow left, Activity right when
 both fit; stacked below that)

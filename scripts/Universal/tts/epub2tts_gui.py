@@ -184,6 +184,16 @@ LOG_FLOOR_LINES = 3
 #: Visible rows the imported list keeps however small the window gets.
 IMPORTER_FLOOR_ROWS = 2
 
+#: Most rows the imported list shows beside Activity. Enough to see a handful
+#: of queued files at once; a longer queue scrolls locally rather than turning
+#: Sources into a tall, mostly empty pane that pushes sections 2 and 3 down.
+#: The pixel height comes from the list's own measured row height.
+WIDE_LIST_ROWS = 8
+
+#: Breathing room the workflow column gets beyond its measured natural width
+#: when there is spare width; everything else goes to Activity.
+WORKFLOW_BREATHING = 48
+
 #: Outer margin, gap between the two columns/stacked regions, and gap between
 #: sections inside the workflow. Pixels, matching the sibling tools' spacing.
 OUTER_PAD = 10
@@ -821,18 +831,20 @@ class TtsPanel(ttk.Frame):
         #   3. Output & Run   -- destination, run options, Start + job controls
         #   Activity          -- the one persistent Summary | Detailed log
         #
-        # 1-3 are the workflow, read top to bottom (or left to right); Activity
-        # is where a run is watched. *How* they are arranged depends only on the
-        # panel's size, decided by _choose_layout from the sections' own
-        # measured natural sizes -- never a whole-tool scrollbar in any of them:
+        # 1-3 are the workflow, read top to bottom; Activity is where a run is
+        # watched. *How* they are arranged depends only on the panel's size,
+        # decided by _choose_layout from the sections' own measured natural
+        # sizes -- never a whole-tool scrollbar in any of them:
         #
-        #   wide/side   workflow left (Sources over Voice & Audio | Output & Run),
-        #               Activity right -- large and maximized windows
-        #   wide/stack  workflow left (the three sections stacked), Activity
-        #               right -- the default 1024x720 window
-        #   stacked     workflow on top (Voice & Audio | Output & Run side by
-        #               side), Activity beneath -- the 920x600 minimum
+        #   wide     workflow left as one vertical column (1 over 2 over 3), near
+        #            its natural width with a compact list (at most
+        #            WIDE_LIST_ROWS rows); Activity takes all remaining width
+        #            and the full height -- 1024x720 up to maximized windows
+        #   stacked  workflow on top with 2 and 3 side by side, Activity
+        #            beneath -- the 920x600 minimum, where the vertical
+        #            workflow's floor alone is taller than the window
         #
+        # Sections 2 and 3 are never side by side while Activity is beside them.
         # Only the imported list and the log scroll, and each keeps a measured
         # floor (IMPORTER_FLOOR_ROWS / LOG_FLOOR_LINES) so neither collapses.
         self._needs: dict | None = None
@@ -1544,10 +1556,18 @@ class TtsPanel(ttk.Frame):
             self.chk_resume.grid(row=0, column=0, sticky="w", padx=0, pady=0)
             self.chk_overwrite.grid(row=0, column=1, sticky="w", padx=(18, 0), pady=0)
 
-    def _grid_workflow(self, inner: str) -> None:
-        """Place the three workflow sections: stacked, or 2 and 3 side by side."""
+    def _grid_workflow(self, panel_mode: str, inner: str) -> None:
+        """Place the three workflow sections.
+
+        Beside Activity ("wide") they are always one vertical column --
+        Sources, then Voice & Audio, then Output & Run -- anchored to the top,
+        with an empty spacer row taking any leftover height so the three read
+        as one continuous workflow instead of drifting apart. Only when
+        Activity sits beneath (the 920x600 minimum) may sections 2 and 3 share
+        a row, because stacked they cannot fit that height at all.
+        """
         flow = self.workflow
-        for index in (0, 1, 2):
+        for index in (0, 1, 2, 3):
             flow.rowconfigure(index, weight=0, minsize=0)
         for index in (0, 1):
             flow.columnconfigure(index, weight=0, minsize=0, uniform="")
@@ -1566,20 +1586,27 @@ class TtsPanel(ttk.Frame):
             self.run_section.grid(row=2, column=0, columnspan=2, sticky="nsew",
                                   padx=0, pady=(SECTION_GAP, 0))
             flow.columnconfigure(0, weight=1)
-        flow.rowconfigure(0, weight=1)
+        if panel_mode == "wide":
+            flow.rowconfigure(3, weight=1)
+        else:
+            flow.rowconfigure(0, weight=1)
 
     def _measure_layout(self) -> None:
         """Measure what each arrangement needs, from the live widgets.
 
         Every threshold :meth:`_choose_layout` uses comes from here -- the
         three sections' natural sizes in both inner arrangements, the Activity
-        column's natural size, and how much height the imported list and the
-        log may give up before their floors -- so the breakpoints follow the
-        platform's real fonts and scaling rather than pixel constants. Widths
-        are read with every caption narrowed to WRAP_WHILE_MEASURING, so prose
-        never decides a section's width; heights are then read with each
-        caption wrapped at the narrowest width its section will actually get.
+        column's natural size, the imported list's row height, and how much
+        height the list and the log may give up before their floors -- so the
+        breakpoints follow the platform's real fonts and scaling rather than
+        pixel constants. Widths are read with every caption narrowed to
+        WRAP_WHILE_MEASURING, so prose never decides a section's width;
+        heights are then read with each caption wrapped at the narrowest width
+        its section will actually get. The list is measured at its natural
+        IMPORTER_LIST_HEIGHT whatever it currently shows.
         """
+        listbox = self.importer.list.listbox
+        listbox.configure(height=IMPORTER_LIST_HEIGHT)
         needs: dict = {}
         sections = {"sources": self.sources_section, "voice": self.voice_section,
                     "run": self.run_section}
@@ -1603,13 +1630,15 @@ class TtsPanel(ttk.Frame):
                             for name, widget in sections.items()}
         needs["activity"] = (self.activity.winfo_reqwidth(),
                              self.activity.winfo_reqheight())
-        row_px = self.importer.list.listbox.winfo_reqheight() / IMPORTER_LIST_HEIGHT
+        row_px = listbox.winfo_reqheight() / IMPORTER_LIST_HEIGHT
+        needs["list_row_px"] = row_px
         needs["list_give"] = int(row_px * (IMPORTER_LIST_HEIGHT - IMPORTER_FLOOR_ROWS))
         line = tkfont.Font(font=self.log.summary_text.cget("font")).metrics("linespace")
         needs["log_give"] = int(line) * (LOG_HEIGHT - LOG_FLOOR_LINES)
         self._needs = needs
         if self._layout_mode is not None:
             self._arrange_sections(self._layout_mode[1])
+            self._size_list()
 
     def _workflow_needs(self, inner: str) -> tuple[int, int]:
         """The workflow column's natural width and its floor height."""
@@ -1628,21 +1657,22 @@ class TtsPanel(ttk.Frame):
     def _choose_layout(self, width: int, height: int) -> tuple[str, str]:
         """Pick the arrangement for a panel of this size. A pure function of it.
 
-        Two columns only when *both* fit at their natural widths -- the
-        workflow's controls unsqueezed and the log at LOG_WIDTH_CHARS -- and
-        the workflow's floor fits the height. Side-by-side sections are
-        preferred whenever they fit, because they use width instead of height.
-        Otherwise the log drops beneath the workflow.
+        Activity goes beside the workflow only when the *vertical* workflow
+        (Sources, Voice & Audio, Output & Run, one above the next) and the log
+        both fit at their natural widths and the workflow's floor fits the
+        height. Beside Activity the sections are never side by side. Otherwise
+        Activity drops beneath the workflow, and only there may sections 2 and
+        3 share a row -- at 920x600 the vertical workflow's floor alone is
+        taller than the window.
         """
         room_w = width - 2 * OUTER_PAD
         room_h = height - 2 * OUTER_PAD
         activity_w, activity_h = self._needs["activity"]
         activity_floor = activity_h - self._needs["log_give"]
-        for inner in ("side", "stack"):
-            flow_w, flow_floor = self._workflow_needs(inner)
-            if (room_w - COLUMN_GAP >= flow_w + activity_w
-                    and max(flow_floor, activity_floor) <= room_h):
-                return ("wide", inner)
+        flow_w, flow_floor = self._workflow_needs("stack")
+        if (room_w - COLUMN_GAP >= flow_w + activity_w
+                and max(flow_floor, activity_floor) <= room_h):
+            return ("wide", "stack")
         side_w, _ = self._workflow_needs("side")
         return ("stacked", "side" if room_w >= side_w else "stack")
 
@@ -1650,7 +1680,7 @@ class TtsPanel(ttk.Frame):
         """Grid the workflow and Activity for one arrangement, then set floors."""
         panel_mode, inner = mode
         self._arrange_sections(inner)
-        self._grid_workflow(inner)
+        self._grid_workflow(panel_mode, inner)
         for index in (0, 1):
             self.columnconfigure(index, weight=0, minsize=0)
             self.rowconfigure(index, weight=0, minsize=0)
@@ -1672,17 +1702,19 @@ class TtsPanel(ttk.Frame):
             self.rowconfigure(1, weight=2)
         self._layout_mode = mode
         self._size_columns()
+        self._size_list()
         self._rewrap()
         self._apply_floors()
 
     def _size_columns(self) -> None:
         """In the two-column layout, set the workflow column's width explicitly.
 
-        Each column first gets its measured natural width; a third of the width
-        left over goes to the workflow (``_left_width``). Set here rather than left to ``grid`` weights because
-        the wrapped captions re-wrap to whatever width their column has, which
-        makes a column's *request* follow its *allocation* -- with weights alone
-        the workflow would ratchet wider on every resize at the log's expense.
+        The workflow gets its measured natural width plus a little breathing
+        room (``_left_width``); Activity gets everything else. Set here rather
+        than left to ``grid`` weights because the wrapped captions re-wrap to
+        whatever width their column has, which makes a column's *request*
+        follow its *allocation* -- with weights alone the workflow would
+        ratchet wider on every resize at the log's expense.
         """
         if self._layout_mode is None or self._layout_mode[0] != "wide":
             return
@@ -1692,18 +1724,46 @@ class TtsPanel(ttk.Frame):
             self.columnconfigure(0, weight=0, minsize=minsize)
 
     def _left_width(self, width: int, inner: str) -> int:
-        """The workflow column's width: its natural width plus a third of the spare.
+        """The workflow column's width: natural, plus at most WORKFLOW_BREATHING.
 
-        The workflow's controls are fixed-size, so spare width there is mostly
-        empty band; the log is what turns room into readable lines. Two thirds
-        of any spare width therefore go to Activity.
+        The workflow's controls are fixed-size, so width beyond what they need
+        is empty band; the log is what turns room into readable lines. So the
+        workflow takes half of any spare width up to WORKFLOW_BREATHING, and
+        Activity takes all the rest.
         """
         flow_w, _ = self._workflow_needs(inner)
         if width <= 1:
             return flow_w
         spare = (width - 2 * OUTER_PAD - COLUMN_GAP - flow_w
                  - self._needs["activity"][0])
-        return flow_w + max(0, spare) // 3
+        return flow_w + min(WORKFLOW_BREATHING, max(0, spare) // 2)
+
+    def _list_rows(self, height: int) -> int:
+        """How many rows the imported list shows beside Activity at this height.
+
+        As many as fit above sections 2 and 3, between IMPORTER_FLOOR_ROWS and
+        WIDE_LIST_ROWS, in whole rows of the list's own measured row height.
+        A pure function of the height, like the rest of the layout.
+        """
+        _, floor_h = self._workflow_needs("stack")
+        room_h = height - 2 * OUTER_PAD
+        spare_rows = int(max(0, room_h - floor_h) // self._needs["list_row_px"])
+        return max(IMPORTER_FLOOR_ROWS,
+                   min(WIDE_LIST_ROWS, IMPORTER_FLOOR_ROWS + spare_rows))
+
+    def _size_list(self) -> None:
+        """Beside Activity the list shows a fixed, compact number of rows and
+        does not stretch; beneath it (the minimum) it keeps its natural request
+        and gives way under weight down to its floor."""
+        if self._needs is None or self._layout_mode is None:
+            return
+        listbox = self.importer.list.listbox
+        if self._layout_mode[0] == "wide" and self.winfo_height() > 1:
+            rows = self._list_rows(self.winfo_height())
+        else:
+            rows = IMPORTER_LIST_HEIGHT
+        if int(listbox.cget("height")) != rows:
+            listbox.configure(height=rows)
 
     def _apply_floors(self) -> None:
         """Keep the list and the log from being squeezed below their floors.
@@ -1713,7 +1773,9 @@ class TtsPanel(ttk.Frame):
         floor measured from the live widgets: the imported list keeps
         IMPORTER_FLOOR_ROWS rows, the log keeps LOG_FLOOR_LINES lines, and the
         panel's own rows keep their whole region at that floor. Measured after
-        wrapping, so a caption that grew a line is already counted.
+        wrapping, so a caption that grew a line is already counted. Beside
+        Activity the list is not elastic at all (``_size_list`` sets its rows),
+        so there the Sources row has no weight and no floor.
         """
         if self._needs is None or self._layout_mode is None:
             return
@@ -1723,17 +1785,18 @@ class TtsPanel(ttk.Frame):
             return
         give_list = self._needs["list_give"]
         give_log = self._needs["log_give"]
-        self.workflow.rowconfigure(
-            0, weight=1, minsize=max(0, self.sources_section.winfo_reqheight() - give_list))
         self.activity.rowconfigure(
             1, weight=1, minsize=max(0, self.log.frame.winfo_reqheight() - give_log))
-        flow_floor = max(0, self.workflow.winfo_reqheight() - give_list)
         activity_floor = max(0, self.activity.winfo_reqheight() - give_log)
         half = COLUMN_GAP // 2
         if self._layout_mode[0] == "wide":
-            self.rowconfigure(0, weight=1,
-                              minsize=max(flow_floor, activity_floor) + 2 * OUTER_PAD)
+            self.workflow.rowconfigure(0, weight=0, minsize=0)
+            self.rowconfigure(0, weight=1, minsize=activity_floor + 2 * OUTER_PAD)
         else:
+            self.workflow.rowconfigure(
+                0, weight=1,
+                minsize=max(0, self.sources_section.winfo_reqheight() - give_list))
+            flow_floor = max(0, self.workflow.winfo_reqheight() - give_list)
             self.rowconfigure(0, weight=1, minsize=flow_floor + OUTER_PAD + half)
             self.rowconfigure(1, weight=2,
                               minsize=activity_floor + OUTER_PAD + COLUMN_GAP - half)
@@ -1747,6 +1810,7 @@ class TtsPanel(ttk.Frame):
             self._apply_layout(mode)
             return
         self._size_columns()
+        self._size_list()
         if self._rewrap():
             self._apply_floors()
 
