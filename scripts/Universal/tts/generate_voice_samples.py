@@ -12,6 +12,7 @@ Usage:
     python generate_voice_samples.py Jenny           # only voices matching "Jenny"
     python generate_voice_samples.py Jenny Michelle  # any voice matching either
     python generate_voice_samples.py --chatterbox-eval   # the four eval WAVs
+    python generate_voice_samples.py --final-acceptance  # v0.6.5 Phase 8 evidence
 
 Filters are case-insensitive substrings matched against the voice_id and the
 display label — handy after adding a voice, so one new sample can be produced
@@ -777,6 +778,445 @@ def _report_quality_suite(rows: list[QualitySample], out_root: Path,
     return 0 if ok == len(rows) else 1
 
 
+# --------------------------------------------------------------------------- #
+# Final voice acceptance (v0.6.5 Phase 8 — plan Sections 9 and 15)
+# --------------------------------------------------------------------------- #
+#: Phase 8's representative longer-stress voices: one per backend.
+FINAL_STRESS_VOICE_IDS: tuple[str, ...] = (
+    "en-US-SteffanNeural",
+    "af_heart",
+    "chatterbox-male-1",
+)
+
+#: Local-only evidence; files/dev-work/ is repository-wide gitignored.
+FINAL_ACCEPTANCE_SUBDIR = "v0.6.5-phase8-final-acceptance"
+
+#: Mechanical plausibility bounds. Deliberately loose: they catch truncation,
+#: runaway output and corruption, never judge quality (P3, P6). The Phase 1
+#: baseline measured 12-19 characters per second across all three backends.
+FINAL_CHARS_PER_SECOND = (8.0, 25.0)
+#: Longest silence permitted inside a file, away from its two ends.
+FINAL_MAX_INTERNAL_SILENCE_S = 4.0
+#: Silence detection floor, matching pydub's detect_leading_silence default.
+FINAL_SILENCE_DB = -50
+#: Decoded vs. container duration agreement.
+FINAL_DURATION_TOLERANCE_S = 0.5
+#: Share of samples at digital full scale above which a file counts as clipped.
+FINAL_MAX_CLIPPED_FRACTION = 1e-4
+
+
+def _final_acceptance_dir() -> Path:
+    d = paths.REPO_ROOT / "files" / "dev-work" / FINAL_ACCEPTANCE_SUBDIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def final_items_for(voice_id: str) -> tuple:
+    """Plan Section 9's workload: every final voice reads the short difficult
+    text and the moderate sustained passage; the representative voice of each
+    backend also reads the longer stress passage."""
+    from tts import quality_corpus as qc
+
+    items = (qc.DIFFICULT_SHORT, qc.SUSTAINED_NARRATION)
+    if voice_id in FINAL_STRESS_VOICE_IDS:
+        items += (qc.LONGER_STRESS,)
+    return items
+
+
+def _file_sha256(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def protected_reference_state() -> dict[str, dict]:
+    """Every production Chatterbox voice's protected reference recording:
+    where it is, its registered hash, and its hash and mtime right now."""
+    from tts import chatterbox_synth as cs
+
+    state: dict[str, dict] = {}
+    for v in VOICES:
+        if v.backend != "chatterbox":
+            continue
+        ref = cs.get_reference_voice(v.voice_id)
+        path = cs.reference_source_path(v.voice_id)
+        exists = path.is_file()
+        state[v.voice_id] = {
+            "path": str(path),
+            "registered_sha256": ref.source_sha256,
+            "sha256": _file_sha256(path) if exists else None,
+            "mtime_ns": path.stat().st_mtime_ns if exists else None,
+        }
+    return state
+
+
+def compare_reference_state(before: dict[str, dict], after: dict[str, dict]) -> list[str]:
+    """Problems only: a reference missing, not matching its registered hash,
+    or changed in any way while the run was in progress. Empty means intact."""
+    problems = []
+    for voice_id in sorted(set(before) | set(after)):
+        b, a = before.get(voice_id), after.get(voice_id)
+        if b is None or a is None:
+            problems.append(f"{voice_id}: reference appeared/disappeared during the run")
+            continue
+        if a["sha256"] is None:
+            problems.append(f"{voice_id}: reference missing at {a['path']}")
+        elif a["sha256"] != a["registered_sha256"]:
+            problems.append(f"{voice_id}: reference hash differs from the registered one")
+        if (b["sha256"], b["mtime_ns"]) != (a["sha256"], a["mtime_ns"]):
+            problems.append(f"{voice_id}: reference changed during the run")
+    return problems
+
+
+def measure_final_artifact(path: Path) -> dict:
+    """Mechanical measurements for one produced file: a full strict decode,
+    container vs. decoded duration, loudness, peak/clipping and silences."""
+    import re
+    import subprocess
+
+    import numpy as np
+    from pydub import AudioSegment
+
+    ffmpeg = ffmpeg_utils.ffmpeg_cmd()
+    decode = subprocess.run(
+        [ffmpeg, "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-"],
+        capture_output=True, text=True, errors="replace",
+    )
+    probe = subprocess.run(
+        [ffmpeg_utils.ffprobe_cmd(), "-v", "error", "-show_entries",
+         "format=duration:stream=codec_name,sample_rate,channels,bit_rate",
+         "-of", "json", str(path)],
+        capture_output=True, text=True, errors="replace",
+    )
+    info = json.loads(probe.stdout or "{}")
+    stream = (info.get("streams") or [{}])[0]
+    silences = subprocess.run(
+        [ffmpeg, "-hide_banner", "-nostats", "-i", str(path), "-af",
+         f"silencedetect=noise={FINAL_SILENCE_DB}dB:d=0.5", "-f", "null", "-"],
+        capture_output=True, text=True, errors="replace",
+    )
+    starts = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", silences.stderr)]
+    ends = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", silences.stderr)]
+
+    seg = AudioSegment.from_file(path)
+    samples = np.abs(np.array(seg.get_array_of_samples(), dtype=np.int64))
+    full_scale = (1 << (8 * seg.sample_width - 1)) - 1
+    decoded_s = len(seg) / 1000.0
+    spans = []
+    for index, start in enumerate(starts):
+        end = ends[index] if index < len(ends) else decoded_s
+        spans.append((round(max(0.0, start), 3), round(end, 3)))
+    return {
+        "decode_ok": decode.returncode == 0 and not decode.stderr.strip(),
+        "decode_errors": decode.stderr.strip()[:500],
+        "codec": stream.get("codec_name"),
+        "sample_rate": int(stream["sample_rate"]) if stream.get("sample_rate") else None,
+        "channels": stream.get("channels"),
+        "bit_rate_kbps": (round(int(stream["bit_rate"]) / 1000)
+                          if stream.get("bit_rate") else None),
+        "container_s": (round(float(info["format"]["duration"]), 3)
+                        if info.get("format", {}).get("duration") else None),
+        "decoded_s": round(decoded_s, 3),
+        "dbfs": round(seg.dBFS, 2) if seg.dBFS != float("-inf") else None,
+        "peak_dbfs": round(seg.max_dBFS, 2) if seg.max_dBFS != float("-inf") else None,
+        "clipped_fraction": (float((samples >= full_scale).sum()) / samples.size
+                             if samples.size else 0.0),
+        "silences": spans,
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def judge_final_artifact(m: dict, chars: int) -> tuple[list[str], dict]:
+    """Pure: the mechanical checks over one artifact's measurements.
+
+    Returns ``(problems, derived)``. An empty ``problems`` means mechanically
+    clean; it never means the voice is good — only listening decides that (P6).
+    """
+    problems: list[str] = []
+    derived: dict = {}
+    if not m.get("decode_ok"):
+        problems.append(f"does not fully decode: {m.get('decode_errors') or 'unknown error'}")
+    decoded = m.get("decoded_s") or 0.0
+    container = m.get("container_s")
+    if container is None or abs(container - decoded) > FINAL_DURATION_TOLERANCE_S:
+        problems.append(f"container duration {container}s disagrees with decoded {decoded}s")
+    if decoded <= 0:
+        problems.append("empty audio")
+        return problems, derived
+    cps = chars / decoded
+    derived["chars_per_s"] = round(cps, 2)
+    low, high = FINAL_CHARS_PER_SECOND
+    if not low <= cps <= high:
+        problems.append(f"implausible duration: {cps:.1f} chars/s outside {low}-{high} "
+                        "(truncated or runaway output)")
+    if (m.get("clipped_fraction") or 0.0) > FINAL_MAX_CLIPPED_FRACTION:
+        problems.append(f"clipping: {m['clipped_fraction']:.2e} of samples at full scale")
+    internal = [(s, e) for s, e in m.get("silences", ())
+                if s > 0.05 and e < decoded - 0.05]
+    longest = max(internal, key=lambda span: span[1] - span[0], default=None)
+    derived["longest_internal_silence_s"] = (
+        round(longest[1] - longest[0], 3) if longest else 0.0)
+    derived["longest_internal_silence_at_s"] = longest[0] if longest else None
+    if longest and longest[1] - longest[0] > FINAL_MAX_INTERNAL_SILENCE_S:
+        problems.append(f"pathological silence: {longest[1] - longest[0]:.2f}s "
+                        f"starting at {longest[0]:.2f}s")
+    return problems, derived
+
+
+@dataclass
+class FinalArtifact:
+    """One manifest row of Phase 8's final-acceptance evidence (P12)."""
+
+    voice_id: str
+    display_label: str
+    backend: str
+    corpus_item: str
+    chars: int
+    source_path: str
+    source_sha256: str
+    output_path: str = ""
+    run_state: str = ""
+    frozen_backend: str = ""
+    frozen_voice_id: str = ""
+    effective_settings: dict = field(default_factory=dict)
+    workers_line: str = ""
+    commit_sha: str = ""
+    corpus_identity: str = ""
+    wall_s: float | None = None
+    measurements: dict = field(default_factory=dict)
+    derived: dict = field(default_factory=dict)
+    problems: list = field(default_factory=list)
+    ok: bool = False
+
+
+def _run_voice_through_production(v, sources: list[Path], log: Callable[[str], None],
+                                  timeout_s: float) -> dict:
+    """One real run exactly as the GUI performs it: a TtsPanel, its importer,
+    the Start button's ``run_job`` and the worker it starts. Nothing here
+    calls an engine directly."""
+    import tkinter as tk
+
+    from tts import epub2tts_gui as panel_module
+
+    chosen = tuple(str(p) for p in sources)
+    root = tk.Tk()
+    root.withdraw()
+    panel = panel_module.TtsPanel(root, choose_files=lambda: chosen)
+    # The on-screen log keeps only its last LOG_LIMIT lines, so the complete
+    # engine transcript is recorded as the panel's own drain receives it.
+    transcript: list[str] = []
+    show_engine_output = panel._append_engine_output
+
+    def _recording(payload, *args, **kwargs):
+        transcript.extend(str(payload).splitlines())
+        return show_engine_output(payload, *args, **kwargs)
+
+    panel._append_engine_output = _recording
+    try:
+        panel.importer.add_files()
+        panel._pump.tick()
+        panel.selected_voice_label.set(v.display_label)
+        panel._on_voice_selected()
+        started = time.perf_counter()
+        worker = panel.run_job()
+        if worker is None:
+            raise RuntimeError("the Start button refused the run (voice unavailable or no input)")
+        deadline = started + timeout_s
+        while worker.is_alive() and time.perf_counter() < deadline:
+            panel._pump.tick()
+            worker.join(0.25)
+        if worker.is_alive():
+            raise RuntimeError(f"run did not finish within {timeout_s:.0f}s")
+        wall_s = time.perf_counter() - started
+        for _ in range(50):
+            panel._pump.tick()
+        options = panel._snapshot.tool_options
+        by_source = {str(entry.source): str(entry.destination)
+                     for entry in panel.destinations().values()}
+        return {
+            "state": panel._result.state.value if panel._result is not None else "none",
+            "wall_s": round(wall_s, 2),
+            "frozen_backend": options["backend"],
+            "frozen_voice_id": options["voice_id"],
+            "settings": {key: options[key] for key in (
+                "rate", "bitrate", "workers", "kokoro_speed", "end_pause",
+                "paragraph_pause", "resume", "overwrite")} | {
+                    "pause_kw": dict(options["pause_kw"])},
+            "destinations": by_source,
+            "transcript": transcript,
+        }
+    finally:
+        panel.close()
+        root.destroy()
+
+
+def run_final_acceptance(patterns: list[str], log: Callable[[str], None] = print,
+                         timeout_s: float = 4 * 3600) -> tuple[list[FinalArtifact], list[str]]:
+    """Phase 8: final listening evidence for every selected production voice,
+    through the fully integrated production path, then mechanical validation.
+    Returns the artifact rows and any protected-reference problems."""
+    from shared import output_paths
+    from tts import quality_corpus as qc
+
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(errors="replace")
+            except Exception:
+                pass
+
+    selected = _select(patterns)
+    out_root = _final_acceptance_dir()
+    outputs = out_root / "outputs"
+    outputs.mkdir(parents=True, exist_ok=True)
+    commit_sha = _git_commit_sha()
+    identity = qc.corpus_identity()
+    ffmpeg_utils.configure_pydub()
+
+    rows = _load_final_manifest(out_root)
+    rows = [r for r in rows if r.voice_id not in {v.voice_id for v in selected}]
+    references_before = protected_reference_state()
+
+    # The one harness-side redirection: every run's output base is this
+    # gitignored folder instead of the maintainer's configured output location.
+    # Planning, naming, synthesis and assembly are the production code's own.
+    real_resolve = output_paths.resolve_output_base
+    output_paths.resolve_output_base = lambda effective=None: outputs
+    try:
+        for v in selected:
+            inputs = out_root / "inputs" / f"{v.backend}_{v.voice_id}"
+            inputs.mkdir(parents=True, exist_ok=True)
+            items = final_items_for(v.voice_id)
+            sources = []
+            for item in items:
+                src = inputs / f"{item.name}.txt"
+                src.write_text(item.text + "\n", encoding="utf-8")
+                sources.append(src)
+            source_hashes = {str(s): _file_sha256(s) for s in sources}
+            voice_rows = [
+                FinalArtifact(
+                    voice_id=v.voice_id, display_label=v.display_label,
+                    backend=v.backend, corpus_item=item.name, chars=len(item.text),
+                    source_path=str(src), source_sha256=source_hashes[str(src)],
+                    commit_sha=commit_sha, corpus_identity=identity,
+                )
+                for item, src in zip(items, sources)
+            ]
+            log(f"=== {v.display_label} ({v.backend}/{v.voice_id}): "
+                f"{', '.join(i.name for i in items)}")
+            try:
+                run = _run_voice_through_production(v, sources, log, timeout_s)
+            except Exception as exc:
+                for row in voice_rows:
+                    row.problems = [f"production run failed: {exc!r}"]
+                rows.extend(voice_rows)
+                _write_final_manifest(out_root, rows, None)
+                log(f"FAIL {v.voice_id}: {exc!r}")
+                continue
+            transcript = out_root / "transcripts" / f"{v.backend}_{v.voice_id}.log"
+            transcript.parent.mkdir(parents=True, exist_ok=True)
+            transcript.write_text("\n".join(run["transcript"]) + "\n", encoding="utf-8")
+            workers_line = next(
+                (ln for ln in run["transcript"] if "Requested workers" in ln), "")
+            for row in voice_rows:
+                row.run_state = run["state"]
+                row.wall_s = run["wall_s"]
+                row.frozen_backend = run["frozen_backend"]
+                row.frozen_voice_id = run["frozen_voice_id"]
+                row.effective_settings = run["settings"]
+                row.workers_line = workers_line
+                row.output_path = run["destinations"].get(row.source_path, "")
+                problems = []
+                if run["state"] != "succeeded":
+                    problems.append(f"run ended {run['state']}")
+                if (row.frozen_backend, row.frozen_voice_id) != (v.backend, v.voice_id):
+                    problems.append(f"provenance: run froze {row.frozen_backend}/"
+                                    f"{row.frozen_voice_id}")
+                if _file_sha256(Path(row.source_path)) != row.source_sha256:
+                    problems.append("source file was modified by the run")
+                out = Path(row.output_path) if row.output_path else None
+                if out is None or not out.is_file():
+                    problems.append(f"no output produced at {row.output_path or '(unplanned)'}")
+                else:
+                    row.measurements = measure_final_artifact(out)
+                    judged, row.derived = judge_final_artifact(row.measurements, row.chars)
+                    problems.extend(judged)
+                row.problems = problems
+                row.ok = not problems
+                log(f"  {row.corpus_item}: {'OK' if row.ok else 'PROBLEM'} "
+                    f"{row.measurements.get('decoded_s')}s {row.derived} {problems}")
+            rows.extend(voice_rows)
+            _write_final_manifest(out_root, rows, None)
+    finally:
+        output_paths.resolve_output_base = real_resolve
+
+    reference_problems = compare_reference_state(references_before,
+                                                 protected_reference_state())
+    _write_final_manifest(out_root, rows, reference_problems)
+    return rows, reference_problems
+
+
+def _load_final_manifest(out_root: Path) -> list[FinalArtifact]:
+    path = out_root / "manifest.jsonl"
+    if not path.is_file():
+        return []
+    return [FinalArtifact(**json.loads(line))
+            for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _write_final_manifest(out_root: Path, rows: list[FinalArtifact],
+                          reference_problems: list[str] | None) -> None:
+    """``reference_problems`` is ``None`` while a run is still in progress:
+    the references are compared only once every selected voice has run."""
+    order = {v.voice_id: i for i, v in enumerate(VOICES)}
+    rows = sorted(rows, key=lambda r: (order.get(r.voice_id, 99), r.corpus_item != "difficult_short",
+                                       r.corpus_item))
+    with open(out_root / "manifest.jsonl", "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(asdict(row)) + "\n")
+    lines = [
+        "# v0.6.5 Phase 8 — final voice acceptance evidence (Windows)",
+        "",
+        "Mechanical evidence only. Listening decides acceptance (plan Section 9, P6).",
+        "",
+        "| Voice | Item | Decoded | Chars/s | Peak dBFS | Longest internal silence | Result | File |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        m, d = r.measurements, r.derived
+        silence = (f"{d['longest_internal_silence_s']:.2f}s @ {d['longest_internal_silence_at_s']:.1f}s"
+                   if d.get("longest_internal_silence_at_s") is not None else "none")
+        verdict = "OK" if r.ok else "PROBLEM: " + "; ".join(r.problems)
+        lines.append(
+            f"| {r.display_label} | {r.corpus_item} | {m.get('decoded_s', '—')}s | "
+            f"{d.get('chars_per_s', '—')} | {m.get('peak_dbfs', '—')} | {silence} | "
+            f"{verdict} | {r.output_path} |")
+    if reference_problems is None:
+        status = "not yet checked (run in progress or interrupted)"
+    elif not reference_problems:
+        status = "intact (registered hash, unchanged during the run)"
+    else:
+        status = "PROBLEMS — " + "; ".join(reference_problems)
+    lines += ["", "Protected Chatterbox references: " + status]
+    (out_root / "manifest.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _report_final_acceptance(rows: list[FinalArtifact], reference_problems: list[str],
+                             log: Callable[[str], None] = print) -> int:
+    ok = sum(1 for r in rows if r.ok)
+    out_root = _final_acceptance_dir()
+    log("")
+    log(f"Final acceptance: {ok}/{len(rows)} artifacts mechanically clean; "
+        f"references {'intact' if not reference_problems else 'NOT intact'}.")
+    log(f"Manifest: {out_root / 'manifest.md'}")
+    log("Listening decides acceptance (P6). Nothing was judged automatically.")
+    return 0 if ok == len(rows) and not reference_problems else 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
@@ -813,6 +1253,16 @@ def _build_parser() -> argparse.ArgumentParser:
              "raw-chunk evidence. Writes to files/dev-work/quality-suite/ "
              "(gitignored, local listening only).",
     )
+    ap.add_argument(
+        "--final-acceptance",
+        dest="final_acceptance",
+        action="store_true",
+        help="v0.6.5 Phase 8: final listening evidence for every selected "
+             "production voice through the real TTS panel job path (short "
+             "difficult text + sustained narration; longer stress for "
+             "Steffan, Heart and Male 1), mechanically validated. Writes to "
+             "files/dev-work/v0.6.5-phase8-final-acceptance/ (gitignored).",
+    )
     return ap
 
 
@@ -826,6 +1276,10 @@ def main() -> int:
     if args.chatterbox_candidates:
         ffmpeg_utils.configure_pydub()
         return _report_chatterbox_candidate_evaluation(run_chatterbox_candidate_evaluation())
+
+    if args.final_acceptance:
+        rows, reference_problems = run_final_acceptance(args.patterns)
+        return _report_final_acceptance(rows, reference_problems)
 
     if args.quality_suite:
         rows = run_quality_suite(args.patterns)

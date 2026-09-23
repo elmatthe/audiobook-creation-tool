@@ -2,6 +2,71 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 PASSED AT `e1c416a`; PHASE 8 WINDOWS FINAL-VOICE EVIDENCE GENERATED FOR ALL 16 VOICES (35/35 MECHANICALLY CLEAN) -- STOPPED AT THE MAINTAINER'S 16-VOICE LISTENING GATE (2026-09-22, HOME-PC)
+>
+> **This block supersedes every Phase 7 block below it.** Maintainer ruling
+> 2026-09-22: the final Phase 7 Windows layout/functional review **PASSED** at
+> `e1c416abf5267490fc5c40367f9aa67de6c4eb6f`. Phase 7 is closed. The `99195a2`
+> AI-trailer issue stays open and untouched (separate authorization).
+>
+> **1. Scope: Phase 8, Windows/primary-machine portion only.** Final listening
+> evidence per plan Section 9 for all 16 production voices. macOS validation,
+> Phase 9, merge/tag/release and history work have not been started.
+>
+> **2. Harness.** `generate_voice_samples.py --final-acceptance [patterns]`
+> extends the existing harness (no parallel tool). Each voice is one real run
+> through a headless `TtsPanel`: importer `add_files()`, voice selection,
+> `run_job()`, the P14 worker pool and the production engines, with the panel's
+> default settings (192k, 2 requested workers, rate +0%, Kokoro speed 1.0,
+> registry timing presets). The only harness-side change is the output base,
+> redirected to a gitignored folder. Workload: `difficult_short` (836 chars) +
+> `sustained_narration` (5,050) for every voice; `longer_stress` (10,815) for
+> Edge Steffan, Kokoro Heart and Chatterbox Male 1. Mechanical checks per file:
+> strict full decode (`ffmpeg -xerror`), container vs. decoded duration within
+> 0.5 s, 8-25 chars/s, no samples at full scale, no internal silence over 4 s,
+> frozen backend/voice equals the registry entry, source text unchanged; plus
+> all six protected Chatterbox references at their registered SHA-256 and
+> unchanged (hash + mtime) across the run. New tests:
+> `files/tests/test_final_acceptance_harness.py` (8).
+>
+> **3. Result: 35/35 files mechanically clean, references intact.** 135.6 min
+> of audio. 10.7-18.0 chars/s. Peak at most -0.43 dBFS, zero clipped samples.
+> Longest internal silence 3.10 s (Chatterbox Male 2 `difficult_short` at
+> 32.9 s); every other file is 2.28 s or less. Every file is 24 kHz MP3 at an
+> effective 160 kbps: the known, maintainer-ruled MPEG-2 cap for the `192k`
+> setting, not a regression. Workers logged as 2/2 for Edge and Kokoro and 2/1
+> for Chatterbox (its truthful cap). Corpus identity `407fa95d7c524c64`; runs
+> made from `e1c416a` plus the uncommitted harness change committed with this
+> block.
+>
+> **4. Interruption, recorded truthfully.** The first full run was killed
+> mid-Male-1 by Claude Code's low-memory reaper after the other 12 voices (26
+> files) had finished clean. The interrupted Male 1 output was set aside unused
+> in `unaccepted-partial/`. Male 1-4 were then rerun as a standalone process,
+> which replaced those rows and ran the final reference comparison. **Observation, not
+> investigated:** that process's private memory grew about 1.4 GB per
+> Chatterbox voice (10.1 to 12.2 GB over four runs in one process), with free
+> commit charge briefly at 0.4 GB. It is flagged for the Phase 9 bug hunt
+> (resource safety / repeated runs in one session); nothing was changed for it.
+>
+> **5. Preserved known findings (not retuned).** The Chatterbox HTTPS URL
+> misreading is model-native/deferred. The rare Chatterbox Male 1 long
+> silence is non-reproducible/deferred and did not recur (Male 1's longest
+> internal silence is 2.28 s). No pronunciation or generation parameter changed.
+>
+> **6. Evidence (gitignored):** `files/dev-work/v0.6.5-phase8-final-acceptance/`
+> holds `manifest.md`/`manifest.jsonl`. Audio is in
+> `outputs/TTS-Audiobook-Outputs/TTS-Audiobook-1..16` (registry order: 1-5
+> Edge, 6-10 Kokoro, 11-16 Chatterbox), with `transcripts/` (full engine logs),
+> `inputs/`, `run.log`, `run-resume.log` and `verify.log`.
+>
+> **7. Verification.** Focused TTS/Chatterbox/Kokoro/voice/quality/job_ui sweep
+> (28 files): 1034 passed. `scripts/verify.py`: **PASS (7624 passed, 57 skipped)**.
+>
+> **PHASE 8 IS NOT PASSED.** Stopped at the maintainer's Windows 16-voice
+> listening gate (plan Section 9). Next, only after that gate: the bounded macOS
+> portion of Phase 8 (unauthorized).
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 FINAL LAYOUT REFINEMENT: VERTICAL WORKFLOW BESIDE A DOMINANT ACTIVITY COLUMN -- STOPPED FOR THE MAINTAINER'S SCREENSHOT REVIEW (2026-09-22, HOME-PC)
 >
 > **This block supersedes the block immediately below it.** That block's

@@ -4,6 +4,36 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-22 -- v0.6.5 Phase 7 closed (maintainer PASS at e1c416a); Phase 8
+Windows final-voice evidence runs through the real TTS panel job path
+
+**Decision.** (1) Recorded: the maintainer passed the final Phase 7 Windows
+layout/functional review at `e1c416abf5267490fc5c40367f9aa67de6c4eb6f`.
+(2) Phase 8's final listening evidence is produced by a new `--final-acceptance`
+mode of the existing `generate_voice_samples.py`, not a new tool. Unlike the
+Phase 1 `--quality-suite` (direct engine calls, raw Edge audio), it drives a
+headless `TtsPanel` through `run_job()` with the panel's defaults, so what the
+maintainer hears is exactly what a user's run produces. Only the output base is
+redirected, to gitignored `files/dev-work/`.
+
+**Why.** Section 9 is final acceptance of the integrated product. Evidence from a
+side path could hide a defect in the Phase 6 assembly or P14 dispatch that users
+would hear.
+
+**Mechanical bounds are catch-nets, not quality thresholds (P3, P6):** 8-25
+chars/s, no internal silence over 4 s, no full-scale samples, strict decode,
+container vs. decoded duration within 0.5 s. All 35 files met them; listening
+still decides.
+
+**Noted, not acted on:** about 1.4 GB of private-memory growth per Chatterbox
+run inside one process (flagged for Phase 9), and the known 160 kbps effective
+cap at 24 kHz (earlier ruling unchanged). `scripts/verify.py`: PASS (7624 passed, 57 skipped).
+
+-- Implemented by Claude Code per the maintainer's Phase 8 (Windows portion)
+authorization, 2026-09-22
+
+---
+
 ## 2026-09-22 -- v0.6.5 Phase 7 final layout refinement: beside Activity the TTS
 workflow is one vertical column with a compact Sources; Activity takes the rest
 
