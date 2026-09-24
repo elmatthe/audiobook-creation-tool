@@ -2,6 +2,108 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8 WINDOWS GATE PASSED FOR ALL 16 VOICES; BOUNDED MACOS VALIDATION RUN, MECHANICALLY 14/16 CLEAN -- STOPPED AT THE MAINTAINER'S MAC LISTENING/ACCEPTANCE GATE (2026-09-23, real Mac, `9f27d89`)
+>
+> **This block supersedes the block immediately below it.** That block's
+> Windows final-voice evidence (35/35 mechanically clean, all 16 voices,
+> protected Chatterbox references intact) stands exactly as written; the
+> Windows/primary-machine listening gate **PASSED for all 16 production
+> voices**, and the Kokoro colon-pause A/B finding (accepted as-is, not
+> integrated -- see `Decisions.md`) stands unchanged.
+>
+> **1. Environment/registry preconditions verified on the real Mac before any
+> synthesis.** Checkpoint `9f27d89` confirmed present in this worktree's
+> history (fast-forwarded from `e21a450`). `voice_registry.VOICES` holds
+> exactly the plan's 16 final voices (5 Edge / 5 Kokoro / 6 Chatterbox,
+> `test_tts_smoke.py::test_voice_registry_shape_and_lookup` passes). All six
+> protected Chatterbox reference recordings
+> (`files/Chatterbox-Voice-Uploads/*.mp3`) are present and match their
+> registered SHA-256 exactly (verified via
+> `generate_voice_samples.protected_reference_state()`, no synthesis
+> involved). Edge/Kokoro/Chatterbox/torch all import cleanly in the Mac
+> `.venv` (Python 3.12, torch 2.6.0, MPS available); platform
+> `macOS-27.0-arm64` (26A428).
+>
+> **2. Bounded macOS voice validation -- 14/16 mechanically clean, 2
+> pathological-silence problems, references intact.** Reused
+> `generate_voice_samples.py`'s Phase 8 harness internals directly (no
+> parallel QA system) via a thin driver,
+> `files/dev-work/v0.6.5-phase8-mac-validation/run_mac_validation.py`
+> (gitignored): the same `_run_voice_through_production` real-`TtsPanel`
+> path (importer `add_files()`, voice selection, `run_job()`, the P14 worker
+> pool, production engines, default panel settings), the same
+> `measure_final_artifact`/`judge_final_artifact` mechanical checks, and the
+> same `protected_reference_state`/`compare_reference_state` guard --
+> restricted to one `sustained_narration` (~5,050-char) sample per final
+> voice per plan Section 15's macOS bullet, not the full Windows matrix.
+> **13/16 clean with no problems; 2 Chatterbox voices hit a pathological
+> internal silence: Male 1 at 13.75s (starting 318.8s into a 358.6s
+> file) and Male 3 at 7.98s (starting 137.0s into a 346.8s file).** Male 1's
+> defect is the same rare long-silence issue already on record as
+> "non-reproducible" from the Windows run (where Male 1's longest silence
+> was 2.28s) -- it recurred here. Male 3 having the same class of defect is
+> new; no Chatterbox voice showed this on Windows. Every other file (all 5
+> Edge, all 5 Kokoro, Chatterbox Female 1/2, Male 2/4) fully decoded, had
+> container/decoded duration agreement, 14.1-18.0 chars/s, no clipping, and
+> its longest internal silence at or under 2.00s. Protected Chatterbox
+> references: **intact** (registered hash, unchanged) after the full run.
+> No production code changed as a result -- P1/P9: a mispronunciation or
+> silence defect is evidence, not permission to patch. Total wall time
+> ~83 min across the 16 real production runs.
+>
+> **3. Quick TTS control smoke -- reused the existing tracked pytest suite,
+> found real Mac-only layout findings.** Ran the focused TTS/Chatterbox/
+> Kokoro/job_ui sweep (`test_tts_smoke`, `test_tts_compact_ui`,
+> `test_tts_importing`, `test_tts_jobs`, `test_job_ui`, `test_voice_labels`,
+> `test_chatterbox_bootstrap`, `test_chatterbox_boundaries`,
+> `test_chatterbox_integration`, `test_kokoro_voices`,
+> `test_tts_worker_concurrency`): **584 passed, 16 failed** (one run of this
+> sweep additionally showed a 17th, intermittent failure -- see below).
+> **All 16 deterministic failures are in `test_tts_compact_ui.py`, and are
+> real aqua-font-metric layout disagreements** -- this plan's Phase 7
+> redesign was gated and measured on Windows only; this is its first run on
+> real Mac hardware. Concretely: at the real reachable size 1280x900,
+> Activity (537px) is narrower than Workflow (713px) -- the exact inverse of
+> the Windows-verified "Activity is dominant" invariant
+> (`test_activity_is_the_dominant_region_on_wide_windows` fails at both
+> 1280x900 and 1920x1009); at 1024x720 the two-column layout falls back to
+> stacked under real aqua metrics where Windows-tuned assumptions expected
+> wide (`test_two_column_widths_are_exactly_the_layout_math`); at the
+> 920x600 Windows minimum (below the Mac launcher's real enforced
+> `AQUA_MIN_SIZE` 1024x800 floor, so not reachable through the actual
+> launcher, but still a parametrized test point) the "run" controls region
+> overflows the window by 21px vertically
+> (`test_every_region_fits_and_nothing_overlaps`,
+> `test_backend_switching_leaves_no_ghost_controls`). Full failing-test list
+> saved to
+> `files/dev-work/v0.6.5-phase8-mac-validation/control_smoke_pytest.log`
+> (gitignored). **Separately**,
+> `test_tts_worker_concurrency.py::test_a_success_finishing_during_cancellation_is_recorded_not_orphaned`
+> is **flaky on this machine** -- failed 2 of 5 tries, passed the rest;
+> failing run shows `panel._result` is `None` after a cancel-during-success
+> race settles, where a pass expects `result.cancelled is True`. Not
+> confirmed as Mac-specific (a timing race can be flaky on any machine);
+> flagged as an open question rather than a firm Mac-only finding.
+> **None of these were investigated or fixed (out of Phase 8's bounds, P11);
+> they are reported as Mac-only findings for the gate.**
+>
+> **4. Evidence (gitignored, real Mac):**
+> `files/dev-work/v0.6.5-phase8-mac-validation/` holds `manifest.md`/
+> `manifest.jsonl` (the 16-voice table above), `run.log` (full driver
+> output), `transcripts/` (one engine log per voice), `inputs/` (the 16
+> source `.txt` files, SHA-256-verified unchanged post-run), and
+> `outputs/TTS-Audiobook-Outputs/TTS-Audiobook-1..16/` (registry order: 1-5
+> Edge, 6-10 Kokoro, 11-16 Chatterbox) holding the 16 MP3 samples,
+> including the two flagged Chatterbox files.
+>
+> **PHASE 8 IS NOT PASSED.** Windows/primary-machine portion: PASSED.
+> macOS bounded portion: mechanically run and reported, **stopped at the
+> maintainer's Mac listening/acceptance gate** -- pending your review of the
+> two Chatterbox silence artifacts and the Mac-only UI findings above.
+> Nothing here authorizes Phase 9, merge/tag/release, or marking Phase 8
+> passed.
+
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 PASSED AT `e1c416a`; PHASE 8 WINDOWS FINAL-VOICE EVIDENCE GENERATED FOR ALL 16 VOICES (35/35 MECHANICALLY CLEAN) -- STOPPED AT THE MAINTAINER'S 16-VOICE LISTENING GATE (2026-09-22, HOME-PC)
 >
 > **This block supersedes every Phase 7 block below it.** Maintainer ruling

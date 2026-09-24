@@ -4,6 +4,24 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-23 -- Kokoro's longer pause after a prose colon is accepted as model-native; an isolated colon-to-comma A/B showed no audible improvement and is not integrated
+
+During the v0.6.5 Phase 8 maintainer listening gate (plan Section 9), the
+maintainer separately tested an isolated colon-to-comma text substitution for
+Kokoro voices, hypothesizing it might shorten Kokoro's longer model-native
+pause after a prose colon. This is a different pause than the already-
+approved Chatterbox structural-colon normalization from Phase 5 iteration 5
+(integrated Phase 6) -- that candidate is unrelated and unaffected by this
+finding. The isolated Kokoro candidate produced no audible improvement.
+
+**Ruling: REJECTED, not integrated (P1, P6).** Kokoro's longer pause after a
+prose colon stands as accepted, model-native behavior. No Kokoro code,
+segmentation, or assembly changed as a result. This finding is preserved so a
+later phase or a fresh agent context does not repeat the same rejected
+experiment.
+
+---
+
 ## 2026-09-22 -- v0.6.5 Phase 7 closed (maintainer PASS at e1c416a); Phase 8
 Windows final-voice evidence runs through the real TTS panel job path
 
