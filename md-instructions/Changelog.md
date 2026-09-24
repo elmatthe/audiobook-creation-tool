@@ -15,6 +15,53 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **M4B Maker failed every Book whose source path or title held an apostrophe, and repeated ~264 identical Summary lines for one failure** (v0.6.5 Phase 8 macOS exception, 2026-09-24)
+
+- **The concat-list writer corrupted any path containing a literal `'`.** Both FAST and Safe
+  Build failed a real 264-track audiobook (`...Dark Lord's Dreadful Travelogue...`) and
+  `ffmpeg failed` on every Retry Failed attempt, because the written path was itself corrupted
+  before ffmpeg ever saw it. This is the same defect class fixed in the MP3 Tool's own concat
+  writer on 2026-08-07 (`mp3_tools/mp3_tool.py`, see above) -- the M4B Maker's separate,
+  duplicate writer (carried verbatim from the pre-v0.6.4 `m4b_maker.py`) never received that
+  fix. Corrected in place to ffmpeg's documented close-escape-reopen form (`'` -> `'\''`); the
+  engine is architecturally barred from importing the MP3 Tool's own module, so the escape is
+  fixed locally rather than shared by import.
+- **One failed Book now reports one Summary line**, not one per source track. A retryable Book
+  failure used to call the reporter once per occurrence -- correct for building the
+  per-occurrence records Retry Failed needs, wrong for the user-facing Summary, which showed the
+  same failure ~264 times for one 264-track Book. The per-occurrence retry bookkeeping is
+  unchanged; only the reporting call count was reduced to one per Book.
+- **Proved, not assumed: the M4B chapter format supports well over 255 chapters.** A real
+  264-chapter build was read back through the chapter text track ffprobe actually navigates by
+  (not just the merged/`chpl` view that hid a different truncation bug on 2026-09-20) -- all 264
+  titles, boundaries and text-track samples survived intact.
+- New/updated regression coverage in `files/tests/test_m4b_maker_processing.py` and
+  `files/tests/test_m4b_maker_batch.py`: the corrected escape (unit and real-ffmpeg end-to-end,
+  apostrophe in the track path), one-Summary-line-per-Book with full retry bookkeeping preserved,
+  and 264 real chapters surviving readback in the chapter text track.
+
+### Fixed -- **Chatterbox's rare pathological internal silence now fails the file instead of publishing it** (v0.6.5 Phase 8 macOS validation, 2026-09-24)
+
+- The bounded macOS voice-acceptance run found two Chatterbox voices (of sixteen) with a several-
+  second dead spot inside one raw model draw -- confirmed, using the same technique that
+  root-caused a 2026-08-18 Chatterbox silence defect, to be a stochastic model artifact and not an
+  assembly, chunking or text-quoting bug. A bounded retry (up to three fresh draws) already masked
+  most occurrences; if every attempt is still defective, the conversion now fails that one file
+  explicitly (`ChatterboxPathologicalSilence`) instead of publishing narration with a dead spot in
+  it. No text, reference, voice identity or generation parameter changed.
+- New regression coverage in `files/tests/test_chatterbox_silence_retry.py` (silence detection,
+  bounded retry, and the fail-closed exhaustion path end to end through `chatterbox_file_to_mp3`).
+
+### Approved -- **v0.6.5 Phase 8: all 16 production voices passed the Windows listening gate; Kokoro's native colon pause accepted as-is** (2026-09-23/24)
+
+- The maintainer's 16-voice final listening gate (5 Edge, 5 Kokoro, 6 Chatterbox) **passed on the
+  Windows/primary machine** for every voice. Separately, an isolated Kokoro colon-to-comma text
+  substitution -- tested to see whether it would shorten Kokoro's longer model-native pause after
+  a prose colon -- produced no audible improvement and was **rejected, not integrated**; Kokoro's
+  longer pause after a prose colon stands as accepted, model-native behavior. Full details in
+  `Handoff.md` and `Decisions.md`.
+
+
 ### Fixed — **MP3 Tool Time edits on split MP3s with stale duration headers** (2026-09-20)
 
 Write ID3 Tags could falsely reject intact output after a split MP3 retained its original

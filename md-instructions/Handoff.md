@@ -2,6 +2,107 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8: CHATTERBOX RETRY NOW FAILS CLOSED ON EXHAUSTION; MAINTAINER-AUTHORIZED M4B MAKER EXCEPTION FIXED (APOSTROPHE-PATH FFMPEG FAILURE, SUMMARY DUPLICATION, >255-CHAPTER PROOF) -- STOPPED FOR REVIEW (2026-09-24, real Mac)
+>
+> **This block supersedes the block immediately below it on one point: the
+> retry-exhaustion behaviour.** Everything else in that block (root cause,
+> reproduction rates, the Male 1/Male 3 before/after evidence) stands
+> unchanged. This block also records a separate, maintainer-authorized
+> bounded exception to the active plan's M4B-Maker-out-of-scope rule.
+>
+> **1. Chatterbox retry exhaustion now fails the file, not publishes it.**
+> `_generate_checked`'s exhaustion path used to keep and return the last
+> known-bad draw; it now raises `ChatterboxPathologicalSilence` instead --
+> the conversion fails that one file explicitly (P8/P9), no partial MP3 is
+> ever written (the raise fires before assembly/export runs), and the
+> existing per-item exception boundary in `epub2tts_gui.py` already turns
+> it into an ordinary failed-item outcome. No text, reference, voice
+> identity, retry count, or Edge/Kokoro behaviour changed. Updated
+> `test_chatterbox_silence_retry.py` (13 tests: detection, retry-then-keep
+> for a clean draw, retry-then-raise for exhaustion, propagation through
+> both `_synthesize_chunk` paths, and a stub-model end-to-end proof that
+> `chatterbox_file_to_mp3` writes no output file at all when every attempt
+> stays defective). **Not re-run against real Male 1/Male 3 audio** -- the
+> exhaustion path only changes what happens on the rare all-attempts-bad
+> case already proven stochastic; the fix is proven by the stub-model tests
+> plus the unchanged detection/retry logic already verified against real
+> audio in the previous block. Full Chatterbox suite: 560 passed.
+>
+> **2. Maintainer-authorized macOS M4B Maker exception -- real root cause,
+> not assumed (P2).** A real 264-track Book
+> (`Shadow Slave, Volume 10_ Dark Lord's Dreadful Travelogue (Pocket-FM)`)
+> failed Build and Retry Failed alike. The real session log
+> (`files/runtime-data/logs/session_2026-09-24_052430.log`) gives the exact
+> ffmpeg stderr: `Impossible to open '...Dark Lord''s'` -- ffmpeg's own
+> re-quoting of a path `write_concat_list` had already corrupted.
+> `m4b_maker_processing.write_concat_list` carried a broken quote-escape
+> (`'\'\''` -- one `\'` pair too many) verbatim from the pre-v0.6.4
+> `m4b_maker.py`; **this is the identical defect class the MP3 Tool's own
+> concat writer had fixed on 2026-08-07** (`Decisions.md`/`Changelog.md`),
+> which never propagated to the Maker's separate, duplicate writer. Fixed
+> in place to ffmpeg's documented `'` -> `'\''` escape -- not by importing
+> the MP3 Tool's fix, since `test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_once`
+> deliberately bars the engine from `mp3_tools.mp3_processing` (caught by
+> that exact test on first attempt; corrected to stay in bounds). Two new
+> tests in `test_m4b_maker_processing.py`: the isolated escaper against the
+> documented-correct form, and a real end-to-end build (real ffmpeg, real
+> chapters) with an apostrophe in the track path.
+>
+> **3. Summary duplication root-caused and fixed.** `m4b_maker_batch.py`'s
+> `_run_book`/`failed()` called `reporter.failure()` once per source
+> occurrence for a retryable Book failure -- correct per-occurrence
+> `FailureRecord`s for Retry Failed's bookkeeping, but ~264 identical
+> Summary lines for one failed 264-track Book. Fixed to call
+> `reporter.failure()` exactly once per Book (using the Book's first
+> occurrence id, the same convention `_execute()`'s progress reporting
+> already uses); the per-occurrence `FailureRecord` tuple `RunResult`/Retry
+> Failed depend on is untouched. New test in `test_m4b_maker_batch.py`: a
+> 5-track Book failure produces exactly 1 `FAILURE` event while
+> `retryable_ids` still holds all 5 occurrences.
+>
+> **4. >255 chapters: proved, not assumed.** The plan explicitly forbade
+> assuming chapter count was the crash cause. It demonstrably was not (the
+> stderr above is a path error, nothing chapter-related) -- and separately,
+> a real 264-chapter build was proved to survive readback: new test
+> `test_264_chapters_all_survive_readback_in_the_real_chapter_text_track`
+> builds 264 real chapters through the real engine and reads them back with
+> `shared.metadata.read_chapter_structure`, which exposes the QuickTime
+> chapter **text track's own sample count** rather than the ffprobe-merged
+> view that hid the 2026-09-20 movie_timescale truncation. Result: **264
+> titles, 264 boundaries (monotonic, in order), and `track_samples == 264`**
+> -- the real per-player chapter mechanism holds all 264, not capped at 255.
+>
+> **5. Real 264-track reproduction, in progress at STOP time.** Beyond the
+> tracked-suite proof above, the exact real Book was also rebuilt end-to-end
+> through the real engine with its real 264 read-only source MP3s
+> (`files/dev-work/v0.6.5-phase8-m4b-shadow-slave-10/repro.py`, output to a
+> gitignored destination, never the maintainer's normal output folder).
+> Confirmed already at STOP time: ffmpeg opened `inputs.txt` and has been
+> encoding for 25+ minutes (previously it failed in seconds) -- decisive
+> live confirmation the quoting fix resolves the real file, independent of
+> the tracked-suite proof above. **Whether it finished, and its final
+> chapter/duration/reference-integrity check, is reported in my reply, not
+> here** (this block was written before it completed).
+>
+> **6. Verification.** Full Chatterbox suite: 560 passed. Full M4B suite
+> (`test_m4b*.py` + `test_maker_custom_destination.py` +
+> `test_ffmpeg_runtime_trust.py`): 1678 passed, 5 skipped, 0 failed
+> (`test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_once`
+> caught the boundary violation on the first attempt and stayed green after
+> the local-escape correction). `scripts/verify.py` result reported in my
+> reply.
+>
+> **Nothing else changed.** No source MP3/M4B was ever opened for writing;
+> the real 264-track sources' mtimes are unchanged. The 17 previously-
+> reported Mac-only UI/concurrency findings, Phase 9, macOS UI remediation,
+> and merge/tag/release work were **not** touched -- out of bounds for both
+> fixes. **PHASE 8 IS STILL NOT PASSED.** Windows/primary-machine portion:
+> PASSED (unchanged). macOS bounded portion: the two authorized fixes above
+> are implemented and mechanically verified; **your Mac listening review of
+> the Chatterbox fail-closed behavior, and your decision on the M4B Maker
+> exception's real-book result, are still needed.**
+
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8 MACOS BLOCKER INVESTIGATED: CHATTERBOX PATHOLOGICAL-SILENCE ROOT CAUSE DEMONSTRATED, BOUNDED RETRY MITIGATION IMPLEMENTED AND VERIFIED -- DOES NOT GUARANTEE ZERO RECURRENCE -- STOPPED FOR MAINTAINER REVIEW (2026-09-24, real Mac, `9ccec55`)
 >
 > **This block supersedes the block immediately below it only on the two

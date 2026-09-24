@@ -4,6 +4,54 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-24 -- A fixed bug class does not propagate to a duplicate implementation on its own; a retryable Book failure is one Summary line regardless of occurrence count; a bounded generation retry that exhausts fails closed
+
+**M4B Maker's concat-list writer carried the exact bug the MP3 Tool's own
+concat writer was fixed for on 2026-08-07** (ffmpeg concat-demuxer quote
+escaping: a literal `'` must become `'\''`, not `\'`) -- because
+`m4b_maker_processing.write_concat_list` is a separate, duplicate
+implementation (moved verbatim from the pre-v0.6.4 `m4b_maker.py`), not a
+shared call into the already-fixed one. **The durable rule: this codebase
+does not assume a fix in one module reaches a sibling duplicate.** When a
+bug class is fixed, a maintainer or agent should grep for other
+implementations of the same mechanism (concat-list writers, chapter
+writers, pause/silence escapers) rather than trusting the fix propagated.
+Here that check is additionally blocked by a deliberate architectural
+boundary (`test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_once`
+bars `m4b_maker_processing.py` from importing `mp3_tools.mp3_processing`),
+so the two escapers must be corrected and kept correct independently, not
+unified by import.
+
+**A retryable Book failure is exactly one `reporter.failure()` call, however
+many source occurrences it spans.** `m4b_maker_batch.py` used to call it
+once per occurrence -- correct for the per-occurrence `FailureRecord` tuple
+Retry Failed's bookkeeping needs, wrong for the user-facing Summary, which
+showed one failure ~264 times for a 264-track Book. The fix separates the
+two concerns explicitly: build the full per-occurrence `FailureRecord`
+tuple exactly as before (Retry Failed needs every occurrence id), but
+report exactly once per Book, using its first occurrence id (the same
+convention progress reporting already uses). **The durable rule:**
+retry/state bookkeeping and user-facing Summary reporting are two different
+concerns with two different cardinalities, and a fix to one must not assume
+the other's cardinality follows along for free.
+
+**A bounded generation retry that exhausts every attempt fails the file,
+never publishes the last known-bad draw.** Chatterbox's pathological-
+silence retry (2026-09-24, above) originally kept the last attempt on
+exhaustion; a same-day before/after Mac rerun showed the retry works as
+designed but does not guarantee zero recurrence, which meant that
+"keep the last attempt" path would have shipped defective narration to a
+real audiobook. Changed to raise `ChatterboxPathologicalSilence` instead --
+the conversion fails that one file explicitly and reports it truthfully,
+rather than looping past the bounded attempt count chasing a lucky sample
+or silently keeping a demonstrated-bad result. **The durable rule: a
+bounded mechanical retry around a demonstrated defect must have a
+fail-closed exhaustion path, not a best-effort one** -- the same principle
+P8/P9 already apply to source/reference integrity and pronunciation hacks,
+extended here to generation-defect retries.
+
+---
+
 ## 2026-09-24 -- A Chatterbox chunk's pathological internal silence is a raw, stochastic model artifact, not an assembly or chunking defect; a bounded per-draw retry masks it without guaranteeing it away
 
 During the v0.6.5 Phase 8 macOS listening gate the maintainer confirmed two
