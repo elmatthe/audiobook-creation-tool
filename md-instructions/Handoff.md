@@ -2,6 +2,111 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8 MACOS BLOCKER INVESTIGATED: CHATTERBOX PATHOLOGICAL-SILENCE ROOT CAUSE DEMONSTRATED, BOUNDED RETRY MITIGATION IMPLEMENTED AND VERIFIED -- DOES NOT GUARANTEE ZERO RECURRENCE -- STOPPED FOR MAINTAINER REVIEW (2026-09-24, real Mac, `9ccec55`)
+>
+> **This block supersedes the block immediately below it only on the two
+> Chatterbox silence artifacts.** Everything else in that block (Windows gate
+> PASSED for all 16 voices, the Kokoro colon ruling, the 14 other voices
+> mechanically clean, the 17 Mac-only UI/concurrency findings) stands
+> unchanged and untouched by this investigation.
+>
+> **1. Voice-identity discrepancy resolved: the second artifact is Male 3, not
+> Male 2.** The maintainer's screenshot review called the second flagged
+> silence "Male 2"; the mechanical report said Male 3. Checked four
+> independent ways before touching anything: the evidence folder's own
+> manifest order (`TTS-Audiobook-14` = Male 2, clean; `TTS-Audiobook-15` =
+> Male 3, flagged), the production code's own `frozen_voice_id` captured live
+> during that exact run (`chatterbox-male-3`), the engine's own transcript log
+> line ("analysing the reference voice for Chatterbox — Male 3…"), and an
+> independent `ffprobe` duration check against both files matching the
+> manifest exactly. **Male 2's own sample was mechanically clean.** Proceeded
+> on Male 1 and Male 3 as the two confirmed affected voices.
+>
+> **2. Root cause demonstrated: raw model-generated interior silence, not
+> assembly, not a structural-text bug (P2).** Applied the exact technique the
+> v0.6.1 Plan 4 Phase 12 investigation used (see `test_chatterbox_chunking.py`
+> and Decisions.md 2026-08-18): assembly's `np.zeros` gaps survive MP3 decode
+> as literal exact-zero samples, while model output floor is well above zero.
+> Searched both flagged files for exact-zero runs — found only the expected
+> 700 ms inter-chunk pauses, the 75 ms colon-pauses, and the 3.7 s terminal
+> silence; **neither flagged silence (13.75 s / 7.98 s) is anywhere near an
+> exact-zero run.** Both live entirely inside one chunk's own PCM: Male 1's in
+> chunk 21 ("...clockwork room. It was not in Halloran's diagrams."), Male 3's
+> in chunk 10, segment 1 ("The second night she watched from the gallery
+> instead of the clockwork room... The pattern held:"). Unlike the historical
+> Phase 12 defect, **neither chunk contains a raw newline or any structural
+> pattern the existing splitter misses** — `split_for_chatterbox` and
+> `_assert_content_preserved` are working correctly. This is a Chatterbox
+> Turbo sampling artifact (unseeded, `temperature=0.72`), not a chunking bug.
+>
+> **3. Reproduction: stochastic, and one specific text segment shows an
+> elevated rate.** Isolated the two flagged colon-segments plus one clean
+> control segment per voice, 4 repeated draws each, same voice/reference/
+> settings, no seed (`files/dev-work/v0.6.5-phase8-mac-chatterbox-silence-investigation/repro.py`).
+> Male 1's flagged segment: **0/4** reproduced (matches its original
+> "rare/non-reproducible" Windows characterization). Both control segments:
+> **0/4** each. **Male 3's flagged segment ("...balanced on the rail. The
+> pattern held:"): 2/4 reproduced**, both landing within ~0.5 s of each other
+> (8.00 s @ 9.35 s and 7.85 s @ 8.90 s into the ~19 s clip) — a materially
+> higher rate than "rare," specific to this text.
+>
+> **4. Fix implemented: bounded per-draw retry on a demonstrated pathological
+> silence (P1, P8, P9).** `scripts/Universal/tts/chatterbox_synth.py`:
+> `_has_pathological_silence` (same objective definition Phase 8's
+> final-acceptance harness uses — 4.0 s below −50 dB) and `_generate_checked`
+> (retries a defective `model.generate()` draw up to
+> `PATHOLOGICAL_SILENCE_MAX_ATTEMPTS = 3` times, keeps the first clean result,
+> and — if every attempt is still defective — keeps the last attempt and logs
+> it rather than dropping audio or crashing). `_synthesize_chunk` now reaches
+> every draw (whole-chunk and each colon-segment) through this helper; no
+> generation parameter, text, voice identity, or reference changed. New:
+> `files/tests/test_chatterbox_silence_retry.py` (10 tests — detection
+> thresholds, retry/keep-last-attempt behaviour, bounded call count, and that
+> `_synthesize_chunk` cannot bypass the helper). Updated:
+> `test_chatterbox_tuning.py`'s delegation-tracking test to include the new
+> helper (it now owns the one remaining direct `generation_params()` call).
+> Full `pytest`: **7622 passed, 14 failed** — all 14 are the already-reported
+> Mac-only UI/concurrency findings from the prior gate, none Chatterbox-
+> related; zero new failures.
+>
+> **5. Before/after evidence — the fix works as designed but does not
+> guarantee zero recurrence.** Re-ran the identical sustained_narration sample
+> for both voices through the now-patched production path
+> (`files/dev-work/v0.6.5-phase8-mac-chatterbox-silence-investigation/after/`).
+> **Male 3: clean** (longest internal silence 1.25 s; no retry needed this
+> draw). **Male 1: still flagged** — a **new** 11.99 s silence at 141.4 s
+> (the original was 13.75 s at 318.8 s). The transcript proves the retry
+> fired exactly as designed: three attempts, all three independently
+> pathological, the third kept and logged truthfully. **This new occurrence
+> lands in the same chunk 10 / segment 1 as Male 3's original defect — the
+> identical text, now failed in a second, different voice, surviving all
+> three retries.** This is a strong (though still small-sample) signal that
+> this specific sentence ("The second night she watched from the gallery
+> instead of the clockwork room, timing each rotation against the harbor
+> clock with a notebook balanced on the rail. The pattern held:") carries an
+> elevated risk across voices, not a single-voice quirk — flagged for the
+> maintainer's attention, not investigated further here (out of this bounded
+> task's scope).
+>
+> **6. Evidence (gitignored, real Mac):**
+> `files/dev-work/v0.6.5-phase8-mac-chatterbox-silence-investigation/` holds
+> `repro.py`/`repro_results.jsonl` plus the 16 short WAV reps, `run_after.py`,
+> `after/after_results.jsonl`, `after/transcripts/` (both voices, retry lines
+> included), and `after/outputs/TTS-Audiobook-Outputs/TTS-Audiobook-1..2/`
+> (Male 1, Male 3). The original Phase 8 "before" evidence is unchanged at
+> `files/dev-work/v0.6.5-phase8-mac-validation/`.
+>
+> **Nothing else changed.** Protected Chatterbox references intact throughout
+> (checked before and after every run). No text, voice identity, or
+> generation parameter touched. The 17 previously-reported Mac-only UI/
+> concurrency findings, Phase 9, merge/tag/release work, and macOS UI
+> remediation were **not** touched — out of this investigation's bounds.
+> **PHASE 8 IS STILL NOT PASSED.** Stopped here for the maintainer's review of
+> this fix's honest before/after result and next-step decision (accept the
+> residual risk, raise the retry bound, or treat chunk 10's text as a
+> separate follow-up).
+
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8 WINDOWS GATE PASSED FOR ALL 16 VOICES; BOUNDED MACOS VALIDATION RUN, MECHANICALLY 14/16 CLEAN -- STOPPED AT THE MAINTAINER'S MAC LISTENING/ACCEPTANCE GATE (2026-09-23, real Mac, `9f27d89`)
 >
 > **This block supersedes the block immediately below it.** That block's

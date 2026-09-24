@@ -1186,7 +1186,68 @@ def _audio_array(wav) -> np.ndarray:
     return arr
 
 
-def _synthesize_chunk(model, chunk: str, cancel_check=None) -> np.ndarray:
+#: A raw ``generate()`` draw is retried when it contains an internal run at
+#: least this long whose windowed RMS stays below :data:`PATHOLOGICAL_SILENCE_DB`.
+#: Same objective definition Phase 8's final-acceptance QA harness uses to flag
+#: a produced file — restated here rather than imported, since production code
+#: must not depend on a dev/QA-only module.
+PATHOLOGICAL_SILENCE_S = 4.0
+PATHOLOGICAL_SILENCE_DB = -50
+#: Bounded retries for a demonstrated Chatterbox Turbo failure mode: the model
+#: occasionally renders an internal sentence boundary as several seconds of
+#: near-silence instead of an ordinary pause (v0.6.5 Phase 8 macOS
+#: investigation, 2026-09-24 — see ``Decisions.md``). Generation is unseeded
+#: and stochastic (``GENERATION_TEMPERATURE``), so a retry is a fresh draw of
+#: the identical text/voice, not a repeat of the same failure — confirmed by
+#: reproduction (0/8 on one affected text, 2/4 on another, at the exact same
+#: settings). Kept small: this masks a rare generation artifact, not a licence
+#: to keep hammering the model.
+PATHOLOGICAL_SILENCE_MAX_ATTEMPTS = 3
+
+
+def _has_pathological_silence(arr: np.ndarray, sr: int) -> bool:
+    """True when ``arr`` contains an internal near-silent run at least
+    :data:`PATHOLOGICAL_SILENCE_S` long. Mirrors the mechanical definition
+    Phase 8's final-acceptance harness applies to a produced file, applied
+    here to one freshly-generated segment before assembly."""
+    if sr <= 0 or arr.size == 0:
+        return False
+    win = max(1, int(sr * 0.05))
+    n_windows = arr.size // win
+    if n_windows == 0:
+        return False
+    trimmed = arr[: n_windows * win].reshape(n_windows, win).astype(np.float64)
+    rms = np.sqrt(np.mean(np.square(trimmed), axis=1))
+    below = rms < (10 ** (PATHOLOGICAL_SILENCE_DB / 20.0))
+    longest = current = 0
+    for b in below:
+        current = current + 1 if b else 0
+        longest = max(longest, current)
+    return (longest * win / sr) >= PATHOLOGICAL_SILENCE_S
+
+
+def _generate_checked(model, text: str, log: Callable[[str], None] = print) -> np.ndarray:
+    """``model.generate(text, **generation_params())``, retried up to
+    :data:`PATHOLOGICAL_SILENCE_MAX_ATTEMPTS` times when the draw contains a
+    pathological internal silence (P1: retried only on a demonstrated
+    per-draw defect, never a quality knob). If every attempt is still
+    defective, the last attempt is kept and logged — never silently dropped,
+    and the text/voice/reference are never substituted (P8/P9)."""
+    last = np.zeros(0, dtype="float32")
+    for attempt in range(1, PATHOLOGICAL_SILENCE_MAX_ATTEMPTS + 1):
+        last = _audio_array(model.generate(text, **generation_params()))
+        if last.size == 0 or not _has_pathological_silence(last, model.sr):
+            return last
+        log(f"  Chatterbox: attempt {attempt} produced a pathological internal "
+            f"silence — retrying this segment "
+            f"({attempt}/{PATHOLOGICAL_SILENCE_MAX_ATTEMPTS})…")
+    log("  Chatterbox: every retry still showed a pathological silence — "
+        "keeping the last attempt.")
+    return last
+
+
+def _synthesize_chunk(model, chunk: str, cancel_check=None,
+                      log: Callable[[str], None] = print) -> np.ndarray:
     """Render one chunk, honouring prose colons with a short explicit pause.
 
     **The chunk stays one unit of work.** A colon is punctuation, not a source
@@ -1202,10 +1263,14 @@ def _synthesize_chunk(model, chunk: str, cancel_check=None) -> np.ndarray:
 
     ``cancel_check`` is consulted between colon segments as well as between
     chunks. That can only make cancellation more responsive, never less.
+
+    Each individual ``generate()`` draw (the whole chunk, or one colon segment)
+    goes through :func:`_generate_checked`, which retries a demonstrated
+    pathological-silence draw a bounded number of times.
     """
     segments = split_at_prose_colon(chunk)
     if len(segments) == 1:
-        return _audio_array(model.generate(chunk, **generation_params()))
+        return _generate_checked(model, chunk, log)
 
     gap = np.zeros(int(model.sr * COLON_PAUSE_MS / 1000.0), dtype="float32")
     rendered: list[np.ndarray] = []
@@ -1214,7 +1279,7 @@ def _synthesize_chunk(model, chunk: str, cancel_check=None) -> np.ndarray:
             from shared.cancellation import ConversionCancelled
 
             raise ConversionCancelled("Conversion cancelled by user.")
-        piece = _audio_array(model.generate(segment, **generation_params()))
+        piece = _generate_checked(model, segment, log)
         if piece.size == 0:
             continue
         if rendered:
@@ -1391,7 +1456,7 @@ def chatterbox_file_to_mp3(
             raise ConversionCancelled("Conversion cancelled by user.")
         log(f"  Chatterbox chunk {idx}/{len(chunks)}…")
 
-        arr = _synthesize_chunk(model, chunk, cancel_check)
+        arr = _synthesize_chunk(model, chunk, cancel_check, log=log)
         if arr.size == 0:
             log(f"  Warning: chunk {idx} produced no audio, skipping.")
             if progress_callback is not None:

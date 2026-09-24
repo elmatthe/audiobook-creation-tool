@@ -4,6 +4,59 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-24 -- A Chatterbox chunk's pathological internal silence is a raw, stochastic model artifact, not an assembly or chunking defect; a bounded per-draw retry masks it without guaranteeing it away
+
+During the v0.6.5 Phase 8 macOS listening gate the maintainer confirmed two
+real Chatterbox artifacts flagged by the Mac bounded-validation run (Male 1,
+13.75 s; the second one mislabeled "Male 2" in review but mechanically
+confirmed as Male 3, 7.98 s -- four independent checks: manifest order,
+production code's own frozen_voice_id, the engine's transcript log, and an
+independent ffprobe duration match).
+
+Applying the same exact-zero-vs-model-floor technique the v0.6.1 Plan 4
+Phase 12 chunking investigation used (2026-08-18): assembly's `np.zeros` gaps
+survive MP3 decode as literal zero samples; model output never does. Neither
+flagged silence was anywhere near an exact-zero run -- both live entirely
+inside one raw `model.generate()` draw (Male 1: chunk 21; Male 3: chunk 10,
+segment 1). Unlike the Phase 12 defect, neither chunk contains a raw newline
+or any pattern the splitter misses -- `split_for_chatterbox` is working
+correctly. This is a Chatterbox Turbo sampling artifact (unseeded,
+temperature 0.72), not a chunking bug.
+
+A bounded reproduction (4 repeated draws per flagged/control segment, same
+voice/reference/settings, no seed) showed it is **stochastic**: Male 1's
+flagged text reproduced 0/4 (consistent with its original "rare" Windows
+characterization); Male 3's flagged text reproduced **2/4** -- a materially
+elevated rate for that specific sentence.
+
+**Fix: `chatterbox_synth._generate_checked` retries a demonstrated
+pathological internal silence (4.0 s below -50 dB, the same definition
+Phase 8's final-acceptance harness uses) up to 3 times, keeping the first
+clean draw; if every attempt is still defective, the last attempt is kept
+and logged, never silently dropped (P8/P9). `_synthesize_chunk` reaches
+every draw -- the whole-chunk path and each colon-segment path -- through
+this helper. No generation parameter, text, or voice/reference changed
+(P1).** Regression coverage: `test_chatterbox_silence_retry.py` (10 tests).
+
+**Honest before/after result, not oversold: the fix works exactly as
+designed but does not guarantee zero recurrence.** Re-running the identical
+sample after the fix: Male 3 came back clean (no retry needed that draw).
+Male 1 still showed a **new** pathological silence -- 11.99 s, landing in
+the *same* chunk 10 / segment 1 as Male 3's original defect, a second
+different voice failing on the identical text after the retry fired and
+exhausted all three attempts (confirmed in the transcript). This is a
+suggestive, still-small-sample signal that this one sentence carries an
+elevated cross-voice risk, not yet confirmed as a distinct root cause and
+not investigated further here.
+
+**Ruling: accepted as a real mitigation, not a guarantee (P6 -- maintainer
+decides next step).** The residual-risk decision (accept it, raise the
+retry bound, or treat chunk 10's text as a separate follow-up) is the
+maintainer's, recorded at the Phase 8 macOS gate in Handoff.md rather than
+decided here.
+
+---
+
 ## 2026-09-23 -- Kokoro's longer pause after a prose colon is accepted as model-native; an isolated colon-to-comma A/B showed no audible improvement and is not integrated
 
 During the v0.6.5 Phase 8 maintainer listening gate (plan Section 9), the
