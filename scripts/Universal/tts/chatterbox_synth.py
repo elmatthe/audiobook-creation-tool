@@ -608,6 +608,17 @@ class ChatterboxUnavailable(RuntimeError):
     """
 
 
+class ChatterboxPathologicalSilence(RuntimeError):
+    """A raw ``generate()`` draw stayed defective through every bounded retry.
+
+    Raised instead of publishing narration with a several-second dead spot in
+    it (v0.6.5 Phase 8 macOS investigation, 2026-09-24): the conversion fails
+    this one file explicitly rather than keeping the last known-bad draw. The
+    caller sees an ordinary failed item (P8/P9) — no partial MP3 is written,
+    since this fires before assembly/export ever runs.
+    """
+
+
 @dataclass(frozen=True)
 class ReferenceVoice:
     voice_id: str
@@ -1231,8 +1242,12 @@ def _generate_checked(model, text: str, log: Callable[[str], None] = print) -> n
     :data:`PATHOLOGICAL_SILENCE_MAX_ATTEMPTS` times when the draw contains a
     pathological internal silence (P1: retried only on a demonstrated
     per-draw defect, never a quality knob). If every attempt is still
-    defective, the last attempt is kept and logged — never silently dropped,
-    and the text/voice/reference are never substituted (P8/P9)."""
+    defective, the conversion **fails this file explicitly**
+    (:class:`ChatterboxPathologicalSilence`) rather than publishing narration
+    with a several-second dead spot in it — never silently dropped, and the
+    text/voice/reference are never substituted (P8/P9). Do not loop past the
+    bounded attempt count chasing a clean draw; a bounded failure, reported
+    truthfully, is the contract here — not an unbounded retry-until-lucky."""
     last = np.zeros(0, dtype="float32")
     for attempt in range(1, PATHOLOGICAL_SILENCE_MAX_ATTEMPTS + 1):
         last = _audio_array(model.generate(text, **generation_params()))
@@ -1241,9 +1256,10 @@ def _generate_checked(model, text: str, log: Callable[[str], None] = print) -> n
         log(f"  Chatterbox: attempt {attempt} produced a pathological internal "
             f"silence — retrying this segment "
             f"({attempt}/{PATHOLOGICAL_SILENCE_MAX_ATTEMPTS})…")
-    log("  Chatterbox: every retry still showed a pathological silence — "
-        "keeping the last attempt.")
-    return last
+    raise ChatterboxPathologicalSilence(
+        f"Chatterbox produced a pathological internal silence on every one of "
+        f"{PATHOLOGICAL_SILENCE_MAX_ATTEMPTS} attempts for one segment "
+        f"({len(text)} chars) and the file was not written.")
 
 
 def _synthesize_chunk(model, chunk: str, cancel_check=None,
