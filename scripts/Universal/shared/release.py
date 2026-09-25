@@ -62,6 +62,13 @@ ROOT_FILES = ("README.md", "config.toml")
 EXCLUDED_DIR_NAMES = {".venv", "__pycache__", ".pytest_cache"}
 # File suffixes that are always excluded.
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
+# Exact file names that are always excluded, wherever they appear in the tree.
+# Folder-metadata artifacts a real OS drops just from browsing a folder in
+# Finder/Explorer -- gitignored (never committed), so they cannot be relied on
+# to be absent from a real dev checkout at packaging time, the way a v0.6.5
+# Phase 8 real-Mac packaging run found (scripts/.DS_Store on a checkout that
+# had simply been opened in Finder).
+EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 
 
 def _write_executable(zf: zipfile.ZipFile, src: Path, arcname: str) -> None:
@@ -88,6 +95,8 @@ def _is_excluded(rel: Path) -> bool:
     if parts & EXCLUDED_DIR_NAMES:
         return True
     if rel.suffix in EXCLUDED_SUFFIXES:
+        return True
+    if rel.name in EXCLUDED_FILE_NAMES:
         return True
     return False
 

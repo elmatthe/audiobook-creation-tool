@@ -2,6 +2,121 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8: `scripts/verify.py` GREEN -- ALL FOUR ROOT-CAUSED LEAKS FIXED IN SHARED TEST INFRASTRUCTURE + THE RELEASE PACKAGER -- STOPPED FOR REVIEW (2026-09-24, real Mac)
+>
+> **This block closes the `scripts/verify.py` FAIL the block below left open.**
+> That block's two TTS fixes (the real aqua Compact-UI layout defect, the
+> cancellation-race test) stand exactly as written and were **not** reopened.
+> No voice tuning, Kokoro colon behaviour, or M4B work was touched.
+>
+> **The instruction was explicit: root-cause, don't skip or weaken.** All
+> four leaks/gaps investigated below turned out to be genuine defects in
+> shared test infrastructure and the release packager -- not test-order noise,
+> and not anything wrong with the TTS panel itself.
+>
+> **1. `test_release_packaging.py::test_no_developer_or_runtime_state_leaks`
+> ([Windows]/[MacOS]) -- a real packaging gap, reproduces standalone.**
+> `scripts/.DS_Store` genuinely existed on this checkout (a real macOS Finder
+> artifact from browsing the folder -- gitignored, so never committed, but
+> never guaranteed absent on a real dev machine at packaging time either).
+> `shared/release.py`'s `_is_excluded` never excluded `.DS_Store`/`Thumbs.db`
+> at all, so the real archive genuinely shipped it. Fixed:
+> `EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}` added to `release.py` and
+> checked in `_is_excluded`. `test_release_packaging.py`'s own
+> `test_the_scripts_tree_is_complete` had hand-copied `release.py`'s exclusion
+> sets instead of importing them -- exactly how it went stale of this gap --
+> so it now imports `release.EXCLUDED_DIR_NAMES`/`EXCLUDED_SUFFIXES`/
+> `EXCLUDED_FILE_NAMES` directly. `fake_repo()`'s synthetic fixture now plants
+> a `.DS_Store`/`Thumbs.db` too, so this exact regression is caught by the
+> fast synthetic test even on a checkout that happens to be clean --
+> RED-confirmed by reverting the fix and watching
+> `test_a_repository_full_of_state_still_ships_nothing_extra` fail.
+>
+> **2 & 3. The two `test_tts_compact_ui.py` full-suite-only failures -- two
+> real gaps in `files/tests/tk_gate.py`'s shared-root reset, not one.**
+> `_reset_root`'s own docstring already claimed "everything a module can
+> leave behind is taken away here" -- it wasn't. Both gaps are the same shape:
+> process-wide Tcl/window-manager state that outlives the module that set it,
+> because `_reset_root` reset widgets, bindings, callbacks and Tk
+> variables/images but not this.
+>
+> - **The real root cause: a leaked `wm minsize`.** `test_m4b_layout.py`/
+>   `test_mp3_tool_layout.py` set the shared root's minsize to
+>   `ui_theme.AQUA_MIN_SIZE` (1024x800) to exercise the real aqua floor, and
+>   nothing ever lowered it back. The real macOS window manager enforces a
+>   `minsize` on every later `geometry()` request -- confirmed by reading the
+>   toplevel's *actual* post-resize geometry at the point of failure: asked
+>   for `920x600`, measured `1024x800`. `_choose_layout` correctly read a
+>   panel that was genuinely never smaller than 1024 wide, and correctly
+>   chose "wide" for it -- the bug was upstream of the panel, not in it.
+>   Fixed: `_reset_root` now calls `root.minsize(1, 1)` (its own guarded
+>   `try`, since a stand-in root built for an unrelated `test_tk_gate.py` test
+>   may not implement it). Bisected from the full ~7600-test run down to a
+>   105-second, 70-file reproduction before finding this, and that
+>   reproduction is now **fully green** (3973 passed, 0 failed) with the fix
+>   alone.
+> - **A second, independent leak found investigating the first: `ttk.Style`
+>   theme.** `ttk.Style.theme_use(...)` is interpreter-wide, not per-widget.
+>   Any module that calls `shared.ui_theme.apply_theme(root, style,
+>   platform="win32")` to render the Windows bundle for comparison on this Mac
+>   -- an established convention across the M4B/MP3/launcher UI suites --
+>   leaves the *real* theme switched to `clam` (there is no `vista` here) for
+>   every module that runs afterward. Confirmed real and measurable
+>   (manually switching to `clam` and watching a fresh TtsPanel's measured
+>   section widths shift), but confirmed **not** the cause of these two
+>   specific failures once isolated (the theme reads back correctly as
+>   `aqua` at the exact point of failure) -- kept anyway because it is a
+>   genuine, separate violation of the same "total reset" contract, and would
+>   eventually have caused a real, harder-to-diagnose failure elsewhere.
+>   Fixed: the interpreter's native starting theme is captured once in
+>   `shared_root` (before any module can change it) and `_reset_root` restores
+>   it every scope boundary.
+>
+> New regression coverage in `test_tk_gate.py`:
+> `test_the_reset_clears_a_leaked_minsize_floor` (sets 1024x800, resets,
+> proves a real `920x600` request is no longer refused) and
+> `test_the_reset_restores_the_native_ttk_theme` (switches to a non-native
+> theme, resets, proves it's back) -- both RED-confirmed against the
+> unmodified code before the fix, both against the real shared root, not a
+> stand-in, since the defect was specifically about real window-manager/Tcl
+> interpreter behaviour a fake cannot exhibit.
+>
+> **4. A fourth leak, in the fix's own regression test's fixture.** The new
+> `test_the_reset_restores_the_native_ttk_theme` itself failed inside the full
+> suite (position matters: `test_tk_gate.py` sits two files before
+> `test_tts_compact_ui.py` alphabetically). `test_tk_gate.py`'s own
+> `_no_shared_root_leaks` autouse fixture nulls `_SHARED_ROOT` before most of
+> its tests (so a `FakeTk`-based test builds its own throwaway root) and
+> restores the *real* one afterward -- but it predates `_NATIVE_THEME` and
+> never saved or restored it, so a `FakeTk`-based test's own `shared_root()`
+> call captured `_NATIVE_THEME` from the fake (which fails, leaving `None`)
+> and that corruption outlived the fixture's own restore, because
+> `_SHARED_ROOT` never becomes `None` again afterward for `shared_root`'s
+> "capture once" guard to retry against a real root. Fixed: the fixture now
+> saves and restores `_NATIVE_THEME` the identical way it already does for
+> `_SHARED_ROOT`. Bisected to a 140-file (491.92s) reproduction, now green.
+>
+> **5. Verification.** `test_tk_gate.py`: 28 passed (26 before + 2 new).
+> `test_release_packaging.py`: 34 passed. The bisected reproductions that used
+> to fail (35-file, 70-file, 140-file subsets of the full suite) now all pass
+> clean. `scripts/verify.py`: **PASS** (7639 passed, 61 skipped, 0 failed, 517.67s).
+>
+> **Nothing else changed.** `shared/job_ui.py`, TTS voice/Chatterbox/Kokoro
+> behaviour, and every ruling in the blocks below are untouched. The fixes
+> here are entirely in shared test infrastructure (`files/tests/tk_gate.py`,
+> `files/tests/test_tk_gate.py`, `files/tests/test_release_packaging.py`) and
+> the release packager (`scripts/Universal/shared/release.py`) -- none of
+> them TTS-specific, all of them real defects independent of this branch's
+> TTS work, found only because this branch's own full-suite gate exposed them.
+>
+> **Handoff correction:** the block below records "your Mac listening review
+> of the Chatterbox fail-closed behavior, and your decision on the M4B Maker
+> exception's real-book result, are still needed" -- both are now closed (see
+> the maintainer-confirmed update appended to that block directly).
+>
+> **PHASE 8: `scripts/verify.py` GREEN.** No Phase 9, merge, tag, release, or
+> branch work was started.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8: THE TWO AUTHORIZED MAC VERIFICATION BLOCKERS RESOLVED (COMPACT-UI AQUA LAYOUT, CANCELLATION-RACE TEST FLAKE); `scripts/verify.py` SURFACED A SEPARATE, PRE-EXISTING FULL-SUITE-ONLY INSTABILITY -- STOPPED FOR REVIEW (2026-09-24, real Mac)
 >
 > **This block closes the two remaining Mac verification blockers Phase 8 left
@@ -250,6 +365,11 @@
 > are implemented and mechanically verified; **your Mac listening review of
 > the Chatterbox fail-closed behavior, and your decision on the M4B Maker
 > exception's real-book result, are still needed.**
+>
+> **Update (2026-09-24, later):** both closed. The maintainer manually PASSED
+> the post-fix Mac Male 1 and Male 3 samples (the Chatterbox fail-closed
+> behavior) and the full real M4B Maker rerun (the apostrophe-path/Summary-
+> duplication/>255-chapter exception). Neither gate is open any longer.
 
 
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8 MACOS BLOCKER INVESTIGATED: CHATTERBOX PATHOLOGICAL-SILENCE ROOT CAUSE DEMONSTRATED, BOUNDED RETRY MITIGATION IMPLEMENTED AND VERIFIED -- DOES NOT GUARANTEE ZERO RECURRENCE -- STOPPED FOR MAINTAINER REVIEW (2026-09-24, real Mac, `9ccec55`)

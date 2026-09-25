@@ -33,6 +33,7 @@ import atexit
 import gc
 import sys
 import threading
+from tkinter import ttk
 
 import pytest
 
@@ -72,6 +73,11 @@ def open_tk_root(tk):
 #: The one Tcl interpreter this process uses. See :func:`tk_root_session`.
 _SHARED_ROOT = None
 
+#: The ttk theme this interpreter started with, captured once from the first
+#: real root before any module can call ``ui_theme.apply_theme`` and change
+#: it. See :func:`_reset_root`.
+_NATIVE_THEME: str | None = None
+
 #: How many gate scopes are open right now. See :func:`finalise_before_thread`.
 _OPEN_SCOPES = 0
 
@@ -85,14 +91,39 @@ def _reset_root(root) -> None:
     """Return the shared root to the state a freshly created one would be in.
 
     Everything a module can leave behind is taken away here, in the order that
-    makes each step safe: pending ``after`` callbacks first, because one firing
-    into a half-dismantled window is exactly the class of defect this file
-    exists to prevent; then bindings, then widgets, then the window itself.
+    makes each step safe: the ttk theme first, then pending ``after``
+    callbacks, because one firing into a half-dismantled window is exactly the
+    class of defect this file exists to prevent; then bindings, then widgets,
+    then the window itself.
+
+    **The ttk theme is process-wide, interpreter state, not root state.**
+    ``ttk.Style.theme_use(...)`` was missing from this reset (found in v0.6.5
+    Phase 8): any module that calls ``shared.ui_theme.apply_theme(root, style,
+    platform="win32")`` to render the Windows bundle for comparison on this Mac
+    -- an established, deliberate convention across the M4B/MP3/launcher UI
+    suites -- leaves the *real* ttk theme switched to ``clam`` (there is no
+    ``vista`` on macOS) for every module that runs afterward in the same
+    process, silently changing every unconverted panel's measured widget
+    geometry. A module reading its own layout thresholds from live
+    ``winfo_reqwidth``/``winfo_reqheight`` measurements (the TTS Compact UI's
+    own convention, precisely so it never hard-codes a platform's pixel
+    constants) then measures under whichever theme the *previous* module left
+    active, not its own real platform theme -- reproduced by manually
+    switching the shared root to ``clam`` before building a panel and watching
+    its measured section widths shift. Restored to the theme this interpreter
+    actually started with (captured once in :func:`shared_root`, before any
+    module could have changed it), so no module ever inherits another's theme.
 
     Deliberately explicit rather than "close enough". A shared interpreter is
     only safe if the reset is total, and anything this misses would show up as
     one module quietly passing because of another.
     """
+    if _NATIVE_THEME is not None:
+        try:
+            ttk.Style(root).theme_use(_NATIVE_THEME)
+        except Exception:
+            pass
+
     try:
         for callback in root.tk.call("after", "info"):
             _cancel_after(root, callback)
@@ -118,6 +149,22 @@ def _reset_root(root) -> None:
 
     try:
         root.protocol("WM_DELETE_WINDOW", "")
+    except Exception:
+        pass
+    try:
+        # ``wm minsize`` is process/window state too, and the real window
+        # manager enforces it on every later ``geometry()`` request -- found
+        # alongside the theme leak (v0.6.5 Phase 8): test_m4b_layout.py /
+        # test_mp3_tool_layout.py set this shared root's minsize to
+        # ``ui_theme.AQUA_MIN_SIZE`` (1024x800) to exercise the real aqua
+        # floor, and a later module's own smaller ``geometry("920x600")``
+        # request was silently clamped back up to 1024x800 by macOS itself --
+        # confirmed by reading the toplevel's actual post-resize geometry, not
+        # just the request. Reset to no floor, the pristine state, so no
+        # module's minsize outlives it. Its own try: a stand-in root built for
+        # an unrelated test may not implement it at all, and that must not
+        # skip the geometry/withdraw reset right below.
+        root.minsize(1, 1)
     except Exception:
         pass
     try:
@@ -409,11 +456,17 @@ def shared_root(tk):
     genuinely cannot start still fails the run loudly. Nothing here retries,
     sleeps, skips or swallows a ``TclError``.
     """
-    global _SHARED_ROOT
+    global _SHARED_ROOT, _NATIVE_THEME
     if _SHARED_ROOT is None:
         root = open_tk_root(tk)
         root.withdraw()
         _SHARED_ROOT = root
+        # Captured here, before any test's fixture can reach this root, so it
+        # is the platform's own real starting theme -- never a leaked one.
+        try:
+            _NATIVE_THEME = ttk.Style(root).theme_use()
+        except Exception:
+            _NATIVE_THEME = None
         atexit.register(_close_shared_root)
     return _SHARED_ROOT
 

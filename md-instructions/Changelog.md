@@ -15,6 +15,32 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **`scripts/verify.py` full-suite gate: three shared-test-infrastructure leaks and a release-packaging gap, all root-caused** (v0.6.5 Phase 8, 2026-09-24)
+
+- **The release archive could ship a stray `.DS_Store`/`Thumbs.db`.** `shared/release.py`'s
+  packager never excluded these gitignored-but-real macOS/Windows folder-metadata artifacts --
+  a real Mac checkout that had simply been browsed in Finder shipped `scripts/.DS_Store` in the
+  actual archive. Fixed the exclusion list; `test_release_packaging.py`'s own completeness check
+  had hand-copied the exclusion rules instead of importing them (exactly how it missed this), now
+  imports the real ones; the synthetic fixture now plants both artifacts so the regression is
+  caught even on a clean checkout.
+- **Two `test_tts_compact_ui.py` failures that only reproduced inside the full ~7600-test suite,
+  never standalone.** Root-caused (not skipped) to a leaked `wm minsize`: `test_m4b_layout.py`/
+  `test_mp3_tool_layout.py` set the shared Tk root's minsize to the real aqua floor (1024x800) and
+  nothing ever lowered it back, so a later module's smaller `geometry("920x600")` request was
+  silently clamped up by the real macOS window manager -- confirmed by reading the toplevel's
+  actual post-resize size, not just the request. `files/tests/tk_gate.py`'s shared-root reset now
+  clears the minsize at every module boundary. A second, independent leak found investigating the
+  first -- `ttk.Style`'s active theme, left switched to `clam` by any module that renders the
+  Windows bundle for comparison on this Mac -- is fixed the same way (the interpreter's native
+  starting theme is captured once and restored every boundary), even though it was confirmed not
+  to be the cause of these two specific failures. New regression coverage in `test_tk_gate.py`
+  exposed a fourth leak in its own fixture -- `_no_shared_root_leaks` predated the new theme
+  global and never saved/restored it, so a `FakeTk`-based test in that same file could corrupt it
+  for the rest of the real suite -- fixed the same way.
+- Verification: `test_tk_gate.py` 28 passed, `test_release_packaging.py` 34 passed, the bisected
+  full-suite reproductions that used to fail now pass clean, `scripts/verify.py` **PASS** (7639 passed, 61 skipped, 0 failed, 517.67s).
+
 ### Fixed -- **TTS Compact UI: real aqua layout defect fixed, a flaky cancellation test fixed** (v0.6.5 Phase 8 macOS verification blockers, 2026-09-24)
 
 - **"Activity is dominant" was inverted under native aqua metrics.** Wider aqua buttons/

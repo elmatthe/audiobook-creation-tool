@@ -4,6 +4,137 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-24 -- The shared Tk test root's reset must undo process-wide state, not just widget state; a full-suite-only test failure is investigated to its real cause before it is accepted as environmental
+
+**Decision:** `files/tests/tk_gate.py`'s `_reset_root` -- the boundary that is
+supposed to return the one shared Tcl interpreter every GUI test file uses to
+"the state a freshly created one would be in" -- was missing two pieces of
+**process-wide, not per-widget** state: `wm minsize` and `ttk.Style`'s active
+theme. Both are set by real, existing tests (`test_m4b_layout.py`/
+`test_mp3_tool_layout.py` set minsize to `ui_theme.AQUA_MIN_SIZE` to exercise
+the real aqua floor; any test that calls `ui_theme.apply_theme(root, style,
+platform="win32")` to render the Windows bundle on this Mac switches the real
+theme to `clam`), and neither was ever reversed. `_reset_root` now resets
+both at every module boundary: `root.minsize(1, 1)` (own `try`, since a
+stand-in root in `test_tk_gate.py` may not implement it) and
+`ttk.Style(root).theme_use(_NATIVE_THEME)`, where `_NATIVE_THEME` is captured
+once in `shared_root`, before any module can have changed it.
+
+The minsize leak was the actual, sole cause of two `scripts/verify.py`
+failures in `test_tts_compact_ui.py`
+(`test_the_minimum_window_stacks_and_large_windows_use_two_columns`,
+`test_the_log_grows_substantially_on_larger_windows`) that reproduced only
+inside the full ~7600-test suite, never standalone or in a small subset.
+Confirmed by reading the toplevel's *actual* geometry at the point of
+failure -- `920x600` was requested, `1024x800` was measured -- rather than
+trusting the panel's own measured widths, which were entirely ordinary. The
+theme leak is real and independently confirmed (manually switching themes
+measurably changes a live panel's section widths) but was confirmed, once
+isolated, **not** the cause of these two specific failures; it is fixed
+anyway because it is the same class of contract violation and would
+eventually cause a real, harder-to-diagnose one.
+
+**Why:** the maintainer's instruction was explicit -- root-cause the
+suite-order/state contamination or the genuine test defect; do not skip,
+weaken, or mark flaky. A test that only fails inside the full suite is not
+automatically "environmental noise" to route around; here it was two
+concrete, fixable defects in shared infrastructure, found by bisecting the
+full suite down to a 70-file, ~105-second reproduction and then reading real
+window/interpreter state at the exact failure point instead of guessing from
+correlation (an earlier hypothesis -- font/DPI scaling drift -- was
+investigated and ruled out for lack of any code path that touches it).
+
+**Alternatives considered:** accepting the two `test_tts_compact_ui.py`
+failures as a known full-suite-only flake and marking them
+`xfail`/`flaky`/skip (rejected -- the maintainer explicitly ruled this out,
+and it would have hidden a real defect that could affect any other module's
+geometry-dependent test, not just this one); fixing only inside
+`test_tts_compact_ui.py` (e.g., forcing its own toplevel's minsize down
+before each geometry assertion) (rejected -- the defect is in the shared
+reset boundary every GUI test file relies on, and every other module has the
+identical exposure; a local workaround here would have left the same trap for
+the next module that happens to run after an aqua-floor or Windows-bundle
+test).
+
+— Root-caused and implemented by Claude Code per maintainer instruction,
+2026-09-24
+
+---
+
+## 2026-09-24 -- The release packager never excluded macOS/Windows folder-metadata artifacts, and the archive-completeness test hand-copied its exclusion rules instead of importing them
+
+**Decision:** `scripts/Universal/shared/release.py`'s `_is_excluded` gained
+`EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}`. Both are gitignored (never
+committed) but a real dev checkout is not guaranteed free of them at
+packaging time -- a real Mac checkout that had simply been browsed in Finder
+shipped `scripts/.DS_Store` in the real archive before this was caught
+(`test_release_packaging.py::test_no_developer_or_runtime_state_leaks`,
+building from the real repository, not a synthetic one). Separately,
+`test_the_scripts_tree_is_complete` had hand-copied `release.py`'s exclusion
+sets as its own literal `{".venv", "__pycache__", ".pytest_cache"}`/
+`{".pyc", ".pyo", ".pyd"}` rather than importing `release.EXCLUDED_DIR_NAMES`/
+`EXCLUDED_SUFFIXES` -- exactly how this test stayed green while the real
+packager's exclusion list was already incomplete. It now imports all three
+exclusion sets (`EXCLUDED_DIR_NAMES`/`EXCLUDED_SUFFIXES`/`EXCLUDED_FILE_NAMES`)
+from `release.py` directly, and the synthetic `fake_repo()` fixture plants a
+`.DS_Store`/`Thumbs.db` so this exact regression is caught by the fast
+synthetic test even on a checkout that happens to be clean right now.
+
+**Why:** found investigating a `scripts/verify.py` FAIL the maintainer asked
+to be root-caused, not skipped. A hand-duplicated copy of another module's
+constants is a durable staleness risk on its own, independent of this
+specific bug -- the two are meant to be redundant descriptions of the same
+rule, and only one of them was ever exercised against a real folder-metadata
+artifact.
+
+**Alternatives considered:** deleting the stray `.DS_Store` and calling the
+test suite clean again (rejected -- the underlying gap in the real packager
+would remain, and any future Mac checkout would reproduce it); leaving
+`test_the_scripts_tree_is_complete`'s exclusion set hand-copied and just
+adding `.DS_Store`/`Thumbs.db` to it separately (rejected -- keeps the exact
+staleness risk that let this go undetected, for no benefit over importing the
+one real source of truth).
+
+— Root-caused and implemented by Claude Code per maintainer instruction,
+2026-09-24
+
+---
+
+## 2026-09-24 -- A new module-global tied to the shared Tk root's lifetime must be added to every fixture that already snapshots/restores that lifetime, not just to the root's own reset
+
+**Decision:** `test_tk_gate.py`'s `_no_shared_root_leaks` autouse fixture nulls
+`tk_gate._SHARED_ROOT` before most of its own tests (so a `FakeTk`-based test
+builds its own throwaway root without disturbing the real one) and restores
+the real root afterward. It predates `_NATIVE_THEME` (added this session, see
+the sibling entry on the minsize/theme reset gaps) and never saved or
+restored it, so a `FakeTk`-based test's own `shared_root()` call captured
+`_NATIVE_THEME` from the fake -- which fails, leaving it `None` -- and that
+corruption outlived the fixture's restore, because `_SHARED_ROOT` never
+becomes `None` again afterward for `shared_root`'s "capture once, only when
+`_SHARED_ROOT` is `None`" guard to retry against a real root. The fixture now
+saves and restores `_NATIVE_THEME` in the identical save-null-restore shape
+it already uses for `_SHARED_ROOT`.
+
+**Why:** found by the new regression test for the theme-reset fix itself
+failing inside the full suite (not in `test_tk_gate.py` alone), bisected to a
+140-file reproduction. The general rule this confirms: any state whose
+lifetime is tied to `_SHARED_ROOT` -- present or future -- needs the same
+save/restore treatment in this one fixture, or a `FakeTk`-based test in this
+file becomes a second, independent way to leak state into the real suite,
+exactly the class of defect `tk_gate.py` exists to prevent.
+
+**Alternatives considered:** having `shared_root()` retry the capture on
+every call rather than only when `_SHARED_ROOT is None` (rejected -- would
+re-run it needlessly on every real-Tk module for no benefit, and does not fix
+the actual gap: the fixture is the one place that already knows it is
+temporarily substituting a fake root and must be the one to protect
+everything tied to that substitution).
+
+— Root-caused and implemented by Claude Code per maintainer instruction,
+2026-09-24
+
+---
+
 ## 2026-09-24 -- Aqua-only presentation fixes for shared-widget rows belong in the panel that owns the layout, not in shared/job_ui.py; a below-the-real-floor geometry is a Windows-only test claim, not a defect
 
 **Decision:** When native aqua ttk metrics make a row built from a shared
