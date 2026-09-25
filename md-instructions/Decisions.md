@@ -4,6 +4,102 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-24 -- Aqua-only presentation fixes for shared-widget rows belong in the panel that owns the layout, not in shared/job_ui.py; a below-the-real-floor geometry is a Windows-only test claim, not a defect
+
+**Decision:** When native aqua ttk metrics make a row built from a shared
+component (`shared.job_ui.ImportedFileList`'s six action buttons,
+`JobControlBar`'s four buttons, `JobStatusView`'s progress bar) too wide for
+an adopting panel's own layout invariant, restyle/resize the already-built
+widgets from the adopting panel (`button.configure(style=...)`,
+`bar.configure(length=...)`, reached through the shared class's already-public
+attributes) rather than adding a new constructor parameter to the shared
+class. Applied in the TTS Compact UI's Phase 8 macOS remediation:
+`_compact_import_actions` and the aqua branch in `_install_jobs`
+(`epub2tts_gui.py`) restyle six + four buttons to the built-in `Toolbutton`
+style and narrow the progress bar to 140px, entirely without editing
+`shared/job_ui.py`. Separately, a composition test at a window size smaller
+than `ui_theme.AQUA_MIN_SIZE` in both dimensions is a Windows-only claim
+(`windows_only`/`sys.platform != "win32"`), not a real cross-platform
+invariant, once the real launcher's own minsize makes that geometry
+unreachable on that platform.
+
+**Why:** `shared/job_ui.py` is used by the MP3/M4B tools too; touching its
+button-row grid layout to fix a TTS-only aqua-metric defect would have
+widened the blast radius of a bounded Phase 8 fix into tools the active plan
+explicitly rules out of scope. Every one of the shared class's public
+widgets/attributes (`ImportedFileList.buttons`, `JobControlBar.buttons`,
+`ProgressIndicator.bar`) already exposes exactly what a caller needs to adapt
+presentation without a shared-code change. Reaching into them from the
+adopting panel keeps the fix diff to one file's worth of blast radius and
+zero risk to sibling tools -- confirmed by running the full focused TTS/
+Chatterbox/Kokoro/job_ui sweep unchanged and by `git diff --stat` showing
+`shared/job_ui.py` untouched. The 920x600-vs-`AQUA_MIN_SIZE` point mirrors the
+identical ruling already made for the M4B/MP3 layout suites
+(`test_m4b_maker_ui.py`/`test_mp3_tool_layout.py`'s own `windows_only`
+markers) -- this is the same fact discovered a third time, not a new policy.
+
+**Alternatives considered:** adding opt-in constructor parameters to
+`ImportedFileList`/`JobAdapter`/`JobStatusView` for a folded button layout
+and a configurable progress length (rejected -- a bigger, structural change to
+shared code for a presentation-only need the caller can already reach
+directly); re-gridding the import buttons into two rows instead of
+restyling in place (tried -- it fixed the width but cost `Sources` a
+list-display row via `WIDE_LIST_ROWS`'s height-budget cascade, a real
+regression, for a fix `Toolbutton` achieves with zero height cost); stacking
+the two run-option checkboxes to shave the last ~24px of the "Activity is at
+least double" refinement at 1920x1009 (tried -- same list-row-budget
+regression, and it did not even close the gap, since the checkbox row was
+never the true bottleneck once the button rows were fixed); demanding the
+"at least double" refinement hold on aqua regardless (rejected -- the
+remaining gap is genuinely necessary content -- an entry field, two checkbox
+labels, a 44-character voice combo -- not a fixable presentation excess, and
+cutting it needs a maintainer-authorized content change this bounded fix was
+not scoped to make).
+
+— Root-caused and implemented by Claude Code per maintainer instruction,
+2026-09-24
+
+---
+
+## 2026-09-24 -- `controller.is_terminal` can be true before the settled `RunResult` reaches the main thread; a test that needs the result must wait on the result itself
+
+**Decision:** `settle()` (`epub2tts_gui.py`) moves the controller to its
+terminal state (`finish_cancelled`/`succeed`/`complete_with_failures`) and
+publishes that state change *before* it enqueues the settled `RunResult` on
+`log_q` for the main-thread pump to drain into `panel._result`. This ordering
+is correct and stays as-is: nothing in production reads `panel._result`
+synchronously off `controller.is_terminal` (`has_retryable`/Retry Failed reads
+`panel._result` directly, never `is_terminal`, in `shared/job_ui.py`'s
+`JobAdapter`). Any test that needs the settled result, not just the terminal
+state, must wait on `panel._result is not None` as its own, second condition
+-- `wait_for(lambda: controller.is_terminal, ...)` alone is not sufficient and
+must never be read as a proxy for "the result is populated." This was already
+the established pattern in `test_tts_jobs.py`'s cancellation-cleanup test
+(its own comment records the same ordering); the newer P14 worker-concurrency
+test had not applied it, and consequently flaked (P14, ~1 in 3 runs) reading
+`panel._result` immediately after observing `is_terminal`.
+
+**Why:** discovered as a real, reproducible flake
+(`test_a_success_finishing_during_cancellation_is_recorded_not_orphaned`,
+Phase 8 macOS Mac-only findings) while investigating the maintainer-authorized
+remaining Phase 8 Mac verification blockers. Confirmed not a production race:
+the only production reader of the settled result already depends on
+`panel._result` itself.
+
+**Alternatives considered:** reordering `settle()` to enqueue the result
+before transitioning the controller (rejected -- the controller's own
+terminal-state transition and publication is what unblocks `close()`/
+`cancel_job()`'s own `is_terminal` guards and the shared control-bar's state
+rendering; delaying it behind the result queue put would just move the same
+kind of ordering question elsewhere, for no test this file's suite actually
+needs); reading `panel._result` synchronously without a second wait (the
+status quo -- rejected, it is the flake itself).
+
+— Root-caused and implemented by Claude Code per maintainer instruction,
+2026-09-24
+
+---
+
 ## 2026-09-24 -- A fixed bug class does not propagate to a duplicate implementation on its own; a retryable Book failure is one Summary line regardless of occurrence count; a bounded generation retry that exhausts fails closed
 
 **M4B Maker's concat-list writer carried the exact bug the MP3 Tool's own

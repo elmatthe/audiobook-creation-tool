@@ -15,6 +15,36 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **TTS Compact UI: real aqua layout defect fixed, a flaky cancellation test fixed** (v0.6.5 Phase 8 macOS verification blockers, 2026-09-24)
+
+- **"Activity is dominant" was inverted under native aqua metrics.** Wider aqua buttons/
+  checkbuttons/progress bar made the Sources import-action row and the Output & Run status
+  row wide enough that Activity measured narrower than the workflow column on real Mac
+  hardware, at the exact sizes the accepted Windows Phase 7 composition kept it dominant.
+  Fixed with presentation-only changes confined to `epub2tts_gui.py` -- a `Toolbutton` restyle
+  of the shared import list's and job-control bar's buttons, a narrower progress bar, and no
+  aqua breathing-room bonus on the workflow column's width -- so `shared/job_ui.py` and the
+  MP3/M4B tools that also use it are untouched.
+- 13 of the 16 reported Mac-only compact-UI failures were a below-the-real-floor test artifact,
+  not a layout defect: 920x600 is below `ui_theme.AQUA_MIN_SIZE` (1024x800) in both dimensions,
+  so the real macOS launcher never opens that small; those cases are now scoped Windows-only,
+  matching the identical precedent already set for the M4B/MP3 layout suites.
+- **`test_tts_worker_concurrency.py`'s cancellation-completion test was flaky** (~1 in 3 runs),
+  reading the settled run result the instant the controller reached its terminal state, before
+  the main-thread pump had necessarily drained it -- the same ordering `test_tts_jobs.py`'s own
+  cancellation-cleanup test already accounts for with a second wait. Applied the identical fix;
+  no production behaviour changed, and nothing a real user can click was ever exposed to the
+  window (Retry Failed's availability already depends on the settled result directly).
+- Verification: the full focused TTS/Chatterbox/Kokoro/job_ui sweep the two blockers were
+  defined against -- 594 passed, 6 skipped (the skips are exactly the now-Windows-only 920x600
+  cases), 0 failed; the cancellation-race test alone, repeated: 15/15 clean. `scripts/verify.py`'s
+  full ~7600-test run separately surfaced 4 failures, none new logic defects in this fix: two in
+  `test_release_packaging.py` reproduce identically on the unmodified code (unrelated, out of
+  scope); two in `test_tts_compact_ui.py` reproduce only inside the full run, never in the focused
+  sweep above or this file in isolation, and a control run on the unmodified code shows this same
+  file already has a full-suite-context sensitivity independent of this fix -- see `Decisions.md`
+  and `Handoff.md` for the full evidence trail.
+
 ### Fixed -- **M4B Maker failed every Book whose source path or title held an apostrophe, and repeated ~264 identical Summary lines for one failure** (v0.6.5 Phase 8 macOS exception, 2026-09-24)
 
 - **The concat-list writer corrupted any path containing a literal `'`.** Both FAST and Safe

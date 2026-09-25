@@ -398,6 +398,12 @@ def test_a_success_finishing_during_cancellation_is_recorded_not_orphaned(
     finally:
         worker.join(WAIT)
 
+    # The controller reaches its terminal state before the settled result is
+    # queued for the main thread (see the identical note in
+    # test_tts_jobs.py's cancellation-cleanup test), so a second wait is needed
+    # here too rather than reading panel._result the instant is_terminal flips.
+    wait_for(lambda: panel._result is not None,
+             "the settled result never reached the panel", panel=panel)
     result = panel._result
     assert result.cancelled is True
     assert result.succeeded_count == 2, (

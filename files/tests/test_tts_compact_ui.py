@@ -27,6 +27,7 @@ proves the *UI surface* is compact, truthful, and behaves per §10's table.
 from __future__ import annotations
 
 import ast
+import sys
 
 import pytest
 
@@ -222,6 +223,32 @@ def test_the_two_new_buttons_are_not_registered_as_processing_options(make_panel
 
 GEOMETRIES = ("920x600", "1024x720", "1280x900", "1920x1009")
 
+#: v0.6.5 Phase 8 macOS remediation. 920x600 is ``ui_theme.MIN_SIZE`` -- a real,
+#: legitimate Windows floor -- but it is smaller than ``ui_theme.AQUA_MIN_SIZE``
+#: (1024x800, the same maintainer-ruled aqua floor the M4B/MP3 tools' layout
+#: suites already scope Windows-only claims to) in BOTH dimensions, so the real
+#: macOS launcher enforces a minsize that makes this geometry unreachable there
+#: -- confirmed on real Mac hardware (Handoff, 2026-09-23 Phase 8 bounded macOS
+#: validation). A composition claim at a window size the platform's own
+#: launcher refuses to open is a Windows-only claim, the same reasoning
+#: test_m4b_maker_ui.py / test_mp3_tool_layout.py already apply; matching their
+#: naming rather than test_m4b_layout.py's aqua-only ``_aqua_only`` fixture,
+#: which exists for the opposite direction (Windows cannot satisfy aqua-tuned
+#: numbers). Every 1024x720 case here stays exercised on every platform: it
+#: measures narrower than aqua's own floor too, but the accepted composition
+#: still holds there in practice, so nothing here excuses it.
+windows_only = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="920x600 is below ui_theme.AQUA_MIN_SIZE; unreachable through the "
+           "real macOS launcher")
+
+
+def _skip_920x600_off_windows(geometry: str) -> None:
+    """Skip just this one otherwise-parametrized/looped case, off Windows."""
+    if geometry == "920x600" and sys.platform != "win32":
+        pytest.skip("920x600 is below ui_theme.AQUA_MIN_SIZE; unreachable "
+                    "through the real macOS launcher")
+
 
 def _widgets_of(root, cls) -> list:
     found = []
@@ -389,6 +416,7 @@ def test_every_region_fits_and_nothing_overlaps(make_panel, geometry):
     stacked bands needed ~720 px, so the log sat wholly below the window. At
     every measured size now, each section is inside the panel, none overlaps
     another, and every primary control is on screen."""
+    _skip_920x600_off_windows(geometry)
     panel = make_panel()
     with _Shown(panel, geometry):
         _assert_composed(panel, geometry)
@@ -452,6 +480,7 @@ def test_no_size_ever_puts_sections_2_and_3_side_by_side_beside_activity(make_pa
     assert ("wide", "stack") in seen and ("stacked", "side") in seen, seen
 
 
+@windows_only
 def test_the_minimum_falls_back_only_because_the_vertical_workflow_cannot_fit(
     make_panel
 ):
@@ -501,6 +530,8 @@ def test_a_large_queue_scrolls_inside_the_compact_list(make_panel, tmp_path):
     panel = make_panel(choose_files=lambda: chosen)
     panel.importer.add_files()
     for geometry in GEOMETRIES:
+        if geometry == "920x600" and sys.platform != "win32":
+            continue  # below ui_theme.AQUA_MIN_SIZE; unreachable on macOS
         with _Shown(panel, geometry):
             listbox = panel.importer.list.listbox
             assert listbox.size() == 60
@@ -512,13 +543,36 @@ def test_a_large_queue_scrolls_inside_the_compact_list(make_panel, tmp_path):
 @pytest.mark.parametrize("geometry", ("1280x900", "1920x1009"))
 def test_activity_is_the_dominant_region_on_wide_windows(make_panel, geometry):
     """The workflow keeps its measured natural width plus at most
-    WORKFLOW_BREATHING; every other pixel of width goes to Activity."""
+    WORKFLOW_BREATHING; every other pixel of width goes to Activity.
+
+    v0.6.5 Phase 8 macOS remediation: the 1920x1009 "at least double" refinement
+    is Windows-only. Real Mac hardware exposed the underlying "Activity is
+    dominant" invariant this test exists for -- Activity strictly wider than
+    the workflow, checked on every platform below and unconditionally -- as
+    genuinely broken under native aqua metrics (Activity measured *narrower*
+    than the workflow), root-caused to aqua's wider buttons/checkbuttons/
+    progress bar making Sources and Output & Run measure wider than Windows'
+    ttk metrics ever did, and fixed with presentation-only changes
+    (_compact_import_actions, the Toolbutton restyle and narrower progress bar in
+    _install_jobs, WORKFLOW_BREATHING granting no bonus on aqua). Those fixes
+    restore the dominance invariant itself on real aqua hardware at both
+    geometries here. The stricter "at least double" bonus at the largest
+    tested window was calibrated from Windows' comparatively narrow measured
+    natural width (511px on HOME-PC, plan Handoff history); on aqua the same
+    content -- an entry field, "Resume"/"Overwrite" checkbuttons, a 44-
+    character voice combo -- is honestly wider without cutting any of it, so
+    demanding a full 2x margin here would need a real content cut this bounded
+    remediation is not authorized to make (P7/P11), not another presentation
+    fix. Confirmed via the same aqua-detection convention as
+    test_m4b_layout.py: the real windowing system, never sys.platform.
+    """
     panel = make_panel()
     with _Shown(panel, geometry):
         natural, _ = panel._workflow_needs("stack")
         assert panel.workflow.winfo_width() <= natural + panel_module.WORKFLOW_BREATHING
         assert panel.activity.winfo_width() > panel.workflow.winfo_width()
-        if geometry == "1920x1009":
+        is_aqua = panel.tk.call("tk", "windowingsystem") == "aqua"
+        if geometry == "1920x1009" and not is_aqua:
             assert panel.activity.winfo_width() >= 2 * panel.workflow.winfo_width()
 
 
@@ -530,8 +584,9 @@ LONG_SETUP_REASON = (
 
 @pytest.mark.parametrize("geometry,voice", [
     *[(g, None) for g in GEOMETRIES],
-    ("920x600", "Kokoro Female (Default) - Heart (en-US)"),
-    ("920x600", "Chatterbox - Female 1"),
+    pytest.param("920x600", "Kokoro Female (Default) - Heart (en-US)",
+                marks=windows_only),
+    pytest.param("920x600", "Chatterbox - Female 1", marks=windows_only),
 ])
 def test_the_log_and_the_list_keep_their_floors(make_panel, geometry, voice):
     """Neither scrolling region collapses: the log keeps LOG_FLOOR_LINES lines
@@ -618,13 +673,20 @@ def test_resizing_is_deterministic_and_never_ratchets_a_column(make_panel):
                  panel._layout_mode)
         for geometry in ("1920x1009", "1024x720", "920x600", "1600x900", "1280x900"):
             shown.resize(geometry)
-            _assert_composed(panel, geometry)
+            # The resize itself still happens at every size (that is the
+            # ratcheting risk this test guards against); only the strict
+            # composition assertion is skipped at 920x600 off Windows, since
+            # that size is below ui_theme.AQUA_MIN_SIZE and unreachable
+            # through the real macOS launcher.
+            if geometry != "920x600" or sys.platform == "win32":
+                _assert_composed(panel, geometry)
         again = (panel.workflow.winfo_width(), panel.activity.winfo_width(),
                  panel._layout_mode)
     assert again == first
 
 
-@pytest.mark.parametrize("geometry", ("920x600", "1920x1009"))
+@pytest.mark.parametrize("geometry", (
+    pytest.param("920x600", marks=windows_only), "1920x1009"))
 def test_backend_switching_leaves_no_ghost_controls(make_panel, geometry):
     """Each backend shows exactly its own rate control (Chatterbox: none) and
     its own notices, and the layout stays whole after every switch."""
@@ -647,7 +709,8 @@ def test_backend_switching_leaves_no_ghost_controls(make_panel, geometry):
             _assert_composed(panel, (geometry, label))
 
 
-@pytest.mark.parametrize("geometry", ("920x600", "1024x720"))
+@pytest.mark.parametrize("geometry", (
+    pytest.param("920x600", marks=windows_only), "1024x720"))
 def test_a_setup_required_message_expands_without_corrupting_the_layout(
     make_panel, geometry
 ):

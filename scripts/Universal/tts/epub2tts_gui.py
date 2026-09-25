@@ -194,6 +194,12 @@ WIDE_LIST_ROWS = 8
 #: when there is spare width; everything else goes to Activity.
 WORKFLOW_BREATHING = 48
 
+#: v0.6.5 Phase 8 macOS remediation. The shared status view's progress bar
+#: defaults to 240px (job_ui.JobStatusView); narrower here only, alongside
+#: the Toolbutton restyling in _install_jobs, keeps the run row from being
+#: the widest thing in Output & Run under native aqua metrics.
+PROGRESS_BAR_AQUA_LENGTH = 140
+
 #: Outer margin, gap between the two columns/stacked regions, and gap between
 #: sections inside the workflow. Pixels, matching the sibling tools' spacing.
 OUTER_PAD = 10
@@ -850,6 +856,14 @@ class TtsPanel(ttk.Frame):
         self._needs: dict | None = None
         self._layout_mode: tuple[str, str] | None = None
         self._wrapped: list[tuple[ttk.Label, tk.Misc, int]] = []
+        # v0.6.5 Phase 8 macOS remediation. Native aqua controls (wider fonts,
+        # roomier button/checkbutton padding) measure wider than the same rows
+        # under Windows' ttk metrics; asked once here and read by
+        # ``_compact_import_actions``/``_arrange_sections`` rather than every
+        # caller re-querying Tcl. The real windowing system decides, never
+        # ``sys.platform`` (matches the aqua-only test convention already used
+        # for the M4B/MP3 layout regressions).
+        self._is_aqua = self.tk.call("tk", "windowingsystem") == "aqua"
 
         self.workflow = ttk.Frame(self)
         self.sources_section = ttk.LabelFrame(
@@ -889,6 +903,8 @@ class TtsPanel(ttk.Frame):
         # import status bar can share one row when there is width for it
         # (_arrange_sections). ImportOptionsBar leaves this to its adopter.
         self.importer.list.frame.grid_configure(columnspan=2)
+        if self._is_aqua:
+            self._compact_import_actions()
 
         # ---- 2. Voice & Audio --------------------------------------------- #
         # Built before Band 3's dependants are wired: the rate control shown
@@ -1457,6 +1473,24 @@ class TtsPanel(ttk.Frame):
         self.jobs.register_inputs(self.importer)
         self.jobs.register_options(self)
         self.jobs.render()
+        if self._is_aqua:
+            # Same remediation as _compact_import_actions, and for the same
+            # reason: native aqua push buttons make this four-button row wide
+            # enough to compete with Sources for the workflow column's width
+            # (plan Section 11's "Activity is dominant"). A fresh JobAdapter
+            # is built per run (see this method's own docstring), so this
+            # runs every time rather than once in __init__. No danger style is
+            # lost -- theme=None already means Cancel draws as a plain native
+            # button here, not the themed danger colour.
+            for button in self.jobs.controls.buttons.values():
+                button.configure(style="Toolbutton")
+            # The status row's progress bar defaults to 240px (job_ui.py's own
+            # ``JobStatusView``); at that length it, not the button row above,
+            # is what keeps Output & Run wide on aqua. Narrower still reads
+            # fine -- it is a bare progress bar, no tick marks or labels of
+            # its own to lose -- and the done/total/percent text stays in its
+            # separate label untouched.
+            self.progress.bar.configure(length=PROGRESS_BAR_AQUA_LENGTH)
 
     # ------- layout: measured, responsive, never a whole-tool scrollbar -------
 
@@ -1590,6 +1624,22 @@ class TtsPanel(ttk.Frame):
             flow.rowconfigure(3, weight=1)
         else:
             flow.rowconfigure(0, weight=1)
+
+    def _compact_import_actions(self) -> None:
+        """Restyle the shared import list's six action buttons on aqua only.
+
+        The buttons, their commands and their grid positions are entirely
+        ``shared.job_ui``'s and stay untouched (no re-grid, so no extra row and
+        no height cost). ``Toolbutton`` is a real built-in ttk style aqua
+        already ships -- flat, minimal-padding -- and is dramatically
+        narrower per button than the default push-button style aqua otherwise
+        draws them with, which is what made this one row measure ~640px and
+        made Sources the widest workflow section (plan Section 11's "Activity
+        is dominant"). Presentation only: the same six widgets, the same
+        commands, the same enabled/disabled behaviour.
+        """
+        for button in self.importer.list.buttons.values():
+            button.configure(style="Toolbutton")
 
     def _measure_layout(self) -> None:
         """Measure what each arrangement needs, from the live widgets.
@@ -1730,9 +1780,17 @@ class TtsPanel(ttk.Frame):
         is empty band; the log is what turns room into readable lines. So the
         workflow takes half of any spare width up to WORKFLOW_BREATHING, and
         Activity takes all the rest.
+
+        v0.6.5 Phase 8 macOS remediation: no breathing room on aqua. Native
+        aqua metrics already measure each section's natural width generously
+        (wider fonts, roomier control padding) -- the bonus this grants on
+        Windows to keep a comparatively narrow natural column from looking
+        cramped would only shrink Activity's share further here, on the
+        platform where it can least afford it (plan Section 11's "Activity is
+        dominant").
         """
         flow_w, _ = self._workflow_needs(inner)
-        if width <= 1:
+        if width <= 1 or self._is_aqua:
             return flow_w
         spare = (width - 2 * OUTER_PAD - COLUMN_GAP - flow_w
                  - self._needs["activity"][0])
