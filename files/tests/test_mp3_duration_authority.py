@@ -196,3 +196,22 @@ def test_duration_refuses_incomplete_or_failed_decode(monkeypatch, code, out, er
     monkeypatch.setattr(ffmpeg_utils, "ffmpeg_cmd", lambda: "/proved/ffmpeg")
     monkeypatch.setattr(proc, "run_ff", lambda _: (code, out, err))
     assert proc.ffprobe_duration_seconds(Path("unused.mp3")) is None
+
+
+def test_trim_from_end_fails_safely_when_duration_is_unreadable(monkeypatch, tmp_path):
+    """An unreadable duration must never be treated as zero-length: that would
+    silently trim to ``-t 0.000000`` and hand back a near-empty file while
+    still reporting success."""
+    monkeypatch.setattr(proc, "ffprobe_duration_seconds", lambda _: None)
+    ran: list = []
+
+    def fake_run_ff(args):
+        ran.append(args)
+        return 0, "", ""
+
+    monkeypatch.setattr(proc, "run_ff", fake_run_ff)
+    log_dir = tmp_path / "logs"
+    ok = proc.trim_from_end_mp3(Path("in.mp3"), 5.0, tmp_path / "out.mp3", log_dir)
+    assert ok is False
+    assert ran == [], "ffmpeg must never run against a fabricated zero-length duration"
+    assert (log_dir / "ffmpeg_log.txt").exists()

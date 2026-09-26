@@ -436,7 +436,14 @@ def _trim_args(in_mp3: Path, new_duration: float, out_mp3: Path) -> List[str]:
 
 def trim_from_end_mp3(in_mp3: Path, seconds_to_remove: float, out_mp3: Path, log_dir: Path) -> bool:
     seconds_to_remove = max(0.0, float(seconds_to_remove))
-    dur = ffprobe_duration_seconds(in_mp3) or 0.0
+    dur = ffprobe_duration_seconds(in_mp3)
+    if dur is None:
+        # An unreadable duration must not be treated as a zero-length file:
+        # that would silently trim to "-t 0.000000" and hand back a near-
+        # empty output while still reporting success.
+        save_error_log(log_dir, f"trim_from_end_mp3: {in_mp3.name}", [],
+                       "no readable audio duration")
+        return False
     new_dur = max(0.0, dur - seconds_to_remove)
     args = _trim_args(in_mp3, new_dur, out_mp3)
     code, _, err = run_ff(args)

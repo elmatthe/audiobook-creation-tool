@@ -208,7 +208,7 @@ def _same_instant(a: float, b: float) -> bool:
 
 
 def validate_chapter_structure(book: BookPlan, staged: Path, *,
-                               source: metadata.ChapterStructure,
+                               source: metadata.ChapterStructure | None,
                                found: metadata.ChapterStructure) -> None:
     """Prove the staged copy kept the source's chapter structure, or raise.
 
@@ -219,21 +219,27 @@ def validate_chapter_structure(book: BookPlan, staged: Path, *,
     source stays ``chpl``-only — and must simply be unchanged. Nothing here
     judges the source: an odd but valid file passes as long as its copy is
     structurally the same file.
+
+    ``source`` is ``None`` when this exact copy already passed this proof once
+    (a retry reusing an already-validated retained candidate) — the source is
+    trusted rather than re-read, and only the copy's own internal consistency
+    (the text track, when one was rebuilt) is checked.
     """
-    if found.count != source.count:
-        raise ProcessingError(f"{staged.name} chapter count changed", stage="validate",
-                              detail=f"found {found.count}, source {source.count}")
-    for index, (kept, had) in enumerate(zip(found.boundaries, source.boundaries)):
-        if not all(_same_instant(a, b) for a, b in zip(kept, had)):
-            raise ProcessingError(f"{staged.name} chapter {index + 1} boundaries moved",
-                                  stage="validate", detail=f"found {kept!r}, source {had!r}")
+    if source is not None:
+        if found.count != source.count:
+            raise ProcessingError(f"{staged.name} chapter count changed", stage="validate",
+                                  detail=f"found {found.count}, source {source.count}")
+        for index, (kept, had) in enumerate(zip(found.boundaries, source.boundaries)):
+            if not all(_same_instant(a, b) for a, b in zip(kept, had)):
+                raise ProcessingError(f"{staged.name} chapter {index + 1} boundaries moved",
+                                      stage="validate", detail=f"found {kept!r}, source {had!r}")
     if chapter_titles_retitled(book):
         if found.track_samples != found.count:
             raise ProcessingError(
                 f"{staged.name} chapter track is incomplete", stage="validate",
                 detail=f"text track holds {found.track_samples!r} samples for "
                        f"{found.count} chapters")
-    elif found.track_samples != source.track_samples:
+    elif source is not None and found.track_samples != source.track_samples:
         raise ProcessingError(f"{staged.name} chapter track changed", stage="validate",
                               detail=f"found {found.track_samples!r} samples, "
                                      f"source {source.track_samples!r}")
@@ -253,7 +259,8 @@ def _text(tags: Mapping, name: str) -> str:
     return str(tags.get(name) or "")
 
 
-def validate_staged(book: BookPlan, staged: Path, *, series_part: int | None = None) -> None:
+def validate_staged(book: BookPlan, staged: Path, *, series_part: int | None = None,
+                    require_source_match: bool = True) -> None:
     """Prove the staged copy is what the frozen plan intends, or raise.
 
     Bounded to what the plan can be checked against: a regular, non-empty
@@ -265,6 +272,12 @@ def validate_staged(book: BookPlan, staged: Path, *, series_part: int | None = N
     text track whenever the remux rebuilt one; and, when the batch numbered the
     Book, that Series Part. Read through the shared ffprobe and metadata
     authorities only.
+
+    ``require_source_match=False`` skips comparing against ``book.source``
+    entirely — ``book.source`` is not opened at all — for a retry that reuses
+    a candidate this same authority already proved against the source once.
+    The source may have since become unavailable (ejected, moved, transient
+    I/O) without that costing the retry its already-validated candidate.
     """
     if staged.is_symlink() or not staged.is_file() or staged.stat().st_size == 0:
         raise ProcessingError(f"{staged.name} was not produced", stage="validate")
@@ -281,11 +294,13 @@ def validate_staged(book: BookPlan, staged: Path, *, series_part: int | None = N
     except Exception as exc:
         raise ProcessingError(f"{staged.name} could not be read back", stage="validate",
                               detail=repr(exc)) from exc
-    try:
-        source_structure = metadata.read_chapter_structure(book.source)
-    except Exception as exc:
-        raise ProcessingError(f"{book.source.name} could not be read for comparison",
-                              stage="validate", detail=repr(exc)) from exc
+    source_structure = None
+    if require_source_match:
+        try:
+            source_structure = metadata.read_chapter_structure(book.source)
+        except Exception as exc:
+            raise ProcessingError(f"{book.source.name} could not be read for comparison",
+                                  stage="validate", detail=repr(exc)) from exc
 
     observed = book.observation
     action = book.action

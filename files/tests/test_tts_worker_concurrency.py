@@ -148,6 +148,28 @@ def test_resolve_effective_workers_never_returns_less_than_one():
     assert panel_module.resolve_effective_workers(-5, 5, "kokoro") == 1
 
 
+def test_all_direct_edge_queue_caps_effective_workers_to_one():
+    """Direct Edge items fully serialize behind ``runner._CWD_ISOLATION_LOCK``;
+    a queue of nothing but direct items never buys real concurrency beyond
+    the one already in flight, however many workers were requested."""
+    assert panel_module.resolve_effective_workers(8, 5, "edge", direct_files=5) == 1
+
+
+def test_mixed_edge_queue_caps_to_the_folder_files_plus_one_direct():
+    """Folder Edge items overlap each other and the one direct item that can
+    run alongside them; a second direct item could never make progress
+    concurrently, so it does not widen the cap beyond folder_files + 1."""
+    assert panel_module.resolve_effective_workers(8, 5, "edge", direct_files=2) == 4
+
+
+def test_direct_files_only_narrows_the_edge_backend():
+    """``direct_files`` is the Edge-only lock cap: it does not apply to other
+    backends (already capped to 1 for their own reasons) and does nothing
+    when the queue names no direct item at all."""
+    assert panel_module.resolve_effective_workers(8, 5, "kokoro", direct_files=5) == 1
+    assert panel_module.resolve_effective_workers(8, 5, "edge", direct_files=0) == 5
+
+
 # --------------------------------------------------------------------------- #
 # B. Direct and folder items now share one pool and one resolved count
 # --------------------------------------------------------------------------- #
@@ -171,7 +193,7 @@ def test_a_mixed_queue_still_converts_every_item_through_its_own_engine(
 def test_the_run_log_states_requested_and_effective_workers_truthfully(
     make_panel, output_base, tmp_path, stubs
 ):
-    panel, _chosen = direct_panel(make_panel, tmp_path, "a.txt", "b.txt", "c.txt")
+    panel, _folders = folder_panel(make_panel, tmp_path)
     panel.workers_var.set("2")
     run_attempt(panel)
     log_text = "\n".join(panel.log.details)
@@ -182,14 +204,41 @@ def test_an_oversized_workers_request_degrades_safely_and_is_logged_truthfully(
     make_panel, output_base, tmp_path, stubs, monkeypatch
 ):
     monkeypatch.setattr(panel_module, "_cpu_count", lambda: 8)
-    panel, _chosen = direct_panel(make_panel, tmp_path, "a.txt", "b.txt", "c.txt")
+    panel, _folders = folder_panel(make_panel, tmp_path, roots=2)
     panel.workers_var.set("100")
     run_attempt(panel)
     log_text = "\n".join(panel.log.details)
-    # 3 queued files is the binding constraint here (3 < 8 cores < the Edge
-    # backend-safe ceiling of 32) -- an oversized request never OOMs, thrashes,
-    # or silently ignores itself; it degrades to what is actually supportable.
-    assert "Requested workers: 100 | Effective workers: 3" in log_text
+    # 4 queued folder files is the binding constraint here (4 < 8 cores < the
+    # Edge backend-safe ceiling of 32) -- an oversized request never OOMs,
+    # thrashes, or silently ignores itself; it degrades to what is actually
+    # supportable.
+    assert "Requested workers: 100 | Effective workers: 4" in log_text
+
+
+def test_an_all_direct_edge_run_logs_the_lock_true_effective_count(
+    make_panel, output_base, tmp_path, stubs
+):
+    """P14's pool size (and the log line) must reflect that direct Edge items
+    fully serialize behind the runner's cwd-isolation lock -- an all-direct
+    queue reports Effective workers: 1 no matter how many were requested."""
+    panel, _chosen = direct_panel(make_panel, tmp_path, "a.txt", "b.txt", "c.txt")
+    panel.workers_var.set("2")
+    run_attempt(panel)
+    log_text = "\n".join(panel.log.details)
+    assert "Requested workers: 2 | Effective workers: 1" in log_text
+
+
+def test_a_mixed_edge_run_logs_the_folder_count_plus_one_direct(
+    make_panel, output_base, tmp_path, stubs
+):
+    """A mixed queue's truthful ceiling is the folder items (which can each
+    overlap) plus the one direct item that can run alongside them -- 2 folder
+    + 2 direct here caps to 3, not the raw request of 8."""
+    panel, _direct, _folders = mixed_panel(make_panel, tmp_path)
+    panel.workers_var.set("8")
+    run_attempt(panel)
+    log_text = "\n".join(panel.log.details)
+    assert "Requested workers: 8 | Effective workers: 3" in log_text
 
 
 # --------------------------------------------------------------------------- #
@@ -444,6 +493,40 @@ class _StopEarly(Exception):
     ``run_conversion_job`` reach a normal return."""
 
 
+class _AcquireCountingLock:
+    """A drop-in ``threading.Lock`` substitute that announces every
+    ``acquire`` *attempt* -- before it may block -- through ``attempted_twice``,
+    so a test can prove a second caller genuinely reached and contended for
+    the lock, deterministically, instead of inferring it from a fixed sleep
+    window that a slow/contended runner could satisfy by luck (the second
+    thread simply never getting a timeslice) as easily as by the lock
+    actually holding it out."""
+
+    def __init__(self) -> None:
+        self._real = threading.Lock()
+        self._attempts = 0
+        self._count_lock = threading.Lock()
+        self.attempted_twice = threading.Event()
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        with self._count_lock:
+            self._attempts += 1
+            if self._attempts >= 2:
+                self.attempted_twice.set()
+        return self._real.acquire(blocking, timeout)
+
+    def release(self) -> None:
+        self._real.release()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc_info) -> bool:
+        self.release()
+        return False
+
+
 def _write_source(path: Path, title: str) -> None:
     path.write_text(f"Title: {title}\nAuthor: Nobody\n# Chapter\nBody text.\n",
                     encoding="utf-8")
@@ -459,6 +542,8 @@ def test_runner_never_lets_two_conversions_be_inside_read_book_at_once(
     probe_lock = threading.Lock()
     entered = threading.Event()
     release = threading.Event()
+    counting_lock = _AcquireCountingLock()
+    monkeypatch.setattr(runner, "_CWD_ISOLATION_LOCK", counting_lock)
 
     def fake_get_book(work_txt):
         return (
@@ -499,10 +584,15 @@ def test_runner_never_lets_two_conversions_be_inside_read_book_at_once(
     t1.start()
     try:
         assert entered.wait(WAIT), "the first conversion never reached read_book"
-        # A short, explicit settle window: t2 gets a real chance to reach
-        # read_book too (proving the lock, not luck, is what stops it).
         t2.start()
-        time.sleep(SETTLE)
+        # Deterministic, not timing-based: t1 is proven still inside
+        # read_book (blocked on ``release``, which nothing has set yet), so
+        # if t2 has genuinely reached (attempted) the lock, it is *certain*
+        # to still be waiting behind it -- no window to get unlucky in,
+        # unlike a fixed sleep that a contended runner could satisfy by t2
+        # simply never getting scheduled rather than by the lock holding.
+        assert counting_lock.attempted_twice.wait(WAIT), (
+            "the second conversion never even reached the cwd isolation lock")
         assert max_seen["n"] == 1, (
             "two conversions were inside read_book at the same time -- the "
             "cwd isolation lock did not hold")

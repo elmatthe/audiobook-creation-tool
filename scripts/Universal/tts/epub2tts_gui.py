@@ -309,7 +309,8 @@ def _device_safe_workers(backend: str) -> int:
     return max(1, cpu)
 
 
-def resolve_effective_workers(requested: int, queued_files: int, backend: str) -> int:
+def resolve_effective_workers(requested: int, queued_files: int, backend: str, *,
+                              direct_files: int = 0) -> int:
     """The one place P14's worker cap is computed for a run.
 
     Bounded by the user's own request, how many files are actually queued
@@ -318,6 +319,17 @@ def resolve_effective_workers(requested: int, queued_files: int, backend: str) -
     oversized request (e.g. "100" on a 4-core machine with 2 files queued)
     degrades safely to whatever is actually supportable; it never raises and
     never returns less than 1.
+
+    ``direct_files`` is how many of ``queued_files`` are directly-added Edge
+    items. Edge's ``epub2tts_edge.runner`` serializes every direct item
+    against every other direct item behind its process-wide
+    ``_CWD_ISOLATION_LOCK`` (folder-derived Edge items never chdir, so they
+    carry no such lock and freely overlap each other and any direct item).
+    Queuing more than one direct item therefore never buys real concurrency
+    beyond the one already in flight: the true ceiling for an Edge run is the
+    folder items (which can each run in their own worker) plus, at most, one
+    direct item running alongside them -- an all-direct queue caps to 1
+    regardless of how many workers were requested.
     """
     backend_safe = {
         "edge": EDGE_BACKEND_SAFE_WORKERS,
@@ -325,7 +337,11 @@ def resolve_effective_workers(requested: int, queued_files: int, backend: str) -
         "chatterbox": CHATTERBOX_BACKEND_SAFE_WORKERS,
     }.get(backend, 1)
     device_safe = _device_safe_workers(backend)
-    return max(1, min(int(requested), int(queued_files), backend_safe, device_safe))
+    cap = min(int(requested), int(queued_files), backend_safe, device_safe)
+    if backend == "edge" and direct_files > 0:
+        folder_files = max(0, int(queued_files) - int(direct_files))
+        cap = min(cap, folder_files + 1)
+    return max(1, cap)
 
 
 #: What the engine line says when a locally cloned voice is selected. Engine
@@ -2412,7 +2428,9 @@ class _RunContext:
         params = self.params
         backend = params["backend"]
         requested = int(params["workers"])
-        effective = resolve_effective_workers(requested, len(self.items), backend)
+        direct_files = sum(1 for item in self.items if item["direct"])
+        effective = resolve_effective_workers(requested, len(self.items), backend,
+                                              direct_files=direct_files)
         self.log(f"Requested workers: {requested} | Effective workers: {effective}")
 
         def convert(item):

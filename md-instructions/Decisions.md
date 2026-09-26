@@ -4,6 +4,113 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-26 -- A fresh independent review of pull request #12 found six confirmed, bounded correctness gaps; all six closed before merge
+
+**Decision:** Six confirmed findings from an independent read-only review of
+pull request #12 (`feature/0.6.5-tts-quality-refactor` -> `master`, reviewed at
+head `8094135`) are fixed, each with a direct regression test. Two cleanup-only
+findings from the same review (the concurrency-cap-to-1 stopgap already
+documented in code comments, and a handful of dead-code/duplication items) were
+explicitly deferred, per the maintainer's bounded remediation scope, and are
+not touched here.
+
+**1. M4B Metadata Editor: `validate_staged` no longer requires the original
+source to still exist on a Retry Failed reusing an already-validated
+candidate.** The Editor's chapter-truncation guard (`validate_chapter_structure`,
+added against the 2026-09-20 FFmpeg 9 defect) had `validate_staged` re-read
+`book.source` on every call, including the retained-candidate reuse path a
+publication-failure retry takes. A candidate already proved against the source
+once does not need the source proved again; `validate_staged` and
+`validate_chapter_structure` (`mp3_tools/m4b_metadata_processing.py`) now take
+`require_source_match` / a nullable `source`, and `m4b_metadata_batch.py`
+passes `False` exactly when reusing an already-validated retained candidate
+(both the reuse check and, when Auto-number is on, the tag-rewrite
+re-validation that follows it). New regression: publication failure -> the
+candidate is retained -> the source file is deleted -> Retry Failed still
+publishes it (`test_m4b_metadata_batch.py`).
+
+**2. Edge's "Effective workers" log line is now truthful for direct-item
+queues.** `epub2tts_edge.runner._CWD_ISOLATION_LOCK` fully serializes every
+direct Edge conversion against every other direct Edge conversion (folder-
+derived Edge items carry no such lock and freely overlap). The single shared
+`ThreadPoolExecutor` size and its log line, however, were computed from
+`resolve_effective_workers(requested, queued_files, backend)` alone, so an
+all-direct-Edge queue reported an "Effective workers" figure implying real
+parallelism that the lock never delivered. `resolve_effective_workers` now
+takes `direct_files`, and for Edge caps the result to `folder_files + 1` (any
+number of folder items can overlap each other and the one direct item that
+can run alongside them; a second direct item can never make progress
+concurrently, so it cannot widen the cap) -- an all-direct queue now correctly
+resolves to `1` regardless of the request. New regressions, pure-function and
+panel-level, for an all-direct queue and a mixed direct+folder queue
+(`test_tts_worker_concurrency.py`); two pre-existing panel-level tests that
+had asserted the old, untruthful figure for an all-direct queue now use a
+folder-only queue instead, preserving their original "oversized request
+degrades safely" intent.
+
+**3. `shared.metadata._chapter_track_samples` no longer substitutes an
+unrelated stream's frame count.** It preferred the `codec_tag_string=="text"`
+data/subtitle stream but silently fell through to try any other data/subtitle
+stream's `nb_frames` if the preferred one's count did not parse -- capable of
+feeding the truncation check a different track's sample count entirely. It
+now considers only the preferred stream(s) when any exist, returning `None`
+(fail-closed, which `validate_chapter_structure` already turns into a raise)
+rather than trying an unrelated stream. New regressions covering a missing/
+non-numeric count on the real track beside an unrelated stream with a
+parseable one, and the pre-existing older-build (untagged subtitle) fallback
+path (`test_metadata_smoke.py`).
+
+**4. `trim_from_end_mp3` no longer treats an unreadable duration as
+zero-length.** `ffprobe_duration_seconds(in_mp3) or 0.0` silently produced
+`-t 0.000000` (a near-empty output) while still returning `True`, the one
+call site in `mp3_processing.py` that was not updated when every other call
+site was made to fail on `None`. It now fails safely (logs and returns
+`False`) instead. This function has no live GUI call site today (dead but
+exported); it is fixed in place and not wired into the GUI. New regression in
+`test_mp3_duration_authority.py`.
+
+**5. The direct-Edge `_CWD_ISOLATION_LOCK` proof in
+`test_tts_worker_concurrency.py` no longer depends on a fixed sleep.** It
+previously inferred the lock held by sleeping 300 ms and checking that a
+second thread never got inside the stubbed `read_book` -- a contended CI
+runner could pass this by the second thread simply never being scheduled in
+time, not by the lock actually holding it out. It now wraps the real lock in
+a small acquire-counting substitute and waits (bounded, not sleeping) for
+proof that the second thread genuinely reached (attempted) the lock before
+asserting -- deterministic either way, and faster in practice.
+
+**6. A missing edge case in the structural-colon regex's own test coverage
+was filled in.** `chatterbox_synth._STRUCTURAL_COLON` (`:(?!\S)`) treats a
+colon at the literal end of a string as prose, same as one followed by
+whitespace, but every existing parametrized case had a colon followed by
+more text -- a future narrowing of the pattern (e.g. requiring an actual
+trailing whitespace character) would have passed every existing test while
+silently breaking end-of-string prose colons. New case in
+`test_chatterbox_colon_integration.py`.
+
+**Why:** the maintainer commissioned a fresh, independent review of PR #12
+specifically to not assume the prior integration-readiness verdict was
+correct; it found these six issues with concrete failure scenarios (a
+retry regression, a misleading log figure, a silent wrong-stream substitution,
+a silent zero-length trim, a spuriously-passable test, and an uncovered regex
+branch) and asked for a bounded fix of exactly these, nothing else.
+
+**Alternatives considered:** leaving finding #4 wired into the GUI while
+fixing it (rejected -- out of the review's and the maintainer's stated
+scope: `trim_from_end_mp3` stays a dead-but-safe export); retuning the
+Kokoro/Chatterbox concurrency caps or removing the dead candidate-evaluation
+code the same review flagged (rejected -- the maintainer explicitly scoped
+those out as cleanup-only, not confirmed correctness bugs).
+
+**Verification:** every new/updated test passes in isolation and as part of
+a full sweep of every affected test file (494 passed); `scripts/verify.py`
+run once at the end.
+
+— Root-caused and implemented by Claude Code per the maintainer's bounded
+post-review remediation request, 2026-09-26
+
+---
+
 ## 2026-09-26 -- Kokoro's multi-file worker cap was never actually proven safe; lowered to 1, matching Chatterbox's existing correctness-constraint precedent
 
 **Decision:** `epub2tts_gui.KOKORO_BACKEND_SAFE_WORKERS` lowered from `8` to `1`.

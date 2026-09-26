@@ -681,10 +681,20 @@ def _chapter_track_samples(streams) -> int | None:
     The mov demuxer presents the ``chap``-referenced track as a ``data`` stream
     tagged ``text`` (older builds: a ``subtitle`` stream). Audio and video are
     never it. ``None`` when there is no such stream or ffprobe gave no count.
+
+    A ``text``-tagged stream, when present, is authoritative and the only
+    stream considered: if its own frame count cannot be read, that is the
+    answer (``None``), never a fall-through to some other, unrelated data or
+    subtitle stream's count. Substituting a different stream here would
+    silently defeat the truncation check this authority exists for (see
+    :class:`ChapterStructure`'s docstring) — an unreadable count on the real
+    chapter track must surface as unreadable, not as some other track's
+    number that happens to parse.
     """
     candidates = [s for s in streams if s.get("codec_type") in ("data", "subtitle")]
-    candidates.sort(key=lambda s: 0 if str(s.get("codec_tag_string", "")).strip() == "text" else 1)
-    for stream in candidates:
+    preferred = [s for s in candidates
+                if str(s.get("codec_tag_string", "")).strip() == "text"]
+    for stream in (preferred or candidates):
         raw = stream.get("nb_frames")
         try:
             return int(raw)

@@ -71,6 +71,20 @@ def test_the_candidate_still_converts_an_ordinary_prose_colon_to_a_comma():
     assert "held, two" in out
 
 
+def test_the_candidate_converts_a_prose_colon_at_the_very_end_of_the_string():
+    """``_STRUCTURAL_COLON`` is ``:(?!\\S)`` — "not followed by a non-
+    whitespace character" — which matches at end-of-string as much as before
+    whitespace. Every other prose-colon case above has a colon followed by a
+    space; none exercises the end-of-string branch of that negative lookahead,
+    so a future narrowing to (for instance) ``:(?=\\s)`` — requiring an actual
+    trailing whitespace character — would pass every existing test here while
+    silently leaving a chapter or chunk that ends exactly on a prose colon
+    unconverted."""
+    out = cbx._structural_colon_punc_norm("Here is what mattered:")
+    assert ":" not in out
+    assert out == "Here is what mattered,"
+
+
 NON_COLON_PARITY_CASES = [
     pytest.param("hello there, no ending punctuation", id="lowercase-start-no-terminator"),
     pytest.param("An ellipsis trails off...", id="ellipsis"),
