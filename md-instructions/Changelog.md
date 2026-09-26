@@ -15,6 +15,25 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **Kokoro's multi-file worker concurrency was never actually proven safe; capped to 1** (v0.6.5 Phase 9 fresh review, 2026-09-26)
+
+- A fresh independent review of the complete TTS text->synthesis->assembly->final-file flow (the
+  plan's mandatory Phase 9 bug hunt) found that Kokoro's `KOKORO_BACKEND_SAFE_WORKERS = 8` ceiling
+  rested only on device-capacity headroom, never on a proof that concurrent Kokoro synthesis is
+  actually safe. Every production Kokoro voice of one language shares a single cached `KPipeline`
+  instance, whose out-of-vocabulary G2P fallback calls a third-party espeak-ng binding that its own
+  vendored source states is "not designed to be wrapped nor to be used in multithreaded/
+  multiprocess contexts" -- a real hazard reachable by any book text containing a proper noun or
+  unusual word, not a theoretical one. The Phase 6 "overlap proof" this ceiling previously rested on
+  only exercised the executor/dispatch layer with the real engine call stubbed out, never the real
+  pipeline. `epub2tts_gui.KOKORO_BACKEND_SAFE_WORKERS` is lowered from `8` to `1`, matching the exact
+  correctness-constraint precedent already established for Chatterbox; no other worker/concurrency
+  behavior changed. Full details and alternatives considered in `Decisions.md`, 2026-09-26.
+- `files/tests/test_tts_worker_concurrency.py`'s previously-positive Kokoro overlap test is rewritten
+  as a negative (non-overlap) proof, mirroring the pre-existing Chatterbox test; other Kokoro-related
+  assertions in the same file updated to expect an effective worker count of `1` regardless of the
+  requested count or CPU count.
+
 ### Fixed -- **`scripts/verify.py` full-suite gate: three shared-test-infrastructure leaks and a release-packaging gap, all root-caused** (v0.6.5 Phase 8, 2026-09-24)
 
 - **The release archive could ship a stray `.DS_Store`/`Thumbs.db`.** `shared/release.py`'s

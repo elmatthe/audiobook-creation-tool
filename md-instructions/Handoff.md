@@ -2,6 +2,202 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 9: FRESH INDEPENDENT BUG HUNT COMPLETE -- ONE CONFIRMED RELEASE BLOCKER FOUND AND FIXED (KOKORO MULTI-FILE CONCURRENCY WAS NEVER PROVEN SAFE); EVERY OTHER REVIEWED SURFACE CLEAN; scripts/verify.py GREEN -- STOPPED FOR THE MAINTAINER'S FINAL MANUAL GATE (2026-09-26)
+>
+> **Five independent review passes, one per area named in the plan's Phase 9
+> charter (§15), each conducted without assuming any prior phase's conclusion
+> was correct -- fresh re-derivation from the current code, not a re-read of
+> earlier Handoff/Decisions entries.**
+>
+> **1. Text/segmentation flow (source-text -> synthesis input) -- CLEAN.**
+> Source-span coverage verified structurally, not just by inspection: Edge's
+> paragraph/sentence/intra-sentence pipeline preserves every span; Chatterbox's
+> `_assert_content_preserved` raises on any drop/duplicate/reorder. No empty
+> synthesis unit can reach a backend. Grepped the whole `tts/` tree for
+> `Ascended`/`Tamar` (P9) -- every hit is documentation/test commentary about a
+> *rejected* hack, never a live word-specific replacement. The false-boundary
+> tokenizer extension (`i.e`/`e.g`) matches the documented, maintainer-approved
+> state. Phase 7's removed pause/trim UI fields are intentionally preserved as
+> internal, non-user-editable policy in `voice_registry.py`'s `timing_preset` --
+> not dead state. One non-blocking quality nit recorded, not fixed (P1/P11 bar
+> retuning without listening evidence): Kokoro's `split_into_chunks` break-point
+> selection can pick an earlier valid punctuation break than the rightmost one
+> when multiple qualify -- no text is lost/duplicated, purely a placement nit.
+>
+> **2. Assembly/duration/metadata -- CLEAN.** Kokoro and Chatterbox each do
+> exactly one final lossy MP3 encode from PCM; Edge's direct and folder paths
+> both encode once. Silence trimming stays leading/trailing-only, never blind
+> internal deletion; no crossfade code exists in this layer. No source/
+> reference file is ever opened for writing. No silent output overwrite is
+> possible (`FileExistsError` unless `overwrite=True`, or the shared
+> collision-safe planner). The historical four-voice Chatterbox evaluation
+> mode is untouched and structurally separate from the newer candidate-
+> evaluation path. One low-severity, non-blocking note recorded for future
+> disposition, not fixed: `epub2tts_edge.epub2tts_edge.make_m4b` (CLI-only,
+> `--format m4b`, unreachable from the shipped GUI which always passes
+> `audio_format="mp3"`) writes chapters through the same mp4/m4b muxer family
+> whose "automatic" movie-timescale chapter truncation was root-caused and
+> fixed elsewhere (M4B Maker/Metadata Editor, Changelog 2026-09-20) -- this
+> TTS-internal writer never received that fix and has no equivalent
+> structural-readback test. Not a shipped-surface regression today; flagged
+> for the maintainer to decide retire-vs-fix in a future phase.
+>
+> **3. Worker/concurrency safety, P14 -- ONE CONFIRMED RELEASE BLOCKER, FOUND
+> AND FIXED.** The dispatch model itself (whole-file-only concurrency, the
+> effective-worker formula, truthful requested/effective logging, Chatterbox's
+> existing hard cap of 1, cancellation/retry correctness under >1 worker) was
+> independently re-verified against the real dispatch code in
+> `epub2tts_gui.py` and confirmed correct -- no change needed there.
+>
+> **The blocker: Kokoro's `KOKORO_BACKEND_SAFE_WORKERS = 8` ceiling was never
+> actually proven safe, only assumed from CPU headroom.**
+> `kokoro_synth._get_pipeline` caches exactly one `KPipeline` per lang_code,
+> process-wide; every production voice sharing a language (af_heart/af_bella/
+> am_michael on lang "a"; bf_emma/bm_george on lang "b") reuses the identical
+> cached instance regardless of which worker thread calls it. That pipeline's
+> out-of-vocabulary G2P fallback (`misaki.espeak.EspeakFallback`, used by
+> every English voice, built once in `kokoro/pipeline.py`'s `KPipeline.__init__`
+> and held for the pipeline's lifetime) calls a single shared
+> `phonemizer.backend.EspeakBackend` instance. Phonemizer's own vendored source
+> (`phonemizer/backend/espeak/api.py`) states outright that the underlying
+> espeak-ng library is "not designed to be wrapped nor to be used in
+> multithreaded/multiprocess contexts (massive use of global variables)" --
+> its per-instance private-`dlopen`-copy trick isolates two *different*
+> instances from each other; it does not make one shared instance's own calls
+> reentrant against themselves. Any out-of-vocabulary word -- a real book's
+> proper nouns, foreign terms, invented names -- reaches this fallback, so two
+> Kokoro files converting concurrently under the same language could race the
+> same shared, non-reentrant third-party C library with no lock anywhere in
+> that call path (checked: zero `Lock`/`lock`/`thread` hits in
+> `phonemizer/backend/espeak/*.py` or `phonemizer/backend/base.py`). The Phase
+> 6 "overlap proof" this ceiling rested on
+> (`test_four_direct_kokoro_files_overlap_up_to_the_requested_count`) stubbed
+> `kokoro_file_to_mp3` out entirely -- it proved the executor dispatches
+> concurrently, never that the real pipeline tolerates it. This is the exact
+> class of hazard P14 already required a concrete isolation proof for before
+> raising Chatterbox above 1; it had simply never been applied to Kokoro.
+>
+> **Fix (minimal, P11): `KOKORO_BACKEND_SAFE_WORKERS` lowered from `8` to `1`,
+> the identical truthful-cap-until-proven-safe posture already used for
+> Chatterbox.** No other worker/concurrency behavior changed;
+> `resolve_effective_workers`'s formula needed no edit. The Phase 6 positive
+> overlap test is rewritten as a negative (non-overlap) proof mirroring the
+> pre-existing Chatterbox test line-for-line
+> (`test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested`);
+> two other Kokoro-specific worker-count assertions updated to expect `1`
+> regardless of requested count or CPU count. Full evidence trail, the exact
+> source citations, and alternatives considered (a G2P-scoped lock; a
+> per-worker pipeline instance; leaving the cap at 8 since no corruption had
+> yet been observed) are in `Decisions.md`, 2026-09-26 -- rejected for this
+> bounded phase as either a larger seam than justified or as inconsistent with
+> the Chatterbox precedent's own standard (proof of isolation, not absence of
+> an observed incident).
+>
+> **This is a real, previously-unproven safety gap in shipped default
+> behavior** (workers=8 was the Kokoro default ceiling before this fix, not an
+> edge case a user had to opt into) -- exactly what a fresh Phase 9 review is
+> meant to catch, and exactly the standard the plan already applied to
+> Chatterbox but never re-applied to Kokoro.
+>
+> **4. Output/path/reference/registry handling -- CLEAN.** Registry contains
+> exactly the 16 approved voices (5 Edge incl. Steffan default, 5 Kokoro, 6
+> Chatterbox); both multilingual Edge voice IDs fully absent from production
+> code/GUI/tests; Male-3/Male-4 approval provenance cross-checked against the
+> maintainer's actual recorded ruling (Male-4 approved unchanged, Male-3's
+> *original* candidate approved, its pitch-retry variant rejected) and the
+> registry matches exactly. No stale voice IDs anywhere. Chatterbox reference
+> recordings are read-only, re-hashed (SHA-256) on every real use, never
+> substituted on mismatch. No TTS file ever writes to an imported source. Retry
+> Failed reproduces the exact frozen run snapshot; no Preferences-change leak
+> path found. No hardcoded absolute/home-dir paths or path-separator
+> assumptions in any TTS-specific file.
+>
+> **5. Docs-vs-behavior drift -- FOUND AND FIXED (documentation only).**
+> `Briefing.md`'s TTS feature bullet still described the pre-Phase-7 UI (five
+> user-editable pause fields, separate Edge single/batch pause semantics) as
+> current, even though `voice_registry.py`'s own docstring and the actual code
+> already correctly reflected Phase 7's removal -- only the permanent
+> architecture doc had drifted. Rewritten to describe the actual current
+> state: pause/trim policy is internal-only via `timing_preset`; the only
+> remaining user-editable Band 3 controls are the truthful ones each backend
+> can honor (Edge rate %, Kokoro speed, no fake Chatterbox control). The
+> entire P14 file-worker concurrency model (a whole Phase 6 subsystem) was
+> absent from `Briefing.md` before this pass -- added, including the Kokoro
+> cap-lowering finding above. Voice inventory, `Handoff.md`'s own top
+> CURRENT-STATE consistency, and the §0.3 roadmap-reconciliation record in
+> `md-instructions/don't-delete/` were all independently checked and found
+> already consistent -- no drift there.
+>
+> **STT-escape record (plan §7/§15 requirement).** Checked whether any missing/
+> repeated/truncated-speech defect escaped the non-STT gates (source-span
+> invariants, chunk-size limits, decode validation, duration sanity,
+> suspicious-silence detection, mandatory listening) anywhere within v0.6.5
+> Phases 1-8. **None found.** The one precedent of this defect class in this
+> project's history predates v0.6.5 entirely -- a pre-v0.6.5 Kokoro-splitter-
+> routing bug that silently dropped roughly 98% of Chatterbox text -- and it
+> was caught mechanically (a chars-vs-audio-seconds measurement), not by STT,
+> and was permanently closed by the current 300-char Chatterbox chunk cap plus
+> `_assert_content_preserved`'s structural guard. No v0.6.5-introduced defect
+> of this class escaped the non-STT gates. Per §7, this stays a documented
+> data point, not a trigger to add STT verification in this release.
+>
+> **Verification.** Focused sweep
+> (`test_tts_worker_concurrency.py`/`test_tts_compact_ui.py`/`test_tts_smoke.py`/
+> `test_tts_importing.py`/`test_tts_jobs.py`/`test_job_ui.py`/
+> `test_voice_labels.py`/`test_chatterbox_bootstrap.py`/
+> `test_chatterbox_boundaries.py`/`test_chatterbox_integration.py`/
+> `test_kokoro_voices.py`/`test_chatterbox_silence_retry.py`/
+> `test_chatterbox_tuning.py`/`test_chatterbox_selected_tuning.py`/
+> `test_segmentation_source_span.py`/`test_chatterbox_chunking.py`): **761
+> passed, 6 skipped, 0 failed.** `python -m compileall` clean on
+> `scripts/Universal` and `files/tests`. `git diff --check`: clean (no
+> whitespace/CRLF errors). `scripts/verify.py`, run twice independently
+> (once by the reviewing subagent, once by me): both runs **PASS** --
+> **7640 passed, 61 skipped, 0 failed** (one more than the pre-Phase-9
+> baseline of 7639, from the rewritten Kokoro test replacing the old one
+> one-for-one plus its own new assertions).
+>
+> **Files changed this phase:** `scripts/Universal/tts/epub2tts_gui.py`
+> (`KOKORO_BACKEND_SAFE_WORKERS` 8 -> 1 + comment),
+> `files/tests/test_tts_worker_concurrency.py` (Kokoro overlap test rewritten
+> to a negative proof, two assertions updated), `md-instructions/Briefing.md`
+> (TTS bullet de-staled, P14 model added), `md-instructions/Decisions.md` (new
+> ADR, 2026-09-26), `md-instructions/Changelog.md` (new `[Unreleased]` entry),
+> this file.
+>
+> **Nothing else changed.** No voice tuning, Kokoro colon behavior, Edge/
+> Chatterbox code, Chatterbox concurrency cap, or M4B work was touched. The
+> Phase 8 record above stands exactly as written and was not reopened.
+>
+> **PHASE 9'S MECHANICAL WORK IS COMPLETE. No merge, tag, release, or branch
+> work was started or authorized.** The temporary plan file
+> (`md-instructions/0.6.5-tts-quality-refactor.md`) is retained, not retired,
+> pending the maintainer's sign-off below.
+>
+> **Final manual smoke/listening checklist for maintainer approval (Phase 9
+> close, plan §18):**
+> 1. Launch the app through the supported path on the primary machine; confirm
+>    the TTS Compact UI still opens normally (Bands 1-4 per plan §10) --
+>    nothing in this phase touched layout.
+> 2. Queue two direct-file conversions using two Kokoro voices that share a
+>    language (e.g. af_heart + af_bella, or af_heart + am_michael), set
+>    Workers to 4, and run. Confirm the log now reads
+>    `Requested workers: 4 | Effective workers: 1` for that run (previously it
+>    would have read `Effective workers: 4`), and confirm both files still
+>    complete correctly and sound exactly as before -- this is a cap-behavior
+>    smoke, not a quality-regression listen; no audio parameter changed.
+> 3. Spot-check one ordinary single-file Edge conversion and one ordinary
+>    single-file Chatterbox conversion complete normally -- neither backend's
+>    code was touched this phase, so this is a sanity check, not new evidence.
+> 4. Confirm `git status`/`git log` show exactly the files-changed list above
+>    and nothing unexpected staged.
+> 5. On PASS: authorize retiring the temporary plan file and record the
+>    Definition-of-Done (§18) checklist as satisfied; separately authorize
+>    (or defer) the M4B-writer and Kokoro-chunk-break-point items above for a
+>    future phase. Merge/tag/release/branch-deletion remain separate,
+>    explicitly maintainer-authorized steps (P7) -- nothing here requests or
+>    assumes them.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8: `scripts/verify.py` GREEN -- ALL FOUR ROOT-CAUSED LEAKS FIXED IN SHARED TEST INFRASTRUCTURE + THE RELEASE PACKAGER -- STOPPED FOR REVIEW (2026-09-24, real Mac)
 >
 > **This block closes the `scripts/verify.py` FAIL the block below left open.**

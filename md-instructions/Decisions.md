@@ -4,6 +4,69 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-26 -- Kokoro's multi-file worker cap was never actually proven safe; lowered to 1, matching Chatterbox's existing correctness-constraint precedent
+
+**Decision:** `epub2tts_gui.KOKORO_BACKEND_SAFE_WORKERS` lowered from `8` to `1`.
+A v0.6.5 Phase 9 fresh independent review of the complete TTS flow (P14 worker
+capping/intra-file serialization/resource safety, per the plan's Phase 9
+charter) found that Kokoro's multi-file concurrency was never actually proven
+safe, only assumed so from device capacity. `kokoro_synth._get_pipeline`
+caches exactly one `KPipeline` per lang_code, and every production voice of
+that language shares it (lang "a": af_heart/af_bella/am_michael; lang "b":
+bf_emma/bm_george). That shared pipeline's out-of-vocabulary G2P fallback
+(`misaki.espeak.EspeakFallback`, used by every English voice) calls
+`phonemizer.backend.EspeakBackend`, whose own vendored source
+(`phonemizer/backend/espeak/api.py`) states outright that the underlying
+espeak-ng library is "not designed to be wrapped nor to be used in
+multithreaded/multiprocess contexts (massive use of global variables)" --
+true of one instance's own calls, not just of two different instances
+colliding (the per-instance private `dlopen` copy that module already takes
+solves the latter, not the former). Any out-of-vocabulary word -- a real
+book's proper nouns, foreign terms, invented names -- reaches this fallback,
+so two Kokoro files converting at once could race the same shared,
+non-reentrant third-party C library. The Phase 6 "overlap proof" this cap
+originally rested on (`test_tts_worker_concurrency.py`, see the 2026-09-21
+entry below) only proved the `ThreadPoolExecutor` dispatches concurrently,
+with `kokoro_file_to_mp3` stubbed out entirely -- it never exercised the real
+pipeline, so this hazard was never actually ruled out despite the comment
+beside the old constant claiming Kokoro's ceiling was "a sanity limit," not a
+correctness one.
+
+Kokoro's cap now follows the exact precedent already established for
+Chatterbox in the same Phase 6 entry below: capped to a truthful `1` until a
+concrete isolation proof (a pipeline instance per worker, or a lock scoped to
+the G2P call) is done for real, rather than assumed. `resolve_effective_workers`
+needed no change -- `KOKORO_BACKEND_SAFE_WORKERS` is exactly the seam Phase 6
+already built for this. The previously-positive Kokoro overlap test in
+`test_tts_worker_concurrency.py` is rewritten as a negative (non-overlap)
+proof, mirroring the pre-existing Chatterbox test line for line.
+
+**Why:** the plan's own P14 principle is general, not backend-specific:
+"never obtain concurrency by racing shared state." It was applied rigorously
+to Chatterbox at Phase 6 (a real investigation of `model.conds` mutable
+state) but never to Kokoro, whose ceiling was set from CPU headroom alone.
+Phase 9's explicit charter is to fresh-review exactly this kind of
+worker-capping/resource-safety claim rather than trust the prior phase's own
+account of it.
+
+**Alternatives considered:** a lock scoped only around the G2P/`pipeline()`
+call, preserving concurrent model-inference time across files while
+serializing just the unsafe step (rejected for now -- a real fix, but a
+larger and less-tested seam than this bounded phase justifies; left as the
+documented path for a future isolation-proof phase, P11); giving every
+worker its own `KPipeline` instance (rejected -- multiplies the ~300+ MB
+per-language model footprint by the worker count for a backend already
+capped for a decade-old sanity reason, disproportionate for an unconfirmed
+hazard, P14); leaving the cap at `8` since no corruption had yet been
+observed in practice (rejected -- the plan's own standard for this exact
+class of hazard, already applied to Chatterbox, is proof of isolation before
+raising a cap, not absence of an observed incident).
+
+— Root-caused and implemented by Claude Code per the v0.6.5 Phase 9
+fresh-review charter, 2026-09-26
+
+---
+
 ## 2026-09-24 -- The shared Tk test root's reset must undo process-wide state, not just widget state; a full-suite-only test failure is investigated to its real cause before it is accepted as environmental
 
 **Decision:** `files/tests/tk_gate.py`'s `_reset_root` -- the boundary that is

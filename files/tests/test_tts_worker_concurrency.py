@@ -11,9 +11,15 @@ foundation (``test_tts_jobs.py``, ``test_tts_importing.py``):
 * Direct and folder items now share ONE pool and ONE resolved worker count
   (previously: direct items ran strictly one-at-a-time ahead of a separately
   pooled folder half).
-* Edge folder/batch items and Kokoro actually overlap when more than one
-  worker is available; Chatterbox never does, regardless of how many workers
-  are requested.
+* Edge folder/batch items actually overlap when more than one worker is
+  available; Kokoro and Chatterbox never do, regardless of how many workers
+  are requested. **Kokoro's cap was lowered to 1 in v0.6.5 Phase 9** (a fresh
+  bug-hunt found the cached per-lang-code ``KPipeline``'s out-of-vocabulary
+  G2P fallback shares a non-reentrant third-party espeak-ng binding across
+  every voice of that language -- see ``epub2tts_gui.KOKORO_BACKEND_SAFE_WORKERS``
+  and Decisions.md, 2026-09-26). The Phase 6 tests below that used to prove a
+  *positive* Kokoro overlap now prove its *absence*, mirroring the
+  Chatterbox tests exactly.
 * **Edge *direct* items are a special case, discovered while implementing
   this drop.** ``epub2tts_edge.runner.run_conversion_job`` isolates one
   conversion's scratch files by ``os.chdir``'ing into a private temp
@@ -100,16 +106,11 @@ def test_edge_honors_a_representative_requested_count(requested, queued, expecte
     assert panel_module.resolve_effective_workers(requested, queued, "edge") == expected
 
 
-@pytest.mark.parametrize("requested,queued,expected", [
-    (1, 5, 1),
-    (2, 5, 2),
-    (4, 5, 4),
-])
-def test_kokoro_honors_a_representative_requested_count_within_its_headroom(
-    requested, queued, expected
-):
-    # cpu_count=8 -> Kokoro's device-safe ceiling is 4 (half the cores).
-    assert panel_module.resolve_effective_workers(requested, queued, "kokoro") == expected
+@pytest.mark.parametrize("requested", [1, 2, 4, 999])
+def test_kokoro_always_resolves_to_one_regardless_of_the_request(requested):
+    # v0.6.5 Phase 9: Kokoro's shared per-lang-code pipeline's espeak-ng G2P
+    # fallback is not proven reentrant -- see KOKORO_BACKEND_SAFE_WORKERS.
+    assert panel_module.resolve_effective_workers(requested, 10, "kokoro") == 1
 
 
 @pytest.mark.parametrize("requested", [1, 2, 4, 999])
@@ -129,9 +130,11 @@ def test_an_oversized_edge_request_degrades_to_the_backend_safe_ceiling(monkeypa
 
 
 def test_an_oversized_request_degrades_to_the_devices_own_cpu_count():
-    # cpu_count=8 (fixture default) binds before the backend-safe ceilings do.
+    # cpu_count=8 (fixture default) binds before the Edge backend-safe
+    # ceiling does. Kokoro's backend-safe ceiling of 1 binds first for
+    # Kokoro, regardless of cpu_count -- see KOKORO_BACKEND_SAFE_WORKERS.
     assert panel_module.resolve_effective_workers(100, 100, "edge") == 8
-    assert panel_module.resolve_effective_workers(100, 100, "kokoro") == 4
+    assert panel_module.resolve_effective_workers(100, 100, "kokoro") == 1
 
 
 def test_a_machine_that_cannot_report_cpu_count_still_resolves_safely(monkeypatch):
@@ -190,7 +193,7 @@ def test_an_oversized_workers_request_degrades_safely_and_is_logged_truthfully(
 
 
 # --------------------------------------------------------------------------- #
-# C. Edge/Kokoro actually overlap; Chatterbox never does
+# C. Edge actually overlaps; Kokoro and Chatterbox never do
 # --------------------------------------------------------------------------- #
 
 
@@ -241,21 +244,23 @@ def test_a_gated_direct_edge_file_does_not_block_a_concurrent_folder_edge_file(
         worker.join(WAIT)
 
 
-def test_four_direct_kokoro_files_overlap_up_to_the_requested_count(
+def test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested(
     make_panel, output_base, tmp_path, monkeypatch
 ):
-    from tts import voice_registry as vr
-
+    """The negative proof P14 requires before Kokoro could ever be raised
+    above 1 (v0.6.5 Phase 9, mirroring the pre-existing Chatterbox proof
+    below): two files, workers requested far above 1 -- and the second file
+    must still not have started while the first is in flight. Kokoro's cap
+    was lowered to 1 after a fresh review found its cached per-lang-code
+    pipeline shares a non-reentrant third-party espeak-ng G2P fallback across
+    every file of that language -- see KOKORO_BACKEND_SAFE_WORKERS."""
     entered = threading.Event()
     release = threading.Event()
     order: list[str] = []
-    lock = threading.Lock()
 
     def kokoro_file_to_mp3(source_path, output_mp3_path, voice_id, **kwargs):
-        with lock:
-            order.append(Path(source_path).name)
-            if len(order) >= 4:
-                entered.set()
+        order.append(Path(source_path).name)
+        entered.set()
         assert release.wait(WAIT), "the gate was never released"
         Path(output_mp3_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_mp3_path).write_bytes(b"audio")
@@ -264,22 +269,23 @@ def test_four_direct_kokoro_files_overlap_up_to_the_requested_count(
     module.kokoro_file_to_mp3 = kokoro_file_to_mp3
     monkeypatch.setitem(sys.modules, "tts.kokoro_synth", module)
 
+    from tts import voice_registry as vr
     from tts.epub2tts_edge import epub2tts_edge as engine
     monkeypatch.setattr(engine, "ensure_punkt", lambda: None)
     monkeypatch.setattr(panel_module, "ensure_punkt", lambda: None)
     monkeypatch.setattr(panel_module, "_cpu_count", lambda: 8)
 
     kokoro = next(voice for voice in vr.VOICES if voice.backend == "kokoro")
-    panel, _chosen = direct_panel(
-        make_panel, tmp_path, "a.txt", "b.txt", "c.txt", "d.txt")
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt", "two.txt")
     panel.selected_voice_label.set(kokoro.display_label)
     panel._on_voice_selected()
     panel.workers_var.set("4")
     panel.run_job()
     worker = panel._worker
     try:
-        assert entered.wait(WAIT), "four Kokoro files never overlapped under workers=4"
-        assert sorted(order) == ["a.txt", "b.txt", "c.txt", "d.txt"]
+        assert entered.wait(WAIT), "the first Kokoro file never started"
+        time.sleep(SETTLE)
+        assert order == ["one.txt"], "a second Kokoro file started concurrently"
     finally:
         release.set()
         worker.join(WAIT)

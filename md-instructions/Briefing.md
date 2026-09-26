@@ -729,13 +729,26 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
   (Pause/Resume, Cancel, Summary/Details, progress, current-run ETA, Retry Failed); per-chunk
   retry. **The module name is historical**: `epub2tts_gui` / `epub2tts_edge` keep the upstream
   GPL-3.0 provenance of the surviving Edge engine and no longer imply EPUB support.
-  Edge voices honor all five pause fields in **single-file** conversion; Edge
-  **batch folder** mode honors speaker + rate only — inter-sentence pacing there is
-  Edge's natural prosody by deliberate decision (a timing-aware batch rewrite was
-  built, measured, and rejected by ear — see Decisions.md 2026-07-19). Kokoro voices
-  honor the paragraph pause (mapped to the inter-chunk gap) and the end-of-recording
-  pause — sentence/title/chapter parity is deliberately deferred (see Decisions.md). Dev/QA helper
-  `tts/generate_voice_samples.py` writes one short sample per voice to
+  **v0.6.5 Phase 7 (Compact TTS UI) removed every user-editable pause/trim control**
+  (sentence/paragraph/title/chapter pause, end-silence, trim threshold, trim-edge-
+  chunks) — each voice's approved pause/trim policy now lives only in
+  `voice_registry.py`'s `timing_preset` dict and is read directly by
+  `TtsPanel.run_job` at run time; it can no longer be edited from the panel. The
+  only remaining user-editable Band 3 controls are the ones each backend can
+  actually honor truthfully: Edge's rate (%) and Kokoro's speed — Chatterbox Turbo
+  exposes no rate control at all, by design, rather than a fake one. **File-level
+  concurrency (v0.6.5 Phase 6, P14):** a requested "Workers" count is a whole-*file*
+  concurrency level, never permission to parallelize the chunks inside one file;
+  `epub2tts_gui.resolve_effective_workers` bounds it by the request, the queued file
+  count, a backend-safety ceiling and a conservative device-safe ceiling, and the
+  run log always states `Requested workers: N | Effective workers: N` truthfully.
+  Edge honors real multi-file concurrency; Kokoro and Chatterbox are both capped to
+  an effective `1` as correctness constraints, not tuning choices — Chatterbox
+  because its cached model instance holds mutable per-call conditioning state, and
+  Kokoro (Phase 9 fresh-review finding) because its cached per-lang-code pipeline's
+  out-of-vocabulary G2P fallback shares a non-reentrant third-party espeak-ng
+  binding across every voice of that language (see Decisions.md 2026-09-26). Dev/QA
+  helper `tts/generate_voice_samples.py` writes one short sample per voice to
   `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
 - **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → MP3 (libmp3lame VBR), **whole
   book or split by chapter** (v0.6.2 Plan 5). Import files or a folder with an **Include

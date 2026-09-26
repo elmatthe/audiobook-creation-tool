@@ -245,14 +245,36 @@ TIMING_MESSAGE = "timing"
 # silently ignored: the run log always states requested vs. effective.
 # --------------------------------------------------------------------------- #
 
-#: Hard backend-safety ceilings. Edge/Kokoro's are sanity limits against a
-#: pathological request (e.g. "100"); Chatterbox's is a correctness
-#: constraint, not a tuning choice -- see ``_device_safe_workers`` below and
+#: Hard backend-safety ceilings. Edge's is a sanity limit against a
+#: pathological request (e.g. "100"); Kokoro's and Chatterbox's are both
+#: correctness constraints, not tuning choices.
+#:
+#: Kokoro (v0.6.5 Phase 9 fresh-review finding): ``kokoro_synth._get_pipeline``
+#: caches one ``KPipeline`` per lang_code and every voice of that language
+#: shares it (all five production voices share just two pipelines -- lang "a"
+#: for af_heart/af_bella/am_michael, lang "b" for bf_emma/bm_george). That
+#: pipeline's out-of-vocabulary fallback G2P (``misaki.espeak.EspeakFallback``,
+#: used by every English voice) calls ``phonemizer.backend.EspeakBackend``,
+#: whose own vendored source (``phonemizer/backend/espeak/api.py``) states the
+#: underlying espeak-ng library is "not designed to be wrapped nor to be used
+#: in multithreaded/multiprocess contexts (massive use of global variables)"
+#: -- true even per-instance, since the isolation that module gives each
+#: *instance* (a private ``dlopen`` copy) does not make one instance's own
+#: calls reentrant. The Phase 6 "overlap proof" for Kokoro
+#: (``test_tts_worker_concurrency.py``) only proved the executor dispatches
+#: concurrently with ``kokoro_file_to_mp3`` stubbed out; it never exercised
+#: the real pipeline, so this hazard was never actually ruled out. Any
+#: out-of-vocabulary word (a real book's proper nouns, foreign terms, etc.)
+#: hits this fallback, so two Kokoro files converting at once can race the
+#: same shared, non-reentrant C library. Capped to 1 until a Phase-6-style
+#: isolation proof is done for real (own pipeline per worker, or a lock
+#: around the G2P call) -- see Decisions.md, 2026-09-26.
+#: Chatterbox: see ``_device_safe_workers`` below and
 #: ``chatterbox_synth._get_model``/``load_conditionals``: one cached model
 #: instance per device holds mutable conditioning state
 #: (``model.conds``) that a second concurrent file would race.
 EDGE_BACKEND_SAFE_WORKERS = 32
-KOKORO_BACKEND_SAFE_WORKERS = 8
+KOKORO_BACKEND_SAFE_WORKERS = 1
 CHATTERBOX_BACKEND_SAFE_WORKERS = 1
 
 
