@@ -2,6 +2,31 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.5 HISTORICAL AI CO-AUTHOR TRAILER DISPOSITION RESOLVED (2026-09-26)
+>
+> **Explicit maintainer decision at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71`: RESOLVED.**
+> Existing AI `Co-Authored-By` trailers already present in the completed v0.6.5 feature-branch
+> history are **ACCEPTED as historical metadata**. **Do not rewrite history to remove them.**
+> This is a bounded disposition covering only the 24 already-trailer-bearing commits in
+> `1f9bdcf347edaad36d68e237933d3ac6036d0a42..1c3844dc2b6904b42d9f22af53b7c6023c42ec71`
+> on `feature/0.6.5-tts-quality-refactor`, not permission for any later commit or other history.
+> **No future commit, including this disposition checkpoint, may add an AI `Co-Authored-By`
+> trailer.** The standing prohibition remains in force for future work.
+>
+> This decision supersedes all earlier v0.6.5 statements below that leave this issue open or
+> require a future trailer disposition. The documentation-remediation record at `1c3844d`
+> and all historical review/acceptance records are preserved unchanged. Matching amendments
+> in Briefing, the Master Index and the Approved Plan Series Map close their pending references.
+> **Next action:** independent integration-readiness recheck, then the maintainer's separate
+> merge decision. Resolving this blocker is not itself a READY verdict or merge authorization.
+> Production code/tests, version identity `0.6.2`, and Plan 9 allocation are unchanged.
+>
+> **Focused validation:** repository-contract tests **40 passed, 0 failed** (one existing
+> `audioop` deprecation warning); docs, exact documentation names and config checks **PASS**;
+> `git diff --check` clean. All pre-existing document lines are preserved. No full-suite rerun.
+>
+> — Disposition explicitly decided by maintainer Elijah Matthew, 2026-09-26.
+
 > ## CURRENT STATE — v0.6.5 INTEGRATION-REVIEW DOCUMENTATION REMEDIATION (2026-09-26)
 >
 > **Scope:** documentation only, from reviewed closeout

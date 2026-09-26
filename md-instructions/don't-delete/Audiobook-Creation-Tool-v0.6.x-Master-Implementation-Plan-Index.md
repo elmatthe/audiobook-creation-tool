@@ -500,6 +500,17 @@ Do not absorb these into an unrelated plan:
 
 ## 15. Immediate next action
 
+**Trailer-disposition amendment — 2026-09-26, after `1c3844d`: RESOLVED by explicit maintainer
+decision.** Existing AI `Co-Authored-By` trailers in the completed v0.6.5 feature-branch history
+at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71` are **ACCEPTED as historical metadata**;
+do not rewrite history to remove them. The bounded set is defined in Handoff's current
+disposition; acceptance applies only to those existing commits. **No future commit may add
+an AI `Co-Authored-By` trailer**; Section 10's standing prohibition remains binding for future
+work. This supersedes only the open/pending trailer-disposition statements below, preserving
+the documentation-remediation record as history. **Current next action:** independent
+integration-readiness recheck, then the maintainer's separate merge decision. This is not a
+READY verdict or merge authorization; all other closeout, version and allocation facts stand.
+
 **Updated 2026-09-26, after v0.6.5 Phase 9 closeout and the independent integration review at
 `bffb7dbf557f7a2656247f336666a4458937b1f3`. This is the current next-action record. It supersedes
 every older next-action block below; their phase gates and active-plan statements remain dated

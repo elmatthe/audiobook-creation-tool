@@ -370,3 +370,15 @@ unchanged as dated history; their former v0.6.5/Plan-9 binding is not reinstated
   and dependencies remain as preserved by the 2026-09-18 ruling. No replacement version, branch,
   or temporary plan is assigned; no authority to draft/start Plan 9, merge, rewrite history,
   tag, release, or delete branches is granted by this record.
+
+### Trailer-disposition amendment — 2026-09-26, after `1c3844d`
+
+**RESOLVED by explicit maintainer decision:** existing AI `Co-Authored-By` trailers in the
+completed v0.6.5 feature-branch history at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71` are
+**ACCEPTED as historical metadata**. Do not rewrite history to remove them. This bounded
+acceptance covers only the existing commits identified in Handoff's current disposition;
+**no future commit may add an AI `Co-Authored-By` trailer**. This supersedes only the
+open/pending trailer-disposition statements above; the documentation-remediation and older
+historical records remain unchanged. **Current action:** independent integration-readiness
+recheck, then the maintainer's separate merge decision. No READY verdict or merge authorization
+is implied, and the version identity, completed/retired plan state and Plan 9 allocation stand.

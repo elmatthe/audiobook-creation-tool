@@ -918,6 +918,15 @@ release — is unchanged and undrafted.
 
 ## High-Level State
 
+**Trailer-disposition amendment — 2026-09-26, after `1c3844d`: RESOLVED by explicit maintainer
+decision.** Existing AI `Co-Authored-By` trailers in the completed v0.6.5 feature-branch history
+at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71` are **ACCEPTED as historical metadata**;
+do not rewrite history to remove them. This bounded acceptance covers those existing commits
+only; **no future commit may add an AI `Co-Authored-By` trailer**. See Handoff's current
+disposition for the exact bounded range. This supersedes only the pending-trailer statements
+in the retained record below. Next action is independent integration-readiness recheck, then
+the maintainer's separate merge decision; no READY verdict or merge authorization is implied.
+
 **Current state — 2026-09-26: v0.6.5 TTS Quality Refinement is COMPLETE and maintainer-approved
 through Phase 9**, including the final smoke/listening gate at
 `ee6c2b712a845f68e0106d219a803b313805ed88`. Closeout
