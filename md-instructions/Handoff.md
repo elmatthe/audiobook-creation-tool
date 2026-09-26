@@ -2,6 +2,41 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.5 INTEGRATION-REVIEW DOCUMENTATION REMEDIATION (2026-09-26)
+>
+> **Scope:** documentation only, from reviewed closeout
+> `bffb7dbf557f7a2656247f336666a4458937b1f3` on `feature/0.6.5-tts-quality-refactor`.
+> The independent read-only integration review returned **NOT READY** for permanent-document
+> contradictions and unresolved AI co-author trailer disposition; it found no additional
+> production correctness blocker. Implementation, Phase 9, final manual smoke/listening,
+> and plan retirement remain maintainer-approved, not reopened.
+>
+> **Records reconciled:** Master Implementation Plan Index §§5/15 now record completed,
+> approved v0.6.5, retired temporary plan, unmerged feature branch, and integration recheck /
+> maintainer merge decision next. Its §14 supersedes the stale `.DS_Store` limitation with
+> the committed Phase 8 fix at `07ebbe8`. The Approved Plan Series Map has a matching dated
+> closeout supersession. Briefing's conversion-boundary allocation, Current Version and
+> High-Level State now explicitly supersede the stale v0.6.4-unmerged / v0.6.5-equals-Plan-9
+> / v0.6.4-recheck statements. Historical text is preserved. Application version identity
+> remains `0.6.2`, unreleased; **Plan 9 remains DISPLACED — FUTURE ALLOCATION UNASSIGNED**.
+>
+> **History-policy issue remains OPEN:** 24 commits in the reviewed feature range carry
+> prohibited AI co-author trailers. The earlier closed-set waiver does not cover them.
+> No historical metadata was altered, no new waiver granted, and no history rewrite
+> authorized. The maintainer must separately decide their disposition.
+>
+> **Focused validation:** `test_repository_contract.py` **40 passed, 0 failed** (one existing
+> `audioop` deprecation warning); `verify.py`'s `check_docs`, `check_doc_names` and `check_config`
+> each **PASS**, including version identity `0.6.2`. `git diff --check` is clean. Historical
+> document lines are preserved; the checkpoint changes only these four Markdown records.
+> No expensive full verification rerun: the code/tests are unchanged from the approved gate.
+>
+> **Next action:** independent integration-readiness recheck of the documentation checkpoint,
+> explicit maintainer disposition of the trailer issue, then the maintainer's merge decision.
+> This record supersedes the closeout's claim that permanent documentation was already fully
+> reconciled and updates its next action; the acceptance evidence and retirement below stand.
+> No production code/tests, version identity, merge, tag, release, or branch deletion changed.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 9 CLOSEOUT: MAINTAINER'S FINAL MANUAL GATE IS PASS -- PLAN RETIRED, v0.6.5 TTS QUALITY REFINEMENT COMPLETE (2026-09-26)
 >
 > **This block closes the Phase 9 review block immediately below it.** That

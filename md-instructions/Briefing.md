@@ -345,6 +345,11 @@ flashing during use.
   `files/tests/test_ui_theme.py`, `test_launcher_smoke.py`, `test_m4b_metadata_editor_ui.py`
   and `test_prototype_regression.py` all assert this isolation, the last of them across a
   whole application build.
+- **Allocation supersession (2026-09-26).** The conversion-boundary paragraph below retains
+  its historical scope description, but its "final parity drop (v0.6.5)" label is superseded
+  by the 2026-09-18 maintainer ruling: final parity belongs to **Plan 9 — DISPLACED — FUTURE
+  ALLOCATION UNASSIGNED**, not the completed v0.6.5 TTS Quality Refinement plan. No broader
+  visual conversion or release is authorized by the TTS closeout.
 - **Conversion boundary (still in force, two additions).** The **Windows launcher shell**, the
   **M4B Metadata Editor** (rebuilt on the same boundary at v0.6.4 Phase 10), the **MP3 Tool**
   (v0.6.3 focused MP3 redesign, by that plan's explicit supersession) and — since v0.6.4 Phase 6,
@@ -880,6 +885,14 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 
 ## Current Version
 
+**Current-state supersession — 2026-09-26.** Application version identity remains **`0.6.2`,
+unreleased**, exactly as described below. The following older narrative is retained as history
+where it says v0.6.4 is "not merged" or the v0.6.5/Plan-9 assignment is "unchanged":
+**v0.6.4 merged through PR #11**, merge `1f9bdcf347edaad36d68e237933d3ac6036d0a42`;
+**v0.6.5 is the completed TTS Quality Refinement plan, not Plan 9**. Plan 9 remains
+**DISPLACED — FUTURE ALLOCATION UNASSIGNED**, with its approved future scope preserved.
+No version bump, tag, package, or release accompanies the TTS closeout or this reconciliation.
+
 **v0.6.2** — set at the v0.6.2 Plan 5 closeout on 2026-08-31. v0.4.0 is still the latest
 *published* GitHub release (remote:
 [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)).
@@ -904,6 +917,21 @@ split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisi
 release — is unchanged and undrafted.
 
 ## High-Level State
+
+**Current state — 2026-09-26: v0.6.5 TTS Quality Refinement is COMPLETE and maintainer-approved
+through Phase 9**, including the final smoke/listening gate at
+`ee6c2b712a845f68e0106d219a803b313805ed88`. Closeout
+`bffb7dbf557f7a2656247f336666a4458937b1f3` retired `0.6.5-tts-quality-refactor.md`;
+there is no active v0.6.5 temporary plan. The feature branch
+`feature/0.6.5-tts-quality-refactor` is **not merged** and awaits an independent
+integration-readiness recheck and the maintainer's separate merge decision. The initial
+integration review found documentation contradictions (addressed by this reconciliation) and
+an unresolved AI co-author trailer issue (still requires explicit maintainer disposition).
+This is not a READY verdict or a history-policy waiver. **This paragraph supersedes the older
+v0.6.4 narrative below on merge state and next action:** v0.6.4 is already merged through PR #11;
+its pre-merge recheck is no longer the current action. Its implementation and acceptance
+description remains valid history. Version identity stays `0.6.2`; Plan 9 remains
+**DISPLACED — FUTURE ALLOCATION UNASSIGNED**.
 
 **v0.6.4 — M4B Maker + M4B Metadata Editor — COMPLETE, ACCEPTED on both platforms on 2026-09-15,
 and CLOSED at Phase 15 on 2026-09-17 (`41361ab`); not merged and not released.** Both M4B tools became thin

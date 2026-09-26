@@ -112,6 +112,22 @@ The observed `master` SHA is orientation evidence, not permission to overwrite a
 
 ## 5. Program status
 
+**Current status — 2026-09-26, after v0.6.5 Phase 9 closeout at
+`bffb7dbf557f7a2656247f336666a4458937b1f3`. This record supersedes the older status
+paragraphs and rows below wherever they describe the current phase, active drop, merge state,
+version allocation, or next action differently. Those records remain dated history.**
+**v0.6.5 TTS Quality Refinement is COMPLETE and maintainer-approved through Phase 9**, including
+the final real-machine smoke/listening gate at `ee6c2b712a845f68e0106d219a803b313805ed88`.
+Its temporary plan, `md-instructions/0.6.5-tts-quality-refactor.md`, was **retired** in the
+closeout; it is not an active drop. `feature/0.6.5-tts-quality-refactor` is **not merged** and
+awaits an independent integration-readiness recheck and the maintainer's separate merge decision
+(Section 15). v0.6.4 remains integrated through PR #11, merge
+`1f9bdcf347edaad36d68e237933d3ac6036d0a42`. **Plan 9 remains DISPLACED — FUTURE ALLOCATION
+UNASSIGNED**: its approved future scope is preserved, with no replacement version, branch, or
+temporary plan assigned. The nine-plan structure is unchanged; v0.6.5 TTS is not Plan 9.
+Application version identity remains **`0.6.2`, unreleased**; this closeout did not authorize
+a version bump, tag, package, or release.
+
 **Current status — 2026-09-18, v0.6.5 Phase 0. This paragraph supersedes the Phase-15-closeout
 paragraph immediately below it on exactly two points: v0.6.4's merge state, and the v0.6.5/Plan 9
 version assignment.** A fresh `git fetch origin` confirmed `origin/master` at
@@ -456,6 +472,13 @@ At a plan's final closeout:
 
 ## 14. Carried-forward limitations and issue ownership
 
+**Disposition update — 2026-09-26:** the `.DS_Store` row below is retained as historical
+Plan-4/Plan-9 ownership evidence, not a current unresolved limitation. The narrow packaging
+exclusion for `.DS_Store` and `Thumbs.db` was **fixed and committed at `07ebbe8`** during the
+maintainer-authorized v0.6.5 Phase 8 verification remediation, with regression coverage in
+`test_release_packaging.py` (see `Changelog.md` and `Decisions.md`, 2026-09-24). This discharges
+that defect only; it does not complete or reallocate Plan 9's broader packaging/release work.
+
 Do not absorb these into an unrelated plan:
 
 | Limitation | Current owner or disposition |
@@ -476,6 +499,26 @@ Do not absorb these into an unrelated plan:
 | Open Issue #2: CLI-only `kokoro_synth.py` cp1252 `UnicodeEncodeError` | Separate issue; do not fold into Plan 2 |
 
 ## 15. Immediate next action
+
+**Updated 2026-09-26, after v0.6.5 Phase 9 closeout and the independent integration review at
+`bffb7dbf557f7a2656247f336666a4458937b1f3`. This is the current next-action record. It supersedes
+every older next-action block below; their phase gates and active-plan statements remain dated
+history, not current instructions.**
+
+- **Implementation and acceptance are complete.** v0.6.5 TTS Quality Refinement is
+  maintainer-approved through Phase 9, including final smoke/listening; its temporary plan is
+  retired. No v0.6.5 implementation phase or manual gate remains to be started.
+- **Integration is separate and pending.** The read-only review at the closeout returned
+  **NOT READY** for permanent-document contradictions and unresolved AI co-author trailer
+  disposition, not a new production-code blocker. This documentation-only remediation addresses
+  the documentation findings; it does not declare the branch READY or waive the history policy.
+  The next action is an **independent integration-readiness recheck**, with the trailer issue
+  requiring a separate explicit maintainer disposition, followed by the maintainer's merge
+  decision. No merge, history rewrite, tag, release, or branch deletion is authorized here.
+- **Allocation and identity are unchanged:** v0.6.4 is merged through PR #11; v0.6.5 TTS is
+  complete but unmerged on `feature/0.6.5-tts-quality-refactor`; application version identity
+  remains `0.6.2`, unreleased. **Plan 9 remains DISPLACED — FUTURE ALLOCATION UNASSIGNED**,
+  with its approved future scope preserved and no authority to draft or start it.
 
 **Updated 2026-09-18, at v0.6.5 Phase 0. This is the current next-action record. It supersedes the
 Phase-15-closeout block immediately below it on exactly two points — v0.6.4's merge state and the

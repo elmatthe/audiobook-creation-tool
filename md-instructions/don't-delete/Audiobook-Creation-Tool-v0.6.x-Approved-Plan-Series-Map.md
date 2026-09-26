@@ -343,3 +343,30 @@ opened.
 **Current action:** v0.6.5 Phase 0 (TTS Quality Refinement) is in progress on
 `feature/0.6.5-tts-quality-refactor`. Nothing here authorizes starting v0.6.5 Phase 1 or drafting
 Plan 9.
+
+---
+
+## Current-state supersession — 2026-09-26 (v0.6.5 complete; temporary plan retired; integration pending)
+
+**This is the current state and current action for this map.** It supersedes the 2026-09-18
+section's Phase-0-in-progress/current-action statement and any earlier active-plan, merge-state,
+or version-allocation statement that conflicts with the facts below. All earlier sections remain
+unchanged as dated history; their former v0.6.5/Plan-9 binding is not reinstated.
+
+- **v0.6.5 TTS Quality Refinement is COMPLETE and maintainer-approved through Phase 9.** The final
+  real-machine smoke/listening gate passed at `ee6c2b712a845f68e0106d219a803b313805ed88`, and
+  closeout `bffb7dbf557f7a2656247f336666a4458937b1f3` **retired**
+  `md-instructions/0.6.5-tts-quality-refactor.md`. That file is no longer an active instruction drop.
+- **Integration is pending** on `feature/0.6.5-tts-quality-refactor`; the branch is not merged.
+  The independent integration review at the closeout returned **NOT READY** for documentation
+  contradictions and unresolved AI co-author trailer disposition. This documentation remediation
+  neither declares READY nor grants a history-policy exception. **Current action:** independent
+  integration-readiness recheck, separate explicit maintainer disposition of the trailer issue,
+  then the maintainer's merge decision. No further implementation phase is opened.
+- **v0.6.4 is merged** through PR #11 (`1f9bdcf347edaad36d68e237933d3ac6036d0a42`).
+  Application version identity remains **`0.6.2`, unreleased**. The v0.6.5 plan name is not an
+  application version bump or a release.
+- **Plan 9 remains DISPLACED — FUTURE ALLOCATION UNASSIGNED.** Its full approved future scope
+  and dependencies remain as preserved by the 2026-09-18 ruling. No replacement version, branch,
+  or temporary plan is assigned; no authority to draft/start Plan 9, merge, rewrite history,
+  tag, release, or delete branches is granted by this record.
