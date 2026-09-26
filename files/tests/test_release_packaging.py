@@ -121,6 +121,13 @@ def fake_repo(root: Path) -> Path:
     (root / "files" / "tests" / "test_thing.py").write_text("def test_x(): pass\n", encoding="utf-8")
     (root / "files" / "UI-Prototype-Screenshots").mkdir()
     (root / "files" / "UI-Prototype-Screenshots" / "shot.png").write_bytes(b"\x89PNG")
+    # Folder-metadata artifacts a real OS drops just from browsing a folder in
+    # Finder/Explorer -- gitignored, so a real dev checkout is never
+    # guaranteed to be free of them at packaging time (v0.6.5 Phase 8: a real
+    # Mac checkout that had simply been opened in Finder shipped
+    # scripts/.DS_Store before this was caught).
+    (root / "scripts" / "Universal" / ".DS_Store").write_bytes(b"\x00")
+    (root / "scripts" / "Universal" / "Thumbs.db").write_bytes(b"\x00")
     return root
 
 
@@ -230,13 +237,22 @@ def test_the_macos_launcher_keeps_its_executable_mode(archives):
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
 def test_the_scripts_tree_is_complete(archives, os_name):
-    """Every source file the application needs, and no compiled leftovers."""
+    """Every source file the application needs, and no compiled leftovers.
+
+    Mirrors ``release._is_excluded`` by importing its own exclusion sets
+    rather than hand-copying them -- a hand-copied literal here is exactly
+    how this test went stale of a real exclusion (v0.6.5 Phase 8: a real Mac
+    checkout's stray ``.DS_Store`` was excluded from packaging by
+    ``release.py`` before this test's own copy of the exclusion rule knew
+    about it).
+    """
     expected = {
         path.relative_to(REPO_ROOT).as_posix()
         for path in (REPO_ROOT / "scripts").rglob("*")
         if path.is_file()
-        and not {".venv", "__pycache__", ".pytest_cache"} & set(path.relative_to(REPO_ROOT).parts)
-        and path.suffix not in {".pyc", ".pyo", ".pyd"}
+        and not release.EXCLUDED_DIR_NAMES & set(path.relative_to(REPO_ROOT).parts)
+        and path.suffix not in release.EXCLUDED_SUFFIXES
+        and path.name not in release.EXCLUDED_FILE_NAMES
     }
     packaged = {name for name in names(archives[os_name]) if name.startswith("scripts/")}
     assert packaged == expected

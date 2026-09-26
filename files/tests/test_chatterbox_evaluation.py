@@ -57,6 +57,13 @@ APPROVED_OUTPUT_NAMES = (
     "chatterbox-male-2.wav",
 )
 
+#: The historical four plus Male 3 and Male 4 (both approved 2026-09-20 via
+#: the *separate* candidate path, test_chatterbox_candidates.py — Male 3 is
+#: the original candidate sample, not the rejected pitch-retry variant) —
+#: what ordinary sampling actually iterates now, since it reads the live
+#: registry, not CHATTERBOX_EVAL_VOICE_IDS. Registry order, not alphabetical.
+REGISTERED_CHATTERBOX_IDS = APPROVED_VOICE_IDS + ("chatterbox-male-3", "chatterbox-male-4")
+
 
 # --------------------------------------------------------------------------- #
 # Harness — the engine stubbed at exactly the seams the evaluation may use
@@ -221,8 +228,10 @@ def test_the_ordinary_sample_text_is_untouched_by_phase_nine():
 def test_the_ordinary_selection_still_covers_every_registered_voice():
     """``_select`` means "every registered voice", and it still does.
 
-    Phase 10 registered four more, so the number moved from twelve to sixteen.
-    ``_select`` itself is unchanged and its contract is unchanged.
+    Phase 10 registered four more (twelve to sixteen); v0.6.5 Phase 2 then
+    removed the two multilingual Edge rows (sixteen to fourteen) and later
+    approved both Male 3 and Male 4 (fourteen to sixteen). ``_select`` itself
+    is unchanged and its contract is unchanged.
     """
     assert len(gvs._select([])) == len(voice_registry.VOICES) == 16
 
@@ -239,8 +248,11 @@ def test_the_evaluation_covers_exactly_the_four_approved_voices():
     assert tuple(gvs.CHATTERBOX_EVAL_VOICE_IDS) == APPROVED_VOICE_IDS
 
 
-def test_the_evaluation_ids_are_exactly_the_engines_reference_voices():
-    assert sorted(gvs.CHATTERBOX_EVAL_VOICE_IDS) == sorted(cbx.REFERENCE_VOICES)
+def test_the_evaluation_ids_are_a_subset_of_the_engines_reference_voices():
+    """The historical four must always be real production reference voices;
+    REFERENCE_VOICES may hold more than these four now that Phase 2 has
+    approved a candidate (Male 4) through the separate candidate path."""
+    assert set(gvs.CHATTERBOX_EVAL_VOICE_IDS) <= set(cbx.REFERENCE_VOICES)
 
 
 def test_no_fifth_speaker_can_be_smuggled_in(engine):
@@ -391,8 +403,13 @@ def test_the_generator_contains_no_audio_slicing_logic_of_its_own():
     ``ffmpeg_utils.configure_pydub()`` is deliberately not in this list — it is the
     pre-existing Edge/Kokoro setup call, not reference decoding.
     """
+    # "subprocess" itself is deliberately not in this list: the v0.6.5 Phase 1
+    # quality suite uses it once, for `git rev-parse HEAD` (a manifest
+    # reproducibility field, P12) — unrelated to audio decoding. These four
+    # tokens are the actual ffmpeg-CLI markers a raw reimplementation would
+    # need, so they remain the precise guard.
     src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
-    for token in ("subprocess", "pcm_s16le", "0:a:0", "map_metadata", "librosa"):
+    for token in ("pcm_s16le", "0:a:0", "map_metadata", "librosa"):
         assert token not in src, f"generate_voice_samples re-implements decoding via {token!r}"
 
 
@@ -618,18 +635,19 @@ def test_the_generator_names_no_write_target_inside_the_protected_folder():
 # --------------------------------------------------------------------------- #
 # O. The evaluation itself still registers nothing
 # --------------------------------------------------------------------------- #
-def test_the_evaluation_ids_match_the_voices_phase_ten_registered():
+def test_every_historical_evaluation_id_is_still_registered():
     """Phase 9 registered nothing; Phase 10 registered exactly what it evaluated.
 
-    The listening evaluation and the registry must describe the same four voices —
-    a fifth in either place would mean the maintainer approved something other than
-    what shipped.
+    v0.6.5 Phase 2 approved further candidates (Male 3 and Male 4) through a
+    separate evaluation path (test_chatterbox_candidates.py) that never
+    touches CHATTERBOX_EVAL_VOICE_IDS, so the registry may now legitimately
+    hold more Chatterbox rows than the historical four-voice evaluation
+    describes — but it may never hold fewer, and never a *different* four.
     """
-    registered = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
-    assert len(registered) == 4
+    registered_ids = {v.voice_id for v in voice_registry.VOICES if v.backend == "chatterbox"}
+    assert set(gvs.CHATTERBOX_EVAL_VOICE_IDS) <= registered_ids
+    assert len(registered_ids) == 6
     assert len(voice_registry.VOICES) == 16
-    assert sorted(v.voice_id for v in registered) == sorted(
-        gvs.CHATTERBOX_EVAL_VOICE_IDS)
 
 
 def test_running_the_evaluation_registers_nothing(engine):
@@ -669,7 +687,7 @@ def test_no_chatterbox_dispatch_reached_a_conversion_engine(filename):
         f"{filename} references Chatterbox — the engines stay untouched"
 
 
-def test_the_gui_voice_dropdown_offers_the_twelve_plus_the_four_approved():
+def test_the_gui_voice_dropdown_offers_the_ten_plus_the_six_approved():
     labels = voice_registry.display_labels()
     assert len(labels) == 16 == len(set(labels))
 
@@ -701,9 +719,20 @@ def test_the_manifest_lives_under_the_ignored_runtime_tree():
 
 
 def test_the_evaluation_writes_no_manifest_of_its_own():
-    """Phase 8 already established one; a second would compete with it."""
+    """Phase 8 already established the reference/conditional-cache manifest
+    under ``reference_clips_dir()``; the Chatterbox evaluation must not write
+    a second, competing one there.
+
+    The unrelated v0.6.5 Phase 1 QA-evidence manifest
+    (``files/dev-work/quality-suite/``) is a different concept entirely —
+    sample-generation evidence, not reference/conditional-cache bookkeeping —
+    and is explicitly authorized by the plan (Section 8, P12), so the guard
+    now names the Phase 8 manifest's own symbols instead of banning the word
+    "manifest" outright.
+    """
     src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
-    assert "manifest" not in src.lower()
+    assert "reference_clips_dir" not in src
+    assert "_record_manifest" not in src
 
 
 # --------------------------------------------------------------------------- #
@@ -719,10 +748,8 @@ def test_the_evaluation_writes_no_manifest_of_its_own():
 # writes outside ``tmp_path``.
 ORDINARY_EDGE_IDS = (
     "en-US-SteffanNeural",
-    "en-US-AndrewMultilingualNeural",
     "en-US-AndrewNeural",
     "en-US-AriaNeural",
-    "en-US-AvaMultilingualNeural",
     "en-US-AvaNeural",
     "en-US-JennyNeural",
 )
@@ -797,7 +824,7 @@ def _main(monkeypatch, *patterns: str) -> int:
 
 def test_every_chatterbox_row_reaches_the_chatterbox_engine(sample_seams, monkeypatch):
     _main(monkeypatch)
-    assert sample_seams.voices("chatterbox") == list(APPROVED_VOICE_IDS)
+    assert sample_seams.voices("chatterbox") == list(REGISTERED_CHATTERBOX_IDS)
 
 
 def test_no_chatterbox_voice_is_ever_handed_to_edge_tts(sample_seams, monkeypatch):
@@ -812,22 +839,22 @@ def test_an_ordinary_run_covers_all_sixteen_rows_split_by_backend(sample_seams,
                                                                  monkeypatch):
     _main(monkeypatch)
     assert len(sample_seams.calls) == 16
-    assert len(sample_seams.voices("edge")) == 7
+    assert len(sample_seams.voices("edge")) == 5
     assert len(sample_seams.voices("kokoro")) == 5
-    assert len(sample_seams.voices("chatterbox")) == 4
+    assert len(sample_seams.voices("chatterbox")) == 6
 
 
 def test_no_backend_reaches_another_backends_synthesis_seam(sample_seams, monkeypatch):
     _main(monkeypatch)
     assert sample_seams.voices("edge") == list(ORDINARY_EDGE_IDS)
     assert sample_seams.voices("kokoro") == list(ORDINARY_KOKORO_IDS)
-    assert sample_seams.voices("chatterbox") == list(APPROVED_VOICE_IDS)
+    assert sample_seams.voices("chatterbox") == list(REGISTERED_CHATTERBOX_IDS)
 
 
 @pytest.mark.parametrize("pattern,seam,expected", [
     ("edge", "edge", ORDINARY_EDGE_IDS),
     ("kokoro", "kokoro", ORDINARY_KOKORO_IDS),
-    ("chatterbox", "chatterbox", APPROVED_VOICE_IDS),
+    ("chatterbox", "chatterbox", REGISTERED_CHATTERBOX_IDS),
 ])
 def test_a_backend_filter_selects_exactly_that_backend(sample_seams, monkeypatch,
                                                        pattern, seam, expected):
@@ -836,9 +863,9 @@ def test_a_backend_filter_selects_exactly_that_backend(sample_seams, monkeypatch
     assert len(sample_seams.calls) == len(expected)
 
 
-def test_the_chatterbox_filter_selects_exactly_the_four_approved_rows():
+def test_the_chatterbox_filter_selects_exactly_the_five_approved_rows():
     """One list of Chatterbox voices, and it is ``VOICES``."""
-    assert [v.voice_id for v in gvs._select(["chatterbox"])] == list(APPROVED_VOICE_IDS)
+    assert [v.voice_id for v in gvs._select(["chatterbox"])] == list(REGISTERED_CHATTERBOX_IDS)
 
 
 def test_an_ordinary_chatterbox_sample_reads_the_ordinary_sample_text(sample_seams,
@@ -853,7 +880,7 @@ def test_an_ordinary_chatterbox_sample_uses_the_generic_destination_name(sample_
                                                                         tmp_path):
     _main(monkeypatch, "chatterbox")
     assert [Path(d).name for d in sample_seams.destinations("chatterbox")] == [
-        f"chatterbox_{voice_id}.mp3" for voice_id in APPROVED_VOICE_IDS
+        f"chatterbox_{voice_id}.mp3" for voice_id in REGISTERED_CHATTERBOX_IDS
     ]
     for dest in sample_seams.destinations("chatterbox"):
         assert Path(dest).parent == tmp_path / "manual-listen"
@@ -894,7 +921,8 @@ def test_a_failing_chatterbox_sample_does_not_stop_the_remaining_voices(sample_s
     sample_seams.fail_chatterbox_for = "chatterbox-female-2"
     code = _main(monkeypatch, "chatterbox")
     assert sample_seams.voices("chatterbox") == [
-        "chatterbox-female-1", "chatterbox-male-1", "chatterbox-male-2"]
+        "chatterbox-female-1", "chatterbox-male-1", "chatterbox-male-2",
+        "chatterbox-male-3", "chatterbox-male-4"]
     out = capsys.readouterr().out
     assert "FAIL Chatterbox - Female 2" in out
     assert "1 failed" in out

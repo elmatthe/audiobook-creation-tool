@@ -345,6 +345,11 @@ flashing during use.
   `files/tests/test_ui_theme.py`, `test_launcher_smoke.py`, `test_m4b_metadata_editor_ui.py`
   and `test_prototype_regression.py` all assert this isolation, the last of them across a
   whole application build.
+- **Allocation supersession (2026-09-26).** The conversion-boundary paragraph below retains
+  its historical scope description, but its "final parity drop (v0.6.5)" label is superseded
+  by the 2026-09-18 maintainer ruling: final parity belongs to **Plan 9 — DISPLACED — FUTURE
+  ALLOCATION UNASSIGNED**, not the completed v0.6.5 TTS Quality Refinement plan. No broader
+  visual conversion or release is authorized by the TTS closeout.
 - **Conversion boundary (still in force, two additions).** The **Windows launcher shell**, the
   **M4B Metadata Editor** (rebuilt on the same boundary at v0.6.4 Phase 10), the **MP3 Tool**
   (v0.6.3 focused MP3 redesign, by that plan's explicit supersession) and — since v0.6.4 Phase 6,
@@ -617,6 +622,16 @@ Shared authorities it consumes unchanged: `shared/importing.py` + `import_coordi
 `MainThreadPump`), `shared/output_paths.py` (reservation, sanitiser, collision planner,
 containment) and `shared/image_capabilities.py` (the one HEIC probe).
 
+- **MP3 duration means decodable audio (2026-09-20 defect fix).** Split files can retain stale
+  Info/Xing frame totals; ffprobe format/stream duration and Mutagen can agree and still be wrong.
+  The historical `mp3_processing.ffprobe_duration_seconds` API now fully decodes audio using
+  the proved FFmpeg, rebuilds timestamps from decoded samples (`asetpts=N/SR/TB`), discards PCM
+  through the null muxer and reads final `out_time_us`. Source covers are not decoded for this
+  measurement. Failed/incomplete audio decoding is refused. This authority governs signed-Time
+  expectations/trim endpoints, staged validation, and Combine durations/timestamps/validation;
+  tolerances and whole-Book publication remain unchanged. It costs a full decode pass and uses
+  no new dependency or OS branch. `test_mp3_duration_authority.py` covers synthetic stale CBR/VBR
+  headers, all Time signs, Combine FAST/Safe and genuinely damaged staged output.
 - **Blank means blank.** Source tags pre-fill Artist / Album Artist / Album once (folder import,
   or an empty Book's first files) and are never consulted again; a cleared field stores `""` and
   the output carries no such frame. The one source fallback is a track's own default Title.
@@ -708,7 +723,10 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
 ## Features
 
 - **TTS Audiobook** (`tts/epub2tts_gui.py`) — **PDF/TXT → MP3** (v0.6.1: EPUB retired, see
-  below); **16 voices** (7 Edge network + 5 Kokoro local AI + 4 Chatterbox local AI); **one
+  below); **16 voices** (5 Edge network + 5 Kokoro local AI + 6 Chatterbox local AI — v0.6.5
+  Phase 2 removed the two multilingual Edge voices and approved a fifth and sixth Chatterbox
+  voice, Male 3 and Male 4; Male 3 is the original candidate sample, not the bounded
+  pitch-retry variant that was tried and rejected); **one
   unified queue** in which direct files and whole folders coexist in a single run — folder-derived
   items are mirrored into the output so same-named files in different books never collide, direct
   files are placed flat, and occurrence identity, deliberate duplicates, provenance and natural
@@ -716,13 +734,26 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
   (Pause/Resume, Cancel, Summary/Details, progress, current-run ETA, Retry Failed); per-chunk
   retry. **The module name is historical**: `epub2tts_gui` / `epub2tts_edge` keep the upstream
   GPL-3.0 provenance of the surviving Edge engine and no longer imply EPUB support.
-  Edge voices honor all five pause fields in **single-file** conversion; Edge
-  **batch folder** mode honors speaker + rate only — inter-sentence pacing there is
-  Edge's natural prosody by deliberate decision (a timing-aware batch rewrite was
-  built, measured, and rejected by ear — see Decisions.md 2026-07-19). Kokoro voices
-  honor the paragraph pause (mapped to the inter-chunk gap) and the end-of-recording
-  pause — sentence/title/chapter parity is deliberately deferred (see Decisions.md). Dev/QA helper
-  `tts/generate_voice_samples.py` writes one short sample per voice to
+  **v0.6.5 Phase 7 (Compact TTS UI) removed every user-editable pause/trim control**
+  (sentence/paragraph/title/chapter pause, end-silence, trim threshold, trim-edge-
+  chunks) — each voice's approved pause/trim policy now lives only in
+  `voice_registry.py`'s `timing_preset` dict and is read directly by
+  `TtsPanel.run_job` at run time; it can no longer be edited from the panel. The
+  only remaining user-editable Band 3 controls are the ones each backend can
+  actually honor truthfully: Edge's rate (%) and Kokoro's speed — Chatterbox Turbo
+  exposes no rate control at all, by design, rather than a fake one. **File-level
+  concurrency (v0.6.5 Phase 6, P14):** a requested "Workers" count is a whole-*file*
+  concurrency level, never permission to parallelize the chunks inside one file;
+  `epub2tts_gui.resolve_effective_workers` bounds it by the request, the queued file
+  count, a backend-safety ceiling and a conservative device-safe ceiling, and the
+  run log always states `Requested workers: N | Effective workers: N` truthfully.
+  Edge honors real multi-file concurrency; Kokoro and Chatterbox are both capped to
+  an effective `1` as correctness constraints, not tuning choices — Chatterbox
+  because its cached model instance holds mutable per-call conditioning state, and
+  Kokoro (Phase 9 fresh-review finding) because its cached per-lang-code pipeline's
+  out-of-vocabulary G2P fallback shares a non-reentrant third-party espeak-ng
+  binding across every voice of that language (see Decisions.md 2026-09-26). Dev/QA
+  helper `tts/generate_voice_samples.py` writes one short sample per voice to
   `files/test-for-manual-listen-elmatthe/` (gitignored, never imported by the app).
 - **M4B Converter** (`mp3_tools/m4b_converter.py`) — batch M4B → MP3 (libmp3lame VBR), **whole
   book or split by chapter** (v0.6.2 Plan 5). Import files or a folder with an **Include
@@ -854,6 +885,14 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 
 ## Current Version
 
+**Current-state supersession — 2026-09-26.** Application version identity remains **`0.6.2`,
+unreleased**, exactly as described below. The following older narrative is retained as history
+where it says v0.6.4 is "not merged" or the v0.6.5/Plan-9 assignment is "unchanged":
+**v0.6.4 merged through PR #11**, merge `1f9bdcf347edaad36d68e237933d3ac6036d0a42`;
+**v0.6.5 is the completed TTS Quality Refinement plan, not Plan 9**. Plan 9 remains
+**DISPLACED — FUTURE ALLOCATION UNASSIGNED**, with its approved future scope preserved.
+No version bump, tag, package, or release accompanies the TTS closeout or this reconciliation.
+
 **v0.6.2** — set at the v0.6.2 Plan 5 closeout on 2026-08-31. v0.4.0 is still the latest
 *published* GitHub release (remote:
 [elmatthe/audiobook-creation-tool](https://github.com/elmatthe/audiobook-creation-tool)).
@@ -878,6 +917,30 @@ split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisi
 release — is unchanged and undrafted.
 
 ## High-Level State
+
+**Trailer-disposition amendment — 2026-09-26, after `1c3844d`: RESOLVED by explicit maintainer
+decision.** Existing AI `Co-Authored-By` trailers in the completed v0.6.5 feature-branch history
+at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71` are **ACCEPTED as historical metadata**;
+do not rewrite history to remove them. This bounded acceptance covers those existing commits
+only; **no future commit may add an AI `Co-Authored-By` trailer**. See Handoff's current
+disposition for the exact bounded range. This supersedes only the pending-trailer statements
+in the retained record below. Next action is independent integration-readiness recheck, then
+the maintainer's separate merge decision; no READY verdict or merge authorization is implied.
+
+**Current state — 2026-09-26: v0.6.5 TTS Quality Refinement is COMPLETE and maintainer-approved
+through Phase 9**, including the final smoke/listening gate at
+`ee6c2b712a845f68e0106d219a803b313805ed88`. Closeout
+`bffb7dbf557f7a2656247f336666a4458937b1f3` retired `0.6.5-tts-quality-refactor.md`;
+there is no active v0.6.5 temporary plan. The feature branch
+`feature/0.6.5-tts-quality-refactor` is **not merged** and awaits an independent
+integration-readiness recheck and the maintainer's separate merge decision. The initial
+integration review found documentation contradictions (addressed by this reconciliation) and
+an unresolved AI co-author trailer issue (still requires explicit maintainer disposition).
+This is not a READY verdict or a history-policy waiver. **This paragraph supersedes the older
+v0.6.4 narrative below on merge state and next action:** v0.6.4 is already merged through PR #11;
+its pre-merge recheck is no longer the current action. Its implementation and acceptance
+description remains valid history. Version identity stays `0.6.2`; Plan 9 remains
+**DISPLACED — FUTURE ALLOCATION UNASSIGNED**.
 
 **v0.6.4 — M4B Maker + M4B Metadata Editor — COMPLETE, ACCEPTED on both platforms on 2026-09-15,
 and CLOSED at Phase 15 on 2026-09-17 (`41361ab`); not merged and not released.** Both M4B tools became thin

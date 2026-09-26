@@ -222,6 +222,34 @@ def test_a_failed_book_does_not_stop_later_books(sources, reserve, monkeypatch):
     assert failures and all(e.item_id in b.occurrence_ids for e in failures)
 
 
+def test_one_book_failure_is_one_summary_line_however_many_tracks_it_spans(
+        sources, reserve, monkeypatch):
+    """v0.6.5 Phase 8 macOS exception (2026-09-24): a real 264-track Book whose
+    encode failed once produced ~264 identical Summary lines, one per source
+    occurrence. A retryable Book failure must publish exactly one
+    reporter.failure() event no matter how many tracks it has, while Retry
+    Failed's per-occurrence bookkeeping (FailureRecord per occurrence,
+    retryable_ids) stays complete."""
+    many_tracks = tuple(f"{i:02d}.mp3" for i in range(1, 6))
+    space = workspace(book(sources, "A", names=many_tracks, title="A"))
+    made = plan(space, reserve)
+    b = made.books[0]
+    assert len(b.occurrence_ids) == 5, "the fixture must actually span multiple tracks"
+    break_named(monkeypatch, made, b.book_id)
+    run, events = make_run(made)
+    result = run.start().run()
+    assert result.state is JobState.COMPLETED_WITH_FAILURES
+    failed = result.result_for(b.book_id)
+    # Retry bookkeeping: every occurrence is still individually retryable.
+    assert set(failed.retryable_ids) == set(b.occurrence_ids)
+    assert len(failed.failures.records) == 5
+    # Reporting: exactly one Summary-visible failure for the whole Book.
+    failures = events.of(JobEventKind.FAILURE)
+    assert len(failures) == 1, f"expected 1 Summary failure, got {len(failures)}"
+    assert failures[0].item_id in b.occurrence_ids
+    assert failures[0].message  # actionable detail still reaches the one event
+
+
 def test_a_fatal_book_failure_is_item_less_and_not_retryable(sources, reserve):
     bad_art = sources / "art.jpg"
     bad_art.write_bytes(b"not an image")

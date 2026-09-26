@@ -60,6 +60,9 @@ PRODUCTION_TTS_SOURCES = (
     # in scope for every EPUB-retirement guard below, which is the point: a new
     # production TTS module must not be a place EPUB can quietly come back.
     "tts/chatterbox_synth.py",
+    # Added by v0.6.5 Phase 1. The QA corpus text consumed by --quality-suite;
+    # same reasoning as chatterbox_synth.py above.
+    "tts/quality_corpus.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them
@@ -547,9 +550,9 @@ def test_the_edge_and_kokoro_voices_and_the_default_label_are_unchanged():
 
     assert len(vr.VOICES) == 16
     assert vr.DEFAULT_VOICE_LABEL == vr.display_labels()[0]
-    assert len([v for v in vr.VOICES if v.backend == "edge"]) == 7
+    assert len([v for v in vr.VOICES if v.backend == "edge"]) == 5
     assert len([v for v in vr.VOICES if v.backend == "kokoro"]) == 5
-    assert len([v for v in vr.VOICES if v.backend == "chatterbox"]) == 4
+    assert len([v for v in vr.VOICES if v.backend == "chatterbox"]) == 6
     for voice in vr.VOICES:
         assert isinstance(voice.timing_preset, dict) and voice.timing_preset
 

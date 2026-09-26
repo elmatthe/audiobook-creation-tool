@@ -34,6 +34,17 @@ The audio is never re-encoded: tag edits are mutagen atom rewrites, the cover
 is a ``covr`` rewrite, and the chapter retitle is the shared ``-c copy`` remux.
 The source file is never opened for writing.
 
+Validation reads the chapter *structure* back, not only the titles. ffprobe
+merges a file's Nero ``chpl`` list with its QuickTime chapter text track by
+chapter id, so a text track that lost samples can still read back the planned
+titles: on 2026-09-20 FFmpeg 9's mov muxer dropped every chapter longer than
+~487 s from the track it rebuilt and re-keyed the short survivors onto chapters
+0..k-1, and a Book whose short chapters happened to lead would have passed a
+titles-only check with a one-sample track. :func:`validate_staged` therefore
+requires the staged copy to keep the source's chapter count and boundaries,
+and — when the chapter remux ran — a text track holding one sample per
+chapter (plan section 6.13: a failed Book publishes nothing).
+
 Auto-number is the batch's business (plan section 6.9): with Auto-number on
 the batch proposes a success-driven Series Part, writes it onto the **staged**
 candidate with the same shared writer, re-validates, and commits only after
@@ -68,6 +79,8 @@ __all__ = [
     "discard_staging",
     "publish_book",
     "expected_chapter_titles",
+    "chapter_titles_retitled",
+    "validate_chapter_structure",
     "validate_staged",
     "stage_book",
     "build_book",
@@ -171,6 +184,61 @@ def publish_book(book: BookPlan, *, work_root: Path) -> Path:
 # --------------------------------------------------------------------------- #
 
 
+#: Chapter boundaries are compared in seconds after a ``-c copy`` remux may have
+#: rescaled them (a 1/44100 source lands on the pinned 1/1000 movie timescale,
+#: at most half a millisecond away). Ten milliseconds is far below any chapter
+#: the remux could mislay and far above any honest rescale.
+CHAPTER_BOUNDARY_TOLERANCE = 0.01
+
+
+def chapter_titles_retitled(book: BookPlan) -> bool:
+    """Whether :func:`stage_book` runs the chapter remux for this plan — the
+    same predicate, so validation asks for a rebuilt text track exactly when
+    one was built."""
+    if book.action is EditorAction.REMOVE_SERIES_NUMBERING:
+        return False
+    return any(edit is not None for edit in book.chapter_edits)
+
+
+def _same_instant(a: float, b: float) -> bool:
+    """Equal within the tolerance; two unreadable (NaN) instants count as the same."""
+    if a != a and b != b:
+        return True
+    return abs(a - b) <= CHAPTER_BOUNDARY_TOLERANCE
+
+
+def validate_chapter_structure(book: BookPlan, staged: Path, *,
+                               source: metadata.ChapterStructure,
+                               found: metadata.ChapterStructure) -> None:
+    """Prove the staged copy kept the source's chapter structure, or raise.
+
+    Count and boundaries must match the source (the remux is told the source's
+    own ``[CHAPTER]`` list and changes titles only). When the remux ran, the
+    QuickTime chapter text track it rebuilt must hold one sample per chapter;
+    when it did not, the track is whatever the source had — a ``chpl``-only
+    source stays ``chpl``-only — and must simply be unchanged. Nothing here
+    judges the source: an odd but valid file passes as long as its copy is
+    structurally the same file.
+    """
+    if found.count != source.count:
+        raise ProcessingError(f"{staged.name} chapter count changed", stage="validate",
+                              detail=f"found {found.count}, source {source.count}")
+    for index, (kept, had) in enumerate(zip(found.boundaries, source.boundaries)):
+        if not all(_same_instant(a, b) for a, b in zip(kept, had)):
+            raise ProcessingError(f"{staged.name} chapter {index + 1} boundaries moved",
+                                  stage="validate", detail=f"found {kept!r}, source {had!r}")
+    if chapter_titles_retitled(book):
+        if found.track_samples != found.count:
+            raise ProcessingError(
+                f"{staged.name} chapter track is incomplete", stage="validate",
+                detail=f"text track holds {found.track_samples!r} samples for "
+                       f"{found.count} chapters")
+    elif found.track_samples != source.track_samples:
+        raise ProcessingError(f"{staged.name} chapter track changed", stage="validate",
+                              detail=f"found {found.track_samples!r} samples, "
+                                     f"source {source.track_samples!r}")
+
+
 def expected_chapter_titles(book: BookPlan) -> tuple[str, ...]:
     """The titles the finished copy must carry: the source's, with the plan's
     positional edits applied (an edit past the source's count is ignored)."""
@@ -193,8 +261,10 @@ def validate_staged(book: BookPlan, staged: Path, *, series_part: int | None = N
     for a Clear, every text field that was not written absent; for a Remove,
     no Series Part left and the observed Series Name still there; the cover
     present exactly when the action leaves one; the expected chapter titles in
-    order; and, when the batch numbered the Book, that Series Part. Read
-    through the shared ffprobe and metadata authorities only.
+    order; the source's chapter count and boundaries, with a complete chapter
+    text track whenever the remux rebuilt one; and, when the batch numbered the
+    Book, that Series Part. Read through the shared ffprobe and metadata
+    authorities only.
     """
     if staged.is_symlink() or not staged.is_file() or staged.stat().st_size == 0:
         raise ProcessingError(f"{staged.name} was not produced", stage="validate")
@@ -207,9 +277,15 @@ def validate_staged(book: BookPlan, staged: Path, *, series_part: int | None = N
     try:
         tags = metadata.read_m4b_tags(staged)
         titles = tuple(metadata.read_chapter_titles(staged))
+        structure = metadata.read_chapter_structure(staged)
     except Exception as exc:
         raise ProcessingError(f"{staged.name} could not be read back", stage="validate",
                               detail=repr(exc)) from exc
+    try:
+        source_structure = metadata.read_chapter_structure(book.source)
+    except Exception as exc:
+        raise ProcessingError(f"{book.source.name} could not be read for comparison",
+                              stage="validate", detail=repr(exc)) from exc
 
     observed = book.observation
     action = book.action
@@ -254,6 +330,7 @@ def validate_staged(book: BookPlan, staged: Path, *, series_part: int | None = N
     if titles != expected:
         raise ProcessingError(f"{staged.name} chapter titles do not match the plan",
                               stage="validate", detail=f"found {titles!r}, planned {expected!r}")
+    validate_chapter_structure(book, staged, source=source_structure, found=structure)
 
 
 # --------------------------------------------------------------------------- #
@@ -356,7 +433,7 @@ def stage_book(book: BookPlan, *, work_root: Path, checkpoint: Checkpoint | None
                 _emit(on_event, ProcessingEvent(book.book_id, "cover", "Embedding the cover"))
                 _step("cover", "the cover could not be embedded",
                       m4b_artwork.embed_cover, staged, cover)
-            if any(edit is not None for edit in book.chapter_edits):
+            if chapter_titles_retitled(book):
                 _emit(on_event, ProcessingEvent(book.book_id, "chapters",
                                                 "Applying chapter titles"))
                 _step("chapters", "the chapter titles could not be applied",

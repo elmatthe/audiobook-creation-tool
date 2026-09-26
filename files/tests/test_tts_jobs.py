@@ -460,6 +460,10 @@ def test_pause_is_a_request_until_the_worker_acknowledges_it(
 ):
     """Truthfulness: an indivisible engine call keeps running while pausing."""
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "second.txt")
+    # v0.6.5 Phase 6 (P14): direct items now share the run's pooled file-worker
+    # concurrency too. Pinned to 1 so "second.txt" cannot start concurrently
+    # with "gate.txt" -- this test is about the pause boundary, not worker count.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
@@ -489,6 +493,10 @@ def test_cancel_while_paused_wakes_the_worker_and_outranks_the_pause(
     make_panel, output_base, tmp_path, gated_stubs
 ):
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "second.txt")
+    # v0.6.5 Phase 6 (P14): pinned to 1 so "second.txt" cannot start concurrently
+    # with "gate.txt" -- this test is about the pause/cancel boundary, not
+    # worker count.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
@@ -990,6 +998,10 @@ def test_retrying_one_duplicate_occurrence_leaves_the_other_alone(
     panel.importer.options.set_allow_duplicates(True)
     panel.importer.add_files()
     panel._pump.tick()
+    # v0.6.5 Phase 6 (P14): pinned to 1 so the two duplicate occurrences are
+    # deterministically ordered -- ``flaky`` above relies on being the second
+    # call, not on a race between two concurrent workers.
+    panel.workers_var.set("1")
 
     first = run_attempt(panel)
     result = panel._result
@@ -1223,6 +1235,10 @@ def test_a_cancelled_run_keeps_the_outputs_that_already_finished(
     # the shared contract refuses to call a run cancelled if the work finished.
     panel, _chosen = direct_panel(
         make_panel, tmp_path, "first.txt", "gate.txt", "third.txt")
+    # v0.6.5 Phase 6 (P14): pinned to 1 so "first.txt" deterministically
+    # finishes strictly before "gate.txt" starts, rather than racing it
+    # concurrently -- this test is about cancellation cleanup, not worker count.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
@@ -1274,6 +1290,12 @@ def test_closing_the_panel_during_a_paused_run_is_safe(
     make_panel, output_base, tmp_path, gated_stubs
 ):
     panel, _chosen = direct_panel(make_panel, tmp_path, "gate.txt", "second.txt")
+    # v0.6.5 Phase 6 (P14): pinned to 1 so "second.txt" has not yet run (and
+    # therefore still hits a checkpoint that can acknowledge the pause) by the
+    # time this test asks for one -- otherwise both files start concurrently,
+    # "second.txt" finishes immediately, and no later checkpoint call remains
+    # to ever transition the controller into PAUSED.
+    panel.workers_var.set("1")
     panel.run_job()
     worker = panel._worker
     controller = panel._controller
@@ -1715,3 +1737,111 @@ def test_epub_stays_retired_and_the_archive_stays_inert():
             assert "archived-code" not in node.value, node.value
     assert "epub2tts_gui" in str(PANEL_SOURCE), "the compatibility name is retained"
     assert source.count("SupportedType(") == 2, "PDF and TXT, and nothing else"
+
+
+# --------------------------------------------------------------------------- #
+# P. Summary/Detailed log consolidation (v0.6.5 Phase 7 remediation)
+#
+# The JobAdapter's own internally built Summary/Details view and the separate
+# "Engine output" ScrolledText below it are gone, replaced by one persistent
+# job_ui.SummaryDetailsView this panel owns and hands to every run's adapter
+# via views= -- exactly the MP3 Tool/M4B Maker/M4B Metadata Editor pattern.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_panel_owns_exactly_one_persistent_summary_details_view(make_panel):
+    panel = make_panel()
+    assert isinstance(panel.log, panel_module.job_ui.SummaryDetailsView)
+    assert panel.jobs.views is panel.log
+    before = panel.log
+    panel._install_jobs("tts-idle-2", ())
+    assert panel.log is before, "the log is panel-owned, never rebuilt with the adapter"
+    assert panel.jobs.views is panel.log
+
+
+def test_raw_engine_log_lines_reach_detailed_only(make_panel):
+    """A plain push onto the worker->GUI queue, exactly as ``QueueWriter`` and
+    ``_RunContext.log`` both make -- no adapter or run needed to prove routing."""
+    panel = make_panel()
+    panel._log_q.put(("log", "raw engine stdout line\n"))
+    panel._pump.tick()
+    assert "raw engine stdout line" in panel.log.details
+    assert not any("raw engine stdout line" in line for line in panel.log.summary)
+
+
+def test_a_partial_line_is_flushed_to_detailed_when_the_run_ends(make_panel):
+    """A fragment with no trailing newline is buffered, not lost, and the
+    ``"done"`` message that always ends a run flushes it to Detailed."""
+    panel = make_panel()
+    panel._log_q.put(("log", "no newline yet"))
+    panel._log_q.put(("done", "Finished."))
+    panel._pump.tick()
+    assert "no newline yet" in panel.log.details
+    assert "Finished." in panel.log.details
+    assert not any("no newline yet" in line for line in panel.log.summary)
+
+
+def test_a_real_run_routes_its_transcript_into_detailed_not_summary(
+    make_panel, output_base, tmp_path, stubs
+):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
+    run_attempt(panel)
+    completion_lines = [line for line in panel.log.details if " — completed" in line]
+    assert completion_lines, panel.log.details
+    assert not any(" — completed" in line for line in panel.log.summary)
+    # Summary is the job-state projection (job_control.project_summary), driven
+    # independently of the log_q transcript -- it still reports completion, in
+    # its own words, without any of the raw transcript lines Detailed carries.
+    assert any("Finished" in line for line in panel.log.summary), panel.log.summary
+
+
+def test_history_survives_a_retry_with_a_divider_between_attempts(
+    make_panel, output_base, tmp_path, failing_stubs
+):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "good.txt", "bad.txt")
+    first_log = panel.log
+    run_attempt(panel)
+    assert any("good.txt" in line for line in panel.log.details)
+
+    run_attempt(panel, panel.retry_failed)
+    assert panel.log is first_log, "the same persistent view, not a fresh one"
+    dividers = [line for line in panel.log.summary
+               if line.startswith(panel_module.DIVIDER_MARK)]
+    assert len(dividers) == 2, panel.log.summary
+    assert "Run 1" in dividers[0]
+    assert "Retry Failed" in dividers[1] and "attempt 2" in dividers[1]
+    # The first attempt's transcript is still there, frozen into history.
+    assert any("good.txt" in line for line in panel.log.details)
+
+
+def test_history_survives_a_second_fresh_run(
+    make_panel, output_base, tmp_path, stubs
+):
+    """The imported queue is never auto-cleared after a run, so a second
+    ``run_job()`` on the same queue is a fresh attempt at the same files --
+    exactly the case this asserts against losing the first run's history."""
+    panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt")
+    first_log = panel.log
+    run_attempt(panel)
+    run_attempt(panel)
+    assert panel.log is first_log
+    dividers = [line for line in panel.log.summary
+               if line.startswith(panel_module.DIVIDER_MARK)]
+    assert len(dividers) == 2, dividers
+    assert "Run 1" in dividers[0]
+    assert "Run 2" in dividers[1]
+
+
+def test_clear_log_clears_both_panes_but_not_the_frozen_result(
+    make_panel, output_base, tmp_path, failing_stubs
+):
+    panel, _chosen = direct_panel(make_panel, tmp_path, "good.txt", "bad.txt")
+    run_attempt(panel)
+    result_before = panel._result
+    assert panel.log.summary and panel.log.details
+
+    panel.clear_log()
+    assert panel.log.summary == ()
+    assert panel.log.details == ()
+    assert panel._result is result_before
+    assert panel._result.has_retryable is True, "clearing the log does not clear retry"

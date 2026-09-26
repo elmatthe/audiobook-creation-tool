@@ -15,6 +15,178 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **Kokoro's multi-file worker concurrency was never actually proven safe; capped to 1** (v0.6.5 Phase 9 fresh review, 2026-09-26)
+
+- A fresh independent review of the complete TTS text->synthesis->assembly->final-file flow (the
+  plan's mandatory Phase 9 bug hunt) found that Kokoro's `KOKORO_BACKEND_SAFE_WORKERS = 8` ceiling
+  rested only on device-capacity headroom, never on a proof that concurrent Kokoro synthesis is
+  actually safe. Every production Kokoro voice of one language shares a single cached `KPipeline`
+  instance, whose out-of-vocabulary G2P fallback calls a third-party espeak-ng binding that its own
+  vendored source states is "not designed to be wrapped nor to be used in multithreaded/
+  multiprocess contexts" -- a real hazard reachable by any book text containing a proper noun or
+  unusual word, not a theoretical one. The Phase 6 "overlap proof" this ceiling previously rested on
+  only exercised the executor/dispatch layer with the real engine call stubbed out, never the real
+  pipeline. `epub2tts_gui.KOKORO_BACKEND_SAFE_WORKERS` is lowered from `8` to `1`, matching the exact
+  correctness-constraint precedent already established for Chatterbox; no other worker/concurrency
+  behavior changed. Full details and alternatives considered in `Decisions.md`, 2026-09-26.
+- `files/tests/test_tts_worker_concurrency.py`'s previously-positive Kokoro overlap test is rewritten
+  as a negative (non-overlap) proof, mirroring the pre-existing Chatterbox test; other Kokoro-related
+  assertions in the same file updated to expect an effective worker count of `1` regardless of the
+  requested count or CPU count.
+
+### Fixed -- **`scripts/verify.py` full-suite gate: three shared-test-infrastructure leaks and a release-packaging gap, all root-caused** (v0.6.5 Phase 8, 2026-09-24)
+
+- **The release archive could ship a stray `.DS_Store`/`Thumbs.db`.** `shared/release.py`'s
+  packager never excluded these gitignored-but-real macOS/Windows folder-metadata artifacts --
+  a real Mac checkout that had simply been browsed in Finder shipped `scripts/.DS_Store` in the
+  actual archive. Fixed the exclusion list; `test_release_packaging.py`'s own completeness check
+  had hand-copied the exclusion rules instead of importing them (exactly how it missed this), now
+  imports the real ones; the synthetic fixture now plants both artifacts so the regression is
+  caught even on a clean checkout.
+- **Two `test_tts_compact_ui.py` failures that only reproduced inside the full ~7600-test suite,
+  never standalone.** Root-caused (not skipped) to a leaked `wm minsize`: `test_m4b_layout.py`/
+  `test_mp3_tool_layout.py` set the shared Tk root's minsize to the real aqua floor (1024x800) and
+  nothing ever lowered it back, so a later module's smaller `geometry("920x600")` request was
+  silently clamped up by the real macOS window manager -- confirmed by reading the toplevel's
+  actual post-resize size, not just the request. `files/tests/tk_gate.py`'s shared-root reset now
+  clears the minsize at every module boundary. A second, independent leak found investigating the
+  first -- `ttk.Style`'s active theme, left switched to `clam` by any module that renders the
+  Windows bundle for comparison on this Mac -- is fixed the same way (the interpreter's native
+  starting theme is captured once and restored every boundary), even though it was confirmed not
+  to be the cause of these two specific failures. New regression coverage in `test_tk_gate.py`
+  exposed a fourth leak in its own fixture -- `_no_shared_root_leaks` predated the new theme
+  global and never saved/restored it, so a `FakeTk`-based test in that same file could corrupt it
+  for the rest of the real suite -- fixed the same way.
+- Verification: `test_tk_gate.py` 28 passed, `test_release_packaging.py` 34 passed, the bisected
+  full-suite reproductions that used to fail now pass clean, `scripts/verify.py` **PASS** (7639 passed, 61 skipped, 0 failed, 517.67s).
+
+### Fixed -- **TTS Compact UI: real aqua layout defect fixed, a flaky cancellation test fixed** (v0.6.5 Phase 8 macOS verification blockers, 2026-09-24)
+
+- **"Activity is dominant" was inverted under native aqua metrics.** Wider aqua buttons/
+  checkbuttons/progress bar made the Sources import-action row and the Output & Run status
+  row wide enough that Activity measured narrower than the workflow column on real Mac
+  hardware, at the exact sizes the accepted Windows Phase 7 composition kept it dominant.
+  Fixed with presentation-only changes confined to `epub2tts_gui.py` -- a `Toolbutton` restyle
+  of the shared import list's and job-control bar's buttons, a narrower progress bar, and no
+  aqua breathing-room bonus on the workflow column's width -- so `shared/job_ui.py` and the
+  MP3/M4B tools that also use it are untouched.
+- 13 of the 16 reported Mac-only compact-UI failures were a below-the-real-floor test artifact,
+  not a layout defect: 920x600 is below `ui_theme.AQUA_MIN_SIZE` (1024x800) in both dimensions,
+  so the real macOS launcher never opens that small; those cases are now scoped Windows-only,
+  matching the identical precedent already set for the M4B/MP3 layout suites.
+- **`test_tts_worker_concurrency.py`'s cancellation-completion test was flaky** (~1 in 3 runs),
+  reading the settled run result the instant the controller reached its terminal state, before
+  the main-thread pump had necessarily drained it -- the same ordering `test_tts_jobs.py`'s own
+  cancellation-cleanup test already accounts for with a second wait. Applied the identical fix;
+  no production behaviour changed, and nothing a real user can click was ever exposed to the
+  window (Retry Failed's availability already depends on the settled result directly).
+- Verification: the full focused TTS/Chatterbox/Kokoro/job_ui sweep the two blockers were
+  defined against -- 594 passed, 6 skipped (the skips are exactly the now-Windows-only 920x600
+  cases), 0 failed; the cancellation-race test alone, repeated: 15/15 clean. `scripts/verify.py`'s
+  full ~7600-test run separately surfaced 4 failures, none new logic defects in this fix: two in
+  `test_release_packaging.py` reproduce identically on the unmodified code (unrelated, out of
+  scope); two in `test_tts_compact_ui.py` reproduce only inside the full run, never in the focused
+  sweep above or this file in isolation, and a control run on the unmodified code shows this same
+  file already has a full-suite-context sensitivity independent of this fix -- see `Decisions.md`
+  and `Handoff.md` for the full evidence trail.
+
+### Fixed -- **M4B Maker failed every Book whose source path or title held an apostrophe, and repeated ~264 identical Summary lines for one failure** (v0.6.5 Phase 8 macOS exception, 2026-09-24)
+
+- **The concat-list writer corrupted any path containing a literal `'`.** Both FAST and Safe
+  Build failed a real 264-track audiobook (`...Dark Lord's Dreadful Travelogue...`) and
+  `ffmpeg failed` on every Retry Failed attempt, because the written path was itself corrupted
+  before ffmpeg ever saw it. This is the same defect class fixed in the MP3 Tool's own concat
+  writer on 2026-08-07 (`mp3_tools/mp3_tool.py`, see above) -- the M4B Maker's separate,
+  duplicate writer (carried verbatim from the pre-v0.6.4 `m4b_maker.py`) never received that
+  fix. Corrected in place to ffmpeg's documented close-escape-reopen form (`'` -> `'\''`); the
+  engine is architecturally barred from importing the MP3 Tool's own module, so the escape is
+  fixed locally rather than shared by import.
+- **One failed Book now reports one Summary line**, not one per source track. A retryable Book
+  failure used to call the reporter once per occurrence -- correct for building the
+  per-occurrence records Retry Failed needs, wrong for the user-facing Summary, which showed the
+  same failure ~264 times for one 264-track Book. The per-occurrence retry bookkeeping is
+  unchanged; only the reporting call count was reduced to one per Book.
+- **Proved, not assumed: the M4B chapter format supports well over 255 chapters.** A real
+  264-chapter build was read back through the chapter text track ffprobe actually navigates by
+  (not just the merged/`chpl` view that hid a different truncation bug on 2026-09-20) -- all 264
+  titles, boundaries and text-track samples survived intact.
+- New/updated regression coverage in `files/tests/test_m4b_maker_processing.py` and
+  `files/tests/test_m4b_maker_batch.py`: the corrected escape (unit and real-ffmpeg end-to-end,
+  apostrophe in the track path), one-Summary-line-per-Book with full retry bookkeeping preserved,
+  and 264 real chapters surviving readback in the chapter text track.
+
+### Fixed -- **Chatterbox's rare pathological internal silence now fails the file instead of publishing it** (v0.6.5 Phase 8 macOS validation, 2026-09-24)
+
+- The bounded macOS voice-acceptance run found two Chatterbox voices (of sixteen) with a several-
+  second dead spot inside one raw model draw -- confirmed, using the same technique that
+  root-caused a 2026-08-18 Chatterbox silence defect, to be a stochastic model artifact and not an
+  assembly, chunking or text-quoting bug. A bounded retry (up to three fresh draws) already masked
+  most occurrences; if every attempt is still defective, the conversion now fails that one file
+  explicitly (`ChatterboxPathologicalSilence`) instead of publishing narration with a dead spot in
+  it. No text, reference, voice identity or generation parameter changed.
+- New regression coverage in `files/tests/test_chatterbox_silence_retry.py` (silence detection,
+  bounded retry, and the fail-closed exhaustion path end to end through `chatterbox_file_to_mp3`).
+
+### Approved -- **v0.6.5 Phase 8: all 16 production voices passed the Windows listening gate; Kokoro's native colon pause accepted as-is** (2026-09-23/24)
+
+- The maintainer's 16-voice final listening gate (5 Edge, 5 Kokoro, 6 Chatterbox) **passed on the
+  Windows/primary machine** for every voice. Separately, an isolated Kokoro colon-to-comma text
+  substitution -- tested to see whether it would shorten Kokoro's longer model-native pause after
+  a prose colon -- produced no audible improvement and was **rejected, not integrated**; Kokoro's
+  longer pause after a prose colon stands as accepted, model-native behavior. Full details in
+  `Handoff.md` and `Decisions.md`.
+
+
+### Fixed — **MP3 Tool Time edits on split MP3s with stale duration headers** (2026-09-20)
+
+Write ID3 Tags could falsely reject intact output after a split MP3 retained its original
+whole-track Info/Xing duration. Negative Time could also calculate an endpoint beyond actual
+EOF and remove nothing, including in Combine. Duration calculations and validation now fully
+decode audio through the verified FFmpeg, measure its sample-based timeline, and refuse partial
+or failed decodes. Source cover images slated for removal do not affect the audio measurement.
+Positive, zero and negative Time use the same authority; existing validation tolerances and
+whole-Book publication protection are unchanged. No source file is modified.
+
+Synthetic CBR/Info and VBR/Xing split regressions cover all Time signs, Combine FAST/Safe,
+excessive trimming, and real staged truncation with a misleading header. Headerless audio and
+bad source artwork are covered too. Full decoding adds processing cost but avoids trusting
+metadata for playable length. Focused macOS verification and the maintainer's real 49-track
+GUI rerun passed (acceptance details in `Handoff.md`). Windows smoke remains for later
+cross-platform validation. The active v0.6.5 phase state is unchanged.
+
+### Fixed — **M4B Metadata Editor chapter titles were displaced on real audiobooks** (v0.6.4 defect found and fixed 2026-09-20 on macOS; carried onto the v0.6.5 branch)
+
+Saving or clearing tags on an M4B with an embedded cover and any chapter longer than about
+eight minutes failed every Book with *chapter titles do not match the plan* — the titles of the
+last short chapters had moved onto the first positions (`Intro, Outro, Chapter 2, …, Outro`).
+Nothing wrong was published (the run folders stayed empty and every source was untouched), but
+the edit could not be made at all. Six real audiobooks reproduced it on macOS; the same FFmpeg
+ships on Windows, so it was not platform-specific — only the test media had been too short to
+show it.
+
+- **Cause.** FFmpeg 9 changed the MP4 muxer's default *movie timescale* from 1000 to
+  *automatic*, the least common multiple of the streams' timescales. With 44.1 kHz audio beside
+  the cover-art video stream that is 4,410,000 ticks per second; the chapter text track inherits
+  it, so any chapter longer than ~487 s could not be represented, was dropped from the track with
+  a message on stderr, and ffmpeg still exited 0. The Nero `chpl` list stayed complete, and the
+  read-back merged the two by chapter id, which is what displaced the surviving short titles.
+- **Fix.** The chapter-title remux (`shared.metadata.apply_chapter_titles`) now pins
+  `-movie_timescale 1000` — what every earlier FFmpeg wrote and what the sources carry — and is
+  still a pure `-c copy`: the audio stream is byte-identical before and after (MD5-proved on the
+  real file and in the tests). Both ffmpeg steps of the remux now refuse to count as success when
+  ffmpeg *reported an error* at `-loglevel error`, whatever the exit status; a refused remux
+  leaves the staged copy exactly as it was.
+- **Validation.** The Editor's read-back now compares the staged copy's chapter **count and
+  boundaries** with the source's and, whenever the remux rebuilt the chapter track, requires that
+  track to hold **one sample per chapter** — the merged titles alone could not tell a truncated
+  track from a good one when the short chapters happened to lead. A Book that fails any of these
+  publishes nothing, as before.
+- **Tests.** `test_m4b_chapter_remux_timescale.py` (real FFmpeg, a cover-art video stream and a
+  ten-minute chapter between two short ones; the false-pass shape; the pathological timescale
+  forced as a negative control; the argv contract; the exit-status-zero guard) and end-to-end
+  Editor engine cases through the real chapter writer for Save Tags, Clear All Tags, unchanged
+  lines, and the refused truncated/displaced results.
+
 ### Changed — **The M4B Maker builds several audiobooks in one run** (v0.6.4, accepted on Windows and macOS 2026-09-15)
 
 The M4B Maker no longer works on one flat list of MP3s producing one file. It now holds **several

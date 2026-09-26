@@ -302,3 +302,83 @@ remains `v0.4.0`.
 recheck of `feature/0.6.4-m4b-maker-metadata-editor`, followed by the maintainer's PR/merge decision
 if the recheck returns READY. Nothing here authorizes a merge, release, version bump or the start of
 v0.6.5.
+
+---
+
+## Maintainer supersession — 2026-09-18 (v0.6.4 merged; v0.6.5 identity reassigned; Plan 9 displaced)
+
+**This section supersedes the paragraph immediately above it on exactly two points and leaves
+everything else in this document, including the 2026-07-31 map and the 2026-09-13 supersession above,
+unchanged as history.**
+
+**1. v0.6.4 is now merged.** A fresh `git fetch origin` confirmed `origin/master` at
+`1f9bdcf347edaad36d68e237933d3ac6036d0a42` — the merge commit for **pull request #11**, merging
+`feature/0.6.4-m4b-maker-metadata-editor` (tip `f5f3926`). The independent read-only
+integration-readiness recheck named above therefore ran and returned READY, and the maintainer
+merged. `feature/0.6.5-tts-quality-refactor` was created from that verified `origin/master`.
+
+**2. v0.6.5 has been opened, but not as Plan 9.** The 2026-07-31 map above and the 2026-09-13
+section above it both assign v0.6.5 to **Plan 9 — remaining Windows UI conversion, macOS parity,
+QA, docs, and packaging** (`0.6.5-ui-parity-hardening-release.md`). The maintainer instead opened
+v0.6.5 as a different, unrelated plan: `md-instructions/0.6.5-tts-quality-refactor.md` ("TTS Quality
+Refinement", v4 Final), scoped to `scripts/Universal/tts/` audio-quality/UI work only, on
+`feature/0.6.5-tts-quality-refactor`.
+
+**Plan 9's scope is preserved in full, by explicit maintainer ruling (2026-09-18).** Every item under
+"### v0.6.5 — Full visual conversion and release hardening" / "#### Plan 9" above — remaining
+Windows panel conversion, macOS Finder-appearance parity, the full regression matrix, DPI/scaling and
+accessibility review, long-run Pause/Resume/Cancel/retry drills, large-import/collision edge cases,
+fresh/repaired setup checks, HEIC capability checks, release ZIP contents and launch tests, and the
+final version/release checkpoint documentation — remains real, approved future work. Nothing is
+discarded, merged into another plan, or reassigned to a different owner. **Only its version-number
+binding is removed.**
+
+**Status: DISPLACED — FUTURE ALLOCATION UNASSIGNED.** Plan 9 is no longer "= v0.6.5." No new version,
+branch, or plan number is invented or assigned by this note. The dependency overview's
+`Plans 1–8 ──> Plan 9` edge remains structurally accurate (Plan 9 still depends on Plans 1–8
+finishing first) and is no longer read as also meaning "v0.6.5." A future maintainer decision will
+separately assign Plan 9 its release checkpoint, filename, and branch name when it is ready to be
+opened.
+
+**Current action:** v0.6.5 Phase 0 (TTS Quality Refinement) is in progress on
+`feature/0.6.5-tts-quality-refactor`. Nothing here authorizes starting v0.6.5 Phase 1 or drafting
+Plan 9.
+
+---
+
+## Current-state supersession — 2026-09-26 (v0.6.5 complete; temporary plan retired; integration pending)
+
+**This is the current state and current action for this map.** It supersedes the 2026-09-18
+section's Phase-0-in-progress/current-action statement and any earlier active-plan, merge-state,
+or version-allocation statement that conflicts with the facts below. All earlier sections remain
+unchanged as dated history; their former v0.6.5/Plan-9 binding is not reinstated.
+
+- **v0.6.5 TTS Quality Refinement is COMPLETE and maintainer-approved through Phase 9.** The final
+  real-machine smoke/listening gate passed at `ee6c2b712a845f68e0106d219a803b313805ed88`, and
+  closeout `bffb7dbf557f7a2656247f336666a4458937b1f3` **retired**
+  `md-instructions/0.6.5-tts-quality-refactor.md`. That file is no longer an active instruction drop.
+- **Integration is pending** on `feature/0.6.5-tts-quality-refactor`; the branch is not merged.
+  The independent integration review at the closeout returned **NOT READY** for documentation
+  contradictions and unresolved AI co-author trailer disposition. This documentation remediation
+  neither declares READY nor grants a history-policy exception. **Current action:** independent
+  integration-readiness recheck, separate explicit maintainer disposition of the trailer issue,
+  then the maintainer's merge decision. No further implementation phase is opened.
+- **v0.6.4 is merged** through PR #11 (`1f9bdcf347edaad36d68e237933d3ac6036d0a42`).
+  Application version identity remains **`0.6.2`, unreleased**. The v0.6.5 plan name is not an
+  application version bump or a release.
+- **Plan 9 remains DISPLACED — FUTURE ALLOCATION UNASSIGNED.** Its full approved future scope
+  and dependencies remain as preserved by the 2026-09-18 ruling. No replacement version, branch,
+  or temporary plan is assigned; no authority to draft/start Plan 9, merge, rewrite history,
+  tag, release, or delete branches is granted by this record.
+
+### Trailer-disposition amendment — 2026-09-26, after `1c3844d`
+
+**RESOLVED by explicit maintainer decision:** existing AI `Co-Authored-By` trailers in the
+completed v0.6.5 feature-branch history at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71` are
+**ACCEPTED as historical metadata**. Do not rewrite history to remove them. This bounded
+acceptance covers only the existing commits identified in Handoff's current disposition;
+**no future commit may add an AI `Co-Authored-By` trailer**. This supersedes only the
+open/pending trailer-disposition statements above; the documentation-remediation and older
+historical records remain unchanged. **Current action:** independent integration-readiness
+recheck, then the maintainer's separate merge decision. No READY verdict or merge authorization
+is implied, and the version identity, completed/retired plan state and Plan 9 allocation stand.

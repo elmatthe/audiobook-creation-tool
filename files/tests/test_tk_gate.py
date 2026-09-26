@@ -157,11 +157,22 @@ def _no_shared_root_leaks(request):
         yield
         return
     real = tk_gate._SHARED_ROOT
+    real_theme = tk_gate._NATIVE_THEME
     tk_gate._SHARED_ROOT = None
+    # v0.6.5 Phase 8: nulling _SHARED_ROOT (above) is exactly what makes a
+    # FakeTk-based test's own shared_root() call capture _NATIVE_THEME fresh
+    # -- from the fake, which fails and leaves it None -- so this global needs
+    # the identical save-null-restore treatment or a fake-based test here
+    # corrupts it for the rest of the real suite: _SHARED_ROOT is restored to
+    # the pre-existing real root afterwards, so shared_root()'s "only capture
+    # once, when _SHARED_ROOT is None" guard never gets a chance to recapture
+    # it from a real root again.
+    tk_gate._NATIVE_THEME = None
     try:
         yield
     finally:
         tk_gate._SHARED_ROOT = real
+        tk_gate._NATIVE_THEME = real_theme
 
 
 # --------------------------------------------------------------------------- #
@@ -369,6 +380,53 @@ def test_a_real_root_can_still_be_opened_through_the_gate(real_root):
     tk = pytest.importorskip("tkinter")
     assert real_root.winfo_exists()
     assert tk_gate.shared_root(tk) is real_root
+
+
+def test_the_reset_clears_a_leaked_minsize_floor(real_root):
+    """v0.6.5 Phase 8: a real macOS window manager enforces ``wm minsize`` on
+    every later ``geometry()`` request, so a module that sets one (as
+    ``test_m4b_layout.py``/``test_mp3_tool_layout.py`` do, to exercise the
+    real aqua floor) and never lowers it back leaves every later module's
+    smaller requested geometry silently clamped up -- found because
+    ``test_tts_compact_ui.py``'s own 920x600 case measured the shared root at
+    a real 1024x800 after those modules ran, not the geometry it asked for.
+    """
+    real_root.minsize(1024, 800)
+    assert tuple(real_root.minsize()) == (1024, 800)
+    tk_gate._reset_root(real_root)
+    # Not asserted as exactly (1, 1): the real window manager enforces its own
+    # absolute floor (a title bar needs some width/height) regardless of what
+    # is requested. What matters is that the *leaked* 1024x800 floor is gone,
+    # proven the same way the real defect was: a smaller geometry a later
+    # module legitimately wants must no longer be refused.
+    width, height = real_root.minsize()
+    assert (width, height) != (1024, 800)
+    assert width < 920 and height < 600
+    real_root.geometry("920x600")
+    real_root.update_idletasks()
+    assert real_root.winfo_width() == 920
+    assert real_root.winfo_height() == 600
+
+
+def test_the_reset_restores_the_native_ttk_theme(real_root):
+    """v0.6.5 Phase 8: ``ttk.Style.theme_use`` is interpreter-wide, not
+    per-widget, so a module that calls ``shared.ui_theme.apply_theme(root,
+    style, platform="win32")`` to render the Windows bundle for comparison on
+    this Mac -- an established convention across the M4B/MP3/launcher UI
+    suites -- leaves the *real* theme switched to ``clam`` (there is no
+    ``vista`` here) for every module that runs afterward, silently changing
+    every unconverted panel's measured widget geometry.
+    """
+    from tkinter import ttk
+
+    style = ttk.Style(real_root)
+    native = tk_gate._NATIVE_THEME
+    assert native is not None
+    other = next(name for name in style.theme_names() if name != native)
+    style.theme_use(other)
+    assert style.theme_use() == other
+    tk_gate._reset_root(real_root)
+    assert style.theme_use() == native
 
 
 @pytest.mark.parametrize("module_name, scope", [

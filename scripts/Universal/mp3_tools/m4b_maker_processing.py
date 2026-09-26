@@ -217,10 +217,33 @@ def build_ffmetadata_from_starts(titles, starts_ms, meta, total_ms):
 
 
 def write_concat_list(paths, dest: Path):
-    with open(dest, "w", encoding="utf-8") as f:
+    """Write the concat list, one ``file '...'`` directive per line.
+
+    **Not shell rules.** Per ffmpeg's documented concat-demuxer "Quoting and
+    escaping": everything between single quotes is literal, so a backslash
+    inside them escapes nothing. A literal ``'`` cannot be written ``\\'`` —
+    ffmpeg reads that as the closing quote and truncates the path there. The
+    documented form closes the quote, emits one escaped quote outside it, and
+    reopens: ``'\\''``.
+
+    Carried a broken escape (``'\\'\\''`` — a stray extra escaped quote, one
+    ``\\'`` pair too many) verbatim from the pre-refactor ``m4b_maker.py``
+    until the v0.6.5 Phase 8 macOS investigation (2026-09-24): any source path
+    with a literal ``'`` (an apostrophe in a book/track title, e.g. "Dark
+    Lord's Dreadful Travelogue") corrupted the written path — ffmpeg's own
+    error message re-quoted it back as "Lord''s" — and ffmpeg failed to open
+    it. ``mp3_tools.mp3_processing`` carries the same, already-correct escape,
+    but this engine is deliberately barred from importing that module (see
+    ``test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_once``),
+    so the fix is corrected in place rather than shared by import.
+    """
+    with open(dest, "w", encoding="utf-8", newline="\n") as f:
         for p in paths:
-            pp = str(p).replace("'", r"'\'\'")
-            f.write(f"file '{pp}'\n")
+            text = str(p)
+            if "\n" in text or "\r" in text:
+                raise ValueError(
+                    f"a line break cannot appear in a concat list entry: {text!r}")
+            f.write("file '" + text.replace("'", "'\\''") + "'\n")
 
 
 def normalize_to_wav(inputs, tmp_dir: Path, cancel_check=None):

@@ -28,6 +28,7 @@ these surfaces again for a deterministic re-tag.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -645,6 +646,124 @@ def read_chapter_titles(path) -> list[str]:
     return [str(ch.get("tags", {}).get("title", "")) for ch in data.get("chapters", [])]
 
 
+@dataclass(frozen=True)
+class ChapterStructure:
+    """What an M4B's chapters *are*, beyond their titles — the read-back that
+    proves a chapter rewrite kept the structure it was told to keep.
+
+    ``boundaries`` is one ``(start, end)`` pair per chapter in seconds, in the
+    file's own order; ``titles`` is what :func:`read_chapter_titles` returns;
+    ``track_samples`` is the sample count of the QuickTime chapter text track
+    (the ``chap``-referenced track that Apple players navigate by), or ``None``
+    when the file carries no such track (a Nero ``chpl``-only file, or no
+    chapters at all).
+
+    Why the sample count matters: ffprobe *merges* the ``chpl`` list and the
+    text track by chapter id, so a text track that lost samples can still read
+    back the right titles. On 2026-09-20 FFmpeg 9's mov muxer dropped every
+    chapter sample longer than ~487 s from the text track it wrote (see
+    :func:`apply_chapter_titles`), and the merged titles hid all but the
+    displaced ones. Only the track's own sample count exposes that truncation.
+    """
+
+    boundaries: tuple[tuple[float, float], ...]
+    titles: tuple[str, ...]
+    track_samples: int | None
+
+    @property
+    def count(self) -> int:
+        return len(self.boundaries)
+
+
+def _chapter_track_samples(streams) -> int | None:
+    """The sample count of the chapter text track among ffprobe's streams.
+
+    The mov demuxer presents the ``chap``-referenced track as a ``data`` stream
+    tagged ``text`` (older builds: a ``subtitle`` stream). Audio and video are
+    never it. ``None`` when there is no such stream or ffprobe gave no count.
+    """
+    candidates = [s for s in streams if s.get("codec_type") in ("data", "subtitle")]
+    candidates.sort(key=lambda s: 0 if str(s.get("codec_tag_string", "")).strip() == "text" else 1)
+    for stream in candidates:
+        raw = stream.get("nb_frames")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def read_chapter_structure(path) -> ChapterStructure:
+    """Read the chapter boundaries, titles and text-track sample count of an M4B
+    in one ffprobe call. Read-only; raises when the file cannot be probed."""
+    import json
+
+    from . import ffmpeg_utils
+    from . import subprocess_utils as sp
+
+    out = sp.check_output(
+        [
+            ffmpeg_utils.ffprobe_cmd(),
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_chapters",
+            "-show_streams",
+            str(Path(path)),
+        ]
+    )
+    data = json.loads(out)
+    chapters = data.get("chapters", [])
+    boundaries = [(float(ch.get("start_time", "nan")), float(ch.get("end_time", "nan")))
+                  for ch in chapters]
+    titles = [str(ch.get("tags", {}).get("title", "")) for ch in chapters]
+    return ChapterStructure(boundaries=tuple(boundaries), titles=tuple(titles),
+                            track_samples=_chapter_track_samples(data.get("streams", [])))
+
+
+class ChapterRemuxError(RuntimeError):
+    """The chapter-title remux reported an FFmpeg error while still exiting 0."""
+
+
+#: The MOV/MP4 movie timescale the chapter-title remux pins. FFmpeg 9 changed the
+#: mov muxer's ``-movie_timescale`` default from 1000 to 0 = *auto*: the least
+#: common multiple of every mapped stream's timescale. With 44.1 kHz AAC beside
+#: the cover-art video stream (1/90000) that is 4,410,000 ticks per second — and
+#: the chapter text track inherits it, so any chapter longer than
+#: INT_MAX / 4,410,000 ≈ 487 s becomes an "Application provided duration … is
+#: invalid" sample the muxer drops while still exiting 0 (2026-09-20, six real
+#: audiobooks: every hour-long chapter vanished from the text track and the
+#: short survivors were re-keyed onto chapters 0..k-1). 1000 is what every
+#: earlier FFmpeg wrote and what the sources themselves carry; at 1000 a single
+#: chapter may be ~24 days long before the same limit applies.
+CHAPTER_REMUX_MOVIE_TIMESCALE = "1000"
+
+
+def _run_chapter_remux_step(argv, *, what: str) -> None:
+    """Run one ``-loglevel error`` ffmpeg step of the chapter-title remux and
+    refuse it when ffmpeg *reported* an error, whatever its exit status.
+
+    ffmpeg exits 0 after the mov muxer drops a chapter sample it could not
+    represent — it only *logs* the refusal. At ``-loglevel error`` the only
+    thing ffmpeg can print is an error, so any stderr at all means the step did
+    not do what it was told; treating it as success was how a truncated chapter
+    track reached validation (2026-09-20). A non-zero exit still raises
+    ``CalledProcessError`` exactly as before.
+    """
+    from subprocess import PIPE
+
+    from . import subprocess_utils as sp
+
+    result = sp.run(list(argv), check=True, stdout=PIPE, stderr=PIPE)
+    reported = (result.stderr or b"")
+    if isinstance(reported, bytes):
+        reported = reported.decode("utf-8", "replace")
+    reported = reported.strip()
+    if reported:
+        raise ChapterRemuxError(f"ffmpeg reported an error while {what}: {reported}")
+
+
 def apply_chapter_titles(path, new_titles) -> None:
     """Positionally overwrite chapter titles on the M4B at ``path`` (a COPY).
 
@@ -665,7 +784,6 @@ def apply_chapter_titles(path, new_titles) -> None:
     from mutagen.mp4 import MP4
 
     from . import ffmpeg_utils
-    from . import subprocess_utils as sp
 
     path = Path(path)
     if not any((t or "").strip() for t in new_titles):
@@ -683,11 +801,10 @@ def apply_chapter_titles(path, new_titles) -> None:
     try:
         # 1) Dump the file's ffmetadata (global tags + [CHAPTER] blocks).
         meta_in = work / "in.ffmeta"
-        sp.run(
+        _run_chapter_remux_step(
             [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-loglevel", "error",
              "-y", "-i", str(path), "-f", "ffmetadata", str(meta_in)],
-            check=True,
-        )
+            what="reading the chapter list")
         lines = meta_in.read_text(encoding="utf-8").splitlines()
 
         # 2) Split into the global preamble + one list of lines per [CHAPTER].
@@ -737,14 +854,27 @@ def apply_chapter_titles(path, new_titles) -> None:
         #    rebuilds the chapter track instead. ``-c copy`` keeps audio + chapter
         #    timestamps byte-stable. A temp output beside the file keeps os.replace
         #    on the same filesystem (avoids cross-drive errors).
+        #    ``-movie_timescale`` is pinned (see CHAPTER_REMUX_MOVIE_TIMESCALE):
+        #    left to FFmpeg 9's *auto* default the chapter track inherits the lcm
+        #    of the audio and cover-video timescales and every long chapter is
+        #    dropped from it with exit status 0.
         tmp_out = path.with_name(path.stem + ".retitle.tmp" + path.suffix)
-        sp.run(
-            [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-loglevel", "error", "-y",
-             "-i", str(path), "-i", str(meta_out),
-             "-map", "0:a", "-map", "0:v?", "-map_metadata", "0", "-map_chapters", "1",
-             "-c", "copy", str(tmp_out)],
-            check=True,
-        )
+        try:
+            _run_chapter_remux_step(
+                [ffmpeg_utils.ffmpeg_cmd(), "-hide_banner", "-loglevel", "error", "-y",
+                 "-i", str(path), "-i", str(meta_out),
+                 "-map", "0:a", "-map", "0:v?", "-map_metadata", "0", "-map_chapters", "1",
+                 "-c", "copy", "-movie_timescale", CHAPTER_REMUX_MOVIE_TIMESCALE,
+                 str(tmp_out)],
+                what="rebuilding the chapter track")
+        except Exception:
+            # The copy under ``path`` is untouched until os.replace below; a
+            # refused remux leaves no half-written sibling behind either.
+            try:
+                tmp_out.unlink()
+            except OSError:
+                pass
+            raise
         os.replace(tmp_out, path)
 
         # Restore the freeform atoms the re-mux dropped.

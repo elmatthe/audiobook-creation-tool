@@ -80,17 +80,16 @@ def test_the_chatterbox_preset_disables_edge_chunk_trimming():
 
 
 # --------------------------------------------------------------------------- #
-# The twelve existing rows, asserted by value
+# The ten existing rows, asserted by value
+#
+# v0.6.5 Phase 2 removed the two multilingual Edge rows (Andrew/Ava
+# Multilingual) from the registry per the plan's final voice inventory
+# (Section 3); this table follows. Ordinary Andrew and Ava are unaffected.
 # --------------------------------------------------------------------------- #
 EXPECTED_VOICES = [
     ("edge", "en-US-SteffanNeural", "Edge Male - Steffan (en-US)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "800", "paragraphpause": "850", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
-      "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AndrewMultilingualNeural", "Edge Male - Andrew (en-Multilingual)",
-     "Microsoft Edge TTS — English (US)",
-     {"sentencepause": "820", "paragraphpause": "870", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-AndrewNeural", "Edge Male - Andrew (en-US)",
@@ -99,11 +98,6 @@ EXPECTED_VOICES = [
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
       "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
     ("edge", "en-US-AriaNeural", "Edge Female - Aria (en-US)",
-     "Microsoft Edge TTS — English (US)",
-     {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
-      "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
-      "trim_edge_chunks": True, "rate": "+0%", "kokoro_speed": "1.0"}),
-    ("edge", "en-US-AvaMultilingualNeural", "Edge Female - Ava (en-Multilingual)",
      "Microsoft Edge TTS — English (US)",
      {"sentencepause": "780", "paragraphpause": "830", "title_ms": "1200",
       "chapter_ms": "2000", "end_pause": "3000", "trim_dbfs": "-58",
@@ -146,11 +140,14 @@ EXPECTED_VOICES = [
 ]
 
 
-def test_the_twelve_pre_existing_rows_are_still_the_first_twelve():
-    """Phase 10 appended; it did not insert, re-order or replace."""
+def test_the_ten_pre_existing_rows_are_still_the_first_ten():
+    """Phase 10 appended; it did not insert, re-order or replace. Phase 2 of
+    v0.6.5 removed two multilingual Edge rows (twelve became ten) and later
+    appended two more Chatterbox rows (Male 3 and Male 4, both approved), so
+    the registry total is sixteen even though these first ten are unaffected."""
     assert len(voice_registry.VOICES) == 16
-    assert len([v for v in voice_registry.VOICES[:12]
-                if v.backend in ("edge", "kokoro")]) == 12
+    assert len([v for v in voice_registry.VOICES[:10]
+                if v.backend in ("edge", "kokoro")]) == 10
 
 
 @pytest.mark.parametrize("index,expected", list(enumerate(EXPECTED_VOICES)))
@@ -177,15 +174,16 @@ def test_the_default_voice_is_still_steffan():
     assert voice_registry.DEFAULT_VOICE_LABEL == voice_registry.VOICES[0].display_label
 
 
-def test_the_dropdown_still_opens_with_the_same_twelve_labels_in_order():
-    assert voice_registry.display_labels()[:12] == [v[2] for v in EXPECTED_VOICES]
+def test_the_dropdown_still_opens_with_the_same_ten_labels_in_order():
+    assert voice_registry.display_labels()[:10] == [v[2] for v in EXPECTED_VOICES]
 
 
-def test_exactly_four_chatterbox_rows_exist_and_all_sit_after_the_twelve():
-    """The set is closed at four (drop §5.7) and none of them displaced a row."""
+def test_exactly_six_chatterbox_rows_exist_and_all_sit_after_the_ten():
+    """Closed at four by drop §5.7, then six after Male 3 and Male 4's final
+    Phase 2 approval; none of them displaced a row."""
     chatterbox = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
-    assert len(chatterbox) == 4
-    assert voice_registry.VOICES[12:] == chatterbox
+    assert len(chatterbox) == 6
+    assert voice_registry.VOICES[10:] == chatterbox
 
 
 def test_the_em_dash_labels_this_drop_proposed_are_not_what_was_registered():
@@ -203,8 +201,8 @@ def test_the_registry_source_declares_exactly_the_rows_it_should():
     assert len(rows) == 16
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
-    assert backends[:12] == ["edge"] * 7 + ["kokoro"] * 5
-    assert backends[12:] == ["chatterbox"] * 4
+    assert backends[:10] == ["edge"] * 5 + ["kokoro"] * 5
+    assert backends[10:] == ["chatterbox"] * 6
 
 
 # --------------------------------------------------------------------------- #
@@ -268,6 +266,17 @@ def _sample_generator_main() -> tuple[str, ast.FunctionDef]:
     return src, main
 
 
+def _sample_generator_synthesize_for_voice() -> tuple[str, ast.FunctionDef]:
+    """The one place ordinary per-voice backend dispatch lives (v0.6.5 Phase 1
+    remediation): both ``main()``'s ordinary loop and ``--quality-suite``
+    call this shared function, so there is exactly one seam to guard."""
+    src = (TTS_DIR / "generate_voice_samples.py").read_text(encoding="utf-8")
+    tree = _tree(TTS_DIR / "generate_voice_samples.py")
+    fn = next(n for n in tree.body
+              if isinstance(n, ast.FunctionDef) and n.name == "_synthesize_for_voice")
+    return src, fn
+
+
 def _sample_generator_main_split() -> tuple[str, str]:
     """``main()`` cut in two: the ``--chatterbox-eval`` branch, and everything else."""
     src, main = _sample_generator_main()
@@ -316,11 +325,15 @@ def test_ordinary_sample_generation_dispatches_on_the_voice_row_backend():
     everything else -> Edge" silently reclassified the four newly registered
     Chatterbox rows as Edge. Every branch must compare ``VoiceEntry.backend``
     against a named backend, so there is no "everything else" to fall into.
+
+    v0.6.5 Phase 1 moved this dispatch out of ``main()`` into the shared
+    ``_synthesize_for_voice`` (both ``main()`` and ``--quality-suite`` call
+    it), so the guard now targets that function directly.
     """
-    _src, main = _sample_generator_main()
+    src, fn = _sample_generator_synthesize_for_voice()
 
     compared: list[str] = []
-    for node in ast.walk(main):
+    for node in ast.walk(fn):
         if not isinstance(node, ast.Compare):
             continue
         left = node.left
@@ -332,24 +345,24 @@ def test_ordinary_sample_generation_dispatches_on_the_voice_row_backend():
     assert set(compared) == {"edge", "kokoro", "chatterbox"}, (
         "ordinary sample dispatch does not test all three backends by name")
 
-    _inside, outside = _sample_generator_main_split()
-    assert "chatterbox_synth" in outside, (
+    body = ast.get_source_segment(src, fn)
+    assert "chatterbox_synth" in body, (
         "the ordinary Chatterbox branch does not reach the engine module")
-    assert "edge_tts" in outside and "kokoro_synth" in outside
+    assert "edge_tts" in body and "kokoro_synth" in body
 
 
 def test_the_ordinary_chatterbox_branch_is_not_the_edge_branch():
     """A Chatterbox voice_id posted to the Edge service is exactly the old bug."""
-    src, main = _sample_generator_main()
+    src, fn = _sample_generator_synthesize_for_voice()
 
-    edge_calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
+    edge_calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
                   and isinstance(n.func, ast.Attribute)
                   and n.func.attr == "Communicate"]
     assert len(edge_calls) == 1, "the Edge sample call is no longer a single seam"
 
     # An if/elif chain nests, so several ``If`` nodes contain the call; the one
     # that actually guards it is the innermost, i.e. the smallest subtree.
-    enclosing = [n for n in ast.walk(main) if isinstance(n, ast.If)
+    enclosing = [n for n in ast.walk(fn) if isinstance(n, ast.If)
                  and edge_calls[0] in list(ast.walk(n))]
     branch = min(enclosing, key=lambda n: len(list(ast.walk(n))))
     assert isinstance(branch.test, ast.Compare)
