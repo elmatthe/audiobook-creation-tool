@@ -67,6 +67,30 @@ fresh-review charter, 2026-09-26
 
 ---
 
+## 2026-09-26 -- Ratification: the Kokoro worker-cap fix above is confirmed by the maintainer's live Phase 9 closeout smoke/listening gate
+
+**Decision:** No new decision -- this entry ratifies the entry immediately
+above with live evidence, per P6/P7's requirement that a human listening/
+manual gate closes a fix before it is treated as final, not merely an
+automated-gate pass. The maintainer ran the Phase 9 closeout manual gate on
+real hardware and reported PASS at
+`ee6c2b712a845f68e0106d219a803b313805ed88`: Kokoro, two files sharing a
+language queued at Workers=4, logged `Requested workers: 4 | Effective
+workers: 1` (the new cap took effect as intended) and both files completed
+and passed listening; Edge, two files queued at Workers=4, logged
+`Effective workers: 2` and both passed listening; Chatterbox, two files
+queued at Workers=4, logged `Effective workers: 1` (its pre-existing cap)
+and both passed listening. Edge and Chatterbox were untouched this phase --
+their results confirm no regression, not new evidence of a fix.
+
+**Why:** closes the one confirmed release blocker found by the Phase 9
+fresh review with the mandatory human gate, satisfying the plan's
+Definition of Done (§18).
+
+— Ratified by the maintainer; recorded by Claude Code, 2026-09-26
+
+---
+
 ## 2026-09-24 -- The shared Tk test root's reset must undo process-wide state, not just widget state; a full-suite-only test failure is investigated to its real cause before it is accepted as environmental
 
 **Decision:** `files/tests/tk_gate.py`'s `_reset_root` -- the boundary that is

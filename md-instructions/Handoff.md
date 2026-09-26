@@ -2,6 +2,64 @@
 
 ## Current Focus
 
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 9 CLOSEOUT: MAINTAINER'S FINAL MANUAL GATE IS PASS -- PLAN RETIRED, v0.6.5 TTS QUALITY REFINEMENT COMPLETE (2026-09-26)
+>
+> **This block closes the Phase 9 review block immediately below it.** That
+> block's five independent findings, the one confirmed release blocker
+> (Kokoro's multi-file concurrency cap lowered from 8 to 1), and the
+> verification results stand exactly as written and were not reopened.
+>
+> **The maintainer ran the exact five-item final manual smoke/listening
+> checklist that block recorded, on real hardware, and reported PASS at
+> `ee6c2b712a845f68e0106d219a803b313805ed88`.** Reported results:
+> - **Kokoro** -- two files queued sharing a language, Workers set to 4: log
+>   read `Requested workers: 4 | Effective workers: 1` (the new cap took
+>   effect exactly as the fix intended); both files completed and passed
+>   listening.
+> - **Edge** -- two files queued, Workers set to 4: log read
+>   `Requested workers: 4 | Effective workers: 2`; both files completed and
+>   passed listening. Edge's own concurrency was untouched this phase --
+>   this confirms it is still correct, not new evidence of a fix.
+> - **Chatterbox** -- two files queued, Workers set to 4: log read
+>   `Requested workers: 4 | Effective workers: 1`, its pre-existing hard cap;
+>   both files completed and passed listening. Also untouched this phase --
+>   same confirmation-only purpose.
+> - App launch/Compact UI sanity and the git-state check (items 1 and 4 of
+>   the checklist) were satisfied without separate comment.
+>
+> **Definition of Done (plan §18) is satisfied.** In particular: "Fresh
+> independent review (Phase 9) found no unresolved release blocker" (the one
+> blocker found was fixed and is now maintainer-confirmed by live listening,
+> not merely by automated gates) and "Permanent documentation reconciled;
+> temporary plan retired only after approval" (this closeout).
+>
+> **Two non-blocking, low-severity items from the Phase 9 review are
+> preserved, not fixed and not lost, for a future maintainer decision:**
+> 1. `epub2tts_edge.epub2tts_edge.make_m4b` (CLI-only, unreachable from the
+>    shipped GUI) shares an unfixed chapter-muxer-truncation hazard family
+>    with the already-fixed M4B Maker/Metadata Editor bug (Changelog,
+>    2026-09-20) -- retire-vs-fix is deferred to a future phase.
+> 2. Kokoro's `split_into_chunks` break-point selection can pick an earlier
+>    valid punctuation break than the rightmost one when several qualify --
+>    no text lost or duplicated, a placement nit only, deferred pending
+>    listening evidence that it is actually worth retuning (P1/P11).
+>
+> **Plan retirement.** `md-instructions/0.6.5-tts-quality-refactor.md` is
+> deleted in this closeout commit, per the plan's own §15/§18 requirement
+> that retirement happens only after this exact approval. `Briefing.md`,
+> `Decisions.md` and `Changelog.md` already carry the permanent record of
+> the Phase 9 fix (recorded in the prior commit); this commit adds one
+> ratification entry to `Decisions.md` for the live-evidence confirmation
+> above, closes out this file, and removes the temporary plan. No historical
+> entry in this file was deleted or rewritten.
+>
+> **Nothing else is authorized by this closeout.** No merge to `master`, tag,
+> release, branch deletion, or history rewrite was performed or requested --
+> those remain separate, explicitly maintainer-authorized future steps (P7).
+> v0.6.5 TTS Quality Refinement is **complete** on
+> `feature/0.6.5-tts-quality-refactor`; the next action on this work is a
+> separate integration-review/merge decision, outside this plan's scope.
+
 > ## ⧢ CURRENT STATE -- v0.6.5 PHASE 9: FRESH INDEPENDENT BUG HUNT COMPLETE -- ONE CONFIRMED RELEASE BLOCKER FOUND AND FIXED (KOKORO MULTI-FILE CONCURRENCY WAS NEVER PROVEN SAFE); EVERY OTHER REVIEWED SURFACE CLEAN; scripts/verify.py GREEN -- STOPPED FOR THE MAINTAINER'S FINAL MANUAL GATE (2026-09-26)
 >
 > **Five independent review passes, one per area named in the plan's Phase 9
