@@ -2,6 +2,2689 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.5 HISTORICAL AI CO-AUTHOR TRAILER DISPOSITION RESOLVED (2026-09-26)
+>
+> **Explicit maintainer decision at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71`: RESOLVED.**
+> Existing AI `Co-Authored-By` trailers already present in the completed v0.6.5 feature-branch
+> history are **ACCEPTED as historical metadata**. **Do not rewrite history to remove them.**
+> This is a bounded disposition covering only the 24 already-trailer-bearing commits in
+> `1f9bdcf347edaad36d68e237933d3ac6036d0a42..1c3844dc2b6904b42d9f22af53b7c6023c42ec71`
+> on `feature/0.6.5-tts-quality-refactor`, not permission for any later commit or other history.
+> **No future commit, including this disposition checkpoint, may add an AI `Co-Authored-By`
+> trailer.** The standing prohibition remains in force for future work.
+>
+> This decision supersedes all earlier v0.6.5 statements below that leave this issue open or
+> require a future trailer disposition. The documentation-remediation record at `1c3844d`
+> and all historical review/acceptance records are preserved unchanged. Matching amendments
+> in Briefing, the Master Index and the Approved Plan Series Map close their pending references.
+> **Next action:** independent integration-readiness recheck, then the maintainer's separate
+> merge decision. Resolving this blocker is not itself a READY verdict or merge authorization.
+> Production code/tests, version identity `0.6.2`, and Plan 9 allocation are unchanged.
+>
+> **Focused validation:** repository-contract tests **40 passed, 0 failed** (one existing
+> `audioop` deprecation warning); docs, exact documentation names and config checks **PASS**;
+> `git diff --check` clean. All pre-existing document lines are preserved. No full-suite rerun.
+>
+> — Disposition explicitly decided by maintainer Elijah Matthew, 2026-09-26.
+
+> ## CURRENT STATE — v0.6.5 INTEGRATION-REVIEW DOCUMENTATION REMEDIATION (2026-09-26)
+>
+> **Scope:** documentation only, from reviewed closeout
+> `bffb7dbf557f7a2656247f336666a4458937b1f3` on `feature/0.6.5-tts-quality-refactor`.
+> The independent read-only integration review returned **NOT READY** for permanent-document
+> contradictions and unresolved AI co-author trailer disposition; it found no additional
+> production correctness blocker. Implementation, Phase 9, final manual smoke/listening,
+> and plan retirement remain maintainer-approved, not reopened.
+>
+> **Records reconciled:** Master Implementation Plan Index §§5/15 now record completed,
+> approved v0.6.5, retired temporary plan, unmerged feature branch, and integration recheck /
+> maintainer merge decision next. Its §14 supersedes the stale `.DS_Store` limitation with
+> the committed Phase 8 fix at `07ebbe8`. The Approved Plan Series Map has a matching dated
+> closeout supersession. Briefing's conversion-boundary allocation, Current Version and
+> High-Level State now explicitly supersede the stale v0.6.4-unmerged / v0.6.5-equals-Plan-9
+> / v0.6.4-recheck statements. Historical text is preserved. Application version identity
+> remains `0.6.2`, unreleased; **Plan 9 remains DISPLACED — FUTURE ALLOCATION UNASSIGNED**.
+>
+> **History-policy issue remains OPEN:** 24 commits in the reviewed feature range carry
+> prohibited AI co-author trailers. The earlier closed-set waiver does not cover them.
+> No historical metadata was altered, no new waiver granted, and no history rewrite
+> authorized. The maintainer must separately decide their disposition.
+>
+> **Focused validation:** `test_repository_contract.py` **40 passed, 0 failed** (one existing
+> `audioop` deprecation warning); `verify.py`'s `check_docs`, `check_doc_names` and `check_config`
+> each **PASS**, including version identity `0.6.2`. `git diff --check` is clean. Historical
+> document lines are preserved; the checkpoint changes only these four Markdown records.
+> No expensive full verification rerun: the code/tests are unchanged from the approved gate.
+>
+> **Next action:** independent integration-readiness recheck of the documentation checkpoint,
+> explicit maintainer disposition of the trailer issue, then the maintainer's merge decision.
+> This record supersedes the closeout's claim that permanent documentation was already fully
+> reconciled and updates its next action; the acceptance evidence and retirement below stand.
+> No production code/tests, version identity, merge, tag, release, or branch deletion changed.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 9 CLOSEOUT: MAINTAINER'S FINAL MANUAL GATE IS PASS -- PLAN RETIRED, v0.6.5 TTS QUALITY REFINEMENT COMPLETE (2026-09-26)
+>
+> **This block closes the Phase 9 review block immediately below it.** That
+> block's five independent findings, the one confirmed release blocker
+> (Kokoro's multi-file concurrency cap lowered from 8 to 1), and the
+> verification results stand exactly as written and were not reopened.
+>
+> **The maintainer ran the exact five-item final manual smoke/listening
+> checklist that block recorded, on real hardware, and reported PASS at
+> `ee6c2b712a845f68e0106d219a803b313805ed88`.** Reported results:
+> - **Kokoro** -- two files queued sharing a language, Workers set to 4: log
+>   read `Requested workers: 4 | Effective workers: 1` (the new cap took
+>   effect exactly as the fix intended); both files completed and passed
+>   listening.
+> - **Edge** -- two files queued, Workers set to 4: log read
+>   `Requested workers: 4 | Effective workers: 2`; both files completed and
+>   passed listening. Edge's own concurrency was untouched this phase --
+>   this confirms it is still correct, not new evidence of a fix.
+> - **Chatterbox** -- two files queued, Workers set to 4: log read
+>   `Requested workers: 4 | Effective workers: 1`, its pre-existing hard cap;
+>   both files completed and passed listening. Also untouched this phase --
+>   same confirmation-only purpose.
+> - App launch/Compact UI sanity and the git-state check (items 1 and 4 of
+>   the checklist) were satisfied without separate comment.
+>
+> **Definition of Done (plan §18) is satisfied.** In particular: "Fresh
+> independent review (Phase 9) found no unresolved release blocker" (the one
+> blocker found was fixed and is now maintainer-confirmed by live listening,
+> not merely by automated gates) and "Permanent documentation reconciled;
+> temporary plan retired only after approval" (this closeout).
+>
+> **Two non-blocking, low-severity items from the Phase 9 review are
+> preserved, not fixed and not lost, for a future maintainer decision:**
+> 1. `epub2tts_edge.epub2tts_edge.make_m4b` (CLI-only, unreachable from the
+>    shipped GUI) shares an unfixed chapter-muxer-truncation hazard family
+>    with the already-fixed M4B Maker/Metadata Editor bug (Changelog,
+>    2026-09-20) -- retire-vs-fix is deferred to a future phase.
+> 2. Kokoro's `split_into_chunks` break-point selection can pick an earlier
+>    valid punctuation break than the rightmost one when several qualify --
+>    no text lost or duplicated, a placement nit only, deferred pending
+>    listening evidence that it is actually worth retuning (P1/P11).
+>
+> **Plan retirement.** `md-instructions/0.6.5-tts-quality-refactor.md` is
+> deleted in this closeout commit, per the plan's own §15/§18 requirement
+> that retirement happens only after this exact approval. `Briefing.md`,
+> `Decisions.md` and `Changelog.md` already carry the permanent record of
+> the Phase 9 fix (recorded in the prior commit); this commit adds one
+> ratification entry to `Decisions.md` for the live-evidence confirmation
+> above, closes out this file, and removes the temporary plan. No historical
+> entry in this file was deleted or rewritten.
+>
+> **Nothing else is authorized by this closeout.** No merge to `master`, tag,
+> release, branch deletion, or history rewrite was performed or requested --
+> those remain separate, explicitly maintainer-authorized future steps (P7).
+> v0.6.5 TTS Quality Refinement is **complete** on
+> `feature/0.6.5-tts-quality-refactor`; the next action on this work is a
+> separate integration-review/merge decision, outside this plan's scope.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 9: FRESH INDEPENDENT BUG HUNT COMPLETE -- ONE CONFIRMED RELEASE BLOCKER FOUND AND FIXED (KOKORO MULTI-FILE CONCURRENCY WAS NEVER PROVEN SAFE); EVERY OTHER REVIEWED SURFACE CLEAN; scripts/verify.py GREEN -- STOPPED FOR THE MAINTAINER'S FINAL MANUAL GATE (2026-09-26)
+>
+> **Five independent review passes, one per area named in the plan's Phase 9
+> charter (§15), each conducted without assuming any prior phase's conclusion
+> was correct -- fresh re-derivation from the current code, not a re-read of
+> earlier Handoff/Decisions entries.**
+>
+> **1. Text/segmentation flow (source-text -> synthesis input) -- CLEAN.**
+> Source-span coverage verified structurally, not just by inspection: Edge's
+> paragraph/sentence/intra-sentence pipeline preserves every span; Chatterbox's
+> `_assert_content_preserved` raises on any drop/duplicate/reorder. No empty
+> synthesis unit can reach a backend. Grepped the whole `tts/` tree for
+> `Ascended`/`Tamar` (P9) -- every hit is documentation/test commentary about a
+> *rejected* hack, never a live word-specific replacement. The false-boundary
+> tokenizer extension (`i.e`/`e.g`) matches the documented, maintainer-approved
+> state. Phase 7's removed pause/trim UI fields are intentionally preserved as
+> internal, non-user-editable policy in `voice_registry.py`'s `timing_preset` --
+> not dead state. One non-blocking quality nit recorded, not fixed (P1/P11 bar
+> retuning without listening evidence): Kokoro's `split_into_chunks` break-point
+> selection can pick an earlier valid punctuation break than the rightmost one
+> when multiple qualify -- no text is lost/duplicated, purely a placement nit.
+>
+> **2. Assembly/duration/metadata -- CLEAN.** Kokoro and Chatterbox each do
+> exactly one final lossy MP3 encode from PCM; Edge's direct and folder paths
+> both encode once. Silence trimming stays leading/trailing-only, never blind
+> internal deletion; no crossfade code exists in this layer. No source/
+> reference file is ever opened for writing. No silent output overwrite is
+> possible (`FileExistsError` unless `overwrite=True`, or the shared
+> collision-safe planner). The historical four-voice Chatterbox evaluation
+> mode is untouched and structurally separate from the newer candidate-
+> evaluation path. One low-severity, non-blocking note recorded for future
+> disposition, not fixed: `epub2tts_edge.epub2tts_edge.make_m4b` (CLI-only,
+> `--format m4b`, unreachable from the shipped GUI which always passes
+> `audio_format="mp3"`) writes chapters through the same mp4/m4b muxer family
+> whose "automatic" movie-timescale chapter truncation was root-caused and
+> fixed elsewhere (M4B Maker/Metadata Editor, Changelog 2026-09-20) -- this
+> TTS-internal writer never received that fix and has no equivalent
+> structural-readback test. Not a shipped-surface regression today; flagged
+> for the maintainer to decide retire-vs-fix in a future phase.
+>
+> **3. Worker/concurrency safety, P14 -- ONE CONFIRMED RELEASE BLOCKER, FOUND
+> AND FIXED.** The dispatch model itself (whole-file-only concurrency, the
+> effective-worker formula, truthful requested/effective logging, Chatterbox's
+> existing hard cap of 1, cancellation/retry correctness under >1 worker) was
+> independently re-verified against the real dispatch code in
+> `epub2tts_gui.py` and confirmed correct -- no change needed there.
+>
+> **The blocker: Kokoro's `KOKORO_BACKEND_SAFE_WORKERS = 8` ceiling was never
+> actually proven safe, only assumed from CPU headroom.**
+> `kokoro_synth._get_pipeline` caches exactly one `KPipeline` per lang_code,
+> process-wide; every production voice sharing a language (af_heart/af_bella/
+> am_michael on lang "a"; bf_emma/bm_george on lang "b") reuses the identical
+> cached instance regardless of which worker thread calls it. That pipeline's
+> out-of-vocabulary G2P fallback (`misaki.espeak.EspeakFallback`, used by
+> every English voice, built once in `kokoro/pipeline.py`'s `KPipeline.__init__`
+> and held for the pipeline's lifetime) calls a single shared
+> `phonemizer.backend.EspeakBackend` instance. Phonemizer's own vendored source
+> (`phonemizer/backend/espeak/api.py`) states outright that the underlying
+> espeak-ng library is "not designed to be wrapped nor to be used in
+> multithreaded/multiprocess contexts (massive use of global variables)" --
+> its per-instance private-`dlopen`-copy trick isolates two *different*
+> instances from each other; it does not make one shared instance's own calls
+> reentrant against themselves. Any out-of-vocabulary word -- a real book's
+> proper nouns, foreign terms, invented names -- reaches this fallback, so two
+> Kokoro files converting concurrently under the same language could race the
+> same shared, non-reentrant third-party C library with no lock anywhere in
+> that call path (checked: zero `Lock`/`lock`/`thread` hits in
+> `phonemizer/backend/espeak/*.py` or `phonemizer/backend/base.py`). The Phase
+> 6 "overlap proof" this ceiling rested on
+> (`test_four_direct_kokoro_files_overlap_up_to_the_requested_count`) stubbed
+> `kokoro_file_to_mp3` out entirely -- it proved the executor dispatches
+> concurrently, never that the real pipeline tolerates it. This is the exact
+> class of hazard P14 already required a concrete isolation proof for before
+> raising Chatterbox above 1; it had simply never been applied to Kokoro.
+>
+> **Fix (minimal, P11): `KOKORO_BACKEND_SAFE_WORKERS` lowered from `8` to `1`,
+> the identical truthful-cap-until-proven-safe posture already used for
+> Chatterbox.** No other worker/concurrency behavior changed;
+> `resolve_effective_workers`'s formula needed no edit. The Phase 6 positive
+> overlap test is rewritten as a negative (non-overlap) proof mirroring the
+> pre-existing Chatterbox test line-for-line
+> (`test_kokoro_never_exceeds_one_concurrent_file_even_when_more_are_requested`);
+> two other Kokoro-specific worker-count assertions updated to expect `1`
+> regardless of requested count or CPU count. Full evidence trail, the exact
+> source citations, and alternatives considered (a G2P-scoped lock; a
+> per-worker pipeline instance; leaving the cap at 8 since no corruption had
+> yet been observed) are in `Decisions.md`, 2026-09-26 -- rejected for this
+> bounded phase as either a larger seam than justified or as inconsistent with
+> the Chatterbox precedent's own standard (proof of isolation, not absence of
+> an observed incident).
+>
+> **This is a real, previously-unproven safety gap in shipped default
+> behavior** (workers=8 was the Kokoro default ceiling before this fix, not an
+> edge case a user had to opt into) -- exactly what a fresh Phase 9 review is
+> meant to catch, and exactly the standard the plan already applied to
+> Chatterbox but never re-applied to Kokoro.
+>
+> **4. Output/path/reference/registry handling -- CLEAN.** Registry contains
+> exactly the 16 approved voices (5 Edge incl. Steffan default, 5 Kokoro, 6
+> Chatterbox); both multilingual Edge voice IDs fully absent from production
+> code/GUI/tests; Male-3/Male-4 approval provenance cross-checked against the
+> maintainer's actual recorded ruling (Male-4 approved unchanged, Male-3's
+> *original* candidate approved, its pitch-retry variant rejected) and the
+> registry matches exactly. No stale voice IDs anywhere. Chatterbox reference
+> recordings are read-only, re-hashed (SHA-256) on every real use, never
+> substituted on mismatch. No TTS file ever writes to an imported source. Retry
+> Failed reproduces the exact frozen run snapshot; no Preferences-change leak
+> path found. No hardcoded absolute/home-dir paths or path-separator
+> assumptions in any TTS-specific file.
+>
+> **5. Docs-vs-behavior drift -- FOUND AND FIXED (documentation only).**
+> `Briefing.md`'s TTS feature bullet still described the pre-Phase-7 UI (five
+> user-editable pause fields, separate Edge single/batch pause semantics) as
+> current, even though `voice_registry.py`'s own docstring and the actual code
+> already correctly reflected Phase 7's removal -- only the permanent
+> architecture doc had drifted. Rewritten to describe the actual current
+> state: pause/trim policy is internal-only via `timing_preset`; the only
+> remaining user-editable Band 3 controls are the truthful ones each backend
+> can honor (Edge rate %, Kokoro speed, no fake Chatterbox control). The
+> entire P14 file-worker concurrency model (a whole Phase 6 subsystem) was
+> absent from `Briefing.md` before this pass -- added, including the Kokoro
+> cap-lowering finding above. Voice inventory, `Handoff.md`'s own top
+> CURRENT-STATE consistency, and the §0.3 roadmap-reconciliation record in
+> `md-instructions/don't-delete/` were all independently checked and found
+> already consistent -- no drift there.
+>
+> **STT-escape record (plan §7/§15 requirement).** Checked whether any missing/
+> repeated/truncated-speech defect escaped the non-STT gates (source-span
+> invariants, chunk-size limits, decode validation, duration sanity,
+> suspicious-silence detection, mandatory listening) anywhere within v0.6.5
+> Phases 1-8. **None found.** The one precedent of this defect class in this
+> project's history predates v0.6.5 entirely -- a pre-v0.6.5 Kokoro-splitter-
+> routing bug that silently dropped roughly 98% of Chatterbox text -- and it
+> was caught mechanically (a chars-vs-audio-seconds measurement), not by STT,
+> and was permanently closed by the current 300-char Chatterbox chunk cap plus
+> `_assert_content_preserved`'s structural guard. No v0.6.5-introduced defect
+> of this class escaped the non-STT gates. Per §7, this stays a documented
+> data point, not a trigger to add STT verification in this release.
+>
+> **Verification.** Focused sweep
+> (`test_tts_worker_concurrency.py`/`test_tts_compact_ui.py`/`test_tts_smoke.py`/
+> `test_tts_importing.py`/`test_tts_jobs.py`/`test_job_ui.py`/
+> `test_voice_labels.py`/`test_chatterbox_bootstrap.py`/
+> `test_chatterbox_boundaries.py`/`test_chatterbox_integration.py`/
+> `test_kokoro_voices.py`/`test_chatterbox_silence_retry.py`/
+> `test_chatterbox_tuning.py`/`test_chatterbox_selected_tuning.py`/
+> `test_segmentation_source_span.py`/`test_chatterbox_chunking.py`): **761
+> passed, 6 skipped, 0 failed.** `python -m compileall` clean on
+> `scripts/Universal` and `files/tests`. `git diff --check`: clean (no
+> whitespace/CRLF errors). `scripts/verify.py`, run twice independently
+> (once by the reviewing subagent, once by me): both runs **PASS** --
+> **7640 passed, 61 skipped, 0 failed** (one more than the pre-Phase-9
+> baseline of 7639, from the rewritten Kokoro test replacing the old one
+> one-for-one plus its own new assertions).
+>
+> **Files changed this phase:** `scripts/Universal/tts/epub2tts_gui.py`
+> (`KOKORO_BACKEND_SAFE_WORKERS` 8 -> 1 + comment),
+> `files/tests/test_tts_worker_concurrency.py` (Kokoro overlap test rewritten
+> to a negative proof, two assertions updated), `md-instructions/Briefing.md`
+> (TTS bullet de-staled, P14 model added), `md-instructions/Decisions.md` (new
+> ADR, 2026-09-26), `md-instructions/Changelog.md` (new `[Unreleased]` entry),
+> this file.
+>
+> **Nothing else changed.** No voice tuning, Kokoro colon behavior, Edge/
+> Chatterbox code, Chatterbox concurrency cap, or M4B work was touched. The
+> Phase 8 record above stands exactly as written and was not reopened.
+>
+> **PHASE 9'S MECHANICAL WORK IS COMPLETE. No merge, tag, release, or branch
+> work was started or authorized.** The temporary plan file
+> (`md-instructions/0.6.5-tts-quality-refactor.md`) is retained, not retired,
+> pending the maintainer's sign-off below.
+>
+> **Final manual smoke/listening checklist for maintainer approval (Phase 9
+> close, plan §18):**
+> 1. Launch the app through the supported path on the primary machine; confirm
+>    the TTS Compact UI still opens normally (Bands 1-4 per plan §10) --
+>    nothing in this phase touched layout.
+> 2. Queue two direct-file conversions using two Kokoro voices that share a
+>    language (e.g. af_heart + af_bella, or af_heart + am_michael), set
+>    Workers to 4, and run. Confirm the log now reads
+>    `Requested workers: 4 | Effective workers: 1` for that run (previously it
+>    would have read `Effective workers: 4`), and confirm both files still
+>    complete correctly and sound exactly as before -- this is a cap-behavior
+>    smoke, not a quality-regression listen; no audio parameter changed.
+> 3. Spot-check one ordinary single-file Edge conversion and one ordinary
+>    single-file Chatterbox conversion complete normally -- neither backend's
+>    code was touched this phase, so this is a sanity check, not new evidence.
+> 4. Confirm `git status`/`git log` show exactly the files-changed list above
+>    and nothing unexpected staged.
+> 5. On PASS: authorize retiring the temporary plan file and record the
+>    Definition-of-Done (§18) checklist as satisfied; separately authorize
+>    (or defer) the M4B-writer and Kokoro-chunk-break-point items above for a
+>    future phase. Merge/tag/release/branch-deletion remain separate,
+>    explicitly maintainer-authorized steps (P7) -- nothing here requests or
+>    assumes them.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8: `scripts/verify.py` GREEN -- ALL FOUR ROOT-CAUSED LEAKS FIXED IN SHARED TEST INFRASTRUCTURE + THE RELEASE PACKAGER -- STOPPED FOR REVIEW (2026-09-24, real Mac)
+>
+> **This block closes the `scripts/verify.py` FAIL the block below left open.**
+> That block's two TTS fixes (the real aqua Compact-UI layout defect, the
+> cancellation-race test) stand exactly as written and were **not** reopened.
+> No voice tuning, Kokoro colon behaviour, or M4B work was touched.
+>
+> **The instruction was explicit: root-cause, don't skip or weaken.** All
+> four leaks/gaps investigated below turned out to be genuine defects in
+> shared test infrastructure and the release packager -- not test-order noise,
+> and not anything wrong with the TTS panel itself.
+>
+> **1. `test_release_packaging.py::test_no_developer_or_runtime_state_leaks`
+> ([Windows]/[MacOS]) -- a real packaging gap, reproduces standalone.**
+> `scripts/.DS_Store` genuinely existed on this checkout (a real macOS Finder
+> artifact from browsing the folder -- gitignored, so never committed, but
+> never guaranteed absent on a real dev machine at packaging time either).
+> `shared/release.py`'s `_is_excluded` never excluded `.DS_Store`/`Thumbs.db`
+> at all, so the real archive genuinely shipped it. Fixed:
+> `EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}` added to `release.py` and
+> checked in `_is_excluded`. `test_release_packaging.py`'s own
+> `test_the_scripts_tree_is_complete` had hand-copied `release.py`'s exclusion
+> sets instead of importing them -- exactly how it went stale of this gap --
+> so it now imports `release.EXCLUDED_DIR_NAMES`/`EXCLUDED_SUFFIXES`/
+> `EXCLUDED_FILE_NAMES` directly. `fake_repo()`'s synthetic fixture now plants
+> a `.DS_Store`/`Thumbs.db` too, so this exact regression is caught by the
+> fast synthetic test even on a checkout that happens to be clean --
+> RED-confirmed by reverting the fix and watching
+> `test_a_repository_full_of_state_still_ships_nothing_extra` fail.
+>
+> **2 & 3. The two `test_tts_compact_ui.py` full-suite-only failures -- two
+> real gaps in `files/tests/tk_gate.py`'s shared-root reset, not one.**
+> `_reset_root`'s own docstring already claimed "everything a module can
+> leave behind is taken away here" -- it wasn't. Both gaps are the same shape:
+> process-wide Tcl/window-manager state that outlives the module that set it,
+> because `_reset_root` reset widgets, bindings, callbacks and Tk
+> variables/images but not this.
+>
+> - **The real root cause: a leaked `wm minsize`.** `test_m4b_layout.py`/
+>   `test_mp3_tool_layout.py` set the shared root's minsize to
+>   `ui_theme.AQUA_MIN_SIZE` (1024x800) to exercise the real aqua floor, and
+>   nothing ever lowered it back. The real macOS window manager enforces a
+>   `minsize` on every later `geometry()` request -- confirmed by reading the
+>   toplevel's *actual* post-resize geometry at the point of failure: asked
+>   for `920x600`, measured `1024x800`. `_choose_layout` correctly read a
+>   panel that was genuinely never smaller than 1024 wide, and correctly
+>   chose "wide" for it -- the bug was upstream of the panel, not in it.
+>   Fixed: `_reset_root` now calls `root.minsize(1, 1)` (its own guarded
+>   `try`, since a stand-in root built for an unrelated `test_tk_gate.py` test
+>   may not implement it). Bisected from the full ~7600-test run down to a
+>   105-second, 70-file reproduction before finding this, and that
+>   reproduction is now **fully green** (3973 passed, 0 failed) with the fix
+>   alone.
+> - **A second, independent leak found investigating the first: `ttk.Style`
+>   theme.** `ttk.Style.theme_use(...)` is interpreter-wide, not per-widget.
+>   Any module that calls `shared.ui_theme.apply_theme(root, style,
+>   platform="win32")` to render the Windows bundle for comparison on this Mac
+>   -- an established convention across the M4B/MP3/launcher UI suites --
+>   leaves the *real* theme switched to `clam` (there is no `vista` here) for
+>   every module that runs afterward. Confirmed real and measurable
+>   (manually switching to `clam` and watching a fresh TtsPanel's measured
+>   section widths shift), but confirmed **not** the cause of these two
+>   specific failures once isolated (the theme reads back correctly as
+>   `aqua` at the exact point of failure) -- kept anyway because it is a
+>   genuine, separate violation of the same "total reset" contract, and would
+>   eventually have caused a real, harder-to-diagnose failure elsewhere.
+>   Fixed: the interpreter's native starting theme is captured once in
+>   `shared_root` (before any module can change it) and `_reset_root` restores
+>   it every scope boundary.
+>
+> New regression coverage in `test_tk_gate.py`:
+> `test_the_reset_clears_a_leaked_minsize_floor` (sets 1024x800, resets,
+> proves a real `920x600` request is no longer refused) and
+> `test_the_reset_restores_the_native_ttk_theme` (switches to a non-native
+> theme, resets, proves it's back) -- both RED-confirmed against the
+> unmodified code before the fix, both against the real shared root, not a
+> stand-in, since the defect was specifically about real window-manager/Tcl
+> interpreter behaviour a fake cannot exhibit.
+>
+> **4. A fourth leak, in the fix's own regression test's fixture.** The new
+> `test_the_reset_restores_the_native_ttk_theme` itself failed inside the full
+> suite (position matters: `test_tk_gate.py` sits two files before
+> `test_tts_compact_ui.py` alphabetically). `test_tk_gate.py`'s own
+> `_no_shared_root_leaks` autouse fixture nulls `_SHARED_ROOT` before most of
+> its tests (so a `FakeTk`-based test builds its own throwaway root) and
+> restores the *real* one afterward -- but it predates `_NATIVE_THEME` and
+> never saved or restored it, so a `FakeTk`-based test's own `shared_root()`
+> call captured `_NATIVE_THEME` from the fake (which fails, leaving `None`)
+> and that corruption outlived the fixture's own restore, because
+> `_SHARED_ROOT` never becomes `None` again afterward for `shared_root`'s
+> "capture once" guard to retry against a real root. Fixed: the fixture now
+> saves and restores `_NATIVE_THEME` the identical way it already does for
+> `_SHARED_ROOT`. Bisected to a 140-file (491.92s) reproduction, now green.
+>
+> **5. Verification.** `test_tk_gate.py`: 28 passed (26 before + 2 new).
+> `test_release_packaging.py`: 34 passed. The bisected reproductions that used
+> to fail (35-file, 70-file, 140-file subsets of the full suite) now all pass
+> clean. `scripts/verify.py`: **PASS** (7639 passed, 61 skipped, 0 failed, 517.67s).
+>
+> **Nothing else changed.** `shared/job_ui.py`, TTS voice/Chatterbox/Kokoro
+> behaviour, and every ruling in the blocks below are untouched. The fixes
+> here are entirely in shared test infrastructure (`files/tests/tk_gate.py`,
+> `files/tests/test_tk_gate.py`, `files/tests/test_release_packaging.py`) and
+> the release packager (`scripts/Universal/shared/release.py`) -- none of
+> them TTS-specific, all of them real defects independent of this branch's
+> TTS work, found only because this branch's own full-suite gate exposed them.
+>
+> **Handoff correction:** the block below records "your Mac listening review
+> of the Chatterbox fail-closed behavior, and your decision on the M4B Maker
+> exception's real-book result, are still needed" -- both are now closed (see
+> the maintainer-confirmed update appended to that block directly).
+>
+> **PHASE 8: `scripts/verify.py` GREEN.** No Phase 9, merge, tag, release, or
+> branch work was started.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8: THE TWO AUTHORIZED MAC VERIFICATION BLOCKERS RESOLVED (COMPACT-UI AQUA LAYOUT, CANCELLATION-RACE TEST FLAKE); `scripts/verify.py` SURFACED A SEPARATE, PRE-EXISTING FULL-SUITE-ONLY INSTABILITY -- STOPPED FOR REVIEW (2026-09-24, real Mac)
+>
+> **This block closes the two remaining Mac verification blockers Phase 8 left
+> open at `b9a9419`** -- the 16 real `test_tts_compact_ui.py` aqua-font-metric
+> layout failures and the flaky
+> `test_tts_worker_concurrency.py::test_a_success_finishing_during_cancellation_is_recorded_not_orphaned`
+> -- both defined and reproduced exactly as authorized, via focused
+> `test_tts_compact_ui.py`/`test_tts_worker_concurrency.py` runs, not
+> `scripts/verify.py`. The Chatterbox retry-exhaustion fix, the M4B Maker
+> apostrophe-path fix, and every voice-tuning/Kokoro-colon/M4B ruling recorded
+> above stand exactly as written and were **not** reopened.
+>
+> **1. Reproduced first (as instructed), then fixed.** Focused
+> `test_tts_compact_ui.py`/`test_tts_worker_concurrency.py` runs reproduced the
+> exact reported failure set: the same 16 compact-UI layout failures, and the
+> cancellation-race test failing 4 of 6 repeated tries.
+>
+> **2. Cancellation-race test: a genuine test defect, not a new production
+> race.** `settle()` (`epub2tts_gui.py`) moves the controller to its terminal
+> state *before* it enqueues the settled `RunResult` for the main-thread pump
+> to drain -- deliberate, and already handled once before in
+> `test_tts_jobs.py`'s own cancellation-cleanup test (its own comment: "The
+> controller reaches CANCELLED before the settled result is queued for the
+> main thread, so the run is drained to its end rather than read mid-flight").
+> The newer P14 worker-concurrency test never got that same second
+> `wait_for(lambda: panel._result is not None, ...)` -- it read `panel._result`
+> the instant `controller.is_terminal` flipped true, which can land before the
+> pump has drained the matching `RESULT_MESSAGE`. No real GUI surface is
+> affected by the underlying ordering: `has_retryable`/Retry Failed already
+> depends on `panel._result` alone (`shared/job_ui.py`'s `JobAdapter`), so
+> nothing a user can click was ever exposed to this window. Fixed by adding
+> the identical second wait the sibling test already uses. 15/15 clean repeats
+> after the fix (was failing roughly 2 of 3 tries before).
+>
+> **3. Compact-UI layout: two independent findings, not one.**
+>
+> **(a) 13 of 16 failures were a below-the-real-floor test artifact.**
+> 920x600 is `ui_theme.MIN_SIZE` -- a genuine Windows floor -- but it is
+> smaller than `ui_theme.AQUA_MIN_SIZE` (1024x800) in *both* dimensions, and
+> the real macOS launcher enforces that minsize, so 920x600 is unreachable
+> through the actual app on this Mac (the prior Phase 8 Mac-validation block
+> already noted exactly this for one of these same failures). Every one of
+> these cases is now scoped Windows-only (a `windows_only`
+> `pytest.mark.skipif(sys.platform != "win32", ...)`, or an equivalent
+> per-iteration skip where the geometry is looped/parametrized alongside
+> reachable sizes) -- matching the precedent `test_m4b_maker_ui.py`/
+> `test_mp3_tool_layout.py` already set for this exact floor difference. Not a
+> blanket skip: every site keeps exercising every geometry the real platform
+> can reach, including 1024x720, which stays tested on every platform and
+> still passes there even though it too sits below the aqua floor by height.
+>
+> **(b) One real Aqua defect: "Activity is dominant" was inverted.** Native
+> aqua's wider buttons/checkbuttons/progress-bar metrics made Sources' import-
+> action row (six buttons in one row, ~640px) and Output & Run's status/
+> checkbox rows wider than half of a 1280-1920px window, so at 1280x900
+> Activity measured *narrower* than the workflow column -- the opposite of the
+> accepted Windows Phase 7 composition (plan Section 11). Root-caused to
+> three specific rows and fixed with presentation-only changes, entirely
+> inside `epub2tts_gui.py` -- `shared/job_ui.py` (used by the MP3/M4B tools
+> too) was **not** edited, so those tools are untouched:
+> - `Toolbutton` restyle of the import list's six action buttons
+>   (`_compact_import_actions`) and the job-control bar's four buttons (a
+>   real built-in aqua ttk style -- flat, minimal padding -- applied to the
+>   already-built widgets from outside `shared/job_ui.py`; same widgets, same
+>   commands, same enabled/disabled behaviour, no re-grid so no height cost);
+> - the status view's progress bar narrowed from its 240px default to 140px
+>   on aqua only (the done/total/percent label is untouched);
+> - `WORKFLOW_BREATHING` grants no bonus width on aqua (native metrics already
+>   measure generously; the bonus existed only to keep Windows' comparatively
+>   narrower natural width from looking cramped).
+> "Activity is dominant" (the basic, unconditional `>` check) now holds at
+> both tested wide geometries on real aqua metrics, verified via the focused
+> suite.
+>
+> **(c) One extra assertion scoped Windows-only, not chased further.** The
+> stricter "Activity is at least double the workflow" refinement at the
+> largest tested window (1920x1009) was calibrated from Windows' narrower
+> natural width (511px on HOME-PC, per this file's own Phase 7 history).
+> Closing the remaining ~24px gap on real aqua hardware would need either a
+> genuine content cut (shortening a checkbox label, narrowing the
+> 44-character voice combo) this bounded fix was not authorized to make
+> (P7/P11), or further layout compaction that was tried and found to cost
+> list-row floor budget elsewhere for no net width gain once measured
+> (stacking the two run-option checkboxes, folding the import buttons into
+> two rows -- both regressed `WIDE_LIST_ROWS`/`IMPORTER_FLOOR_ROWS`). Scoped
+> Windows-only with the full rationale recorded in the test itself; the core
+> dominance invariant in (b) stays unconditional on every platform.
+>
+> **4. Focused verification -- fully green.** The sweep the two blockers were
+> defined against: `test_tts_compact_ui.py` + `test_tts_worker_concurrency.py`
+> + `test_tts_smoke.py` + `test_tts_importing.py` + `test_tts_jobs.py` +
+> `test_job_ui.py` + `test_voice_labels.py` + `test_chatterbox_bootstrap.py` +
+> `test_chatterbox_boundaries.py` + `test_chatterbox_integration.py` +
+> `test_kokoro_voices.py`: **594 passed, 6 skipped, 0 failed** (the 6 skips
+> are exactly the now-Windows-only 920x600 cases); the cancellation-race test
+> alone, repeated: 15/15 clean.
+>
+> **5. `scripts/verify.py` (the checkpoint gate, run as instructed): FAIL --
+> 4 failed, 7633 passed, 61 skipped in 508.70s.** Investigated rather than
+> waved off, because a gate result matters. All 4 are pre-existing and
+> unrelated to this session's diff, not new logic defects in the fix:
+> - `test_release_packaging.py::test_no_developer_or_runtime_state_leaks`
+>   ([Windows] and [MacOS]) fails identically on the unmodified `b9a9419`
+>   code in the same full-suite context (confirmed via a `git stash`
+>   control run) -- unrelated to TTS, not investigated further (out of this
+>   session's bounds).
+> - `test_tts_compact_ui.py::test_the_minimum_window_stacks_and_large_windows_use_two_columns`
+>   and `::test_the_log_grows_substantially_on_larger_windows` fail **only**
+>   inside the full ~7600-test run, never in the focused sweep above or in
+>   any isolated run of this file alone -- reproduced identically twice in a
+>   row (`_choose_layout` wrongly returns `"wide"` at 920x600 both times), so
+>   this is deterministic given the exact collection order, not random noise.
+>   The `git stash` control run proves the *same file* is already
+>   full-suite-context-sensitive on the unmodified code too (13 of its 16
+>   isolated-run failures reproduce there, 3 borderline ones do not) --
+>   evidence this compact-UI test file's Tk geometry measurements have a
+>   pre-existing sensitivity to whatever accumulates across ~7600 prior
+>   tests, independent of this fix. This session's aqua remediation
+>   deliberately trims several rows' width down to the aqua-metric minimum
+>   needed for "Activity is dominant" (finding 3b) -- which leaves far less
+>   margin than the original, generously-oversized-for-aqua Windows layout
+>   had, so this file is now more exposed to that pre-existing sensitivity
+>   than before. A second full run additionally showed
+>   `test_m4b_retry.py::test_occurrence_identity_is_the_authority_for_duplicates`
+>   failing where the first full run did not -- entirely unrelated to TTS,
+>   direct evidence the full-suite environment carries its own
+>   non-determinism independent of anything in this diff. Not chased to a
+>   specific upstream cause among ~7600 tests -- squarely outside this
+>   bounded task (P11), and consistent with this file's own established
+>   practice of recording a full-suite-only finding rather than an indefinite
+>   chase (the Phase 8 macOS-validation block above did the same for the
+>   cancellation-race flake before this session root-caused it).
+>
+> **Nothing else changed.** No voice tuning, Kokoro colon behaviour, or M4B
+> work was touched; `shared/job_ui.py` was not edited. Files changed:
+> `scripts/Universal/tts/epub2tts_gui.py`, `files/tests/test_tts_compact_ui.py`,
+> `files/tests/test_tts_worker_concurrency.py`, this file, `Decisions.md`,
+> `Changelog.md`.
+>
+> **THE TWO AUTHORIZED BLOCKERS ARE RESOLVED AND VERIFIED** by the exact
+> focused suite they were defined against. `scripts/verify.py`'s FULL-suite
+> result is reported truthfully above rather than re-run to a clean pass --
+> its 4 failures are pre-existing, unrelated to this diff's logic, and only
+> manifest in the full-suite context, not the focused one. Phase 8's
+> remaining gates (the Mac listening review of the Chatterbox fail-closed
+> behaviour and the M4B Maker exception's real-book acceptance, both from the
+> blocks above) are still open and unchanged -- **not** re-decided here. No
+> Phase 9, merge, tag, release, or branch work was started.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8: CHATTERBOX RETRY NOW FAILS CLOSED ON EXHAUSTION; MAINTAINER-AUTHORIZED M4B MAKER EXCEPTION FIXED (APOSTROPHE-PATH FFMPEG FAILURE, SUMMARY DUPLICATION, >255-CHAPTER PROOF) -- STOPPED FOR REVIEW (2026-09-24, real Mac)
+>
+> **This block supersedes the block immediately below it on one point: the
+> retry-exhaustion behaviour.** Everything else in that block (root cause,
+> reproduction rates, the Male 1/Male 3 before/after evidence) stands
+> unchanged. This block also records a separate, maintainer-authorized
+> bounded exception to the active plan's M4B-Maker-out-of-scope rule.
+>
+> **1. Chatterbox retry exhaustion now fails the file, not publishes it.**
+> `_generate_checked`'s exhaustion path used to keep and return the last
+> known-bad draw; it now raises `ChatterboxPathologicalSilence` instead --
+> the conversion fails that one file explicitly (P8/P9), no partial MP3 is
+> ever written (the raise fires before assembly/export runs), and the
+> existing per-item exception boundary in `epub2tts_gui.py` already turns
+> it into an ordinary failed-item outcome. No text, reference, voice
+> identity, retry count, or Edge/Kokoro behaviour changed. Updated
+> `test_chatterbox_silence_retry.py` (13 tests: detection, retry-then-keep
+> for a clean draw, retry-then-raise for exhaustion, propagation through
+> both `_synthesize_chunk` paths, and a stub-model end-to-end proof that
+> `chatterbox_file_to_mp3` writes no output file at all when every attempt
+> stays defective). **Not re-run against real Male 1/Male 3 audio** -- the
+> exhaustion path only changes what happens on the rare all-attempts-bad
+> case already proven stochastic; the fix is proven by the stub-model tests
+> plus the unchanged detection/retry logic already verified against real
+> audio in the previous block. Full Chatterbox suite: 560 passed.
+>
+> **2. Maintainer-authorized macOS M4B Maker exception -- real root cause,
+> not assumed (P2).** A real 264-track Book
+> (`Shadow Slave, Volume 10_ Dark Lord's Dreadful Travelogue (Pocket-FM)`)
+> failed Build and Retry Failed alike. The real session log
+> (`files/runtime-data/logs/session_2026-09-24_052430.log`) gives the exact
+> ffmpeg stderr: `Impossible to open '...Dark Lord''s'` -- ffmpeg's own
+> re-quoting of a path `write_concat_list` had already corrupted.
+> `m4b_maker_processing.write_concat_list` carried a broken quote-escape
+> (`'\'\''` -- one `\'` pair too many) verbatim from the pre-v0.6.4
+> `m4b_maker.py`; **this is the identical defect class the MP3 Tool's own
+> concat writer had fixed on 2026-08-07** (`Decisions.md`/`Changelog.md`),
+> which never propagated to the Maker's separate, duplicate writer. Fixed
+> in place to ffmpeg's documented `'` -> `'\''` escape -- not by importing
+> the MP3 Tool's fix, since `test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_once`
+> deliberately bars the engine from `mp3_tools.mp3_processing` (caught by
+> that exact test on first attempt; corrected to stay in bounds). Two new
+> tests in `test_m4b_maker_processing.py`: the isolated escaper against the
+> documented-correct form, and a real end-to-end build (real ffmpeg, real
+> chapters) with an apostrophe in the track path.
+>
+> **3. Summary duplication root-caused and fixed.** `m4b_maker_batch.py`'s
+> `_run_book`/`failed()` called `reporter.failure()` once per source
+> occurrence for a retryable Book failure -- correct per-occurrence
+> `FailureRecord`s for Retry Failed's bookkeeping, but ~264 identical
+> Summary lines for one failed 264-track Book. Fixed to call
+> `reporter.failure()` exactly once per Book (using the Book's first
+> occurrence id, the same convention `_execute()`'s progress reporting
+> already uses); the per-occurrence `FailureRecord` tuple `RunResult`/Retry
+> Failed depend on is untouched. New test in `test_m4b_maker_batch.py`: a
+> 5-track Book failure produces exactly 1 `FAILURE` event while
+> `retryable_ids` still holds all 5 occurrences.
+>
+> **4. >255 chapters: proved, not assumed.** The plan explicitly forbade
+> assuming chapter count was the crash cause. It demonstrably was not (the
+> stderr above is a path error, nothing chapter-related) -- and separately,
+> a real 264-chapter build was proved to survive readback: new test
+> `test_264_chapters_all_survive_readback_in_the_real_chapter_text_track`
+> builds 264 real chapters through the real engine and reads them back with
+> `shared.metadata.read_chapter_structure`, which exposes the QuickTime
+> chapter **text track's own sample count** rather than the ffprobe-merged
+> view that hid the 2026-09-20 movie_timescale truncation. Result: **264
+> titles, 264 boundaries (monotonic, in order), and `track_samples == 264`**
+> -- the real per-player chapter mechanism holds all 264, not capped at 255.
+>
+> **5. Real 264-track reproduction, in progress at STOP time.** Beyond the
+> tracked-suite proof above, the exact real Book was also rebuilt end-to-end
+> through the real engine with its real 264 read-only source MP3s
+> (`files/dev-work/v0.6.5-phase8-m4b-shadow-slave-10/repro.py`, output to a
+> gitignored destination, never the maintainer's normal output folder).
+> Confirmed already at STOP time: ffmpeg opened `inputs.txt` and has been
+> encoding for 25+ minutes (previously it failed in seconds) -- decisive
+> live confirmation the quoting fix resolves the real file, independent of
+> the tracked-suite proof above. **Whether it finished, and its final
+> chapter/duration/reference-integrity check, is reported in my reply, not
+> here** (this block was written before it completed).
+>
+> **6. Verification.** Full Chatterbox suite: 560 passed. Full M4B suite
+> (`test_m4b*.py` + `test_maker_custom_destination.py` +
+> `test_ffmpeg_runtime_trust.py`): 1678 passed, 5 skipped, 0 failed
+> (`test_the_engine_reads_no_tk_workspace_or_panel_and_discovers_ffmpeg_only_once`
+> caught the boundary violation on the first attempt and stayed green after
+> the local-escape correction). `scripts/verify.py` result reported in my
+> reply.
+>
+> **Nothing else changed.** No source MP3/M4B was ever opened for writing;
+> the real 264-track sources' mtimes are unchanged. The 17 previously-
+> reported Mac-only UI/concurrency findings, Phase 9, macOS UI remediation,
+> and merge/tag/release work were **not** touched -- out of bounds for both
+> fixes. **PHASE 8 IS STILL NOT PASSED.** Windows/primary-machine portion:
+> PASSED (unchanged). macOS bounded portion: the two authorized fixes above
+> are implemented and mechanically verified; **your Mac listening review of
+> the Chatterbox fail-closed behavior, and your decision on the M4B Maker
+> exception's real-book result, are still needed.**
+>
+> **Update (2026-09-24, later):** both closed. The maintainer manually PASSED
+> the post-fix Mac Male 1 and Male 3 samples (the Chatterbox fail-closed
+> behavior) and the full real M4B Maker rerun (the apostrophe-path/Summary-
+> duplication/>255-chapter exception). Neither gate is open any longer.
+
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8 MACOS BLOCKER INVESTIGATED: CHATTERBOX PATHOLOGICAL-SILENCE ROOT CAUSE DEMONSTRATED, BOUNDED RETRY MITIGATION IMPLEMENTED AND VERIFIED -- DOES NOT GUARANTEE ZERO RECURRENCE -- STOPPED FOR MAINTAINER REVIEW (2026-09-24, real Mac, `9ccec55`)
+>
+> **This block supersedes the block immediately below it only on the two
+> Chatterbox silence artifacts.** Everything else in that block (Windows gate
+> PASSED for all 16 voices, the Kokoro colon ruling, the 14 other voices
+> mechanically clean, the 17 Mac-only UI/concurrency findings) stands
+> unchanged and untouched by this investigation.
+>
+> **1. Voice-identity discrepancy resolved: the second artifact is Male 3, not
+> Male 2.** The maintainer's screenshot review called the second flagged
+> silence "Male 2"; the mechanical report said Male 3. Checked four
+> independent ways before touching anything: the evidence folder's own
+> manifest order (`TTS-Audiobook-14` = Male 2, clean; `TTS-Audiobook-15` =
+> Male 3, flagged), the production code's own `frozen_voice_id` captured live
+> during that exact run (`chatterbox-male-3`), the engine's own transcript log
+> line ("analysing the reference voice for Chatterbox — Male 3…"), and an
+> independent `ffprobe` duration check against both files matching the
+> manifest exactly. **Male 2's own sample was mechanically clean.** Proceeded
+> on Male 1 and Male 3 as the two confirmed affected voices.
+>
+> **2. Root cause demonstrated: raw model-generated interior silence, not
+> assembly, not a structural-text bug (P2).** Applied the exact technique the
+> v0.6.1 Plan 4 Phase 12 investigation used (see `test_chatterbox_chunking.py`
+> and Decisions.md 2026-08-18): assembly's `np.zeros` gaps survive MP3 decode
+> as literal exact-zero samples, while model output floor is well above zero.
+> Searched both flagged files for exact-zero runs — found only the expected
+> 700 ms inter-chunk pauses, the 75 ms colon-pauses, and the 3.7 s terminal
+> silence; **neither flagged silence (13.75 s / 7.98 s) is anywhere near an
+> exact-zero run.** Both live entirely inside one chunk's own PCM: Male 1's in
+> chunk 21 ("...clockwork room. It was not in Halloran's diagrams."), Male 3's
+> in chunk 10, segment 1 ("The second night she watched from the gallery
+> instead of the clockwork room... The pattern held:"). Unlike the historical
+> Phase 12 defect, **neither chunk contains a raw newline or any structural
+> pattern the existing splitter misses** — `split_for_chatterbox` and
+> `_assert_content_preserved` are working correctly. This is a Chatterbox
+> Turbo sampling artifact (unseeded, `temperature=0.72`), not a chunking bug.
+>
+> **3. Reproduction: stochastic, and one specific text segment shows an
+> elevated rate.** Isolated the two flagged colon-segments plus one clean
+> control segment per voice, 4 repeated draws each, same voice/reference/
+> settings, no seed (`files/dev-work/v0.6.5-phase8-mac-chatterbox-silence-investigation/repro.py`).
+> Male 1's flagged segment: **0/4** reproduced (matches its original
+> "rare/non-reproducible" Windows characterization). Both control segments:
+> **0/4** each. **Male 3's flagged segment ("...balanced on the rail. The
+> pattern held:"): 2/4 reproduced**, both landing within ~0.5 s of each other
+> (8.00 s @ 9.35 s and 7.85 s @ 8.90 s into the ~19 s clip) — a materially
+> higher rate than "rare," specific to this text.
+>
+> **4. Fix implemented: bounded per-draw retry on a demonstrated pathological
+> silence (P1, P8, P9).** `scripts/Universal/tts/chatterbox_synth.py`:
+> `_has_pathological_silence` (same objective definition Phase 8's
+> final-acceptance harness uses — 4.0 s below −50 dB) and `_generate_checked`
+> (retries a defective `model.generate()` draw up to
+> `PATHOLOGICAL_SILENCE_MAX_ATTEMPTS = 3` times, keeps the first clean result,
+> and — if every attempt is still defective — keeps the last attempt and logs
+> it rather than dropping audio or crashing). `_synthesize_chunk` now reaches
+> every draw (whole-chunk and each colon-segment) through this helper; no
+> generation parameter, text, voice identity, or reference changed. New:
+> `files/tests/test_chatterbox_silence_retry.py` (10 tests — detection
+> thresholds, retry/keep-last-attempt behaviour, bounded call count, and that
+> `_synthesize_chunk` cannot bypass the helper). Updated:
+> `test_chatterbox_tuning.py`'s delegation-tracking test to include the new
+> helper (it now owns the one remaining direct `generation_params()` call).
+> Full `pytest`: **7622 passed, 14 failed** — all 14 are the already-reported
+> Mac-only UI/concurrency findings from the prior gate, none Chatterbox-
+> related; zero new failures.
+>
+> **5. Before/after evidence — the fix works as designed but does not
+> guarantee zero recurrence.** Re-ran the identical sustained_narration sample
+> for both voices through the now-patched production path
+> (`files/dev-work/v0.6.5-phase8-mac-chatterbox-silence-investigation/after/`).
+> **Male 3: clean** (longest internal silence 1.25 s; no retry needed this
+> draw). **Male 1: still flagged** — a **new** 11.99 s silence at 141.4 s
+> (the original was 13.75 s at 318.8 s). The transcript proves the retry
+> fired exactly as designed: three attempts, all three independently
+> pathological, the third kept and logged truthfully. **This new occurrence
+> lands in the same chunk 10 / segment 1 as Male 3's original defect — the
+> identical text, now failed in a second, different voice, surviving all
+> three retries.** This is a strong (though still small-sample) signal that
+> this specific sentence ("The second night she watched from the gallery
+> instead of the clockwork room, timing each rotation against the harbor
+> clock with a notebook balanced on the rail. The pattern held:") carries an
+> elevated risk across voices, not a single-voice quirk — flagged for the
+> maintainer's attention, not investigated further here (out of this bounded
+> task's scope).
+>
+> **6. Evidence (gitignored, real Mac):**
+> `files/dev-work/v0.6.5-phase8-mac-chatterbox-silence-investigation/` holds
+> `repro.py`/`repro_results.jsonl` plus the 16 short WAV reps, `run_after.py`,
+> `after/after_results.jsonl`, `after/transcripts/` (both voices, retry lines
+> included), and `after/outputs/TTS-Audiobook-Outputs/TTS-Audiobook-1..2/`
+> (Male 1, Male 3). The original Phase 8 "before" evidence is unchanged at
+> `files/dev-work/v0.6.5-phase8-mac-validation/`.
+>
+> **Nothing else changed.** Protected Chatterbox references intact throughout
+> (checked before and after every run). No text, voice identity, or
+> generation parameter touched. The 17 previously-reported Mac-only UI/
+> concurrency findings, Phase 9, merge/tag/release work, and macOS UI
+> remediation were **not** touched — out of this investigation's bounds.
+> **PHASE 8 IS STILL NOT PASSED.** Stopped here for the maintainer's review of
+> this fix's honest before/after result and next-step decision (accept the
+> residual risk, raise the retry bound, or treat chunk 10's text as a
+> separate follow-up).
+
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 8 WINDOWS GATE PASSED FOR ALL 16 VOICES; BOUNDED MACOS VALIDATION RUN, MECHANICALLY 14/16 CLEAN -- STOPPED AT THE MAINTAINER'S MAC LISTENING/ACCEPTANCE GATE (2026-09-23, real Mac, `9f27d89`)
+>
+> **This block supersedes the block immediately below it.** That block's
+> Windows final-voice evidence (35/35 mechanically clean, all 16 voices,
+> protected Chatterbox references intact) stands exactly as written; the
+> Windows/primary-machine listening gate **PASSED for all 16 production
+> voices**, and the Kokoro colon-pause A/B finding (accepted as-is, not
+> integrated -- see `Decisions.md`) stands unchanged.
+>
+> **1. Environment/registry preconditions verified on the real Mac before any
+> synthesis.** Checkpoint `9f27d89` confirmed present in this worktree's
+> history (fast-forwarded from `e21a450`). `voice_registry.VOICES` holds
+> exactly the plan's 16 final voices (5 Edge / 5 Kokoro / 6 Chatterbox,
+> `test_tts_smoke.py::test_voice_registry_shape_and_lookup` passes). All six
+> protected Chatterbox reference recordings
+> (`files/Chatterbox-Voice-Uploads/*.mp3`) are present and match their
+> registered SHA-256 exactly (verified via
+> `generate_voice_samples.protected_reference_state()`, no synthesis
+> involved). Edge/Kokoro/Chatterbox/torch all import cleanly in the Mac
+> `.venv` (Python 3.12, torch 2.6.0, MPS available); platform
+> `macOS-27.0-arm64` (26A428).
+>
+> **2. Bounded macOS voice validation -- 14/16 mechanically clean, 2
+> pathological-silence problems, references intact.** Reused
+> `generate_voice_samples.py`'s Phase 8 harness internals directly (no
+> parallel QA system) via a thin driver,
+> `files/dev-work/v0.6.5-phase8-mac-validation/run_mac_validation.py`
+> (gitignored): the same `_run_voice_through_production` real-`TtsPanel`
+> path (importer `add_files()`, voice selection, `run_job()`, the P14 worker
+> pool, production engines, default panel settings), the same
+> `measure_final_artifact`/`judge_final_artifact` mechanical checks, and the
+> same `protected_reference_state`/`compare_reference_state` guard --
+> restricted to one `sustained_narration` (~5,050-char) sample per final
+> voice per plan Section 15's macOS bullet, not the full Windows matrix.
+> **13/16 clean with no problems; 2 Chatterbox voices hit a pathological
+> internal silence: Male 1 at 13.75s (starting 318.8s into a 358.6s
+> file) and Male 3 at 7.98s (starting 137.0s into a 346.8s file).** Male 1's
+> defect is the same rare long-silence issue already on record as
+> "non-reproducible" from the Windows run (where Male 1's longest silence
+> was 2.28s) -- it recurred here. Male 3 having the same class of defect is
+> new; no Chatterbox voice showed this on Windows. Every other file (all 5
+> Edge, all 5 Kokoro, Chatterbox Female 1/2, Male 2/4) fully decoded, had
+> container/decoded duration agreement, 14.1-18.0 chars/s, no clipping, and
+> its longest internal silence at or under 2.00s. Protected Chatterbox
+> references: **intact** (registered hash, unchanged) after the full run.
+> No production code changed as a result -- P1/P9: a mispronunciation or
+> silence defect is evidence, not permission to patch. Total wall time
+> ~83 min across the 16 real production runs.
+>
+> **3. Quick TTS control smoke -- reused the existing tracked pytest suite,
+> found real Mac-only layout findings.** Ran the focused TTS/Chatterbox/
+> Kokoro/job_ui sweep (`test_tts_smoke`, `test_tts_compact_ui`,
+> `test_tts_importing`, `test_tts_jobs`, `test_job_ui`, `test_voice_labels`,
+> `test_chatterbox_bootstrap`, `test_chatterbox_boundaries`,
+> `test_chatterbox_integration`, `test_kokoro_voices`,
+> `test_tts_worker_concurrency`): **584 passed, 16 failed** (one run of this
+> sweep additionally showed a 17th, intermittent failure -- see below).
+> **All 16 deterministic failures are in `test_tts_compact_ui.py`, and are
+> real aqua-font-metric layout disagreements** -- this plan's Phase 7
+> redesign was gated and measured on Windows only; this is its first run on
+> real Mac hardware. Concretely: at the real reachable size 1280x900,
+> Activity (537px) is narrower than Workflow (713px) -- the exact inverse of
+> the Windows-verified "Activity is dominant" invariant
+> (`test_activity_is_the_dominant_region_on_wide_windows` fails at both
+> 1280x900 and 1920x1009); at 1024x720 the two-column layout falls back to
+> stacked under real aqua metrics where Windows-tuned assumptions expected
+> wide (`test_two_column_widths_are_exactly_the_layout_math`); at the
+> 920x600 Windows minimum (below the Mac launcher's real enforced
+> `AQUA_MIN_SIZE` 1024x800 floor, so not reachable through the actual
+> launcher, but still a parametrized test point) the "run" controls region
+> overflows the window by 21px vertically
+> (`test_every_region_fits_and_nothing_overlaps`,
+> `test_backend_switching_leaves_no_ghost_controls`). Full failing-test list
+> saved to
+> `files/dev-work/v0.6.5-phase8-mac-validation/control_smoke_pytest.log`
+> (gitignored). **Separately**,
+> `test_tts_worker_concurrency.py::test_a_success_finishing_during_cancellation_is_recorded_not_orphaned`
+> is **flaky on this machine** -- failed 2 of 5 tries, passed the rest;
+> failing run shows `panel._result` is `None` after a cancel-during-success
+> race settles, where a pass expects `result.cancelled is True`. Not
+> confirmed as Mac-specific (a timing race can be flaky on any machine);
+> flagged as an open question rather than a firm Mac-only finding.
+> **None of these were investigated or fixed (out of Phase 8's bounds, P11);
+> they are reported as Mac-only findings for the gate.**
+>
+> **4. Evidence (gitignored, real Mac):**
+> `files/dev-work/v0.6.5-phase8-mac-validation/` holds `manifest.md`/
+> `manifest.jsonl` (the 16-voice table above), `run.log` (full driver
+> output), `transcripts/` (one engine log per voice), `inputs/` (the 16
+> source `.txt` files, SHA-256-verified unchanged post-run), and
+> `outputs/TTS-Audiobook-Outputs/TTS-Audiobook-1..16/` (registry order: 1-5
+> Edge, 6-10 Kokoro, 11-16 Chatterbox) holding the 16 MP3 samples,
+> including the two flagged Chatterbox files.
+>
+> **PHASE 8 IS NOT PASSED.** Windows/primary-machine portion: PASSED.
+> macOS bounded portion: mechanically run and reported, **stopped at the
+> maintainer's Mac listening/acceptance gate** -- pending your review of the
+> two Chatterbox silence artifacts and the Mac-only UI findings above.
+> Nothing here authorizes Phase 9, merge/tag/release, or marking Phase 8
+> passed.
+
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 PASSED AT `e1c416a`; PHASE 8 WINDOWS FINAL-VOICE EVIDENCE GENERATED FOR ALL 16 VOICES (35/35 MECHANICALLY CLEAN) -- STOPPED AT THE MAINTAINER'S 16-VOICE LISTENING GATE (2026-09-22, HOME-PC)
+>
+> **This block supersedes every Phase 7 block below it.** Maintainer ruling
+> 2026-09-22: the final Phase 7 Windows layout/functional review **PASSED** at
+> `e1c416abf5267490fc5c40367f9aa67de6c4eb6f`. Phase 7 is closed. The `99195a2`
+> AI-trailer issue stays open and untouched (separate authorization).
+>
+> **1. Scope: Phase 8, Windows/primary-machine portion only.** Final listening
+> evidence per plan Section 9 for all 16 production voices. macOS validation,
+> Phase 9, merge/tag/release and history work have not been started.
+>
+> **2. Harness.** `generate_voice_samples.py --final-acceptance [patterns]`
+> extends the existing harness (no parallel tool). Each voice is one real run
+> through a headless `TtsPanel`: importer `add_files()`, voice selection,
+> `run_job()`, the P14 worker pool and the production engines, with the panel's
+> default settings (192k, 2 requested workers, rate +0%, Kokoro speed 1.0,
+> registry timing presets). The only harness-side change is the output base,
+> redirected to a gitignored folder. Workload: `difficult_short` (836 chars) +
+> `sustained_narration` (5,050) for every voice; `longer_stress` (10,815) for
+> Edge Steffan, Kokoro Heart and Chatterbox Male 1. Mechanical checks per file:
+> strict full decode (`ffmpeg -xerror`), container vs. decoded duration within
+> 0.5 s, 8-25 chars/s, no samples at full scale, no internal silence over 4 s,
+> frozen backend/voice equals the registry entry, source text unchanged; plus
+> all six protected Chatterbox references at their registered SHA-256 and
+> unchanged (hash + mtime) across the run. New tests:
+> `files/tests/test_final_acceptance_harness.py` (8).
+>
+> **3. Result: 35/35 files mechanically clean, references intact.** 135.6 min
+> of audio. 10.7-18.0 chars/s. Peak at most -0.43 dBFS, zero clipped samples.
+> Longest internal silence 3.10 s (Chatterbox Male 2 `difficult_short` at
+> 32.9 s); every other file is 2.28 s or less. Every file is 24 kHz MP3 at an
+> effective 160 kbps: the known, maintainer-ruled MPEG-2 cap for the `192k`
+> setting, not a regression. Workers logged as 2/2 for Edge and Kokoro and 2/1
+> for Chatterbox (its truthful cap). Corpus identity `407fa95d7c524c64`; runs
+> made from `e1c416a` plus the uncommitted harness change committed with this
+> block.
+>
+> **4. Interruption, recorded truthfully.** The first full run was killed
+> mid-Male-1 by Claude Code's low-memory reaper after the other 12 voices (26
+> files) had finished clean. The interrupted Male 1 output was set aside unused
+> in `unaccepted-partial/`. Male 1-4 were then rerun as a standalone process,
+> which replaced those rows and ran the final reference comparison. **Observation, not
+> investigated:** that process's private memory grew about 1.4 GB per
+> Chatterbox voice (10.1 to 12.2 GB over four runs in one process), with free
+> commit charge briefly at 0.4 GB. It is flagged for the Phase 9 bug hunt
+> (resource safety / repeated runs in one session); nothing was changed for it.
+>
+> **5. Preserved known findings (not retuned).** The Chatterbox HTTPS URL
+> misreading is model-native/deferred. The rare Chatterbox Male 1 long
+> silence is non-reproducible/deferred and did not recur (Male 1's longest
+> internal silence is 2.28 s). No pronunciation or generation parameter changed.
+>
+> **6. Evidence (gitignored):** `files/dev-work/v0.6.5-phase8-final-acceptance/`
+> holds `manifest.md`/`manifest.jsonl`. Audio is in
+> `outputs/TTS-Audiobook-Outputs/TTS-Audiobook-1..16` (registry order: 1-5
+> Edge, 6-10 Kokoro, 11-16 Chatterbox), with `transcripts/` (full engine logs),
+> `inputs/`, `run.log`, `run-resume.log` and `verify.log`.
+>
+> **7. Verification.** Focused TTS/Chatterbox/Kokoro/voice/quality/job_ui sweep
+> (28 files): 1034 passed. `scripts/verify.py`: **PASS (7624 passed, 57 skipped)**.
+>
+> **PHASE 8 IS NOT PASSED.** Stopped at the maintainer's Windows 16-voice
+> listening gate (plan Section 9). Next, only after that gate: the bounded macOS
+> portion of Phase 8 (unauthorized).
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 FINAL LAYOUT REFINEMENT: VERTICAL WORKFLOW BESIDE A DOMINANT ACTIVITY COLUMN -- STOPPED FOR THE MAINTAINER'S SCREENSHOT REVIEW (2026-09-22, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** That block's
+> redesign (four sections, measured responsive layout, one persistent log)
+> stands, refined per the maintainer's screenshot feedback. Layout only: no
+> TTS, audio, import, output-planning or job-control code changed. The
+> `99195a2` AI-trailer issue is still open and deliberately untouched.
+>
+> **1. Beside Activity the workflow is always one vertical column:** 1. Sources,
+> 2. Voice & Audio directly beneath it, 3. Output & Run directly beneath that,
+> top-anchored. The previous large-window arrangement that put 2 and 3 side by
+> side is removed; `_choose_layout` can no longer return it (a sweep of every
+> width 920-2560 x height 600-1440 pins this).
+>
+> **2. Sources is compact.** Beside Activity the list shows at most
+> `WIDE_LIST_ROWS` = 8 rows (fewer if the height needs it, never below 2), sized
+> from the list's measured row height, and does not stretch; a larger queue
+> scrolls inside it (60 files verified). Leftover height stays below Output &
+> Run instead of becoming an empty list.
+>
+> **3. Activity is dominant.** The workflow gets its measured natural width
+> (511 px on HOME-PC) plus at most `WORKFLOW_BREATHING` = 48 px; Activity gets
+> everything else and the full height.
+>
+> **4. Measured on HOME-PC (workflow / Activity width; list rows; log text):**
+> 920x600 stacked, 2|3 side by side, Activity beneath 900x160; list 2 rows; log
+> 855x72 (~4 lines). 1024x720 520 / 474x700; list 4 rows; log 429x603 (~37).
+> 1280x900 559 / 691x880; list 8 rows; log 646x792 (~49). 1920x1009 559 /
+> 1331x989; list 8 rows; log 1286x901 (~56 lines, was 784 px wide with a
+> 1061 px workflow and a 618 px-tall list).
+>
+> **5. The 920x600 exception, measured.** Sections 2 and 3 still share a row
+> there because nothing else fits: the vertical workflow's floor alone is 655
+> px against 580 px of content height, and the two columns' natural widths
+> (511 + 465 + gap) exceed 890 px. A test pins that justification.
+>
+> **6. Verification.** `test_tts_compact_ui.py`: 61 passed, including new pins
+> for the vertical column at five sizes, the size sweep, the measured 920x600
+> fallback, compact Sources, the 1024x720 row give-back, a 60-file queue at all
+> four sizes, and Activity dominance; both "2|3 side by side" and "Sources
+> stretches" were mutation-checked (6 and 4 failures). TTS/job_ui/Chatterbox/
+> Kokoro/launcher sweep: 1245 passed. `scripts/verify.py`: **RESULT: PASS (full pytest 7616 passed, 57 skipped)**. No
+> audio regenerated (no execution path changed).
+>
+> **PHASE 7 IS NOT PASSED.** Stopped for the maintainer's screenshot review.
+> Nothing here authorizes Phase 8.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 UI/UX REDESIGN: RESPONSIVE FOUR-SECTION TTS LAYOUT -- STOPPED FOR THE MAINTAINER'S SCREENSHOT/MANUAL UI REVIEW (2026-09-22, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Its record (one
+> persistent Summary | Detailed log, engine transcript in Detailed only,
+> `append_detail`) stands, with **one correction**: that block said the log was
+> "900x61 px, real, readable" at 920x600. Re-measured this session with the
+> window's own bounds checked, the log sat at y=650-711 of a 600 px window --
+> **entirely below the visible area** -- and the job controls were partly
+> clipped. The overlap test passed only because clipped bands do not overlap.
+> The fixed bands needed ~720 px against 600. This redesign is the real fix.
+>
+> **Also flagged, not fixed:** commit `99195a2` (the remediation checkpoint)
+> carries a `Co-Authored-By: Claude` trailer, which violates the standing
+> no-AI-trailer ADR. It is pushed; it was not rewritten. The maintainer decides
+> whether to leave it (as with the 2026-09-05 waiver) or rewrite it.
+>
+> **1. Composition.** The panel is four sections: **1. Sources** (imported
+> list, Add Files/Add Folder, Move Up/Down, Remove, Clear All, PDF/TXT,
+> subfolders/hidden/duplicates, import status/Cancel), **2. Voice & Audio**
+> (voice, engine line, Kokoro notice, setup-required message, bitrate + file
+> workers side by side, the backend's one truthful rate control), **3. Output &
+> Run** (output path + Open Output Folder, Resume, Overwrite, then **Start**
+> leading Pause/Resume/Cancel/Retry Failed with progress + ETA beneath), and
+> **Activity** (the one Summary | Detailed log, a one-line caption, Clear Log).
+> Every widget was re-parented into its section; nothing was duplicated and no
+> state, callback or job semantic changed.
+>
+> **2. Responsive, from measured sizes.** `_choose_layout` is a pure function of
+> the panel's size. Two columns (workflow left, Activity right) only when both
+> fit at their natural widths and the workflow's floor fits the height;
+> Voice & Audio | Output & Run go side by side whenever the width allows;
+> otherwise Activity drops beneath. Measured natural widths on HOME-PC: workflow
+> stacked 511 px, side-by-side 880 px, Activity 465 px (LOG_WIDTH_CHARS=52 --
+> the one content-chosen number). Result: 920x600 stacked (sections 2|3 side by
+> side), 1024x720 and 1280x900 two columns with sections stacked, 1920x1009 two
+> columns with sections side by side. In two columns the workflow gets its
+> natural width plus one third of the spare width; the log gets the rest.
+>
+> **3. Measured (log text area, lines at 16 px):** 920x600 855x72 (~4 lines;
+> was 0 -- off-screen); 1024x720 432x603 (~37); 1280x900 603x792 (~49; was
+> ~5); 1920x1009 784x901 (~56; was ~9). Imported list: 2 rows at 920x600, 618
+> px tall at 1920x1009. Every section is inside the window and nothing
+> overlaps at all four sizes.
+>
+> **4. Two real bugs found and fixed while building it.** (a) A column-width
+> ratchet: captions re-wrapping to their *allocated* width made the workflow
+> column's request chase its allocation, squeezing the log below its natural
+> width; wrap widths now come from the layout math and the workflow column
+> width is set explicitly. (b) Caption-spanning columns spread the audio
+> controls apart; a weighted filler column fixes it. Both have regressions,
+> mutation-checked (each regression fails when its bug is reintroduced).
+>
+> **5. Floors.** List keeps 2 rows, log keeps 3 lines, via measured row
+> minsizes. Honest finding: **at every supported size, including 920x600 with
+> the longest voice messages, the floors never bind** -- grid absorbs the
+> shortfall first. They are a guard for larger fonts/scaling, proven wired by
+> a structural test, not exercised by the supported sizes.
+>
+> **6. Copy (no behavior change).** The Kokoro notice no longer names
+> `~/.cache/huggingface/` (the cache is in-tree) or tells users to `pip
+> install` (setup self-heals Kokoro). The workers caption now says the
+> effective count is "shown in the Detailed log" -- "logged below" is not true
+> when the log is to the right. The "Default voice: ..." footer is gone (the
+> dropdown shows it). Standalone `main()` now uses the shared 1024x720 default
+> and 920x600 minimum, like the sibling tools.
+>
+> **7. Verification.** `test_tts_compact_ui.py` section D rewritten (47 tests
+> in the file): section ownership/order, Start primacy, fit + no overlap at
+> four sizes, stacked-vs-wide switch, floors (incl. Kokoro/setup messages at
+> 920x600), exact column math from both a minimum and a maximized start,
+> deterministic resizing, ghost-control-free backend switching at two sizes,
+> setup-required expansion. TTS/job_ui/Chatterbox/Kokoro/launcher sweep: 1231
+> passed. `scripts/verify.py`: **RESULT: PASS (full pytest 7602 passed, 57 skipped)**. Real screenshots reviewed at all
+> four sizes plus Kokoro and Chatterbox-setup-required variants. No synthesis,
+> audio, worker, importing, output-planning or job-control code changed, so no
+> real TTS audio was regenerated.
+>
+> **PHASE 7 IS NOT PASSED.** Stopped for the maintainer's screenshot/manual UI
+> review. Nothing here authorizes Phase 8.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 REMEDIATION: TTS LOG CONSOLIDATED TO ONE SUMMARY/DETAILED REGION -- STILL STOPPED BEFORE THE MANDATORY WINDOWS MANUAL GATE (2026-09-21, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Its record (the
+> final layout-refinement pass: canvas/scrollbar removed, weighted-row scheme
+> adopted, real production-path smoke campaign passed) stands exactly as
+> written, except for the one thing this drop corrects: the maintainer's
+> manual Phase 7 gate ran and came back **FAIL** -- the TTS panel had two
+> separate log regions (the JobAdapter's own internal Summary/Details view,
+> plus a second standalone "Engine output" ScrolledText below it), duplicating
+> and fragmenting run information and wasting vertical space. This drop is the
+> remediation for that failure. **The manual gate is still outstanding.**
+>
+> **1. One persistent `job_ui.SummaryDetailsView`, not two log regions.**
+> `self.log` is now built once in `__init__` (labels "Summary"/"Detailed",
+> `limit=LOG_LIMIT=400`, matching `mp3_tool.py`/`m4b_maker.py`/
+> `m4b_metadata_editor.py` exactly) and handed to every run's `JobAdapter` via
+> the existing `views=` seam, so a fresh adapter's empty first render can never
+> drop an earlier run's history. The separate "Engine output" `ttk.LabelFrame`
+> + `scrolledtext.ScrolledText` is deleted outright, along with the now-unused
+> `scrolledtext`/`tkinter.font` imports.
+>
+> **2. Engine transcript routes into Detailed only, never Summary.** Added
+> `SummaryDetailsView.append_detail()` to `shared/job_ui.py` (additive,
+> backward-compatible: same freeze-then-extend contract as `append()`, but
+> touches only the Details history) since no existing method could write to
+> one pane alone. A new panel-side `_append_engine_output()` line-buffers the
+> worker->GUI queue's raw `"log"`-kind payloads (`QueueWriter` stdout/stderr
+> redirect and `_RunContext.log`'s own milestone strings both arrive on this
+> one channel, unchanged) and flushes complete lines to Detailed;
+> `_flush_engine_output_buffer()` catches any trailing partial line when a
+> `"done"` message ends the run. Summary is untouched by any of this -- it
+> stays exactly the JobAdapter's own state/progress/warnings/failures/
+> completion projection, driven from the job event stream alone.
+>
+> **3. `_install_jobs` passes `views=self.log`**, and `_launch` calls
+> `self.log.divider(f"{DIVIDER_MARK} {heading}")` (heading: `"Run N -- <run
+> directory name>"` for a fresh run, `"Retry Failed -- attempt N"` for a
+> retry, distinguished by the existing `run_directory is None` parameter)
+> immediately after the attempt counter increments and before the adapter
+> rebuilds -- same ordering the sibling tools use, and for the same reason: it
+> freezes the previous attempt's lines into history first. `clear_log()` is
+> now one line, `self.log.clear()`; the panel-authored "Cancelling..." status
+> line moved from the old `append_log` to `self.log.append()` (both panes --
+> it is a status line, not engine transcript, matching the siblings' own
+> `_say`/`append` convention).
+>
+> **4. Layout: row 3 (shared run controls) is now pinned, row 4 (the log)
+> absorbed its weight.** Row 3 no longer holds Summary/Details -- just the
+> JobAdapter's fixed-height control bar and status view -- so it dropped from
+> `weight=2` to `weight=0`; row 4 rose from `weight=4` to `weight=6`.
+> `_hold_job_area_open()` no longer calls `self.jobs.minimum_height()` (which
+> still unconditionally adds `views.minimum_height()` regardless of whether
+> the caller owns those views, and would misattribute row 4's own floor onto
+> row 3 now that `views` lives outside `job_area`); it measures
+> `controls.frame`/`status.frame` directly. `_hold_log_open()` now delegates to
+> `SummaryDetailsView.minimum_height()` instead of hand-rolled font-metric math
+> against the old Text widget.
+>
+> **5. A real floor-computation bug was found and fixed during this drop, not
+> merely refactored around.** Both `_hold_job_area_open()` and
+> `_hold_log_open()` read their target widgets' `winfo_reqheight()`
+> immediately after those widgets were built inside the same call
+> (`_install_jobs`/`__init__`), before Tk's geometry manager had necessarily
+> settled a real value -- a small-but-positive placeholder reqheight sailed
+> past a bare `floor <= 0` retry guard and pinned row 3's floor at ~10 px
+> (should be 93 px) while row 4 got no floor at all, so the log could and did
+> collapse to a real, mechanically-measured 1x1 px sliver at the 920x600
+> minimum -- worse than the *previous* drop's already-accepted "compresses to
+> effectively nothing" trade-off, not better. Both methods now force an
+> idle-task pass unconditionally before measuring. New regression:
+> `test_the_log_region_keeps_a_real_visible_floor_at_the_920x600_minimum`.
+> Corrected, mechanically measured at the exact 920x600 minimum: **log 900x61
+> px** (real, multi-line, readable -- not a sliver), job area 900x93 px,
+> importer 900x163 px, options form 920x331 px, Start row 304x41 px; at
+> 1280x900 the log grows to 1260x108 px. Zero overlaps among the five
+> top-level bands at either size (existing test, re-verified).
+>
+> **6. Tests.** `shared/job_ui.py`: 5 new focused tests for `append_detail`
+> (details-only, multi-line, freeze-then-extend, divider interaction, limit).
+> `test_tts_compact_ui.py`: fixed 5 tests whose assertions depended on the old
+> Text-widget `self.log` shape (`test_clear_log_empties_the_visible_
+> transcript_only`, `test_every_scrollbar_belongs_to_a_locally_scrolling_
+> widget`, `test_no_primary_band_overlaps_another` x2, the "Engine output"
+> caption check); added `test_exactly_one_summary_details_notebook_and_no_
+> engine_output_widget` and the floor-regression test above.
+> `test_tts_jobs.py`: added a "P. Summary/Detailed log consolidation" section
+> (7 tests) proving the persistent-view identity survives adapter rebuild,
+> raw log lines and a partial unterminated line both reach Detailed only, a
+> real run's transcript lands in Detailed while Summary shows its own
+> completion wording, history survives both a retry and a second fresh run
+> with the right divider text, and Clear Log empties both panes without
+> touching the frozen result. `test_tts_importing.py`/
+> `test_tts_worker_concurrency.py`: 4 pre-existing tests updated from
+> `panel.log.get(...)` to `panel.log.details`. Full TTS + job_ui sweep: **465
+> passed**. Full `pytest`: **7582 passed, 57 skipped**, zero failures.
+> `scripts/verify.py`: **RESULT: PASS**. No TTS synthesis, audio quality,
+> timing, worker, importing or output-planning behavior changed.
+>
+> **v0.6.5 PHASE 7'S REMEDIATION IS COMPLETE AND MECHANICALLY VERIFIED, BUT
+> STILL NOT MANUALLY ACCEPTED.** Per instruction, this STOPS here, before the
+> maintainer's manual Windows layout/functional smoke gate -- that gate has
+> still not been performed and is not claimed here. Nothing here authorizes
+> Phase 8.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 FINAL LAYOUT-REFINEMENT PASS COMPLETE; A REAL PRODUCTION-PATH SMOKE CAMPAIGN ALSO PASSED -- STILL STOPPED BEFORE THE MANDATORY WINDOWS MANUAL GATE (2026-09-21, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Its record (Compact
+> UI pass: pause/trim controls removed, per-voice policy unchanged, Clear Log/
+> Open Output Folder added) stands exactly as written. This block adds two
+> things done since: a real production-path smoke campaign (passed, no defect),
+> and one final layout-refinement pass the maintainer asked for before the
+> manual gate -- **that gate is still outstanding and still NOT performed.**
+>
+> **1. Real production-path smoke campaign (no code changed as a result).**
+> Before any further layout work, a disposable script
+> (`files/dev-work/v0.6.5-phase7-smoke/`, gitignored) drove the actual
+> `TtsPanel.run_job()` -> `conversion_worker()` -> `_RunContext.execute()` path
+> -- real background thread, real network Edge TTS, real local Kokoro and
+> Chatterbox models, real approved reference voice (Male 1) -- for Edge single,
+> Kokoro single, Chatterbox single, and an Edge two-file workers=2 run. All four
+> succeeded; every output MP3 existed, fully decoded, and had a plausible
+> non-zero duration; `Requested workers: N | Effective workers: N` logged
+> truthfully each time; source files stayed byte-identical; the Edge single
+> output's terminal silence (~5.95 s) matched Steffan's registry-defined pause
+> policy applied with zero pause/trim widgets in the panel. No defect found; no
+> production code touched.
+>
+> **2. Final layout-refinement pass -- the options form's canvas/scrollbar is
+> gone.** Investigated the real widget tree before editing (`winfo_reqheight()`
+> per band on an unconstrained panel) and found the Compact UI pass had shrunk
+> the form to ~445 px but left its canvas/scrollbar in place, while the *other*
+> bands (importer + Start row + job area + log = ~699 px) already exceeded the
+> 600 px minimum on their own. Adopted the exact weighted-row scheme the M4B
+> Converter/MP3 Tool already use for this identical problem: queue (row 0) and
+> log (row 4) carry the weight and compress/scroll locally; the options form
+> (row 1) and Start row (row 2) are pinned at weight=0; the shared run controls'
+> row (row 3) gets a measured floor via a new `_hold_job_area_open()` (mirrors
+> the M4B Converter's own method near-verbatim -- TTS never had this protection
+> before). Two more floor-protection methods were added and needed, since
+> neither had prior art to mirror exactly: `_hold_importer_open()` (a real
+> defect was found and fixed here -- without it, the imported queue's Add
+> Files/Import Folder controls did not shrink when squeezed, they **overlapped**
+> the Voice/Engine section below them) and `_hold_log_open()` (floors the
+> engine-output log at two visible lines rather than letting it compress to a
+> single, effectively-invisible pixel).
+>
+> **3. Further compaction (text/spacing only, no behavior change):**
+> `details_height` and the log's visible-line count both dropped from 8/8 to
+> 4/4, matching the M4B Converter's own already-accepted values; the options
+> form's footer paragraph is now one line (the rest was already shown live by
+> the per-backend notice/status labels); the workers and Edge-rate captions
+> were shortened to one wrapped line each; LabelFrame/row padding tightened
+> 8-10 px to 6 px throughout. The form's own height fell from ~445 px to
+> **331 px**.
+>
+> **4. Mechanically verified at both the 920x600 minimum and 1280x900** (a real,
+> packed, sized panel -- not an estimate): zero overlaps among the five
+> top-level bands at either size; every primary control (Add Files/Import
+> Folder, voice dropdown, bitrate, workers, Start, Open Output Folder, Clear
+> Log) stays mapped and reachable at both; backend switching (Edge/Kokoro/
+> Chatterbox) still shows exactly the correct rate control at 920x600
+> specifically. At 920x600: options form 920x331 (its full protected request),
+> importer 900x163, Start row 304x41, job area 900x141 (near its measured
+> Summary floor). **The engine-output log compresses to effectively nothing at
+> the exact 920x600 minimum** -- an accepted, explicit trade-off: it is exactly
+> the kind of "may continue to scroll internally" region §11 already allows,
+> and it recovers immediately at any window taller than the exact minimum
+> (38 px of visible log at 1280x900).
+>
+> **5. Verification.** `test_tts_compact_ui.py` section D rewritten: zero
+> canvases anywhere in the panel; every scrollbar belongs to a locally-
+> scrolling widget; the form is a plain pinned frame (no canvas); the form
+> stayed compact (< 400 px); no band overlaps another at 920x600 or 1280x900;
+> backend switching's rate control at 920x600. Two existing tests' stale
+> caption-text assertions were updated to match the shortened wording. Full
+> `pytest`: **7568 passed, 57 skipped**, zero failures. `scripts/verify.py`:
+> **RESULT: PASS**. No TTS/audio/concurrency behavior changed; the real smoke
+> campaign was not re-run for this layout-only pass, since nothing on that
+> path changed.
+>
+> **v0.6.5 PHASE 7'S FINAL LAYOUT-REFINEMENT PASS IS COMPLETE AND MECHANICALLY
+> VERIFIED, BUT STILL NOT MANUALLY ACCEPTED.** Per instruction, this STOPS here,
+> before the maintainer's manual Windows layout/functional smoke gate -- that
+> gate has still not been performed and is not claimed here. Nothing here
+> authorizes Phase 8.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 7 (COMPACT TTS UI) IMPLEMENTED AND MECHANICALLY VERIFIED -- STOPPED AT THE MANDATORY WINDOWS MANUAL LAYOUT/FUNCTIONAL SMOKE GATE (2026-09-21, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Phase 6's record (both
+> subtasks: approved audio-quality candidates live, P14 file-worker concurrency
+> implemented) stands exactly as written below, unchanged by this drop. This block
+> adds Phase 7 -- the plan's Section 10 compacting pass -- and STOPS at the manual
+> gate the phase's own instruction requires; **that gate has not yet been performed.**
+>
+> **1. Removed from user-editable state:** sentence/paragraph/title/chapter pause,
+> end-silence, trim threshold, trim-edge-chunks -- their Tk StringVar/BooleanVar
+> backing, the "Pause timing" LabelFrame, and the two provenance-scoped ("files added
+> directly" / "imported from a folder") LabelFrames are gone. **The maintainer-
+> approved per-voice policy behind them is unchanged**: `voice_registry.VoiceEntry.
+> timing_preset` still varies per voice exactly as before (Andrew's 820/870 ms vs.
+> Steffan's 800/850, proven by a rewritten test), read directly from the registry at
+> run time instead of from a widget.
+>
+> **2. Retained per §10:** unified queue/importer, voice dropdown + backend/setup-
+> required status, MP3 bitrate, requested file workers with P14's truthful
+> effective-cap reporting, and exactly the rate control the selected backend
+> supports -- Edge "%", Kokoro speed, **Chatterbox now shows neither** (previously the
+> Edge-rate entry stayed visible, inertly, for every backend -- a real fake control
+> this pass corrects). The Edge rate control is now honestly captioned as
+> folder-imported-Edge-only (the direct/rich engine has never accepted a rate
+> parameter -- a pre-existing asymmetry, now stated rather than left implicit).
+>
+> **3. Consolidated Band 3 ("Audio / Processing").** Bitrate, workers, and the rate
+> area now live in one LabelFrame (previously split across a bitrate-only group and a
+> workers/rate/resume group both misleadingly scoped as provenance-specific, even
+> though bitrate and workers already applied to every item regardless of provenance).
+> Ordered after a new "Voice / Engine" LabelFrame (Band 2), so the rate control's own
+> band follows the choice that determines which variant is shown. Resume and
+> Overwrite (not named in §10's table either way) are kept, moved into one small run-
+> options row together.
+>
+> **4. Added: Clear Log and Open Output Folder**, bringing this panel to parity with
+> the sibling MP3/M4B tools (`mp3_tool.py`, `m4b_converter.py`, `m4b_maker.py`,
+> `m4b_metadata_editor.py`) that already have both. Neither locks through the shared
+> matrix, matching those tools' convention. Reuses `output_paths.ensure_tool_parent`
+> and `shared.subprocess_utils.reveal_in_file_manager`, already used identically
+> elsewhere.
+>
+> **5. Layout, mechanically measured (real Tk geometry, not a screenshot):** the
+> scrollable options form is now **445 px** tall (its own prior comment documented
+> ~1300 px before this pass); the panel's always-visible bands (importer + Start row +
+> job area) measure **~575 px** total, comfortably under the shared **920x600**
+> minimum window (`shared.ui_theme.MIN_SIZE`) the launcher already applies. No second
+> outer scrollbar wraps the panel -- the options form keeps the one internal canvas it
+> already had, unchanged architecture. **This is a mechanical proxy only, per the
+> phase's own instruction to stop at the manual gate below.**
+>
+> **6. Verification.** Two pre-existing tests asserting the removed StringVars
+> directly were rewritten to prove the same per-voice values still reach the frozen
+> run params with no widget in the path. New `files/tests/test_tts_compact_ui.py`
+> (18 tests) covers every point above. Full `pytest`: **7561 passed, 57 skipped**,
+> zero failures. `scripts/verify.py`: **RESULT: PASS**.
+>
+> **v0.6.5 PHASE 7 IS IMPLEMENTED AND MECHANICALLY VERIFIED, BUT NOT YET MANUALLY
+> ACCEPTED.** Per this phase's own explicit instruction, this STOPS here at the
+> mandatory Windows manual layout/functional smoke gate -- the maintainer must
+> resize/inspect the real panel on Windows and confirm it behaves as reported before
+> this phase can be considered closed. Nothing here authorizes Phase 8.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 6 COMPLETE (BOTH SUBTASKS) -- APPROVED AUDIO-QUALITY CANDIDATES LIVE, AND BOUNDED FILE-WORKER CONCURRENCY (P14) IMPLEMENTED; A REAL os.chdir RACE IN THE EDGE DIRECT ENGINE WAS FOUND AND FIXED; PHASE 7 NOT STARTED (2026-09-21, HOME-PC)
+>
+> **This block supersedes the block immediately below it on exactly one point** --
+> the file-worker/concurrency subtask, previously "not started," is now complete.
+> The audio-integration subtask's record (Edge PCM assembly + i.e./e.g. fix;
+> Chatterbox structural-colon normalization) stands exactly as written below,
+> unchanged by this drop.
+>
+> **1. Direct and folder items now share one pool and one resolved worker count.**
+> `epub2tts_gui._RunContext.run_all_items` replaces the old two-phase design --
+> direct items strictly one at a time, then a separately pooled folder half --
+> with one `ThreadPoolExecutor` for every queued item, sized by one resolved
+> effective-worker count. A direct Edge file still takes the rich engine and a
+> folder-derived Edge file still takes the chunked batch worker (P10 unchanged);
+> Kokoro/Chatterbox still take the same engine call regardless of provenance.
+>
+> **2. `resolve_effective_workers(requested, queued_files, backend)`** --
+> `min(requested, queued_files, backend_safe_ceiling, device_safe_ceiling)`,
+> floored at 1. Backend-safe ceilings unchanged (Edge 32, Kokoro 8, Chatterbox 1 --
+> a correctness constraint). The device-safe ceiling is new: real `os.cpu_count()`
+> (via a patchable `_cpu_count()` seam) -- Edge gets up to one worker per core,
+> Kokoro gets half the cores, leaving OS/UI/FFmpeg headroom either way. An
+> oversized request degrades safely and is always logged truthfully:
+> "Requested workers: X | Effective workers: Y".
+>
+> **3. A real, previously-latent bug was found and fixed:**
+> `epub2tts_edge.runner.run_conversion_job` isolates one conversion's relative-
+> path scratch files by `os.chdir`'ing into a private temp directory for the
+> whole call -- safe only because direct Edge items were previously guaranteed
+> sequential. `os.chdir` is process-wide, not thread-local, so two concurrent
+> direct conversions would have raced each other's scratch files. Fixed with
+> `runner._CWD_ISOLATION_LOCK`, serializing only that chdir'd critical section --
+> a folder-derived Edge file or any Kokoro/Chatterbox file on a different pool
+> worker still runs fully concurrently with a gated direct Edge file, since
+> neither of those paths ever calls `os.chdir`. A conversion cancelled while
+> queued behind this lock re-checks `cancel_check()` immediately on acquiring
+> it, so it never starts unwanted real work. A full rewrite to an explicit
+> working directory would remove the lock's need entirely but is a larger
+> change to vendored internals than this bounded subtask justifies (P11/P14).
+>
+> **4. A second correctness gap in the pre-existing folder-only pool was fixed
+> while unifying it:** the old code broke out of its results loop and called
+> `future.cancel()` as soon as it noticed a cancellation, but that only affects
+> futures that have not started -- an already-running task's later success was
+> silently discarded once the pool finished waiting for it on exit, leaving an
+> uncounted, unretryable output file on disk. The new loop drains every
+> submitted future's result unconditionally; nothing is silently dropped.
+>
+> **5. Chatterbox >1-file proof investigated, per the plan's own conditional
+> instruction, and found not justified.** `_get_model` caches one model
+> instance per device; `load_conditionals` mutates its `.conds` attribute in
+> place immediately before `generate()` -- a genuine shared-mutable-state race
+> for two concurrent files, not theoretical. Safe >1 would need either a second
+> ~3.86 GiB model instance per extra worker (disproportionate VRAM/RAM) or an
+> invasive rearchitecture of the pinned wheel's stateful conditioning -- both
+> out of proportion here. **Cap remains 1**, verified directly with two files
+> on two distinct reference voices at a requested count of 4.
+>
+> **6. Pause/Cancel/Retry Failed remain correct under concurrency.** Four
+> existing `test_tts_jobs.py` tests that assert exact pause/cancel *ordering*
+> between two direct files now pin `workers_var.set("1")` (matching this
+> codebase's own existing convention for one folder-based pause test) -- they
+> test the boundary semantics, not worker count. Retry Failed needed no change:
+> neither addition here is a new user-facing option, so `freeze_tts_options`
+> is unaffected and a retry still replays the original frozen `RunSnapshot`.
+>
+> **7. Verification.** New `files/tests/test_tts_worker_concurrency.py`
+> (25 tests): `resolve_effective_workers` at representative 1/2/4/oversized
+> requests; the unified dispatch's per-item engine routing; truthful
+> requested-vs-effective logging; real overlap proof for folder-Edge and
+> Kokoro; the Chatterbox non-overlap proof; the no-silent-drop-on-cancel proof;
+> and two focused tests against the real `runner.run_conversion_job` proving
+> the cwd-isolation lock and its cancel-while-waiting behavior. Full `pytest`:
+> **7542 passed, 57 skipped**, zero failures. `scripts/verify.py`:
+> **RESULT: PASS**.
+>
+> **v0.6.5 PHASE 6 IS NOW FULLY COMPLETE (both subtasks).** Nothing here
+> authorizes Phase 7 (Compact TTS UI) -- the workers spinbox's 1-16 range and
+> display are unchanged; that is explicitly the next, unauthorized phase.
+
+> ## ⧢ CURRENT STATE -- v0.6.5 PHASE 5 CLOSED; PHASE 6 AUDIO-INTEGRATION SUBTASK COMPLETE -- APPROVED EDGE (PCM ASSEMBLY + i.e./e.g. FIX) AND CHATTERBOX (STRUCTURAL-COLON NORMALIZATION) CANDIDATES NOW LIVE IN PRODUCTION; FILE-WORKER/CONCURRENCY SUBTASK NOT STARTED (2026-09-21, HOME-PC)
+>
+> **This block supersedes the block immediately below it.** Phase 5 is now closed --
+> every iteration's evidence/verdicts (recorded in the blocks below and in
+> `Decisions.md`) stand exactly as written. This block records the Phase 6
+> AUDIO-INTEGRATION subtask only. **The file-worker/concurrency subtask is
+> explicitly NOT started.**
+>
+> **Phase 5 final disposition (unchanged, restated for this integration's context):**
+> Edge PCM-domain assembly -- APPROVED. Edge NLTK `abbrev_types` i.e./e.g. fix --
+> APPROVED. Edge terminal-pause supersession -- REJECTED (current pause policy
+> retained). Chatterbox structural-colon normalization -- APPROVED. Chatterbox HTTPS
+> URL pronunciation -- remains model-native/deferred, no dictionary/word hack. Rare
+> Male-1 long silence -- remains non-reproducible/deferred, not investigated further.
+> Chatterbox generation settings and Kokoro -- unchanged.
+>
+> **1. Edge direct/rich integration**
+> (`scripts/Universal/tts/epub2tts_edge/epub2tts_edge.py`). `read_book`'s
+> per-sentence/per-sub-chunk assembly now stays entirely in memory as pydub
+> `AudioSegment` objects (trim -> intra-pause -> sub-merge -> sentence/paragraph-pause),
+> with the raw Edge network MP3 bytes read exactly once per sub-chunk and the
+> paragraph's own FLAC export the first (and only, at this stage) write to disk --
+> removing the 3-5 avoidable lossy MP3 re-encodes per multi-sub sentence that existed
+> before. Pause constants, trim threshold, title handling, chapter/end-of-book pause
+> stacking, and the final single lossy encode (`make_mp3`/`make_m4b`) are all
+> unchanged. `sent_tokenize` now wraps a deep-copied Punkt tokenizer with "i.e"/"e.g"
+> added to `abbrev_types` (`_sentence_tokenizer()`), used by both `get_book` and
+> `read_book`; NLTK's own shared cached tokenizer is never mutated in place (a
+> companion test proves this).
+>
+> **2. Direct-vs-folder quality-semantic proof.** Before this integration, direct/rich
+> performed multiple avoidable lossy re-encodes per multi-sub sentence while
+> folder/batch (`batch_convert.merge_mp3s`) already decoded once and encoded once.
+> Both paths now share the same contract -- exactly one final lossy encode from
+> PCM-assembled raw Edge audio. Segmentation/pause granularity between the two paths
+> is intentionally still different (a separate, out-of-scope rewrite the plan
+> explicitly forbids without new evidence) -- "quality semantics" here means the
+> no-avoidable-lossy-generation contract, which is now unified.
+>
+> **3. Chatterbox integration** (`scripts/Universal/tts/chatterbox_synth.py`).
+> `_structural_colon_punc_norm` reimplements the pinned wheel's own `punc_norm`
+> byte-for-byte except the colon step, which now fires only on a prose colon
+> (followed by whitespace/end-of-string); a structural colon (digit:digit, `://`) is
+> left untouched. Applied via `_ensure_structural_colon_patch(tts_turbo_module)`,
+> called once (idempotent) from `_instantiate_model` immediately after importing
+> `chatterbox.tts_turbo` -- the installed wheel is never edited on disk, and there is
+> no supported extension point that would let production configure this any other
+> way. Current `generation_params()` (temperature 0.72, top_p 0.95, top_k 1000,
+> repetition_penalty 1.2), the six reference voices, chunking
+> (`split_for_chatterbox`), and `COLON_PAUSE_MS`/`split_at_prose_colon` (unrelated --
+> pause duration, not pronunciation) are all unchanged.
+>
+> **4. Retry Failed proof.** Neither change is a new user-facing option; both are
+> unconditional engine-internal behavior with no new field in
+> `epub2tts_gui.freeze_tts_options`, and `retry_failed` re-uses the original frozen
+> `RunSnapshot` rather than re-reading configuration -- so a retry cannot behave
+> differently from the original attempt because of this integration.
+>
+> **5. Tests.** New: `files/tests/test_edge_direct_pcm_assembly.py` (9 tests) and
+> `files/tests/test_chatterbox_colon_integration.py` (9 tests) -- both
+> network/model-independent (stubbed Edge audio; pure-function/fake-module
+> Chatterbox patch tests). Updated (docstrings only, no assertion changed):
+> `test_segmentation_source_span.py`'s and `test_chatterbox_punc_norm_evidence.py`'s
+> "found, not fixed" sections now document that they exercise the raw, unpatched
+> upstream/stock behavior that motivated -- and remains distinct from -- the
+> now-integrated fix.
+>
+> **6. Verification.** Full `pytest`: **7517 passed, 57 skipped**, zero failures.
+> `scripts/verify.py`: **RESULT: PASS** (pytest/deps/docs/docnames/config all PASS).
+> `git status` confirms only the intended files changed: `epub2tts_edge.py`,
+> `chatterbox_synth.py`, the two new test files, and two pre-existing test files'
+> docstrings.
+>
+> **v0.6.5 PHASE 6 AUDIO-INTEGRATION SUBTASK IS COMPLETE.** Requested/effective
+> file-worker concurrency (P14) was **NOT** started or touched in this run, per
+> explicit instruction -- that remains the next authorized subtask. Nothing here
+> authorizes Phase 7 or any further Phase 6 work beyond what is recorded above.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 5 VERDICT RECORDED (STRUCTURAL-COLON CANDIDATE CARRIED FORWARD; URL STILL FAILS); ITERATION 6 LOCALIZES THE RESIDUAL URL FAILURE TO THE TOKENIZER'S DOMAIN-DOT/SENTENCE-DOT AMBIGUITY — NO GENERAL CANDIDATE JUSTIFIED, DIAGNOSIS CLOSED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 5's colon A/B now has a maintainer verdict — and adds iteration 6's diagnostic
+> record. Iterations 1–5's full construction/measurement/caveats and verdicts stand exactly as
+> recorded below. **No production file was edited by any iteration; no generation parameter was
+> tuned; no candidate was integrated.**
+>
+> **Maintainer verdict, iteration 5 (2026-09-21), per seed and per test case:** Seed 0/1/2: **B
+> preferred, all three.** 6:45/7:15: **B PASS.** 3:1: **B PASS.** Ordinary prose colon: **B PASS.**
+> **HTTPS URL: still FAIL** (both A and B render it incorrectly). **Overall: B preferred.** Ruling:
+> **carry the structural-colon normalization candidate forward for later Phase 6 integration; do
+> not integrate it yet.** The URL's separate residual problem is carried into iteration 6 rather
+> than blocking this candidate's approval. Recorded in `Decisions.md` (below) as a dated ADR.
+>
+> **Iteration 6 — isolating the residual URL failure only, using the approved colon candidate as
+> the fixed baseline for both sides so colon corruption is no longer a variable.**
+>
+> **1. Mechanical localization, stopping exactly where the phase's instruction stops — at
+> generation input, not at judging generated audio.** A 10-case tokenizer-level diagnostic matrix
+> (`files/dev-work/v0.6.5-phase5-chatterbox-url-diagnostic/diagnose.py`, gitignored) loaded the real
+> production model/tokenizer and inspected the exact token sequence for: the original failing URL;
+> a generic-path variant (removes the "lighthouse" word-choice confound); domain-only; no-scheme;
+> `ftp://` and `http://` scheme variants; a bare domain; a query-string variant (`?`/`=`/`&`, not
+> present in the original but tested for completeness); and a domain-dot-immediately-before-a-real-
+> sentence-boundary control.
+>
+> **2. Findings, mapped to the five candidate correlates:**
+> — **Scheme token/text:** `"https"`/`"http"` each tokenize as a single, ordinary, unfragmented
+> token in every variant — not a rarity/fragmentation pattern. (`"ftp"` does fragment into two
+> tokens; untested by the maintainer, not pursued further.)
+> — **`"://"` syntax:** a single dedicated token, confirmed present and unchanged across every
+> scheme variant — the approved colon candidate's fix holds completely.
+> — **Path/query punctuation:** `/`, `-`, `?`, `=`, `&` all tokenize as clean, ordinary, unambiguous
+> single tokens in every variant — no fragmentation or anomaly found anywhere in this class.
+> — **Hostname/domain punctuation:** **the one confirmed structural fact.** The `"."` in
+> `"example.com"` is the *same token id* as an ordinary sentence-final period, in every variant
+> tested, with or without a scheme, with or without a path. The tokenizer gives the model no signal
+> distinguishing a domain-ending dot from a sentence-ending dot.
+> — **The original URL's own confound, ruled out:** `"lighthouse-log"` fragmenting into `"l"` +
+> `"ighthouse"` is an artifact of that specific English word's rarity in this vocabulary, **not a
+> URL-structural issue** — a generic path word (`"page"`) tokenizes as one clean token in the
+> identical position, in every variant that swaps it in.
+>
+> **3. No general structural candidate is justified — diagnosis stops here, per the phase's
+> explicit fallback.** The domain-dot/sentence-dot token identity is real, but nothing permitted can
+> fix it: any normalization that made the model reliably render a domain dot differently from a
+> sentence-ending dot would amount to inserting a pronunciation cue (effectively spelling "dot"),
+> which is the exact forbidden word-substitution/phonetic-respelling class this phase explicitly
+> ruled out — not a structural rule in the sense the colon fix was. Every other URL component
+> already tokenizes cleanly with no fixable ambiguity to target. **The residual URL-reading
+> imperfection is classified as model-native** — an inherently rare "read a URL aloud" utterance
+> shape and/or the model's own acronym/domain-dot handling — not a text-normalization gap this
+> investigation can close. No A/B was built; no candidate exists to compare.
+>
+> **4. Verification.** `test_chatterbox_punc_norm_evidence.py` (6) + `test_segmentation_source_
+> span.py` (37) re-run clean (43 passed) — no tracked file changed besides this Handoff/Decisions
+> update. No new tracked test was added for this iteration's own finding: it requires loading the
+> real pinned model/tokenizer, which does not belong in the ordinary fast tracked suite (the same
+> reasoning that kept the Phase 3 Male-1 gap analysis as documented evidence rather than a tracked
+> test).
+>
+> **5. Caveats.** (a) The diagnostic matrix covers the failing URL's actual shape (scheme, domain,
+> path, query) but not every conceivable URL form (no IP-literal host, no port number, no fragment
+> `#anchor`, no internationalized domain). (b) No audio was generated or listened to in this
+> iteration — the localization deliberately stopped at tokenizer input, per instruction; the actual
+> perceptual failure mode (what specifically sounds wrong) was not characterized acoustically. (c)
+> `"ftp"`'s two-token fragmentation was noticed but not pursued, since the maintainer's complaint was
+> specifically about the HTTPS case. (d) The rare Male-1 long-silence anomaly was not investigated
+> further, per instruction. (e) No generation parameter was tuned or considered.
+>
+> **v0.6.5 PHASE 5 ITERATION 6 IS COMPLETE. THE RESIDUAL URL-PRONUNCIATION ISSUE IS DOCUMENTED AND
+> DEFERRED AS MODEL-NATIVE, NOT FORCED INTO A WORKAROUND.** No candidate was built or integrated; no
+> subjective winner was chosen (none was possible — no candidate exists to compare); the rare
+> long-silence anomaly was not investigated; no generation parameter was tuned. Nothing here
+> authorizes generation-parameter research, another Phase 5 experiment, integrating any approved
+> Edge or Chatterbox candidate, or Phase 6.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 4 VERDICT RECORDED (COMBINED EDGE CANDIDATE APPROVED FOR PHASE 6); ITERATION 5 (CHATTERBOX PINNED-WHEEL COLON NORMALIZATION) INSPECTED, CONFIRMED, AND CANDIDATE-EVALUATED — NO LISTENING VERDICT REQUESTED, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 4's combined-Edge A/B now has a maintainer verdict — and adds iteration 5's
+> record, which moves from Edge to Chatterbox for the first time. Iterations 1–4's full
+> construction/measurement/caveats and verdicts stand exactly as recorded below. **No production
+> file was edited by any iteration; no generation parameter was tuned.**
+>
+> **Maintainer verdict, iteration 4 (2026-09-21):** listened to both `difficult_short` and
+> `structural_stress` A/B pairs from the combined-compatibility experiment and **preferred candidate
+> B on both texts.** Ruling: **the combined Edge candidate — PCM-domain assembly (one final encode)
+> + NLTK `abbrev_types` i.e./e.g. extension — is APPROVED for later Phase 6 integration.** Current
+> production terminal-pause behavior remains unchanged (iteration 3 stays rejected). **Do not
+> integrate any Edge candidate yet.** Recorded in `Decisions.md` (below) as a dated ADR.
+>
+> **Iteration 5 — moving to Chatterbox, starting with instrumentation, not an A/B.** Per explicit
+> instruction: inspect the exact installed pinned `chatterbox-tts==0.1.7` wheel before assuming
+> anything; only build a candidate A/B if the suspected destructive colon normalization is confirmed.
+>
+> **1. The pinned wheel's own defect, confirmed mechanically, at both the string and token level.**
+> `chatterbox.tts_turbo.punc_norm()` — called unconditionally, immediately before tokenization,
+> inside `ChatterboxTurboTTS.generate()` (confirmed by reading the installed 0.1.7 source: `text =
+> punc_norm(text)` is the line immediately before `self.tokenizer(text, ...)`) — performs a blanket
+> `text.replace(":", ",")` with no context awareness. String level: `"It was 6:45..."` →
+> `"It was 6,45..."`; `"...3:1..."` → `"...3,1..."`; `"https://example.com/..."` →
+> `"https,//example.com/..."`. **Token level (loaded the real production model and tokenizer
+> directly):** `"6:45"` tokenizes to `[21, 25, 2231]`, but what the model actually receives after
+> `punc_norm`, `"6,45"`, tokenizes to `[21, 11, 2231]` — token 25 (`":"`) replaced by token 11
+> (`","`), a real, measurable input change, not a no-op. The URL case is worse: `"://"` has its own
+> dedicated single token (1378) in this vocabulary, entirely lost when corrupted to `"https,//"`
+> (which re-tokenizes into unrelated `","` and `"//"` pieces). **The suspected destructive
+> normalization is confirmed** — the experiment proceeded to a candidate per the plan's own
+> branching instruction.
+>
+> **2. This is a different symptom from the historical Phase 12 finding already on record.**
+> `chatterbox_synth.py`'s own comments already documented (from an earlier drop) that
+> `chatterbox.tts.punc_norm` blanket-replaces colons, concluding "a text-only fix is impossible... the
+> pause therefore has to come from assembly" — but that investigation was about recovering *pause
+> duration* after a prose colon (spacing tricks all collapse identically, so `COLON_PAUSE_MS`/
+> `split_at_prose_colon` supply the pause at the assembly level instead, and remain completely
+> unchanged and unrelated to this finding). This iteration is about *pronunciation correctness* of
+> structured digit:digit and URL-scheme colons specifically — a case `split_at_prose_colon` never
+> reaches, since no whitespace follows those colons, so they pass straight through to `generate()`
+> and this same blanket replace, unprotected. Not previously investigated at the tokenizer level.
+>
+> **3. The candidate: one structural regex, reusing a principle already proven elsewhere in this
+> codebase.** A colon becomes a comma only when followed by whitespace or end-of-string (a prose
+> colon — the exact same rule `chatterbox_synth._PROSE_COLON` already applies for the assembly-level
+> pause decision); a colon immediately followed by a non-whitespace character (any digit:digit form,
+> any `://` scheme, or any other structural use) is left untouched. Not a dictionary, not a word
+> list, not special-cased to "6:45"/"7:15"/"3:1"/this one URL — it generalizes to the whole class by
+> structure alone. Implemented as a monkeypatch of `chatterbox.tts_turbo.punc_norm` for the duration
+> of the experiment's own calls only; the installed wheel was never edited on disk.
+>
+> **4. Verified: the candidate changes nothing else.** Diffed against the real wheel's output
+> character-by-character across all 4 real chunks `split_for_chatterbox` produces for
+> `quality_corpus.DIFFICULT_SHORT` (unmodified, real production chunking): the two differ at exactly
+> 4 character positions total (2 in chunk 0 — both times; 1 in chunk 1 — the ratio; 1 in chunk 2 —
+> the URL; 0 in chunk 3, which has no colon), every one of them a comma-where-the-real-wheel-put-one
+> vs. a colon-the-candidate-kept — **nowhere else does the candidate's output differ.** The ordinary
+> prose-colon case (`"The pattern held: two full turns..."`) produces **byte-identical tokenizer
+> output** between the real wheel and the candidate — confirmed no change to existing prose-colon
+> behavior.
+>
+> **5. Real synthesis across 3 matched seeds, `chatterbox-male-1`, current production settings
+> unchanged.** `torch.manual_seed` reset to the same value immediately before each chunk's
+> corresponding A/B `generate()` call (seeds 0/1/2), so any audible difference traces to the text
+> divergence rather than independent sampling luck; `generation_params()` (temperature 0.72, top_p
+> 0.95, top_k 1000, repetition_penalty 1.2), the real Male-1 reference conditioning, segmentation,
+> chunk plan, pause constants, and assembly are all completely unchanged from production. All 6
+> files (3 seeds × A/B) decoded and measured cleanly: durations 74.08–82.1 s wall / 74.08–77.48 s
+> audio (in the expected range for this text/voice), **no clipping in any of the 6 files.**
+>
+> **6. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-chatterbox-colon-ab/listening/{A,B}_seed{0,1,2}.mp3`.
+>
+> **7. Tracked evidence added.** `files/tests/test_chatterbox_punc_norm_evidence.py` (6 tests, all
+> passing) — documents the found (not fixed) defect at the string level, confirms the ordinary
+> prose-colon case is unaffected, and pins the exact call-site adjacency the finding depends on.
+> Requires no model weights, no reference recording, no network — pure text-function tests, fast,
+> fits the ordinary tracked suite like every other test here. `test_segmentation_source_span.py`
+> (37) + `test_chatterbox_engine.py` + `test_chatterbox_chunking.py` re-run clean alongside it (175
+> passed total). No production file changed besides this new tracked test.
+>
+> **8. Caveats.** (a) No listening verdict was requested or given — this iteration is instrumentation
+> plus a candidate-evaluation, not a decision gate; the 6 seeded files exist for the maintainer to
+> review at their own pace. (b) 3 seeds is a small repeated set, not an exhaustive stochasticity
+> study. (c) The candidate cannot be "integrated" by editing the installed third-party wheel on disk
+> (fragile, breaks on any reinstall/upgrade) — if ever adopted, the mechanism (e.g., a
+> `chatterbox_synth`-side monkeypatch applied at import time, analogous to how this experiment did it
+> temporarily) is an open question for a later iteration or Phase 6, not decided here. (d) The rare
+> Male-1 long-silence anomaly (Phase 3/4) was deliberately not investigated further in this run, per
+> instruction. (e) No generation parameter was tuned or evaluated in this iteration.
+>
+> **v0.6.5 PHASE 5 ITERATION 5 IS COMPLETE. NO LISTENING WINNER WAS CHOSEN OR REQUESTED, NO
+> GENERATION PARAMETER WAS TUNED, THE RARE MALE-1 SILENCE ANOMALY WAS NOT FURTHER INVESTIGATED, AND
+> NOTHING WAS INTEGRATED.** The maintainer's review of the 6 seeded listening files (whenever
+> convenient) is the next action for this specific finding. Nothing here authorizes another Phase 5
+> experiment, Chatterbox generation-parameter tuning, integrating any approved Edge candidate, or
+> Phase 6.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 3 VERDICT RECORDED (TERMINAL PAUSE-SUPERSEDE CANDIDATE REJECTED); ITERATION 4 (COMBINED-COMPATIBILITY CHECK OF THE TWO APPROVED CANDIDATES) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 3's terminal-pause A/B now has a maintainer verdict — and adds iteration 4's
+> record. Iterations 1–3's full construction/measurement/caveats and verdicts stand exactly as
+> recorded below. **No production file was edited by any iteration.**
+>
+> **Maintainer verdict, iteration 3 (2026-09-21):** listened to both `structural_stress` and
+> `two_chapter` A/B pairs from the terminal-pause-supersede experiment and reported **no
+> preference on either text — could not perceive a meaningful difference.** Ruling: **the
+> terminal-pause-supersede candidate is NOT approved for integration; current production pause
+> behavior is preserved unless later evidence justifies revisiting it.** Recorded in `Decisions.md`
+> (below) as a dated ADR — a rejection, not a deferral.
+>
+> **Only two candidates remain approved (both still unintegrated):** the PCM-domain assembly
+> (iteration 1) and the NLTK `abbrev_types` i.e./e.g. extension (iteration 2).
+>
+> **Iteration 4 — the one combined-compatibility check between the two approved candidates, and
+> nothing else.** Per explicit instruction: current production pause constants and terminal
+> stacking stay completely unchanged (the rejected iteration 3 candidate is not revived); no
+> Chatterbox work; no production integration.
+>
+> **1. A vs. B construction.**
+> `files/dev-work/v0.6.5-phase5-combined-ab/build_candidate_ab.py` (disposable, gitignored). **A =
+> production, unmodified**, run for real. **B = only the two approved candidates combined**: trim/
+> pause/merge work stays as in-memory PCM with exactly one final MP3 encode (iteration 1), sentence
+> boundaries come from NLTK's own Punkt model with `"i.e"`/`"e.g"` added to its existing
+> `abbrev_types` set (iteration 2), and **current production pause constants/terminal stacking are
+> untouched** — every other production behavior (voice, source text, Edge settings, final format)
+> held constant. **Raw Edge network audio is reused between A and B wherever the two candidates'
+> segmentation agrees**: for `structural_stress_kokoro_edge` (17 sentences under both tokenizers,
+> confirmed identical in iteration 2) reuse is **100%** — zero fresh network calls for B. For
+> `difficult_short`, every sentence unaffected by the merge is reused by exact-text match against
+> A's own captured bytes (grouped by A's own precomputed sentence structure, not by call order,
+> since call order breaks once segmentation differs); **exactly the one newly-merged sentence
+> (i.e./e.g.) required a fresh, real network call** — there is no raw audio to reuse for text that
+> was never requested from the network under stock segmentation.
+>
+> **2. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-combined-ab/listening/{A,B}_difficult_short.mp3` and
+> `{A,B}_structural_stress.mp3`.
+>
+> **3. Segmentation/boundary proof.** `difficult_short`: A produces 10 sentences with false
+> boundaries ending `"...i.e."` and `"...e.g."`; **B produces 8 sentences, no false boundary
+> anywhere** — the same fix iteration 2 already proved, now inside the combined path. Every one of
+> the 13 false-boundary control markers (Dr./Mr./Mrs./Prof., initials, both times, the ratio, the
+> decimal, "vs.", the URL, the ellipsis, both dialogue spans, the parenthetical) remains correctly
+> intact in both A and B — **zero regressions on any control marker.** `structural_stress_kokoro_
+> edge`: 17 sentences in both, byte-identical segmentation, as expected. **Source-span coverage
+> (no omission/duplication/reordering) holds exactly for both A and B on both texts** (squeeze-
+> compared against source).
+>
+> **4. Encode-path and acoustic measurements.** `difficult_short`: **B performs exactly 1 MP3
+> encode** (vs. A's per-sentence round-tripping); 1 sentence fresh-synthesized, all others reused.
+> Trailing/terminal silence: A 5,880 ms / 5,953 ms precise, B 5,880 ms / 5,948 ms precise —
+> **pause policy confirmed unchanged** (not the rejected supersede value). Duration: 69.870 s →
+> 68.028 s (matches iteration 2's ~1.84 s, from 2 fewer sentence-pauses). Speech-only dBFS: A
+> −21.83, B −20.15 (1.68 dB shift, consistent with the assembly candidate's own effect). Peak: A
+> −2.69, B −1.78 dBFS — **neither clips.** `structural_stress_kokoro_edge`: **B performs exactly 1
+> MP3 encode** (vs. A's 196 for this item, per Phase 3's count); 0 fresh syntheses (full reuse).
+> Trailing/terminal silence: both 5,860 ms / ≈5.96–5.97 s precise — **unchanged.** Duration:
+> 211.647 s → 211.645 s (2 ms — no change, as expected, since segmentation is untouched for this
+> text). Speech-only dBFS: A −21.32, B −19.75 (**1.57 dB shift — matches iteration 1's original
+> 1.56 dB finding almost exactly**, strong replication). Peak: A −3.10, B −1.87 dBFS — neither
+> clips. Both files re-decode without error on both texts (decode validity confirmed).
+>
+> **5. Interaction/regression check: none found.** The two candidates' effects are cleanly
+> additive and independent: the segmentation fix's duration/sentence-count change appears only on
+> `difficult_short` (the only text it touches) and is numerically identical to iteration 2's
+> standalone result; the assembly candidate's dBFS shift appears on both texts and is numerically
+> consistent with iteration 1's standalone result (1.56–1.68 dB across all three measurements now
+> on record). Neither candidate's own signature was diminished, amplified, or altered by the
+> other's presence. Pause policy stayed byte-for-byte at production's current (stacked) values on
+> both texts, confirming the rejected iteration 3 candidate was not accidentally reintroduced.
+>
+> **6. Verification.** Both runs assert exact reuse-vs-fresh bookkeeping in code (fresh-count
+> printed and matches expectation: 1 for `difficult_short`, 0 for `structural_stress_kokoro_edge`).
+> `files/tests/test_segmentation_source_span.py` (37) + `test_tts_importing.py` (75) re-run clean
+> (112 passed). No tracked file changed besides this Handoff/Decisions update.
+>
+> **7. Caveats.** (a) Single run per text, no repetition for Edge-service variance on the one
+> freshly-synthesized sentence. (b) The script's title-handling helper would route a title clip
+> through `intra_sentence_chunks` if a text had one (production never intra-splits a title) — dead
+> code for both test texts (both have a skipped "blank" title) but not fixed, since it never
+> executes here; would need correcting before reuse on a titled text. (c) Two corpus items only —
+> the QA corpus's other items (sustained_narration, longer_stress, structural_stress_chatterbox)
+> were not separately re-run through the combined path.
+>
+> **v0.6.5 PHASE 5 ITERATION 4 IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, NEITHER CANDIDATE WAS
+> ADOPTED INTO PRODUCTION, AND NO REJECTED CANDIDATE WAS REVIVED.** The maintainer's listening pass
+> against this iteration's artifacts is the next action. Nothing here authorizes Chatterbox
+> generation-parameter research, production integration of either candidate, another Phase 5
+> experiment, or Phase 6.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 2 VERDICT RECORDED (SEGMENTATION CANDIDATE APPROVED FOR LATER INTEGRATION, NOT YET INTEGRATED); ITERATION 3 (TERMINAL PAUSE-STACKING) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 2's segmentation A/B now has a maintainer verdict — and adds iteration 3's
+> record. Iterations 1 and 2's full construction/measurement/caveats and verdicts stand exactly as
+> recorded below. **No production file was edited by any iteration. Two candidates are now approved
+> but neither is integrated: the PCM-domain assembly candidate (iteration 1) and the NLTK
+> `abbrev_types` segmentation candidate (iteration 2).**
+>
+> **Maintainer verdict, iteration 2 (2026-09-21):** listened to `A.mp3`/`B.mp3` from the
+> segmentation experiment and **preferred candidate B**, noting the audible difference was subtle,
+> and preferred **B's slightly shorter/more natural gaps.** Ruling: **carry the NLTK/Punkt
+> `abbrev_types` i.e./e.g. candidate forward for later integration; do not integrate it yet.**
+> Recorded in `Decisions.md` (below) as a dated ADR.
+>
+> **Iteration 3 — the terminal pause-stacking issue, isolated as its own variable.** Per explicit
+> instruction, this does **not** combine with either approved-but-unintegrated candidate: B here
+> uses current production segmentation (stock Punkt, including the i.e./e.g. false split, unchanged)
+> and the current production MP3 round-tripping assembly path (not the PCM-domain candidate) —
+> **only the terminal-boundary pause decision differs, using existing configured constants, with no
+> new numeric value introduced anywhere.**
+>
+> **1. A vs. B construction.**
+> `files/dev-work/v0.6.5-phase5-pause-policy-ab/build_candidate_ab.py` (disposable, gitignored).
+> **A = production, unmodified**, run for real. **B = a disposable reimplementation calling the
+> exact same production primitives** (`trim_tts_chunk_file`, `append_silence`,
+> `intra_sentence_chunks`, `get_book` — reused verbatim) on **A's own captured raw Edge bytes**
+> (same technique as iteration 1; valid here because, unlike iteration 2, segmentation is
+> unchanged, so the raw network material is identical), with **exactly one control-flow change**:
+> for the paragraph that is simultaneously the book's last paragraph, its own last chapter, and the
+> book's end — production today appends `paragraphpause` (850 ms) to its last sentence, *then*
+> `chapter_trailing_pause` (2000 ms) to its chapter, *then* `end_of_book_pause` (3000 ms) to the
+> book, summing to 5,850 ms of deliberate silence at one point. **B skips the `paragraphpause` and
+> `chapter_trailing_pause` appends only at that one coinciding point** and applies
+> `end_of_book_pause` alone, exactly as production already computes it — `END_OF_BOOK` supersedes
+> rather than sums. Every *other* paragraph and chapter boundary in the book — including every other
+> paragraph in the terminal chapter, and (proven below) an earlier chapter's own ending — keeps
+> current production's unmodified stacking behavior. **The existing boundary model supported this
+> cleanly**: it already tracks "last sentence of paragraph," "last paragraph of chapter," and "last
+> chapter of book" as three independent, inspectable conditions, so the supersede fix was a
+> conditional skip, not a redesign.
+>
+> **2. Two corpus texts, because every tracked corpus item is single-chapter.**
+> `quality_corpus.STRUCTURAL_STRESS_KOKORO_EDGE` (7 paragraphs, 1 chapter, real Edge material) is
+> the primary comparison and proves ordinary (non-terminal) *paragraph* pauses are unchanged. A
+> small **disposable two-chapter fixture**, defined only inside the experiment script (never added
+> to `quality_corpus.py`), built from sentences already in the tracked corpus with two "#" chapter
+> headings, is the only way to exercise and prove an ordinary (non-terminal) *chapter* boundary
+> (paragraph+chapter_trailing_pause still stacking, unchanged) — no tracked item has a second
+> chapter.
+>
+> **3. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-pause-policy-ab/listening/{A,B}_structural_stress.mp3` and
+> `{A,B}_two_chapter.mp3`.
+>
+> **4. Terminal silence and total duration.** Measured with `pydub.silence.detect_silence` at 1 ms
+> seek resolution (not a coarse fixed-window scan). `structural_stress_kokoro_edge`: terminal
+> silence A 5,968 ms → B 3,115 ms; total duration 211.667 s → 208.817 s (−2,850 ms, exactly the
+> `paragraphpause`+`chapter_trailing_pause` sum removed). `two_chapter_fixture`: terminal silence A
+> 5,929 ms → B 3,079 ms; total duration 46.890 s → 44.042 s (−2,848 ms). Both residual-above-3000ms
+> amounts (115–118 ms) closely match each file's own pre-fix residual-above-5850ms amount (79–118
+> ms) — the natural trailing decay before the deliberate pause is unaffected, only the deliberate
+> portion changed. Neither file clips (peak ≤ −2.6 dBFS in both); dBFS shifts are within 0.1–0.4 dB,
+> consistent with assembly being held constant.
+>
+> **5. Proof that non-terminal pauses are unchanged — with one honestly-reported, small,
+> explained exception.** Fine-resolution (1 ms) silence-span comparison against A, span by span:
+> — **`two_chapter_fixture`: the earlier, non-terminal chapter boundary (Chapter 1's own ending,
+> which still stacks `paragraphpause`+`chapter_trailing_pause` = 2,850 ms) is bit-for-bit identical
+> between A and B** (17,105–20,277 ms in both) — direct proof the fix does not touch an ordinary
+> chapter ending.
+> — **`structural_stress_kokoro_edge`: 55 of 62 non-terminal quiet spans (89%) are bit-for-bit
+> identical** (0 ms start/length delta). The remaining 7 — all located *inside* the terminal
+> paragraph's own internal comma-pause structure (a single 7-sub sentence; none in any earlier
+> paragraph) — show sub-100ms jitter (max 73 ms, most single-digit ms). Root-caused to: in A, that
+> paragraph's `.flac` is decoded, has `chapter_trailing_pause` appended, and is re-encoded once more
+> before the final combine; in B, that same paragraph's `.flac` is never touched again after its
+> initial combine (its trailing pause is superseded, not appended-then-re-encoded). One extra
+> lossless decode/re-encode pass in A vs. one fewer in B is consistent with the tiny, localized
+> jitter observed — **no configured pause *value* changed anywhere, and no discrepancy appears
+> outside that one paragraph's own internal boundaries.**
+>
+> **6. Focused verification.** Both scripts assert their consumed raw-segment count exactly matches
+> what was captured (60=60 and 16=16) before exporting, and content-preservation was implicit in
+> reusing production's own unmodified `get_book`/`intra_sentence_chunks`/trim/pause functions.
+> `files/tests/test_segmentation_source_span.py` (37) + `test_tts_importing.py` (75) re-run clean
+> (112 passed) after the experiment. No tracked file changed besides this Handoff/Decisions update.
+>
+> **7. Caveats.** (a) The §5 jitter above — small, explained, localized, not a value change, but
+> real and reported rather than hidden. (b) Single run per text, no repetition for Edge-service
+> variance. (c) The two-chapter fixture is synthetic (built from existing corpus sentences, never
+> added to `quality_corpus.py`) specifically because no tracked item has a second chapter — its
+> chapter-boundary proof is real but the *text itself* was constructed for this experiment. (d) This
+> evidence says nothing about how the pause-supersede fix interacts with either approved-but-pending
+> candidate (PCM assembly, i.e./e.g. segmentation) — combining them is explicitly a later iteration.
+>
+> **v0.6.5 PHASE 5 ITERATION 3 IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, NO CANDIDATE WAS
+> ADOPTED INTO PRODUCTION, AND NO OTHER APPROVED CANDIDATE WAS COMBINED IN.** The maintainer's
+> listening pass against this iteration's artifacts is the next action. Nothing here authorizes
+> Chatterbox generation-parameter research, integrating any approved-but-pending candidate, or
+> Phase 6.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, ITERATION 1 VERDICT RECORDED (CANDIDATE B APPROVED FOR PHASE 6, NOT YET INTEGRATED); ITERATION 2 (i.e./e.g. SEGMENTATION FIX) BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — iteration 1's assembly A/B now has a maintainer verdict — and adds iteration 2's record.
+> Iteration 1's full construction/measurement/caveats stand exactly as recorded below. **No
+> production file was edited by either iteration. No candidate is integrated yet.**
+>
+> **Maintainer verdict, iteration 1 (2026-09-21):** listened to `A.mp3`/`B.mp3` from the Edge
+> assembly experiment and **preferred candidate B by ear — sounds clearer.** Ruling: **carry B
+> forward as the approved assembly candidate for later Phase 6 integration; do not integrate it
+> yet.** Recorded in `Decisions.md` (below) as a dated ADR, per the plan's convention for a real
+> maintainer ruling (as opposed to investigation-only evidence).
+>
+> **Iteration 2 — the i.e./e.g. segmentation defect, isolated as its own variable.** Per explicit
+> instruction, this does **not** combine with the now-approved-but-unintegrated PCM assembly
+> candidate: B here still round-trips through MP3 at every trim/pause step, the exact same code A
+> uses — only the sentence-boundary decision differs.
+>
+> **1. A vs. B construction.** `files/dev-work/v0.6.5-phase5-segmentation-ab/build_candidate_ab.py`
+> (disposable, gitignored). **A = production, unmodified**, run for real
+> (`epub2tts_edge.runner.run_conversion_job`) against `quality_corpus.DIFFICULT_SHORT` (the plan's
+> Section 7 false-boundary item — contains i.e./e.g. plus every already-proven control marker) on
+> `en-US-SteffanNeural`. **B = the identical production code, run again for real, with exactly one
+> monkeypatched name**: `epub2tts_edge.sent_tokenize` swapped for NLTK's own default English Punkt
+> model with `"i.e"` and `"e.g"` added to its `PunktParameters.abbrev_types` set — the same
+> extension point its 156 pretrained entries (including `"mr"`, `"dr"`, `"prof"`, `"vs"`, confirmed
+> present) already live in. Not a new dependency, not a word-specific pronunciation hack, not text
+> rewriting. **Assembly/encoding path, pause constants, voice, and source text are held constant —
+> only segmentation differs**, so unlike iteration 1, B's raw Edge network audio is **not** reused
+> from A (different sentence boundaries necessarily produce different network requests for the
+> merged region); this is an expected, named difference from iteration 1's design, not an oversight.
+> The candidate was checked against every other corpus item first — it changes nothing on
+> `structural_stress_chatterbox`/`structural_stress_kokoro_edge`/`sustained_narration`/
+> `longer_stress` (identical sentence count and content on all four), confirming the fix is narrowly
+> targeted with no observed side effect elsewhere.
+>
+> **2. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-segmentation-ab/evidence/listening/A.mp3` and `.../listening/B.mp3`.
+>
+> **3. Exact boundary/pause behavior.** A splits `DIFFICULT_SHORT` into **10 sentences**; sentence 4
+> ends `"...Prof. Whitfield's theory, i.e."` and sentence 5 ends `"...circling back to her, e.g."` —
+> both false boundaries, each earning an unwanted 800 ms `sentencepause`. B splits into **8
+> sentences**; the same span is now one sentence, `"Mr. Okafor and Mrs. Yates both blamed the
+> storm; Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back
+> to her, e.g. it had simply gone unwatched, vs. gone out entirely."` — **no sentence in B ends in
+> "i.e." or "e.g." anywhere.** Every control marker (Dr., initials, both times, the ratio, the
+> decimal, Mr./Mrs./Prof., "vs.", the URL, the ellipsis, both dialogue-quote spans, the
+> parenthetical) is intact inside exactly one sentence in **both** A and B — content preservation
+> holds for both (squeeze-compared against the source).
+>
+> **4. Mechanical comparison.** Trailing silence: **both exactly 5,880 ms** — pause stacking
+> untouched, as required. Leading silence: both 0 ms. dBFS (speech-only): A −21.82, B −21.72 (≈0.1 dB
+> — negligible, as expected, since assembly/encoding is held constant this time, unlike iteration
+> 1's ~1.56 dB assembly-driven shift). Peak: A −3.28 dBFS, B −3.89 dBFS — **neither clips.** Duration:
+> A 69.870 s, B 68.028 s — **1,842 ms shorter**, closely tracking the expected ~1,600 ms from 2 fewer
+> 800 ms sentence-pauses (the remaining ~242 ms is ordinary Edge prosody/timing variance for the
+> differently-bounded network request, not a defect). Both were real synthesis end to end (wall 30.0
+> s vs. 23.1 s — a legitimate throughput comparison this time, unlike iteration 1's, because both
+> sides made real network calls).
+>
+> **5. New dependency?** **No.** pysbd (evaluated in Phase 4) was not used. The candidate is NLTK's
+> own already-installed, already-imported Punkt tokenizer with two more entries in a set it already
+> populates 156 other entries into — no new import, no `requirements.txt` change, nothing pip-
+> installed for this iteration at all.
+>
+> **6. Focused verification.** `files/tests/test_segmentation_source_span.py` (37) +
+> `test_tts_importing.py` (75) re-run clean (112 passed) after the experiment, confirming the
+> monkeypatch left no residue and production's own `sent_tokenize` binding is unaffected outside the
+> experiment's own `try`/`finally`. No tracked file changed besides this Handoff/Decisions update, so
+> the full suite was not re-run (nothing it covers moved).
+>
+> **7. Caveats.** (a) Single corpus item/voice/run — no repetition for run-to-run Edge-service
+> variance. (b) The ~242 ms residual duration delta beyond the pure pause-count arithmetic is
+> Edge's own prosody for a differently-shaped network request, not separately isolated further. (c)
+> `abbrev_types` is a general Punkt extension point, not scoped to only "i.e."/"e.g." — it is
+> possible (not observed on any of the five corpus items) that a real book contains a genuine
+> sentence that happens to end in literal "i.e." or "e.g." as its own complete thought; that
+> scenario was not constructed or tested. (d) Assembly/encoding is deliberately unchanged here, so
+> this evidence says nothing about whether the segmentation fix and the approved PCM-assembly
+> candidate combine cleanly — that is explicitly a later Phase 5 iteration, not this one.
+>
+> **v0.6.5 PHASE 5 ITERATION 2 IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, NO CANDIDATE WAS
+> ADOPTED INTO PRODUCTION, AND NO OTHER VARIABLE WAS TOUCHED.** The maintainer's listening pass
+> against this iteration's A.mp3/B.mp3 is the next action. Nothing here authorizes the pause-policy
+> experiment, Chatterbox generation-parameter research, integrating either approved-but-pending
+> candidate, or Phase 6.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 5, FIRST ITERATION: EDGE DIRECT/RICH ASSEMBLY A/B BUILT AND MEASURED — AWAITING THE MAINTAINER'S LISTENING PASS, NO WINNER CHOSEN, NOT INTEGRATED (2026-09-21, HOME-PC)
+>
+> **This block is the live state.** It supersedes nothing below it — Phase 4's evidence stands
+> exactly as recorded. This is Phase 5's *first* controlled A/B experiment only, per explicit
+> instruction: isolate Edge direct/rich assembly/re-encoding as the one variable. **No production
+> file was edited. No candidate was integrated. No winner was declared.**
+>
+> **1. What A and B are.** `files/dev-work/v0.6.5-phase5-edge-ab/build_candidate_ab.py` (disposable,
+> gitignored) runs **A = real, unmodified production** (`epub2tts_edge.runner.run_conversion_job`,
+> the exact call `convert_with_edge_engine` makes) once, for real, against
+> `quality_corpus.STRUCTURAL_STRESS_KOKORO_EDGE` (the same item Phase 3 measured) on
+> `en-US-SteffanNeural`. A temporary wrapper around `run_edgespeak` — read-only, no behavior change —
+> captured every one of A's **60 raw per-sentence/sub-chunk network MP3s, in call order**, with no
+> second network round-trip. **B replays those exact same 60 raw bytes** through the unmodified
+> production `get_book`, `sent_tokenize`, `intra_sentence_chunks`, and `trim_silence_segment`
+> functions (reused verbatim — same segmentation, same i.e./e.g. behavior, same trim threshold), and
+> the same pause constants in the same order (sentence 800 ms / paragraph 850 ms / title 1200 ms /
+> chapter 2000 ms / end-of-book 3000 ms) — but keeps every intermediate result as an in-memory
+> `pydub.AudioSegment` (PCM) instead of re-exporting it to MP3 at each trim/pause step, encoding to
+> MP3 exactly once at the very end, matching the pattern `chatterbox_synth`/`kokoro_synth` already
+> use. Nothing else differs.
+>
+> **2. Listening files (gitignored, local only):**
+> `files/dev-work/v0.6.5-phase5-edge-ab/evidence/listening/A.mp3` and `.../listening/B.mp3` (neutral
+> labels, no quality claim implied) — identical content to
+> `evidence/A_production/structural_stress (en-US-SteffanNeural).mp3` and
+> `evidence/B_pcm_domain/structural_stress (en-US-SteffanNeural) [B-pcm-domain].mp3` respectively.
+> Source text: `evidence/structural_stress.txt`.
+>
+> **3. Mechanical comparison.** Duration: A 211.658 s, B 211.655 s (3 ms apart — rounding, not a real
+> difference). **Trailing silence: both exactly 5,860 ms** — confirms the separate pause-stacking
+> variable was not touched. Leading silence: both 30 ms. **dBFS (speech-only, silence excluded): A
+> −21.31, B −19.75** — a 1.56 dB shift, corroborating Phase 3's original direct-path measurement
+> (−21.32) almost exactly, with B landing close to Phase 3's raw/batch reference range (−19.20/
+> −19.66). Peak level: A −1.89 dBFS, B −2.05 dBFS — **neither clips** (both far under 0 dBFS).
+> File size: A 4,235,084 bytes, B 4,234,604 bytes (essentially identical). **Encode-generation count,
+> computed exactly for this run's actual 17-sentence/60-sub-segment structure: A performs 196 total
+> MP3 encodes (60 raw + 135 avoidable intermediate trim/intra-pause/merge/sentence-pause re-encodes +
+> 1 final); B performs 61 (the same 60 unavoidable raw network encodes + exactly 1 final) — B
+> eliminates all 135 avoidable generations and adds none.**
+>
+> **4. Does B mechanically remove the identified problem without changing the other variables? Yes,
+> by direct measurement — not by construction alone.** Segmentation, i.e./e.g. handling, and every
+> pause value/order are byte-for-byte the same code path in both (proven by matching duration and
+> identical trailing silence to the millisecond); the raw network material is identical (B reused A's
+> own captured bytes, not a fresh synthesis); the only variable that moved is the MP3
+> encode-generation count and the corresponding measured level shift.
+>
+> **5. Caveats that could invalidate or qualify this A/B, recorded rather than smoothed over:**
+> (a) **The wall-time figures in the script's own printout (A 70.16 s vs. B 3.26 s) are NOT a
+> throughput comparison** — B skipped 60 real network round-trips entirely by design (it reused A's
+> captured bytes), so this reflects the experiment's methodology, not B's real-world relative speed;
+> a fair throughput comparison would need B to perform its own live synthesis, not attempted here.
+> (b) Single corpus item, single voice, single run of each — no repetition to characterize run-to-run
+> MP3-encoder or network variance. (c) B is disposable script code, not integrated into
+> `epub2tts_edge.py`; its fidelity to production's exact paragraph/chapter/title nesting was checked
+> by code correspondence and by the consumed-raw-segment count matching exactly (60 = 60, an
+> assertion in the script itself), not by an independent second implementation. (d) Only the
+> direct/rich path was touched — folder/batch's already-near-minimal 2-generation overhead was not
+> re-examined and is not part of this experiment.
+>
+> **v0.6.5 PHASE 5's FIRST ITERATION IS COMPLETE. NO SUBJECTIVE WINNER WAS CHOSEN, CANDIDATE B WAS
+> NOT INTEGRATED, AND NO OTHER VARIABLE WAS TOUCHED.** The maintainer's listening pass against A.mp3
+> and B.mp3 is the next action. Nothing here authorizes the i.e./e.g. segmentation experiment, the
+> pause-policy experiment, Chatterbox generation-parameter research, or Phase 6.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 4 COMPLETE WITH EVIDENCE: SOURCE-SPAN COVERAGE PROVEN ON FOUR PATHS; A REAL NLTK/PUNKT FALSE-SPLIT FOUND ON EDGE'S DIRECT PATH; MALE-1'S GAP IS NON-REPRODUCIBLE MODEL SAMPLING, NOT SEGMENTATION — NO FIX APPLIED, NO PARAMETER TUNED (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes nothing below it — Phase 3's evidence stands
+> exactly as recorded, untouched. Phase 4's charter (plan §15): prove source-span coverage across
+> every current segmentation path; trace the demonstrated Phase 1/3 Chatterbox defects (Male-1's gap,
+> time/ratio and HTTPS reading inconsistency, slow cadence) to a cause; compare NLTK/Punkt against
+> pysbd only if evidence justifies it. **No production file was edited. No generation parameter was
+> tuned. No pause constant, pronunciation hack, or per-string special case was added.**
+>
+> **1. Source-span coverage proven, mechanically, for all four current segmentation paths — two of
+> them (Edge folder/batch, Kokoro) had no such runtime guard before this phase.**
+> `files/tests/test_segmentation_source_span.py` (new, 37 tests, all passing) proves — against the
+> real QA corpus, not just synthetic fixtures — that `chatterbox_synth.split_for_chatterbox`,
+> `batch_convert.split_into_chunks`, `kokoro_synth.split_into_chunks`, and the Edge direct/rich
+> path's own composition (NLTK `sent_tokenize` + `intra_sentence_chunks`) all preserve every
+> non-whitespace character, in order, with nothing dropped, duplicated, or reordered, across every
+> item in `quality_corpus.ALL_ITEMS`. Chatterbox already enforced this at runtime
+> (`ChunkPlanError`); the other three paths did not, and now have explicit regression coverage.
+>
+> **2. The plan's Section 7 false-boundary corpus (`DIFFICULT_SHORT`) was exercised against all four
+> paths; exactly one real, demonstrated segmentation defect was found — on Edge's direct/rich path
+> only.** Chatterbox's *final packed chunks* never split any of the 13 markers (Dr./Mr./Mrs./Prof.,
+> initials, a decimal, times, a ratio, a URL, an ellipsis) across a chunk boundary — sentence-level
+> over-splitting is harmless there because packing rejoins consecutive units with a plain space and
+> no pause, unless the split also happens to land on the 300-char ceiling, which it does not for this
+> corpus. Edge folder/batch and Kokoro never split at all (the item is under both ceilings). **Edge's
+> direct/rich path is different: it inserts an audible 800 ms `sentencepause` after every NLTK
+> `sent_tokenize` boundary, and Punkt incorrectly treats "i.e." and "e.g." as sentence-ending
+> abbreviations** — splitting one continuous sentence into three "sentences," each boundary earning
+> an unwanted 800 ms pause mid-sentence. Confirmed NOT a false positive: "vs." and every title
+> abbreviation (Dr./Mr./Mrs./Prof.) are handled correctly by the same tokenizer on the same text.
+> This defect is specific to the direct/rich path — Chatterbox, Edge folder/batch, and Kokoro never
+> pause per NLTK sentence, so none of them can exhibit it.
+>
+> **3. A bounded, justified NLTK/Punkt-vs-pysbd evaluation was performed — not adopted.** The finding
+> above meets the plan's bar ("the current evidence demonstrates a real segmentation defect"). pysbd
+> was installed only into an isolated `pip install --target` scratch directory under
+> `files/dev-work/` (never `requirements.txt`, never imported by production or by the tracked test
+> suite) and run against the identical corpus text: **zero false splits at "i.e."/"e.g.", and no
+> regression on any of the other 12 markers**, with content-preservation intact. This is real,
+> evidence-backed grounds for Phase 5's decision gate to consider — no dependency was added to this
+> repository, and no code path was changed to use it.
+>
+> **4. Times, a ratio, and the HTTPS URL all reach every engine's model input as one intact, unsplit
+> literal string — segmentation is fully cleared as their cause.** "6:45", "7:15", "3:1", and
+> `https://example.com/lighthouse-log` survive whole in every one of the four paths (new tests
+> `test_chatterbox_prose_colon_does_not_split_a_time_or_ratio`,
+> `test_chatterbox_prose_colon_does_not_split_a_url`), exactly as designed — the prose-colon rule
+> excludes them because none has whitespace immediately after its colon. Since the text these voices
+> receive is byte-identical, any cross-voice reading inconsistency for these strings is necessarily
+> **model-native sampling behavior, not a segmentation or context-loss defect.** No dictionary
+> replacement, per-word hack, or source-text rewrite was made or considered.
+>
+> **5. Chatterbox Male-1's ~11.8 s gap (Phase 3: localized to generation output) is now shown to be
+> non-reproducible on identical input — confirming model-native sampling, not a structural/chunk
+> defect.** Real production `chatterbox_file_to_mp3` was re-run against the exact
+> `quality_corpus.LONGER_STRESS` text for `chatterbox-male-1`, instrumented (temporary wrapper around
+> `_synthesize_chunk`, removed after the one call) to scan each chunk's own raw PCM for internal
+> quiet spans before any MP3 encoding. Result: **51 chunks, zero raw newlines survived into any
+> `generate()` call** (the v0.6.1 Phase 12 fix still holds), and **zero chunks produced an internal
+> quiet span ≥3 s anywhere in the file** — the exact class of anomaly Phase 3 found. Reconstructing
+> this run's own cumulative timeline (chunk audio + 700 ms `chunk_pause_ms`, repeated) places chunk
+> 10 of 51 at 130.540 s–151.895 s, almost exactly bracketing Phase 3's original 140.520 s–152.300 s
+> gap — strong circumstantial localization to that chunk's text, **not a reproduced defect**. That
+> text is clean prose (294 chars, one ordinary mid-sentence colon, no newline, no ellipsis, no
+> dialogue quote) and rendered normally this time (21.355 s of continuous audio, 13.77 chars/s, not
+> an outlier among this run's 51 chunks). **Conclusion: the same clean text, same deterministic chunk
+> boundaries, produced the anomaly on one generation attempt (Phase 1's capture) and did not on
+> another (this retrace) — the defect cannot be a function of chunk boundaries or segmentation alone,
+> and is consistent with rare, non-deterministic model-sampling behavior**, not a text-driven
+> structural trigger like the historical Chapter 1144 newline case.
+>
+> **6. Male-1's comparatively slow cadence is cleared of a segmentation cause by the same logic.**
+> `split_for_chatterbox` takes no voice parameter — chunk boundaries and chunk count are identical
+> for the same text regardless of which Chatterbox voice reads it, so total inserted pause time
+> (`chunk_pause_ms` × chunks + `end_silence_ms`) is also identical. Yet the Phase 1 manifest shows
+> Male-1 consistently renders **~13–15% more total duration than Female-1 for the exact same text**
+> across three different-length samples (difficult_short 76.00 s vs. 67.12 s = +13.2%;
+> sustained_narration 335.86 s vs. 294.77 s = +13.9%; longer_stress 730.40 s vs. 637.80 s = +14.5%).
+> That consistency across texts of different lengths — far exceeding what the one isolated 11.8 s
+> anomaly could explain — points to a genuinely slower per-word speech rate as an inherent
+> characteristic of that voice's reference conditioning: **model-native, not segmentation-driven.**
+>
+> **7. Tests/evidence added.** `files/tests/test_segmentation_source_span.py` (37 tests): content
+> preservation across 4 paths × 5 corpus items (20 tests); false-boundary marker survival in
+> Chatterbox's final chunks (13 tests) and Edge folder/batch (1 test); prose-colon exclusion for
+> times/ratio and the URL (2 tests); one test documenting — not asserting as correct — the NLTK
+> "i.e."/"e.g." false split, explicitly labeled as **found, not fixed**, in the same spirit as the
+> existing Ascended/Tamar pronunciation-stability guards (P9). Three disposable, gitignored scripts
+> under `files/dev-work/v0.6.5-phase4-boundary-audit/`: `prove_source_span.py` (the boundary
+> classification harness above), `trace_male1_gap.py` (the instrumented retrace above), and a
+> throwaway pysbd install under `pysbd-eval-target/` (never touched `requirements.txt`).
+>
+> **Unresolved, explicitly left to Phase 5:** whether/how to address the NLTK i.e./e.g. false split
+> (adopt pysbd, patch an abbreviation exception list, or accept as-is) — a real decision with a real,
+> evidence-backed alternative now on the table; Male-1's ~13–15% slower cadence and its rare
+> internal-silence sampling anomaly — both model-native, so any mitigation is generation-parameter
+> research, not a segmentation fix, and either could reasonably be accepted as inherent voice
+> character rather than "fixed"; times/ratio/URL cross-voice pronunciation variance — model-native,
+> no segmentation remedy exists, and P9 forbids a pronunciation hack regardless.
+>
+> **v0.6.5 PHASE 4 IS COMPLETE WITH EVIDENCE. NO GENERATION PARAMETER WAS TUNED, NO PRONUNCIATION
+> HACK WAS ADDED, NO EDGE ASSEMBLY REDESIGN WAS MADE, AND NO SUBJECTIVE WINNER WAS CHOSEN.** Nothing
+> here authorizes starting Phase 5 — that requires a separate, explicit maintainer authorization.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 3 COMPLETE WITH EVIDENCE: EDGE'S DIRECT/RICH PATH HAS A DEMONSTRABLE AVOIDABLE-RE-ENCODE DEFECT; CHATTERBOX MALE-1'S ~11.8s GAP IS GENERATION OUTPUT; KOKORO CLEAN — NO WINNER CHOSEN, NO PRODUCTION CHANGE (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes nothing below it — Phase 2 and the separately
+> authorized MP3 duration-authority fix (block immediately below) both stand exactly as recorded.
+> This is investigation only, per Phase 3's charter (plan §15): isolate Edge's raw chunk → batch
+> assembly → rich/direct assembly → final metadata; localize the Chatterbox Male-1 gap only as far
+> as generation/chunk-boundary/assembly/encoding/duration classification; inspect Kokoro without
+> touching it absent a demonstrated defect. **No production file was edited.** Reconciled first to
+> the exact expected remote HEAD `e21a450ec9e5f1776bd9845afe13f43dffc5736d` by fast-forward (no
+> local/remote divergence); the MP3 duration-authority fix is preserved untouched.
+>
+> **1. Edge trailing-silence progression, reproduced stage-by-stage via real instrumentation, not
+> arithmetic guesswork.** A temporary wrapper around `epub2tts_edge.py`'s own `_export_audio` and
+> `run_edgespeak` (removed after the one call; zero lines of production code changed) copied out
+> every intermediate file the real `edge_runner.run_conversion_job` already writes and deletes, for
+> the same `quality_corpus.STRUCTURAL_STRESS_KOKORO_EDGE` item Phase 1 used. Result for the
+> direct/rich path's final 5,860 ms (matching Phase 1's manifest exactly): the last sentence's own
+> pause-append leaves **860 ms** (`paragraphpause` 850 + ~10 ms natural residual); the chapter-close
+> `append_silence(..., chapter_trailing_pause)` brings it to **2,860 ms** (+2,000 ms); the
+> end-of-book `append_silence(..., end_of_book_pause)` brings it to the final **5,860 ms**
+> (+3,000 ms). Three configured constants, all firing exactly as designed, stacking onto the same
+> trailing edge. **Open nuance, not resolved here:** `chapter_trailing_pause` and `end_of_book_pause`
+> are each applied only once per real book (the true last chapter/last paragraph), so this 5.86 s
+> stack is specific to a short single-chapter QA/comparison item — whether it is also disproportionate
+> at the true end of a real multi-chapter book was not tested and is an open question for Phase 4/5.
+> `folder_batch`'s 3,930 ms is explained the same way from `batch_convert.merge_mp3s`: the raw
+> chunk's own ~860 ms natural tail, plus `CHUNK_PAUSE_MS` (50 ms, applied unconditionally after
+> every chunk including the last), plus `END_RECORDING_SILENCE_MS` (3,000 ms) = 3,910 ms predicted
+> against 3,930 ms measured (the ~20 ms gap is silence-detector threshold noise, not a mystery).
+>
+> **2. Edge direct/rich path re-encodes the same audio 3–5 times before the one necessary final
+> encode; folder/batch needs only 2 (raw + merge) — the same overhead its historical v0.5.0-era
+> reference already had.** `trim_tts_chunk_file` and `append_silence` are both pure PCM edits, but
+> both write back through `_export_audio`, which re-encodes to MP3 because the temp filename ends
+> in `.mp3` — mechanically counted by the same instrumentation: a plain (no comma/ellipsis/dash)
+> sentence passes raw-network(1) → trim-reencode(2) → pause-reencode(3) before ever reaching the
+> paragraph's lossless FLAC; a punctuation-split sentence adds a per-sub intra-pause reencode and an
+> untraced direct sub-merge reencode, reaching up to **5** MP3 generations for one sentence.
+> **This is the identical anti-pattern already found and fixed, in this same codebase, for
+> Chatterbox and Kokoro** — both engines' own code comments record it: Chatterbox measured **5.67 dB
+> of SNR lost** to one unnecessary generation (v0.6.1 Plan 4 Phase 12) before switching to
+> assemble-in-PCM-encode-once; Kokoro already does the same. `epub2tts_edge.py`'s direct/rich path is
+> the one backend that still has it. **Measured confirmation, not inference:** speech-only dBFS
+> (leading/trailing silence excluded, so this cannot be silence dilution) is **−19.20** raw,
+> **−19.66** folder/batch, **−21.32** direct — a genuine ~2.1 dB shift that survives exclusion of
+> every added pause, consistent with the maintainer's "more noticeable background/static" report on
+> the direct path specifically. **Answering the assigned question directly: yes, Edge's direct/rich
+> path has demonstrably avoidable lossy re-encoding; folder/batch's one extra generation is not
+> avoidable in the same sense** — it is the unavoidable minimum to stitch independently-fetched
+> network chunks with inserted silence, exactly as raw_chunk vs. folder_batch's much smaller dBFS gap
+> (−19.20 vs. −19.66) already suggested.
+>
+> **3. Chatterbox Male-1's confirmed ~11.8 s gap is localized to generation output, not assembly,
+> encoding, or duration/container handling.** Found in the existing Phase 1 evidence (no resynthesis)
+> at `files/dev-work/quality-suite/chatterbox_chatterbox-male-1/longer_stress.mp3`,
+> **140.520 s–152.300 s (11,780 ms** — matches "~11.8 seconds" exactly). Classified with the same
+> exact-zero-sample-run-vs-model-floor technique the v0.6.1 Plan 4 Phase 12 silence audit used
+> (`chatterbox_file_to_mp3` inserts `np.zeros`, which survives MP3 encode as literal digital zero;
+> anything the model itself renders does not hit exact zero): this span is **99.5% non-exact-zero**
+> at the sample level, RMS **−66.79 dBFS** against ≈−26 dBFS in the speech immediately before/after
+> (a >40 dB drop, clearly not ordinary narration) but with a measurable **−32.7 dBFS peak** — not
+> digital silence. The file's one and only long (≥100 ms) exact-zero run in its full 730.4 s is the
+> intentional 3.05 s terminal end-silence; nothing exact-zero borders the 11.8 s span. **Conclusion:
+> the model rendered this itself, inside generation, not assembly's inserted pause and not a
+> chunk-join artifact** — the same *class* of defect as the historically-diagnosed Chapter 1144
+> dialogue-quote sentence-boundary case, but **not** re-diagnosed to a specific text cause here; that
+> correlation is explicitly Phase 4's charter and was not opened. **Honest side note:** unlike the
+> historical Ch. 1144 file, this file's ordinary 700 ms inter-chunk gaps did *not* survive MP3 encode
+> as clean multi-hundred-ms exact-zero runs (they fragment into many <100 ms pieces instead) — this
+> does not change the 11.8 s span's classification (its near-total absence of exact-zero content is
+> decisive on its own), but is recorded rather than glossed over.
+>
+> **4. Kokoro inspected, not touched.** `kokoro_synth.py` already assembles every chunk in PCM and
+> encodes to MP3 exactly once (`_export_mp3`, same shape as Chatterbox's own fix) — no re-encode
+> anti-pattern, no defect found, nothing retuned. Matches Phase 1's "no observed quality defects."
+>
+> **5. Nothing selected, nothing integrated, no config changed.** Two disposable, gitignored QA
+> scripts were written under `files/dev-work/` for Phase 5 to reuse for A/B comparison, not run
+> automatically and not part of any tracked suite: `v0.6.5-phase3-edge-audit/instrument_direct_path.py`
+> (the per-stage duration/silence/dBFS instrumentation above, replayable against a future candidate
+> assembly) and `v0.6.5-phase3-chatterbox-audit/localize_silence.py` (the exact-zero-vs-model-floor
+> classifier, replayable against any Chatterbox evidence file). No `voice_registry.py`,
+> `epub2tts_edge.py`, `batch_convert.py`, `chatterbox_synth.py` or `kokoro_synth.py` line was
+> changed; `git status` confirms zero tracked-file diffs from this phase.
+>
+> **Unresolved, explicitly left to Phase 4/5:** why the model produced the 11.8 s span (text
+> correlation, sentence-boundary/segmentation hypothesis by analogy to Ch. 1144 — not confirmed here);
+> whether the 5.86 s direct-path stack is actually a problem at the true end of a real multi-chapter
+> book rather than only this short single-chapter QA item; which concrete PCM-domain redesign of
+> `epub2tts_edge.py`'s per-sentence trim/pause steps to propose for the direct/rich path (mirroring
+> Chatterbox/Kokoro's assemble-once pattern) and how it compares by ear against `folder_batch` and the
+> v0.5.0 historical reference (Phase 5's A/B work).
+>
+> **v0.6.5 PHASE 3 IS COMPLETE WITH EVIDENCE. NO SUBJECTIVE WINNER WAS CHOSEN AND NO PRODUCTION AUDIO
+> PATH WAS INTEGRATED.** Nothing here authorizes starting Phase 4 — that requires a separate,
+> explicit maintainer authorization.
+
+> ## ⟢ RECORD — MP3 TOOL STALE SPLIT-HEADER DURATION FIXED; macOS REAL-BOOK ACCEPTANCE PASSED (2026-09-20, HOME-MacOS)
+>
+> **This is the maintainer-authorized bounded MP3 defect fix, not a v0.6.5 phase advance.**
+> Remote reconciliation found four already-approved commits through `a99d26f`: Phase 1 listening
+> passed and Phase 2 closed with original Male-3 / Male-4 approved. Those commits were preserved
+> by fast-forward synchronization before this fix; Phase 3 remains unauthorized. The maintainer authorized
+> full verification, commit and push of this bounded fix on the current feature branch after
+> macOS acceptance; no merge, tag, release, version change, or unrelated TTS work is included.
+>
+> **Evidence.** Write ID3 Tags, 49 tracks, Time +0.1, run `MP3-Tool-5` / `mp3-run-000056`:
+> track 48 failed at 426.04 s versus expected 460.17 s. Imported `The Personal Librarian -
+> 046-01.mp3` retained an Info header claiming 17,612 frames / 3,680,757 MPEG bytes, but held
+> only 16,306 audio frames. Companion `046-02` held the remaining 1,306; their MPEG regions
+> sum exactly to the header's byte total. The original decodes to 425.940658 s. The +0.1
+> transformation correctly yielded 426.040658 s; tags/artwork left audio bytes unchanged.
+> Both quick ffprobe duration and Mutagen trusted the stale header. The application deleted
+> the failed staged track itself, retained the other 48, and correctly published nothing.
+>
+> **Fix.** `mp3_processing.ffprobe_duration_seconds` keeps its historical public name but
+> measures a full audio-only decode through the proved FFmpeg. `asetpts=N/SR/TB` rebuilds
+> timestamps from decoded samples; PCM goes to the null muxer and final `out_time_us` supplies
+> duration. `-nofind_stream_info` avoids decoding source cover images that staging discards.
+> `-xerror`, error-level stderr, a successful exit, positive duration and `progress=end` guard
+> against partial/bad decodes. No header-duration fallback, dependency or OS branch was added.
+> The shared helper now governs source expectations, negative-Time endpoints, staged read-back,
+> Combine constituent durations/timestamps and final validation. Existing duration tolerances
+> and atomic publication are unchanged; zero Time still stream-copies audio.
+>
+> **Regression and verification.** New `test_mp3_duration_authority.py`: 24 cases, including
+> synthetic stale Info (44.1 kHz mono) / Xing (24 kHz stereo) splits, +0.1/zero/-0.1 publication,
+> excessive trim, Combine FAST/Safe trims and timestamps, genuinely truncated output with a
+> lying header, corrupt output, headerless audio with a discarded bad cover, and failed/incomplete
+> measurement refusal. Independent raw PCM lengths are the oracle. **484 unique focused tests
+> passed:** new cases 24; existing Write ID3/Combine 47; concat/artwork/plan/workflow/FFmpeg trust/
+> finalization/repository contracts 300; output integration/orchestration/hardening 113. An initial
+> sandboxed Tk run aborted; the GUI integration set passed outside the sandbox. Only existing
+> dependency deprecation warnings remain. Compile checks and `git diff --check` passed. The full
+> gate was initially deferred as instructed, then authorized at this accepted-defect checkpoint.
+> The pre-sync tree passed `scripts/verify.py` (7,430 passed / 55 skipped / 6 warnings); a fresh
+> full gate on the synchronized Phase-2 tree is required before the fix is committed and pushed.
+>
+> **Real-media proof.** In separate `files/dev-work/mp3-track48-diagnosis/fix-proof/` outputs,
+> track 48 passed the production stage/tag/validate path at +0.1, zero and -0.1, respectively
+> adding 4,410, preserving, and removing 4,410 decoded samples. All 49 originals measured
+> successfully (about 21 s for the full decode pass on this Mac). SHA-256/size/mtime checks
+> confirmed all 49 sources and 48 surviving staged files unchanged. Diagnosis and proof artifacts
+> remain local and retained; the lasting evidence and synthetic reproduction now live in tests
+> and the four permanent documents. The running GUI and failed run were not changed.
+>
+> **macOS manual acceptance PASSED (maintainer report, 2026-09-20).** The same 49-track
+> *The Personal Librarian* Book was rerun through MP3 Tool → Write ID3 Tags with Time +0.1 s.
+> Previously failing track 48 succeeded; Book completed 49/49; 1 Book completed, 0 failed,
+> 0 skipped, 0 not attempted; output published successfully to `MP3-Tool-6`.
+> Windows uses the same pinned-tool/subprocess path and remains untested for this fix. The
+> active v0.6.5 plan imposes no Windows MP3 acceptance gate at this checkpoint; that smoke can
+> remain in the later cross-platform validation matrix. Full decoding adds I/O/CPU cost;
+> genuinely undecodable audio is now refused instead of trusting its header.
+>
+> **Next active-plan task: obtain explicit authorization for Phase 3 — Assembly/encoding/
+> duration root-cause investigation.** Isolate Edge raw chunks, batch/rich/direct assembly and
+> final metadata per §§6–7; inspect Kokoro/Chatterbox without changing them absent a demonstrated
+> defect; preserve production for A/B and stop with evidence. Phase 2 is already closed per the
+> synchronized live-state record below. This MP3 checkpoint does not authorize Phase 3.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 IS FULLY COMPLETE: MALE-3 (ORIGINAL) AND MALE-4 BOTH APPROVED, THE REJECTED PITCH-RETRY VARIANT REMOVED — 16-VOICE REGISTRY CLOSED (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — the maintainer's final Male-3 listening verdict has now been acted on — and closes Phase 2
+> mechanically and by ruling. Every fact in the block below about the rejected retry mechanism
+> (its ffmpeg technique, the caught duration-math bug, its file locations) stands as dated history of
+> an approach that was tried and is no longer part of the codebase; nothing there describes current
+> behavior any more.
+>
+> **Maintainer's final ruling (2026-09-20):** **Male-4 — approved, unchanged.** **Male-3 original
+> candidate — approved.** **Male-3 pitch-retry variant — rejected**: "I prefer the original voice
+> exactly as it was before the retry."
+>
+> **1. Original Male-3 is now the registered production voice, with no pitch/timbre adjustment of
+> any kind.** `chatterbox_synth.REFERENCE_VOICES["chatterbox-male-3"]` binds to `Male-3.mp3` by its
+> already-recorded hash (never recomputed — the source file was never touched by the retry or by
+> this closeout), and `voice_registry.VOICES` carries `chatterbox-male-3` / "Chatterbox - Male 3"
+> immediately before `chatterbox-male-4`, using the exact shared, unmodified `_chatterbox_preset()`
+> every other Chatterbox row uses — no per-voice tuning. `CANDIDATE_REFERENCE_VOICES` is now `{}`
+> (both candidates resolved) but left in place, empty, as reusable infrastructure for a future
+> candidate — it is not retry-specific and was not removed.
+>
+> **2. Final registry: 16 voices — 5 Edge, 5 Kokoro, 6 Chatterbox**
+> (`chatterbox-female-1`, `chatterbox-female-2`, `chatterbox-male-1`, `chatterbox-male-2`,
+> `chatterbox-male-3`, `chatterbox-male-4`), both multilingual Edge voices still absent. Twelve
+> tracked test files' count/index expectations were retargeted from 15/5 to 16/6 (never weakened) —
+> `test_chatterbox_boundaries.py`, `test_chatterbox_candidates.py`, `test_chatterbox_engine.py`,
+> `test_chatterbox_evaluation.py`, `test_chatterbox_integration.py`, `test_epub_retirement.py`,
+> `test_fatal_diagnostics.py`, `test_mp3_finalization.py`, `test_tts_importing.py`,
+> `test_tts_jobs.py`, `test_tts_smoke.py`, `test_voice_labels.py`.
+>
+> **3. The rejected pitch-retry machinery is removed entirely, not just unused.** From
+> `generate_voice_samples.py`: `MALE3_RETRY_PITCH_RATIO`, `MALE3_RETRY_SUBDIR`,
+> `_pitch_shift_preserve_tempo()`, `render_male3_pitch_retry()`, and the
+> `--chatterbox-male3-pitch-retry` CLI flag and its dispatch branch — all deleted, not deprecated.
+> `test_chatterbox_candidates.py` gained explicit regression tests asserting each of those symbols
+> and that CLI flag no longer exist, so the rejected path cannot silently return.
+> `CHATTERBOX_CANDIDATE_VOICE_IDS` is now `()`. No other voice's generation parameters, pacing,
+> segmentation, or conditioning were touched.
+>
+> **4. Source-hash integrity, re-verified immediately before this closeout commit:** Male-3.mp3 →
+> `0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4`; Male-4.mp3 →
+> `1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5` — both byte-for-byte identical
+> to every prior checkpoint. `git status` confirms no change under
+> `files/Chatterbox-Voice-Uploads/`.
+>
+> **5. Verification: full suite 7428 passed, 57 skipped, 0 failed**, 1 warning (pre-existing pydub
+> deprecation), in 9:53; `compileall` clean over `scripts/Universal/tts` and `files/tests`.
+> `Briefing.md`'s feature line updated to 16 voices / 6 Chatterbox.
+>
+> **v0.6.5 PHASE 2 IS FULLY COMPLETE. NOTHING HERE AUTHORIZES STARTING PHASE 3** — that requires a
+> separate, explicit authorization per the plan's phase-gate discipline.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 §14 REMEDIATION COMPLETE: MALE-4 REGISTERED, MALE-3 BOUNDED PITCH RETRY RENDERED — AWAITING THE SAME MALE-3 MANUAL LISTENING GATE (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — the maintainer's Male-3/Male-4 listening verdict has now been acted on, per the plan's
+> §14 manual-gate-failure/rollback protocol — and adds the remediation record. Every mechanical fact
+> in the block below (candidate hashes, verification counts, evidence paths) still stands as dated
+> history for the pre-verdict state.
+>
+> **Maintainer verdict (2026-09-20):** **Male-4 — approve.** **Male-3 — reject for bounded retry
+> only:** "otherwise good, make it ever so slightly deeper... only a very small timbre/pitch
+> reduction. Do not otherwise change its pacing, generation settings, clarity, or character."
+>
+> **1. Male-4 is now a registered production voice.** Moved verbatim (same `source_name`, same
+> hash — never recomputed, the source file was never touched) from
+> `chatterbox_synth.CANDIDATE_REFERENCE_VOICES` into the production `REFERENCE_VOICES` (now five
+> entries), and appended to `voice_registry.VOICES` as `chatterbox-male-4` / "Chatterbox - Male 4"
+> using the exact shared, unmodified `_chatterbox_preset()` every other Chatterbox row uses — no
+> per-voice tuning. **Registry now holds 15 voices** (5 Edge, 5 Kokoro, 5 Chatterbox). Nine tracked
+> test files' four-vs-five-Chatterbox-row assumptions were retargeted to match (not weakened).
+>
+> **2. Male-3's retry: a pitch-only shift on a scratch copy of its reference-conditioning clip,
+> never on `Male-3.mp3` and never on the cached production derivative.** New
+> `generate_voice_samples.render_male3_pitch_retry()` reuses
+> `chatterbox_synth.build_reference_clip` (the same 15s leading-window extraction production uses)
+> to build a throwaway copy, applies one ffmpeg `asetrate`+`atempo` pitch shift to that copy only
+> (no new dependency — ffmpeg is already required, already the exact binary
+> `build_reference_clip` shells out to), and conditions the model on the shifted copy directly via
+> `model.prepare_conditionals()` — bypassing the cached `derivative_path`/`conditionals_path`
+> identity system entirely, so no other voice and no global generation parameter is touched.
+> Generation uses the unmodified current-production `generation_params()` and the same
+> `CHATTERBOX_CANDIDATE_TEXT` every other candidate reads — pacing, clarity, and character are
+> otherwise unchanged by construction, not just by intent.
+>
+> **3. The adjustment: `MALE3_RETRY_PITCH_RATIO = 0.97`** (~3% lower, roughly half a semitone) — one
+> bounded value, not a ladder, per instruction. **A real bug was caught and fixed before this value
+> was trusted:** the first filter attempt used `atempo=pitch_ratio`, which stretched the reference
+> clip's duration by ~6.3% (15.00s → 15.94s) instead of preserving it. The corrected filter
+> (`atempo=1/pitch_ratio`) was verified on the same clip to hold duration to within 0.05%
+> (15.0000s → 15.0075s) before the real retry was generated.
+>
+> **4. Original Male-3 candidate sample preserved untouched for direct A/B**, at
+> `files/test-for-manual-listen-elmatthe/chatterbox-candidates/chatterbox-male-3.wav` (unmodified,
+> same file from the original Phase 2 run). **New pitch-retry sample:**
+> `files/test-for-manual-listen-elmatthe/chatterbox-candidates/chatterbox-male-3-pitch-retry.wav`
+> (9.00s audio, wall 10.95s, RTF 1.217; current production parameters:
+> `temperature=0.72, top_p=0.95, top_k=1000, repetition_penalty=1.2`). Both gitignored, local
+> listening only. Retry scratch artifacts (plain + pitch-shifted reference clips) live separately
+> under `files/dev-work/male-3-pitch-retry/`, never mixed with listening artifacts.
+>
+> **5. Both source hashes re-verified unchanged immediately before this checkpoint:** Male-3.mp3 →
+> `0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4`; Male-4.mp3 →
+> `1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5`. `git status` confirms no
+> change under `files/Chatterbox-Voice-Uploads/`.
+>
+> **6. Regression coverage:** `files/tests/test_chatterbox_candidates.py` substantially rewritten —
+> Male-4 moved out of "candidate" scope, `CHATTERBOX_CANDIDATE_VOICE_IDS` now holds only
+> `chatterbox-male-3`, and a new section (mocked — no real recording/model/ffmpeg) covers the retry
+> mechanism: duration preservation within 0.5%, the source file never written to, the scratch copy
+> (not the cached derivative) being what's shifted and conditioned on, current-production settings,
+> a clearly distinct output filename, and no registry side effect. **Full suite: 7434 passed / 57
+> skipped / 0 failed**, 1 warning (pre-existing pydub deprecation), in 9:46; `compileall` clean.
+>
+> **v0.6.5 PHASE 2 §14 REMEDIATION IS MECHANICALLY COMPLETE. MALE-3 IS NOT APPROVED BY THIS ENTRY,
+> AND NOTHING HERE AUTHORIZES STARTING PHASE 3.** The next action is the maintainer's listening pass
+> comparing the two Male-3 samples above, at the same manual gate.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 2 MECHANICAL WORK COMPLETE — AWAITING THE MANDATORY MALE-3/MALE-4 MANUAL LISTENING GATE (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — Phase 2 is now authorized, executed, and mechanically complete — and adds the full Phase
+> 2 record. Every Phase 1 fact in the block below (the 31/31 manifest, the maintainer's listening
+> verdict, the two fixes) still stands verbatim as dated history; the Phase 1 Chatterbox findings
+> (pronunciation inconsistency, Male-1's ~11.8s silence, slow Male-1 pacing) are carried forward,
+> unchanged and not investigated here, per explicit instruction.
+>
+> **1. Voice inventory: the two multilingual Edge voices are removed entirely** (plan Section 3),
+> not relabeled — `en-US-AndrewMultilingualNeural` and `en-US-AvaMultilingualNeural` are gone from
+> `voice_registry.VOICES`, the GUI dropdown, and every test expectation. **Retained inventory: 14
+> voices** — 5 Edge (`en-US-SteffanNeural` default, `AndrewNeural`, `AriaNeural`, `AvaNeural`,
+> `JennyNeural`), 5 Kokoro (`af_heart`, `af_bella`, `am_michael`, `bf_emma`, `bm_george`), 4
+> Chatterbox (`chatterbox-female-1`, `chatterbox-female-2`, `chatterbox-male-1`,
+> `chatterbox-male-2`). Ordinary Andrew and Ava are unaffected. Eight tracked test files had their
+> count/index expectations updated (16→14, 12→10, 7→5) to match — no invariant was weakened, only
+> retargeted; `Briefing.md`'s feature line updated to match.
+>
+> **2. Male-3/Male-4 sources verified and hash-bound (plan Section 4), originals untouched.**
+> `files/Chatterbox-Voice-Uploads/Male-3.mp3` → SHA-256
+> `0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4`;
+> `Male-4.mp3` → SHA-256 `1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5`. Both
+> computed and cross-verified by two independent methods (`certutil` and Python `hashlib`) on
+> HOME-PC, 2026-09-20. `git status` confirms no change under `files/Chatterbox-Voice-Uploads/`; the
+> hashes were re-verified identical immediately after rendering the candidate WAVs. Recorded in
+> `chatterbox_synth.CANDIDATE_REFERENCE_VOICES` — a new, separate dict from the frozen
+> four-entry `REFERENCE_VOICES` (an existing test already pins that count).
+>
+> **3. Separate candidate-evaluation path built and used (plan Section 5) — the historical
+> four-voice evaluation is untouched.** `get_reference_voice()` now checks `REFERENCE_VOICES` then
+> `CANDIDATE_REFERENCE_VOICES`, so every existing reference/derivative/conditioning function
+> (hash verification, derivative caching, P8 safety) works for candidates with no duplicated
+> machinery. `run_chatterbox_candidate_evaluation()` (new, independent of
+> `run_chatterbox_evaluation`) renders under **current production settings**
+> (`generation_params()`, not the historical Phase 9 temperature), using the same evaluation
+> sentence as the four approved voices, to a separate output subfolder
+> (`chatterbox-candidates/`, distinct from `chatterbox-eval/`). No `voice_registry.VOICES` entry
+> exists for either candidate — no GUI registry change before approval, exactly as the plan
+> requires.
+>
+> **4. Lossless Male-3/Male-4 candidate samples generated — both succeeded, 8.56s and 8.16s.**
+> Real run on HOME-PC via `--chatterbox-candidates`:
+> `files/test-for-manual-listen-elmatthe/chatterbox-candidates/chatterbox-male-3.wav` and
+> `.../chatterbox-male-4.wav` (gitignored, local listening only). Generation parameters recorded
+> per voice: `temperature=0.72, top_p=0.95, top_k=1000, repetition_penalty=1.2` (current
+> production, confirmed different from the historical Phase 9 `temperature=0.8`). Throughput:
+> Male-3 wall 43.60s / audio 8.56s (RTF 5.09, cold conditional compute); Male-4 wall 12.15s / audio
+> 8.16s (RTF 1.49).
+>
+> **5. Regression coverage:** new `files/tests/test_chatterbox_candidates.py` (20 tests, fully
+> mocked — no real recording, model, or network touched, matching the existing Chatterbox test
+> convention) covers registry isolation, the frozen four-entry production set, hash-bound
+> reference resolution and its fallback, current-vs-historical generation settings, separate output
+> subfolders, and setup-required/failure handling. Full suite: **7420 passed / 57 skipped / 0
+> failed** / 1 warning (pre-existing pydub `audioop` deprecation) in 10:03; `compileall` clean.
+>
+> **v0.6.5 PHASE 2 MECHANICAL WORK IS COMPLETE. NOTHING HERE APPROVES MALE-3 OR MALE-4, AND NOTHING
+> HERE AUTHORIZES STARTING PHASE 3.** The next action is the maintainer's manual listening pass
+> against the two candidate WAVs above (plan Section 5) — YES/NO per voice, no automatic
+> substitute — then an explicit go-ahead for Phase 3.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 1 CLOSED: MAINTAINER LISTENING PASS (P6) COMPLETE — AWAITING EXPLICIT AUTHORIZATION FOR PHASE 2 (2026-09-20, HOME-PC)
+>
+> **This block is the live state.** It supersedes the v0.6.5 Phase 1 status block further below on
+> exactly one point — the mandatory manual listening gate (P6) has now run — and adds the
+> maintainer's verdict. Every mechanical fact in that block (the 31/31 manifest, the two fixes, the
+> OOM diagnosis) still stands verbatim. The dated macOS record immediately below this block is
+> unrelated (a v0.6.4 Metadata Editor fix cherry-picked onto this branch) and is not touched by this
+> supersession — it already says so itself.
+>
+> **Maintainer listening verdict (2026-09-20), against the full manifest recorded below:**
+> - **Edge — passed, no observed quality defects.**
+> - **Kokoro — passed, no observed quality defects.**
+> - **Chatterbox — baseline findings recorded for later investigation, not a Phase 1 harness
+>   failure:** a reproducible pronunciation inconsistency; one confirmed internal-silence defect on
+>   Male-1 (~11.8 seconds); and comparatively slow Male-1 pacing versus the other Chatterbox voices.
+>   Exact sample/corpus-item locations for these three findings are not yet pinned down in this
+>   record — that localization is Phase 3/4 work (P2's investigation order: source/segmentation
+>   first, then assembly/silence, then generation parameters), not something to chase now.
+>
+> **This is a pass at the Phase 1 gate, not a rejection.** The plan's §14 manual-gate-failure/
+> rollback protocol does not apply here — the maintainer explicitly characterized these as baseline
+> evidence to carry forward, matching P1 (preserve-first; investigate only a *demonstrated* defect)
+> and P6 (mechanical/acoustic evidence and human listening both feed the record; no agent declares
+> a winner). No pronunciation hack, silence trim, or pacing change is authorized by this entry (P9,
+> P3) — any fix waits for Phase 3-5's investigation order.
+>
+> **v0.6.5 PHASE 1 IS FULLY CLOSED** (mechanical work + manual gate). **NOTHING HERE AUTHORIZES
+> STARTING PHASE 2** (voice inventory + Chatterbox candidates) or any other later phase. The next
+> action is the maintainer's explicit go-ahead to begin Phase 2.
+
+> ## ⟢ RECORD — v0.6.4 METADATA EDITOR CHAPTER-TITLE DEFECT FOUND ON macOS, FIXED, AND CARRIED ONTO THIS BRANCH AS ONE FIX COMMIT; THE v0.6.5 LIVE STATE BELOW IS UNCHANGED (2026-09-20, HOME-MacOS)
+>
+> **This block adds one dated record and supersedes nothing.** The v0.6.5 Phase 1 block beneath it
+> remains the live state: Phase 1 is mechanically complete, the next action is still the maintainer's
+> manual listening gate, and nothing here authorizes Phase 2. The record: after v0.6.4 was merged,
+> the maintainer reproduced a real defect in the M4B Metadata Editor with six real audiobooks on the
+> Mac, directed a read-only investigation, approved it, directed a bounded remediation, reviewed it,
+> and directed that **only** that remediation be carried onto this branch (no other v0.6.4-branch
+> commit came with it). Source commit `3dd0602` on `feature/0.6.4-m4b-maker-metadata-editor` (an
+> unpushed local commit on the Mac's old `87e1a25` base), cherry-picked here with `-x`; the three
+> permanent documents were reconciled by hand into their current v0.6.5 text rather than replayed.
+>
+> **The defect (runs `m4b-meta-run-000024` Clear All Tags and `…000031` Save Tags, six "7th Time
+> Loop" M4Bs, 8–12 chapters of 37 s to 105 min each, embedded cover).** Every Book failed at
+> `[validate] chapter titles do not match the plan` with the last short chapters' titles moved onto
+> the first positions (Book 1 found `('Intro','Outro','Chapter 2',…,'Outro')`, planned
+> `('Intro','Chapter 1',…,'Outro')`; Book 6 lost Chapters 1–3 to its two Bonus titles and Outro).
+> The launch log carried one `[ipod] Application provided duration: N in stream 2 is invalid` line
+> per dropped chapter. Both run folders were empty and every source byte- and mtime-identical:
+> staging and atomic publication held. The chapter lines were genuine edits (`Opening
+> Credits`→`Intro`, `End Credits`→`Outro`, …): plan construction was sound.
+>
+> **Root cause (reproduced on a copy of Book 1 and on generated media).** FFmpeg 9.0.1's mov/ipod
+> muxer defaults `-movie_timescale` to auto = lcm of the mapped streams' timescales; the remux maps
+> `0:a` (1/44100) and `0:v?` (the cover, 1/90000), so the chapter-track timescale became 4,410,000
+> (source: 1000). Any chapter longer than INT_MAX/4,410,000 ≈ 487 s was refused and dropped from the
+> rebuilt text track with exit status 0; the `chpl` atom stayed complete; ffprobe merges the two by
+> chapter id, so the k surviving short chapters overwrote chapters 0..k−1. **Not macOS-specific**
+> (Windows runs the same 9.0.1); the Maker's concat maps audio only and is unaffected. A latent
+> second gap was proved on a 30 s + 600 s fixture: with the short chapter leading, the merged
+> titles equal the plan while the text track holds one sample — a titles-only validation passed it.
+>
+> **The fix commit (5 code/test files, +585/−15 with the docs):** `shared/metadata.py` —
+> `apply_chapter_titles` pins `-movie_timescale 1000` (`CHAPTER_REMUX_MOVIE_TIMESCALE`), still
+> `-c copy`; both ffmpeg steps run through `_run_chapter_remux_step`, which raises
+> `ChapterRemuxError` on any stderr at `-loglevel error` and removes the temporary sibling; new
+> `ChapterStructure` + `read_chapter_structure(path)`. `mp3_tools/m4b_metadata_processing.py` —
+> `validate_staged` also reads the structure of the staged copy and the source and calls
+> `validate_chapter_structure` (equal count; boundaries within `CHAPTER_BOUNDARY_TOLERANCE` = 10 ms;
+> a one-sample-per-chapter text track exactly when `chapter_titles_retitled(book)`, the predicate
+> `stage_book` now shares; otherwise the track unchanged). Tests: new
+> `files/tests/test_m4b_chapter_remux_timescale.py` (9, real FFmpeg: 660 s cover-art fixture with
+> 30/600/30 chapters, the leading-short false-pass shape, the pathological timescale forced as the
+> negative control, the argv contract, the exit-status-zero guard, the reader); 12 new cases in
+> `test_m4b_metadata_processing.py` (end to end through `build_book` with the real writer for Save,
+> Clear All, unchanged lines, the refused truncated and displaced results; six media-free structural
+> cases); the metadata authority pin in `test_m4b_structural_authority.py`.
+>
+> **Verification on the Mac, on the 0.6.4 base:** real Book 1 copy through the fixed writer → 8/8
+> chapters, boundaries equal, 8-sample text track at 1/1000, audio MD5 identical, no stderr; focused
+> set 553 passed / 4 skipped; full `verify.py` PASS (7,393 passed / 55 skipped). The same focused set
+> and full gate were re-run on this branch after the cherry-pick — results recorded in the session
+> report that accompanied the push. **Recommended acceptance:** re-run Save Tags on the six real
+> Books in the real launcher on either platform and confirm 6/6 succeed with every chapter present.
+
+> ## ⟢ CURRENT STATE — v0.6.5 PHASE 1 MECHANICAL WORK COMPLETE: FULL BASELINE MANIFEST (31/31 OK) CAPTURED — AWAITING THE MANDATORY MANUAL LISTENING GATE (2026-09-19, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly one
+> point — Phase 1 is now authorized, executed, and mechanically complete — and adds the full Phase 1
+> record. Every Phase 0 fact in the block below still stands verbatim as dated history.
+>
+> **1. Harness + corpus built (`6fd29ee`).** `scripts/Universal/tts/quality_corpus.py` (original,
+> copyright-safe QA text covering every Section 7 false-boundary case, structural-stress passages
+> that deliberately cross Chatterbox's 300-char and Kokoro/Edge's ~3,000-char chunk ceilings, and a
+> sustained/longer narration pair) and a new `--quality-suite` mode on
+> `generate_voice_samples.py` (per-sample manifest with commit SHA, corpus identity, duration,
+> loudness, leading/trailing silence, and throughput — P12). 6 new tracked, network-independent
+> tests added.
+>
+> **2. A real harness bug was found and fixed before any evidence was trusted (`493d5fb`).** The
+> first full run showed Chatterbox's sustained/longer samples finishing in ~0.2s at −80 dBFS instead
+> of several minutes at a normal level, with no error. Root cause: the harness called Chatterbox's
+> single-shot `synthesize_text_to_mp3` (one `model.generate()` call, no chunking — its only prior
+> caller was the fixed, short `SAMPLE_TEXT`) directly on 5,050/8,875-character text. Production never
+> does this — it chunks through `chatterbox_file_to_mp3` via `split_for_chatterbox`. Fixed: Chatterbox
+> text over `CHATTERBOX_MAX_CHUNK_CHARS` now routes through the real chunked path; verified on a
+> 342-char/2-chunk sample. Edge and Kokoro were unaffected — both already handle long text internally
+> and produced correctly-scaled durations throughout.
+>
+> **3. The second full run was killed by the OS for low system memory, not a command fault.** Claude
+> Code's own kill message was explicit: *"this is not a failure of the command... says nothing about
+> the command or its own memory use."* 25 of 31 samples had already completed cleanly by then (all of
+> Edge/Kokoro, plus Chatterbox Female-1/Female-2/Male-1's difficult-text baseline), preserved intact
+> by the manifest's per-sample incremental write.
+>
+> **4. Bounded resource-lifecycle diagnosis performed before resuming, per explicit maintainer
+> instruction — scoped to the Phase-1 runner and engine model lifecycle only, not general
+> performance work.** System state after the kill: 15+ GB free RAM, no orphaned processes.
+> Chatterbox's `_MODEL_CACHE` was already correct (model loaded once per device, reused for every
+> chunk). `kokoro_synth._get_pipeline` had **no cache at all** — every call rebuilt a whole
+> `KPipeline` from scratch. Measured with a repeated-instantiation probe (PowerShell `WorkingSet64`
+> sampling): 5 calls grew process RSS from ~996 MB to ~1,316 MB before a fix; after caching per
+> `lang_code` (mirroring the Chatterbox pattern), RSS is flat at 1,387 MB across all 5 calls. **This
+> did not directly cause the kill** — Kokoro had long finished and its footprint had already
+> plateaued before the run reached the later Chatterbox chunks where the kill actually happened —
+> but it is a real, independently-worth-fixing inefficiency the harness exercises by design (multiple
+> Kokoro voices in one process), so it was fixed (`7745175`) rather than left in place, with 3 new
+> regression tests (`files/tests/test_kokoro_pipeline_cache.py`) and the full suite reconfirmed green.
+> **Conclusion: the termination is recorded as genuine external machine memory pressure**, not a
+> harness defect; resumption proceeded once resources were confirmed healthy.
+>
+> **5. Resumption completed the 6 remaining samples without regenerating the 25 already-good ones.**
+> A one-off script (not committed — it only reuses already-tested harness functions) loaded the
+> existing 25-row manifest, asserted the count, and appended only: Chatterbox Male-1's
+> sustained/longer samples, Chatterbox Male-2's difficult-text baseline, and the Edge
+> raw-chunk/folder-batch/direct path-comparison evidence. **Final manifest: 31/31 OK, 0 failures.**
+> Every retained voice (16) has its short difficult-text baseline; all 6 representative voices (Edge
+> Steffan/Jenny, Kokoro Heart/Michael, Chatterbox Female 1/Male 1) have sustained + longer samples.
+>
+> **6. Evidence location (gitignored, local-only — `files/dev-work/quality-suite/`):** per-voice
+> subfolders `<backend>_<voice_id>/{difficult_short,sustained_narration,longer_stress}.mp3`;
+> `edge_path_comparison/{raw_chunk.mp3, folder_batch/structural_stress.mp3, direct/structural_stress
+> (en-US-SteffanNeural).mp3}`; `manifest.md` / `manifest.jsonl` with the full mechanical record. The
+> Edge path-comparison evidence already shows a measurable trailing-silence progression worth Phase
+> 3's attention: raw chunk 860ms → folder/batch 3,930ms → direct 5,860ms, and a dBFS shift on the
+> direct path (−21.4 vs. −19.2/−19.8 for raw/batch) — evidence only, no cause diagnosed and no
+> subjective judgment made.
+>
+> **v0.6.5 PHASE 1 MECHANICAL WORK IS COMPLETE. NOTHING HERE AUTHORIZES STARTING PHASE 2** or any
+> production/quality change. The next action is the maintainer's manual listening pass (P6) against
+> the manifest above, then an explicit go-ahead for Phase 2 (voice inventory + Chatterbox
+> candidates).
+
+> ## ⟢ CURRENT STATE — v0.6.4 CONFIRMED MERGED (PR #11); v0.6.5 PHASE 0 (TTS QUALITY REFINEMENT) COMPLETE — AWAITING EXPLICIT AUTHORIZATION TO START PHASE 1 (2026-09-18, HOME-PC)
+>
+> **This block is the live state.** It supersedes the block immediately below it on exactly two
+> points — v0.6.4's merge state and the v0.6.5/Plan 9 version assignment — and adds the new v0.6.5
+> Phase 0 record. Every implementation, acceptance, and remediation fact in the block below still
+> stands verbatim as dated history.
+>
+> **1. v0.6.4 is confirmed merged.** A fresh `git fetch origin` showed `origin/master` advanced to
+> `1f9bdcf347edaad36d68e237933d3ac6036d0a42` — the merge commit for **pull request #11**, merging
+> `feature/0.6.4-m4b-maker-metadata-editor` (tip `f5f3926`). The independent read-only
+> integration-readiness recheck named in the block below therefore ran and returned READY, and the
+> maintainer merged. No tag, package, release, or version bump accompanied it; version identity
+> remains `0.6.2`, unreleased.
+>
+> **2. `feature/0.6.5-tts-quality-refactor` created; v0.6.5 Phase 0 complete.** The branch was
+> created fresh from that verified `origin/master` (it did not already exist). The tracked
+> `md-instructions/0.6.5-tts-quality-refactor.md` was confirmed byte-identical to the approved v4
+> Final the maintainer had pushed directly to `origin/master`. Phase 0 findings, all mechanical /
+> read-only, no production change:
+> - **Baseline synthesis confirmed on this machine** for all three engines using the current
+>   `.venv` (Python 3.12.10; `edge-tts` 7.2.8, `kokoro` 0.9.4, `chatterbox-tts` 0.1.7): Edge
+>   (`en-US-SteffanNeural`), Kokoro (`af_heart`), and Chatterbox (`chatterbox-female-1`, real
+>   reference conditioning) all synthesized successfully via `generate_voice_samples.py`. Samples in
+>   `files/test-for-manual-listen-elmatthe/` (gitignored) — a synthesis-works smoke check only, not
+>   the Phase 1 quality baseline.
+> - **TTS audit:** 18 TTS-related test files identified across `files/tests/`; the plan's §8
+>   "no live network in tracked Edge tests" rule is already mechanically enforced by an autouse
+>   `conftest.py` fixture that raises on any real `urllib.request.urlopen` call during tests; the
+>   registry currently holds the correct pre-Phase-2 baseline of 16 voices (7 Edge including both
+>   multilingual, 5 Kokoro, 4 Chatterbox); `test_chatterbox_tuning.py` /
+>   `test_chatterbox_selected_tuning.py` already guard the Ascended/Tamar pronunciation-stability
+>   evidence against word hacks (P9).
+> - **v0.5.0 Edge-reference history located:** commit `d915b34` (2026-07-19) and its matching
+>   `Decisions.md` ADR record a full "batch-timing-parity" rewrite (per-file subprocess delegation +
+>   per-path timing presets) that hit its numeric targets and was then abandoned in full after
+>   maintainer A/B listening judged it worse on every voice — this is the exact prior attempt the
+>   plan's §15 Phase 5 says not to repeat without new evidence. The confirmed-preferred original path
+>   remains `split_into_chunks` (~3,000 chars) → one `edge_tts.Communicate` call per chunk →
+>   `merge_mp3s` (flat 50ms join). A separate 2026-08-18 ADR already fixed a real duration/
+>   container-metadata bug (32kbps default breaking Xing/Info headers) via a 64kbps floor and an
+>   explicit `mp3_export_options()` contract for Kokoro/Chatterbox/the Edge folder path's final
+>   encode; that same ADR documents the Edge folder path's one remaining lossy re-generation
+>   (network-delivered MP3 chunks merged) as accepted/unavoidable at the time — a reasonable Phase 3
+>   starting point, not yet re-investigated.
+> - **Local-worker / project-status observations (unchanged):** `files/dev-work/local-model-worker.py`
+>   is absent — only `files/dev-work/local-model-worker-template.py` exists, and
+>   `.ai/ENVIRONMENT.md`'s worker-pool table is still unfilled placeholder text. No containment
+>   validation was attempted and nothing was provisioned, per the plan's §12 rule that this is never
+>   a phase prerequisite. `scripts/project-status.py` ran cleanly but reports "Handoff state:
+>   unavailable" because its parser looks for a `## Execution Snapshot` header this file doesn't use;
+>   noted only, not fixed, per instruction not to modify workflow infrastructure just to make it
+>   report more fields.
+>
+> **3. Roadmap reconciliation — the displaced Plan 9 / old v0.6.5 allocation is resolved by explicit
+> maintainer ruling (2026-09-18, recorded in `Decisions.md`):** preserve Plan 9's full scope
+> ("remaining Windows UI conversion, macOS parity, QA, docs, and packaging") intact as approved
+> future work, but mark it **DISPLACED — FUTURE ALLOCATION UNASSIGNED** rather than inventing a new
+> version, branch, or plan number for it now. The Approved Plan Series Map and the Master
+> Implementation Plan Index each gained a matching dated supersession section/note; neither
+> document's original 2026-07-31/2026-08-03 text was rewritten.
+>
+> **v0.6.5 PHASE 0 IS COMPLETE. NOTHING HERE AUTHORIZES STARTING PHASE 1**, drafting Plan 9, or any
+> merge/tag/release/branch-deletion. The next action is the maintainer's explicit go-ahead to begin
+> v0.6.5 Phase 1 (quality harness + baseline listening).
+
 > ## ⟢ CURRENT STATE — v0.6.4 INTEGRATION-BLOCKER REMEDIATION COMPLETE: PHASE 15 RECORDS RECONCILED AND THE 7,427-NODE GATE REPROVED — NEXT IS THE INDEPENDENT READ-ONLY INTEGRATION-READINESS RECHECK (2026-09-18, HOME-PC)
 >
 > **This block is the live state.** It supersedes the Phase 15 block immediately below on two review

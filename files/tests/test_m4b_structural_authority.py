@@ -88,7 +88,8 @@ AUTHORITIES = {
     "image capability": ("shared/image_capabilities.py", (
         "can_decode", "decodable_suffixes", "heif_capability", "FormatCapability")),
     "metadata reading and writing": ("shared/metadata.py", (
-        "read_m4b_tags", "read_chapter_titles", "write_m4b_tags", "clear_metadata_keep_chapters",
+        "read_m4b_tags", "read_chapter_titles", "read_chapter_structure", "ChapterStructure",
+        "ChapterRemuxError", "write_m4b_tags", "clear_metadata_keep_chapters",
         "clear_series_numbering", "apply_chapter_titles", "ffmetadata_header_lines",
         "ffmetadata_escape")),
     "success numbering": ("shared/numbering.py", ("SuccessNumbers",)),

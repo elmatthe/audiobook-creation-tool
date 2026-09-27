@@ -247,7 +247,8 @@ class Attempt:
         retained = self.is_retry and book.staged.is_file() and not book.staged.is_symlink()
         if retained:
             try:
-                proc.validate_staged(book, book.staged, series_part=_part_on(book.staged))
+                proc.validate_staged(book, book.staged, series_part=_part_on(book.staged),
+                                     require_source_match=False)
                 reporter.technical(f"[kept] {book.filename}: reusing the staged candidate")
             except proc.ProcessingError:
                 retained = False
@@ -270,7 +271,8 @@ class Attempt:
                 if series.strip():
                     tags["series"] = series
                 metadata.write_m4b_tags(book.staged, tags, total=len(owner.plan.books))
-                proc.validate_staged(book, book.staged, series_part=tentative.number)
+                proc.validate_staged(book, book.staged, series_part=tentative.number,
+                                     require_source_match=not retained)
             except Exception as exc:  # noqa: BLE001 - the candidate is retained for a retry
                 return failed("number", "the series part could not be written",
                               f"{type(exc).__name__}: {exc}")

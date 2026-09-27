@@ -366,6 +366,38 @@ def test_a_retained_candidate_gets_its_stale_part_rewritten_before_publication(
     assert not b.staged.exists() and not b.staging_dir.exists()
 
 
+def test_retry_reuses_the_retained_candidate_when_the_source_has_vanished(
+        container, sources, reserve, monkeypatch):
+    """A retained candidate already proved against the source once must not
+    need the source again: Retry Failed still publishes it after the source
+    disappears (ejected, moved, or otherwise unreadable) between attempts."""
+    made, _, _ = three_books(container, sources, reserve, auto_number=True, start_part_text="1")
+    b = made.books[1]
+    real = proc.publish_book
+
+    def refuse_b(entry, *, work_root):
+        if entry.book_id == b.book_id:
+            raise proc.ProcessingError("destination refused", stage="publish", detail="x")
+        return real(entry, work_root=work_root)
+
+    monkeypatch.setattr(proc, "publish_book", refuse_b)
+    run, _ = make_run(made)
+    first = run.start().run()
+    assert dispositions(first) == [BookDisposition.SUCCEEDED, BookDisposition.FAILED,
+                                    BookDisposition.SUCCEEDED]
+    assert b.staged.is_file(), "the validated candidate is retained for the retry"
+    monkeypatch.undo()
+
+    b.source.unlink()
+    assert not b.source.exists(), "the source is gone before the retry runs"
+
+    result = run.retry_failed().run()
+    assert result.state is JobState.SUCCEEDED
+    assert dispositions(result) == [BookDisposition.SUCCEEDED] * 3
+    assert b.published.is_file() and series_part(b.published) == "3"
+    assert not b.staged.exists() and not b.staging_dir.exists()
+
+
 def test_retry_uses_the_original_frozen_plan_whatever_changed_since(container, sources, reserve,
                                                                      monkeypatch):
     made, space, _ = three_books(container, sources, reserve, auto_number=True,

@@ -1985,6 +1985,21 @@ class SummaryDetailsView:
         self._guard.require("divider")
         self.append(text, text)
 
+    def append_detail(self, lines: str | Iterable[str]) -> None:
+        """Add one or more of the owner's own lines to Details only.
+
+        Same freeze-then-extend contract as :meth:`append`, but Summary's
+        history and live projection are left untouched -- for raw engine
+        chatter that belongs in Details but would just be noise in Summary.
+        """
+        self._guard.require("append_detail")
+        if isinstance(lines, str):
+            lines = (lines,)
+        self._freeze()
+        self._details_history.extend(str(line) for line in lines)
+        self._trim()
+        self._redraw()
+
     def clear(self) -> None:
         """Clear the visible text of both panes, and only that.
 

@@ -1,11 +1,22 @@
 """v0.6.1 Plan 4 Phase 13A.3 — the voice dropdown's exact display wording.
 
-The maintainer specified these sixteen strings, in this order, on 2026-08-20, and
-that instruction explicitly supersedes the drop's earlier requirement that the
-first twelve ``display_label`` values stay byte-identical. The override reaches
-**user-facing text only**: this module writes the sixteen strings down once, and
-then pins everything the rename was *not* allowed to touch — order, backends,
+The maintainer specified sixteen strings, in this order, on 2026-08-20, and that
+instruction explicitly supersedes the drop's earlier requirement that the first
+twelve ``display_label`` values stay byte-identical. The override reaches
+**user-facing text only**: this module wrote the sixteen strings down once, and
+then pinned everything the rename was *not* allowed to touch — order, backends,
 voice ids, group labels, timing presets, and the identity of the default voice.
+
+v0.6.5 Phase 2 removed two of those sixteen rows entirely (the multilingual Edge
+voices, not a relabeling) and later appended two new rows (Chatterbox Male 3 and
+Male 4, both approved by the maintainer's final listening ruling, plan Section 5)
+that the Phase 13A.3 rename never touched — neither was renamed because neither
+existed at that rename's time, and their labels ("Chatterbox - Male 3" / "- Male
+4") were simply assigned correctly the first time. Male 3's registration is the
+*original* candidate sample — a separate bounded pitch-retry variant was tried
+and rejected, so no pitch/timbre adjustment reached this label or any other
+column. This module now tracks sixteen; nothing else about the Phase 13A.3
+rename changed for the pre-existing rows.
 
 The last section proves the fact that makes the rename safe without a migration:
 nothing persists a chosen voice by its label. If that ever changes, the test that
@@ -26,10 +37,8 @@ from tts import voice_registry as vr
 #: hyphen-minus throughout — no em dash anywhere in a voice name any more.
 MAINTAINER_LABELS = [
     "Edge Male - Steffan (en-US)",
-    "Edge Male - Andrew (en-Multilingual)",
     "Edge Male - Andrew (en-US)",
     "Edge Female - Aria (en-US)",
-    "Edge Female - Ava (en-Multilingual)",
     "Edge Female - Ava (en-US)",
     "Edge Female - Jenny (en-US)",
     "Kokoro Female (Default) - Heart (en-US)",
@@ -41,11 +50,16 @@ MAINTAINER_LABELS = [
     "Chatterbox - Female 2",
     "Chatterbox - Male 1",
     "Chatterbox - Male 2",
+    "Chatterbox - Male 3",
+    "Chatterbox - Male 4",
 ]
 
 #: The wording each row used before this rename. None of these may survive as a
 #: selectable label, and — because nothing persists a label — none of them needs
-#: to resolve to anything either.
+#: to resolve to anything either. The two multilingual formers are kept even
+#: though v0.6.5 Phase 2 removed those rows entirely: the assertion (not offered)
+#: only gets stronger, and this stays the historical record of what Phase 13A.3
+#: renamed.
 FORMER_LABELS = [
     "Steffan — en-US Male (default)",
     "Andrew Multilingual — en-US Male",
@@ -62,18 +76,20 @@ FORMER_LABELS = [
 ]
 
 #: Every voice id, in registry order. The rename may not have moved or edited one.
+#: v0.6.5 Phase 2 removed the two multilingual Edge ids entirely.
 VOICE_IDS = [
-    "en-US-SteffanNeural", "en-US-AndrewMultilingualNeural", "en-US-AndrewNeural",
-    "en-US-AriaNeural", "en-US-AvaMultilingualNeural", "en-US-AvaNeural",
+    "en-US-SteffanNeural", "en-US-AndrewNeural",
+    "en-US-AriaNeural", "en-US-AvaNeural",
     "en-US-JennyNeural",
     "af_heart", "af_bella", "am_michael", "bf_emma", "bm_george",
     "chatterbox-female-1", "chatterbox-female-2",
     "chatterbox-male-1", "chatterbox-male-2",
+    "chatterbox-male-3", "chatterbox-male-4",
 ]
 
-BACKENDS = ["edge"] * 7 + ["kokoro"] * 5 + ["chatterbox"] * 4
+BACKENDS = ["edge"] * 5 + ["kokoro"] * 5 + ["chatterbox"] * 6
 
-CHATTERBOX_LABELS = MAINTAINER_LABELS[12:]
+CHATTERBOX_LABELS = MAINTAINER_LABELS[10:]
 
 
 # --------------------------------------------------------------------------- #
@@ -131,19 +147,19 @@ def test_the_timing_presets_are_still_the_approved_values():
     """
     from test_chatterbox_boundaries import EXPECTED_VOICES
 
-    twelve = [entry.timing_preset for entry in vr.VOICES[:12]]
-    assert twelve == [preset for *_head, preset in EXPECTED_VOICES]
-    # The four approved rows all take the shared preset unmodified (drop §6).
-    assert [entry.timing_preset for entry in vr.VOICES[12:]] == [
-        vr._chatterbox_preset()] * 4
+    ten = [entry.timing_preset for entry in vr.VOICES[:10]]
+    assert ten == [preset for *_head, preset in EXPECTED_VOICES]
+    # All six approved rows take the shared preset unmodified (drop §6).
+    assert [entry.timing_preset for entry in vr.VOICES[10:]] == [
+        vr._chatterbox_preset()] * 6
 
 
 def test_the_group_labels_are_unchanged_and_are_never_the_voice_name():
     groups = [entry.group_label for entry in vr.VOICES]
-    assert groups[:7] == ["Microsoft Edge TTS — English (US)"] * 7
-    assert groups[7:10] == ["Kokoro Local AI — American English"] * 3
-    assert groups[10:12] == ["Kokoro Local AI — British English"] * 2
-    assert groups[12:] == [vr.CHATTERBOX_GROUP_LABEL] * 4
+    assert groups[:5] == ["Microsoft Edge TTS — English (US)"] * 5
+    assert groups[5:8] == ["Kokoro Local AI — American English"] * 3
+    assert groups[8:10] == ["Kokoro Local AI — British English"] * 2
+    assert groups[10:] == [vr.CHATTERBOX_GROUP_LABEL] * 6
     assert not set(groups) & set(vr.display_labels())
 
 
@@ -159,11 +175,15 @@ def test_steffan_is_still_the_default_voice_under_the_new_wording():
     assert vr.get_voice(vr.DEFAULT_VOICE_LABEL).backend == "edge"
 
 
-def test_the_four_chatterbox_labels_were_already_right_and_did_not_change():
-    assert [entry.display_label for entry in vr.VOICES[12:]] == CHATTERBOX_LABELS
+def test_the_six_chatterbox_labels_were_already_right_and_did_not_change():
+    """Four pre-existing (Phase 13A.3, untouched) plus Male 3 and Male 4
+    (both new, Phase 2 — Male 3 is the original candidate, not the rejected
+    pitch-retry variant)."""
+    assert [entry.display_label for entry in vr.VOICES[10:]] == CHATTERBOX_LABELS
     assert CHATTERBOX_LABELS == [
         "Chatterbox - Female 1", "Chatterbox - Female 2",
         "Chatterbox - Male 1", "Chatterbox - Male 2",
+        "Chatterbox - Male 3", "Chatterbox - Male 4",
     ]
 
 

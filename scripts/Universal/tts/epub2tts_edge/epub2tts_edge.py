@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import contextlib
+import copy
 import os
 import re
 import subprocess
@@ -13,7 +14,7 @@ from tqdm import tqdm
 import edge_tts
 from mutagen import mp4
 import nltk
-from nltk.tokenize import sent_tokenize
+from nltk.tokenize import _get_punkt_tokenizer
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 from pathlib import Path as _Path
@@ -68,6 +69,49 @@ def ensure_punkt():
         nltk.data.find("tokenizers/punkt_tab")
     except LookupError:
         nltk.download("punkt_tab")
+
+
+_SENTENCE_TOKENIZER = None
+
+
+def _sentence_tokenizer():
+    """NLTK's own English Punkt model, extended with two abbreviations its
+    default set omits: "i.e" and "e.g".
+
+    v0.6.5 Phase 5 (iterations 2 and 4) proved the stock abbreviation set
+    false-splits e.g. "...theory, i.e. two turns." into separate NLTK
+    "sentences" at "i.e."/"e.g." -- each boundary earning an unwanted
+    mid-sentence ``sentencepause`` on this direct/rich path only -- and that
+    extending the tokenizer's own ``abbrev_types`` set (rather than adopting
+    a new dependency such as pysbd) fixes it with zero regression on every
+    other false-boundary marker tested (Dr./Mr./Mrs./Prof., initials, "vs.",
+    decimals, times, ratios, URLs, ellipses, dialogue, parentheticals).
+    Approved for integration by the maintainer's iteration 4 listening
+    verdict.
+
+    Built once per process and cached here. ``_get_punkt_tokenizer`` memoizes
+    and returns NLTK's own shared instance, so a deep copy is extended
+    instead of mutating it in place -- nothing else in this process that
+    also calls NLTK's stock ``nltk.tokenize.sent_tokenize`` is affected.
+    """
+    global _SENTENCE_TOKENIZER
+    if _SENTENCE_TOKENIZER is None:
+        tokenizer = copy.deepcopy(_get_punkt_tokenizer("english"))
+        tokenizer._params.abbrev_types.add("i.e")
+        tokenizer._params.abbrev_types.add("e.g")
+        _SENTENCE_TOKENIZER = tokenizer
+    return _SENTENCE_TOKENIZER
+
+
+def sent_tokenize(text: str) -> list[str]:
+    """Sentence-boundary splitting used throughout this module.
+
+    Wraps the abbreviation-extended tokenizer above so both call sites in
+    this file (``get_book`` and ``read_book``) share one definition instead
+    of calling NLTK's stock ``sent_tokenize`` directly.
+    """
+    return _sentence_tokenizer().tokenize(text)
+
 
 def get_book(sourcefile):
     book_contents = []
@@ -298,66 +342,56 @@ def read_book(
                 else:
                     sentences = sent_tokenize(paragraph)
                     n_sents = len(sentences)
-                    sentence_paths: list[str] = []
+                    # Trim/intra-pause/sentence-pause work stays in memory as PCM
+                    # (pydub AudioSegment) from the raw Edge network bytes all the
+                    # way to this paragraph's one FLAC export below -- no avoidable
+                    # intermediate lossy MP3 re-encode per sub-chunk/sentence.
+                    # Approved by the maintainer's Phase 5 iteration 1/4 listening
+                    # verdict (v0.6.5 Phase 6 integration).
+                    sentence_segments: list[AudioSegment] = []
                     sent_counter = 1
                     for _si, sentence in enumerate(sentences):
                         _checkpoint()  # between sentence chunks (each is a network round-trip)
                         sentence = re.sub(r"[!]+", "!", sentence)
                         sentence = re.sub(r"[?]+", "?", sentence)
                         subs = intra_sentence_chunks(sentence)
-                        if len(subs) == 1:
-                            chunk_path = f"sntnc{sent_counter}.mp3"
-                            run_edgespeak(subs[0][0], speaker, chunk_path)
+                        sub_segments: list[AudioSegment] = []
+                        for sub_idx, (sub_text, intra_pause_ms) in enumerate(subs):
+                            sub_path = f"sntnc{sent_counter}_sub{sub_idx}.mp3"
+                            run_edgespeak(sub_text, speaker, sub_path)
+                            seg = AudioSegment.from_file(sub_path)
+                            with contextlib.suppress(FileNotFoundError):
+                                os.remove(sub_path)
                             if trim_tts_padding:
-                                trim_tts_chunk_file(
-                                    chunk_path,
+                                seg = trim_silence_segment(
+                                    seg,
                                     silence_threshold=trim_silence_db,
                                     chunk_size=trim_chunk_ms,
                                 )
-                            sentence_paths.append(chunk_path)
-                        else:
-                            sub_paths: list[str] = []
-                            for sub_idx, (sub_text, intra_pause_ms) in enumerate(subs):
-                                sub_path = f"sntnc{sent_counter}_sub{sub_idx}.mp3"
-                                run_edgespeak(sub_text, speaker, sub_path)
-                                if trim_tts_padding:
-                                    trim_tts_chunk_file(
-                                        sub_path,
-                                        silence_threshold=trim_silence_db,
-                                        chunk_size=trim_chunk_ms,
-                                    )
-                                if intra_pause_ms > 0:
-                                    append_silence(sub_path, intra_pause_ms)
-                                sub_paths.append(sub_path)
-                            chunk_path = f"sntnc{sent_counter}.mp3"
-                            merged_sent = AudioSegment.empty()
-                            for sp in sub_paths:
-                                merged_sent += AudioSegment.from_mp3(sp)
-                            merged_sent.export(chunk_path, format="mp3")
-                            for sp in sub_paths:
-                                with contextlib.suppress(FileNotFoundError):
-                                    os.remove(sp)
-                            sentence_paths.append(chunk_path)
+                            if intra_pause_ms > 0:
+                                seg = seg + AudioSegment.silent(duration=intra_pause_ms)
+                            sub_segments.append(seg)
+                        merged_sent = AudioSegment.empty()
+                        for seg in sub_segments:
+                            merged_sent += seg
+                        sentence_segments.append(merged_sent)
                         sent_counter += 1
 
-                    for si, fname in enumerate(sentence_paths):
-                        if si < n_sents - 1:
-                            append_silence(fname, sentencepause)
-                        else:
-                            append_silence(fname, paragraphpause)
+                    for si in range(len(sentence_segments)):
+                        pause = sentencepause if si < n_sents - 1 else paragraphpause
+                        sentence_segments[si] = sentence_segments[si] + AudioSegment.silent(
+                            duration=pause
+                        )
                     combined = AudioSegment.empty()
                     if os.path.exists("sntnc0.mp3"):
                         combined += AudioSegment.from_file("sntnc0.mp3")
                         if title_trailing_pause > 0:
                             combined += AudioSegment.silent(title_trailing_pause)
-                    for fname in sentence_paths:
-                        combined += AudioSegment.from_file(fname)
+                    for seg in sentence_segments:
+                        combined += seg
                     combined.export(ptemp, format="flac")
-                    to_remove = list(sentence_paths)
                     if os.path.exists("sntnc0.mp3"):
-                        to_remove.insert(0, "sntnc0.mp3")
-                    for file in to_remove:
-                        os.remove(file)
+                        os.remove("sntnc0.mp3")
                 files.append(ptemp)
                 _tick()
             # combine paragraphs into chapter

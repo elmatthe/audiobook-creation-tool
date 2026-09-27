@@ -210,14 +210,20 @@ class Attempt:
         snapshot_id = book.snapshot.snapshot_id
 
         def failed(stage: str, message: str, detail: str) -> BookRecord:
+            # One Book failure is one Summary line, however many source
+            # occurrences it retryably spans (v0.6.5 Phase 8 macOS exception,
+            # 2026-09-24): a 264-track Book used to emit reporter.failure()
+            # once per occurrence, producing ~264 identical Summary lines for
+            # a single failed ffmpeg stage. The per-occurrence FailureRecord
+            # tuple below is unchanged and still carries every occurrence id
+            # Retry Failed needs — only the reporting call count changed.
             if stage in _RETRYABLE_STAGES:
                 records = tuple(
                     FailureRecord(item_id=occurrence, stage=stage, display_message=message,
                                   technical_detail=detail or message, retryable=True,
                                   snapshot_id=snapshot_id)
                     for occurrence in book.occurrence_ids)
-                for record in records:
-                    reporter.failure(message, detail, item_id=record.item_id, stage=stage)
+                reporter.failure(message, detail, item_id=book.occurrence_ids[0], stage=stage)
             else:
                 records = (FailureRecord(item_id=None, stage=stage, display_message=message,
                                          technical_detail=detail or message, retryable=False,

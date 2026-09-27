@@ -39,6 +39,9 @@ from mp3_tools.m4b_metadata_processing import BookOutcome, ProcessingError
 from mp3_tools.m4b_metadata_workflow import ObservationStore
 
 from test_importing import make_config
+from test_m4b_chapter_remux_timescale import (
+    LEADING_SHORT_CHAPTERS, LONG_CHAPTERS, build_chaptered_m4b, legacy_remux, structure_of,
+)
 from test_m4b_metadata_workflow import _META, _ff, m4b, require_ffmpeg, vendor_series
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -67,6 +70,21 @@ def container(tmp_path_factory) -> Path:
         "-map", "0:a", "-map", "1:v", "-map_metadata", "2", "-map_chapters", "2",
         "-c:a", "copy", "-c:v", "copy", "-disposition:v:0", "attached_pic", str(target))
     return target
+
+
+@pytest.fixture(scope="module")
+def long_container(tmp_path_factory) -> Path:
+    """The 2026-09-20 shape: a cover-art video stream and a ten-minute chapter
+    between two short ones, written at the movie timescale real sources carry."""
+    work = tmp_path_factory.mktemp("editor-long-chapters")
+    return build_chaptered_m4b(work, work / "long.m4b", LONG_CHAPTERS)
+
+
+@pytest.fixture(scope="module")
+def leading_short_container(tmp_path_factory) -> Path:
+    """The shape a titles-only validation could not see: the short chapter leads."""
+    work = tmp_path_factory.mktemp("editor-leading-short")
+    return build_chaptered_m4b(work, work / "leading.m4b", LEADING_SHORT_CHAPTERS)
 
 
 @pytest.fixture
@@ -299,6 +317,205 @@ def test_clear_all_reapplies_only_explicit_values_and_artwork(container, sources
     assert not tags.get("artist") and not tags.get("genre"), "prefilled-but-unchanged stays cleared"
     assert bytes(covr_of(entry.published)[0]) == art.read_bytes()
     assert metadata.read_chapter_titles(entry.published) == ["First", "Closing"]
+
+
+# --------------------------------------------------------------------------- #
+# Long chapters beside a cover — the 2026-09-20 defect, end to end
+# --------------------------------------------------------------------------- #
+
+
+def assert_same_boundaries(found, expected):
+    assert len(found) == len(expected)
+    for (a0, a1), (b0, b1) in zip(found, expected):
+        assert abs(a0 - b0) <= proc.CHAPTER_BOUNDARY_TOLERANCE, (found, expected)
+        assert abs(a1 - b1) <= proc.CHAPTER_BOUNDARY_TOLERANCE, (found, expected)
+
+
+def test_save_retitles_long_chapters_beside_a_cover_through_the_real_writer(
+        long_container, sources, reserve):
+    """Six real audiobooks failed exactly here: Save Tags with two positional
+    renames on a file whose middle chapter is longer than ~487 s. The real
+    ``apply_chapter_titles`` runs; every chapter, boundary and text-track
+    sample must survive and only the two named positions may change."""
+    space, store = build(long_container, sources, ("long.m4b", dict(series="Saga")))
+    space = wf.set_book_field(space, "chapter_titles", "Opening\n\nClosing").workspace
+    made = plan(space, store, reserve)
+    entry = made.books[0]
+    assert entry.chapter_edits == ("Opening", None, "Closing")
+    before_audio, before_source = audio_md5(entry.source), sha(entry.source)
+    events, listener = collect()
+    outcome = run(made, entry, on_event=listener)
+    assert outcome.succeeded, outcome.failure_detail
+    assert "chapters" in [e.stage for e in events]
+    assert metadata.read_chapter_titles(entry.published) == ["Opening", "Chapter 1", "Closing"]
+    seen = metadata.read_chapter_structure(entry.published)
+    assert seen.count == 3 and seen.track_samples == 3
+    assert_same_boundaries(seen.boundaries, structure_of(LONG_CHAPTERS))
+    assert audio_md5(entry.published) == before_audio, "no re-encode"
+    assert covr_of(entry.published), "the cover survives the remux"
+    assert metadata.read_m4b_tags(entry.published)["series"] == "Saga"
+    assert not entry.staging_dir.exists()
+    assert sha(entry.source) == before_source, "the source is untouched"
+
+
+def test_clear_all_keeps_long_chapter_structure_and_reapplies_only_the_explicit_edit(
+        long_container, sources, reserve):
+    space, store = build(long_container, sources, ("long.m4b", dict(title="T", artist="A")))
+    space = wf.set_book_field(space, "chapter_titles", "\n\nClosing").workspace
+    made = plan(space, store, reserve, EditorAction.CLEAR_ALL_TAGS)
+    entry = made.books[0]
+    assert entry.chapter_edits == (None, None, "Closing")
+    before_audio = audio_md5(entry.source)
+    outcome = run(made, entry)
+    assert outcome.succeeded, outcome.failure_detail
+    assert metadata.read_chapter_titles(entry.published) == ["Intro", "Chapter 1", "Closing"]
+    seen = metadata.read_chapter_structure(entry.published)
+    assert seen.count == 3 and seen.track_samples == 3
+    assert_same_boundaries(seen.boundaries, structure_of(LONG_CHAPTERS))
+    assert audio_md5(entry.published) == before_audio
+    tags = metadata.read_m4b_tags(entry.published)
+    assert not tags.get("title") and not tags.get("artist") and tags["has_cover"] is False
+
+
+def test_save_with_unchanged_chapter_lines_never_runs_the_remux(long_container, sources,
+                                                               reserve, monkeypatch):
+    """Lines equal to the source preserve; the remux does not run at all, and the
+    structural check then asks only that the copy be the same file."""
+    space, store = build(long_container, sources, ("long.m4b", {}))
+    space = wf.set_book_field(space, "chapter_titles", "Intro\nChapter 1\nOutro").workspace
+    space = wf.set_book_field(space, "title", "Only the title").workspace
+    made = plan(space, store, reserve)
+    entry = made.books[0]
+    assert entry.chapter_edits == (None, None, None) and not proc.chapter_titles_retitled(entry)
+    monkeypatch.setattr(metadata, "apply_chapter_titles",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")))
+    outcome = run(made, entry)
+    assert outcome.succeeded, outcome.failure_detail
+    seen = metadata.read_chapter_structure(entry.published)
+    assert seen == metadata.read_chapter_structure(entry.source)
+
+
+def test_a_truncated_chapter_track_whose_merged_titles_match_is_refused(
+        leading_short_container, sources, reserve, monkeypatch):
+    """The false pass the titles-only validation allowed: the remux at the
+    timescale FFmpeg 9 chose leaves one text-track sample that happens to carry
+    the planned title at id 0. The structural read-back refuses it and nothing
+    is published."""
+    space, store = build(leading_short_container, sources, ("leading.m4b", {}))
+    space = wf.set_book_field(space, "chapter_titles", "Opening\n").workspace
+    made = plan(space, store, reserve)
+    entry = made.books[0]
+    assert entry.chapter_edits == ("Opening", None)
+
+    def broken_writer(path, new_titles):
+        # The title edit reaches the chpl atom either way; the text track loses
+        # the long chapter — the shape of the shipped 2026-09-20 remux.
+        real(path, new_titles)
+        legacy_remux(Path(path))
+
+    real = metadata.apply_chapter_titles
+    monkeypatch.setattr(metadata, "apply_chapter_titles", broken_writer)
+    outcome = run(made, entry)
+    assert not outcome.succeeded and outcome.failure_stage == "validate"
+    assert "chapter track is incomplete" in outcome.failure_message, outcome.failure_message
+    assert "1 samples for 2 chapters" in outcome.failure_detail
+    assert not entry.published.exists() and not entry.staging_dir.exists()
+    assert listing(made.run_directory) == set()
+
+
+def test_a_displaced_chapter_track_is_refused_before_the_titles_are_compared(
+        long_container, sources, reserve, monkeypatch):
+    """The reproduced displacement itself: titles *and* structure are wrong;
+    whichever check fires, the Book fails at validation and publishes nothing."""
+    space, store = build(long_container, sources, ("long.m4b", {}))
+    space = wf.set_book_field(space, "chapter_titles", "Opening\n\nClosing").workspace
+    made = plan(space, store, reserve)
+    entry = made.books[0]
+    real = metadata.apply_chapter_titles
+
+    def broken_writer(path, new_titles):
+        real(path, new_titles)
+        legacy_remux(Path(path))
+
+    monkeypatch.setattr(metadata, "apply_chapter_titles", broken_writer)
+    outcome = run(made, entry)
+    assert not outcome.succeeded and outcome.failure_stage == "validate"
+    assert not entry.published.exists() and listing(made.run_directory) == set()
+
+
+# --------------------------------------------------------------------------- #
+# The structural comparison itself, with no media
+# --------------------------------------------------------------------------- #
+
+
+def _structure(boundaries, titles=None, samples=None):
+    titles = tuple(titles or ("" for _ in boundaries))
+    return metadata.ChapterStructure(boundaries=tuple(boundaries), titles=titles,
+                                     track_samples=samples)
+
+
+def _book_like(retitled: bool, action=EditorAction.SAVE_TAGS):
+    class Plan:
+        pass
+    plan_ = Plan()
+    plan_.action = action
+    plan_.chapter_edits = ("X", None) if retitled else (None, None)
+    return plan_
+
+
+@pytest.mark.parametrize("retitled", [True, False])
+def test_structure_a_changed_chapter_count_is_refused(retitled):
+    source = _structure([(0.0, 30.0), (30.0, 630.0)], samples=2)
+    found = _structure([(0.0, 30.0)], samples=1)
+    with pytest.raises(ProcessingError, match="chapter count changed"):
+        proc.validate_chapter_structure(_book_like(retitled), Path("x.m4b"),
+                                        source=source, found=found)
+
+
+def test_structure_a_moved_boundary_is_refused_but_a_rescale_is_not():
+    source = _structure([(0.0, 30.0), (30.0, 630.0)], samples=2)
+    within = _structure([(0.0, 30.0004), (30.0004, 630.0)], samples=2)
+    proc.validate_chapter_structure(_book_like(True), Path("x.m4b"), source=source, found=within)
+    moved = _structure([(0.0, 0.000001), (0.000001, 630.0)], samples=2)
+    with pytest.raises(ProcessingError, match="chapter 1 boundaries moved"):
+        proc.validate_chapter_structure(_book_like(True), Path("x.m4b"),
+                                        source=source, found=moved)
+
+
+def test_structure_a_rebuilt_track_must_hold_one_sample_per_chapter():
+    source = _structure([(0.0, 30.0), (30.0, 630.0)], samples=2)
+    short = _structure([(0.0, 30.0), (30.0, 630.0)], samples=1)
+    with pytest.raises(ProcessingError, match="chapter track is incomplete"):
+        proc.validate_chapter_structure(_book_like(True), Path("x.m4b"),
+                                        source=source, found=short)
+    complete = _structure([(0.0, 30.0), (30.0, 630.0)], samples=2)
+    proc.validate_chapter_structure(_book_like(True), Path("x.m4b"), source=source, found=complete)
+
+
+def test_structure_a_chpl_only_source_is_fine_untouched_and_gains_a_full_track_when_retitled():
+    nero = _structure([(0.0, 30.0), (30.0, 630.0)], samples=None)
+    proc.validate_chapter_structure(_book_like(False), Path("x.m4b"), source=nero, found=nero)
+    rebuilt = _structure([(0.0, 30.0), (30.0, 630.0)], samples=2)
+    proc.validate_chapter_structure(_book_like(True), Path("x.m4b"), source=nero, found=rebuilt)
+    with pytest.raises(ProcessingError, match="chapter track changed"):
+        proc.validate_chapter_structure(_book_like(False), Path("x.m4b"),
+                                        source=nero, found=rebuilt)
+
+
+def test_structure_remove_series_numbering_never_counts_as_a_retitle():
+    plan_ = _book_like(True, EditorAction.REMOVE_SERIES_NUMBERING)
+    assert not proc.chapter_titles_retitled(plan_)
+    source = _structure([(0.0, 30.0), (30.0, 630.0)], samples=2)
+    proc.validate_chapter_structure(plan_, Path("x.m4b"), source=source, found=source)
+
+
+def test_structure_nan_boundaries_are_the_same_only_as_each_other():
+    nan = float("nan")
+    source = _structure([(0.0, nan)], samples=1)
+    proc.validate_chapter_structure(_book_like(False), Path("x.m4b"), source=source, found=source)
+    with pytest.raises(ProcessingError, match="boundaries moved"):
+        proc.validate_chapter_structure(_book_like(False), Path("x.m4b"), source=source,
+                                        found=_structure([(0.0, 30.0)], samples=1))
 
 
 # --------------------------------------------------------------------------- #

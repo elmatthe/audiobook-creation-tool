@@ -1556,6 +1556,47 @@ def test_a_rerender_replaces_rather_than_appends(parent):
     assert views.rendered(views.summary_text) == "second"
 
 
+def test_append_detail_reaches_only_the_details_pane(parent):
+    view = job_ui.SummaryDetailsView(parent, details_label="Detailed")
+    view.set_summary(("Running.",))
+    view.append_detail("raw engine line one")
+    assert view.details == ("raw engine line one",)
+    assert view.summary == ("Running.",)
+    assert "raw engine line one" in view.rendered(view.details_text)
+    assert "raw engine line one" not in view.rendered(view.summary_text)
+
+
+def test_append_detail_accepts_several_lines_at_once(parent):
+    view = job_ui.SummaryDetailsView(parent)
+    view.append_detail(["line a", "line b"])
+    assert view.details == ("line a", "line b")
+    assert view.summary == ()
+
+
+def test_append_detail_freezes_the_live_summary_projection_first(parent):
+    view = job_ui.SummaryDetailsView(parent)
+    view.set_summary(("Running.", "Stage: one"))
+    view.append_detail("d1")
+    # The live Summary section is frozen (as history) by the same freeze the
+    # append family always does -- a later, shorter re-render cannot drop it.
+    view.set_summary(("Stage: two",))
+    assert view.summary == ("Running.", "Stage: one", "Stage: two")
+
+
+def test_append_detail_history_survives_a_divider(parent):
+    view = job_ui.SummaryDetailsView(parent)
+    view.append_detail("before")
+    view.divider("— run 2 —")
+    view.append_detail("after")
+    assert view.details == ("before", "— run 2 —", "after")
+
+
+def test_append_detail_is_bounded_by_the_limit(parent):
+    view = job_ui.SummaryDetailsView(parent, limit=3)
+    view.append_detail([f"line {index}" for index in range(6)])
+    assert view.details == ("line 3", "line 4", "line 5")
+
+
 # --------------------------------------------------------------------------- #
 # The job adapter
 # --------------------------------------------------------------------------- #

@@ -6,15 +6,24 @@ Each entry defines:
   - voice_id:       The voice identifier passed to the TTS engine
   - display_label:  Short human-readable name shown in the GUI dropdown
   - group_label:    Category header shown in the dropdown (cosmetic only)
-  - timing_preset:  Dict of GUI timing field values to apply when voice is selected.
-                    Keys match the tkinter StringVar names in epub2tts_gui.py.
+  - timing_preset:  Dict of this voice's approved pause/trim/rate policy.
+                    **v0.6.5 Phase 7 (Compact TTS UI)** removed the user-editable
+                    sentence/paragraph/title/chapter pause, end-silence and trim
+                    controls these keys used to back one-to-one as tkinter
+                    StringVar names in epub2tts_gui.py. The maintainer-approved
+                    values are unchanged; ``epub2tts_gui.TtsPanel.run_job`` now
+                    reads this dict directly at run time instead, so a voice's
+                    policy can no longer be edited from the panel at all — only
+                    ``rate``/``kokoro_speed`` remain live, user-editable Band 3
+                    controls (and still take their default from here).
                     For edge voices: sentencepause, paragraphpause, title_ms, chapter_ms,
                                      end_pause, trim_dbfs, trim_edge_chunks, rate.
                     For kokoro voices: speed (float str), sentencepause, paragraphpause,
                                        title_ms, chapter_ms, end_pause.
                     trim_edge_chunks is always False for kokoro.
-                    For chatterbox voices: the same field names as kokoro (the GUI
-                    reads one set of timing fields for every backend).
+                    For chatterbox voices: the same field names as kokoro (one shared
+                    shape read for every backend, regardless of which fields that
+                    backend's engine actually consumes — see each preset helper).
 
 The "chatterbox" backend was admitted here in v0.6.1 Plan 4 Phase 8 so the engine
 module and the preset helper have somewhere to land. **Phase 10 registered the four
@@ -142,10 +151,14 @@ def _chatterbox_preset(
 #: dropdown separator only and never part of a voice's name.
 CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 
-# Sixteen rows: seven Edge, five Kokoro, then the four approved Chatterbox voices.
-# The first twelve keep the order, the voice ids and the timing they had before
-# Phase 10 — adding a third engine did not change the other two — and carry the
-# display wording the maintainer specified in Phase 13A.3.
+# Sixteen rows: five Edge, five Kokoro, then six approved Chatterbox voices
+# (the original four plus Male 3 and Male 4, both approved 2026-09-20).
+# v0.6.5 Phase 2 also removed the two multilingual Edge rows
+# (en-US-AndrewMultilingualNeural, en-US-AvaMultilingualNeural) per the
+# plan's final voice inventory (Section 3) — ordinary Andrew and Ava are
+# unaffected.
+# The remaining rows keep the order, voice ids and timing they had before, and
+# carry the display wording the maintainer specified in Phase 13A.3.
 VOICES: list[VoiceEntry] = [
     VoiceEntry(
         backend="edge",
@@ -153,13 +166,6 @@ VOICES: list[VoiceEntry] = [
         display_label="Edge Male - Steffan (en-US)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(),
-    ),
-    VoiceEntry(
-        backend="edge",
-        voice_id="en-US-AndrewMultilingualNeural",
-        display_label="Edge Male - Andrew (en-Multilingual)",
-        group_label="Microsoft Edge TTS — English (US)",
-        timing_preset=_edge_preset(sentence=820, paragraph=870),
     ),
     VoiceEntry(
         backend="edge",
@@ -172,13 +178,6 @@ VOICES: list[VoiceEntry] = [
         backend="edge",
         voice_id="en-US-AriaNeural",
         display_label="Edge Female - Aria (en-US)",
-        group_label="Microsoft Edge TTS — English (US)",
-        timing_preset=_edge_preset(sentence=780, paragraph=830),
-    ),
-    VoiceEntry(
-        backend="edge",
-        voice_id="en-US-AvaMultilingualNeural",
-        display_label="Edge Female - Ava (en-Multilingual)",
         group_label="Microsoft Edge TTS — English (US)",
         timing_preset=_edge_preset(sentence=780, paragraph=830),
     ),
@@ -268,6 +267,28 @@ VOICES: list[VoiceEntry] = [
         backend="chatterbox",
         voice_id="chatterbox-male-2",
         display_label="Chatterbox - Male 2",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
+    ),
+    # ---- v0.6.5 Phase 2: Male 3 and Male 4 approved by the maintainer's
+    # final listening ruling on 2026-09-20. Male 3 is the ORIGINAL candidate
+    # sample — a separate bounded pitch-retry variant was tried and rejected;
+    # the maintainer preferred the voice exactly as it was before that retry,
+    # so no pitch/timbre adjustment of any kind reached this registration.
+    # Both take the same shared, unmodified preset as the other four
+    # Chatterbox rows (no per-voice tuning, per §6/the Phase 9 convention);
+    # display labels per plan Section 3.
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-male-3",
+        display_label="Chatterbox - Male 3",
+        group_label=CHATTERBOX_GROUP_LABEL,
+        timing_preset=_chatterbox_preset(),
+    ),
+    VoiceEntry(
+        backend="chatterbox",
+        voice_id="chatterbox-male-4",
+        display_label="Chatterbox - Male 4",
         group_label=CHATTERBOX_GROUP_LABEL,
         timing_preset=_chatterbox_preset(),
     ),

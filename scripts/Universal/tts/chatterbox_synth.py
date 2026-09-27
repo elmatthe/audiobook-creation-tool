@@ -271,6 +271,99 @@ def split_at_prose_colon(text: str) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# Structural-colon normalization patch
+#
+# v0.6.5 Phase 5 (iteration 5) proved the pinned chatterbox-tts==0.1.7 wheel's
+# own chatterbox.tts_turbo.punc_norm() -- called unconditionally, immediately
+# before tokenization, inside ChatterboxTurboTTS.generate() -- performs a
+# blanket text.replace(":", ",") with no context awareness at all, before this
+# module's code ever sees the text. That corrupts every structured colon this
+# module hands it: "6:45" becomes "6,45", "3:1" becomes "3,1", and
+# "https://example.com" becomes "https,//example.com" (destroying the URL
+# scheme separator entirely, proven at the tokenizer level). An ordinary prose
+# colon becoming a comma is correct and unaffected by this fix; only the
+# structured cases were wrong. See md-instructions/Decisions.md, 2026-09-21
+# entries, for the full instrumentation/candidate-evaluation record.
+#
+# This is a different symptom from the prose-colon PAUSE recovery above:
+# _PROSE_COLON/COLON_PAUSE_MS restore the lost pause *duration* after an
+# ordinary prose colon; this patch restores pronunciation *correctness* for
+# structured colons, which _PROSE_COLON never touches (no whitespace follows
+# them, so they always reached generate() and the wheel's own blanket replace
+# unprotected).
+#
+# There is no supported extension point to configure the pinned wheel's own
+# normalization, so the narrowest maintainable seam is to monkeypatch
+# chatterbox.tts_turbo's module-level punc_norm at model-load time -- the
+# installed wheel is never edited on disk, and the patch is applied exactly
+# once per process (idempotent) the first time a real model is instantiated.
+# --------------------------------------------------------------------------- #
+
+#: A colon immediately followed by a non-whitespace character (any digit:digit
+#: form, any "://" URL scheme, or any other structural use) is structural, not
+#: prose, and must survive normalization untouched.
+_STRUCTURAL_COLON = re.compile(r":(?!\S)")
+
+
+def _structural_colon_punc_norm(text: str) -> str:
+    """The pinned wheel's own ``punc_norm``, byte-for-byte, except the colon
+    step: a colon becomes a comma only when it is a prose colon (followed by
+    whitespace or end-of-string -- the same rule :data:`_PROSE_COLON` already
+    applies above); a structural colon is left untouched.
+
+    Verified in the Phase 5 iteration 5 A/B (evidence at
+    ``files/dev-work/v0.6.5-phase5-chatterbox-colon-ab/``, gitignored) to
+    differ from the real wheel's output only at structural-colon character
+    positions, and to be byte-identical to it for text with no colon at all.
+    A companion test guards that parity against a future wheel version bump.
+    """
+    if len(text) == 0:
+        return "You need to add some text for me to talk."
+    if text[0].islower():
+        text = text[0].upper() + text[1:]
+    text = " ".join(text.split())
+    text = _STRUCTURAL_COLON.sub(",", text)
+    punc_to_replace = [
+        ("…", ", "),
+        ("—", "-"),
+        ("–", "-"),
+        (" ,", ","),
+        ("“", "\""),
+        ("”", "\""),
+        ("‘", "'"),
+        ("’", "'"),
+    ]
+    for old_char_sequence, new_char in punc_to_replace:
+        text = text.replace(old_char_sequence, new_char)
+    text = text.rstrip(" ")
+    sentence_enders = {".", "!", "?", "-", ","}
+    if not any(text.endswith(p) for p in sentence_enders):
+        text += "."
+    return text
+
+
+_colon_patch_applied = False
+
+
+def _ensure_structural_colon_patch(tts_turbo_module) -> None:
+    """Replace ``tts_turbo_module.punc_norm`` with the structural-colon
+    candidate, exactly once per process.
+
+    Idempotent: a second call (e.g. a later ``_get_model`` for a different
+    device) does not re-patch or stack. Never edits the installed wheel on
+    disk -- only the module attribute this process holds is reassigned, and
+    ``ChatterboxTurboTTS.generate()`` looks up ``punc_norm`` by name from this
+    same module at call time, so every subsequent ``generate()`` call in this
+    process picks up the replacement.
+    """
+    global _colon_patch_applied
+    if _colon_patch_applied:
+        return
+    tts_turbo_module.punc_norm = _structural_colon_punc_norm
+    _colon_patch_applied = True
+
+
+# --------------------------------------------------------------------------- #
 # Text boundaries
 #
 # Added by the v0.6.1 Plan 4 Phase 12 uncontrolled-silence remediation.
@@ -515,6 +608,17 @@ class ChatterboxUnavailable(RuntimeError):
     """
 
 
+class ChatterboxPathologicalSilence(RuntimeError):
+    """A raw ``generate()`` draw stayed defective through every bounded retry.
+
+    Raised instead of publishing narration with a several-second dead spot in
+    it (v0.6.5 Phase 8 macOS investigation, 2026-09-24): the conversion fails
+    this one file explicitly rather than keeping the last known-bad draw. The
+    caller sees an ordinary failed item (P8/P9) — no partial MP3 is written,
+    since this fires before assembly/export ever runs.
+    """
+
+
 @dataclass(frozen=True)
 class ReferenceVoice:
     voice_id: str
@@ -523,9 +627,10 @@ class ReferenceVoice:
     source_sha256: str
 
 
-# The closed set of four (drop §5.7). These are engine-internal identifiers: they
-# are deliberately NOT VoiceEntry rows, so nothing reaches the GUI dropdown until
-# Phase 10 registers them.
+# The closed set of six (drop §5.7 plus v0.6.5 Phase 2's approved Male 3 and
+# Male 4). These are engine-internal identifiers: they are deliberately NOT
+# VoiceEntry rows on their own, so nothing reaches the GUI dropdown until a
+# phase registers them.
 REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     "chatterbox-female-1": ReferenceVoice(
         voice_id="chatterbox-female-1",
@@ -551,7 +656,41 @@ REFERENCE_VOICES: dict[str, ReferenceVoice] = {
         source_name="Male-2.mp3",
         source_sha256="7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2",
     ),
+    # v0.6.5 Phase 2: approved by the maintainer's final listening ruling on
+    # 2026-09-20 — the ORIGINAL candidate sample (a separate bounded
+    # pitch-retry variant was rejected; the maintainer preferred the voice
+    # exactly as it was before that retry). Moved here from
+    # CANDIDATE_REFERENCE_VOICES verbatim (same source_name, same hash, same
+    # label wording minus "(candidate)"). No hash was recomputed for this
+    # move; the source file was never touched.
+    "chatterbox-male-3": ReferenceVoice(
+        voice_id="chatterbox-male-3",
+        label="Chatterbox — Male 3",
+        source_name="Male-3.mp3",
+        source_sha256="0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4",
+    ),
+    # v0.6.5 Phase 2: approved by the maintainer's listening gate (Section 5)
+    # on 2026-09-20 — moved here from CANDIDATE_REFERENCE_VOICES verbatim
+    # (same source_name, same hash, same label wording minus "(candidate)").
+    # No hash was recomputed for this move; the source file was never touched.
+    "chatterbox-male-4": ReferenceVoice(
+        voice_id="chatterbox-male-4",
+        label="Chatterbox — Male 4",
+        source_name="Male-4.mp3",
+        source_sha256="1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5",
+    ),
 }
+
+# v0.6.5 Phase 2 candidates still pending a listening decision (plan Section
+# 4/5) — evaluated on the separate candidate-evaluation path below, NOT
+# registered as VoiceEntry rows. A `YES` moves a voice_id from here into
+# REFERENCE_VOICES and voice_registry.VOICES; a `NO` leaves it here,
+# unregistered, permanently. Currently empty: both Male 3 and Male 4 were
+# resolved (both approved, 2026-09-20) and moved into REFERENCE_VOICES above.
+# The dict — and the separate dev-only candidate-evaluation path that reads
+# it — remain in place for whatever future candidate a later phase
+# introduces; this is reusable infrastructure, not retry-specific machinery.
+CANDIDATE_REFERENCE_VOICES: dict[str, ReferenceVoice] = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -619,8 +758,21 @@ def package_status() -> tuple[bool, str]:
 
 
 def get_reference_voice(voice_id: str) -> ReferenceVoice:
+    """Look up a voice's reference identity — the four production voices
+    first, then the v0.6.5 Phase 2 unapproved candidates.
+
+    Checking ``CANDIDATE_REFERENCE_VOICES`` here (rather than duplicating this
+    module's entire reference/derivative/conditioning machinery for
+    candidates) is what lets the separate candidate-evaluation path reuse it
+    unmodified, while ``REFERENCE_VOICES`` itself stays the frozen four-entry
+    production set (plan Section 5) throughout the candidate evaluation.
+    """
     try:
         return REFERENCE_VOICES[voice_id]
+    except KeyError:
+        pass
+    try:
+        return CANDIDATE_REFERENCE_VOICES[voice_id]
     except KeyError:
         raise ChatterboxUnavailable(
             f"Unknown Chatterbox voice '{voice_id}'. Known voices: "
@@ -943,8 +1095,10 @@ def _instantiate_model(device: str):
     ChatterboxTTS / ChatterboxVC / ChatterboxMultilingualTTS, so importing the
     Turbo class from the root would raise ImportError.
     """
+    import chatterbox.tts_turbo as tts_turbo
     from chatterbox.tts_turbo import ChatterboxTurboTTS
 
+    _ensure_structural_colon_patch(tts_turbo)
     return ChatterboxTurboTTS.from_pretrained(device)
 
 
@@ -1043,7 +1197,73 @@ def _audio_array(wav) -> np.ndarray:
     return arr
 
 
-def _synthesize_chunk(model, chunk: str, cancel_check=None) -> np.ndarray:
+#: A raw ``generate()`` draw is retried when it contains an internal run at
+#: least this long whose windowed RMS stays below :data:`PATHOLOGICAL_SILENCE_DB`.
+#: Same objective definition Phase 8's final-acceptance QA harness uses to flag
+#: a produced file — restated here rather than imported, since production code
+#: must not depend on a dev/QA-only module.
+PATHOLOGICAL_SILENCE_S = 4.0
+PATHOLOGICAL_SILENCE_DB = -50
+#: Bounded retries for a demonstrated Chatterbox Turbo failure mode: the model
+#: occasionally renders an internal sentence boundary as several seconds of
+#: near-silence instead of an ordinary pause (v0.6.5 Phase 8 macOS
+#: investigation, 2026-09-24 — see ``Decisions.md``). Generation is unseeded
+#: and stochastic (``GENERATION_TEMPERATURE``), so a retry is a fresh draw of
+#: the identical text/voice, not a repeat of the same failure — confirmed by
+#: reproduction (0/8 on one affected text, 2/4 on another, at the exact same
+#: settings). Kept small: this masks a rare generation artifact, not a licence
+#: to keep hammering the model.
+PATHOLOGICAL_SILENCE_MAX_ATTEMPTS = 3
+
+
+def _has_pathological_silence(arr: np.ndarray, sr: int) -> bool:
+    """True when ``arr`` contains an internal near-silent run at least
+    :data:`PATHOLOGICAL_SILENCE_S` long. Mirrors the mechanical definition
+    Phase 8's final-acceptance harness applies to a produced file, applied
+    here to one freshly-generated segment before assembly."""
+    if sr <= 0 or arr.size == 0:
+        return False
+    win = max(1, int(sr * 0.05))
+    n_windows = arr.size // win
+    if n_windows == 0:
+        return False
+    trimmed = arr[: n_windows * win].reshape(n_windows, win).astype(np.float64)
+    rms = np.sqrt(np.mean(np.square(trimmed), axis=1))
+    below = rms < (10 ** (PATHOLOGICAL_SILENCE_DB / 20.0))
+    longest = current = 0
+    for b in below:
+        current = current + 1 if b else 0
+        longest = max(longest, current)
+    return (longest * win / sr) >= PATHOLOGICAL_SILENCE_S
+
+
+def _generate_checked(model, text: str, log: Callable[[str], None] = print) -> np.ndarray:
+    """``model.generate(text, **generation_params())``, retried up to
+    :data:`PATHOLOGICAL_SILENCE_MAX_ATTEMPTS` times when the draw contains a
+    pathological internal silence (P1: retried only on a demonstrated
+    per-draw defect, never a quality knob). If every attempt is still
+    defective, the conversion **fails this file explicitly**
+    (:class:`ChatterboxPathologicalSilence`) rather than publishing narration
+    with a several-second dead spot in it — never silently dropped, and the
+    text/voice/reference are never substituted (P8/P9). Do not loop past the
+    bounded attempt count chasing a clean draw; a bounded failure, reported
+    truthfully, is the contract here — not an unbounded retry-until-lucky."""
+    last = np.zeros(0, dtype="float32")
+    for attempt in range(1, PATHOLOGICAL_SILENCE_MAX_ATTEMPTS + 1):
+        last = _audio_array(model.generate(text, **generation_params()))
+        if last.size == 0 or not _has_pathological_silence(last, model.sr):
+            return last
+        log(f"  Chatterbox: attempt {attempt} produced a pathological internal "
+            f"silence — retrying this segment "
+            f"({attempt}/{PATHOLOGICAL_SILENCE_MAX_ATTEMPTS})…")
+    raise ChatterboxPathologicalSilence(
+        f"Chatterbox produced a pathological internal silence on every one of "
+        f"{PATHOLOGICAL_SILENCE_MAX_ATTEMPTS} attempts for one segment "
+        f"({len(text)} chars) and the file was not written.")
+
+
+def _synthesize_chunk(model, chunk: str, cancel_check=None,
+                      log: Callable[[str], None] = print) -> np.ndarray:
     """Render one chunk, honouring prose colons with a short explicit pause.
 
     **The chunk stays one unit of work.** A colon is punctuation, not a source
@@ -1059,10 +1279,14 @@ def _synthesize_chunk(model, chunk: str, cancel_check=None) -> np.ndarray:
 
     ``cancel_check`` is consulted between colon segments as well as between
     chunks. That can only make cancellation more responsive, never less.
+
+    Each individual ``generate()`` draw (the whole chunk, or one colon segment)
+    goes through :func:`_generate_checked`, which retries a demonstrated
+    pathological-silence draw a bounded number of times.
     """
     segments = split_at_prose_colon(chunk)
     if len(segments) == 1:
-        return _audio_array(model.generate(chunk, **generation_params()))
+        return _generate_checked(model, chunk, log)
 
     gap = np.zeros(int(model.sr * COLON_PAUSE_MS / 1000.0), dtype="float32")
     rendered: list[np.ndarray] = []
@@ -1071,7 +1295,7 @@ def _synthesize_chunk(model, chunk: str, cancel_check=None) -> np.ndarray:
             from shared.cancellation import ConversionCancelled
 
             raise ConversionCancelled("Conversion cancelled by user.")
-        piece = _audio_array(model.generate(segment, **generation_params()))
+        piece = _generate_checked(model, segment, log)
         if piece.size == 0:
             continue
         if rendered:
@@ -1248,7 +1472,7 @@ def chatterbox_file_to_mp3(
             raise ConversionCancelled("Conversion cancelled by user.")
         log(f"  Chatterbox chunk {idx}/{len(chunks)}…")
 
-        arr = _synthesize_chunk(model, chunk, cancel_check)
+        arr = _synthesize_chunk(model, chunk, cancel_check, log=log)
         if arr.size == 0:
             log(f"  Warning: chunk {idx} produced no audio, skipping.")
             if progress_callback is not None:

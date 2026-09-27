@@ -74,24 +74,43 @@ def test_every_synthesis_path_reaches_the_one_setting_set():
 
     Updated by the Phase 12 tuning pass: ``chatterbox_file_to_mp3`` now renders a
     chunk through ``_synthesize_chunk`` (which owns the prose-colon pause), so the
-    parameters are reached one level down. The contract is unchanged — every path
-    still ends at ``generation_params`` — and the helper is included here so that
-    delegation cannot become a way to bypass it.
+    parameters are reached one level down. Updated again by the v0.6.5 Phase 8
+    macOS pathological-silence retry: ``_synthesize_chunk`` now delegates every
+    ``generate()`` draw to ``_generate_checked`` (which owns the bounded retry
+    and is the one place that still calls ``generation_params()`` directly), so
+    the parameters are reached one level further down still. The contract is
+    unchanged — every path still ends at ``generation_params`` — and each
+    delegating function is checked here so that delegation cannot become a way
+    to bypass it.
     """
     tree = ast.parse(SRC)
-    targets = {"synthesize_text_to_wav", "synthesize_text_to_mp3",
-               "_synthesize_chunk"}
+    # True: this function calls generation_params() itself. False: it must
+    # instead delegate to another checked function that does.
+    expected = {
+        "synthesize_text_to_wav": True,
+        "synthesize_text_to_mp3": True,
+        "_synthesize_chunk": False,
+        "_generate_checked": True,
+    }
     seen: dict[str, bool] = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name in targets:
+        if isinstance(node, ast.FunctionDef) and node.name in expected:
             seen[node.name] = "generation_params" in ast.get_source_segment(SRC, node)
-    assert seen == {name: True for name in targets}, seen
+    assert seen == expected, seen
 
     audiobook = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
                      and n.name == "chatterbox_file_to_mp3")
     called = {n.func.id for n in ast.walk(audiobook)
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     assert "_synthesize_chunk" in called
+
+    synthesize_chunk = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                            and n.name == "_synthesize_chunk")
+    chunk_calls = {n.func.id for n in ast.walk(synthesize_chunk)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "_generate_checked" in chunk_calls, (
+        "_synthesize_chunk must reach generation_params() through "
+        "_generate_checked, not bypass it")
 
 
 # --------------------------------------------------------------------------- #

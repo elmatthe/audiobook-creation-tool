@@ -98,12 +98,14 @@ def test_the_evaluation_command_uses_the_historical_parameters():
 def test_ordinary_samples_follow_current_production():
     """They must describe the engine as shipped, not the historical gate.
 
-    ``main`` holds the ordinary per-voice sample loop; only
-    ``run_chatterbox_evaluation`` may reach for the historical parameters.
+    v0.6.5 Phase 1 moved the ordinary per-voice dispatch out of ``main()``
+    into the shared ``_synthesize_for_voice`` (both ``main()`` and
+    ``--quality-suite`` call it); only ``run_chatterbox_evaluation`` may
+    reach for the historical parameters.
     """
     tree = ast.parse(SAMPLES_SRC)
     fn = next(n for n in ast.walk(tree)
-              if isinstance(n, ast.FunctionDef) and n.name == "main")
+              if isinstance(n, ast.FunctionDef) and n.name == "_synthesize_for_voice")
     body = ast.get_source_segment(SAMPLES_SRC, fn)
     assert "chatterbox_text_to_mp3" in body
     assert "phase9_evaluation_params" not in body

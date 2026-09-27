@@ -224,6 +224,76 @@ def test_an_eligible_book_uses_fast_and_publishes_one_chaptered_m4b(sources, res
     assert sorted(p.name for p in made.root.iterdir() if p.is_file()) == ["Tone Book.m4b"]
 
 
+def test_write_concat_list_escapes_an_apostrophe_the_way_ffmpeg_requires(tmp_path):
+    """v0.6.5 Phase 8 macOS exception (2026-09-24): a real 264-track Book
+    titled "...Dark Lord's Dreadful Travelogue..." failed Build and Retry
+    Failed alike with ffmpeg reporting "Impossible to open" a path it had
+    corrupted itself. write_concat_list's own quote-escape doubled an extra
+    escaped quote (carried verbatim from the pre-refactor m4b_maker.py); this
+    pins the fix against the documented-correct ffmpeg concat escape."""
+    path = Path("/Users/x/Dark Lord's Dreadful Travelogue/001.mp3")
+    dest = tmp_path / "inputs.txt"
+    proc.write_concat_list([path], dest)
+    line = dest.read_text(encoding="utf-8")
+    assert line == "file '/Users/x/Dark Lord'\\''s Dreadful Travelogue/001.mp3'\n"
+
+
+def test_a_real_build_survives_an_apostrophe_in_the_track_path(sources, reserve):
+    """The end-to-end regression for the same defect: a real Book whose only
+    track's path contains an apostrophe must Build and read back its chapter
+    title correctly through the real ffmpeg concat/chapter pipeline, not just
+    the isolated escaper above."""
+    made, entry, _ = one_book(sources, reserve, names=("01 Traveler's Log.mp3",),
+                              title="Traveler's Log")
+    events, listener = collect()
+    outcome = build(made, entry, on_event=listener)
+    assert isinstance(outcome, BookOutcome) and outcome.succeeded, (
+        outcome.failure_message, outcome.failure_detail)
+    assert entry.published.is_file()
+    assert [c[0] for c in chapters(entry.published)] == ["Traveler's Log"]
+
+
+# --------------------------------------------------------------------------- #
+# >255 chapters: the container's real chapter mechanism, not just the count
+# --------------------------------------------------------------------------- #
+def test_264_chapters_all_survive_readback_in_the_real_chapter_text_track(sources, reserve):
+    """v0.6.5 Phase 8 macOS exception (2026-09-24): the real 264-track Book
+    that exposed the concat-quoting defect also raised the question of
+    whether the M4B Maker's chapter representation supports more than 255
+    chapters at all -- the historical ceiling of the legacy Nero ``chpl``
+    atom's single-byte chapter count. Not assumed either way (the plan
+    forbids that): proved here with 264 real chapters through the real
+    engine.
+
+    ffprobe's chapter list *merges* ``chpl`` and the QuickTime chapter text
+    track by id (see ``shared.metadata.ChapterStructure``), so reading only
+    the merged list could hide a track truncated at 255 the way it hid the
+    2026-09-20 movie_timescale defect. ``read_chapter_structure`` is used
+    instead so the text track's own sample count is checked directly.
+    """
+    names = tuple(f"{i:03d} Chapter {i}.mp3" for i in range(1, 265))
+    made, entry, _ = one_book(sources, reserve, names=names, title="Long Book")
+    events, listener = collect()
+    outcome = build(made, entry, on_event=listener)
+    assert isinstance(outcome, BookOutcome) and outcome.succeeded, (
+        outcome.failure_message, outcome.failure_detail)
+
+    found = chapters(entry.published)
+    assert len(found) == 264
+    assert [title for title, _start, _end in found] == [f"Chapter {i}" for i in range(1, 265)]
+    # Monotonic, non-overlapping boundaries -- the *timings* survived too,
+    # not just 264 titles in order.
+    for (_, _, end_a), (_, start_b, _) in zip(found, found[1:]):
+        assert start_b >= end_a - 0.05
+
+    structure = metadata.read_chapter_structure(entry.published)
+    assert structure.count == 264
+    assert structure.titles == tuple(f"Chapter {i}" for i in range(1, 265))
+    assert structure.track_samples == 264, (
+        "the QuickTime chapter text track itself must hold all 264 samples, "
+        "not fall back to a merged/truncated 255-cap view")
+
+
 def test_a_fast_failure_falls_back_to_safe_with_the_reason(sources, reserve, monkeypatch):
     made, entry, _ = one_book(sources, reserve, title="T")
     real = proc.fast_concat_args
