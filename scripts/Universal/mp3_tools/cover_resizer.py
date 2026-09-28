@@ -69,6 +69,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import appearance
 from shared import config as shared_config
 from shared import image_capabilities
 from shared import job_control
@@ -1685,6 +1686,17 @@ class CoverResizerUI(ttk.Frame):
         super().__init__(parent)
 
         self._closed = False
+        # v0.6.6 Phase 2: this panel still "stays classic" for its own chrome --
+        # full Family-A adoption is Phase 5's job -- but the shared Activity
+        # (job_ui.JobAdapter, below) and importer (job_ui.ImportAdapter, below)
+        # primitives this panel already builds are proved here on the live
+        # compact palette, exactly what the "Converting it to the namespaced
+        # design system belongs to Plan 9" comments those two call sites used to
+        # carry were waiting for. Plan 9 is this plan, v0.6.6.
+        self.appearance_bundle = appearance.build_bundle(
+            ttk.Style(parent), appearance.get_appearance(),
+            root=parent.winfo_toplevel())
+        appearance.register_listener(self._on_appearance_changed)
 
         # Cancellation / worker plumbing (mirrors the TTS tool's pattern). This
         # event belongs to the *processing* run and to nothing else: `Cancel
@@ -1748,11 +1760,11 @@ class CoverResizerUI(ttk.Frame):
             pump=self._pump,
             manager=self._manager,
             coordinator=self._coordinator,
-            # No theme bundle: this panel stays classic on Windows. Converting
-            # it to the namespaced design system belongs to Plan 9, and an empty
-            # style name is exactly what ttk means by "draw this the way the
-            # platform draws it".
-            theme=None,
+            # v0.6.6 Phase 2: the compact bundle, not the (absent) shell theme --
+            # this panel's own chrome still renders native/classic either way,
+            # and an empty style name remains exactly what ttk means by "draw
+            # this the way the platform draws it" on macOS aqua.
+            theme=self.appearance_bundle,
             clock=self._clock,
             id_factory=id_factory,
             choose_files=self._choose_files if choose_files is None else choose_files,
@@ -2039,8 +2051,8 @@ class CoverResizerUI(ttk.Frame):
             self.job_area,
             run_id=run_id,
             pump=self._pump,
-            # No theme bundle: this panel stays classic on Windows until Plan 9.
-            theme=None,
+            # v0.6.6 Phase 2: the compact bundle, matching self.importer above.
+            theme=self.appearance_bundle,
             pull=job_ui.queue_pull(self._event_q),
             estimator=self._estimator,
             item_ids=item_ids,
@@ -2479,6 +2491,26 @@ class CoverResizerUI(ttk.Frame):
         self._busy.clear()
         self._cancel_event.clear()
         self.disable_inputs(False)
+
+    def _on_appearance_changed(self, bundle: dict) -> None:
+        """Re-color the raw Tk widgets a ttk style-name mutation cannot reach.
+
+        Everything ``self.importer`` and (if a run is on screen) ``self.jobs``
+        built through ``style_name`` from ``self.appearance_bundle`` already
+        repainted itself the moment ``shared.appearance`` reconfigured the
+        ``Compact.*`` styles in place. Only the imported-file ``Listbox`` inside
+        ``self.importer.list`` and, while a run is live, its own log's two
+        ``Text`` widgets are classic Tk and need this explicit call.
+        """
+        self.appearance_bundle = bundle
+        if self._closed:
+            return
+        importer = getattr(self, "importer", None)
+        if importer is not None:
+            importer.list.apply_appearance(bundle)
+        jobs = getattr(self, "jobs", None)
+        if jobs is not None and not jobs.closed:
+            jobs.views.apply_appearance(bundle)
 
     # ------- teardown -------
 

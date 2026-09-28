@@ -42,7 +42,7 @@ tk = pytest.importorskip("tkinter")
 from tkinter import font as tkfont  # noqa: E402
 from tkinter import ttk  # noqa: E402
 
-from shared import job_ui, ui_theme  # noqa: E402
+from shared import appearance, job_ui, ui_theme  # noqa: E402
 from shared.import_coordination import (  # noqa: E402
     ImportCoordinator,
     ImportOutcome,
@@ -142,6 +142,18 @@ def windows_theme(tk_root):
     restore = ttk.Style(tk_root)
     if "vista" in restore.theme_names():
         restore.theme_use("vista")
+
+
+@pytest.fixture
+def compact_theme(tk_root):
+    """The v0.6.6 ``shared.appearance`` compact bundle, forced to Light on win32.
+
+    A second, deliberately different bundle *shape* from ``windows_theme`` above —
+    ``mode == "compact"`` rather than ``"windows"`` — so a test can prove
+    ``job_ui.style_tk_widget`` dispatches on that shape rather than assuming one.
+    """
+    style = ttk.Style(tk_root)
+    return appearance.build_bundle(style, appearance.LIGHT, platform="win32", root=tk_root)
 
 
 def catalog() -> SupportedTypeCatalog:
@@ -796,6 +808,145 @@ def test_the_list_is_keyboard_reachable_and_follows_the_widgets_own_selection(
     listing.listbox.selection_clear(0, "end")
     assert listing.sync_selection() == ()
     assert manager.selection == ()
+
+
+@pytest.fixture
+def keyboard_root(tk_root):
+    """The shared session root, briefly shown so a real key event can be delivered.
+
+    ``tk_gate`` withdraws ``tk_root`` so the suite never flashes a window; a small
+    number of tests genuinely need one real, focusable window to prove a keyboard
+    binding fires — exactly what ``test_cover_source_side.py``'s own Escape-key test
+    does by deiconifying a ``Toplevel`` before generating ``<Escape>``. This is the
+    same move applied to the root itself, since the widgets below are its direct
+    children rather than a dialog's, and it always re-withdraws afterward, pass or
+    fail, so no other test in this module ever sees it shown.
+    """
+    tk_root.deiconify()
+    tk_root.update()
+    try:
+        yield tk_root
+    finally:
+        tk_root.withdraw()
+
+
+def _mapped(root, *widgets, focus=None) -> None:
+    """Pack, realize, and focus a widget under an already-shown ``keyboard_root``."""
+    for widget in widgets:
+        widget.pack(fill="both", expand=True)
+    root.update_idletasks()
+    if focus is not None:
+        focus.focus_force()
+        root.update()
+
+
+def test_ctrl_a_selects_every_row_and_syncs_the_manager(parent, tmp_path, keyboard_root):
+    """v0.6.6 Phase 2 §4: Ctrl/Cmd+A selects all, through the manager too.
+
+    Unlike a plain widget-level select-all, :class:`ImportedFileList` supplies its own
+    ``on_select_all`` so the manager's selection — not only the ``Listbox`` — follows.
+    """
+    manager = ImportedFileManager()
+    fill(manager, *book(tmp_path))
+    listing = job_ui.ImportedFileList(parent, manager)
+    assert "<Control-Key-a>" in listing.listbox.bind()  # Tk's own canonical spelling
+    _mapped(keyboard_root, parent, listing.frame, focus=listing.listbox)
+
+    listing.listbox.event_generate("<Control-a>")
+    assert listing.selection == listing.order
+    assert manager.selection == listing.order
+    assert listing.count_label.cget("text").endswith("3 selected")
+
+
+def test_delete_and_backspace_remove_the_selection(parent, tmp_path, keyboard_root):
+    manager = ImportedFileManager()
+    fill(manager, *book(tmp_path))
+    listing = job_ui.ImportedFileList(parent, manager)
+    _mapped(keyboard_root, parent, listing.frame, focus=listing.listbox)
+    first = listing.order[0]
+
+    listing.select((first,))
+    listing.listbox.event_generate("<Delete>")
+    assert listing.count == 2 and first not in listing.order
+
+    second = listing.order[0]
+    listing.select((second,))
+    listing.listbox.event_generate("<BackSpace>")
+    assert listing.count == 1 and second not in listing.order
+
+
+def test_alt_up_and_alt_down_move_the_selected_block(parent, tmp_path, keyboard_root):
+    manager = ImportedFileManager()
+    fill(manager, *book(tmp_path, "01.mp3", "02.mp3", "03.mp3", "04.mp3"))
+    listing = job_ui.ImportedFileList(parent, manager)
+    _mapped(keyboard_root, parent, listing.frame, focus=listing.listbox)
+    _first, second, third, _fourth = listing.order
+
+    listing.select((second, third))
+    listing.listbox.event_generate("<Alt-Down>")
+    assert listing.rows() == ("1. 01.mp3", "2. 04.mp3", "3. 02.mp3", "4. 03.mp3")
+    assert listing.selection == (second, third)
+
+    listing.listbox.event_generate("<Alt-Up>")
+    assert listing.rows() == ("1. 01.mp3", "2. 02.mp3", "3. 03.mp3", "4. 04.mp3")
+    assert listing.selection == (second, third)
+
+
+def test_a_locked_list_ignores_every_shortcut(parent, tmp_path, keyboard_root):
+    """The keyboard contract routes to the same guarded methods the buttons call."""
+    manager = ImportedFileManager()
+    fill(manager, *book(tmp_path))
+    listing = job_ui.ImportedFileList(parent, manager)
+    _mapped(keyboard_root, parent, listing.frame, focus=listing.listbox)
+    listing.select(listing.order)
+    listing.set_locked(True)
+
+    listing.listbox.event_generate("<Delete>")
+    listing.listbox.event_generate("<Alt-Up>")
+    assert listing.count == 3
+
+
+def test_bind_list_shortcuts_reaches_a_bespoke_listbox_directly(parent, keyboard_root):
+    """A dense tool's own track list is not an :class:`ImportedFileList` at all.
+
+    §4's keyboard contract is still reusable there: a bare ``Listbox`` gets exactly
+    the same bindings by calling :func:`job_ui.bind_list_shortcuts` directly, with no
+    manager and no occurrence ids in sight — only rows, exactly what a bespoke list
+    already has.
+    """
+    listbox = tk.Listbox(parent, selectmode="extended")
+    for row in ("one", "two", "three"):
+        listbox.insert("end", row)
+    _mapped(keyboard_root, parent, listbox, focus=listbox)
+    calls: list[str] = []
+    job_ui.bind_list_shortcuts(
+        listbox, on_move_up=lambda: calls.append("up"),
+        on_move_down=lambda: calls.append("down"),
+        on_remove=lambda: calls.append("remove"))
+
+    for sequence, label in (("<Alt-Up>", "up"), ("<Alt-Down>", "down"),
+                            ("<Delete>", "remove"), ("<BackSpace>", "remove")):
+        listbox.event_generate(sequence)
+    assert calls == ["up", "down", "remove", "remove"]
+
+    # No on_select_all supplied: Ctrl+A falls back to the generic widget-only
+    # behaviour and still fires <<ListboxSelect>>.
+    seen: list[tuple[int, ...]] = []
+    listbox.bind("<<ListboxSelect>>", lambda _e: seen.append(listbox.curselection()))
+    listbox.event_generate("<Control-a>")
+    assert listbox.curselection() == (0, 1, 2)
+    assert seen == [(0, 1, 2)]
+
+
+def test_bind_list_shortcuts_omits_unsupplied_callbacks(parent):
+    """No callback, no binding — a caller that omits ``on_remove`` keeps Delete free
+    for whatever else the panel wants it to do."""
+    listbox = tk.Listbox(parent)
+    job_ui.bind_list_shortcuts(listbox, on_move_up=lambda: None)
+    assert not listbox.bind("<Delete>")
+    assert not listbox.bind("<BackSpace>")
+    assert not listbox.bind("<Alt-Down>")
+    assert listbox.bind("<Alt-Up>")
 
 
 def test_a_selection_change_reaches_the_callback(parent, tmp_path):
@@ -2183,6 +2334,67 @@ def test_the_classic_tk_widgets_are_coloured_through_the_sanctioned_helper(
     assert listing.listbox.cget("background") == colors["field"]
     assert listing.listbox.cget("selectbackground") == colors["selection"]
     assert views.summary_text.cget("background") == colors["elevated"]
+
+
+def test_the_classic_tk_widgets_also_follow_a_compact_bundle(
+        parent, compact_theme, tmp_path):
+    """v0.6.6 Phase 2: the same helper, the other bundle shape.
+
+    ``ui_theme.style_tk_widget`` gates on ``mode == "windows"`` and silently no-ops
+    for anything else, including ``shared.appearance``'s compact bundle. This proves
+    ``job_ui.style_tk_widget`` — the dispatching wrapper both components now call —
+    routes a compact bundle to ``appearance.style_tk_widget`` instead, so the Activity
+    log and the imported-file list are not silently left unstyled under Light/Dark.
+    """
+    manager = ImportedFileManager()
+    fill(manager, *book(tmp_path))
+    listing = job_ui.ImportedFileList(parent, manager, theme=compact_theme)
+    views = job_ui.SummaryDetailsView(parent, theme=compact_theme)
+    colors = compact_theme["colors"]
+
+    assert listing.listbox.cget("background") == colors["field"]
+    assert listing.listbox.cget("selectbackground") == colors["selection"]
+    assert views.summary_text.cget("background") == colors["elevated"]
+    assert views.details_text.cget("background") == colors["elevated"]
+
+
+def test_style_tk_widget_still_no_ops_on_a_themeless_bundle(parent):
+    """Every existing caller that passes ``None``/``{}`` keeps its exact behaviour."""
+    listbox = tk.Listbox(parent)
+    assert job_ui.style_tk_widget(listbox, None, "list") == {}
+    assert job_ui.style_tk_widget(listbox, {}, "list") == {}
+
+
+def test_apply_appearance_recolors_the_listbox_in_place(
+        parent, windows_theme, compact_theme, tmp_path):
+    """The one thing a ``Compact.*``/``ACT.*`` style-name mutation cannot reach.
+
+    Built under one bundle, then told about a change to the other — exactly the
+    live-refresh path an adopting panel's own appearance listener drives — and the
+    same widget, same manager state, is recoloured with no rebuild.
+    """
+    manager = ImportedFileManager()
+    fill(manager, *book(tmp_path))
+    listing = job_ui.ImportedFileList(parent, manager, theme=windows_theme)
+    listing.select((listing.order[0],))
+    assert listing.listbox.cget("background") == windows_theme["colors"]["field"]
+
+    listing.apply_appearance(compact_theme)
+    assert listing.listbox.cget("background") == compact_theme["colors"]["field"]
+    # Nothing about the list's own state moved.
+    assert listing.selection == (listing.order[0],)
+    assert listing.count == 3
+
+
+def test_apply_appearance_recolors_both_log_panes_in_place(parent, compact_theme):
+    views = job_ui.SummaryDetailsView(parent)
+    views.set_summary(("kept",))
+    assert views.summary_text.cget("background") != compact_theme["colors"]["elevated"]
+
+    views.apply_appearance(compact_theme)
+    assert views.summary_text.cget("background") == compact_theme["colors"]["elevated"]
+    assert views.details_text.cget("background") == compact_theme["colors"]["elevated"]
+    assert views.summary == ("kept",)
 
 
 # --------------------------------------------------------------------------- #

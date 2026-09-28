@@ -62,6 +62,24 @@ def tk_root():
 
 
 @pytest.fixture
+def keyboard_root(tk_root):
+    """The shared session root, briefly shown so a real key event can be delivered.
+
+    ``tk_gate`` withdraws ``tk_root`` so the suite never flashes a window. Proving
+    the v0.6.6 Phase 2 ordered-list keyboard contract on ``track_list`` needs one
+    real, focusable window; this borrows the shared root for one test and always
+    re-withdraws it afterward, pass or fail, so no other test in this module ever
+    sees it shown.
+    """
+    tk_root.deiconify()
+    tk_root.update()
+    try:
+        yield tk_root
+    finally:
+        tk_root.withdraw()
+
+
+@pytest.fixture
 def windows_theme(tk_root):
     """The Windows ``ACT.*`` bundle, asked for through the theme's own seam.
 
@@ -811,6 +829,39 @@ def test_track_reorder_and_remove_keep_titles_aligned(make_panel, tmp_path):
     panel.remove_selected_tracks()
     assert track_names(panel) == ["02 Two.mp3", "03 Three.mp3"]
     assert panel.track_list.size() == 2
+
+
+def test_the_track_list_carries_the_ordered_list_keyboard_contract(
+        make_panel, keyboard_root, tmp_path):
+    """v0.6.6 Phase 2 §4: Ctrl+A, Delete/BackSpace, Alt+Up/Down on this bespoke list.
+
+    ``track_list`` is a plain ``Listbox``, not a ``shared.job_ui.ImportedFileList``,
+    so the shared keyboard contract only reaches it because the panel calls
+    ``job_ui.bind_list_shortcuts`` directly — this proves that wiring, on the real
+    dense-tool widget, the way the plan's Phase 2 manual gate expects.
+    """
+    a, b, c = tracks(tmp_path / "F", "01 One.mp3", "02 Two.mp3", "03 Three.mp3")
+    panel = make_panel()
+    add_files(panel, a, b, c)
+    panel.pack(fill="both", expand=True)
+    keyboard_root.update_idletasks()
+    panel.track_list.focus_force()
+    keyboard_root.update()
+
+    panel.track_list.event_generate("<Control-a>")
+    assert panel.track_list.curselection() == (0, 1, 2)
+
+    panel.select_tracks(1, 2)
+    panel.track_list.event_generate("<Alt-Up>")
+    assert track_names(panel) == ["02 Two.mp3", "03 Three.mp3", "01 One.mp3"]
+
+    panel.select_tracks(2)
+    panel.track_list.event_generate("<Delete>")
+    assert track_names(panel) == ["02 Two.mp3", "03 Three.mp3"]
+
+    panel.select_tracks(0)
+    panel.track_list.event_generate("<BackSpace>")
+    assert track_names(panel) == ["03 Three.mp3"]
 
 
 def test_chapter_titles_are_ordinary_book_configuration(make_panel, tmp_path):

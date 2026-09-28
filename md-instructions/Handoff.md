@@ -2,6 +2,102 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 2 COMPLETE: SHARED ACTIVITY + IMPORTER/LIST INTERACTION CONTRACTS (2026-09-27)
+>
+> **This block records Phase 2 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,**
+> executed on `feature/0.6.6-ui-parity-hardening-release` from the Phase 1 checkpoint `c597031`,
+> **after the maintainer's Phase 1 manual-gate PASS recorded in the block below.** It supersedes
+> nothing on facts — Phase 1's record stands unchanged — it only adds the next phase's own record on
+> top, per the plan's "commit/push the phase, update Handoff.md, STOP" rule.
+>
+> **What Phase 2 built, all additive to the existing Plan 3 (`shared/job_ui.py`) foundation every one
+> of the six tools already builds through — nothing pre-existing was removed or renamed:**
+> - **`shared/job_ui.py`**: a new `style_tk_widget()` dispatches a classic Tk widget's coloring to
+>   `ui_theme.style_tk_widget` or `shared.appearance.style_tk_widget` by the bundle's own `mode` —
+>   closing a real gap where `ui_theme`'s version silently no-ops for anything but its own
+>   `"windows"` bundle, which would have left `ImportedFileList`'s `Listbox` and
+>   `SummaryDetailsView`'s two `Text` widgets unstyled under the new compact appearance system. Both
+>   classes gained `apply_appearance()` for the live-refresh path a listener drives (mirroring
+>   Phase 1's own pattern for a `Toplevel` background), and `ImportedFileList` gained a manager-
+>   synced `select_all()`. A new `bind_list_shortcuts()` binds the frozen §4 keyboard contract —
+>   Ctrl/Cmd+A, Delete/BackSpace, Alt+Up/Alt+Down — to one `Listbox`; `ImportedFileList` uses it on
+>   its own listbox, and it is exposed publicly so a dense tool's *bespoke* listbox can call it
+>   directly. Shift-click/Ctrl-click range and additive selection needed no work: Tk's
+>   `selectmode="extended"` already provides both. Because all six tools already build
+>   `ImportedFileList`/`SummaryDetailsView` (directly or through `ImportAdapter`/`JobAdapter`), the
+>   keyboard contract and the Light/Dark dispatch fix reach every one of them from this one module —
+>   no panel needed to change for that half of Phase 2.
+> - **`mp3_tools/cover_resizer.py`** (the Family-A / simple representative): now builds a live
+>   `appearance_bundle` and threads it into its existing `job_ui.ImportAdapter` and `job_ui.JobAdapter`
+>   calls, replacing the literal `theme=None` those two call sites carried with a comment naming this
+>   exact plan ("Converting it to the namespaced design system belongs to Plan 9") — Plan 9 is
+>   v0.6.6, so this discharges that placeholder rather than inventing new scope. Registers an
+>   appearance listener; `_on_appearance_changed` re-colors the imported-file `Listbox` and, while a
+>   run is on screen, its log's `Text` widgets in place. The panel's own remaining chrome (labels,
+>   buttons outside the shared components) is untouched — full Family-A adoption stays Phase 5's job.
+> - **`mp3_tools/mp3_tool.py`** (the Family-B / dense representative): `track_list` — a bespoke
+>   `Listbox` that predates `ImportedFileList` and is not one — now carries the same keyboard contract
+>   via a direct `job_ui.bind_list_shortcuts(self.track_list, ...)` call. Pure behavior, zero color or
+>   style change.
+>
+> **A reverted attempt, kept here because it is a real finding, not a blind alley:** the first pass
+> also threaded `mp3_tool.py`'s whole Activity block (`JobControlBar`/`JobStatusView`/
+> `SummaryDetailsView`, reached via `JobAdapter`'s `theme=`) onto the compact bundle, to prove
+> Light/Dark end-to-end on the dense representative too. This broke the pre-existing
+> `test_windows_styles_are_act_namespaced_and_aqua_stays_native` regression test, which asserts every
+> ttk widget in this still-unconverted panel carries an `ACT.*`-namespaced style on Windows. The
+> failure is correct, not a test that needs updating: MP3 Tool is still wholly `ACT.*`/native today
+> (Phase 6 converts it), and a half-repainted Activity block inside an otherwise-`ACT.*` panel is
+> exactly the inconsistent, "broad panel redesign" state Phase 2 is not authorized to create. That
+> change was fully reverted. **Light/Dark is proven only on Cover Image Resizer**, which carried no
+> such invariant — its `theme=None` comment already said its chrome stays native/classic until this
+> plan, so filling that gap with the compact bundle completes a placeholder rather than contradicting
+> a standing regression test. MP3 Tool's own Light/Dark adoption remains Phase 6's job.
+>
+> **A second finding, left for its owning phase rather than fixed here:** Cover Image Resizer and
+> M4B Converter both already build a `job_ui.JobAdapter`/`SummaryDetailsView` Activity region but,
+> unlike TTS/MP3 Tool/M4B Maker/M4B Metadata Editor, neither one builds a **Clear Log** button for it
+> — the frozen contract's §3 lists `Clear Log` as part of the one universal Activity design every
+> tool shares. Adding it is a real Phase 4/5 item, not Phase 2 scope (it is a one-line-per-panel
+> addition, not a shared-primitive gap), and is recorded here so it is not lost before those phases.
+>
+> **Explicitly not done, per the plan's Phase 2 boundary:** no Family A/B panel redesign; no Phase 3+
+> work; no adoption beyond the two representative tools plus the shared-module fixes that reach all
+> six automatically; the Clear Log gap above is flagged, not fixed.
+>
+> **Verification:** two new tests in `files/tests/test_job_ui.py` (select-all/remove/block-move
+> through real synthetic key events on a mapped, focused window — briefly un-withdrawing the shared
+> `tk_root` session the same way `test_cover_source_side.py`'s own Escape-key test already does on a
+> `Toplevel`, always re-withdrawn on teardown; a locked list ignoring every shortcut; the
+> `bind_list_shortcuts` primitive proven directly on a bespoke `Listbox`; the `style_tk_widget`
+> dispatch proven under both bundle shapes; `apply_appearance` proven to recolor in place without
+> losing widget state) and one in `files/tests/test_mp3_tool_ui.py` (the same three shortcuts proven
+> on the real `track_list`, end to end, including the actual track reorder/removal). Full targeted
+> re-run — `test_job_ui.py` + `test_appearance.py` + `test_preferences_ui.py` + `test_ui_theme.py` +
+> `test_mp3_tool_ui.py` + `test_mp3_tool_smoke.py` + `test_mp3_hardening.py` +
+> `test_cover_resizer_smoke.py` + `test_cover_importing.py` + `test_cover_jobs.py` +
+> `test_cover_layout.py` + `test_cover_browser.py` + `test_cover_source_side.py` + `test_importing.py`
+> + `test_import_manager.py` + `test_hardening_matrix.py` + `test_prototype_regression.py` +
+> `test_settings.py` — **964 passed, 6 skipped** (platform-guarded, pre-existing), 0 failed. A
+> broader cross-tool sweep (every M4B Converter/Maker/Metadata/TTS/book-workspace/hardening/
+> prototype-regression test, none of which this phase's files touch) — **1,560 passed, 24 skipped**,
+> one failure (`test_write_concat_list_escapes_an_apostrophe_the_way_ffmpeg_requires`) confirmed via
+> `git stash` to reproduce identically on the unmodified Phase 1 checkpoint — a pre-existing
+> POSIX-path-literal-on-Windows test artifact, unrelated to this phase, not touched. `git diff --check`
+> clean on every touched file; `test_job_ui.py` was rewritten CRLF→LF by an intermediate scripted edit
+> and restored to CRLF before this checkpoint. No full `verify.py` run — no concrete reason surfaced.
+>
+> **Nothing else is authorized here.** No individual tool layout beyond the two bounded representative
+> changes above, no Phase 3+ work, no version bump, tag, release or merge. Version identity remains
+> `0.6.2`, unreleased.
+>
+> **Manual gate for the maintainer (Phase 2's own gate, from the plan — representative simple + dense):**
+> see the report accompanying this checkpoint's commit for the exact steps on Cover Image Resizer
+> (Light/Dark on the imported-file list and Activity log) and MP3 Tool (Ctrl+A/Delete/Alt+Up+Down on
+> the track list, and confirmation the rest of the panel's appearance is untouched).
+>
+> — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 2 authorization.
+
 > ## CURRENT STATE — v0.6.6 PHASE 1 COMPLETE: SHARED APPEARANCE FOUNDATION + SHELL TOGGLE (2026-09-27)
 >
 > **This block records Phase 1 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,
@@ -75,6 +171,11 @@
 > this checkpoint's commit for the exact steps — shell chrome unchanged, the toggle's initial label,
 > Preferences & Data rendering in the compact Light palette, a live toggle refreshing the open dialog
 > to Dark with no state lost, persistence across a close/reopen and a relaunch, and the reverse.
+>
+> **Maintainer's manual gate result: PASS.** The maintainer performed the Phase 1 manual gate above
+> and confirmed it in full before authorizing Phase 2 (2026-09-27): "Phase 1 at c597031 is
+> maintainer-approved; its required Light/Dark shell + owned-dialog manual gate PASSED." Phase 1 is
+> therefore fully closed, mechanically and manually, with no open items.
 >
 > — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 1 authorization.
 

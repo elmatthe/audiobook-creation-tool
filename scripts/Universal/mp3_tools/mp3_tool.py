@@ -852,6 +852,14 @@ class MP3ToolUI(ttk.Frame):
         self.track_list.grid(row=0, column=0, sticky="nsew")
         track_scroll.grid(row=0, column=1, sticky="ns")
         ui_theme.style_tk_widget(self.track_list, theme, role="list")
+        # v0.6.6 Phase 2: the frozen ordered-list keyboard contract (§4) — the same
+        # primitive shared/job_ui.ImportedFileList binds on its own listbox, applied
+        # directly here since this track list predates that shared component. Pure
+        # behaviour: no style or color changes, so this panel's existing ACT.*
+        # namespacing (unconverted until Phase 6) is untouched.
+        job_ui.bind_list_shortcuts(
+            self.track_list, on_move_up=self.move_up, on_move_down=self.move_down,
+            on_remove=self.remove_selected_tracks)
         ui_theme.enable_mousewheel(self.track_list)
         track_buttons = ttk.Frame(tracks, style=style_name(theme, "surface"))
         track_buttons.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))

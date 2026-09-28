@@ -65,6 +65,30 @@ It adopts nothing. No production panel imports it, the launcher gains no seventh
 no output is created, reserved, inspected or validated, no source file is touched, no
 subprocess runs, no setting is written, and no real broad location is scanned. Plans
 4–8 own adoption; Plan 9 owns the remaining visual and platform work.
+
+v0.6.6 Phase 2 — Light/Dark and the ordered-list keyboard contract
+-------------------------------------------------------------------
+Two additions make this module's Activity and importer/list components satisfy the
+Frozen UI Contract's §3/§4 without any adopting panel changing its own layout:
+
+* :func:`style_tk_widget` colors the classic Tk widgets this module owns
+  (:class:`ImportedFileList`'s ``Listbox``, :class:`SummaryDetailsView`'s two
+  ``Text`` widgets) from *either* bundle shape a caller may hold — the existing
+  ``ui_theme`` shell bundle (``mode == "windows"``, ``ACT.*``) or the v0.6.6
+  ``shared.appearance`` compact bundle (``mode == "compact"``, ``Compact.*``) —
+  dispatching on the bundle's own ``mode`` rather than asking a panel to know which
+  colorer its theme needs. Both :class:`ImportedFileList` and
+  :class:`SummaryDetailsView` gained ``apply_appearance()`` so a caller holding a live
+  ``shared.appearance`` listener registration can re-color these raw Tk widgets in
+  place after a toggle — the one thing ``ttk.Style`` mutation cannot reach, exactly
+  the gap :mod:`shared.appearance` documents for a ``Toplevel``'s own background.
+* :func:`bind_list_shortcuts` binds the frozen ordered-list keyboard contract — Ctrl/
+  Cmd+A, Delete/BackSpace, Alt+Up/Alt+Down — to one ``Listbox``. :class:`ImportedFileList`
+  uses it on its own listbox, and an adopting panel with its own bespoke ``Listbox``
+  (a dense tool's per-Book track list, for instance) may call it directly, which is
+  how a shared primitive reaches a widget this module never built. Shift-click range
+  selection and Ctrl/Cmd-click additive selection need no binding: Tk's own
+  ``selectmode="extended"`` already does both.
 """
 
 from __future__ import annotations
@@ -78,7 +102,7 @@ from pathlib import Path
 from tkinter import font as tkfont
 from tkinter import ttk
 
-from shared import ui_theme
+from shared import appearance, ui_theme
 from shared.import_coordination import (
     DEFAULT_POLL_INTERVAL_MS,
     ImportCoordinator,
@@ -123,6 +147,8 @@ __all__ = [
     "MainThreadGuard",
     "DEFAULT_PUMP_INTERVAL_MS",
     "style_name",
+    "style_tk_widget",
+    "bind_list_shortcuts",
     "queue_pull",
     "MainThreadPump",
     "LockGroup",
@@ -251,6 +277,86 @@ def style_name(theme: Mapping[str, object] | None, key: str) -> str:
         return ""
     name = styles.get(key, "")
     return name if isinstance(name, str) else ""
+
+
+def style_tk_widget(
+    widget: object, theme: Mapping[str, object] | None, role: str, **overrides: object,
+) -> Mapping[str, object]:
+    """Color a classic Tk widget from either bundle shape this module accepts.
+
+    ``ui_theme``'s bundle (``mode == "windows"``) and ``shared.appearance``'s compact
+    bundle (``mode == "compact"``) both expose ``colors`` under the same role
+    vocabulary — see each module's own ``style_tk_widget`` — but ``ui_theme``'s gates
+    on ``mode == "windows"`` specifically, so it silently no-ops for a compact bundle.
+    Dispatching here on the bundle's own ``mode`` means :class:`ImportedFileList` and
+    :class:`SummaryDetailsView` render correctly under either theme system without
+    either one importing the other.
+    """
+    module = appearance if (theme or {}).get("mode") == "compact" else ui_theme
+    return module.style_tk_widget(widget, theme or {}, role, **overrides)
+
+
+def bind_list_shortcuts(
+    listbox: tk.Listbox,
+    *,
+    on_select_all: Callable[[], object] | None = None,
+    on_move_up: Callable[[], object] | None = None,
+    on_move_down: Callable[[], object] | None = None,
+    on_remove: Callable[[], object] | None = None,
+) -> None:
+    """Bind the frozen ordered-list keyboard contract (§4) to one ``Listbox``.
+
+    * **Ctrl/Cmd+A** selects every row. *on_select_all*, if supplied, is called
+      instead of the generic behaviour — :class:`ImportedFileList` uses this to keep
+      its manager's own selection in sync rather than only painting the widget.
+      Without one, every row in the listbox itself is selected and
+      ``<<ListboxSelect>>`` fires, so a caller's own selection-change handler still
+      runs.
+    * **Delete** / **BackSpace** calls *on_remove*, if supplied.
+    * **Alt+Up** / **Alt+Down** calls *on_move_up* / *on_move_down*, if supplied —
+      block-move semantics (moving a multi-row selection as one unit while preserving
+      internal order) are the callback's own contract, not this function's.
+
+    Every binding is attached to *this one widget*, never to its toplevel, so a
+    shortcut here can never reach a focused ``Entry``/``Text``/chapter-edit control
+    elsewhere — the "focus-sensitive" half of §4 is this function's binding target,
+    not a mode flag. Shift-click range selection and Ctrl/Cmd-click additive/toggle
+    selection need no binding: Tk's own ``selectmode="extended"`` already provides
+    both natively. Each handler returns ``"break"`` so it never falls through to a
+    ``Listbox``'s own default binding for the same key (``BackSpace`` and the arrow
+    keys otherwise move the active row without touching the selection).
+    """
+
+    def _select_all(_event: object = None) -> str:
+        if on_select_all is not None:
+            on_select_all()
+            return "break"
+        if not _alive(listbox):
+            return "break"
+        try:
+            listbox.selection_set(0, "end")
+            listbox.event_generate("<<ListboxSelect>>")
+        except tk.TclError:
+            pass
+        return "break"
+
+    def _bound(callback: Callable[[], object] | None) -> Callable[[object], str]:
+        def _handler(_event: object = None) -> str:
+            if callback is not None:
+                callback()
+            return "break"
+
+        return _handler
+
+    for sequence in ("<Control-a>", "<Control-A>"):
+        listbox.bind(sequence, _select_all)
+    if on_move_up is not None:
+        listbox.bind("<Alt-Up>", _bound(on_move_up))
+    if on_move_down is not None:
+        listbox.bind("<Alt-Down>", _bound(on_move_down))
+    if on_remove is not None:
+        for sequence in ("<Delete>", "<BackSpace>"):
+            listbox.bind(sequence, _bound(on_remove))
 
 
 def queue_pull(source: "queue.Queue | queue.SimpleQueue") -> Callable[[], object]:
@@ -676,7 +782,7 @@ class ImportedFileList:
         self.listbox = tk.Listbox(
             self.frame, selectmode="extended", exportselection=False,
             height=max(1, int(height)), activestyle="none")
-        ui_theme.style_tk_widget(self.listbox, theme or {}, "list")
+        style_tk_widget(self.listbox, theme, "list")
         self.listbox.grid(row=1, column=0, sticky="nsew")
 
         self.scrollbar = ttk.Scrollbar(
@@ -707,6 +813,9 @@ class ImportedFileList:
         self.frame.columnconfigure(0, weight=1)
         self.listbox.bind(
             "<<ListboxSelect>>", lambda _event: self.sync_selection(), add="+")
+        bind_list_shortcuts(
+            self.listbox, on_select_all=self.select_all, on_move_up=self.move_up,
+            on_move_down=self.move_down, on_remove=self.remove_selected)
         self.refresh()
 
     # -- reading ----------------------------------------------------------- #
@@ -815,6 +924,13 @@ class ImportedFileList:
         self._guard.require("clear_selection")
         self.select(())
 
+    def select_all(self) -> tuple[str, ...]:
+        """Select every row. The keyboard contract's Ctrl/Cmd+A, and reusable directly."""
+        self._guard.require("select_all")
+        selected = self.select(self._order)
+        self._notify(selected)
+        return selected
+
     def sync_selection(self) -> tuple[str, ...]:
         """Adopt whatever the widget is showing as selected.
 
@@ -857,6 +973,18 @@ class ImportedFileList:
             self.listbox.focus_set()
         except tk.TclError:
             pass
+
+    def apply_appearance(self, theme: Mapping[str, object] | None) -> None:
+        """Re-color the raw ``Listbox`` in place after an appearance change.
+
+        The buttons and the count label are ``ttk``, so a style-name mutation already
+        repaints them; the ``Listbox`` is classic Tk and needs this one explicit call.
+        """
+        self._guard.require("apply_appearance")
+        self._theme = theme
+        if self._closed:
+            return
+        style_tk_widget(self.listbox, theme, "list")
 
     # -- actions ----------------------------------------------------------- #
 
@@ -2066,6 +2194,19 @@ class SummaryDetailsView:
         # §6.11 keeps the log views usable in every state; they are read-only already.
         self._guard.require("set_locked")
 
+    def apply_appearance(self, theme: Mapping[str, object] | None) -> None:
+        """Re-color both raw ``Text`` widgets in place after an appearance change.
+
+        The notebook tabs are ``ttk`` and already repaint from a style-name mutation;
+        ``Text`` is classic Tk and needs this one explicit call.
+        """
+        self._guard.require("apply_appearance")
+        self._theme = theme
+        if self._closed:
+            return
+        style_tk_widget(self.summary_text, theme, "log")
+        style_tk_widget(self.details_text, theme, "log")
+
     def close(self) -> None:
         self._guard.require("close")
         self._closed = True
@@ -2078,7 +2219,7 @@ class SummaryDetailsView:
         page = ttk.Frame(self.frame, style=style_name(theme, "surface"))
         text = tk.Text(page, height=max(1, int(height)), width=max(1, int(width)),
                        wrap="none", state="disabled")
-        ui_theme.style_tk_widget(text, theme or {}, "log")
+        style_tk_widget(text, theme, "log")
         # Read-only is not unselectable: a person sends the log by selecting it.
         # Tk binds Select-All to Control-a on Windows only, so it is bound here
         # for every platform; Copy is the class binding and works when disabled.
