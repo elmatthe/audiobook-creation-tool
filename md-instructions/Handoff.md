@@ -2,6 +2,89 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 2 FINAL REMEDIATION: COVER IMAGE CONVERTED TO FAMILY A ON TTS'S CONTROL LANGUAGE (2026-09-28)
+>
+> **The Phase 2 repeat manual gate on `5e41f9d` (block below) FAILED on Cover presentation/layout.**
+> Dark coverage passed and all tested functionality still worked; that work is preserved. By
+> **explicit maintainer sequencing override**, Cover's Family-A conversion (plan Phase 5) was brought
+> forward and completed here as the final Phase 2 remediation. Phase 5 must not redo it. See
+> `Decisions.md` 2026-09-28 and the plan's §5 2026-09-28 clarification and Phase 5 note. This block
+> supersedes nothing below; it adds the checkpoint on top.
+>
+> **Ruling:** the current TTS panel is the exact visual-control reference. That covers control
+> metrics, borders, glyphs, spacing, section treatment, disabled state and density, not just colors,
+> and it is expressed through the shared `shared/appearance.py` primitives.
+>
+> **Shared primitives changed** (measured on Windows `vista`, TTS's native controls vs compact):
+> - Body font = `TkDefaultFont` size.
+> - `button_pad`/`field_pad`/`tab_pad`/`tree_row_height` retuned. Button 103×31 → 76×25 (native
+>   76×25); Entry 76×25 → 68×21 (native 66×21).
+> - Buttons use `relief="raised"`, so they are outlined in every state; `default="active"` gets an
+>   accent outline.
+> - Palette-drawn check/radio image indicators replace the `clam` X.
+> - Light palette retuned to classic Windows (#f0f0f0 surfaces, near-white buttons, white fields;
+>   accent darkened, all WCAG tests pass).
+> - The compact log pane is a white field.
+> - `shared/config.py`: `appearance` added to `USER_STATE_SETTINGS`. This fixes a Phase 1 defect where
+>   every launch after a toggle reported it as an unrecognised configuration override.
+>
+> **Cover (`mp3_tools/cover_resizer.py`):**
+> - **Hierarchy:** `1. Sources` / `2. Resize Options` / `3. Output & Run` on the left, `Activity` on
+>   the right.
+> - **Sources:** the browser is the list and the flexible region. The importer's duplicate listbox is
+>   withdrawn but kept in step. The six actions, filters, options and Cancel Import are unchanged, and
+>   the §4 shortcuts are on all three views.
+> - **Resize Options:** a plain section with no canvas and no scrollbar.
+> - **Output & Run:** Resize Covers as the default button, with the shared controls and progress
+>   beneath it.
+> - **Activity:** the shared persistent Summary | Detailed view plus **Clear Log**. The worker
+>   transcript goes to Detailed.
+> - **Responsive, measured modes:** `wide`, `split`, `columns`, and `stacked` as a last resort.
+>   Activity stays right at every size, and Sources-on-top is used only while the browser keeps a
+>   full thumbnail row.
+> - **Unchanged:** output planning, collision handling, replacement safety, Retry and job control.
+>
+> **Real-launcher measurements** (content host → mode, Activity width, browser height):
+>
+> | Window | Content host | Mode | Activity | Browser |
+> |---|---|---|---|---|
+> | 920×600 | 721×457 | `columns` | 188 px | 148 px |
+> | 1024×720 | 825×577 | `columns` | 292 px | 268 px |
+> | 1280×900 | 1081×757 | `split` | 588 px | 281 px |
+> | 1920×1009 | 1721×866 | `wide` | 1113 px | 247 px |
+>
+> Every required control is mapped inside the content area at all four sizes.
+>
+> **Verification:**
+> - `test_cover_layout.py` rewritten (15 tests; the two tests pinning the old six-row stack and the
+>   scrolling options canvas are retired by the ruling). Real-shell tests cover every required
+>   control on screen and Activity to the right at 920×600 / default / 1920×1009, and the browser
+>   and log growing while buttons don't. Also: hierarchy titles and ownership, only
+>   browser-views/log scrollbars, Resize Options in no scrollable container, the pure layout choice
+>   over a size grid, all three views functional, and the browser keyboard contract via real key
+>   events.
+> - `test_cover_appearance.py` extended: no Cover-owned ttk widget on a generic style, Activity
+>   panes in Dark, the TTS-style default button, live toggle preserving
+>   imports/selection/view/settings/log with no widget rebuilt, Clear Log, and transcript to
+>   Detailed only.
+> - `test_appearance.py`: `appearance` key recognised (mutation-checked: the old tree reproduces
+>   the defect).
+> - `test_job_ui.py`, `test_cover_importing.py`, `test_cover_jobs.py`: assertions moved to the log's
+>   new home.
+> - Focused sweep of 30 files (all Cover suites, appearance/preferences/job_ui/ui_theme,
+>   hardening/prototype regression, settings/config, `test_mp3_tool_ui.py`,
+>   `test_tts_compact_ui.py`, `test_launcher_smoke.py`, repository/first-run contracts, suite
+>   isolation): **1,289 passed, 3 skipped, 0 failed**.
+> - `git diff --check` clean on code. No full `verify.py` — no concrete reason surfaced.
+>
+> **Not done / out of scope:** no TTS (Phase 3), Converter, MP3 Tool, Maker or Metadata conversion;
+> no business-logic change; macOS 1024×800 and Windows 125% scaling not verified here (Phase 9 owns
+> them). Version identity remains `0.6.2`, unreleased. **Phase 3 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28, on the maintainer's explicit Phase 2 remediation override.
+
 > ## CURRENT STATE — v0.6.6 PHASE 2 REMEDIATED: COVER IMAGE RESIZER NOW FULLY COHERENT IN LIGHT/DARK (2026-09-27)
 >
 > **The maintainer's manual gate on the Phase 2 checkpoint below (`0ab862d`) FAILED.** Toggling to

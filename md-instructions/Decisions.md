@@ -4,6 +4,76 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Sequencing override: Cover Image's Phase-5 Family-A conversion completed now as the final Phase 2 remediation; "TTS-like" means TTS's actual control language, expressed through the shared compact primitives
+
+**Decision (v0.6.6 Phase 2 remediation, maintainer override).** The Phase 2 repeat manual gate on
+`5e41f9d` failed on Cover Image presentation/layout. Dark coverage passed and every tested function
+still worked. The maintainer ruled:
+
+- **TTS is the exact visual-control reference, not a color reference.** Matching it means TTS's real
+  control metrics and treatment: button size/padding/borders/font, field sizing, check/radio sizing
+  and glyphs, label sizing, LabelFrame sections, separators, gaps, disabled appearance,
+  primary-action emphasis, density. This is done through the shared `shared/appearance.py`
+  primitives, not a Cover-only design system.
+- **Sequencing override:** the Cover Family-A conversion assigned to Phase 5 is brought forward and
+  completed now. Phase 5 must not redo it (plan file, Phase 5 note).
+
+**What changed, measured rather than guessed.** The TTS panel draws native Windows `vista` controls
+with `TkDefaultFont` (Segoe UI 9). The shared `Compact.*` catalogue drew a 10 pt font with larger
+padding: Button 103×31 px vs TTS 76×25, Entry 76×25 vs 66×21. That size gap, not the colors, is
+what read as "oversized". Shared-primitive fixes:
+
+- The body font now derives from `TkDefaultFont`.
+- `field_pad` (6,3)→(2,1), `button_pad` (10,4)→(2,2), `tab_pad`, `tree_row_height` 22→20. Measured
+  after: Button 76×25, Entry 68×21, Combobox 63×21, Checkbutton 21 px, all matching native.
+- Compact buttons use `relief="raised"`, so they keep a thin native-like outline in every state,
+  including disabled. `default="active"` gets TTS's restrained accent outline.
+- Check/radio indicators are small palette-drawn images (box + checkmark, ringed dot) replacing the
+  `clam` X glyph. They redraw in place on a toggle.
+- The Light palette now matches classic Windows: #f0f0f0 panel and sections, near-white bordered
+  buttons, white fields. The accent was darkened so its WCAG bar holds against the grey surface;
+  every contrast test still passes.
+- The compact log pane is a white field, like TTS's.
+- The section caption is the body font in text color.
+
+**Cover Image (`mp3_tools/cover_resizer.py`), Family A:**
+
+- **Left:** `1. Sources` holds the source browser (Details/List/Medium Thumbnails) as the flexible
+  region, the six import actions, the three type filters, the three import options, and Cancel
+  Import. `2. Resize Options` is fully visible, with no canvas and no scrollbar; behavior is
+  unchanged. `3. Output & Run` holds the destination, **Resize Covers** as the default button, and
+  the shared Pause/Resume/Cancel/Retry Failed controls and progress.
+- **Right:** `Activity`, the one persistent shared Summary | Detailed view. **Clear Log** is added,
+  closing the gap recorded 2026-09-27. The worker transcript goes to Detailed; the closing line is
+  also shown in Summary.
+- **The browser is the list** (frozen contract §4's `[list/browser]`). The shared importer's
+  duplicate listbox is withdrawn from view, not destroyed. It is kept in step, so every button and
+  its availability work unchanged. Delete/Backspace and Alt+Up/Down are bound on all three views.
+- **Responsive and measured, like TTS:**
+  - `wide`: 1/2/3 vertical beside Activity.
+  - `split`: 2 beside 3 under Sources.
+  - `columns`: Sources | (2 over 3) | Activity.
+  - `stacked`: last resort only.
+
+  Sources-on-top layouts are used only while the browser keeps a full thumbnail row. In the real
+  launcher (content host 721×457 at 920×600), `columns` is chosen at 920×600 and 1024×720, `split`
+  at 1280×900, and `wide` at 1920×1009 and above. Activity stays on the right at every size.
+- **Also fixed: the `appearance` settings key.** Phase 1 wrote it without registering it as user
+  state, so after any toggle every launch reported it as an unrecognised configuration override. It
+  is now in `config.USER_STATE_SETTINGS`, with a regression test.
+
+**Why:** a recolored old layout is not the same application. The TTS reference and the frozen
+no-core-scroll rule are the acceptance bar, so Cover now meets both. Doing it now instead of in
+Phase 5 means the shared primitives are proven on one real, fully converted panel before Phases
+3/4/6/7/8 apply them.
+
+**Consequences:** the active plan gains a 2026-09-28 clarification and a Phase 5 note; `Handoff.md`
+records the checkpoint. No other tool panel was converted. The Preferences & Data dialog (Phase 1)
+inherits the retuned compact metrics and Light palette automatically, as intended by one shared
+system. Version identity remains `0.6.2`, unreleased; no merge, tag, package, or release.
+
+---
+
 ## 2026-09-27 -- TTS is the visual-control reference for every tool interior, not only layout; Dark mode must theme an app-owned tool interior coherently, with no leftover native/light regions; v0.6.6 Phase 2 remediated on this ruling
 
 **Decision (v0.6.6 -- UI Parity, Hardening & Release, Phase 2 remediation).** The maintainer's manual

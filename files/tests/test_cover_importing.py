@@ -948,7 +948,10 @@ def test_the_drain_still_delivers_log_progress_and_done(make_panel):
     panel._log_q.put(("done", "\nAll done. "))
     panel._pump.tick()
 
-    assert "hello" in panel.log.get("1.0", "end")
+    # v0.6.6: the worker transcript lands in the Activity log's Detailed pane,
+    # and the closing line is also shown in Summary.
+    assert "hello" in "\n".join(panel.log.details)
+    assert any("All done." in line for line in panel.log.summary)
     assert panel._busy.is_set() is False, "done still returns the panel to idle"
 
 

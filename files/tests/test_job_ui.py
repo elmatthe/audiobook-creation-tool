@@ -2354,8 +2354,9 @@ def test_the_classic_tk_widgets_also_follow_a_compact_bundle(
 
     assert listing.listbox.cget("background") == colors["field"]
     assert listing.listbox.cget("selectbackground") == colors["selection"]
-    assert views.summary_text.cget("background") == colors["elevated"]
-    assert views.details_text.cget("background") == colors["elevated"]
+    # The compact log pane is a field, as TTS's native log pane is white.
+    assert views.summary_text.cget("background") == colors["field"]
+    assert views.details_text.cget("background") == colors["field"]
 
 
 def test_style_tk_widget_still_no_ops_on_a_themeless_bundle(parent):
@@ -2389,11 +2390,12 @@ def test_apply_appearance_recolors_the_listbox_in_place(
 def test_apply_appearance_recolors_both_log_panes_in_place(parent, compact_theme):
     views = job_ui.SummaryDetailsView(parent)
     views.set_summary(("kept",))
-    assert views.summary_text.cget("background") != compact_theme["colors"]["elevated"]
+    assert views.summary_text.cget("foreground") != compact_theme["colors"]["text"]
 
     views.apply_appearance(compact_theme)
-    assert views.summary_text.cget("background") == compact_theme["colors"]["elevated"]
-    assert views.details_text.cget("background") == compact_theme["colors"]["elevated"]
+    assert views.summary_text.cget("background") == compact_theme["colors"]["field"]
+    assert views.details_text.cget("background") == compact_theme["colors"]["field"]
+    assert views.summary_text.cget("foreground") == compact_theme["colors"]["text"]
     assert views.summary == ("kept",)
 
 

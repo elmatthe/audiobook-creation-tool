@@ -62,6 +62,7 @@ from pathlib import Path
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from tkinter import font as tkfont
 
 # Make the scripts/ root importable so `shared.*` resolves whether this tool is
 # run standalone or imported by the launcher.
@@ -93,7 +94,6 @@ from shared.job_control import (
     capture_run,
 )
 from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
-from shared.ui_theme import enable_mousewheel
 
 from PIL import Image  # needs: pip install pillow
 
@@ -409,11 +409,11 @@ DEFAULT_VIEW = VIEW_DETAILS
 
 #: (column key, heading, width). The five fields Decision 17A names, in order.
 DETAILS_COLUMNS = (
-    ("filename", "Filename", 220),
-    ("dimensions", "Dimensions", 110),
-    ("format", "Format", 80),
-    ("size", "File size", 90),
-    ("folder", "Folder", 300),
+    ("filename", "Filename", 160),
+    ("dimensions", "Dimensions", 85),
+    ("format", "Format", 60),
+    ("size", "File size", 70),
+    ("folder", "Folder", 160),
 )
 
 #: "Medium", in pixels: the long side of a preview tile's image.
@@ -853,25 +853,27 @@ class CoverBrowser:
             limit=THUMBNAIL_CACHE_LIMIT if cache_limit is None else cache_limit)
 
         # --- widgets ------------------------------------------------------- #
-        self.frame = ttk.LabelFrame(
-            parent, text="Imported images", style=job_ui.style_name(theme, "labelframe"))
+        # A plain frame, not a bordered box of its own: since v0.6.6 the browser
+        # lives inside the panel's "1. Sources" section, and TTS -- the visual
+        # reference -- never nests one bordered section inside another.
+        self.frame = ttk.Frame(parent, style=job_ui.style_name(theme, "surface"))
 
         switch = ttk.Frame(self.frame, style=job_ui.style_name(theme, "surface"))
-        switch.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(4, 2))
-        ttk.Label(switch, text="View:", style=job_ui.style_name(theme, "label")).pack(
-            side=tk.LEFT)
+        switch.pack(side=tk.TOP, fill=tk.X, pady=(0, 4))
+        # The three labelled choices name themselves; a separate "View:"
+        # caption would only make this row -- and so Sources -- wider.
         self.var_view = tk.StringVar(value=DEFAULT_VIEW)
         self.view_buttons: dict[str, ttk.Radiobutton] = {}
-        for view_id, label in BROWSER_VIEWS:
+        for index, (view_id, label) in enumerate(BROWSER_VIEWS):
             button = ttk.Radiobutton(
                 switch, text=label, value=view_id, variable=self.var_view,
                 command=lambda chosen=view_id: self.set_view(chosen),
                 style=job_ui.style_name(theme, "radiobutton"))
-            button.pack(side=tk.LEFT, padx=(8, 0))
+            button.pack(side=tk.LEFT, padx=(0 if index == 0 else 10, 0))
             self.view_buttons[view_id] = button
 
         self.body = ttk.Frame(self.frame, style=job_ui.style_name(theme, "surface"))
-        self.body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
+        self.body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.body.rowconfigure(0, weight=1)
         self.body.columnconfigure(0, weight=1)
 
@@ -885,7 +887,7 @@ class CoverBrowser:
 
         self.simple = self._treeview(VIEW_LIST, ["path"], height)
         self.simple.heading("path", text="File")
-        self.simple.column("path", width=700, stretch=True)
+        self.simple.column("path", width=300, stretch=True)
 
         self.canvas = self._tile_canvas(VIEW_THUMBNAILS)
 
@@ -1693,6 +1695,61 @@ def freeze_cover_options(size: int, letterbox: bool, mode: str) -> dict:
 
 # ---------- GUI ----------
 
+#: Spacing, identical to the TTS panel's own layout constants:
+#: the maintainer's 2026-09-27 ruling makes TTS the exact visual reference, so
+#: these numbers are copied rather than re-chosen. Pixels.
+OUTER_PAD = 10
+COLUMN_GAP = 10
+SECTION_GAP = 8
+SECTION_PADDING = (10, 6, 10, 8)
+
+#: The Output & Run caption's wrap width, so prose can never be what decides
+#: how wide the section must be (TTS's own rule for its captions).
+OUTPUT_NOTE_WRAP = 200
+
+#: Wrap width for status lines that change during a session (import status,
+#: run stage/status), so a long message adds a line rather than a column.
+STATUS_WRAP = 190
+
+#: Rows the source browser asks for at its natural size, and the rows it keeps
+#: however small the window gets. It is Sources' flexible region.
+BROWSER_ROWS = 8
+BROWSER_FLOOR_ROWS = 2
+
+#: The browser height an arrangement with Sources on top must leave: one full
+#: Medium Thumbnails row (image, padding and filename) plus the view switch.
+BROWSER_COMFORT_HEIGHT = 200
+
+#: The width the browser *asks* for. Its three views grow with the window, so
+#: their many columns never decide how wide Sources must be.
+BROWSER_REQ_WIDTH = 230
+
+#: The shared importer's own list is withdrawn from view (the browser is the
+#: list), so its requested height is irrelevant; kept small regardless.
+IMPORTER_LIST_HEIGHT = 2
+
+#: The Activity log: natural size in lines/characters, the lines it keeps at
+#: the smallest window, and the history cap shared with the sibling tools.
+LOG_HEIGHT = 12
+LOG_WIDTH_CHARS = 40
+LOG_FLOOR_LINES = 3
+LOG_LIMIT = 400
+
+#: The narrowest Activity column worth putting beside the workflow. Below this
+#: the log would be a sliver, so the panel stacks Activity underneath instead.
+ACTIVITY_MIN_WIDTH = 150
+
+#: The Activity caption's wrap width at its narrowest; it follows the column.
+ACTIVITY_NOTE_MIN_WRAP = 60
+
+#: Share of the panel the workflow column takes on a wide window, when that is
+#: more than its measured natural width -- the frozen contract's 32-35%.
+WORKFLOW_SHARE = 0.34
+
+#: The shared status view's progress bar defaults to 240 px; that alone would
+#: decide how wide Output & Run must be. Narrower reads the same.
+PROGRESS_BAR_LENGTH = 110
+
 
 class CoverResizerUI(ttk.Frame):
     """The Cover Resizer tool as an embeddable frame.
@@ -1810,18 +1867,59 @@ class CoverResizerUI(ttk.Frame):
             thread_factory=thread_factory,
             **({} if home is None else {"home": home}),
         )
+        # ---- layout: the Family-A workflow, TTS's own composition --------- #
+        # v0.6.6 Phase 2 remediation (maintainer sequencing override, see
+        # Decisions.md 2026-09-27): Cover adopts the frozen contract's Family-A
+        # layout now, rather than in Phase 5, with the TTS panel as the exact
+        # visual reference:
+        #
+        #   1. Sources         -- the source browser (the panel's list), the six
+        #                         import actions, the import options, Cancel Import
+        #   2. Resize Options  -- every resize/source-side control, no scrolling
+        #   3. Output & Run    -- destination, Resize Covers, the shared controls
+        #   Activity           -- the one Summary | Detailed log, on the right
+        #
+        # 1-3 are the workflow, read top to bottom. How they sit depends only on
+        # the panel's size (_choose_layout), from the sections' own measured
+        # sizes -- never a whole-panel scrollbar, never a scrolling options form:
+        #
+        #   wide     1 over 2 over 3 on the left, Activity on the right
+        #   split    1 over (2 beside 3) on the left, Activity on the right --
+        #            the 920x600 minimum, where the vertical column is too tall
+        #   stacked  the same workflow above Activity; a last resort only for a
+        #            panel too narrow to put anything beside the workflow
+        #
+        # Only the browser's views and the log scroll, and each keeps a measured
+        # floor so neither collapses.
+        bundle = self.appearance_bundle
+        self._needs: dict | None = None
+        self._layout_mode: str | None = None
+        self.workflow = ttk.Frame(self, style=job_ui.style_name(bundle, "window"))
+        self.sources_section = ttk.LabelFrame(
+            self.workflow, text="1. Sources", padding=SECTION_PADDING,
+            style=job_ui.style_name(bundle, "labelframe"))
+        self.options_section = ttk.LabelFrame(
+            self.workflow, text="2. Resize Options", padding=SECTION_PADDING,
+            style=job_ui.style_name(bundle, "labelframe"))
+        self.run_section = ttk.LabelFrame(
+            self.workflow, text="3. Output & Run", padding=SECTION_PADDING,
+            style=job_ui.style_name(bundle, "labelframe"))
+        self.activity = ttk.LabelFrame(
+            self, text="Activity", padding=SECTION_PADDING,
+            style=job_ui.style_name(bundle, "labelframe"))
+
+        # ---- 1. Sources --------------------------------------------------- #
+        sources = self.sources_section
+        sources.columnconfigure(0, weight=1)
+        sources.rowconfigure(0, weight=1)
         self.importer = job_ui.ImportAdapter(
-            self,
+            sources,
             catalog=self.import_catalog,
             effective_config=self._effective_config,
             pump=self._pump,
             manager=self._manager,
             coordinator=self._coordinator,
-            # v0.6.6 Phase 2: the compact bundle, not the (absent) shell theme --
-            # this panel's own chrome still renders native/classic either way,
-            # and an empty style name remains exactly what ttk means by "draw
-            # this the way the platform draws it" on macOS aqua.
-            theme=self.appearance_bundle,
+            theme=bundle,
             clock=self._clock,
             id_factory=id_factory,
             choose_files=self._choose_files if choose_files is None else choose_files,
@@ -1829,228 +1927,196 @@ class CoverResizerUI(ttk.Frame):
             confirm_large_result=(self._confirm_large_result
                                   if confirm_large_result is None
                                   else confirm_large_result),
-            list_height=6,
+            list_height=IMPORTER_LIST_HEIGHT,
         )
-        # ---- layout ------------------------------------------------------- #
-        # Measured on the real Aqua shell (Phase 13A): this panel asks for about
-        # 1219 px of height, and the launcher's content host is 604 px at the
-        # supported 1024x720 default and 484 px at the 920x600 minimum. Stacked
-        # with `pack`, requested height is claimed in packing order, so the four
-        # sections below the browser — including the primary `Resize Covers`
-        # action — were never mapped at all.
-        #
-        # `grid` with explicit row weights puts the shortfall where it belongs:
-        # a weight-0 row always gets its requested height, and the flexible
-        # regions (browser, options, run area) absorb what is missing. The
-        # options form is the one section that cannot usefully shrink — every
-        # control in it, including `Save beside source images`, has to stay
-        # reachable — so it scrolls inside its own region, exactly as the TTS
-        # panel and the metadata editor already do. No outer whole-form
-        # scrollbar, no platform branch, and every widget keeps its own native
-        # aqua/ttk rendering.
-        # Weights, not pixel floors. Two things about `grid` decide these values:
-        #   * a weight-0 row always gets its requested height, so the queue, the
-        #     action and nothing else are pinned;
-        #   * when the window is too small, grid takes the *shortfall* from the
-        #     weighted rows in proportion to their weight — a larger weight
-        #     therefore yields a *smaller* row under pressure, and the same
-        #     weight decides how it grows again once there is room to spare.
-        # A `minsize` floor on any row above the action would push the action
-        # back off a short window, which is the defect itself, so there is none.
-        # Rows 1 and 2 carry enough of the shortfall between them that the queue,
-        # the browser, the options and the action all stay inside even the
-        # 920x600 minimum — measured at 31 px to spare there and 71 px at the
-        # 1024x720 default. Above roughly 1219 px of content host nothing is
-        # short at all: every row renders at its natural size, which is this
-        # panel exactly as it looked before, and is what a maximised Windows
-        # window already gives it.
-        self.rowconfigure(0, weight=0)   # imported queue — fixed, always visible
-        self.rowconfigure(1, weight=3)   # the browser
-        self.rowconfigure(2, weight=3)   # scrollable resize options
-        self.rowconfigure(3, weight=0)   # Resize Covers — fixed, always visible
-        self.rowconfigure(4, weight=3)   # shared run controls and Summary
-        self.rowconfigure(5, weight=2)   # run log — the transcript, not the tool
-        self.columnconfigure(0, weight=1)
-
-        self.importer.frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 6))
-
-        # --- the three browser views (Decision 17A) ------------------------ #
-        # A projection of the same manager, not a second list: the importer above
-        # still owns Add, Remove, Clear and Move, and this shows what they did.
-        # It rides the same pump — its drain is registered below, and it
-        # schedules nothing of its own.
+        # The browser *is* this panel's list (the frozen contract's
+        # "[list/browser]" convention): it projects the very manager the
+        # importer's actions mutate, and every selection it makes is written to
+        # that manager and mirrored into the importer (_on_browser_selection).
+        # So the importer's own duplicate listbox is withdrawn from view --
+        # never destroyed, and still kept in step -- while its count line, its
+        # six actions, its options and Cancel Import stay exactly where the
+        # shared component puts them.
         self.browser = CoverBrowser(
-            self,
+            sources,
             self._manager,
             pump=self._pump,
             runner=preview_runner,
             viewport=viewport,
             cache_limit=cache_limit,
+            height=BROWSER_ROWS,
             on_selection_change=self._on_browser_selection,
-            theme=self.appearance_bundle,
+            theme=bundle,
         )
-        self.browser.frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 6))
+        self.browser.frame.grid(row=0, column=0, sticky="nsew")
+        self.importer.frame.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        imported = self.importer.list
+        imported.listbox.grid_remove()
+        imported.scrollbar.grid_remove()
+        imported.frame.rowconfigure(1, weight=0)
+        self.importer.frame.rowconfigure(0, weight=0)
+        imported.count_label.grid_configure(pady=(0, 4))
+        # A long status ("... files need confirmation, which is not available
+        # here. Nothing was added.") wraps onto a second line instead of
+        # widening Sources mid-session, which would squeeze Activity.
+        imported.count_label.configure(wraplength=STATUS_WRAP)
+        self.importer.status.label.configure(wraplength=STATUS_WRAP)
+        self._arrange_import_controls()
+        # §4's keyboard contract on the three views, routed to the same guarded
+        # actions the buttons call. Select-all keeps the browser's own anchored
+        # behaviour, which it already bound on every view.
+        for view in (self.browser.details, self.browser.simple, self.browser.canvas):
+            job_ui.bind_list_shortcuts(
+                view,
+                on_select_all=lambda: self.browser.key("select_all"),
+                on_move_up=imported.move_up,
+                on_move_down=imported.move_down,
+                on_remove=imported.remove_selected,
+            )
 
-        # Options. The form itself is untouched — same LabelFrame, same grid of
-        # controls, same variables — it simply lives on a scrollable canvas now
-        # so a short window hides none of it.
-        options_wrap = ttk.Frame(self, style=job_ui.style_name(self.appearance_bundle, "window"))
-        options_wrap.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
-        options_wrap.rowconfigure(0, weight=1)
-        options_wrap.columnconfigure(0, weight=1)
-        options_canvas = tk.Canvas(options_wrap, highlightthickness=0, borderwidth=0)
-        job_ui.style_tk_widget(options_canvas, self.appearance_bundle, "surface")
-        options_canvas.grid(row=0, column=0, sticky="nsew")
-        options_sb = ttk.Scrollbar(
-            options_wrap, orient="vertical", command=options_canvas.yview,
-            style=job_ui.style_name(self.appearance_bundle, "vscrollbar"))
-        options_sb.grid(row=0, column=1, sticky="ns")
-        options_canvas.configure(yscrollcommand=options_sb.set)
-
-        options_form = ttk.Frame(
-            options_canvas, style=job_ui.style_name(self.appearance_bundle, "surface"))
-        _options_window = options_canvas.create_window(
-            (0, 0), window=options_form, anchor="nw")
-
-        def _sync_options_scrollregion(_event: object | None = None) -> None:
-            options_canvas.configure(scrollregion=options_canvas.bbox("all"))
-
-        def _sync_options_width(event: object) -> None:
-            # Keep the form as wide as the canvas so the "we" rows still stretch.
-            options_canvas.itemconfigure(_options_window, width=event.width)
-
-        options_form.bind("<Configure>", _sync_options_scrollregion)
-        options_canvas.bind("<Configure>", _sync_options_width)
-        # The launcher reuses one root across tools, so the wheel is bound only
-        # while the pointer is over this region — the same scoping the TTS panel
-        # uses for its own options canvas.
-        enable_mousewheel(options_canvas, hover_region=options_wrap)
-
-        self.options_canvas = options_canvas
-        options = ttk.LabelFrame(
-            options_form, text="Resize Options (applies to all images)",
-            style=job_ui.style_name(self.appearance_bundle, "labelframe"))
-        options.pack(side=tk.TOP, fill=tk.BOTH, expand=True, ipady=4)
-
-        row = 0
-
-        ttk.Label(options, text="Target size (square, px):",
-                  style=job_ui.style_name(self.appearance_bundle, "label")).grid(
-            row=row, column=0, sticky="w", padx=8, pady=4
-        )
+        # ---- 2. Resize Options -------------------------------------------- #
+        # The form itself is unchanged -- same controls, same variables, same
+        # enable/disable relationships -- and is now simply always visible:
+        # no canvas, no scrollbar of its own.
+        options = self.options_section
+        options.columnconfigure(1, weight=1)
+        ttk.Label(options, text="Target size (square, px)",
+                  style=job_ui.style_name(bundle, "label")).grid(
+            row=0, column=0, sticky="w")
         self.var_size = tk.IntVar(value=TARGET_SIZE)
         self.entry_size = ttk.Spinbox(
-            options, from_=256, to=4096, textvariable=self.var_size, width=6, increment=64,
-            style=job_ui.style_name(self.appearance_bundle, "spinbox"),
+            options, from_=256, to=4096, textvariable=self.var_size, width=6,
+            increment=64, style=job_ui.style_name(bundle, "spinbox"),
         )
-        self.entry_size.grid(row=row, column=1, sticky="w", padx=8, pady=4)
+        self.entry_size.grid(row=0, column=1, sticky="w", padx=(8, 0))
 
-        row += 1
         self.var_letterbox = tk.BooleanVar(value=True)
         self.chk_letterbox = ttk.Checkbutton(
             options,
-            text="Keep full image (letterbox into square, no cropping)",
+            text="Keep full image\n(letterbox into square, no cropping)",
             variable=self.var_letterbox,
-            style=job_ui.style_name(self.appearance_bundle, "checkbutton"),
+            style=job_ui.style_name(bundle, "checkbutton"),
         )
-        self.chk_letterbox.grid(
-            row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 4)
-        )
+        self.chk_letterbox.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        ttk.Separator(options, orient=tk.HORIZONTAL,
+                      style=job_ui.style_name(bundle, "separator")).grid(
+            row=2, column=0, columnspan=2, sticky="ew", pady=(4, 3))
 
         # --- source-side mode (Decision 10A) ---------------------------------
         # Off by default, and the safe numbered-copy action is preselected.
         # Replacement needs all three of: this toggle on, that radio chosen,
         # and the per-run confirmation accepted.
-        row += 1
         self.var_source_side = tk.BooleanVar(value=False)
         self.chk_source_side = ttk.Checkbutton(
             options,
             text=SOURCE_SIDE_LABEL,
             variable=self.var_source_side,
             command=self._on_source_side_change,
-            style=job_ui.style_name(self.appearance_bundle, "checkbutton"),
+            style=job_ui.style_name(bundle, "checkbutton"),
         )
-        self.chk_source_side.grid(
-            row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 2)
-        )
+        self.chk_source_side.grid(row=3, column=0, columnspan=2, sticky="w")
 
-        row += 1
         self.var_source_action = tk.StringVar(value=ACTION_NUMBERED)
         self.rb_numbered = ttk.Radiobutton(
             options,
             text="Create numbered copies",
             variable=self.var_source_action,
             value=ACTION_NUMBERED,
-            style=job_ui.style_name(self.appearance_bundle, "radiobutton"),
+            style=job_ui.style_name(bundle, "radiobutton"),
         )
-        self.rb_numbered.grid(row=row, column=0, columnspan=3, sticky="w",
-                              padx=(28, 8), pady=(0, 1))
-        row += 1
+        self.rb_numbered.grid(row=4, column=0, columnspan=2, sticky="w", padx=(20, 0))
         self.rb_replace = ttk.Radiobutton(
             options,
             text="Replace original files",
             variable=self.var_source_action,
             value=ACTION_REPLACE,
-            style=job_ui.style_name(self.appearance_bundle, "radiobutton"),
+            style=job_ui.style_name(bundle, "radiobutton"),
         )
-        self.rb_replace.grid(row=row, column=0, columnspan=3, sticky="w",
-                             padx=(28, 8), pady=(0, 8))
+        self.rb_replace.grid(row=5, column=0, columnspan=2, sticky="w", padx=(20, 0))
         self._on_source_side_change()
 
-        row += 1
-        ttk.Label(options, text="Output folder:",
-                  style=job_ui.style_name(self.appearance_bundle, "label")).grid(
-            row=row, column=0, sticky="e", padx=8, pady=(2, 2)
-        )
+        # ---- 3. Output & Run ---------------------------------------------- #
+        run = self.run_section
+        run.columnconfigure(1, weight=1)
+        ttk.Label(run, text="Output", style=job_ui.style_name(bundle, "label")).grid(
+            row=0, column=0, sticky="w")
         self.entry_outdir = ttk.Entry(
-            options, textvariable=self.var_outdir, state="readonly",
-            style=job_ui.style_name(self.appearance_bundle, "entry"),
+            run, textvariable=self.var_outdir, state="readonly", width=24,
+            style=job_ui.style_name(bundle, "entry"),
         )
-        self.entry_outdir.grid(row=row, column=1, columnspan=2, sticky="we",
-                               padx=8, pady=(2, 2))
-        row += 1
-        ttk.Label(
-            options,
+        self.entry_outdir.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self.output_note = ttk.Label(
+            run,
             text="Each resize gets its own numbered run folder here. "
                  "Change the location in Preferences & Data.",
-            style=job_ui.style_name(self.appearance_bundle, "secondary_label"),
-        ).grid(row=row, column=1, columnspan=2, sticky="w", padx=8, pady=(0, 8))
+            style=job_ui.style_name(bundle, "secondary_label"),
+            justify=tk.LEFT,
+            wraplength=OUTPUT_NOTE_WRAP,
+        )
+        self.output_note.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        # Start. Pause, Resume, Cancel and the retry control belong to the shared
-        # control bar below, which offers each of them exactly when the approved
-        # availability rules say it is meaningful.
-        action = ttk.Frame(self, style=job_ui.style_name(self.appearance_bundle, "window"))
-        action.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
+        ttk.Separator(run, orient=tk.HORIZONTAL,
+                      style=job_ui.style_name(bundle, "separator")).grid(
+            row=2, column=0, columnspan=2, sticky="ew", pady=(4, 4))
+
+        # Resize Covers is the primary action: it leads the run row and is the
+        # panel's default button, exactly as TTS's Start is. Pause, Resume,
+        # Cancel and Retry Failed belong to the shared control bar beside it,
+        # which offers each of them exactly when the approved availability
+        # rules say it is meaningful.
+        self.run_row = ttk.Frame(run, style=job_ui.style_name(bundle, "surface"))
+        self.run_row.grid(row=3, column=0, columnspan=2, sticky="ew")
+        self.run_row.columnconfigure(0, weight=1)
         self.btn_convert = ttk.Button(
-            action, text="Resize Covers", command=self.start_resize,
-            style=job_ui.style_name(self.appearance_bundle, "primary_button"))
-        self.btn_convert.pack(side=tk.LEFT)
+            self.run_row, text="Resize Covers", command=self.start_resize,
+            default="active", width=14, style=job_ui.style_name(bundle, "button"))
+        self.btn_convert.grid(row=0, column=0, sticky="w")
+        # The shared run controls and status view (progress, stage, ETA),
+        # directly beneath the primary action. The adapter is rebuilt for each
+        # run -- one run, one event stream, one estimate -- so this container
+        # holds its place in the layout.
+        self.job_area = ttk.Frame(self.run_row, style=job_ui.style_name(bundle, "surface"))
+        self.job_area.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.job_area.columnconfigure(0, weight=1)
 
-        # The shared run controls, progress, estimate and Summary/Details live
-        # here. The adapter is rebuilt for each run — one run, one event stream,
-        # one estimate — so this container holds its place in the layout.
-        self.job_area = ttk.Frame(self, style=job_ui.style_name(self.appearance_bundle, "window"))
-        self.job_area.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 6))
+        # ---- Activity: the one Summary | Detailed log --------------------- #
+        # Built once and handed to every run's JobAdapter, so a fresh adapter's
+        # empty first render can never drop an earlier run's lines -- the same
+        # contract TTS, MP3 Tool, M4B Maker and M4B Metadata Editor share. The
+        # worker's own transcript goes to Detailed (log_write), never Summary.
+        act = self.activity
+        act.columnconfigure(0, weight=1)
+        act.rowconfigure(1, weight=1)
+        bar = ttk.Frame(act, style=job_ui.style_name(bundle, "surface"))
+        bar.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        bar.columnconfigure(0, weight=1)
+        self.activity_note = ttk.Label(
+            bar,
+            text="Summary: progress and results.  Detailed: every step.",
+            style=job_ui.style_name(bundle, "secondary_label"),
+            justify=tk.LEFT,
+            wraplength=ACTIVITY_NOTE_MIN_WRAP,
+        )
+        self.activity_note.grid(row=0, column=0, sticky="w")
+        self.btn_clear_log = ttk.Button(
+            bar, text="Clear Log", command=self.clear_log,
+            style=job_ui.style_name(bundle, "button"))
+        self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.log = job_ui.SummaryDetailsView(
+            act, theme=bundle, height=LOG_HEIGHT, width=LOG_WIDTH_CHARS,
+            details_label="Detailed", limit=LOG_LIMIT)
+        self.log.frame.grid(row=1, column=0, sticky="nsew")
 
-        # The panel's own run log, unchanged. It is the raw transcript of what the
-        # worker did; Summary and Details above are the shared projections of the
-        # run's events, and neither is a copy of the other.
-        logf = ttk.LabelFrame(
-            self, text="Log", style=job_ui.style_name(self.appearance_bundle, "labelframe"))
-        logf.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
-
-        self.log = tk.Text(logf, height=4, wrap="word")
-        job_ui.style_tk_widget(self.log, self.appearance_bundle, "log")
-        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview,
-                            style=job_ui.style_name(self.appearance_bundle, "vscrollbar"))
-        sb2.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log.configure(yscrollcommand=sb2.set)
+        self.bind("<Configure>", self._on_panel_configure, add="+")
 
         # The worker->GUI queue is a drain on the one pump, not a second chain.
         self._pump.add_drain(self._drain_worker_queue)
         self._install_jobs(IDLE_RUN_ID, ())
+        # Measured once everything exists, then placed; the first <Configure>
+        # of a mapped panel re-decides the arrangement for the real size.
+        self._measure_layout()
+        self._apply_layout("columns")
         self._pump.start()
 
     # ------- the imported list (owned by the shared manager) -------
@@ -2123,12 +2189,12 @@ class CoverResizerUI(ttk.Frame):
             previous.frame.destroy()
         self._event_q = queue.Queue()
         self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        bundle = self.appearance_bundle
         self.jobs = job_ui.JobAdapter(
             self.job_area,
             run_id=run_id,
             pump=self._pump,
-            # v0.6.6 Phase 2: the compact bundle, matching self.importer above.
-            theme=self.appearance_bundle,
+            theme=bundle,
             pull=job_ui.queue_pull(self._event_q),
             estimator=self._estimator,
             item_ids=item_ids,
@@ -2136,12 +2202,33 @@ class CoverResizerUI(ttk.Frame):
             on_resume=self.resume,
             on_cancel=self.cancel,
             on_retry=self.retry_failed,
-            details_height=6,
+            # The panel's one persistent Summary/Detailed log in Activity, not a
+            # fresh view per adapter: the adapter renders into it, and neither
+            # places nor closes it.
+            views=self.log,
         )
-        self.jobs.frame.pack(fill=tk.BOTH, expand=True)
+        self.jobs.frame.grid(row=0, column=0, sticky="nsew")
         # One progress model, not two: the panel's indicator *is* the shared
         # status view's, so nothing can draw a second, disagreeing bar.
         self.progress = self.jobs.status.indicator
+        # Per-instance restyling only, the way MP3 Tool and the M4B Metadata
+        # Editor do it: the shared indicator stays generic for every panel that
+        # has not adopted the compact system, but inside this one an unstyled
+        # native frame would be a light island in Dark. On aqua every name
+        # below is "" -- native, exactly as before.
+        self.progress.frame.configure(style=job_ui.style_name(bundle, "card"))
+        self.progress.bar.configure(style=job_ui.style_name(bundle, "progressbar"),
+                                    length=PROGRESS_BAR_LENGTH)
+        self.progress.label.configure(style=job_ui.style_name(bundle, "secondary_label"))
+        # Same rule as the import status: long run text wraps, never widens.
+        # The status line sits on the section surface, so it takes the same
+        # secondary-label style as its neighbours rather than the shared
+        # view's window-toned status style (a visible sliver otherwise).
+        for label in (self.jobs.status.label_stage, self.jobs.status.label_status):
+            label.configure(wraplength=STATUS_WRAP)
+        self.jobs.status.label_status.configure(
+            style=job_ui.style_name(bundle, "secondary_label"))
+        self._arrange_job_controls()
         self.jobs.register_inputs(self.importer, self.browser)
         self.jobs.register_options(self)
         self.jobs.render()
@@ -2498,9 +2585,30 @@ class CoverResizerUI(ttk.Frame):
         # The destination display is never typeable; it only greys out.
         self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
 
-    def log_write(self, text: str):
-        self.log.insert(tk.END, text)
-        self.log.see(tk.END)
+    def log_write(self, text: str, *, summary: bool = False) -> None:
+        """Add the worker's own transcript text to the Activity log.
+
+        Detailed only by default -- the per-image transcript is technical
+        detail, and Summary is the shared adapter's own projection of the run.
+        ``summary=True`` puts a line in both panes; the run's closing line uses
+        it, so "All done." / "Cancelled." is visible without switching tabs.
+        Blank lines the worker uses as spacing are dropped: each view line is
+        already its own row.
+        """
+        lines = [line for line in str(text).splitlines() if line.strip()]
+        if self._closed or not lines:
+            return
+        if summary:
+            for line in lines:
+                self.log.append(line)
+        else:
+            self.log.append_detail(lines)
+
+    def clear_log(self) -> None:
+        """Clear the visible Summary + Detailed text only. The run's own event
+        stream, the session log and any settled result are untouched."""
+        if not self._closed:
+            self.log.clear()
 
     # ------- worker -> GUI queue drain (main thread, on the one pump) -------
 
@@ -2527,7 +2635,7 @@ class CoverResizerUI(ttk.Frame):
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
                 elif kind == "done":
-                    self.log_write(payload)
+                    self.log_write(payload, summary=True)
                     self._finish_idle()
         except queue.Empty:
             pass
@@ -2580,12 +2688,12 @@ class CoverResizerUI(ttk.Frame):
         ``Checkbutton``, ``Entry``, ``Spinbox``, ``Labelframe``, ``Treeview``
         and ``Button`` this class or :class:`CoverBrowser` built with a style
         name. Only the classic Tk widgets that were colored directly rather
-        than through a ttk style need this explicit call: the imported-file
-        ``Listbox`` inside ``self.importer.list``; the browser's thumbnail
-        ``Canvas`` (:meth:`CoverBrowser.apply_appearance`, which also redraws
-        its tiles' baked-in selection/text colors); the scrollable options
-        form's own ``Canvas``; this panel's raw run-log ``Text``; and, while a
-        run is on screen, its shared log's two ``Text`` widgets.
+        than through a ttk style need this explicit call: the importer's
+        withdrawn-but-live ``Listbox``; the browser's thumbnail ``Canvas``
+        (:meth:`CoverBrowser.apply_appearance`, which also redraws its tiles'
+        baked-in selection/text colors); and the Activity log's two ``Text``
+        panes. Nothing is rebuilt, so no import, selection, view, setting,
+        log line or run state moves.
         """
         self.appearance_bundle = bundle
         if self._closed:
@@ -2596,15 +2704,296 @@ class CoverResizerUI(ttk.Frame):
         browser = getattr(self, "browser", None)
         if browser is not None and not browser.closed:
             browser.apply_appearance(bundle)
-        options_canvas = getattr(self, "options_canvas", None)
-        if options_canvas is not None:
-            job_ui.style_tk_widget(options_canvas, bundle, "surface")
         log = getattr(self, "log", None)
         if log is not None:
-            job_ui.style_tk_widget(log, bundle, "log")
-        jobs = getattr(self, "jobs", None)
-        if jobs is not None and not jobs.closed:
-            jobs.views.apply_appearance(bundle)
+            log.apply_appearance(bundle)
+
+    # ------- layout: measured, responsive, never a whole-panel scrollbar -------
+
+    def _arrange_import_controls(self, narrow: bool = False) -> None:
+        """Place the shared importer's actions and options compactly.
+
+        Only grid positions change -- the same six buttons, the same options,
+        the same commands and variables, and nothing of the importer's state.
+        The six actions keep the frozen §4 order (Add Files, Add Folder, Move
+        Up, Move Down, Remove, Clear All), three per row -- or two per row when
+        Sources is its own narrow column (``narrow``). The import options take
+        TTS's own two-row arrangement -- the file types with Include
+        subfolders, then Include hidden folders with Allow duplicate files --
+        or, narrow, one option per row beneath the file types.
+        """
+        per_row = 2 if narrow else 3
+        for index, key in enumerate(key for key, _label in job_ui.ImportedFileList.ACTIONS):
+            row, column = divmod(index, per_row)
+            self.importer.list.buttons[key].grid_configure(
+                row=row, column=column, padx=(0 if column == 0 else 4, 0),
+                pady=(0 if row == 0 else 4, 0), sticky="ew")
+        options = self.importer.options
+        types = list(options.type_buttons.values())
+        count = len(types)
+        if narrow:
+            # File types two to a row, then one option per row.
+            for index, button in enumerate(types):
+                row, column = divmod(index, 2)
+                button.grid_configure(row=row, column=column, columnspan=1, sticky="w",
+                                      padx=(0 if column == 0 else 8, 0),
+                                      pady=(0 if row == 0 else 2, 0))
+            first = (count + 1) // 2
+            for row, check in enumerate((options.check_subfolders, options.check_hidden,
+                                         options.check_duplicates), start=first):
+                check.grid_configure(row=row, column=0, columnspan=2, sticky="w",
+                                     padx=0, pady=(2, 0))
+        else:
+            for column, button in enumerate(types):
+                button.grid_configure(row=0, column=column, columnspan=1, sticky="w",
+                                      padx=(0 if column == 0 else 8, 0), pady=0)
+            options.check_subfolders.grid_configure(
+                row=0, column=count, columnspan=1, sticky="w", padx=(14, 0), pady=0)
+            options.check_hidden.grid_configure(
+                row=1, column=0, columnspan=count, sticky="w", padx=0, pady=(2, 0))
+            options.check_duplicates.grid_configure(
+                row=1, column=count, columnspan=1, sticky="w", padx=(14, 0), pady=(2, 0))
+        options.frame.grid_configure(pady=(4, 0))
+        self.importer.status.frame.grid_configure(pady=(4, 0))
+
+    def _arrange_job_controls(self) -> None:
+        """Pause | Resume above Cancel | Retry Failed: two compact rows, so Output
+        & Run stays narrow enough to share a column with Resize Options at the
+        920x600 minimum. Grid positions only -- the shared bar still decides
+        which of them is available."""
+        for index, button in enumerate(self.jobs.controls.buttons.values()):
+            row, column = divmod(index, 2)
+            button.grid_configure(row=row, column=column,
+                                  padx=(0 if column == 0 else 4, 0),
+                                  pady=(0 if row == 0 else 4, 0), sticky="ew")
+        self.jobs.status.frame.grid_configure(pady=(4, 0))
+
+    def _measure_layout(self) -> None:
+        """Measure each section's natural size and each flexible region's floor.
+
+        Every threshold :meth:`_choose_layout` uses comes from the live widgets,
+        so the breakpoints follow the platform's real fonts and scaling rather
+        than pixel constants. The browser asks for BROWSER_REQ_WIDTH and its
+        natural rows; the log for its natural lines; each keeps a floor.
+        """
+        tree = self.browser.details
+        self.update_idletasks()
+        body = self.browser.body
+        body.configure(width=BROWSER_REQ_WIDTH, height=max(1, tree.winfo_reqheight()))
+        body.grid_propagate(False)
+        style = ttk.Style(self)
+        try:
+            row_px = int(float(style.lookup(str(tree.cget("style")) or "Treeview",
+                                            "rowheight") or 0))
+        except (tk.TclError, ValueError):
+            row_px = 0
+        if row_px <= 0:
+            row_px = int(tkfont.nametofont("TkDefaultFont").metrics("linespace")) + 4
+        browser_give = row_px * (BROWSER_ROWS - BROWSER_FLOOR_ROWS)
+        line = int(tkfont.Font(font=self.log.summary_text.cget("font")).metrics("linespace"))
+        log_give = line * (LOG_HEIGHT - LOG_FLOOR_LINES)
+        needs: dict = {}
+        for narrow in (True, False):
+            self._arrange_import_controls(narrow)
+            self.update_idletasks()
+            key = "sources_narrow" if narrow else "sources"
+            needs[key] = (self.sources_section.winfo_reqwidth(),
+                          self.sources_section.winfo_reqheight() - browser_give)
+        needs["options"] = (self.options_section.winfo_reqwidth(),
+                            self.options_section.winfo_reqheight())
+        needs["run"] = (self.run_section.winfo_reqwidth(), self.run_section.winfo_reqheight())
+        needs["browser_floor"] = max(0, self.browser.frame.winfo_reqheight() - browser_give)
+        needs["log_floor"] = max(0, self.log.frame.winfo_reqheight() - log_give)
+        needs["activity_floor"] = self.activity.winfo_reqheight() - log_give
+        self._needs = needs
+        self._arrange_import_controls(self._layout_mode == "columns")
+
+    def _workflow_needs(self, mode: str) -> tuple[int, int]:
+        """The workflow's natural width and its floor height in *mode*.
+
+        ``sources`` heights are already floors: the browser at BROWSER_FLOOR_ROWS.
+        """
+        n = self._needs
+        options, run = n["options"], n["run"]
+        if mode == "columns":
+            sources = n["sources_narrow"]
+            return (sources[0] + SECTION_GAP + max(options[0], run[0]),
+                    max(sources[1], options[1] + SECTION_GAP + run[1]))
+        sources = n["sources"]
+        if mode == "split":
+            return (max(sources[0], options[0] + SECTION_GAP + run[0]),
+                    sources[1] + SECTION_GAP + max(options[1], run[1]))
+        return (max(sources[0], options[0], run[0]),
+                sources[1] + 2 * SECTION_GAP + options[1] + run[1])
+
+    def _browser_height(self, mode: str, height: int) -> int:
+        """How tall the source browser would be in *mode* at this panel height."""
+        _, flow_floor = self._workflow_needs(mode)
+        room_h = height - 2 * OUTER_PAD
+        if mode == "columns":
+            fixed = self._needs["sources_narrow"][1] - self._needs["browser_floor"]
+        else:
+            fixed = flow_floor - self._needs["browser_floor"]
+        return room_h - fixed
+
+    def _choose_layout(self, width: int, height: int) -> str:
+        """Pick the arrangement for a panel of this size. A pure function of it.
+
+        Activity stays on the right whenever the workflow fits beside a usable
+        log. Sources on top of the other two sections -- one vertical column
+        (``wide``), or Resize Options beside Output & Run beneath it
+        (``split``) -- is used only while the source browser, Sources'
+        flexible region, still gets BROWSER_COMFORT_HEIGHT: a browser squeezed
+        to a sliver would defeat the point of the layout. Otherwise Sources
+        takes its own full-height column beside Resize Options over Output &
+        Run (``columns`` -- the default and minimum windows). Only a panel too
+        small for all three puts Activity underneath (``stacked``).
+        """
+        room_w = width - 2 * OUTER_PAD
+        room_h = height - 2 * OUTER_PAD
+        activity_floor = self._needs["activity_floor"]
+        for mode in ("wide", "split", "columns"):
+            flow_w, flow_floor = self._workflow_needs(mode)
+            fits = (flow_w + COLUMN_GAP + ACTIVITY_MIN_WIDTH <= room_w
+                    and max(flow_floor, activity_floor) <= room_h)
+            comfortable = (mode == "columns"
+                           or self._browser_height(mode, height) >= BROWSER_COMFORT_HEIGHT)
+            if fits and comfortable:
+                return mode
+        return "stacked"
+
+    def _left_width(self, width: int) -> int:
+        """The workflow's width beside Activity: its natural width, or -- one
+        vertical column on a wide window -- WORKFLOW_SHARE of the panel when
+        that is more, never leaving Activity less than ACTIVITY_MIN_WIDTH."""
+        mode = self._layout_mode or "columns"
+        flow_w, _ = self._workflow_needs(mode)
+        if mode != "wide":
+            return flow_w
+        room_w = width - 2 * OUTER_PAD
+        share = int(room_w * WORKFLOW_SHARE)
+        return max(flow_w, min(share, room_w - COLUMN_GAP - ACTIVITY_MIN_WIDTH))
+
+    def _grid_workflow(self, mode: str) -> None:
+        flow = self.workflow
+        for index in (0, 1, 2, 3):
+            flow.rowconfigure(index, weight=0, minsize=0)
+        for index in (0, 1):
+            flow.columnconfigure(index, weight=0, minsize=0)
+        self._arrange_import_controls(mode == "columns")
+        if mode == "columns":
+            self.sources_section.grid(row=0, column=0, rowspan=3, columnspan=1,
+                                      sticky="nsew", padx=(0, SECTION_GAP), pady=0)
+            self.options_section.grid(row=0, column=1, columnspan=1, sticky="nsew",
+                                      padx=0, pady=0)
+            self.run_section.grid(row=1, column=1, columnspan=1, sticky="nsew",
+                                  padx=0, pady=(SECTION_GAP, 0))
+            flow.columnconfigure(0, weight=1)
+            flow.rowconfigure(2, weight=1)
+        else:
+            self.sources_section.grid(row=0, column=0, rowspan=1, columnspan=2,
+                                      sticky="nsew", padx=0, pady=0)
+            flow.rowconfigure(0, weight=1, minsize=self._needs["sources"][1])
+            if mode == "split":
+                self.options_section.grid(row=1, column=0, columnspan=1, sticky="nsew",
+                                          padx=(0, SECTION_GAP), pady=(SECTION_GAP, 0))
+                self.run_section.grid(row=1, column=1, columnspan=1, sticky="nsew",
+                                      padx=0, pady=(SECTION_GAP, 0))
+                flow.columnconfigure(0, weight=1)
+                flow.columnconfigure(1, weight=1)
+            else:
+                self.options_section.grid(row=1, column=0, columnspan=2, sticky="nsew",
+                                          padx=0, pady=(SECTION_GAP, 0))
+                self.run_section.grid(row=2, column=0, columnspan=2, sticky="nsew",
+                                      padx=0, pady=(SECTION_GAP, 0))
+                flow.columnconfigure(0, weight=1)
+        # The browser is Sources' flexible region; everything else in the
+        # section keeps its requested height.
+        self.sources_section.rowconfigure(0, weight=1, minsize=self._needs["browser_floor"])
+        self.sources_section.rowconfigure(1, weight=0)
+
+    def _apply_layout(self, mode: str) -> None:
+        """Grid the workflow and Activity for one arrangement, then set floors."""
+        if self._needs is None:
+            return
+        self._grid_workflow(mode)
+        for index in (0, 1):
+            self.columnconfigure(index, weight=0, minsize=0)
+            self.rowconfigure(index, weight=0, minsize=0)
+        half = COLUMN_GAP // 2
+        self.activity.rowconfigure(1, weight=1, minsize=self._needs["log_floor"])
+        if mode == "stacked":
+            self.workflow.grid(row=0, column=0, sticky="nsew",
+                               padx=OUTER_PAD, pady=(OUTER_PAD, half))
+            self.activity.grid(row=1, column=0, sticky="nsew",
+                               padx=OUTER_PAD, pady=(COLUMN_GAP - half, OUTER_PAD))
+            self.columnconfigure(0, weight=1)
+            self.rowconfigure(0, weight=1)
+            self.rowconfigure(1, weight=1, minsize=self._needs["activity_floor"])
+        else:
+            self.workflow.grid(row=0, column=0, sticky="nsew",
+                               padx=(OUTER_PAD, half), pady=OUTER_PAD)
+            self.activity.grid(row=0, column=1, sticky="nsew",
+                               padx=(COLUMN_GAP - half, OUTER_PAD), pady=OUTER_PAD)
+            self.columnconfigure(1, weight=1)
+            self.rowconfigure(0, weight=1)
+        self._layout_mode = mode
+        self._size_columns()
+
+    def _size_columns(self) -> None:
+        """Beside Activity, fix the workflow column's width from the layout math
+        -- never from ``grid`` weights, so the log, not the controls, takes the
+        room a wider window adds."""
+        if self._layout_mode in (None, "stacked") or self._needs is None:
+            return
+        minsize = self._left_width(self.winfo_width()) + OUTER_PAD + COLUMN_GAP // 2
+        if int(self.grid_columnconfigure(0)["minsize"]) != minsize:
+            self.columnconfigure(0, weight=0, minsize=minsize)
+
+    def _rewrap(self) -> None:
+        """Wrap the two prose captions to the width their section actually has,
+        so a wide window shows them on one line and the minimum on several --
+        never letting a caption decide a column's width (TTS's rule)."""
+        if self._needs is None or self._layout_mode is None:
+            return
+        width = self.winfo_width()
+        if width <= 1:
+            return
+        room_w = width - 2 * OUTER_PAD
+        if self._layout_mode == "stacked":
+            activity = room_w
+        else:
+            activity = room_w - COLUMN_GAP - self._left_width(width)
+        button = self.btn_clear_log.winfo_reqwidth()
+        note_wrap = max(ACTIVITY_NOTE_MIN_WRAP, activity - button - 40)
+        if int(float(str(self.activity_note.cget("wraplength")) or 0)) != note_wrap:
+            self.activity_note.configure(wraplength=note_wrap)
+        if self._layout_mode == "wide":
+            output_wrap = max(OUTPUT_NOTE_WRAP, self._left_width(width) - 30)
+        else:
+            output_wrap = OUTPUT_NOTE_WRAP
+        if int(float(str(self.output_note.cget("wraplength")) or 0)) != output_wrap:
+            self.output_note.configure(wraplength=output_wrap)
+
+    def _reflow(self, force: bool = False) -> None:
+        width, height = self.winfo_width(), self.winfo_height()
+        if width <= 1 or height <= 1 or self._needs is None:
+            return
+        mode = self._choose_layout(width, height)
+        if force or mode != self._layout_mode:
+            self._apply_layout(mode)
+        else:
+            self._size_columns()
+        self._rewrap()
+
+    def _on_panel_configure(self, event) -> None:
+        if event.widget is self and not self._closed:
+            self._reflow()
+
+    @property
+    def layout_mode(self) -> str | None:
+        """The arrangement currently applied: ``wide``, ``split`` or ``stacked``."""
+        return self._layout_mode
 
     # ------- teardown -------
 

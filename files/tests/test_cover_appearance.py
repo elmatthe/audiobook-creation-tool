@@ -118,8 +118,16 @@ def test_a_dark_bundle_colors_every_resize_option_control(make_panel, dark_bundl
     assert bg(panel.rb_numbered) == colors["surface"]
     assert bg(panel.rb_replace) == colors["surface"]
     assert bg(panel.entry_outdir) == colors["field"]
-    assert bg(panel.btn_convert) == colors["accent"]
-    assert fg(panel.btn_convert) == colors["inverse"]
+    # Resize Covers is the panel's default button, drawn the way TTS's Start
+    # is: an ordinary compact button with the restrained accent outline ttk
+    # gives a default="active" button -- not a filled blue block.
+    assert bg(panel.btn_convert) == colors["elevated"]
+    assert fg(panel.btn_convert) == colors["text"]
+    assert str(panel.btn_convert.cget("default")) == "active"
+    assert ("alternate", colors["accent"]) in [
+        (tuple(state)[0] if len(tuple(state)) == 1 else " ".join(state), value)
+        for *state, value in style.map(str(panel.btn_convert.cget("style")),
+                                       "bordercolor")]
 
 
 def test_a_dark_bundle_colors_the_browsers_three_views(make_panel, dark_bundle):
@@ -138,10 +146,39 @@ def test_a_dark_bundle_colors_the_browsers_three_views(make_panel, dark_bundle):
     assert browser.canvas.cget("background") == colors["field"]
 
 
-def test_a_dark_bundle_colors_the_panels_own_run_log(make_panel, dark_bundle):
+def test_a_dark_bundle_colors_the_activity_log(make_panel, dark_bundle):
+    """Activity is the shared Summary | Detailed view; both panes follow Dark."""
     panel = make_panel(appearance_bundle=dark_bundle)
-    assert panel.log.cget("background") == dark_bundle["colors"]["elevated"]
-    assert panel.log.cget("foreground") == dark_bundle["colors"]["secondary"]
+    colors = dark_bundle["colors"]
+    for pane in (panel.log.summary_text, panel.log.details_text):
+        assert pane.cget("background") == colors["field"]
+        assert pane.cget("foreground") == colors["text"]
+    style = ttk.Style(panel)
+    assert style.lookup(str(panel.activity.cget("style")), "background") == colors["surface"]
+
+
+def test_no_cover_owned_ttk_widget_is_left_on_a_generic_style(make_panel, dark_bundle):
+    """Regression guard for partial theming: every ttk widget the panel owns,
+    including the shared components it hosts, is on a ``Compact.*`` style --
+    a generic (empty) style would render native/light inside a Dark tool."""
+    panel = make_panel(appearance_bundle=dark_bundle)
+
+    def walk(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from walk(child)
+
+    generic = []
+    for widget in walk(panel):
+        if not widget.winfo_class().startswith("T") and widget.winfo_class() != "Treeview":
+            continue
+        try:
+            name = str(widget.cget("style"))
+        except tk.TclError:
+            continue
+        if not name.startswith(appearance.STYLE_PREFIX + "."):
+            generic.append(f"{widget.winfo_class()} {widget}")
+    assert not generic, generic
 
 
 def test_selected_tiles_paint_from_the_theme_not_a_literal(make_panel, dark_bundle, tmp_path):
@@ -191,7 +228,64 @@ def test_toggling_appearance_recolors_the_whole_panel_in_place(make_panel, tk_ro
     panel._on_appearance_changed(dark)
     assert style.lookup(str(panel.entry_size.cget("style")), "background") == \
         dark["colors"]["field"]
-    assert panel.log.cget("background") == dark["colors"]["elevated"]
+    assert panel.log.summary_text.cget("background") == dark["colors"]["field"]
     assert panel.browser.canvas.cget("background") == dark["colors"]["field"]
     # Nothing about the panel's own state moved.
     assert panel.var_size.get() == 999
+
+
+def test_a_live_toggle_preserves_every_piece_of_panel_state(make_panel, tk_root, tmp_path):
+    """Theme switching is presentation-only: imports, selection, browser view,
+    resize and output settings, and log history all survive, and no widget is
+    rebuilt."""
+    from test_cover_jobs import make_image
+
+    style = ttk.Style(tk_root)
+    light = appearance.build_bundle(style, appearance.LIGHT, platform="win32", root=tk_root)
+    panel = make_panel(appearance_bundle=light)
+    paths = [make_image(tmp_path / f"{name}.jpg") for name in ("a", "b", "c")]
+    panel.importer._choose_files = lambda: tuple(str(p) for p in paths)
+    panel.importer.add_files()
+    panel._pump.tick()
+    order = panel.browser.order
+    panel.browser.set_view(cr.VIEW_LIST)
+    panel.browser.click(order[1])
+    panel.var_size.set(1400)
+    panel.var_letterbox.set(False)
+    panel.var_source_side.set(True)
+    panel._on_source_side_change()
+    panel.var_source_action.set(cr.ACTION_REPLACE)
+    panel.log.append("kept across the toggle")
+    widgets = (panel.browser.canvas, panel.entry_size, panel.log.summary_text,
+               panel.importer.list.listbox, panel.btn_convert)
+
+    dark = appearance.build_bundle(style, appearance.DARK, platform="win32", root=tk_root)
+    panel._on_appearance_changed(dark)
+
+    assert panel.browser.order == order
+    assert panel.manager.selection == (order[1],)
+    assert panel.browser.view == cr.VIEW_LIST
+    assert panel.var_size.get() == 1400
+    assert panel.var_letterbox.get() is False
+    assert panel.var_source_side.get() is True
+    assert panel.var_source_action.get() == cr.ACTION_REPLACE
+    assert "kept across the toggle" in panel.log.summary
+    assert all(widget.winfo_exists() for widget in widgets)
+    assert (panel.browser.canvas, panel.entry_size, panel.log.summary_text,
+            panel.importer.list.listbox, panel.btn_convert) == widgets
+
+
+def test_clear_log_clears_the_visible_activity_only(make_panel):
+    panel = make_panel()
+    panel.log_write("a transcript line\n")
+    panel.log.append("a summary line")
+    assert panel.log.details and panel.log.summary
+    panel.btn_clear_log.invoke()
+    assert panel.log.summary == () and panel.log.details == ()
+
+
+def test_the_worker_transcript_goes_to_detailed_not_summary(make_panel):
+    panel = make_panel()
+    panel.log_write("\nprocessing a.jpg\n\n")
+    assert "processing a.jpg" in panel.log.details
+    assert "processing a.jpg" not in panel.log.summary

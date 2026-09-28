@@ -122,18 +122,24 @@ def toggle_stored_appearance() -> str:
 
 #: Close to the current compact classic Tkinter presentation, per the frozen
 #: contract's instruction for Light mode.
+#: v0.6.6 Phase 2 remediation: retuned so Light reads as the classic Windows
+#: presentation the TTS panel (the maintainer's visual-control reference) draws
+#: natively -- a #f0f0f0 panel and sections, near-white bordered buttons and
+#: white fields -- rather than white sections with darker buttons, which
+#: inverted it. The accent was darkened just enough to keep its >= 4.5:1 bar
+#: against the now-grey surface.
 LIGHT_COLORS: dict[str, object] = {
-    "window": "#f5f5f5", "sidebar": "#eeeeee", "surface": "#ffffff",
-    "elevated": "#f0f0f0", "muted": "#eef2f7", "border": "#c9c9c9",
-    "divider": "#dddddd",
-    "text": "#1a1a1a", "secondary": "#5a5a5a", "disabled": "#6e6e6e",
+    "window": "#f0f0f0", "sidebar": "#eeeeee", "surface": "#f0f0f0",
+    "elevated": "#fdfdfd", "muted": "#e9edf3", "border": "#c9c9c9",
+    "divider": "#d9d9d9",
+    "text": "#1a1a1a", "secondary": "#555555", "disabled": "#6b6b6b",
     "inverse": "#ffffff",
-    "accent": "#1d6fd8", "accent_hover": "#3f85e0", "accent_pressed": "#175bb3",
-    "accent_soft": "#dce8fb", "focus": "#1d6fd8", "link": "#1d6fd8",
-    "success": "#166b2e", "warning": "#7a4700", "danger": "#c62828",
-    "danger_hover": "#d64545", "danger_pressed": "#a31f1f",
-    "field": "#ffffff", "field_disabled": "#eeeeee", "field_border": "#b9b9b9",
-    "selection": "#1d6fd8", "selection_text": "#ffffff",
+    "accent": "#1860c0", "accent_hover": "#2f74d0", "accent_pressed": "#134f9e",
+    "accent_soft": "#dce8fb", "focus": "#1860c0", "link": "#1860c0",
+    "success": "#166b2e", "warning": "#744300", "danger": "#b42424",
+    "danger_hover": "#c83a3a", "danger_pressed": "#931c1c",
+    "field": "#ffffff", "field_disabled": "#f4f4f4", "field_border": "#adadad",
+    "selection": "#1860c0", "selection_text": "#ffffff",
     "selection_inactive": "#cfe0f7",
     "scroll_trough": "#eeeeee", "scroll_thumb": "#c4c4c4",
     "scroll_thumb_hover": "#adadad",
@@ -169,13 +175,21 @@ _PALETTES = {LIGHT: LIGHT_COLORS, DARK: DARK_COLORS}
 
 #: Compact spacing/sizing tokens. Appearance-independent — only colors differ
 #: between Light and Dark, per the frozen contract's "same geometry/hierarchy".
+#:
+#: v0.6.6 Phase 2 remediation: ``field_pad``/``button_pad``/``tab_pad``/
+#: ``tree_row_height`` were retuned so a compact control measures the same as
+#: the native control the TTS panel (the visual-control reference) draws. With
+#: the body font at ``TkDefaultFont``'s size, measured on Windows ``vista``:
+#: Button "Add Files" 76x25 native vs 76x25 compact (was 103x31); Entry
+#: width=10 66x21 vs 68x21 (was 76x25); Combobox width=7 65x21 vs 63x21 (was
+#: 71x25); Checkbutton 21 px tall either way (was 23).
 METRICS: dict[str, object] = {
     "gap_xs": 2, "gap_sm": 4, "gap_md": 8, "gap_lg": 12, "gap_xl": 16,
-    "card_pad": 8, "card_gap": 6, "section_gap": 10,
-    "field_pad": (6, 3), "button_pad": (10, 4), "nav_pad": (8, 4),
-    "tab_pad": (10, 4),
+    "card_pad": 6, "card_gap": 6, "section_gap": 8,
+    "field_pad": (2, 1), "button_pad": (2, 2), "nav_pad": (8, 4),
+    "tab_pad": (8, 2),
     "border_width": 1, "focus_width": 1, "scroll_width": 11,
-    "progress_thickness": 8, "tree_row_height": 22,
+    "progress_thickness": 8, "tree_row_height": 20,
     "row_height": 26, "row_padx": 8, "row_gap": 1,
     "content_pad": 10, "status_pad": (10, 4),
 }
@@ -275,12 +289,12 @@ _LAYOUTS: dict[str, list] = {
                 ("Spinbox.textarea", {"sticky": "nswe"})]})]})],
     f"{_P}.TCheckbutton": [
         ("Checkbutton.padding", {"sticky": "nswe", "children": [
-            (f"{_P}.Checkbutton.indicator", {"side": "left", "sticky": ""}),
+            (f"{_P}.Checkbutton.check", {"side": "left", "sticky": ""}),
             ("Checkbutton.focus", {"side": "left", "sticky": "w", "children": [
                 ("Checkbutton.label", {"sticky": "nswe"})]})]})],
     f"{_P}.TRadiobutton": [
         ("Radiobutton.padding", {"sticky": "nswe", "children": [
-            (f"{_P}.Radiobutton.indicator", {"side": "left", "sticky": ""}),
+            (f"{_P}.Radiobutton.radio", {"side": "left", "sticky": ""}),
             ("Radiobutton.focus", {"side": "left", "sticky": "", "children": [
                 ("Radiobutton.label", {"sticky": "nswe"})]})]})],
     f"{_P}.TNotebook": [(f"{_P}.Notebook.client", {"sticky": "nswe"})],
@@ -359,13 +373,37 @@ def _mac_font_family(root: tk.Misc) -> str:
     return "Helvetica Neue"
 
 
-def _fonts(family: str) -> dict[str, tuple]:
+#: The body size when no live root can be asked -- ``TkDefaultFont``'s size on
+#: Windows, where the ``Compact.*`` catalogue is actually registered.
+_FALLBACK_BODY_SIZE = 9
+
+
+def _default_font_size(root: tk.Misc | None) -> int:
+    """``TkDefaultFont``'s point size: what the TTS panel's native controls use.
+
+    The TTS panel is the maintainer's visual-control reference (Decisions.md,
+    2026-09-27), and it draws every label, button and check with the platform's
+    own default font. Deriving the compact body size from that font -- rather than
+    choosing a number -- is what keeps a compact control the same size as its
+    native TTS counterpart on any scaling. A pixel size (negative) or an
+    unreadable font falls back to the Windows value.
+    """
+    if root is None:
+        return _FALLBACK_BODY_SIZE
+    try:
+        size = int(tkfont.nametofont("TkDefaultFont", root=root).actual("size"))
+    except (tk.TclError, ValueError, RuntimeError):
+        return _FALLBACK_BODY_SIZE
+    return size if size > 0 else _FALLBACK_BODY_SIZE
+
+
+def _fonts(family: str, body: int = _FALLBACK_BODY_SIZE) -> dict[str, tuple]:
     return {
-        "title": (family, 15, "bold"), "heading": (family, 13, "bold"),
-        "subheading": (family, 10, "bold"), "section": (family, 9, "bold"),
-        "body": (family, 10), "body_bold": (family, 10, "bold"),
-        "row": (family, 10), "small": (family, 9), "status": (family, 9),
-        "button": (family, 10), "mono": ("Consolas", 9),
+        "title": (family, body + 6, "bold"), "heading": (family, body + 4, "bold"),
+        "subheading": (family, body + 1, "bold"), "section": (family, body),
+        "body": (family, body), "body_bold": (family, body, "bold"),
+        "row": (family, body), "small": (family, body), "status": (family, body),
+        "button": (family, body), "mono": ("Consolas", body),
     }
 
 
@@ -390,9 +428,116 @@ def _clone_elements(style: ttk.Style) -> None:
             continue
 
 
+#: Side, in pixels, of the drawn check/radio indicators -- the size TTS's native
+#: Windows indicators draw at 100% scaling.
+_INDICATOR_SIZE = 13
+#: Transparent columns to the right of each indicator: the gap before its
+#: label (an image element ignores the ``indicatormargin`` style option).
+_INDICATOR_GAP = 5
+_CHECK_MARK = ((3, 6), (4, 7), (5, 8), (6, 7), (7, 6), (8, 5), (9, 4),
+               (3, 7), (4, 8), (5, 9), (6, 8), (7, 7), (8, 6), (9, 5))
+_INDICATOR_STATES = ("off", "on", "disabled_off", "disabled_on")
+
+
+def _indicator_pixels(kind: str, state: str, c: dict) -> dict[tuple[int, int], str]:
+    """Pixel -> color for one indicator image; unlisted pixels stay transparent.
+
+    Drawn from the palette so the same box-and-checkmark / ringed-dot the TTS
+    panel shows natively reads correctly on every surface, Light or Dark. The
+    ``clam`` indicator this replaces draws an X, which is not the control
+    language the maintainer's reference uses.
+    """
+    disabled = state.startswith("disabled")
+    selected = state.endswith("on")
+    size = _INDICATOR_SIZE
+    pixels: dict[tuple[int, int], str] = {}
+    if kind == "check":
+        if selected:
+            edge = fill = c["disabled"] if disabled else c["accent"]
+        else:
+            edge = c["border"] if disabled else c["field_border"]
+            fill = c["field_disabled"] if disabled else c["field"]
+        for y in range(size):
+            for x in range(size):
+                border = x in (0, size - 1) or y in (0, size - 1)
+                pixels[(x, y)] = edge if border else fill
+        if selected:
+            mark = c["field_disabled"] if disabled else c["inverse"]
+            for point in _CHECK_MARK:
+                pixels[point] = mark
+        return pixels
+    centre = (size - 1) / 2
+    if selected:
+        ring = dot = c["disabled"] if disabled else c["accent"]
+    else:
+        ring = c["border"] if disabled else c["field_border"]
+        dot = None
+    fill = c["field_disabled"] if disabled else c["field"]
+    for y in range(size):
+        for x in range(size):
+            distance = ((x - centre) ** 2 + (y - centre) ** 2) ** 0.5
+            if distance < 5.0:
+                pixels[(x, y)] = dot if dot is not None and distance <= 2.6 else fill
+            elif distance < 6.3:
+                pixels[(x, y)] = ring
+    return pixels
+
+
+def _indicator_images(style: ttk.Style, c: dict) -> dict[str, tk.PhotoImage]:
+    """Create (once per interpreter) and redraw the indicator images in place.
+
+    Redrawing the *same* image objects is what makes a Light/Dark toggle
+    repaint every existing Checkbutton/Radiobutton without rebuilding any of
+    them -- the indicator equivalent of reconfiguring a named style.
+    """
+    holder = style.master if style.master is not None else tk._default_root
+    # Held by the toplevel, never by whichever panel frame asked: the elements
+    # are created once per interpreter and outlive any one panel, and a
+    # collected PhotoImage deletes its Tcl image out from under them.
+    try:
+        holder = holder.winfo_toplevel()
+    except (AttributeError, tk.TclError):
+        pass
+    images = getattr(holder, "_compact_indicator_images", None)
+    if images is None:
+        images = {f"{kind}_{state}": tk.PhotoImage(
+                      master=holder, width=_INDICATOR_SIZE + _INDICATOR_GAP,
+                  height=_INDICATOR_SIZE)
+                  for kind in ("check", "radio") for state in _INDICATOR_STATES}
+        holder._compact_indicator_images = images
+    for key, image in images.items():
+        kind, state = key.split("_", 1)
+        image.blank()
+        for (x, y), color in _indicator_pixels(kind, state, c).items():
+            image.put(color, to=(x, y, x + 1, y + 1))
+    return images
+
+
+def _ensure_indicator_elements(style: ttk.Style, c: dict) -> None:
+    images = _indicator_images(style, c)
+    try:
+        existing = set(style.element_names())
+    except tk.TclError:
+        existing = set()
+    for kind, element in (("check", f"{STYLE_PREFIX}.Checkbutton.check"),
+                          ("radio", f"{STYLE_PREFIX}.Radiobutton.radio")):
+        if element in existing:
+            continue
+        try:
+            style.element_create(
+                element, "image", images[f"{kind}_off"],
+                ("disabled", "selected", images[f"{kind}_disabled_on"]),
+                ("disabled", images[f"{kind}_disabled_off"]),
+                ("selected", images[f"{kind}_on"]),
+                sticky="")
+        except tk.TclError:
+            continue
+
+
 def _register_ttk_styles(style: ttk.Style, c: dict, m: dict, f: dict) -> None:
     """Define every ``Compact.*`` style. No generic style is touched."""
     _clone_elements(style)
+    _ensure_indicator_elements(style, c)
 
     for name, layout in _LAYOUTS.items():
         try:
@@ -445,27 +590,35 @@ def _register_ttk_styles(style: ttk.Style, c: dict, m: dict, f: dict) -> None:
                  f"{_P}.Shared.TLabel", f"{_P}.SharedSecondary.TLabel"):
         style.map(name, foreground=[("disabled", c["disabled"])])
 
+    # A bordered box in every state, the way TTS's native buttons draw: the
+    # field-border outline stays visible even disabled, so a greyed action
+    # still reads as a button rather than as stray text.
     style.configure(
         f"{_P}.TButton", background=c["elevated"], foreground=c["text"],
-        bordercolor=c["border"], lightcolor=c["elevated"],
+        bordercolor=c["field_border"], lightcolor=c["elevated"],
         darkcolor=c["elevated"], focuscolor=c["focus"], font=f["button"],
-        padding=m["button_pad"], relief="flat", borderwidth=m["border_width"],
+        padding=m["button_pad"], relief="raised", borderwidth=m["border_width"],
         anchor="center",
     )
     style.map(
         f"{_P}.TButton",
-        background=[("disabled", c["surface"]), ("pressed", c["border"]),
-                    ("active", c["border"]), ("selected", c["accent_soft"])],
+        background=[("disabled", c["field_disabled"]), ("pressed", c["accent_soft"]),
+                    ("active", c["accent_soft"]), ("selected", c["accent_soft"])],
         foreground=[("disabled", c["disabled"])],
-        bordercolor=[("focus", c["focus"]), ("active", c["field_border"])],
-        lightcolor=[("pressed", c["border"]), ("active", c["border"])],
-        darkcolor=[("pressed", c["border"]), ("active", c["border"])],
+        # ``alternate`` is ttk's state for ``default="active"`` -- the same
+        # restrained primary-action cue TTS's Start button gets natively.
+        bordercolor=[("disabled", c["border"]), ("focus", c["focus"]),
+                     ("alternate", c["accent"]), ("active", c["accent"])],
+        lightcolor=[("disabled", c["field_disabled"]), ("pressed", c["accent_soft"]),
+                    ("active", c["accent_soft"])],
+        darkcolor=[("disabled", c["field_disabled"]), ("pressed", c["accent_soft"]),
+                   ("active", c["accent_soft"])],
     )
     style.configure(
         f"{_P}.Primary.TButton", background=c["accent"], foreground=c["inverse"],
         bordercolor=c["accent"], lightcolor=c["accent"], darkcolor=c["accent"],
         focuscolor=c["inverse"], font=f["button"], padding=m["button_pad"],
-        relief="flat", borderwidth=m["border_width"], anchor="center",
+        relief="raised", borderwidth=m["border_width"], anchor="center",
     )
     style.map(
         f"{_P}.Primary.TButton",
@@ -481,7 +634,7 @@ def _register_ttk_styles(style: ttk.Style, c: dict, m: dict, f: dict) -> None:
         f"{_P}.Danger.TButton", background=c["surface"], foreground=c["danger"],
         bordercolor=c["danger"], lightcolor=c["surface"], darkcolor=c["surface"],
         focuscolor=c["focus"], font=f["button"], padding=m["button_pad"],
-        relief="flat", borderwidth=m["border_width"], anchor="center",
+        relief="raised", borderwidth=m["border_width"], anchor="center",
     )
     style.map(
         f"{_P}.Danger.TButton",
@@ -605,8 +758,10 @@ def _register_ttk_styles(style: ttk.Style, c: dict, m: dict, f: dict) -> None:
                     bordercolor=c["border"], lightcolor=c["surface"],
                     darkcolor=c["surface"], borderwidth=m["border_width"],
                     relief="solid", padding=m["card_pad"])
+    # The section caption reads like TTS's native LabelFrame caption: the body
+    # font in the ordinary text color, not a smaller bold secondary heading.
     style.configure(f"{_P}.TLabelframe.Label", background=c["surface"],
-                    foreground=c["secondary"], font=f["section"])
+                    foreground=c["text"], font=f["section"])
     style.configure(f"{_P}.Shared.TLabelframe", background=c["shared_bg"],
                     bordercolor=c["shared_border"], lightcolor=c["shared_bg"],
                     darkcolor=c["shared_bg"], borderwidth=m["border_width"],
@@ -697,13 +852,14 @@ def build_bundle(style: ttk.Style, appearance: str | None = None, *,
     resolved = appearance if appearance in _VALID else get_appearance()
     branch = sys.platform if platform is None else platform
     colors = dict(_PALETTES[resolved])
+    body = _default_font_size(root)
 
     if branch == "darwin":
         family = _mac_font_family(root) if root is not None else "Helvetica Neue"
         styles: dict[str, str] = {}
     else:
         family = _classic_font_family(branch)
-        _register_ttk_styles(style, colors, METRICS, _fonts(family))
+        _register_ttk_styles(style, colors, METRICS, _fonts(family, body))
         styles = dict(_STYLES)
 
     return {
@@ -711,7 +867,7 @@ def build_bundle(style: ttk.Style, appearance: str | None = None, *,
         "appearance": resolved,
         "platform": branch,
         "family": family,
-        "fonts": _fonts(family),
+        "fonts": _fonts(family, body),
         "colors": colors,
         "metrics": dict(METRICS),
         "styles": styles,
@@ -729,7 +885,9 @@ _TK_WIDGET_ROLES: dict[str, tuple[str, str]] = {
     "elevated": ("elevated", "text"), "muted": ("muted", "text"),
     "sidebar": ("sidebar", "text"), "shared": ("shared_bg", "text"),
     "field": ("field", "text"), "list": ("field", "text"),
-    "text": ("field", "text"), "log": ("elevated", "secondary"),
+    "text": ("field", "text"),
+    # A white field in Light, as TTS's native log pane is.
+    "log": ("field", "text"),
     "canvas": ("surface", "text"), "divider": ("border", "text"),
 }
 

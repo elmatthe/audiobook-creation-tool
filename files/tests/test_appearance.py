@@ -377,3 +377,15 @@ def test_toggle_appearance_persists_refreshes_and_notifies(tk_root):
     assert bundle["appearance"] == "dark"
     assert appearance.get_appearance() == "dark"
     assert seen == [bundle]
+
+
+def test_the_appearance_key_is_recognised_user_state_not_a_config_override():
+    """Phase 1 regression, found in the Phase 2 remediation: once a person had
+    toggled Light/Dark, every launch reported ``appearance`` in settings.json
+    as an unrecognised configuration override. It is remembered user state,
+    like ``last_tool``."""
+    from shared import config
+
+    assert appearance.SETTINGS_KEY in config.USER_STATE_SETTINGS
+    snapshot = config.load(settings_data={appearance.SETTINGS_KEY: appearance.DARK})
+    assert not any(appearance.SETTINGS_KEY in str(note) for note in snapshot.diagnostics)
