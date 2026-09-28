@@ -4,6 +4,41 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 4 approved; Phase 5 (Cover Image guided layout) recorded as SATISFIED by the approved Phase 2 remediation
+
+**Phase 4 approved.** The Windows manual M4B Converter gate at `cfe0678` passed. It covered:
+
+- Light and Dark;
+- the responsive small-window (`split`) layout;
+- the metadata modes (fields disabled only under Write none);
+- the approved Cover/TTS visual language.
+
+Phase 4 is maintainer-approved and closed.
+
+**Phase 5 is satisfied, not re-implemented.** Under the 2026-09-28 sequencing override, Cover's
+Family-A conversion and its Windows manual gate were completed and approved as the final Phase 2
+remediation (`39352c7`, gate PASSED). Phase 5 re-checked that checkpoint against its own
+requirements at `cfe0678` and found no gap:
+
+- `1. Sources` / `2. Resize Options` / `3. Output & Run` with Activity on the right.
+- Details / List / Medium Thumbnails are kept as the source-browser views.
+- The compact Cover/TTS control language and coherent Light/Dark are in place.
+- There is no core-panel scrolling; this is proved in the real launcher shell by
+  `test_cover_layout.py`.
+- The image, HEIC, output and job behavior is preserved.
+
+The only shared-code change since `39352c7` is Phase 3's `appearance.py` addition: the combobox
+drop-down helper and the `Link.TLabel` surface. Cover uses neither. Phase 4 changed no shared
+module. The focused Cover, import, image, job, theme, layout, launcher and boundary suites passed
+(16 files: 965 passed, 4 environment-only skips, 0 failed). `cover_resizer.py` is unchanged: nothing
+was redone or cosmetically altered to create Phase 5 work.
+
+macOS 1024×800 and Windows 125% remain Phase 9's.
+
+— Recorded by Claude Code on the maintainer's Phase 4 approval and Phase 5 instruction, 2026-09-28.
+
+---
+
 ## 2026-09-28 -- Phase 3 approved; M4B Converter rebuilt to the Family-A guided layout (Phase 4); its Plan-5 byte pin retired
 
 **Phase 3 approved.** The Windows manual TTS gate at `d03a7aa` passed in Light and Dark, maximized

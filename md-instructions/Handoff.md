@@ -2,6 +2,39 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 5: COVER IMAGE — SATISFIED BY THE APPROVED PHASE 2 REMEDIATION (2026-09-28)
+>
+> **Phase 4 is maintainer-approved.** The Windows manual M4B Converter gate at `cfe0678` (block
+> below) PASSED. It covered Light/Dark, the responsive small-window layout, the metadata modes and
+> the approved Cover/TTS visual language.
+>
+> **Phase 5 is a documentation checkpoint only; no code changed.** Under the plan's 2026-09-28
+> sequencing override, Cover's Family-A conversion and its Windows manual gate were completed and
+> approved during the final Phase 2 remediation (`39352c7`, gate PASSED). Re-checked at `cfe0678`:
+> - **Layout:** `1. Sources` / `2. Resize Options` / `3. Output & Run` with Activity on the right
+>   (`cover_resizer.py`, unchanged since `39352c7`).
+> - **Source browser:** the Details / List / Medium Thumbnails views are preserved.
+> - **Look:** the compact Cover/TTS control language, with coherent Light/Dark
+>   (`test_cover_appearance.py`).
+> - **No core-panel scrolling:** the real launcher shell tests in `test_cover_layout.py` show every
+>   control on screen with Activity right.
+> - **Behavior:** image, HEIC, output and job behavior are preserved (the importing, jobs,
+>   source-side, browser and image-capability suites).
+> - **Later shared changes:** the only shared change since `39352c7` is Phase 3's `appearance.py`
+>   addition (combobox drop-down helper, `Link.TLabel` surface). Cover uses neither, and Phase 4
+>   touched no shared module.
+>
+> **Verification:** a focused run of 16 files covered Cover (appearance, browser, browser scroll,
+> importing, jobs, layout, smoke, source-side), appearance, image capabilities, job_ui, launcher
+> smoke, ui_theme, the plan-3 boundaries, output paths and tool-output integration. Result:
+> **965 passed, 4 skipped, 0 failed**. The skips are environment-only: Windows symlink privilege
+> and aqua-only branches. No full `verify.py`.
+>
+> **Not done / out of scope:** no Cover change; macOS 1024×800 and Windows 125% remain Phase 9.
+> **Phase 6 not started.**
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 4: M4B CONVERTER GUIDED LAYOUT (2026-09-28)
 >
 > **Phase 3 is maintainer-approved.** The Windows manual TTS gate at `d03a7aa` (block below) PASSED
