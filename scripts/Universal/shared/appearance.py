@@ -569,8 +569,10 @@ def _register_ttk_styles(style: ttk.Style, c: dict, m: dict, f: dict) -> None:
                     foreground=c["secondary"], font=f["body"])
     style.configure(f"{_P}.Status.TLabel", background=c["window"],
                     foreground=c["secondary"], font=f["status"])
-    style.configure(f"{_P}.Link.TLabel", background=c["window"],
-                    foreground=c["link"], font=f["status"])
+    # An accent caption inside a tool section (TTS's engine line), so it sits
+    # on the section surface like every other content label.
+    style.configure(f"{_P}.Link.TLabel", background=c["surface"],
+                    foreground=c["link"], font=f["body"])
     style.configure(f"{_P}.Success.TLabel", background=c["surface"],
                     foreground=c["success"], font=f["body"])
     style.configure(f"{_P}.Warning.TLabel", background=c["surface"],
@@ -927,6 +929,35 @@ def style_tk_widget(widget, bundle: dict, role: str = "surface", **overrides):
     if applied:
         widget.configure(**applied)
     return applied
+
+
+def style_combobox_popdown(combo, bundle: dict) -> bool:
+    """Color a ``Compact.TCombobox``'s drop-down list from *bundle*.
+
+    The list a combobox drops down is a classic Tk ``Listbox`` inside a popdown
+    ``Toplevel`` that ttk builds on its own; no ttk style reaches it, so a Dark
+    combobox would otherwise open a white list. ttk's own
+    ``ttk::combobox::PopdownWindow`` returns (creating it if needed) that
+    popdown, and its listbox is always ``<popdown>.f.l``. Calling this again
+    after a toggle recolors the same listbox in place.
+
+    Only where the compact ttk styles are active: on aqua the combobox is
+    native and so is its menu. Returns whether anything was colored.
+    """
+    colors = (bundle or {}).get("colors")
+    if not colors or not (bundle or {}).get("ttk_active"):
+        return False
+    try:
+        popdown = combo.tk.eval(f"ttk::combobox::PopdownWindow {combo}")
+        combo.tk.call(
+            f"{popdown}.f.l", "configure",
+            "-background", colors["field"], "-foreground", colors["text"],
+            "-selectbackground", colors["selection"],
+            "-selectforeground", colors["selection_text"],
+            "-highlightthickness", 0, "-borderwidth", 0)
+    except tk.TclError:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------

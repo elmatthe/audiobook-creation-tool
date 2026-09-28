@@ -4,6 +4,70 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 2 approved; the approved Cover Image UI at `39352c7` is the concrete visual reference for every remaining tool interior; TTS keeps its frozen layout, with Activity kept on the right in the real launcher's small windows
+
+**Phase 2 approved.** The final Cover Image manual gate at `39352c7` passed in Light and Dark. It
+covered the Family-A layout, right-side Activity, compact controls, no core scrolling and a working
+resize run. Phase 2 is maintainer-approved and closed.
+
+**Ruling: the approved Cover Image UI is the concrete visual reference.** Every remaining
+tool-interior conversion uses the same compact visual language as Cover at `39352c7`: control sizing,
+button/field treatment, check/radio indicators, section borders, spacing and density, disabled
+states, Light/Dark treatment, and Activity presentation. Layout geometry may differ only where the
+active plan explicitly distinguishes Family A from Family B. No tool gets its own visual system;
+everything goes through `shared/appearance.py` and the shared `job_ui` components.
+
+**Phase 3 (TTS reference conformance) applied that language to TTS.** The panel was the one tool
+interior still drawn entirely with native widgets, a bright island in the Dark shell. Every widget
+it owns, and every shared component it hosts, now takes the same `Compact.*` styles and bundle Cover
+uses. Captions take palette roles instead of fixed navy/orange/red/gray. The combobox drop-down lists
+and the Activity panes follow live toggles. Two shared-primitive changes follow:
+
+- `appearance.style_combobox_popdown` colors a compact combobox's drop-down list, a classic Tk listbox
+  that no ttk style reaches.
+- The compact `Link.TLabel` role, used by nothing before, sits on the section surface in the body font
+  like its sibling caption roles.
+
+No text, voice, engine, worker, job, retry or output behavior changed.
+
+**Ruling: TTS in the real launcher's small windows.** TTS's layout is frozen:
+`1. Sources` / `2. Voice & Audio` / `3. Output & Run` with Activity on the right. Measurement showed
+the v0.6.5 small-window behavior never actually held inside the launcher:
+
+- The suite sized a bare 920×600 toplevel, but the launcher's sidebar and header leave the panel
+  721×457 at 920×600 and 825×577 at 1024×720.
+- There, the vertical workflow's floor alone is 645 px, and its "Activity beneath" fallback needs
+  about 550 px.
+- So Start, the job controls and Activity sat below the visible area at both sizes.
+
+Asked for a ruling, the maintainer chose **1 over 2 on the left, 3 over Activity on the right**
+(`split`) wherever the vertical workflow cannot fit.
+
+- At 1280×900 and larger, the frozen geometry is unchanged pixel for pixel.
+- In `split`, the frozen contract's own tight-window steps (§1) apply, and nothing is hidden or
+  removed:
+  - vertical section padding and in-section gaps tighten;
+  - Sources' six actions take two rows of three;
+  - the job controls take two rows of two, and the read-only path field asks for fewer characters.
+- The imported list is the region allowed to give way: down to one row in `split`, and only when
+  Kokoro's notice needs the height.
+- `stacked` (Activity beneath) remains only as a last resort for a panel too small even for `split`.
+
+**Why:** a tool that is a white island in Dark, or whose Start button sits off screen at the
+supported minimum, fails the frozen contract however faithful its geometry is. Keeping the frozen
+layout wherever it fits, and choosing the smallest change that keeps Activity on the right
+everywhere else, respects both rulings.
+
+**Consequences:** the plan gains a 2026-09-28 Phase 3 note, and `Handoff.md` records the checkpoint.
+Four v0.6.5 layout tests that pinned "Activity beneath at 920×600" were updated to the ruled geometry.
+`test_launcher_smoke.py` now separates the shell chrome (still `ACT.*` only) from the hosted tool
+interior (`ACT.*` or `Compact.*`, never generic). Version identity remains `0.6.2`, unreleased; no
+merge, tag, package or release. Phase 4 is not started.
+
+— Recorded by Claude Code, 2026-09-28, on the maintainer's Phase 3 instruction and small-window ruling.
+
+---
+
 ## 2026-09-28 -- Sequencing override: Cover Image's Phase-5 Family-A conversion completed now as the final Phase 2 remediation; "TTS-like" means TTS's actual control language, expressed through the shared compact primitives
 
 **Decision (v0.6.6 Phase 2 remediation, maintainer override).** The Phase 2 repeat manual gate on

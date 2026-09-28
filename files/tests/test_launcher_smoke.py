@@ -312,11 +312,22 @@ def test_windows_shell_chrome_uses_act_styles(fresh_root, fake_settings):
     assert str(app._status_label.cget("style")) == s["status_label"]
     assert str(app._log_button.cget("style")) == s["ghost_button"]
 
-    # Every styled widget in the shell is inside the namespace, and the shell
-    # actually uses it (a silently-unstyled shell would also pass "no leak").
-    used = {_style_of(w) for w in _walk(fresh_root)} - {""}
+    # Every styled widget in the shell chrome is inside the namespace, and the
+    # shell actually uses it (a silently-unstyled shell would also pass "no
+    # leak"). v0.6.6 Phase 3: the default tool (TTS) now draws its interior
+    # with the shared compact tool-interior system, so the walk separates the
+    # chrome from the hosted tool content -- which may use either namespace,
+    # never a generic style name.
+    content = str(app.content)
+    widgets = list(_walk(fresh_root))
+    chrome = [w for w in widgets if not str(w).startswith(content + ".")]
+    hosted = [w for w in widgets if str(w).startswith(content + ".")]
+    used = {_style_of(w) for w in chrome} - {""}
     assert used, "the Windows shell applied no styles at all"
     assert all(name.startswith("ACT.") for name in used), sorted(used)
+    hosted_used = {_style_of(w) for w in hosted} - {""}
+    assert all(name.startswith(("ACT.", "Compact.")) for name in hosted_used), \
+        sorted(hosted_used)
 
     # The base theme is still the native one, so unconverted panels are safe.
     assert app.theme["base_theme"] == "vista"

@@ -2,6 +2,89 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 3: TTS REFERENCE CONFORMANCE (2026-09-28)
+>
+> **Phase 2 is maintainer-approved.** The final Cover Image manual gate at `39352c7` (block below)
+> PASSED in Light and Dark: Family-A layout, right-side Activity, compact controls, no core
+> scrolling, and a working resize run.
+>
+> **New standing ruling:** the approved Cover UI at `39352c7` is the concrete visual reference for
+> every remaining tool interior. That means the same control sizing, button/field treatment,
+> check/radio indicators, section borders, spacing and density, disabled states, Light/Dark treatment
+> and Activity presentation. Geometry differs only where the plan distinguishes Family A from
+> Family B, and no tool gets its own visual system. See `Decisions.md` 2026-09-28 and the plan's §5
+> clarification.
+>
+> **What Phase 3 changed (`tts/epub2tts_gui.py`, plus two small shared-primitive additions):**
+> - **Whole interior on the shared compact bundle:** the panel, all four sections, every
+>   label/field/combobox/spinbox/checkbutton/button/separator, the shared importer, the job controls,
+>   progress/status, and the Summary | Detailed log. It has an `appearance_bundle` seam like Cover's.
+> - **Captions** take palette roles (link/warning/danger/secondary). On aqua they keep their old
+>   native colors.
+> - **Live toggle** is presentation-only. It recolors the list, log panes and both combobox drop-down
+>   lists in place. The listener is unregistered on close.
+> - **Shared primitives:**
+>   - `appearance.style_combobox_popdown` colors a compact combobox's drop-down list.
+>   - The compact `Link.TLabel` (previously unused) now sits on the section surface.
+> - **Small windows, by maintainer ruling:** the v0.6.5 suite sized a bare 920×600 toplevel, but the
+>   real launcher gives the panel 721×457 (and 825×577 at 1024×720). There, the frozen vertical
+>   workflow and its old Activity-beneath fallback put Start, the job controls and Activity **off
+>   screen**. Where the frozen layout cannot fit, TTS now uses `split`: 1 over 2 on the left, 3 over
+>   Activity on the right.
+>   - Within `split`, §1's steps apply: tighter vertical padding and gaps, Sources' actions in two
+>     rows of three, job controls in two rows of two, and a shorter requested path width.
+>   - The list may give way to one row. Nothing is hidden or removed.
+>   - 1280×900 and larger are pixel-identical to before.
+> - **Unchanged:** text segmentation, voices, the Edge/Kokoro/Chatterbox paths, worker caps and
+>   concurrency, Pause/Resume/Cancel/Retry, output planning and source immutability. All 260
+>   pre-existing TTS job/importing/concurrency/reporting tests pass untouched.
+>
+> **Real-launcher measurements (Windows, 100%):**
+>
+> | Window | Content | Mode | Activity | List | Log |
+> |---|---|---|---|---|---|
+> | 920×600 | 721×457 | `split` | 324 px wide | 42 px (Edge) | 100 px |
+> | 1024×720 | 825×577 | `split` | 395 px wide | 162 px | 220 px |
+> | 1280×900 | 1081×757 | `wide` (unchanged) | 499 px wide | 7 rows | 668 px |
+> | 1920×1009 | 1721×866 | `wide` (unchanged) | 1134 px wide | 8 rows | 786 px |
+>
+> Every required control is mapped inside the content area at all four sizes, including with the
+> Kokoro notice and a Chatterbox setup-required message at 920×600.
+>
+> **Verification:**
+> - New `test_tts_appearance.py` (17 tests):
+>   - Dark on the panel and its sections, and no TTS-owned ttk widget on a generic style;
+>   - caption palette roles, and an AST check for no `foreground=`/`background=` keywords;
+>   - the Activity/progress/Start/Cancel presentation, and combobox drop-downs recoloring on toggle;
+>   - a live toggle preserving imports/selection/voice/speed/workers/bitrate/checks/log/layout with
+>     no widget rebuilt, and a toggle during a running (gated) job leaving it RUNNING through to
+>     SUCCEEDED;
+>   - listener removal on close, and Clear Log;
+>   - the §4 keyboard contract via real key events;
+>   - real-shell tests: every control on screen with Activity right at 920×600/1024×720/1920×1009,
+>     the Kokoro/Chatterbox tallest states at 920×600, and the shell's own toggle keeping layout and
+>     values.
+> - Six mutations (no split, one unstyled spinbox, no popdown recolor, no unregister, log not
+>   recolored, 2-row split floor) were each caught.
+> - `test_tts_compact_ui.py`: four tests that pinned "Activity beneath at 920×600" were updated to
+>   the ruled `split`.
+> - `test_launcher_smoke.py`: the chrome must still be `ACT.*` only, and hosted tool content may be
+>   `ACT.*` or `Compact.*`, never generic.
+> - Focused sweep of 46 files (all TTS/Chatterbox/Kokoro/voice suites, Cover, appearance, job_ui,
+>   ui_theme, launcher, preferences, output, M4B/MP3 UI, settings/config/repository/isolation):
+>   **2,324 passed, 16 skipped, 0 failed**. No full `verify.py`; no concrete reason surfaced.
+> - Pre-existing, not changed: `test_launcher_smoke.py` run *alone* trips the session-scoped
+>   real-log guard, reproduced on untouched HEAD sources. Its stray session logs were deleted, and it
+>   is clean inside any multi-file run.
+>
+> **Not done / out of scope:** no Converter/MP3/Maker/Metadata conversion and no business-logic
+> change. macOS 1024×800 and Windows 125% are not verified here (Phase 9). Version identity remains
+> `0.6.2`, unreleased. **Phase 4 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 2 FINAL REMEDIATION: COVER IMAGE CONVERTED TO FAMILY A ON TTS'S CONTROL LANGUAGE (2026-09-28)
 >
 > **The Phase 2 repeat manual gate on `5e41f9d` (block below) FAILED on Cover presentation/layout.**
