@@ -22,6 +22,15 @@ has not been converted inherits nothing from the shell and keeps rendering
 through the platform's generic ttk styles. A converted panel opts in by naming
 ``ACT.*`` styles itself.
 
+**Separately (v0.6.6 Phase 1),** ``shared/appearance.py`` owns one global
+remembered Light/Dark setting and its own ``Compact.*`` style family. The
+outer shell above is unaffected by it — only app-owned dialogs (Preferences &
+Data, the launch-time warning/result dialogs) and, from later phases on,
+individual tool-panel interiors read ``self.appearance_bundle``. A single
+status-bar toggle (``self.appearance_button``, beside Preferences & Data)
+flips it; :meth:`LauncherApp._on_appearance_changed` fans the refreshed bundle
+out to whichever owned dialog is open, in place, with no widget destroyed.
+
 Run under ``pythonw.exe`` on Windows so no console window appears; all external
 binaries (ffmpeg/ffprobe) are invoked through ``shared.subprocess_utils`` which
 hides their console windows too.
@@ -57,7 +66,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from shared import ffmpeg_utils, logging_setup, paths, preferences_ui, ui_theme
+from shared import appearance, ffmpeg_utils, logging_setup, paths, preferences_ui, ui_theme
 from shared import settings as app_settings
 from shared import subprocess_utils as sp
 
@@ -65,6 +74,11 @@ APP_TITLE = "Audiobook Creation Tool"
 
 #: Label of the cross-platform Preferences & Data entry point in the status bar.
 PREFERENCES_LABEL = preferences_ui.MENU_LABEL
+
+
+def _appearance_toggle_label(current_appearance: str) -> str:
+    """Text + icon for the shell toggle, per the Frozen UI Contract (§1)."""
+    return "☀ Light mode" if current_appearance == appearance.DARK else "☾ Dark mode"
 
 
 @dataclass(frozen=True)
@@ -146,8 +160,14 @@ class LauncherApp:
         # The one live Preferences window. Held here so repeated activation
         # focuses it instead of stacking duplicates.
         self.preferences_dialog = None
+        self.appearance_button: ttk.Button | None = None
 
         self._build_ui()
+        # Told about every future toggle so the one currently-open owned
+        # dialog (Preferences, and its nested cleanup review) can re-apply its
+        # own raw window background in place. Registered once; this instance
+        # never unregisters, since it lives exactly as long as the process.
+        appearance.register_listener(self._on_appearance_changed)
         self._apply_default_geometry()
         self._bind_preferences_accelerators()
 
@@ -188,10 +208,18 @@ class LauncherApp:
     # ----- UI -----
     def _build_ui(self):
         self.root.title(APP_TITLE)
-        self.theme = ui_theme.apply_theme(self.root, ttk.Style(self.root))
+        self.style = ttk.Style(self.root)
+        self.theme = ui_theme.apply_theme(self.root, self.style)
         self.root.minsize(*self.theme["min_size"])
         self.font_heading = self.theme["font_heading"]
         self.font_button = self.theme["font_button"]
+        # The new compact Light/Dark system (v0.6.6 Phase 1) is fully separate
+        # from the shell theme above: the outer shell stays exactly as
+        # ``ui_theme`` renders it, and this bundle governs app-owned dialogs
+        # (and, from later phases on, individual tool-panel interiors).
+        self.appearance_bundle = appearance.build_bundle(
+            self.style, appearance.get_appearance(), root=self.root
+        )
 
         if self.theme["mode"] == "aqua":
             self._build_ui_darwin()
@@ -240,6 +268,14 @@ class LauncherApp:
             status, text=PREFERENCES_LABEL, command=self.open_preferences, takefocus=True
         )
         self.preferences_button.pack(side="right", padx=(0, 12))
+        # The v0.6.6 Phase 1 shell toggle, placed beside Preferences & Data per
+        # the Frozen UI Contract. Toggling this never changes the shell above —
+        # only app-owned dialogs and, from later phases, tool-panel interiors.
+        self.appearance_button = ttk.Button(
+            status, text=_appearance_toggle_label(self.appearance_bundle["appearance"]),
+            command=self._toggle_appearance, takefocus=True,
+        )
+        self.appearance_button.pack(side="right", padx=(0, 6))
 
     def _build_ui_windows(self):
         """The v0.6.0 dark Windows shell — navigation rail, header, card, status.
@@ -287,6 +323,14 @@ class LauncherApp:
             command=self.open_preferences, takefocus=True,
         )
         self.preferences_button.pack(side="right", padx=(m["gap_md"], 0))
+        # The v0.6.6 Phase 1 shell toggle. It uses the shell's own existing
+        # ghost_button style — the shell chrome itself is not changing — and
+        # governs the separate compact Light/Dark bundle app-owned dialogs use.
+        self.appearance_button = ttk.Button(
+            status, text=_appearance_toggle_label(self.appearance_bundle["appearance"]),
+            style=s["ghost_button"], command=self._toggle_appearance, takefocus=True,
+        )
+        self.appearance_button.pack(side="right", padx=(m["gap_md"], 0))
 
         outer = ttk.Frame(self.root, style=s["window"])
         outer.pack(fill="both", expand=True)
@@ -377,6 +421,13 @@ class LauncherApp:
             status, text=PREFERENCES_LABEL, command=self.open_preferences, takefocus=True
         )
         self.preferences_button.pack(side="right", padx=(0, m["row_padx"]))
+        # The v0.6.6 Phase 1 shell toggle — an unstyled native aqua ttk.Button,
+        # same as Preferences, so the Finder-style shell itself never changes.
+        self.appearance_button = ttk.Button(
+            status, text=_appearance_toggle_label(self.appearance_bundle["appearance"]),
+            command=self._toggle_appearance, takefocus=True,
+        )
+        self.appearance_button.pack(side="right", padx=(0, m["row_padx"]))
 
         outer = tk.Frame(self.root, bg=c["window"])
         outer.pack(fill="both", expand=True)
@@ -471,11 +522,38 @@ class LauncherApp:
     def open_preferences(self):
         """Open Preferences & Data, or focus the window that is already open."""
         self.preferences_dialog = preferences_ui.open_preferences(
-            self.root, self.theme, self.preferences_dialog, logger=self.logger,
+            self.root, self.appearance_bundle, self.preferences_dialog, logger=self.logger,
             close_application=self.close_for_downloaded_data,
         )
         self._set_status("Preferences & Data.")
         return self.preferences_dialog
+
+    # ----- Light/Dark appearance (v0.6.6 Phase 1) -----
+    def _toggle_appearance(self):
+        """Flip the remembered Light/Dark setting and refresh live dialogs.
+
+        The outer shell built above is never touched: only the separate
+        compact bundle app-owned dialogs use. ``appearance.toggle_appearance``
+        reconfigures the ``Compact.*`` ttk styles in place and notifies every
+        registered listener, so nothing here destroys or rebuilds a widget.
+        """
+        self.appearance_bundle = appearance.toggle_appearance(self.style, root=self.root)
+        if self.appearance_button is not None:
+            self.appearance_button.configure(
+                text=_appearance_toggle_label(self.appearance_bundle["appearance"])
+            )
+        self._set_status(
+            f"Appearance: {self.appearance_bundle['appearance'].capitalize()}."
+        )
+
+    def _on_appearance_changed(self, bundle: dict) -> None:
+        """Fan the new bundle out to whichever owned dialog is open right now."""
+        try:
+            alive = self.preferences_dialog is not None and self.preferences_dialog.winfo_exists()
+        except tk.TclError:
+            alive = False
+        if alive:
+            self.preferences_dialog.apply_appearance(bundle)
 
     def close_for_downloaded_data(self):
         """Shut the app down so the separate helper can clear the selected data.
@@ -489,7 +567,7 @@ class LauncherApp:
         """Report what the last clearing run did — once, and never fatally."""
         try:
             return preferences_ui.present_cleanup_result(
-                self.root, self.theme, logger=self.logger
+                self.root, self.appearance_bundle, logger=self.logger
             )
         except Exception:
             self.logger.exception("Could not present the downloaded-data report")
@@ -499,7 +577,7 @@ class LauncherApp:
         """Report configuration diagnostics once per launch. Never fatal."""
         try:
             summary = preferences_ui.present_launch_warnings(
-                self.root, self.theme, logger=self.logger
+                self.root, self.appearance_bundle, logger=self.logger
             )
         except Exception:
             # A warning about configuration must never itself break the launch.

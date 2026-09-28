@@ -2,6 +2,82 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 1 COMPLETE: SHARED APPEARANCE FOUNDATION + SHELL TOGGLE (2026-09-27)
+>
+> **This block records Phase 1 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,
+> executed on `feature/0.6.6-ui-parity-hardening-release` from the Phase 0 checkpoint
+> `02dd2e12671cb606a02f160336699c03067a7702`.** It supersedes nothing below on facts — Phase 0's
+> merge/reassignment record and every historical block beneath it stand unchanged — it only adds
+> the next phase's own record on top, per the plan's "commit/push the phase, update Handoff.md,
+> STOP" rule.
+>
+> **What Phase 1 built, all new and additive — nothing pre-existing was removed or renamed:**
+> - **`shared/appearance.py`** (new module): one remembered `"light"`/`"dark"` setting, persisted
+>   through `shared.settings` under the key `"appearance"` (never `config.toml`), defaulting to
+>   `"light"` on a fresh install or an unrecognised stored value. `LIGHT_COLORS`/`DARK_COLORS` are
+>   two full semantic palettes (mirroring `ui_theme._WINDOWS_COLORS`'s vocabulary), each held to the
+>   exact same WCAG contrast bar `test_ui_theme.py` holds the `ACT.*` palette to. A full `Compact.*`
+>   ttk style catalogue (frames/labels/buttons/entries/combobox/spinbox/checkbutton/radiobutton/
+>   labelframe/notebook/progressbar/scrollbar/treeview/separator) clones the same `clam` elements
+>   `ui_theme.py` clones for `ACT.*`, under a disjoint `Compact.*` prefix — proven non-colliding with
+>   `ACT.*` and with every generic style name in both directions. On macOS no ttk style is registered
+>   at all (`ttk_active=False`); native aqua rendering is untouched, exactly like the existing
+>   `ACT.*`-degrades-to-`""` pattern. `style_tk_widget()` colors classic Tk widgets (Canvas/Listbox/
+>   Text) on any platform. A module-level listener registry plus `toggle_appearance(style)` give the
+>   state-preserving refresh path: `ttk.Style.configure` repaints every already-built `Compact.*`
+>   widget in place (no destroy, no lost state); a listener callback covers the one thing style
+>   mutation cannot reach — a `Toplevel`'s own raw background.
+> - **`launcher.py`**: builds `self.style`/`self.appearance_bundle` at startup (fully separate from
+>   `self.theme`, the unchanged `ui_theme` shell bundle) and adds one status-bar toggle button
+>   (`self.appearance_button`, "☾ Dark mode" / "☀ Light mode") beside Preferences & Data in **all
+>   three** shell branches (classic, Windows — using the shell's own existing `ghost_button` style,
+>   Darwin — an unstyled native aqua button). `_toggle_appearance` flips + persists + refreshes in
+>   place; `_on_appearance_changed` fans the new bundle out to the live Preferences dialog (and its
+>   nested cleanup dialog) if one is open. The outer shell itself — sidebar, header, status bar
+>   chrome — is untouched by any of this, per the frozen contract's "substantially unchanged" rule.
+> - **`preferences_ui.py`**: every dialog (`PreferencesDialog`, `CleanupDialog`,
+>   `CleanupConfirmationDialog`, `ConfigWarningDialog`, `CleanupResultDialog`) now receives the new
+>   compact appearance bundle instead of the `ui_theme` shell bundle from every launcher call site,
+>   making Preferences & Data (and its siblings) the Phase 1 "app-owned dialog" the frozen contract
+>   requires — this is the intended appearance-system consumer, not a workaround. The one background-
+>   setting gate in each class changed from `theme.get("mode") == "windows"` to `theme.get("ttk_active")`,
+>   which is platform-general rather than Windows-specific and is exactly what the new bundle's
+>   `ttk_active` flag exists for. Each class gained a small `apply_appearance(bundle)` method for the
+>   live-refresh path. No business logic in this file changed at all.
+>
+> **Explicitly not done, per the plan's Phase 1 boundary:** no individual tool-panel layout was
+> touched; no Family A/B conversion; no Activity/importer contract (Phase 2). The `Compact.*` catalogue
+> is deliberately more complete than Preferences & Data alone needs (notebook/treeview/progressbar/
+> scrollbar are unused this phase) so Phases 2–8 have a ready-made primitive set and never need to
+> revisit this module's foundations.
+>
+> **Verification:** `files/tests/test_appearance.py` (new, 26 tests) — settings round-trip/defaults/
+> invalid-value guards, palette structure + WCAG contrast, live `ttk.Style` registration isolation
+> from both generic styles and `ACT.*` (in both directions, on the same live `Style` object exactly as
+> the launcher does at startup), the state-preserving refresh path (same style names, changed colors,
+> a live widget's own Tk variable and style name provably untouched across a refresh), the
+> `style_tk_widget` primitive, and the listener registry (register/unregister/idempotent-register/a
+> raising listener not blocking the others/`toggle_appearance` end-to-end). Full existing suite
+> re-run clean: `test_appearance.py` + `test_preferences_ui.py` + `test_ui_theme.py` +
+> `test_settings.py` — **148 passed, 2 skipped** (platform-guarded, pre-existing), 0 failed.
+> `test_launcher_smoke.py` — 10 of 11 pass; the one exception
+> (`test_narrowed_nav_rail_still_fits_every_tool_name`) fails at a **session-scoped teardown check**
+> for a real-log-directory write, **reproduced identically on the unmodified Phase 0 checkpoint**
+> (confirmed via `git stash`) — a pre-existing `logging_setup`/test-isolation gap in that module,
+> unrelated to this phase, not touched here. `git diff --check` shows only this repo's known
+> CRLF-related whitespace noise (see Phase 0's record) on the Markdown files; the touched Python
+> files carry no real trailing whitespace. No full `verify.py` run — no concrete reason surfaced.
+>
+> **Nothing else is authorized here.** No individual tool layout, no Phase 2 work, no version bump,
+> tag, release or merge. Version identity remains `0.6.2`, unreleased.
+>
+> **Manual gate for the maintainer (Phase 1's own gate, from the plan):** see the report accompanying
+> this checkpoint's commit for the exact steps — shell chrome unchanged, the toggle's initial label,
+> Preferences & Data rendering in the compact Light palette, a live toggle refreshing the open dialog
+> to Dark with no state lost, persistence across a close/reopen and a relaunch, and the reverse.
+>
+> — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 1 authorization.
+
 > ## CURRENT STATE — PULL REQUEST #12 MERGED; v0.6.5 COMPLETE AND INTEGRATED; PLAN 9 REASSIGNED TO v0.6.6 (2026-09-27)
 >
 > **This block supersedes every statement below that calls `feature/0.6.5-tts-quality-refactor`
