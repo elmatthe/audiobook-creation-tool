@@ -238,13 +238,20 @@ def replacement_button_label(count: int) -> str:
             else f"Replace {count} Original Files")
 
 
-def build_replacement_dialog(parent, title: str, message: str, confirm_label: str):
+def build_replacement_dialog(parent, title: str, message: str, confirm_label: str,
+                             theme: dict | None = None):
     """Build the confirmation window and return it, without waiting on it.
 
     Separated from :func:`_ask_replacement` purely so the suite can inspect the
     wording, the focused widget and each button's effect without driving a
     modal event loop, which is unreliable headlessly. The window carries its own
     ``result`` dict, so a test reads the same answer the modal caller would.
+
+    ``theme`` is the v0.6.6 compact appearance bundle. This is an app-owned
+    dialog under the frozen contract, so it follows Light/Dark like the rest of
+    the panel that opens it; a raw ``Toplevel``'s own background is the one
+    thing a ttk style-name mutation cannot reach, so it is set directly here
+    rather than left to repaint itself later.
     """
     answer = {"ok": False}
     win = tk.Toplevel(parent)
@@ -254,14 +261,21 @@ def build_replacement_dialog(parent, title: str, message: str, confirm_label: st
     except tk.TclError:
         pass
     win.resizable(False, False)
+    colors = (theme or {}).get("colors") or {}
+    if colors:
+        try:
+            win.configure(background=colors["window"])
+        except tk.TclError:
+            pass
 
-    body = ttk.Frame(win, padding=16)
+    body = ttk.Frame(win, padding=16, style=job_ui.style_name(theme, "window"))
     body.pack(fill=tk.BOTH, expand=True)
-    label = ttk.Label(body, text=message, wraplength=460, justify="left")
+    label = ttk.Label(body, text=message, wraplength=460, justify="left",
+                      style=job_ui.style_name(theme, "label"))
     label.pack(anchor="w")
     win.label_message = label
 
-    actions = ttk.Frame(body)
+    actions = ttk.Frame(body, style=job_ui.style_name(theme, "window"))
     actions.pack(anchor="e", pady=(16, 0))
 
     def cancel(*_a):
@@ -272,9 +286,11 @@ def build_replacement_dialog(parent, title: str, message: str, confirm_label: st
         answer["ok"] = True
         win.destroy()
 
-    btn_cancel = ttk.Button(actions, text="Cancel", command=cancel)
+    btn_cancel = ttk.Button(actions, text="Cancel", command=cancel,
+                            style=job_ui.style_name(theme, "button"))
     btn_cancel.pack(side=tk.RIGHT)
-    btn_confirm = ttk.Button(actions, text=confirm_label, command=confirm)
+    btn_confirm = ttk.Button(actions, text=confirm_label, command=confirm,
+                             style=job_ui.style_name(theme, "danger_button"))
     btn_confirm.pack(side=tk.RIGHT, padx=(0, 8))
     # Exposed so a headless test can drive the dialog without a display server.
     win.btn_cancel = btn_cancel
@@ -292,7 +308,8 @@ def build_replacement_dialog(parent, title: str, message: str, confirm_label: st
     return win
 
 
-def _ask_replacement(parent, title: str, message: str, confirm_label: str) -> bool:
+def _ask_replacement(parent, title: str, message: str, confirm_label: str,
+                     theme: dict | None = None) -> bool:
     """A modal confirm whose safe answer is the default and holds focus.
 
     Deliberately not ``messagebox.askyesno``: the destructive action needs its
@@ -301,7 +318,7 @@ def _ask_replacement(parent, title: str, message: str, confirm_label: str) -> bo
     both cancel, and the window is rebuilt for every run — there is nothing to
     remember, suppress or reuse.
     """
-    win = build_replacement_dialog(parent, title, message, confirm_label)
+    win = build_replacement_dialog(parent, title, message, confirm_label, theme=theme)
     try:
         win.grab_set()
     except tk.TclError:
@@ -799,10 +816,13 @@ class CoverBrowser:
         max_visible: int = MAX_VISIBLE_ITEMS,
         height: int = 8,
         on_selection_change=None,
+        theme: dict | None = None,
     ) -> None:
         self._guard = job_ui.MainThreadGuard(thread_id)
         self._manager = manager
         self._pump = pump
+        self._theme = theme
+        self._colors = (theme or {}).get("colors") or {}
         self._runner = run_previews_in_thread if runner is None else runner
         self._viewport = viewport
         self._thumbnail_size = int(thumbnail_size)
@@ -833,21 +853,24 @@ class CoverBrowser:
             limit=THUMBNAIL_CACHE_LIMIT if cache_limit is None else cache_limit)
 
         # --- widgets ------------------------------------------------------- #
-        self.frame = ttk.LabelFrame(parent, text="Imported images")
+        self.frame = ttk.LabelFrame(
+            parent, text="Imported images", style=job_ui.style_name(theme, "labelframe"))
 
-        switch = ttk.Frame(self.frame)
+        switch = ttk.Frame(self.frame, style=job_ui.style_name(theme, "surface"))
         switch.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(4, 2))
-        ttk.Label(switch, text="View:").pack(side=tk.LEFT)
+        ttk.Label(switch, text="View:", style=job_ui.style_name(theme, "label")).pack(
+            side=tk.LEFT)
         self.var_view = tk.StringVar(value=DEFAULT_VIEW)
         self.view_buttons: dict[str, ttk.Radiobutton] = {}
         for view_id, label in BROWSER_VIEWS:
             button = ttk.Radiobutton(
                 switch, text=label, value=view_id, variable=self.var_view,
-                command=lambda chosen=view_id: self.set_view(chosen))
+                command=lambda chosen=view_id: self.set_view(chosen),
+                style=job_ui.style_name(theme, "radiobutton"))
             button.pack(side=tk.LEFT, padx=(8, 0))
             self.view_buttons[view_id] = button
 
-        self.body = ttk.Frame(self.frame)
+        self.body = ttk.Frame(self.frame, style=job_ui.style_name(theme, "surface"))
         self.body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=(0, 6))
         self.body.rowconfigure(0, weight=1)
         self.body.columnconfigure(0, weight=1)
@@ -877,7 +900,7 @@ class CoverBrowser:
     # -- construction helpers ---------------------------------------------- #
 
     def _page(self, view_id: str) -> ttk.Frame:
-        page = ttk.Frame(self.body)
+        page = ttk.Frame(self.body, style=job_ui.style_name(self._theme, "surface"))
         page.grid(row=0, column=0, sticky="nsew")
         page.rowconfigure(0, weight=1)
         page.columnconfigure(0, weight=1)
@@ -893,19 +916,22 @@ class CoverBrowser:
         """
         page = self._page(view_id)
         tree = ttk.Treeview(page, columns=list(columns), show="headings",
-                            selectmode="none", height=height)
+                            selectmode="none", height=height,
+                            style=job_ui.style_name(self._theme, "treeview"))
         tree.grid(row=0, column=0, sticky="nsew")
-        bar = ttk.Scrollbar(page, orient="vertical", command=tree.yview)
+        bar = ttk.Scrollbar(page, orient="vertical", command=tree.yview,
+                            style=job_ui.style_name(self._theme, "vscrollbar"))
         bar.grid(row=0, column=1, sticky="ns")
         tree.configure(yscrollcommand=self._scroll_reporter(bar))
         return tree
 
     def _tile_canvas(self, view_id: str) -> tk.Canvas:
         page = self._page(view_id)
-        canvas = tk.Canvas(page, highlightthickness=0, takefocus=True,
-                           background="white")
+        canvas = tk.Canvas(page, highlightthickness=0, takefocus=True)
+        job_ui.style_tk_widget(canvas, self._theme, "field")
         canvas.grid(row=0, column=0, sticky="nsew")
-        bar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
+        bar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview,
+                            style=job_ui.style_name(self._theme, "vscrollbar"))
         bar.grid(row=0, column=1, sticky="ns")
         canvas.configure(yscrollcommand=self._scroll_reporter(bar))
         # ``ttk.Treeview`` gets <MouseWheel> from its Tk *class* bindings, which is
@@ -1129,6 +1155,24 @@ class CoverBrowser:
         self._consume()
         return self._order
 
+    def apply_appearance(self, theme: dict | None) -> None:
+        """Re-color the raw ``Canvas`` in place, and redraw its tiles.
+
+        Every ``ttk``-styled widget above (the ``Radiobutton``\\ s, the
+        ``Treeview``\\ s, the frames) already repainted itself the moment
+        ``shared.appearance`` reconfigured the ``Compact.*`` styles the
+        constructor named. The thumbnail canvas is classic Tk and its tile
+        colors are baked into each ``create_rectangle``/``create_text`` call at
+        draw time, so both need this explicit call.
+        """
+        self._guard.require("apply_appearance")
+        self._theme = theme
+        self._colors = (theme or {}).get("colors") or {}
+        if self._closed:
+            return
+        job_ui.style_tk_widget(self.canvas, theme, "field")
+        self._render_tiles()
+
     def _render_rows(self, snapshot) -> None:
         if self._view == VIEW_THUMBNAILS:
             self._render_tiles()
@@ -1186,7 +1230,9 @@ class CoverBrowser:
             if occurrence_id in selected:
                 self.canvas.create_rectangle(
                     left + 2, top + 2, left + cell - 2, top + cell_height - 2,
-                    fill="#cde3f7", outline="#3b7dd8", tags=("tile", occurrence_id))
+                    fill=self._colors.get("selection", "#cde3f7"),
+                    outline=self._colors.get("accent", "#3b7dd8"),
+                    tags=("tile", occurrence_id))
                 painted.append(occurrence_id)
             self.canvas.create_image(
                 left + cell // 2, top + cell // 2,
@@ -1196,7 +1242,8 @@ class CoverBrowser:
             if source is not None:
                 self.canvas.create_text(
                     left + cell // 2, top + cell_height - THUMBNAIL_LABEL_HEIGHT // 2,
-                    text=source.name, width=cell - 6, tags=("tile", occurrence_id))
+                    text=source.name, width=cell - 6, tags=("tile", occurrence_id),
+                    fill=self._colors.get("text", "black"))
         self._tiles = tuple(visible)
         self._tile_selection = tuple(painted)
         rows = math.ceil(len(self._order) / columns) if self._order else 0
@@ -1682,21 +1729,31 @@ class CoverResizerUI(ttk.Frame):
         viewport=None,
         cache_limit=None,
         job_runner=None,
+        appearance_bundle: dict | None = None,
     ):
-        super().__init__(parent)
+        # v0.6.6 Phase 2 (remediated per the maintainer's 2026-09-27 ruling —
+        # see Decisions.md): this whole panel's *interior* now uses the compact
+        # Compact.* control language every widget below is built with, the same
+        # visual language TTS is the reference for -- not only the two shared
+        # job_ui components a first pass limited itself to. That first pass left
+        # every other widget here classic/native, which is coherent in Light but
+        # leaves large unstyled light regions inside an otherwise-Dark panel; the
+        # ruling is explicit that no app-owned tool interior may do that. Full
+        # Family-A *layout* reorganization is still Phase 5's job -- nothing
+        # below moves a grid position, only what each widget is styled with.
+        # ``appearance_bundle`` is a seam like every other keyword above: the
+        # production default reads the real remembered setting, and the suite
+        # may inject an exact Light or Dark bundle to check coherence
+        # deterministically, without touching real settings state.
+        if appearance_bundle is None:
+            appearance_bundle = appearance.build_bundle(
+                ttk.Style(parent), appearance.get_appearance(),
+                root=parent.winfo_toplevel())
+        self.appearance_bundle = appearance_bundle
+        super().__init__(parent, style=job_ui.style_name(self.appearance_bundle, "window"))
+        appearance.register_listener(self._on_appearance_changed)
 
         self._closed = False
-        # v0.6.6 Phase 2: this panel still "stays classic" for its own chrome --
-        # full Family-A adoption is Phase 5's job -- but the shared Activity
-        # (job_ui.JobAdapter, below) and importer (job_ui.ImportAdapter, below)
-        # primitives this panel already builds are proved here on the live
-        # compact palette, exactly what the "Converting it to the namespaced
-        # design system belongs to Plan 9" comments those two call sites used to
-        # carry were waiting for. Plan 9 is this plan, v0.6.6.
-        self.appearance_bundle = appearance.build_bundle(
-            ttk.Style(parent), appearance.get_appearance(),
-            root=parent.winfo_toplevel())
-        appearance.register_listener(self._on_appearance_changed)
 
         # Cancellation / worker plumbing (mirrors the TTS tool's pattern). This
         # event belongs to the *processing* run and to nothing else: `Cancel
@@ -1830,24 +1887,28 @@ class CoverResizerUI(ttk.Frame):
             viewport=viewport,
             cache_limit=cache_limit,
             on_selection_change=self._on_browser_selection,
+            theme=self.appearance_bundle,
         )
         self.browser.frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 6))
 
         # Options. The form itself is untouched — same LabelFrame, same grid of
         # controls, same variables — it simply lives on a scrollable canvas now
         # so a short window hides none of it.
-        options_wrap = ttk.Frame(self)
+        options_wrap = ttk.Frame(self, style=job_ui.style_name(self.appearance_bundle, "window"))
         options_wrap.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
         options_wrap.rowconfigure(0, weight=1)
         options_wrap.columnconfigure(0, weight=1)
         options_canvas = tk.Canvas(options_wrap, highlightthickness=0, borderwidth=0)
+        job_ui.style_tk_widget(options_canvas, self.appearance_bundle, "surface")
         options_canvas.grid(row=0, column=0, sticky="nsew")
         options_sb = ttk.Scrollbar(
-            options_wrap, orient="vertical", command=options_canvas.yview)
+            options_wrap, orient="vertical", command=options_canvas.yview,
+            style=job_ui.style_name(self.appearance_bundle, "vscrollbar"))
         options_sb.grid(row=0, column=1, sticky="ns")
         options_canvas.configure(yscrollcommand=options_sb.set)
 
-        options_form = ttk.Frame(options_canvas)
+        options_form = ttk.Frame(
+            options_canvas, style=job_ui.style_name(self.appearance_bundle, "surface"))
         _options_window = options_canvas.create_window(
             (0, 0), window=options_form, anchor="nw")
 
@@ -1867,17 +1928,20 @@ class CoverResizerUI(ttk.Frame):
 
         self.options_canvas = options_canvas
         options = ttk.LabelFrame(
-            options_form, text="Resize Options (applies to all images)")
+            options_form, text="Resize Options (applies to all images)",
+            style=job_ui.style_name(self.appearance_bundle, "labelframe"))
         options.pack(side=tk.TOP, fill=tk.BOTH, expand=True, ipady=4)
 
         row = 0
 
-        ttk.Label(options, text="Target size (square, px):").grid(
+        ttk.Label(options, text="Target size (square, px):",
+                  style=job_ui.style_name(self.appearance_bundle, "label")).grid(
             row=row, column=0, sticky="w", padx=8, pady=4
         )
         self.var_size = tk.IntVar(value=TARGET_SIZE)
         self.entry_size = ttk.Spinbox(
-            options, from_=256, to=4096, textvariable=self.var_size, width=6, increment=64
+            options, from_=256, to=4096, textvariable=self.var_size, width=6, increment=64,
+            style=job_ui.style_name(self.appearance_bundle, "spinbox"),
         )
         self.entry_size.grid(row=row, column=1, sticky="w", padx=8, pady=4)
 
@@ -1887,6 +1951,7 @@ class CoverResizerUI(ttk.Frame):
             options,
             text="Keep full image (letterbox into square, no cropping)",
             variable=self.var_letterbox,
+            style=job_ui.style_name(self.appearance_bundle, "checkbutton"),
         )
         self.chk_letterbox.grid(
             row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 4)
@@ -1903,6 +1968,7 @@ class CoverResizerUI(ttk.Frame):
             text=SOURCE_SIDE_LABEL,
             variable=self.var_source_side,
             command=self._on_source_side_change,
+            style=job_ui.style_name(self.appearance_bundle, "checkbutton"),
         )
         self.chk_source_side.grid(
             row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 2)
@@ -1915,6 +1981,7 @@ class CoverResizerUI(ttk.Frame):
             text="Create numbered copies",
             variable=self.var_source_action,
             value=ACTION_NUMBERED,
+            style=job_ui.style_name(self.appearance_bundle, "radiobutton"),
         )
         self.rb_numbered.grid(row=row, column=0, columnspan=3, sticky="w",
                               padx=(28, 8), pady=(0, 1))
@@ -1924,17 +1991,20 @@ class CoverResizerUI(ttk.Frame):
             text="Replace original files",
             variable=self.var_source_action,
             value=ACTION_REPLACE,
+            style=job_ui.style_name(self.appearance_bundle, "radiobutton"),
         )
         self.rb_replace.grid(row=row, column=0, columnspan=3, sticky="w",
                              padx=(28, 8), pady=(0, 8))
         self._on_source_side_change()
 
         row += 1
-        ttk.Label(options, text="Output folder:").grid(
+        ttk.Label(options, text="Output folder:",
+                  style=job_ui.style_name(self.appearance_bundle, "label")).grid(
             row=row, column=0, sticky="e", padx=8, pady=(2, 2)
         )
         self.entry_outdir = ttk.Entry(
-            options, textvariable=self.var_outdir, state="readonly"
+            options, textvariable=self.var_outdir, state="readonly",
+            style=job_ui.style_name(self.appearance_bundle, "entry"),
         )
         self.entry_outdir.grid(row=row, column=1, columnspan=2, sticky="we",
                                padx=8, pady=(2, 2))
@@ -1943,32 +2013,38 @@ class CoverResizerUI(ttk.Frame):
             options,
             text="Each resize gets its own numbered run folder here. "
                  "Change the location in Preferences & Data.",
+            style=job_ui.style_name(self.appearance_bundle, "secondary_label"),
         ).grid(row=row, column=1, columnspan=2, sticky="w", padx=8, pady=(0, 8))
 
         # Start. Pause, Resume, Cancel and the retry control belong to the shared
         # control bar below, which offers each of them exactly when the approved
         # availability rules say it is meaningful.
-        action = ttk.Frame(self)
+        action = ttk.Frame(self, style=job_ui.style_name(self.appearance_bundle, "window"))
         action.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
-        self.btn_convert = ttk.Button(action, text="Resize Covers", command=self.start_resize)
+        self.btn_convert = ttk.Button(
+            action, text="Resize Covers", command=self.start_resize,
+            style=job_ui.style_name(self.appearance_bundle, "primary_button"))
         self.btn_convert.pack(side=tk.LEFT)
 
         # The shared run controls, progress, estimate and Summary/Details live
         # here. The adapter is rebuilt for each run — one run, one event stream,
         # one estimate — so this container holds its place in the layout.
-        self.job_area = ttk.Frame(self)
+        self.job_area = ttk.Frame(self, style=job_ui.style_name(self.appearance_bundle, "window"))
         self.job_area.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 6))
 
         # The panel's own run log, unchanged. It is the raw transcript of what the
         # worker did; Summary and Details above are the shared projections of the
         # run's events, and neither is a copy of the other.
-        logf = ttk.LabelFrame(self, text="Log")
+        logf = ttk.LabelFrame(
+            self, text="Log", style=job_ui.style_name(self.appearance_bundle, "labelframe"))
         logf.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         self.log = tk.Text(logf, height=4, wrap="word")
+        job_ui.style_tk_widget(self.log, self.appearance_bundle, "log")
         self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
+        sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview,
+                            style=job_ui.style_name(self.appearance_bundle, "vscrollbar"))
         sb2.pack(side=tk.RIGHT, fill=tk.Y)
         self.log.configure(yscrollcommand=sb2.set)
 
@@ -2224,6 +2300,7 @@ class CoverResizerUI(ttk.Frame):
             REPLACEMENT_TITLE,
             replacement_message(count),
             replacement_button_label(count),
+            theme=self.appearance_bundle,
         )
 
     def _gate_replacement(self, files):
@@ -2493,14 +2570,22 @@ class CoverResizerUI(ttk.Frame):
         self.disable_inputs(False)
 
     def _on_appearance_changed(self, bundle: dict) -> None:
-        """Re-color the raw Tk widgets a ttk style-name mutation cannot reach.
+        """Re-color every raw Tk widget a ttk style-name mutation cannot reach.
 
-        Everything ``self.importer`` and (if a run is on screen) ``self.jobs``
-        built through ``style_name`` from ``self.appearance_bundle`` already
+        v0.6.6 Phase 2 remediation (2026-09-27 maintainer ruling — see
+        Decisions.md): this panel's entire interior is now built from
+        ``self.appearance_bundle``, so almost everything below already
         repainted itself the moment ``shared.appearance`` reconfigured the
-        ``Compact.*`` styles in place. Only the imported-file ``Listbox`` inside
-        ``self.importer.list`` and, while a run is live, its own log's two
-        ``Text`` widgets are classic Tk and need this explicit call.
+        ``Compact.*`` styles in place — that includes every ``Radiobutton``,
+        ``Checkbutton``, ``Entry``, ``Spinbox``, ``Labelframe``, ``Treeview``
+        and ``Button`` this class or :class:`CoverBrowser` built with a style
+        name. Only the classic Tk widgets that were colored directly rather
+        than through a ttk style need this explicit call: the imported-file
+        ``Listbox`` inside ``self.importer.list``; the browser's thumbnail
+        ``Canvas`` (:meth:`CoverBrowser.apply_appearance`, which also redraws
+        its tiles' baked-in selection/text colors); the scrollable options
+        form's own ``Canvas``; this panel's raw run-log ``Text``; and, while a
+        run is on screen, its shared log's two ``Text`` widgets.
         """
         self.appearance_bundle = bundle
         if self._closed:
@@ -2508,6 +2593,15 @@ class CoverResizerUI(ttk.Frame):
         importer = getattr(self, "importer", None)
         if importer is not None:
             importer.list.apply_appearance(bundle)
+        browser = getattr(self, "browser", None)
+        if browser is not None and not browser.closed:
+            browser.apply_appearance(bundle)
+        options_canvas = getattr(self, "options_canvas", None)
+        if options_canvas is not None:
+            job_ui.style_tk_widget(options_canvas, bundle, "surface")
+        log = getattr(self, "log", None)
+        if log is not None:
+            job_ui.style_tk_widget(log, bundle, "log")
         jobs = getattr(self, "jobs", None)
         if jobs is not None and not jobs.closed:
             jobs.views.apply_appearance(bundle)

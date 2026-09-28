@@ -4,6 +4,74 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-27 -- TTS is the visual-control reference for every tool interior, not only layout; Dark mode must theme an app-owned tool interior coherently, with no leftover native/light regions; v0.6.6 Phase 2 remediated on this ruling
+
+**Decision (v0.6.6 -- UI Parity, Hardening & Release, Phase 2 remediation).** The maintainer's manual
+gate on the original Phase 2 checkpoint (`0ab862d`) **failed**. That checkpoint had wired only the two
+shared `job_ui` Activity/importer components on Cover Image Resizer to the new compact appearance
+bundle, leaving every other widget on the panel -- the browser's three views, the resize-options form,
+the output/action row, the panel's own run log -- classic/native. In Light that read as coherent; in
+Dark it left large unstyled light/white regions inside an otherwise-Dark tool, made worse by a
+thumbnail canvas literally hardcoded `background="white"` and a selection-highlight tile painted with
+two hardcoded hex colors. The maintainer's ruling, now authoritative for the rest of v0.6.6:
+
+- **TTS Audiobook is the visual-control reference for every tool interior, not only the layout
+  reference** the frozen contract already named it. Every tool's compact ttk-style buttons,
+  entries/text boxes, check/radio controls, labels and section treatment converge on the same
+  control language TTS uses.
+- **Dark mode must theme an entire app-owned tool interior coherently.** No large light/white panel
+  region may remain inside a Dark tool. Partial theming -- some widgets on the compact bundle, the
+  rest left native -- is exactly the defect this ruling forbids, not an acceptable intermediate state.
+- **Cover Image Resizer's prior oversized/ACT-like presentation must not become the project standard.**
+  The compact system's own metrics (already smaller than `ACT.*`'s -- e.g. `button_pad (10, 4)` vs
+  `ACT.*`'s `(14, 7)`) were not the actual problem; a colored, bordered "card" island floating inside
+  an otherwise-native panel reads as boxy/ACT-like regardless of its own padding, purely from the
+  contrast with everything left unstyled around it. Full-surface coverage removes that contrast.
+- The outer launcher shell remains substantially unchanged, as the frozen contract already states;
+  this ruling is about each tool's own interior, not the shell.
+
+**Remediation applied, bounded to Cover Image Resizer (the plan's Family-A/simple representative) and
+the shared primitives it and every other tool already draw from:**
+
+- `shared/job_ui.py`'s `style_tk_widget`/`bind_list_shortcuts` and the `Compact.*` catalogue in
+  `shared/appearance.py` needed no changes -- both were already correct and already more compact than
+  `ACT.*`. The defect was coverage, not the primitives.
+- `mp3_tools/cover_resizer.py`: every widget the panel or its `CoverBrowser` builds now carries a
+  `style=` resolved through `job_ui.style_name(self.appearance_bundle, ...)` -- the panel's own frame,
+  the browser's `LabelFrame`/`Radiobutton`s/`Treeview`s, the resize-options form's `Spinbox`/
+  `Checkbutton`s/`Radiobutton`s/`Entry`/`Label`s, the primary action button, and the panel's own raw run
+  log. The thumbnail canvas's hardcoded `background="white"` and the selection tile's two hardcoded hex
+  colors are gone, replaced by `job_ui.style_tk_widget(..., "field")` and the live `colors` dict. The
+  destructive replacement confirmation dialog (an app-owned `Toplevel`) now takes and follows the same
+  bundle. A live appearance toggle re-colors every classic Tk widget in place via a new
+  `CoverBrowser.apply_appearance()` alongside the panel's own `_on_appearance_changed`, mirroring the
+  Phase 1 pattern. `CoverResizerUI` gained an `appearance_bundle` constructor seam (production default:
+  the real remembered setting) so the suite can inject an exact Light or Dark bundle deterministically.
+- **Phase 5's own layout reorganization was explicitly not performed.** No grid/pack position moved;
+  every edit only changed what a widget is styled with, per this remediation's own bound.
+- Two AST-based regression tests in `files/tests/test_cover_browser.py` guard the structural half of
+  this from regressing: every `style=` keyword anywhere in the module must resolve through
+  `style_name(...)`, never a literal string, and no classic-widget color keyword
+  (`background`/`foreground`/`fill`/`outline`) may carry a literal hex or named-color string. A new
+  `files/tests/test_cover_appearance.py` proves the coherence half against a real panel built on an
+  explicit Dark bundle: the panel's own background, every resize-option control, the browser's three
+  views including the thumbnail canvas, the panel's run log, and the selection-tile colors all resolve
+  to the Dark palette -- plus the live in-place toggle path, state preserved.
+
+**Why:** a partially-themed panel is a worse outcome than a wholly-native one, because it reads as
+broken rather than merely unconverted -- and it was specifically what the maintainer's manual gate
+exists to catch before the pattern is repeated across five more tools in Phases 3/4/6/7/8.
+
+**Consequences:** `md-instructions/0.6.6-ui-parity-hardening-release.md` gains a dated clarification
+appended to its Frozen UI Contract, not a rewrite of the original text, recording this ruling as binding
+on every remaining phase. `Handoff.md` records the remediation checkpoint. No other tool panel was
+broadly converted by this remediation; Phases 3/4/6/7/8 apply this same clarified standard to TTS,
+Converter, MP3 Tool, Maker and Metadata Editor respectively, each against its own full interior, not
+only its shared components. Application version identity remains `0.6.2`, unreleased. No merge, tag,
+package, or release occurred.
+
+---
+
 ## 2026-09-27 -- Pull request #12 confirmed merged (v0.6.5 TTS Quality Refinement complete and integrated); Plan 9 reassigned to v0.6.6 as the final v0.6.x implementation plan; the frozen UI-parity contract is recorded as the active direction
 
 **Decision (v0.6.6 -- UI Parity, Hardening & Release, Phase 0).** Fresh `git fetch origin` confirmed

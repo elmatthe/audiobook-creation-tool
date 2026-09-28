@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import ast
 import queue
+import re
 import threading
 from pathlib import Path
 
@@ -1132,15 +1133,69 @@ def test_no_phase_five_vocabulary_entered_the_panel():
         assert forbidden not in source, forbidden
 
 
-def test_the_panel_still_names_no_namespaced_style():
-    """Cover stays a classic Windows panel until the conversion plan says otherwise."""
+def test_every_style_keyword_resolves_through_style_name_not_a_literal():
+    """v0.6.6 Phase 2 remediation (2026-09-27 maintainer ruling — see
+    Decisions.md) supersedes this test's own prior assertion, kept here under
+    its old phase-ordering role: this used to check the browser set *no* ttk
+    style at all, back when Cover stayed classic pending the conversion plan.
+    The maintainer's ruling is explicit that an app-owned tool interior may not
+    leave large unstyled regions inside a Dark shell, so Cover's own chrome is
+    now styled throughout — what this checks instead is that every single
+    ``style=`` keyword this module writes, anywhere, calls
+    ``job_ui.style_name(...)`` rather than naming a literal style string. A
+    literal would be exactly the "generic-style leakage" §5.2 elsewhere in this
+    project forbids: a hardcoded ``"TButton"`` cannot degrade to native
+    rendering on aqua the way ``style_name(theme, "button")`` does, and a
+    hardcoded ``"ACT.something"`` would silently resurrect the retired system
+    this panel is not part of. ``ACT.`` itself must still never appear.
+    """
     source = PANEL_SOURCE.read_text(encoding="utf-8")
     assert "ACT" + "." not in source
-    browser = class_named("CoverBrowser")
-    styled = [
-        keyword for node in ast.walk(browser)
-        if isinstance(node, ast.Call)
-        for keyword in node.keywords
-        if keyword.arg == "style"
-    ]
-    assert styled == [], "the browser sets no ttk style at all"
+    checked = 0
+    for node in ast.walk(panel_tree()):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "style":
+                continue
+            checked += 1
+            value = keyword.value
+            assert isinstance(value, ast.Call), (
+                f"style= must call style_name(...), found {ast.dump(value)}")
+            func = value.func
+            resolves = (
+                (isinstance(func, ast.Attribute) and func.attr == "style_name")
+                or (isinstance(func, ast.Name) and func.id == "style_name"))
+            assert resolves, f"style= must resolve through style_name, found {ast.dump(func)}"
+    # A floor, not an exact count: proves this test is exercising real style=
+    # keywords rather than passing vacuously because none were found at all.
+    assert checked >= 20
+
+
+_COLOR_KEYWORDS = frozenset({"background", "foreground", "fill", "outline"})
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$")
+_NAMED_COLORS = frozenset({"white", "black", "grey", "gray", "red", "blue", "green"})
+
+
+def test_no_hardcoded_color_literal_reaches_a_classic_tk_widget():
+    """Regression guard for the exact defect the 2026-09-27 manual gate found:
+    the thumbnail canvas was ``background="white"`` and its selection tiles
+    were painted with two literal hex strings, both invisible/wrong once the
+    panel could be Dark. Every classic Tk widget's color must come from the
+    live ``colors`` dict (``self._colors``/``job_ui.style_tk_widget``), never a
+    literal, so a future edit cannot reintroduce a fixed-color patch by hand.
+    """
+    for node in ast.walk(panel_tree()):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg not in _COLOR_KEYWORDS:
+                continue
+            value = keyword.value
+            if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+                continue
+            literal = value.value
+            assert not _HEX_COLOR.match(literal), (
+                f"{keyword.arg}= must not be a literal hex color: {literal!r}")
+            assert literal.lower() not in _NAMED_COLORS, (
+                f"{keyword.arg}= must not be a literal color name: {literal!r}")

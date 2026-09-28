@@ -2,6 +2,74 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 2 REMEDIATED: COVER IMAGE RESIZER NOW FULLY COHERENT IN LIGHT/DARK (2026-09-27)
+>
+> **The maintainer's manual gate on the Phase 2 checkpoint below (`0ab862d`) FAILED.** Toggling to
+> Dark only recolored the two shared `job_ui` components that checkpoint had wired (the imported-file
+> list and the Activity log); every other widget on Cover Image Resizer — the browser's three views,
+> the resize-options form, the output/action row, the panel's own run log — stayed classic/native,
+> leaving large light/white regions inside an otherwise-Dark tool. A thumbnail canvas hardcoded to
+> `background="white"` and a selection-highlight tile painted with two hardcoded hex colors made it
+> worse. This block records the remediation. It supersedes nothing on facts below — the Phase 2 block
+> itself, and everything before it, stands as an accurate record of what that checkpoint actually did
+> and why it was judged insufficient; this block only adds the fix and the maintainer's now-binding
+> ruling on top.
+>
+> **The maintainer's ruling, in full, is recorded in `Decisions.md` (2026-09-27, "TTS is the
+> visual-control reference for every tool interior...") and appended to the Frozen UI Contract in
+> `md-instructions/0.6.6-ui-parity-hardening-release.md` (§5, "2026-09-27 clarification"). In short:**
+> TTS Audiobook is the visual-control reference for every tool interior, not only layout — every tool
+> converges on the same compact ttk-style buttons/entries/checks/radios/labels/sections TTS uses. Dark
+> mode must theme an app-owned tool interior coherently; no large light/white region may remain inside
+> a Dark tool. Cover's prior oversized/ACT-like impression must not become the standard — the compact
+> metrics were never actually larger than intended; a partially-styled "card" against native chrome is
+> what reads as boxy/ACT-like, and full-surface coverage removes that contrast without enlarging
+> anything. The outer launcher shell is unaffected; this governs each tool's own interior.
+>
+> **What the remediation changed, bounded to `mp3_tools/cover_resizer.py` — no other tool panel, and
+> no Phase 5 layout reorganization (nothing moved a grid/pack position):**
+> - Every widget the panel or its `CoverBrowser` builds now carries `style=job_ui.style_name(self.
+>   appearance_bundle, ...)`: the panel's own frame, the browser's `LabelFrame`/`Radiobutton`s/
+>   `Treeview`s, the resize-options `Spinbox`/`Checkbutton`s/`Radiobutton`s/`Entry`/`Label`s, the
+>   primary action button, and the panel's raw run log.
+> - The thumbnail canvas's hardcoded `background="white"` and the selection tile's hardcoded
+>   `fill="#cde3f7"`/`outline="#3b7dd8"` are gone, replaced by `job_ui.style_tk_widget(..., "field")`
+>   and the live `colors` dict.
+> - The destructive replacement-confirmation `Toplevel` now takes and follows the same bundle.
+> - `CoverBrowser.apply_appearance()` (new) and the panel's own `_on_appearance_changed` (extended)
+>   re-color every remaining classic Tk widget in place on a live toggle, mirroring Phase 1's pattern.
+> - `CoverResizerUI` gained an `appearance_bundle` constructor seam (production default: the real
+>   remembered setting) so the suite can inject an exact Light or Dark bundle deterministically —
+>   `shared/appearance.py` and `shared/job_ui.py` needed **no** changes; both were already correct and
+>   already more compact than `ACT.*`. The defect was coverage, not the primitives.
+>
+> **Verification:** two new AST-based regression tests in `files/tests/test_cover_browser.py` —
+> every `style=` keyword anywhere in the module must resolve through `style_name(...)`, never a
+> literal string (superseding that file's own prior "the browser sets no ttk style at all" assertion,
+> which this ruling deliberately overturns), and no classic-widget color keyword may carry a literal
+> hex or named-color string. A new `files/tests/test_cover_appearance.py` (6 tests) proves real
+> coherence against a panel built on an explicit Dark bundle: the panel's own background, every
+> resize-option control, the browser's three views including the thumbnail canvas, the run log, and
+> the selection-tile colors all resolve to the Dark palette; plus the live in-place toggle path with
+> state preserved. Full targeted re-run — `test_job_ui.py` + `test_appearance.py` +
+> `test_preferences_ui.py` + `test_ui_theme.py` + `test_mp3_tool_ui.py` + `test_mp3_tool_smoke.py` +
+> `test_mp3_hardening.py` + `test_cover_resizer_smoke.py` + `test_cover_importing.py` +
+> `test_cover_jobs.py` + `test_cover_layout.py` + `test_cover_browser.py` +
+> `test_cover_browser_scroll.py` + `test_cover_source_side.py` + `test_cover_appearance.py` +
+> `test_importing.py` + `test_import_manager.py` + `test_hardening_matrix.py` +
+> `test_prototype_regression.py` + `test_settings.py` — **991 passed, 6 skipped** (platform-guarded,
+> pre-existing), 0 failed. `git diff --check` clean on every touched file. No full `verify.py` run —
+> no concrete reason surfaced.
+>
+> **Nothing else is authorized here.** No other tool panel, no Phase 3+ work, no version bump, tag,
+> release or merge. Version identity remains `0.6.2`, unreleased.
+>
+> **Manual gate for the maintainer (repeat of Phase 2's gate on Cover Image Resizer only):** see the
+> report accompanying this checkpoint's commit — every section of the panel, in both Light and Dark,
+> including a live toggle while the panel is open, with no leftover native/light region anywhere.
+>
+> — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 2 remediation authorization.
+
 > ## CURRENT STATE — v0.6.6 PHASE 2 COMPLETE: SHARED ACTIVITY + IMPORTER/LIST INTERACTION CONTRACTS (2026-09-27)
 >
 > **This block records Phase 2 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,**
