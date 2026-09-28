@@ -2,6 +2,60 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — PULL REQUEST #12 MERGED; v0.6.5 COMPLETE AND INTEGRATED; PLAN 9 REASSIGNED TO v0.6.6 (2026-09-27)
+>
+> **This block supersedes every statement below that calls `feature/0.6.5-tts-quality-refactor`
+> unmerged, integration "pending," or Plan 9 "DISPLACED — FUTURE ALLOCATION UNASSIGNED."** Those
+> statements were accurate when written and are preserved as history; they are overtaken by the
+> maintainer's subsequent merge and reassignment decision, not corrected as wrong.
+>
+> **Pull request #12 is merged.** Fresh `git fetch origin` confirmed `origin/master` at
+> `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0` — the merge commit for pull request #12, merging
+> `feature/0.6.5-tts-quality-refactor` (post-remediation tip `e94a212`) into `master`. v0.6.5 TTS
+> Quality Refinement is therefore **confirmed merged and integrated**; the independent
+> integration-readiness recheck this file's prior blocks called for has run to a merge decision.
+> Local `master` was fast-forwarded from the stale `e36ab7d` to `f7fb762` in this checkpoint.
+>
+> **Plan 9 is reassigned from DISPLACED to v0.6.6.** The maintainer has opened Plan 9 — remaining
+> Windows panel conversion, macOS parity, full regression, packaging and the final release
+> checkpoint — as **v0.6.6**, the final v0.6.x implementation plan:
+> `md-instructions/0.6.6-ui-parity-hardening-release.md`.
+> `feature/0.6.6-ui-parity-hardening-release` was created from that verified `origin/master`
+> (`f7fb762`) and pushed to `origin` with upstream tracking. Plan 9's full previously-approved
+> scope (Master Index §7) carries forward intact.
+>
+> **Old Plan-9 deferrals were audited against the current tree, not carried forward blindly:**
+> `shared/ui_theme.py` still defines `MIN_SIZE = (920, 600)` and `AQUA_MIN_SIZE = (1024, 800)`;
+> no Windows DPI-awareness call exists anywhere under `scripts/Universal/`; `ACT.*` styling is
+> still confined to `job_ui.py`, `mp3_tool.py`, `book_workspace_ui.py`, `m4b_metadata_editor.py`,
+> `m4b_maker.py`, `m4b_artwork_ui.py`, `launcher.py` and `preferences_ui.py` — **TTS Audiobook,
+> M4B Converter and Cover Image Resizer remain classic**, exactly as previously recorded. The
+> `.DS_Store`/`Thumbs.db` packaging leak and the M4B Metadata Editor's whole-form scroll are
+> confirmed already discharged (`07ebbe8`; v0.6.4 Phase 10) and are **not** reopened as v0.6.6
+> scope. No global Light/Dark appearance setting, universal Activity component, or universal
+> importer/list keyboard contract exists yet anywhere in `scripts/Universal/` — these are
+> genuinely new v0.6.6 scope (Phases 1–2), not a restatement of an older deferral.
+>
+> **The frozen UI contract from the new plan is recorded as the active direction:** compact
+> Tkinter/ttk-styled interiors project-wide; **TTS Audiobook frozen as the Family-A layout
+> reference** (Sources / Voice & Audio / Output & Run / Activity-right — no redesign); **M4B
+> Converter and Cover Image Resizer adopt that same Family-A 1/2/3-plus-right-Activity
+> structure**; **MP3 Tool, M4B Maker and M4B Metadata Editor keep their dense multi-Book geometry
+> (Family B)** but revert to compact ttk styling with Activity at the bottom; a **global
+> remembered Light/Dark appearance** setting (in `settings`, not `config.toml`; Light is the
+> first-run default); **universal Activity and importer/list contracts**; and **no core-panel
+> scrolling** at the supported Windows (920×600) / macOS (1024×800) minimums.
+>
+> **Nothing else is authorized here.** No production code, version bump, tag, package, release,
+> or merge beyond the already-completed PR #12 happened in this checkpoint. Version identity
+> remains `0.6.2`, unreleased. This is Phase 0 of the new plan, in progress; Phase 1 is not
+> started and is not authorized by this checkpoint.
+>
+> **Focused validation:** documentation/repository-contract review and `git diff --check` only
+> (clean); no full `verify.py` run — no production code was touched.
+>
+> — Decided by maintainer (Elijah Matthew), recorded by Claude Code, 2026-09-27.
+
 > ## CURRENT STATE — v0.6.5 HISTORICAL AI CO-AUTHOR TRAILER DISPOSITION RESOLVED (2026-09-26)
 >
 > **Explicit maintainer decision at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71`: RESOLVED.**

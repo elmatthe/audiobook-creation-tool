@@ -350,6 +350,16 @@ flashing during use.
   by the 2026-09-18 maintainer ruling: final parity belongs to **Plan 9 — DISPLACED — FUTURE
   ALLOCATION UNASSIGNED**, not the completed v0.6.5 TTS Quality Refinement plan. No broader
   visual conversion or release is authorized by the TTS closeout.
+- **Allocation supersession (2026-09-27).** The bullet above is itself superseded on final-parity
+  ownership: Plan 9 is **no longer DISPLACED**. Pull request #12 merged
+  `feature/0.6.5-tts-quality-refactor` into `master` at
+  `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`, confirming v0.6.5 TTS Quality Refinement complete
+  and integrated, and the maintainer reassigned Plan 9 to **v0.6.6**
+  (`md-instructions/0.6.6-ui-parity-hardening-release.md`,
+  `feature/0.6.6-ui-parity-hardening-release`), the final v0.6.x implementation plan. Final visual
+  parity, hardening, packaging and release now belong to v0.6.6, not an unassigned future plan.
+  Every other "Plan 9" reference throughout this file is unaffected by this note — Plan 9 still
+  owns all of it; only its version binding changes, from DISPLACED to v0.6.6.
 - **Conversion boundary (still in force, two additions).** The **Windows launcher shell**, the
   **M4B Metadata Editor** (rebuilt on the same boundary at v0.6.4 Phase 10), the **MP3 Tool**
   (v0.6.3 focused MP3 redesign, by that plan's explicit supersession) and — since v0.6.4 Phase 6,
@@ -358,6 +368,17 @@ flashing during use.
   **TTS Audiobook, M4B Converter and Cover Image Resizer remain classic** and must stay that way
   until the final parity drop (v0.6.5) — measured live, they carry **zero** `ACT.*` styles between
   them. Approval of the prototype did not add them to its scope.
+- **Conversion boundary — current owner (2026-09-27).** The three classic panels above (TTS
+  Audiobook, M4B Converter, Cover Image Resizer) are v0.6.6 Phases 3–5 scope under the new plan's
+  frozen UI contract: TTS Audiobook is frozen as the **Family-A layout reference** (Sources / Voice
+  & Audio / Output & Run / Activity-right — no redesign); M4B Converter and Cover Image Resizer
+  adopt that same Family-A guided-workflow-plus-right-Activity structure. MP3 Tool, M4B Maker and
+  M4B Metadata Editor (already `ACT.*`-converted, Family B, dense multi-Book geometry preserved)
+  get compact-styling and bottom-Activity work in v0.6.6 Phases 6–8 — a styling pass, not a
+  re-conversion. Verified against the current tree at Phase 0: `ACT.*` usage is still confined to
+  `job_ui.py`, `mp3_tool.py`, `book_workspace_ui.py`, `m4b_metadata_editor.py`, `m4b_maker.py`,
+  `m4b_artwork_ui.py`, `launcher.py` and `preferences_ui.py`; no global Light/Dark appearance
+  setting or universal Activity/importer contract exists yet anywhere in `scripts/Universal/`.
 - **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
@@ -885,6 +906,17 @@ the whole `scripts/` tree; both OS zips share the same code and differ only in l
 
 ## Current Version
 
+**Current-state supersession — 2026-09-27.** Supersedes the 2026-09-26 paragraph immediately below
+on merge state and Plan 9 allocation only; its `0.6.2` version-identity statement stands unchanged.
+Pull request #12 merged `feature/0.6.5-tts-quality-refactor` into `master` as merge commit
+`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`: **v0.6.5 TTS Quality Refinement is confirmed merged**,
+not merely complete-and-awaiting-integration as the paragraph below states. **Plan 9 is no longer
+DISPLACED** — it is reassigned to **v0.6.6**, the final v0.6.x implementation plan
+(`md-instructions/0.6.6-ui-parity-hardening-release.md`, on
+`feature/0.6.6-ui-parity-hardening-release`, created from that verified `origin/master`). No version
+bump, tag, package, or release accompanies this merge or reassignment; identity remains `0.6.2`,
+unreleased.
+
 **Current-state supersession — 2026-09-26.** Application version identity remains **`0.6.2`,
 unreleased**, exactly as described below. The following older narrative is retained as history
 where it says v0.6.4 is "not merged" or the v0.6.5/Plan-9 assignment is "unchanged":
@@ -917,6 +949,13 @@ split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisi
 release — is unchanged and undrafted.
 
 ## High-Level State
+
+**Current-state supersession — 2026-09-27.** Supersedes the "not merged" / integration-pending
+statements in both paragraphs below: pull request #12 is **merged**
+(`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`), so `feature/0.6.5-tts-quality-refactor`'s integration
+is no longer pending — it is done. The trailer disposition, Phase 9 closeout facts, and every other
+statement in the paragraphs below stand unchanged. **Plan 9 is reassigned to v0.6.6** (see Current
+Version above and `Decisions.md`, 2026-09-27).
 
 **Trailer-disposition amendment — 2026-09-26, after `1c3844d`: RESOLVED by explicit maintainer
 decision.** Existing AI `Co-Authored-By` trailers in the completed v0.6.5 feature-branch history

@@ -382,3 +382,50 @@ open/pending trailer-disposition statements above; the documentation-remediation
 historical records remain unchanged. **Current action:** independent integration-readiness
 recheck, then the maintainer's separate merge decision. No READY verdict or merge authorization
 is implied, and the version identity, completed/retired plan state and Plan 9 allocation stand.
+
+---
+
+## Maintainer supersession — 2026-09-27 (pull request #12 merged; Plan 9 reassigned to v0.6.6)
+
+**This section supersedes every statement above that calls `feature/0.6.5-tts-quality-refactor`
+unmerged, integration "pending," or Plan 9 "DISPLACED — FUTURE ALLOCATION UNASSIGNED."** Those
+statements were accurate when written and remain unchanged as history; they are overtaken by the
+maintainer's subsequent merge and reassignment decision below.
+
+**1. Pull request #12 is merged.** A fresh `git fetch origin` confirmed `origin/master` at
+`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0` — the merge commit for **pull request #12**, merging
+`feature/0.6.5-tts-quality-refactor` (post-remediation tip `e94a212`) into `master`. **v0.6.5 TTS
+Quality Refinement is therefore confirmed merged and integrated** — the independent
+integration-readiness recheck named above has run to a merge decision, not merely to a READY
+verdict. `feature/0.6.6-ui-parity-hardening-release` was created from that verified `origin/master`
+and pushed to `origin` with upstream tracking.
+
+**2. Plan 9 is reassigned from DISPLACED to v0.6.6.** The 2026-09-18 section above marked Plan 9 —
+remaining Windows panel conversion, macOS parity, full regression, packaging and the final release
+checkpoint — as displaced while v0.6.5 was spent on the unrelated TTS Quality Refinement plan. The
+maintainer has now opened Plan 9 as **v0.6.6**, the final v0.6.x implementation plan:
+`md-instructions/0.6.6-ui-parity-hardening-release.md`. Plan 9's full scope, preserved intact by the
+2026-09-18 ruling, carries forward unchanged; only its version binding moves from DISPLACED to
+v0.6.6.
+
+**3. Old Plan-9 deferrals were audited against the current tree, not carried forward blindly:**
+`shared/ui_theme.py` still defines `MIN_SIZE = (920, 600)` and `AQUA_MIN_SIZE = (1024, 800)`; no
+Windows DPI-awareness call exists anywhere under `scripts/Universal/`; `ACT.*` styling is still
+confined to `job_ui.py`, `mp3_tool.py`, `book_workspace_ui.py`, `m4b_metadata_editor.py`,
+`m4b_maker.py`, `m4b_artwork_ui.py`, `launcher.py` and `preferences_ui.py` — TTS Audiobook, M4B
+Converter and Cover Image Resizer remain classic, exactly as recorded above. The `.DS_Store`/
+`Thumbs.db` packaging leak and the M4B Metadata Editor's whole-form scroll are confirmed already
+discharged (`07ebbe8`, v0.6.4 Phase 10) and are **not** reopened as v0.6.6 scope.
+
+**4. The frozen UI contract in the new plan is recorded as the active direction:** compact
+Tkinter/ttk-styled interiors project-wide; TTS Audiobook frozen as the **Family-A** layout
+reference (Sources / Voice & Audio / Output & Run / Activity-right — no redesign); M4B Converter
+and Cover Image Resizer adopt that same Family-A structure; MP3 Tool, M4B Maker and M4B Metadata
+Editor (**Family B**) keep their dense multi-Book geometry but revert to compact ttk styling with
+Activity at the bottom; a global remembered Light/Dark appearance setting (`settings`, not
+`config.toml`; Light is the first-run default); universal Activity and importer/list contracts;
+no core-panel scrolling at the supported Windows/macOS minimums.
+
+**Current action:** v0.6.6 Phase 0 (this reconciliation checkpoint) is in progress on
+`feature/0.6.6-ui-parity-hardening-release`. Nothing here authorizes starting v0.6.6 Phase 1, a
+version bump, tag, release, or merge to `master` beyond the already-completed PR #12.

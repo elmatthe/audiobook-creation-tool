@@ -4,6 +4,67 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-27 -- Pull request #12 confirmed merged (v0.6.5 TTS Quality Refinement complete and integrated); Plan 9 reassigned to v0.6.6 as the final v0.6.x implementation plan; the frozen UI-parity contract is recorded as the active direction
+
+**Decision (v0.6.6 -- UI Parity, Hardening & Release, Phase 0).** Fresh `git fetch origin` confirmed
+`origin/master` at `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0` -- the merge commit for **pull request
+#12**, merging `feature/0.6.5-tts-quality-refactor` (post-remediation tip `e94a212`) into `master`.
+v0.6.5 TTS Quality Refinement is therefore **confirmed merged and integrated**, superseding every
+"not merged" / "integration pending" statement recorded in `Handoff.md`, this file's own 2026-09-26
+entries, `Briefing.md`, and both `don't-delete` roadmap files as of the Phase 9 closeout -- those
+statements were accurate when written and are not being called wrong, only overtaken by the
+maintainer's subsequent merge decision. `feature/0.6.6-ui-parity-hardening-release` was created from
+that verified `origin/master` (local `master` fast-forwarded `e36ab7d` -> `f7fb762` in the same
+checkpoint) and pushed to `origin` with upstream tracking; Phase 0's baseline/audit work is recorded
+in `Handoff.md`.
+
+**Plan 9 is reassigned from DISPLACED to v0.6.6.** The 2026-09-18 entry below marked Plan 9 --
+remaining Windows panel conversion, macOS parity, full regression, packaging and the final release
+checkpoint -- as "DISPLACED -- FUTURE ALLOCATION UNASSIGNED" while the v0.6.5 identity was spent on
+the unrelated TTS Quality Refinement plan. The maintainer has now opened Plan 9 as **v0.6.6**, the
+final v0.6.x implementation plan: `md-instructions/0.6.6-ui-parity-hardening-release.md`, on
+`feature/0.6.6-ui-parity-hardening-release`. Plan 9's full previously-approved scope carries forward
+intact; nothing already approved is narrowed by this reassignment.
+
+**Old Plan-9 deferrals were audited against the current tree before carrying them forward** (not
+assumed blindly): `shared/ui_theme.py` still defines `MIN_SIZE = (920, 600)` and
+`AQUA_MIN_SIZE = (1024, 800)`; no Windows DPI-awareness call exists anywhere under
+`scripts/Universal/`; and `ACT.*` styling is still confined to `job_ui.py`, `mp3_tool.py`,
+`book_workspace_ui.py`, `m4b_metadata_editor.py`, `m4b_maker.py`, `m4b_artwork_ui.py`,
+`launcher.py` and `preferences_ui.py` -- TTS Audiobook, M4B Converter and Cover Image Resizer remain
+classic, exactly as recorded. The `.DS_Store`/`Thumbs.db` packaging leak and the M4B Metadata
+Editor's whole-form scroll are confirmed already discharged (`07ebbe8`, v0.6.4 Phase 10) and are
+**not** re-opened as v0.6.6 scope. No global Light/Dark toggle, universal Activity component, or
+universal importer/list keyboard contract exists yet anywhere in the tree -- these are genuinely new
+v0.6.6 (Phase 1/2) scope, not a restatement of an older deferral.
+
+**The frozen UI contract in the new plan is recorded as the active direction for v0.6.6:** compact
+Tkinter/ttk-styled interiors project-wide; TTS Audiobook frozen as the Family-A layout reference
+(Sources / Voice & Audio / Output & Run / Activity-right, no redesign); M4B Converter and Cover Image
+Resizer adopt that same Family-A 1/2/3-plus-right-Activity structure; MP3 Tool, M4B Maker and M4B
+Metadata Editor keep their dense multi-Book geometry (Family B) but revert to compact ttk styling
+with Activity at the bottom; a global remembered Light/Dark appearance setting (`settings`, not
+`config.toml`; Light is the first-run default); universal Activity and importer/list contracts; and
+no core-panel scrolling at the supported Windows/macOS minimums.
+
+**Why:** the maintainer chose to finish v0.6.5 first, confirm it merged, and only then reopen the
+long-displaced Plan 9 as the final v0.6.x drop, now that its scope, layout language and UI direction
+are fully specified in the new plan document.
+
+**Consequences:** `Handoff.md`, `Briefing.md`, and both
+`don't-delete/Audiobook-Creation-Tool-v0.6.x-*` roadmap files each gain a dated supersession note
+recording this exact merge and reassignment, following their own existing append/supersede
+conventions; no prior dated text in any of them is rewritten. Application version identity remains
+`0.6.2`, unreleased -- this checkpoint authorizes no version bump, tag, package, release, or merge
+to `master` beyond the already-completed PR #12. No production code changed in this checkpoint.
+
+**Focused validation:** `git diff --check` clean; documentation/repository-contract review only, no
+full `verify.py` run (no production code touched).
+
+-- Decided by maintainer (Elijah Matthew), recorded by Claude Code, 2026-09-27
+
+---
+
 ## 2026-09-26 -- A fresh independent review of pull request #12 found six confirmed, bounded correctness gaps; all six closed before merge
 
 **Decision:** Six confirmed findings from an independent read-only review of
