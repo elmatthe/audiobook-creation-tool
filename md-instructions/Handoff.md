@@ -2,6 +2,97 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 4: M4B CONVERTER GUIDED LAYOUT (2026-09-28)
+>
+> **Phase 3 is maintainer-approved.** The Windows manual TTS gate at `d03a7aa` (block below) PASSED
+> in Light and Dark, maximized and at the small supported size. The responsive small-window TTS
+> arrangement is approved and is now the Family-A precedent. See `Decisions.md` 2026-09-28
+> ("Phase 3 approved; M4B Converter rebuilt...").
+>
+> **What Phase 4 changed (`mp3_tools/m4b_converter.py`; presentation only):**
+> - **Family-A composition:** `1. Sources` / `2. Conversion & Metadata` / `3. Output & Run` on the
+>   left, Activity (Summary | Detailed, Clear Log) on the right.
+> - **Shared primitives and look:** the Cover/TTS constants, measured-layout approach and compact
+>   control language, with an `appearance_bundle` seam like theirs.
+> - **Section 2:** **Output structure** (Whole book / Split by chapter) is the first, heading-weight
+>   row, then MP3 quality, the metadata mode, the four fields (2×2) and Auto-number/Start #.
+> - **Metadata fields:** always visible. They are disabled only under **Write none**, and during a
+>   run, because Preserve uses a filled field as an override. Typed text is kept, and `read_options`
+>   is unchanged.
+> - **Section 3:** Output path, Open Output Folder, the output note, then **Convert M4Bs → MP3s** (the
+>   default button) with the shared Pause/Resume/Cancel/Retry Failed, progress and status beneath it.
+> - **Activity:** the one persistent `SummaryDetailsView`, handed to every run's adapter. The old raw
+>   "Log" box's transcript now goes to **Detailed**. The FFmpeg status and each run's closing line go
+>   to both panes.
+> - **Theme:** the whole interior is on the shared compact bundle, with no generic-styled ttk widget.
+>   The listbox and log panes recolor on a live toggle, and the listener is removed on close.
+> - **Small windows:** the approved TTS precedent. At 920×600 and 1024×720 the Converter uses `split`
+>   (1 over 2 | 3 over Activity) with §1's tight-window steps:
+>   - tighter padding and separators;
+>   - job controls in two rows of two;
+>   - a shorter requested path width;
+>   - the list may give way to one row.
+>
+>   1280×900 and larger use the vertical workflow. There is no core scrollbar, and the minimum size
+>   is unchanged.
+> - **Unchanged:** Whole/Split processing, the complete-timeline chapter behavior and chapter titles,
+>   Preserve/Replace/Write none semantics, artwork, optional track numbering, output
+>   planning/collisions, Pause/Resume/Cancel/Retry, the frozen run state and source immutability.
+>   The worker, plan and execution code paths were not touched.
+>
+> **Real-launcher measurements (Windows, 100%):**
+>
+> | Window | Content | Mode | Activity | List | Summary pane |
+> |---|---|---|---|---|---|
+> | 920×600 | 721×457 | `split` | 287 px wide | 56 px | 65 px |
+> | 1024×720 | 825×577 | `split` | 391 px wide | 176 px | 215 px |
+> | 1280×900 | 1081×757 | `wide` | 647 px wide | 108 px | 650 px |
+> | 1920×1009 | 1721×866 | `wide` | 1113 px wide | 232 px | 759 px |
+>
+> Every required control is mapped inside the content area at all four sizes. That includes a
+> 30-book queue under Write none at 920×600.
+>
+> **Verification:**
+> - New `test_m4b_converter_appearance.py` (21 tests):
+>   - the Family-A composition, with Output structure first and heading-weight;
+>   - Dark on the panel and its sections, no generic ttk style, and no color-literal keywords (AST);
+>   - the Activity/progress/Convert/Cancel presentation;
+>   - the metadata fields following the mode without moving, a run keeping them disabled, and
+>     disabling leaving `read_options` unchanged;
+>   - a live toggle preserving imports/selection/mode/metadata/quality/numbering/output/log/layout
+>     with no widget rebuilt, and a toggle between Start and the worker's end still settling SUCCEEDED;
+>   - listener removal, Clear Log, and the transcript going to Detailed only;
+>   - the §4 keyboard contract via real key events;
+>   - real-shell tests: every control on screen with Activity right at
+>     920×600/1024×720/1280×900/1920×1009, a filled queue under Write none at 920×600, and the
+>     shell's own toggle keeping layout and values.
+> - Seven mutations (no split, no unregister, fields ignoring Write none, log not recolored,
+>   transcript to Summary, importer unthemed, a 4-row split floor) were each caught.
+> - Updated tests:
+>   - `test_m4b_converter_jobs.py`: Summary/Detailed now prove the projection is shown complete and
+>     in order, with the panel's own lines identified. The unexpected-stop test reads Activity.
+>   - `test_m4b_converter_importing.py`: the bare-toplevel minimum test gained the new controls.
+>   - `test_plan6_boundaries.py`: the Plan-5 Converter pin is retired to `CONVERTER_PHASE0_HASH`
+>     evidence (see `Decisions.md`). The line-ending pin test now has no pinned files and reports as
+>     skipped (empty parameter set).
+> - Focused sweep of 67 files: all M4B suites (Converter, Maker, Metadata, plan/retry/numbering/
+>   execution/chapters), TTS, Cover, appearance, plan boundaries, preferences, output, FFmpeg,
+>   launcher smoke, job_ui, tool-output integration, settings and EPUB retirement.
+>   **3,526 passed, 30 skipped, 1 failed.**
+>   - The one failure is pre-existing and unrelated:
+>     `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe_the_way_ffmpeg_requires`
+>     builds a POSIX `/Users/...` path, which Windows `Path` renders with backslashes.
+>   - Neither that file nor its module is touched here; both were last changed in `b9a9419`.
+>   - No full `verify.py`.
+>
+> **Not done / out of scope:** no Cover/MP3/Maker/Metadata work and no business-logic change.
+> macOS 1024×800 and Windows 125% are not verified here (Phase 9). Version identity is unchanged and
+> unreleased. **Phase 5 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 3: TTS REFERENCE CONFORMANCE (2026-09-28)
 >
 > **Phase 2 is maintainer-approved.** The final Cover Image manual gate at `39352c7` (block below)

@@ -102,13 +102,20 @@ MAKER_PHASE0_HASH = (
 MP3_TOOL_PHASE0_HASH = \
     "96c746a8a4defd9c495d66770b04e2f789a9a37957018c263e5f3371fe3984d5"
 
-#: Recorded at Phase 0 and **still enforced**. The Converter is Plan 5's, it is the
-#: consumer the promotion had to leave alone, and Phase 6 did not touch one byte of
-#: it. A difference here is a stop gate, not a value to update.
-PHASE0_PLAN5_HASHES = {
-    "scripts/Universal/mp3_tools/m4b_converter.py":
-        "a44418853b3f8e38f9f78829c2f388bc0cb85b29bf35dcbc64d7d5ec9ab60880",
-}
+#: Recorded at Phase 0 and enforced through v0.6.5: the Converter is Plan 5's, it
+#: was the consumer the promotion had to leave alone, and Phase 6 did not touch one
+#: byte of it. **It left this gate at v0.6.6 Phase 4** -- the maintainer-authorised
+#: Family-A rebuild of the Converter's presentation (plan 0.6.6 §2 "M4B Converter",
+#: Phase 4) -- exactly as the MP3 Tool, M4B Maker and Metadata Editor left theirs.
+#: Its Phase 0 digest is kept below as :data:`CONVERTER_PHASE0_HASH` so the
+#: retirement is proved to be real rather than assumed; the gate itself is empty.
+PHASE0_PLAN5_HASHES: dict[str, str] = {}
+
+#: The Converter as Plan 6 Phase 0 found it, before v0.6.6 Phase 4 rebuilt its
+#: presentation. Evidence, not a gate: the panel is *required* to differ now, and
+#: to be the compact-appearance adopter that phase makes it.
+CONVERTER_PHASE0_HASH = (
+    "a44418853b3f8e38f9f78829c2f388bc0cb85b29bf35dcbc64d7d5ec9ab60880")
 
 #: Phase 0's hash of ``mp3_tools/m4b_numbering.py`` **while it was the allocator**.
 #: Kept as the evidence that the file genuinely changed at Phase 6 rather than as a
@@ -688,11 +695,20 @@ def test_both_import_paths_reach_the_very_same_objects():
 
 
 def test_the_promotion_changed_the_legacy_file_and_left_the_converter_alone():
-    """The move happened, and it stopped exactly where it was authorised to stop."""
+    """The move happened, and it stopped exactly where it was authorised to stop.
+
+    The Converter half held until v0.6.6 Phase 4 retired the Converter's pin
+    (see ``CONVERTER_PHASE0_HASH``); what is still proved is that the promotion
+    never gave the Converter a numbering implementation of its own -- it still
+    reaches the counter only through the legacy module the promotion re-exports.
+    """
     legacy = sha256_normalised(UNIVERSAL / "mp3_tools/m4b_numbering.py")
     assert legacy != PHASE0_ALLOCATOR_HASH, "the promotion did not happen"
-    assert (sha256_as_checked_out_on_windows(UNIVERSAL / "mp3_tools/m4b_converter.py")
-            == PHASE0_PLAN5_HASHES["scripts/Universal/mp3_tools/m4b_converter.py"])
+    tree = parse(UNIVERSAL / "mp3_tools/m4b_converter.py")
+    defined = {node.name for node in ast.walk(tree)
+               if isinstance(node, (ast.ClassDef, ast.FunctionDef))}
+    assert not {"SuccessNumbers", "Tentative", "NumberingError"} & defined
+    assert "m4b_numbering" in referenced_names(tree) | imported_names(tree)
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE6_PROMOTION_HASHES))
@@ -1455,10 +1471,26 @@ def test_the_editor_left_the_hash_gate_by_a_real_conversion():
     assert "mp3_tools.m4b_metadata_batch" in imported_names(tree)
 
 
-@pytest.mark.parametrize("relative", sorted(PHASE0_PLAN5_HASHES))
-def test_the_plan5_converter_is_byte_identical_to_the_phase_zero_baseline(relative):
-    """The consumer the promotion existed to leave alone. Still not one byte moved."""
-    assert sha256_as_checked_out_on_windows(REPO_ROOT / relative) == PHASE0_PLAN5_HASHES[relative]
+def test_the_plan5_converter_gate_is_empty():
+    """Every Plan 5 pin has been retired by a recorded, authorised conversion."""
+    assert PHASE0_PLAN5_HASHES == {}
+
+
+def test_the_converter_left_the_hash_gate_by_a_real_conversion():
+    """v0.6.6 Phase 4's one supersession, proved rather than assumed.
+
+    The Converter must differ from its Phase 0 bytes *and* be the adopter that
+    phase makes it: built from the shared compact appearance bundle, with the
+    persistent Activity view. A panel that merely changed a comment would pass
+    the first half and fail the second.
+    """
+    path = UNIVERSAL / "mp3_tools/m4b_converter.py"
+    assert sha256_as_checked_out_on_windows(path) != CONVERTER_PHASE0_HASH
+    tree = parse(path)
+    names = referenced_names(tree) | imported_names(tree)
+    assert "shared.appearance" in imported_names(tree) or "appearance" in names
+    assert "register_listener" in names and "unregister_listener" in names
+    assert "SummaryDetailsView" in names
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES) + [

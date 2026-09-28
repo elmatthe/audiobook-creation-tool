@@ -4,6 +4,57 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 3 approved; M4B Converter rebuilt to the Family-A guided layout (Phase 4); its Plan-5 byte pin retired
+
+**Phase 3 approved.** The Windows manual TTS gate at `d03a7aa` passed in Light and Dark, maximized
+and at the small supported size. The responsive small-window TTS arrangement (`split`: 1 over 2 on
+the left, 3 over Activity on the right) is approved and is now precedent for any Family-A tool whose
+vertical workflow cannot fit the real launcher's small content areas.
+
+**Phase 4 (M4B Converter guided layout).** The Converter's presentation is rebuilt on the approved
+Cover/TTS interiors. There is no Converter-specific visual system:
+
+- **Layout:** `1. Sources` / `2. Conversion & Metadata` / `3. Output & Run` on the left, Activity on
+  the right.
+- **Theme:** the whole interior takes the shared compact Light/Dark bundle.
+- **Section 2:** Output structure (Whole book / Split by chapter) is the first, heading-weight row,
+  above quality, the metadata mode, the four fields and auto-numbering.
+- **Small windows:** the TTS precedent applies. At 920×600 and 1024×720 in the real launcher
+  (content areas 721×457 and 825×577) the Converter uses `split`. At 1280×900 and larger it uses the
+  vertical workflow with Activity beside it.
+
+Three rulings taken within the maintainer's instructions:
+
+- **The four metadata fields are disabled only under Write none.** They stay visible and in place
+  in every mode. The instruction was "visible and disabled when not applicable". Preserve is *not*
+  "not applicable": `m4b_metadata.whole_book_tags`/`segment_tags` let a filled field override the
+  source's own value in Preserve. So only Write none, which writes nothing, disables them. A run in
+  flight keeps them disabled, as before. Typed text is kept, and `read_options` reads it exactly as
+  before. No metadata semantics moved.
+- **The raw "Log" box became Activity's Detailed pane.** The ffmpeg command lines, per-file lines
+  and error text keep flowing to the same place in the same order, now Activity's Detailed pane.
+  The FFmpeg status line and the run's closing line reach Summary too, which is Cover's `log_write`
+  contract. Summary is still the adapter's own projection of the run's events; the panel adds only
+  those two lines.
+- **The Plan-5 byte pin on `m4b_converter.py` is retired**, exactly as the MP3 Tool, M4B Maker and
+  Metadata Editor pins were:
+  - `PHASE0_PLAN5_HASHES` is now empty.
+  - The Phase 0 digest is kept as `CONVERTER_PHASE0_HASH`.
+  - A new test requires the file to differ from that digest *and* to be the real compact adopter.
+  - The pin's purpose ("the promotion left the Converter alone") is still proved structurally: the
+    Converter defines no numbering implementation of its own.
+  - The pin was recorded as "a stop gate, not a value to update". It is retired, not updated,
+    because this phase's instruction is precisely to rebuild that file's presentation.
+
+**Why:** the Converter was the last Family-A tool drawn in classic widgets in one tall column. In
+Dark it was a light island, and inside the real launcher's minimum content area its run area and
+logs were squeezed. The approved Cover/TTS language and the approved small-window precedent solve
+both without touching a single conversion rule.
+
+— Recorded by Claude Code on the maintainer's Phase 3 approval and Phase 4 instruction, 2026-09-28.
+
+---
+
 ## 2026-09-28 -- Phase 2 approved; the approved Cover Image UI at `39352c7` is the concrete visual reference for every remaining tool interior; TTS keeps its frozen layout, with Activity kept on the right in the real launcher's small windows
 
 **Phase 2 approved.** The final Cover Image manual gate at `39352c7` passed in Light and Dark. It

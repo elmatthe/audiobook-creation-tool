@@ -950,18 +950,43 @@ def test_an_event_after_the_ending_is_rejected(make_panel, tmp_path, run_env):
     assert jc.EventVerdict.AFTER_TERMINAL in [v for _e, v in panel.jobs.stream.rejected]
 
 
+def _in_order(shown, projected) -> bool:
+    """Every projected line is shown, in the projection's order."""
+    remaining = iter(shown)
+    return all(any(line == candidate for candidate in remaining) for line in projected)
+
+
+# v0.6.6 Phase 4: Summary | Detailed is now the panel's one persistent Activity
+# log (the Cover/TTS contract). The adapter still renders exactly the shared
+# projection into it; what changed is that the panel's own lines -- the FFmpeg
+# status, the raw ffmpeg transcript the old separate "Log" box held, and the
+# run's closing line -- now live beside that projection instead of in a second
+# widget. So the projection is proved present, complete and in order, and every
+# other line is proved to be the panel's own.
 def test_the_summary_is_the_shared_projection(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
     work(panel, tmp_path, run_env)
-    assert panel.jobs.views.summary == jc.summary_lines(panel.jobs.stream.events)
+    assert panel.jobs.views is panel.log
+    projected = jc.summary_lines(panel.jobs.stream.events)
+    shown = panel.log.summary
+    assert projected and _in_order(shown, projected)
+    own = [line for line in shown if line not in projected]
+    assert len(own) == 2, own
+    assert own[0].startswith("FFmpeg") and own[1].startswith("All done."), own
 
 
 def test_the_details_are_the_shared_projection(make_panel, tmp_path, run_env):
     panel = make_panel()
     add_files(panel, *books(tmp_path / "src", "A.m4b"))
     work(panel, tmp_path, run_env)
-    assert panel.jobs.views.details == jc.detail_lines(panel.jobs.stream.events)
+    projected = jc.detail_lines(panel.jobs.stream.events)
+    shown = panel.log.details
+    assert projected and _in_order(shown, projected)
+    # The rest is the worker's own transcript, which never reaches Summary.
+    transcript = [line for line in shown if line not in projected]
+    assert any(line.lstrip().startswith("ffmpeg:") for line in transcript)
+    assert not any(line.lstrip().startswith("ffmpeg:") for line in panel.log.summary)
 
 
 def test_the_ffmpeg_command_line_reaches_details_but_never_the_summary(
@@ -1454,8 +1479,11 @@ def test_a_failure_inside_the_execution_loop_still_releases_the_panel(
     assert not panel._busy.is_set(), "the window would never unlock again"
     assert panel.job_controller.state in jc.TERMINAL_STATES, panel.job_controller.state
     assert str(panel.btn_convert["state"]) != "disabled"
-    text = panel.log.get("1.0", "end")
+    # v0.6.6 Phase 4: the transcript lives in Activity's Detailed pane, and the
+    # closing line reaches Summary too.
+    text = "\n".join(panel.log.details)
     assert "did not complete" in text or "stopped unexpectedly" in text, text[-300:]
+    assert any("did not complete" in line for line in panel.log.summary)
 
 
 def test_a_settlement_failure_still_releases_the_panel(

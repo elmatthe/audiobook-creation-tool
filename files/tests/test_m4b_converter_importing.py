@@ -818,6 +818,8 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
             "Include hidden folders": options.check_hidden,
             "Allow duplicate files": options.check_duplicates,
             "Cancel Import": panel.importer.status.frame,
+            "Whole book": panel.rb_whole,
+            "Split by chapter": panel.rb_split,
             "MP3 Quality": panel.entry_quality,
             "Metadata: Preserve": panel.rb_preserve,
             "Metadata: Replace": panel.rb_replace,
@@ -836,6 +838,7 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
             "Progress bar": panel.jobs.status.indicator.bar,
             "Progress count": panel.jobs.status.indicator.label,
             "ETA": panel.jobs.status.label_eta,
+            "Clear Log": panel.btn_clear_log,
         }
 
         unreachable = {}
@@ -853,13 +856,10 @@ def test_every_new_control_is_reachable_at_the_minimum_window(tk_root):
 
         assert not unreachable, unreachable
 
-        # The measured trade-off, recorded rather than hidden. At the 920x600
-        # minimum this panel's content genuinely exceeds the window -- it did
-        # before Phase 9 too, which is why the panel's own progress indicator
-        # was never mapped there *or* at the 1024x720 default. Phase 9 makes
-        # the progress bar visible for the first time; what it costs is that
-        # the three scrollable views are squeezed at the minimum. They stay
-        # mapped and scrollable, and every control above is a real target.
+        # v0.6.6 Phase 4 retired the old trade-off recorded here: the Family-A
+        # arrangement fits the whole panel, and the one Summary | Detailed log
+        # in Activity keeps usable height. The real launcher's (smaller) 920x600
+        # content area is proved in test_m4b_converter_appearance.py.
         assert panel.jobs.status.indicator.bar.winfo_ismapped()
         assert panel.jobs.views.summary_text.winfo_height() >= 16, (
             "the Summary keeps at least one line at the minimum window")

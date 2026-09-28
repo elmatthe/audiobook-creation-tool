@@ -19,6 +19,12 @@
 # Pause and cancel settle between books, because the ffmpeg call converting
 # one is indivisible; the process lifecycle that makes cancel act mid-file is
 # Phase 11's, and nothing here claims to have it.
+#
+# v0.6.6 Phase 4: presentation only. The panel is the Family-A guided layout
+# (1. Sources / 2. Conversion & Metadata / 3. Output & Run, Activity on the
+# right) on the shared compact Light/Dark appearance the approved Cover and TTS
+# interiors use; the old raw "Log" box became Activity's Detailed pane. No
+# conversion, metadata, chapter, artwork, numbering, retry or output rule moved.
 
 import gc
 import queue
@@ -29,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # Make the scripts/ root importable so `shared.*` resolves whether this tool is
@@ -37,6 +44,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import appearance
 from shared import config as shared_config
 from shared import ffmpeg_utils
 from shared import job_control
@@ -311,6 +319,57 @@ def quote(p: Path) -> str:
 
 # ---------- GUI ----------
 
+#: Spacing, identical to the TTS and Cover Image panels' own constants: the
+#: approved Cover UI is the concrete visual reference for every tool interior
+#: (maintainer ruling 2026-09-28), so these are copied rather than re-chosen.
+OUTER_PAD = 10
+COLUMN_GAP = 10
+SECTION_GAP = 8
+SECTION_PADDING = (10, 6, 10, 8)
+
+#: The tight-window padding TTS's small-window ("split") arrangement uses.
+SPLIT_SECTION_PADDING = (10, 4, 10, 5)
+
+#: Wrap widths for prose, so a caption can never decide how wide its section
+#: must be (TTS's rule): the output note, the metadata note and changing
+#: status lines add a line rather than a column. They are re-wrapped to the
+#: section's real width once the arrangement is known (``_rewrap``).
+NOTE_WRAP = 200
+STATUS_WRAP = 190
+
+#: The imported list: rows it asks for, and the rows it keeps however small the
+#: window gets. It is Sources' flexible region. In the small-window split it
+#: may give up everything but one row, exactly as TTS's list does.
+IMPORTER_LIST_HEIGHT = 6
+IMPORTER_FLOOR_ROWS = 2
+IMPORTER_SPLIT_FLOOR_ROWS = 1
+
+#: The Activity log: natural size in lines/characters, the lines it keeps at
+#: the smallest window, and the history cap shared with the sibling tools.
+LOG_HEIGHT = 12
+LOG_WIDTH_CHARS = 40
+LOG_FLOOR_LINES = 3
+LOG_LIMIT = 400
+
+#: The narrowest Activity column worth putting beside the workflow.
+ACTIVITY_MIN_WIDTH = 150
+ACTIVITY_NOTE_MIN_WRAP = 60
+
+#: Share of the panel the workflow column takes on a wide window, when that is
+#: more than its measured natural width -- the frozen contract's 32-35%.
+WORKFLOW_SHARE = 0.34
+
+#: The shared status view's progress bar defaults to 240 px; that alone would
+#: decide how wide Output & Run must be. Narrower reads the same.
+PROGRESS_BAR_LENGTH = 110
+
+#: The read-only output path's requested width in characters (it stretches).
+OUTDIR_CHARS = 24
+SPLIT_OUTDIR_CHARS = 12
+
+#: The four replacement fields' requested width in characters (they stretch).
+FIELD_CHARS = 14
+
 
 class M4BConverterUI(ttk.Frame):
     """The M4B → MP3 converter as an embeddable frame."""
@@ -330,14 +389,29 @@ class M4BConverterUI(ttk.Frame):
         confirm_large_result=None,
         home=None,
         bridge=None,
+        appearance_bundle: dict | None = None,
     ):
         """Build the panel.
 
         Every keyword is a seam the tests drive instead of a real dialog,
         clock or thread — the same injection points the Cover and TTS panels
         already expose. Production passes none of them.
+
+        ``appearance_bundle`` (v0.6.6 Phase 4) is the same seam Cover and TTS
+        take: the production default reads the remembered Light/Dark setting,
+        and the suite may inject an exact bundle without touching settings.
         """
-        super().__init__(parent)
+        # v0.6.6 Phase 4: the whole interior is built from the shared compact
+        # appearance bundle -- the approved Cover/TTS control language -- so no
+        # native light island is left inside a Dark panel. On aqua every style
+        # name is "" and the panel draws natively, exactly as before.
+        if appearance_bundle is None:
+            appearance_bundle = appearance.build_bundle(
+                ttk.Style(parent), appearance.get_appearance(),
+                root=parent.winfo_toplevel())
+        self.appearance_bundle = appearance_bundle
+        super().__init__(parent, style=job_ui.style_name(appearance_bundle, "window"))
+        appearance.register_listener(self._on_appearance_changed)
 
         # Cancellation / worker plumbing (mirrors the TTS tool's pattern).
         self._closed = False
@@ -413,17 +487,72 @@ class M4BConverterUI(ttk.Frame):
             thread_factory=thread_factory,
             **({} if home is None else {"home": home}),
         )
+        # ---- layout: the Family-A workflow, Cover/TTS's own composition --- #
+        # v0.6.6 Phase 4. The panel is four sections, on the approved Cover and
+        # TTS interiors' compact control language:
+        #
+        #   1. Sources                -- the imported list, the six import
+        #                                actions, the import options, Cancel Import
+        #   2. Conversion & Metadata  -- Output structure first (Whole book /
+        #                                Split by chapter), then quality, the
+        #                                metadata mode, the four fields and
+        #                                auto-numbering
+        #   3. Output & Run           -- destination, Convert, the shared controls
+        #   Activity                  -- the one Summary | Detailed log, on the right
+        #
+        # 1-3 are the workflow, read top to bottom. How they sit depends only on
+        # the panel's size (_choose_layout), from the sections' own measured
+        # sizes -- never a whole-panel scrollbar, never a scrolling options form:
+        #
+        #   wide     1 over 2 over 3 on the left, Activity on the right
+        #   split    1 over 2 on the left, 3 over Activity on the right -- the
+        #            approved TTS small-window precedent, for the real launcher's
+        #            920x600 and 1024x720 content areas
+        #   stacked  the workflow above Activity; a last resort only
+        #
+        # Only the imported list and the log scroll, and each keeps a measured
+        # floor so neither collapses. No control, variable, callback or policy
+        # changed in this rebuild: every widget below is the one the panel
+        # already had, re-homed and styled.
+        bundle = self.appearance_bundle
+        st = self._style
+        self._needs: dict | None = None
+        self._layout_mode: str | None = None
+        self._inputs_locked = False
+        self.workflow = ttk.Frame(self, style=st("window"))
+        self.sources_section = ttk.LabelFrame(
+            self.workflow, text="1. Sources", padding=SECTION_PADDING,
+            style=st("labelframe"))
+        self.options_section = ttk.LabelFrame(
+            self.workflow, text="2. Conversion & Metadata", padding=SECTION_PADDING,
+            style=st("labelframe"))
+        # A child of the panel rather than of the workflow frame, exactly as in
+        # TTS: wide and stacked grid it *into* the workflow frame (grid's
+        # ``in_``, which Tk allows for a descendant of the parent), while split
+        # stands it above Activity in the right-hand column. Created after the
+        # workflow and before Activity, so stacking and Tab order still read
+        # 1, 2, 3, Activity.
+        self.run_section = ttk.LabelFrame(
+            self, text="3. Output & Run", padding=SECTION_PADDING,
+            style=st("labelframe"))
+        self.activity = ttk.LabelFrame(
+            self, text="Activity", padding=SECTION_PADDING, style=st("labelframe"))
+
+        # ---- 1. Sources --------------------------------------------------- #
+        sources = self.sources_section
+        sources.columnconfigure(0, weight=1)
+        sources.rowconfigure(0, weight=1)
         self.importer = job_ui.ImportAdapter(
-            self,
+            sources,
             catalog=self.import_catalog,
             effective_config=self._effective_config,
             pump=self._pump,
             manager=self._manager,
             coordinator=self._coordinator,
-            # No theme bundle: this panel stays classic. Converting it to the
-            # namespaced design system is Plan 9's job, and an empty style
-            # name is what ttk means by "draw this the platform's way".
-            theme=None,
+            # The shared compact bundle: the importer's list, actions, options
+            # and status take the same styles as the rest of the panel, and the
+            # list carries the shared §4 keyboard contract itself.
+            theme=bundle,
             clock=self._clock,
             id_factory=id_factory,
             choose_files=(self._choose_files if choose_files is None
@@ -433,223 +562,204 @@ class M4BConverterUI(ttk.Frame):
             confirm_large_result=(self._confirm_large_result
                                   if confirm_large_result is None
                                   else confirm_large_result),
-            # Six rows, not ten: at the supported 920x600 minimum the panel
-            # asks for more height than the host has, and `pack` hands out
-            # requested height in order, so every row added here is taken
-            # from the run area at the bottom. Six keeps the `Convert`
-            # button at its full height there while still showing a useful
-            # list; the list still expands on a larger window.
-            list_height=6,
+            list_height=IMPORTER_LIST_HEIGHT,
         )
-        # Rows, weights, and why the geometry manager changed here.
-        #
-        # `pack` hands out requested height in declaration order and clips
-        # whatever is left over at the *end*. That was survivable while the run
-        # area was one progress bar; Phase 9 adds the shared control bar, the
-        # status line and Summary/Details below the action, so under `pack` they
-        # would be the first things to fall off a 920x600 window -- Pause and
-        # Cancel included. `grid` with explicit weights puts the shortfall where
-        # it belongs instead: a weight-0 row always gets its requested height,
-        # and the weighted rows give up space in proportion to their weight.
-        #
-        # So the two rows that cannot usefully shrink are pinned -- the options
-        # form, where every entry has to stay reachable, and the `Convert`
-        # action -- and the three that scroll absorb a short window: the
-        # imported list, the run area (whose own Summary/Details row is the
-        # flexible one inside it) and the log.
-        #
-        # This is layout mechanics, not a redesign: no colour, no font, no style
-        # name and no control changed, and the panel stays classic.
-        # The four numbers below were measured, not guessed: seven weightings
-        # were laid out at 920x600, 1024x720 and 1280x900 and the mapped height
-        # of every control and every scrollable view read off the live window.
-        # This one keeps all three views usable at the 1024x720 default
-        # (list 53 px, Summary 44 px, log 20 px) and gives the Summary a real
-        # line at the 920x600 minimum, where the panel's content genuinely
-        # exceeds the window whatever the weights are.
-        self.rowconfigure(0, weight=4)   # imported queue -- scrolls
-        self.rowconfigure(1, weight=0)   # conversion & metadata -- pinned
-        self.rowconfigure(2, weight=0)   # Convert -- pinned
-        self.rowconfigure(3, weight=2)   # shared run controls, progress, Summary
-        self.rowconfigure(4, weight=4)   # run log -- the transcript, not the tool
-        self.columnconfigure(0, weight=1)
+        self.importer.frame.grid(row=0, column=0, sticky="nsew")
+        # A long status wraps onto a second line instead of widening Sources.
+        self.importer.list.count_label.configure(wraplength=STATUS_WRAP)
+        self.importer.status.label.configure(wraplength=STATUS_WRAP)
 
-        self.importer.frame.grid(row=0, column=0, sticky="nsew",
-                                 padx=10, pady=(10, 6))
+        # ---- 2. Conversion & Metadata -------------------------------------- #
+        options = self.options_section
+        options.columnconfigure(1, weight=1)
+        options.columnconfigure(3, weight=1)
 
-        # Options area
-        options = ttk.LabelFrame(self, text="Conversion & Metadata (applies to all files)")
-        options.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 6), ipady=4)
-
-        row = 0
-        ttk.Label(options, text="MP3 Quality (VBR 0–9, lower is better):").grid(
-            row=row, column=0, sticky="w", padx=8, pady=4
-        )
-        self.var_quality = tk.IntVar(value=DEFAULT_QUALITY)
-        self.entry_quality = ttk.Spinbox(
-            options, from_=0, to=9, textvariable=self.var_quality, width=4
-        )
-        self.entry_quality.grid(row=row, column=1, sticky="w", padx=8, pady=4)
-
-        # Whole book / Split by chapter (Decision 44A). **One batch-wide
-        # choice**, never per book: a run is planned once, and a per-item mode
-        # would mean two different answers to what the run is.
-        #
-        # It shares the quality row rather than taking one of its own. The
-        # panel already sits 10 px inside the supported 920x600 minimum, and a
-        # new row would spend all of that; columns 2 and 3 of this row were
-        # empty.
-        ttk.Label(options, text="Convert:").grid(
-            row=row, column=2, sticky="e", padx=8, pady=4
-        )
-        shapes = ttk.Frame(options)
-        shapes.grid(row=row, column=3, sticky="w", padx=8, pady=4)
+        # Output structure (Decision 44A), first and prominent: it decides what
+        # the run *is*. **One batch-wide choice**, never per book: a run is
+        # planned once, and a per-item mode would mean two answers to that.
+        structure = ttk.Frame(options, style=st("surface"))
+        structure.grid(row=0, column=0, columnspan=4, sticky="w")
+        self.structure_label = ttk.Label(structure, text="Output structure",
+                                         style=st("subheading"))
+        self.structure_label.grid(row=0, column=0, sticky="w", padx=(0, 12))
         self.var_mode = tk.StringVar(value=ConversionMode.WHOLE.value)
         self.rb_whole = ttk.Radiobutton(
-            shapes, text="Whole book", variable=self.var_mode,
-            value=ConversionMode.WHOLE.value)
+            structure, text="Whole book", variable=self.var_mode,
+            value=ConversionMode.WHOLE.value, style=st("radiobutton"))
         self.rb_split = ttk.Radiobutton(
-            shapes, text="Split by chapter", variable=self.var_mode,
-            value=ConversionMode.SPLIT.value)
-        for column, button in enumerate((self.rb_whole, self.rb_split)):
-            button.grid(row=0, column=column, sticky="w",
-                        padx=(0 if column == 0 else 12, 0))
+            structure, text="Split by chapter", variable=self.var_mode,
+            value=ConversionMode.SPLIT.value, style=st("radiobutton"))
+        self.rb_whole.grid(row=0, column=1, sticky="w")
+        self.rb_split.grid(row=0, column=2, sticky="w", padx=(12, 0))
 
-        # Metadata mode (Decision 19A/47A). This replaces the old two-state
-        # "Do NOT write any metadata" checkbox, which could not express the
-        # approved three-way contract: Preserve carries the source's own
-        # compatible fields, Replace carries only what is typed below, and
-        # Strip writes nothing at all. The default is Preserve.
-        #
-        # Three radios on one row, in a plain frame: the same single row the
-        # checkbox occupied, so the form is no taller than it was.
-        row += 1
-        ttk.Label(options, text="Metadata:").grid(
-            row=row, column=0, sticky="e", padx=8, pady=(2, 8)
-        )
-        modes = ttk.Frame(options)
-        modes.grid(row=row, column=1, columnspan=3, sticky="w", padx=8, pady=(2, 8))
+        self.options_separator = ttk.Separator(options, orient=tk.HORIZONTAL,
+                                               style=st("separator"))
+        self.options_separator.grid(row=1, column=0, columnspan=4, sticky="ew",
+                                    pady=(6, 5))
+
+        quality = ttk.Frame(options, style=st("surface"))
+        quality.grid(row=2, column=0, columnspan=4, sticky="w")
+        ttk.Label(quality, text="MP3 quality", style=st("label")).grid(
+            row=0, column=0, sticky="w")
+        self.var_quality = tk.IntVar(value=DEFAULT_QUALITY)
+        self.entry_quality = ttk.Spinbox(
+            quality, from_=0, to=9, textvariable=self.var_quality, width=4,
+            style=st("spinbox"))
+        self.entry_quality.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Label(quality, text="VBR 0–9, lower is better",
+                  style=st("secondary_label")).grid(
+            row=0, column=2, sticky="w", padx=(8, 0))
+
+        # Metadata mode (Decision 19A/47A): Preserve carries the source's own
+        # compatible fields (a filled field below overrides its own), Replace
+        # carries only what is typed below, and Write none writes nothing at
+        # all. The default is Preserve.
+        ttk.Label(options, text="Metadata", style=st("label")).grid(
+            row=3, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        modes = ttk.Frame(options, style=st("surface"))
+        modes.grid(row=4, column=0, columnspan=4, sticky="w")
         self.var_metadata_mode = tk.StringVar(value=MetadataMode.PRESERVE.value)
         self.rb_preserve = ttk.Radiobutton(
             modes, text="Preserve source", variable=self.var_metadata_mode,
-            value=MetadataMode.PRESERVE.value)
+            value=MetadataMode.PRESERVE.value, style=st("radiobutton"))
         self.rb_replace = ttk.Radiobutton(
             modes, text="Replace with the values below",
-            variable=self.var_metadata_mode, value=MetadataMode.REPLACE.value)
+            variable=self.var_metadata_mode, value=MetadataMode.REPLACE.value,
+            style=st("radiobutton"))
         self.rb_strip = ttk.Radiobutton(
             modes, text="Write none", variable=self.var_metadata_mode,
-            value=MetadataMode.STRIP.value)
+            value=MetadataMode.STRIP.value, style=st("radiobutton"))
         for column, button in enumerate(
                 (self.rb_preserve, self.rb_replace, self.rb_strip)):
-            button.grid(row=0, column=column, sticky="w", padx=(0 if column == 0 else 12, 0))
+            button.grid(row=0, column=column, sticky="w",
+                        padx=(0 if column == 0 else 12, 0))
 
-        # Metadata entries
-        row += 1
-        ttk.Label(options, text="Title (blank → filename):").grid(
-            row=row, column=0, sticky="e", padx=8, pady=2
+        # The four fields. Always visible; disabled only where they cannot
+        # apply -- Write none, which writes nothing -- so the form never jumps.
+        fields = (
+            ("title_entry", "Title (blank → filename)", 5, 0),
+            ("artist_entry", "Artist", 5, 2),
+            ("album_artist_entry", "Album Artist", 6, 0),
+            ("album_entry", "Album", 6, 2),
         )
-        self.title_entry = ttk.Entry(options, width=40)
-        self.title_entry.grid(row=row, column=1, sticky="w", padx=8, pady=2)
+        for attribute, text, row, column in fields:
+            ttk.Label(options, text=text, style=st("label")).grid(
+                row=row, column=column, sticky="w", pady=(4, 0),
+                padx=(0 if column == 0 else 12, 0))
+            entry = ttk.Entry(options, width=FIELD_CHARS, style=st("entry"))
+            entry.grid(row=row, column=column + 1, sticky="ew", padx=(8, 0),
+                       pady=(4, 0))
+            setattr(self, attribute, entry)
 
-        ttk.Label(options, text="Artist:").grid(
-            row=row, column=2, sticky="e", padx=8, pady=2
-        )
-        self.artist_entry = ttk.Entry(options, width=30)
-        self.artist_entry.grid(row=row, column=3, sticky="w", padx=8, pady=2)
-
-        row += 1
-        ttk.Label(options, text="Album Artist:").grid(
-            row=row, column=0, sticky="e", padx=8, pady=2
-        )
-        self.album_artist_entry = ttk.Entry(options, width=40)
-        self.album_artist_entry.grid(row=row, column=1, sticky="w", padx=8, pady=2)
-
-        ttk.Label(options, text="Album:").grid(
-            row=row, column=2, sticky="e", padx=8, pady=2
-        )
-        self.album_entry = ttk.Entry(options, width=30)
-        self.album_entry.grid(row=row, column=3, sticky="w", padx=8, pady=2)
-
-        # Auto-number checkbox + start
-        row += 1
-        # Off on a fresh panel (maintainer decision, v0.6.2 Plan 5 Phase 16).
-        # Renumbering somebody's library is an opt-in, not something a default
-        # does to every book on the way past; ``Start #`` keeps its 1 so the
-        # option is ready the moment it is ticked. Nothing else about the
-        # success-only sequence changes -- see ``m4b_numbering``.
+        # Auto-number checkbox + start. Off on a fresh panel (maintainer
+        # decision, v0.6.2 Plan 5 Phase 16): renumbering somebody's library is
+        # an opt-in; ``Start #`` keeps its 1 so it is ready once ticked. Nothing
+        # about the success-only sequence changes -- see ``m4b_numbering``.
+        numbering = ttk.Frame(options, style=st("surface"))
+        numbering.grid(row=7, column=0, columnspan=4, sticky="w", pady=(6, 0))
         self.var_auto_num = tk.BooleanVar(value=False)
         self.chk_auto_num = ttk.Checkbutton(
-            options, text="Auto-number tracks", variable=self.var_auto_num
-        )
-        self.chk_auto_num.grid(row=row, column=0, sticky="w", padx=8, pady=2)
-
-        ttk.Label(options, text="Start #:").grid(row=row, column=1, sticky="e", padx=8, pady=2)
+            numbering, text="Auto-number tracks", variable=self.var_auto_num,
+            style=st("checkbutton"))
+        self.chk_auto_num.grid(row=0, column=0, sticky="w")
+        ttk.Label(numbering, text="Start #", style=st("label")).grid(
+            row=0, column=1, sticky="w", padx=(18, 0))
         self.var_start_num = tk.IntVar(value=1)
-        self.entry_start_num = ttk.Entry(options, textvariable=self.var_start_num, width=6)
-        self.entry_start_num.grid(row=row, column=1, sticky="w", padx=(70, 8), pady=2)
+        self.entry_start_num = ttk.Entry(numbering, textvariable=self.var_start_num,
+                                         width=6, style=st("entry"))
+        self.entry_start_num.grid(row=0, column=2, sticky="w", padx=(8, 0))
 
-        # Output destination (read-only; the base lives in Preferences & Data)
-        row += 1
-        ttk.Label(options, text="Output folder:").grid(
-            row=row, column=0, sticky="e", padx=8, pady=4
-        )
-        self.entry_outdir = ttk.Entry(options, textvariable=self.var_outdir,
-                                      state="readonly")
-        self.entry_outdir.grid(row=row, column=1, columnspan=3, sticky="we", padx=8, pady=4)
+        # Enabled/disabled follows the variable itself, so a mode set from
+        # code behaves exactly like a click on the radio.
+        self.var_metadata_mode.trace_add(
+            "write", lambda *_a: self._sync_replacement_fields())
 
-        row += 1
-        ttk.Label(
-            options,
+        # ---- 3. Output & Run ---------------------------------------------- #
+        run = self.run_section
+        run.columnconfigure(1, weight=1)
+        ttk.Label(run, text="Output", style=st("label")).grid(row=0, column=0, sticky="w")
+        # Read-only; the base lives in Preferences & Data.
+        self.entry_outdir = ttk.Entry(run, textvariable=self.var_outdir,
+                                      state="readonly", width=OUTDIR_CHARS,
+                                      style=st("entry"))
+        self.entry_outdir.grid(row=0, column=1, sticky="ew", padx=(8, 6))
+        # Navigation, never a processing input, so it never locks.
+        self.btn_open_out = ttk.Button(run, text="Open Output Folder",
+                                       command=self.open_outdir, style=st("button"))
+        self.btn_open_out.grid(row=0, column=2, sticky="e")
+        self.output_note = ttk.Label(
+            run,
             text="Each conversion gets its own numbered run folder here. "
                  "Change the location in Preferences & Data.",
-        ).grid(row=row, column=1, columnspan=3, sticky="w", padx=8, pady=(0, 4))
+            style=st("secondary_label"), justify=tk.LEFT, wraplength=NOTE_WRAP)
+        self.output_note.grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
-        # Start, and the navigation that is never a processing input.
-        #
-        # The panel's own `Cancel` button is **retired here**, not duplicated:
-        # Pause, Resume, Cancel and Retry Failed belong to the shared control bar
-        # below, which offers each of them exactly when the approved availability
-        # rules say it is meaningful. Two Cancel buttons for one cooperative
-        # request is precisely the parallel authority this phase removes.
-        # :meth:`cancel` survives as the method that bar calls.
-        action = ttk.Frame(self)
-        action.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
-        self.btn_convert = ttk.Button(action, text="Convert M4Bs → MP3s", command=self.start_convert)
-        self.btn_convert.pack(side=tk.LEFT)
-        self.btn_open_out = ttk.Button(action, text="Open Output Folder", command=self.open_outdir)
-        self.btn_open_out.pack(side=tk.LEFT, padx=8)
+        self.run_separator = ttk.Separator(run, orient=tk.HORIZONTAL,
+                                           style=st("separator"))
+        self.run_separator.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(6, 6))
 
-        # The shared run controls, the progress bar, the estimate and
-        # Summary/Details all live here. The adapter is rebuilt for each run --
-        # one run, one event stream, one estimate -- so this container is what
-        # holds its place in the layout.
-        self.job_area = ttk.Frame(self)
-        self.job_area.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 6))
+        # Convert is the primary action: it leads the run row and is the
+        # panel's default button, exactly as TTS's Start and Cover's Resize
+        # Covers are. The panel's own ``Cancel`` button stays **retired**:
+        # Pause, Resume, Cancel and Retry Failed belong to the shared control
+        # bar beneath it, which offers each exactly when the approved
+        # availability rules say it is meaningful. :meth:`cancel` survives as
+        # the method that bar calls.
+        self.run_row = ttk.Frame(run, style=st("surface"))
+        self.run_row.grid(row=3, column=0, columnspan=3, sticky="ew")
+        self.run_row.columnconfigure(0, weight=1)
+        self.btn_convert = ttk.Button(
+            self.run_row, text="Convert M4Bs → MP3s", command=self.start_convert,
+            default="active", style=st("button"))
+        self.btn_convert.grid(row=0, column=0, sticky="w")
+        # The shared run controls and status view (progress, stage, ETA). The
+        # adapter is rebuilt for each run -- one run, one event stream, one
+        # estimate -- so this container holds its place in the layout.
+        self.job_area = ttk.Frame(self.run_row, style=st("surface"))
+        self.job_area.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self.job_area.columnconfigure(0, weight=1)
 
-        # The panel's own run log, unchanged in kind. It is the raw transcript of
-        # what the worker did -- the ffmpeg command line, the per-file lines, the
-        # error text. Summary and Details above are the shared *projections* of
-        # the run's events, and neither is a copy of the other.
-        logf = ttk.LabelFrame(self, text="Log")
-        logf.grid(row=4, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        self.log = tk.Text(logf, height=4, wrap="word")
-        self.log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb2 = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
-        sb2.pack(side=tk.RIGHT, fill=tk.Y)
-        self.log.configure(yscrollcommand=sb2.set)
+        # ---- Activity: the one Summary | Detailed log --------------------- #
+        # Built once and handed to every run's JobAdapter, so a fresh adapter's
+        # empty first render can never drop an earlier run's lines. Summary is
+        # the shared projection of the run's events; the worker's own raw
+        # transcript -- the ffmpeg command lines, the per-file lines, the error
+        # text the old "Log" box showed -- goes to Detailed (log_write), and the
+        # run's closing line to both.
+        act = self.activity
+        act.columnconfigure(0, weight=1)
+        act.rowconfigure(1, weight=1)
+        bar = ttk.Frame(act, style=st("surface"))
+        bar.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        bar.columnconfigure(0, weight=1)
+        self.activity_note = ttk.Label(
+            bar,
+            text="Summary: progress and results.  Detailed: every step and the "
+                 "ffmpeg transcript.",
+            style=st("secondary_label"), justify=tk.LEFT,
+            wraplength=ACTIVITY_NOTE_MIN_WRAP)
+        self.activity_note.grid(row=0, column=0, sticky="w")
+        # Not a processing option, so it never locks: clearing the visible log
+        # never interferes with a run in flight.
+        self.btn_clear_log = ttk.Button(bar, text="Clear Log", command=self.clear_log,
+                                        style=st("button"))
+        self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.log = job_ui.SummaryDetailsView(
+            act, theme=bundle, height=LOG_HEIGHT, width=LOG_WIDTH_CHARS,
+            details_label="Detailed", limit=LOG_LIMIT)
+        self.log.frame.grid(row=1, column=0, sticky="nsew")
 
-        for i in range(4):
-            options.grid_columnconfigure(i, weight=1)
+        self.bind("<Configure>", self._on_panel_configure, add="+")
 
         # Initial checks (log instead of a modal so switching tools is quiet)
         # v0.6.2 Plan 5 Phase 15: this used to say "FFmpeg detected." whenever a
         # path resolved, which is what told the maintainer everything was fine
         # about an installation Windows was refusing to execute. The wording now
         # comes from ``status_line`` so "found" and "verified" cannot be confused
-        # again, and so the distinction is stated in exactly one place.
-        # ``status_line`` words all three states, including "found but not
-        # verified", so there is nothing left for this panel to phrase itself.
-        self.log_write(ffmpeg_utils.status_line() + "\n")
+        # again, and so the distinction is stated in exactly one place. It
+        # lands in both panes, as it always showed in the panel's one log, so
+        # the FFmpeg state is visible the moment the tool opens.
+        self.log_write(ffmpeg_utils.status_line() + "\n", summary=True)
 
         # One pump, one scheduled chain: the conversion queue is a drain on
         # the same pump the import poller rides, and so is the shared job
@@ -658,6 +768,11 @@ class M4BConverterUI(ttk.Frame):
         # loop, and no timer.
         self._pump.add_drain(self._pump_queue)
         self._install_jobs(IDLE_RUN_ID, ())
+        self._sync_replacement_fields()
+        # Measured once everything exists, then placed; the first <Configure>
+        # of a mapped panel re-decides the arrangement for the real size.
+        self._measure_layout()
+        self._apply_layout("wide")
         self._pump.start()
 
     # ------- UI callbacks -------
@@ -796,15 +911,15 @@ class M4BConverterUI(ttk.Frame):
         if previous is not None:
             previous.close()
             previous.frame.destroy()
-            self.rowconfigure(3, minsize=0)
         self._event_q = queue.Queue()
         self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
+        bundle = self.appearance_bundle
         self.jobs = job_ui.JobAdapter(
             self.job_area,
             run_id=run_id,
             pump=self._pump,
-            # No theme bundle: this panel stays classic until Plan 9 converts it.
-            theme=None,
+            # The shared compact bundle, exactly as Cover's and TTS's controls use it.
+            theme=bundle,
             pull=job_ui.queue_pull(self._event_q),
             estimator=self._estimator,
             bridge=self._bridge,
@@ -813,54 +928,32 @@ class M4BConverterUI(ttk.Frame):
             on_resume=self.resume,
             on_cancel=self.cancel,
             on_retry=self.retry_failed,
-            details_height=4,
+            # The panel's one persistent Summary/Detailed log in Activity, not a
+            # fresh view per adapter: the adapter renders into it, and neither
+            # places nor closes it.
+            views=self.log,
         )
-        self.jobs.frame.pack(fill=tk.BOTH, expand=True)
-        self._hold_job_area_open()
+        self.jobs.frame.grid(row=0, column=0, sticky="nsew")
         # One progress model, not two: the panel's indicator *is* the shared
         # status view's, so nothing can draw a second, disagreeing bar.
         self.progress = self.jobs.status.indicator
+        # Per-instance restyling, exactly as Cover and TTS do it: the shared
+        # indicator stays generic for every panel that has not adopted the
+        # compact system, but here an unstyled native frame would be a light
+        # island in Dark. On aqua every name is "" -- native.
+        self.progress.frame.configure(style=job_ui.style_name(bundle, "card"))
+        self.progress.bar.configure(style=job_ui.style_name(bundle, "progressbar"),
+                                    length=PROGRESS_BAR_LENGTH)
+        self.progress.label.configure(style=job_ui.style_name(bundle, "secondary_label"))
+        # Long run text wraps, never widens Output & Run.
+        for label in (self.jobs.status.label_stage, self.jobs.status.label_status):
+            label.configure(wraplength=STATUS_WRAP)
+        self.jobs.status.label_status.configure(
+            style=job_ui.style_name(bundle, "secondary_label"))
+        self._arrange_job_controls()
         self.jobs.register_inputs(self.importer)
         self.jobs.register_options(self)
         self.jobs.render()
-
-    def _hold_job_area_open(self) -> None:
-        """Stop ``grid`` shrinking row 3 past the point where Summary shows text.
-
-        This panel asks for ~898 px of content and the supported minimum window
-        is 600, so ``grid`` shrinks every weighted row. Row 3 is not freely
-        elastic the way the queue (row 0) and the log (row 4) are: below the job
-        area's own floor the notebook is handed less than the theme's tab chrome
-        and Summary collapses to one pixel — mapped, full width, and showing
-        nothing. Row 0 and row 4 scroll, so they are the right rows to absorb the
-        shortfall; this only stops row 3 absorbing more than it can afford.
-
-        The floor is measured by the shared adapter, never hard-coded, and the
-        row's own bottom pad is added because ``grid`` counts padding inside
-        ``minsize``. It is re-applied on every adapter rebuild and cleared first,
-        so a stale floor from a previous run cannot accumulate.
-
-        This is deliberately *not* the §22 scrolling fallback: every required
-        control is already reachable at 920x600 and stays so. The panel's broader
-        compression remains Plan 9's.
-        """
-        floor = self.jobs.minimum_height()
-        if floor <= 0:
-            # A freshly built adapter has no requested sizes yet, and this panel
-            # may not schedule its own callback -- the one pump owns scheduling,
-            # and ``test_the_panel_schedules_nothing_of_its_own`` enforces it. So
-            # the pending geometry is settled synchronously here instead, and the
-            # floor is measured from the result.
-            try:
-                self.job_area.update_idletasks()
-            except tk.TclError:                # pragma: no cover - torn down
-                return
-            floor = self.jobs.minimum_height()
-        if floor <= 0:
-            return
-        pady = self.job_area.grid_info().get("pady", 0)
-        bottom = pady[1] if isinstance(pady, (tuple, list)) else int(pady or 0)
-        self.rowconfigure(3, minsize=floor + int(bottom))
 
     def _publish(self, event) -> None:
         """Hand one produced event to the queue the shared adapter drains.
@@ -1198,6 +1291,7 @@ class M4BConverterUI(ttk.Frame):
         processing cancel.
         """
         self.importer.set_locked(state)
+        self._inputs_locked = bool(state)
         widgets = [
             self.btn_convert,
             self.entry_quality,
@@ -1206,21 +1300,70 @@ class M4BConverterUI(ttk.Frame):
             self.rb_preserve,
             self.rb_replace,
             self.rb_strip,
-            self.title_entry,
-            self.artist_entry,
-            self.album_artist_entry,
-            self.album_entry,
             self.chk_auto_num,
             self.entry_start_num,
         ]
         for w in widgets:
             w.configure(state=tk.DISABLED if state else tk.NORMAL)
+        # The four metadata fields follow the lock *and* the metadata mode, so
+        # they never come back enabled under Write none.
+        self._sync_replacement_fields()
         # The destination display is never typeable; it only greys out.
         self.entry_outdir.configure(state=tk.DISABLED if state else "readonly")
 
-    def log_write(self, text: str):
-        self.log.insert(tk.END, text)
-        self.log.see(tk.END)
+    def replacement_fields(self) -> tuple:
+        """Title, Artist, Album Artist, Album -- in the form's reading order."""
+        return (self.title_entry, self.artist_entry, self.album_artist_entry,
+                self.album_entry)
+
+    def _sync_replacement_fields(self) -> None:
+        """Grey the four metadata fields out exactly when they cannot apply.
+
+        Preserve lets a filled field override the source's own value and
+        Replace writes only these fields, so both use them; Write none writes
+        nothing, so there they are disabled -- visible and greyed, never
+        hidden, so the form does not jump. A locked panel (a run in flight)
+        keeps them disabled whatever the mode. Presentation only: the typed
+        text is kept, and ``read_options`` reads it exactly as before.
+        """
+        if getattr(self, "_closed", True):
+            return
+        try:
+            mode = self.var_metadata_mode.get()
+        except tk.TclError:  # pragma: no cover - torn down
+            return
+        usable = not self._inputs_locked and mode != MetadataMode.STRIP.value
+        for entry in self.replacement_fields():
+            try:
+                entry.configure(state=tk.NORMAL if usable else tk.DISABLED)
+            except tk.TclError:  # pragma: no cover - torn down
+                pass
+
+    def log_write(self, text: str, *, summary: bool = False) -> None:
+        """Add the worker's own transcript text to the Activity log.
+
+        Detailed only by default -- the per-file transcript and the ffmpeg
+        command lines are technical detail, and Summary is the shared
+        adapter's own projection of the run. ``summary=True`` puts a line in
+        both panes; the FFmpeg status and the run's closing line use it, so
+        they are visible without switching tabs. Blank lines the worker uses
+        as spacing are dropped: each view line is already its own row. The
+        same contract Cover Image's Activity uses.
+        """
+        lines = [line for line in str(text).splitlines() if line.strip()]
+        if getattr(self, "_closed", True) or not lines:
+            return
+        if summary:
+            for line in lines:
+                self.log.append(line)
+        else:
+            self.log.append_detail(lines)
+
+    def clear_log(self) -> None:
+        """Clear the visible Summary + Detailed text only. The run's own event
+        stream, the session log and any settled result are untouched."""
+        if not self._closed:
+            self.log.clear()
 
     # ------- worker -> GUI queue pump (main thread) -------
 
@@ -1248,7 +1391,7 @@ class M4BConverterUI(ttk.Frame):
                 elif kind == RESULT_MESSAGE:
                     self._settle(payload)
                 elif kind == "done":
-                    self.log_write(payload[0])
+                    self.log_write(payload[0], summary=True)
                     self._finish_idle()
                     if payload[1] is not None:
                         sp.reveal_in_file_manager(payload[1])
@@ -1868,6 +2011,369 @@ class M4BConverterUI(ttk.Frame):
             self._log_q.put(("done", (f"\nAll done. Output: {outdir}\n", outdir)))
 
 
+    # ------- appearance: the shared compact control language -------
+
+    def _style(self, key: str) -> str:
+        """The shared ``Compact.*`` style for *key* ("" on aqua: native)."""
+        return job_ui.style_name(self.appearance_bundle, key)
+
+    def _on_appearance_changed(self, bundle: dict) -> None:
+        """Re-color the few classic Tk widgets a ttk style mutation cannot reach.
+
+        Every ttk widget here names a ``Compact.*`` style, and
+        ``shared.appearance`` reconfigured those in place before calling this,
+        so they have already repainted. What is left is classic Tk: the
+        importer's ``Listbox`` and the Activity log's two ``Text`` panes.
+        Nothing is rebuilt, so no import, selection, mode, metadata value,
+        output setting, log line, progress or running job moves.
+        """
+        self.appearance_bundle = bundle
+        if getattr(self, "_closed", True):
+            return
+        importer = getattr(self, "importer", None)
+        if importer is not None:
+            importer.list.apply_appearance(bundle)
+        log = getattr(self, "log", None)
+        if log is not None:
+            log.apply_appearance(bundle)
+
+    # ------- layout: measured, responsive, never a whole-panel scrollbar -------
+
+    def _arrange_sections(self, narrow: bool) -> None:
+        """Re-grid the few controls whose best arrangement depends on width.
+
+        Only grid positions, padding and requested widths change -- the same
+        widgets, variables and commands, and nothing of the importer's state.
+        The six import actions keep the frozen §4 order, three per row (the
+        workflow column is never wide enough for six); the import options take
+        Cover's two rows. ``narrow`` is the small-window split, which also takes
+        TTS's tight-window steps: less section padding, a shorter requested
+        path field and the job controls in two rows of two.
+        """
+        padding = SPLIT_SECTION_PADDING if narrow else SECTION_PADDING
+        for section in (self.sources_section, self.options_section, self.run_section,
+                        self.activity):
+            section.configure(padding=padding)
+        gap = 3 if narrow else 4
+        for index, (key, _label) in enumerate(job_ui.ImportedFileList.ACTIONS):
+            row, column = divmod(index, 3)
+            self.importer.list.buttons[key].grid_configure(
+                row=row, column=column, padx=(0 if column == 0 else 4, 0),
+                pady=(0 if row == 0 else gap, 0), sticky="ew")
+        options = self.importer.options
+        types = list(options.type_buttons.values())
+        count = len(types)
+        for column, button in enumerate(types):
+            button.grid_configure(row=0, column=column, columnspan=1, sticky="w",
+                                  padx=(0 if column == 0 else 8, 0), pady=0)
+        options.check_subfolders.grid_configure(
+            row=0, column=count, columnspan=1, sticky="w", padx=(14, 0), pady=0)
+        options.check_hidden.grid_configure(
+            row=1, column=0, columnspan=count, sticky="w", padx=0, pady=(1, 0))
+        options.check_duplicates.grid_configure(
+            row=1, column=count, columnspan=1, sticky="w", padx=(14, 0), pady=(1, 0))
+        options.frame.grid_configure(pady=(gap, 0))
+        self.importer.status.frame.grid_configure(pady=(gap, 0))
+        self.options_separator.grid_configure(pady=(4, 3) if narrow else (6, 5))
+        self.run_separator.grid_configure(pady=(4, 4) if narrow else (6, 6))
+        self.entry_outdir.configure(width=SPLIT_OUTDIR_CHARS if narrow else OUTDIR_CHARS)
+        self._arrange_job_controls(narrow)
+
+    def _arrange_job_controls(self, narrow: bool | None = None) -> None:
+        """The shared job controls: one row, or two rows of two in split.
+
+        Grid positions only -- the shared bar still decides which of the four
+        is available.
+        """
+        jobs = getattr(self, "jobs", None)
+        if jobs is None:
+            return
+        if narrow is None:
+            narrow = self._layout_mode == "split"
+        for index, button in enumerate(jobs.controls.buttons.values()):
+            row, column = divmod(index, 2) if narrow else (0, index)
+            button.grid_configure(row=row, column=column,
+                                  padx=(0 if column == 0 else 4, 0),
+                                  pady=(0 if row == 0 else 4, 0),
+                                  sticky="ew" if narrow else "")
+        jobs.status.frame.grid_configure(pady=(4, 0))
+
+    def _measure_layout(self) -> None:
+        """Measure what each arrangement needs, from the live widgets.
+
+        Every threshold :meth:`_choose_layout` uses comes from here -- the
+        three sections' natural sizes in both inner arrangements, Activity's,
+        the imported list's row height, and how much height the list and the
+        log may give up before their floors -- so the breakpoints follow the
+        platform's real fonts and scaling rather than pixel constants. The
+        captions are measured at their narrow wrap, so prose never decides a
+        section's width.
+        """
+        listbox = self.importer.list.listbox
+        listbox.configure(height=IMPORTER_LIST_HEIGHT)
+        sections = {"sources": self.sources_section, "options": self.options_section,
+                    "run": self.run_section}
+        inset = SECTION_PADDING[0] + SECTION_PADDING[2] + 6
+        needs: dict = {}
+        for narrow in (False, True):
+            self._arrange_sections(narrow)
+            # Widths first, with both captions at a narrow wrap ...
+            self.output_note.configure(wraplength=NOTE_WRAP)
+            self.activity_note.configure(wraplength=NOTE_WRAP)
+            self.update_idletasks()
+            widths = {name: widget.winfo_reqwidth() for name, widget in sections.items()}
+            activity_w = self.activity.winfo_reqwidth()
+            # ... then heights, with each caption wrapped at the narrowest width
+            # its column will actually get in this arrangement.
+            if narrow:
+                run_col = act_col = max(widths["run"], ACTIVITY_MIN_WIDTH)
+            else:
+                run_col, act_col = max(widths.values()), activity_w
+            self.output_note.configure(wraplength=max(NOTE_WRAP, run_col - inset))
+            self.activity_note.configure(wraplength=max(
+                ACTIVITY_NOTE_MIN_WRAP,
+                act_col - inset - self.btn_clear_log.winfo_reqwidth() - 8))
+            self.update_idletasks()
+            needs["split" if narrow else "wide"] = {
+                name: (widths[name], widget.winfo_reqheight())
+                for name, widget in sections.items()}
+            needs["activity_split" if narrow else "activity"] = (
+                activity_w, self.activity.winfo_reqheight())
+        row_px = listbox.winfo_reqheight() / IMPORTER_LIST_HEIGHT
+        needs["list_row_px"] = row_px
+        needs["list_give"] = int(row_px * (IMPORTER_LIST_HEIGHT - IMPORTER_FLOOR_ROWS))
+        needs["list_give_split"] = int(
+            row_px * (IMPORTER_LIST_HEIGHT - IMPORTER_SPLIT_FLOOR_ROWS))
+        line = tkfont.Font(font=self.log.summary_text.cget("font")).metrics("linespace")
+        needs["log_give"] = int(line) * (LOG_HEIGHT - LOG_FLOOR_LINES)
+        self._needs = needs
+        self._arrange_sections(self._layout_mode == "split")
+
+    def _workflow_needs(self, mode: str) -> tuple[int, int]:
+        """The workflow's natural width and its floor height in *mode*.
+
+        In ``split`` the workflow is 1 over 2 only; 3 stands above Activity.
+        """
+        n = self._needs
+        if mode == "split":
+            s = n["split"]
+            return (max(s["sources"][0], s["options"][0]),
+                    s["sources"][1] - n["list_give_split"] + SECTION_GAP
+                    + s["options"][1])
+        s = n["wide"]
+        return (max(s["sources"][0], s["options"][0], s["run"][0]),
+                s["sources"][1] - n["list_give"] + 2 * SECTION_GAP
+                + s["options"][1] + s["run"][1])
+
+    def _split_right_needs(self) -> tuple[int, int]:
+        """The split arrangement's right column: 3 over Activity at its floor."""
+        n = self._needs
+        run_w, run_h = n["split"]["run"]
+        activity_floor = n["activity_split"][1] - n["log_give"]
+        return (max(run_w, ACTIVITY_MIN_WIDTH),
+                run_h + SECTION_GAP + activity_floor)
+
+    def _choose_layout(self, width: int, height: int) -> str:
+        """Pick the arrangement for a panel of this size. A pure function of it.
+
+        Activity is on the right whenever it can be. The vertical workflow
+        (1 over 2 over 3) is used when it and a usable log both fit; where it
+        cannot -- the real launcher's small content areas -- the approved TTS
+        precedent: 1 over 2 on the left, 3 over Activity on the right. Only a
+        panel too small even for that drops Activity beneath the workflow.
+        """
+        room_w = width - 2 * OUTER_PAD
+        room_h = height - 2 * OUTER_PAD
+        activity_floor = self._needs["activity"][1] - self._needs["log_give"]
+        flow_w, flow_floor = self._workflow_needs("wide")
+        if (flow_w + COLUMN_GAP + ACTIVITY_MIN_WIDTH <= room_w
+                and max(flow_floor, activity_floor) <= room_h):
+            return "wide"
+        left_w, left_floor = self._workflow_needs("split")
+        right_w, right_floor = self._split_right_needs()
+        if (left_w + COLUMN_GAP + right_w <= room_w
+                and max(left_floor, right_floor) <= room_h):
+            return "split"
+        return "stacked"
+
+    def _left_width(self, width: int) -> int:
+        """The workflow column's width beside Activity.
+
+        Its natural width, or -- one vertical column on a wide window --
+        WORKFLOW_SHARE of the panel when that is more, never leaving Activity
+        less than ACTIVITY_MIN_WIDTH. In split the left column keeps its
+        natural width and the right column (3 over Activity) takes the rest.
+        """
+        mode = self._layout_mode or "wide"
+        flow_w, _ = self._workflow_needs("split" if mode == "split" else "wide")
+        if mode != "wide" or width <= 1:
+            return flow_w
+        room_w = width - 2 * OUTER_PAD
+        share = int(room_w * WORKFLOW_SHARE)
+        return max(flow_w, min(share, room_w - COLUMN_GAP - ACTIVITY_MIN_WIDTH))
+
+    def _grid_workflow(self, mode: str) -> None:
+        flow = self.workflow
+        for index in (0, 1, 2, 3):
+            flow.rowconfigure(index, weight=0, minsize=0)
+        for index in (0, 1):
+            flow.columnconfigure(index, weight=0, minsize=0)
+        self.sources_section.grid(row=0, column=0, columnspan=2, sticky="nsew",
+                                  padx=0, pady=0)
+        if mode == "stacked":
+            # Last resort: 2 beside 3 under Sources, so the whole workflow is
+            # as short as it can be above Activity.
+            self.options_section.grid(row=1, column=0, columnspan=1, sticky="nsew",
+                                      padx=(0, SECTION_GAP), pady=(SECTION_GAP, 0))
+            self.run_section.grid(in_=flow, row=1, column=1, columnspan=1,
+                                  sticky="nsew", padx=0, pady=(SECTION_GAP, 0))
+            flow.columnconfigure(0, weight=1)
+            flow.columnconfigure(1, weight=1)
+            return
+        self.options_section.grid(row=1, column=0, columnspan=2, sticky="nsew",
+                                  padx=0, pady=(SECTION_GAP, 0))
+        flow.columnconfigure(0, weight=1)
+        if mode == "wide":
+            self.run_section.grid(in_=flow, row=2, column=0, columnspan=2,
+                                  sticky="nsew", padx=0, pady=(SECTION_GAP, 0))
+
+    def _apply_layout(self, mode: str) -> None:
+        """Grid the workflow and Activity for one arrangement, then set floors."""
+        if self._needs is None:
+            return
+        self._layout_mode = mode
+        self._arrange_sections(mode == "split")
+        self._grid_workflow(mode)
+        for index in (0, 1):
+            self.columnconfigure(index, weight=0, minsize=0)
+            self.rowconfigure(index, weight=0, minsize=0)
+        half = COLUMN_GAP // 2
+        if mode == "split":
+            # 1 over 2 on the left, spanning the panel's height; 3 over
+            # Activity on the right, Activity taking whatever height is left.
+            self.workflow.grid(row=0, column=0, rowspan=2, sticky="nsew",
+                               padx=(OUTER_PAD, half), pady=OUTER_PAD)
+            self.run_section.grid(in_=self, row=0, column=1, columnspan=1,
+                                  sticky="nsew", padx=(COLUMN_GAP - half, OUTER_PAD),
+                                  pady=(OUTER_PAD, 0))
+            self.activity.grid(row=1, column=1, rowspan=1, sticky="nsew",
+                               padx=(COLUMN_GAP - half, OUTER_PAD),
+                               pady=(SECTION_GAP, OUTER_PAD))
+            self.columnconfigure(1, weight=1)
+        elif mode == "wide":
+            self.workflow.grid(row=0, column=0, rowspan=1, sticky="nsew",
+                               padx=(OUTER_PAD, half), pady=OUTER_PAD)
+            self.activity.grid(row=0, column=1, rowspan=1, sticky="nsew",
+                               padx=(COLUMN_GAP - half, OUTER_PAD), pady=OUTER_PAD)
+            self.columnconfigure(1, weight=1)
+        else:
+            self.workflow.grid(row=0, column=0, rowspan=1, sticky="nsew",
+                               padx=OUTER_PAD, pady=(OUTER_PAD, half))
+            self.activity.grid(row=1, column=0, rowspan=1, sticky="nsew",
+                               padx=OUTER_PAD, pady=(COLUMN_GAP - half, OUTER_PAD))
+            self.columnconfigure(0, weight=1)
+        self._size_columns()
+        self._rewrap()
+        self._apply_floors()
+
+    def _size_columns(self) -> None:
+        """Beside Activity, fix the workflow column's width from the layout
+        math -- never from ``grid`` weights, so the log, not the controls,
+        takes the room a wider window adds."""
+        if self._layout_mode not in ("wide", "split") or self._needs is None:
+            return
+        minsize = self._left_width(self.winfo_width()) + OUTER_PAD + COLUMN_GAP // 2
+        if int(self.grid_columnconfigure(0)["minsize"]) != minsize:
+            self.columnconfigure(0, weight=0, minsize=minsize)
+
+    def _rewrap(self) -> bool:
+        """Wrap each caption to the width its section actually has, so a wide
+        window shows it on fewer lines and the minimum on more -- never letting
+        a caption decide a column's width (TTS's rule). True if any moved."""
+        if self._needs is None or self._layout_mode is None:
+            return False
+        width = self.winfo_width()
+        if width <= 1:
+            return False
+        room_w = width - 2 * OUTER_PAD
+        inset = SECTION_PADDING[0] + SECTION_PADDING[2] + 6
+        if self._layout_mode == "stacked":
+            left = activity = room_w
+            run = room_w // 2
+        else:
+            left = self._left_width(width)
+            activity = room_w - COLUMN_GAP - left
+            run = activity if self._layout_mode == "split" else left
+        targets = (
+            (self.output_note, max(NOTE_WRAP, run - inset)),
+            (self.activity_note, max(ACTIVITY_NOTE_MIN_WRAP,
+                                     activity - inset
+                                     - self.btn_clear_log.winfo_reqwidth() - 8)),
+        )
+        changed = False
+        for label, wrap in targets:
+            if int(float(str(label.cget("wraplength")) or 0)) != wrap:
+                label.configure(wraplength=wrap)
+                changed = True
+        return changed
+
+    def _apply_floors(self) -> None:
+        """Keep the list and the log from being squeezed below their floors.
+
+        ``grid`` takes a shortfall out of weighted rows only, and below a row's
+        minsize it clips rather than shrinks -- so every elastic row gets a
+        floor measured from the live widgets. Measured after wrapping, so a
+        caption that grew a line is already counted.
+        """
+        if self._needs is None or self._layout_mode is None:
+            return
+        try:
+            self.update_idletasks()
+        except tk.TclError:  # pragma: no cover - torn down
+            return
+        give_log = self._needs["log_give"]
+        give_list = (self._needs["list_give_split"] if self._layout_mode == "split"
+                     else self._needs["list_give"])
+        self.activity.rowconfigure(
+            1, weight=1, minsize=max(0, self.log.frame.winfo_reqheight() - give_log))
+        activity_floor = max(0, self.activity.winfo_reqheight() - give_log)
+        sources_floor = max(0, self.sources_section.winfo_reqheight() - give_list)
+        self.workflow.rowconfigure(0, weight=1, minsize=sources_floor)
+        half = COLUMN_GAP // 2
+        if self._layout_mode == "wide":
+            self.rowconfigure(0, weight=1, minsize=activity_floor + 2 * OUTER_PAD)
+        elif self._layout_mode == "split":
+            self.rowconfigure(0, weight=0, minsize=0)
+            self.rowconfigure(1, weight=1,
+                              minsize=activity_floor + SECTION_GAP + OUTER_PAD)
+        else:
+            flow_floor = max(0, self.workflow.winfo_reqheight() - give_list)
+            self.rowconfigure(0, weight=1, minsize=flow_floor + OUTER_PAD + half)
+            self.rowconfigure(1, weight=2,
+                              minsize=activity_floor + OUTER_PAD + COLUMN_GAP - half)
+
+    def _reflow(self, force: bool = False) -> None:
+        width, height = self.winfo_width(), self.winfo_height()
+        if width <= 1 or height <= 1 or self._needs is None:
+            return
+        mode = self._choose_layout(width, height)
+        if force or mode != self._layout_mode:
+            self._apply_layout(mode)
+            return
+        self._size_columns()
+        if self._rewrap():
+            self._apply_floors()
+
+    def _on_panel_configure(self, event) -> None:
+        if event.widget is not self or self._closed or self._needs is None:
+            return
+        self._reflow()
+
+    @property
+    def layout_mode(self) -> str | None:
+        """The arrangement currently applied: ``wide``, ``split`` or ``stacked``."""
+        return self._layout_mode
+
     # ------- lifecycle -------
 
     def close(self):
@@ -1883,6 +2389,7 @@ class M4BConverterUI(ttk.Frame):
         if self._closed:
             return
         self._closed = True
+        appearance.unregister_listener(self._on_appearance_changed)
         if self._busy.is_set():
             self._cancel_event.set()
         controller = self._controller
