@@ -15,6 +15,45 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **First-run setup failed on a healthy machine; release packaging ships only committed files; the TXT encoding contract made true everywhere and documented** (v0.6.6 Phase 11, 2026-09-29)
+
+- **First-run setup reported "Python packages installed but could not be imported" on a healthy
+  install.** This was found by a real first-run install from the freshly built Windows zip.
+  - **Cause:** setup gave each package's first import 30 seconds. In a brand-new environment that
+    first import is slow while Python compiles and the virus scanner checks thousands of new files:
+    `nltk` took 32 s the first time and 1 s after that. Setup now allows the same 10 minutes the
+    launch check already did.
+  - **Its "repair" drifted the pins.** It reinstalled the package with no version, pulling that
+    day's newest releases of it and its dependencies. Five pinned packages changed, including the
+    `setuptools` hold that Chatterbox needs. A repair now stays on the versions in
+    `requirements.txt`.
+- **Release archives could carry uncommitted local files.** The packager walked `scripts/` on disk,
+  so a developer's never-committed `scripts/project-status.py` was packaged into both zips. Now a
+  file under `scripts/` ships only if git tracks it; `.DS_Store`, `Thumbs.db`, caches and compiled
+  files are still dropped even then. The release build also refuses to run while any packaged path
+  has uncommitted changes, and it refuses outside a git checkout.
+- **TXT files are UTF-8, with or without a byte-order mark** (maintainer ruling; other encodings
+  are deferred to v0.6.7). A folder-imported `.txt` on Edge still passed a BOM through as text, and
+  a BOM-only file was sent to Edge as a single invisible character. It now reads exactly like the
+  other three engines. A non-UTF-8 file fails its one item, never mis-read, and the README says how
+  to re-save it.
+- **macOS launcher:** the "move the folder out of Downloads" help now names the folder Finder
+  actually creates (`AudiobookTool-MacOS-v…`). Text only.
+- **README:**
+  - the archive contents (`config.toml`, committed files only);
+  - the macOS folder name;
+  - Cover Image output (a numbered run folder, with the opt-in replace-originals exception stated);
+  - the shared compact layout and the remembered Light/Dark toggle;
+  - the UTF-8 TXT requirement;
+  - the real disk need (~2.5 GB environment; only the voice models are optional).
+- **Proved:** after the fix, a real first-run install from a rebuilt Windows zip finished with every
+  package at its pinned version. The zip's own `.bat` then opened the app. New packaging tests prove
+  the launchers byte for byte (`.bat` CRLF; `.command` LF with its shebang, `bash -n`, executable
+  mode). New: `test_bootstrap_import_validation.py`; extended: `test_release_packaging.py`,
+  `test_tts_text_bom.py`.
+
+  Details: `Decisions.md` and `Handoff.md`, 2026-09-29.
+
 ### Fixed -- **Hardening: three TTS/Cover defects fixed, the Edge CLI M4B path hardened, and every open deferral dispositioned** (v0.6.6 Phase 10, 2026-09-28)
 
 - **TTS: a UTF-8 file with a byte-order mark read its header aloud.** Notepad's "UTF-8 with BOM" and

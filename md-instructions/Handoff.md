@@ -2,6 +2,94 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 11: PACKAGING / SETUP / RELEASE HYGIENE (2026-09-29)
+>
+> **Phase 10 is maintainer-approved** at `098ef9a`. Phase 11 started from that exact commit
+> (local = origin), with the local-only `.ai/`, `scripts/project-status.py` and screenshot
+> renames preserved uncommitted.
+>
+> **Maintainer ruling (TXT Minor):**
+> - No ANSI/cp1252 or guessed-encoding fallback in v0.6.6. A `.txt` is **UTF-8, with or without a
+>   BOM**; broader support is deferred to v0.6.7.
+> - Documented in the README (the TTS feature line, plus Known Limitations with the Notepad re-save
+>   step) and in Briefing.
+>
+> **Confirmed gaps, all fixed with RED-first regressions:**
+> 1. **CRITICAL — first-run setup failed on a healthy machine.** A real first-run install from the
+>    freshly built Windows archive ended "Python packages installed but could not be imported"
+>    (exit 1).
+>    - **Cause:** `validate_installed_packages` probed each import for 30 s. A cold first import
+>      in a new venv runs longer: `nltk` measured 32.4 s cold vs 1.1 s warm, and `chatterbox` also
+>      ran over 30 s.
+>    - **The unpinned `--force-reinstall` repair then drifted five pins:** `nltk`, `pillow`,
+>      `tqdm`, `soundfile` and `setuptools` 80.9.0→84.0.0, which is the Chatterbox
+>      `pkg_resources` hold.
+>    - **Fix** (`shared/bootstrap.py`): one `IMPORT_PROBE_TIMEOUT_S = 600` shared with the launch
+>      proof, and the reinstall constrained with `-c requirements.txt`. Tests:
+>      `test_bootstrap_import_validation.py` (6), both halves mutation-checked.
+> 2. **Packaging leaked uncommitted files.** A real build put the local-only
+>    `scripts/project-status.py` in both zips.
+>    - **Fix** (`shared/release.py`): only git-tracked `scripts/` files ship. The exclusions still
+>      apply to tracked files. `main()` refuses while any packaged path differs from HEAD, and it
+>      refuses outside git.
+>    - **Tests:** `test_release_packaging.py` 34→51 (a fixture repo now really commits), both
+>      guards mutation-checked.
+> 3. **TXT contract not true on the Edge folder path.** `batch_convert` read plain `utf-8`, so the
+>    BOM reached Edge and a BOM-only file became a `"﻿"` chunk. Now `utf-8-sig`.
+>    `test_tts_text_bom.py` +3, including a cp1252-refused-on-every-path contract pin.
+> 4. **Launcher text:** the `.command` translocation help named a nonexistent
+>    `audiobook-creation-tool` folder; it now names `AudiobookTool-MacOS-v…`. `bash -n` clean,
+>    LF, still `100755`.
+> 5. **README corrected:** archive contents (config.toml, committed-only, dirty refusal), the macOS
+>    folder name, Cover output modes (plus the opt-in replace exception), Light/Dark, UTF-8 TXT,
+>    disk (~2.5 GB measured) and the clean-install limitation.
+>
+> **Proved mechanically (HOME-PC, Windows 11, evidence under `files/dev-work/phase11/`,
+> disposable):**
+> - Both archives are built from the real tree:
+>   - root = README.md, config.toml, its own launcher, scripts/;
+>   - 79 tracked files each, no untracked or OS/dev state;
+>   - `.bat` CRLF; `.command` LF, `#!/bin/bash`, `0o755`.
+> - Extracted Windows tree, `--self-test`: every path resolves inside the extracted root. It finds
+>   Python 3.12 and the WinGet FFmpeg candidate; `--venv-check` = 3 (absent).
+> - **Real first run** (`bootstrap.py --headless` from the base Python the `.bat` picks):
+>   - **run 1 FAILED** (the Critical above);
+>   - **run 2**, from a rebuilt archive, **exit 0** in 1:32 (warm pip cache). Imports clean;
+>     Gyan FFmpeg 9.0.1 verified and pinned with no install; **all 25 pins exact** (169
+>     packages); `.venv` 2.5 GB; `--venv-check` = 0.
+> - **The extracted `.bat` itself** (non-interactive): fast path, then the GUI detached under the
+>   extracted venv's `pythonw.exe`. The window "Audiobook Creation Tool" was visible and
+>   responding, closed cleanly, with no repair on that launch.
+> - All six tools were built in the extracted venv from the archive's code only.
+> - **Not a clean machine:** Python, FFmpeg and the pip cache were already present.
+>
+> **Verification:**
+> - Focused sweep (31 packaging/bootstrap/first-run/self-heal/venv-recovery/requirements/FFmpeg/
+>   TTS-contract/boundary/Kokoro files): **1,375 passed, 0 failed**.
+> - Full `scripts/verify.py`: **RESULT: PASS**, with pytest **7,895 passed / 58 skipped / 0 failed**
+>   in 15:12; deps, docs, docnames and config all PASS.
+>   - **Justified** by a production bootstrap fix (the Critical), a TTS read-path change and the
+>     release path.
+>   - **Reconciled:** +27 over Phase 10's 7,868 = packaging +17, import validation +6,
+>     BOM/contract +4. Skips unchanged at 58.
+> - The real `release.main()` against this uncommitted tree **refused**, listing the five dirty
+>   packaged paths and writing nothing.
+>
+> **Flagged, not fixed (Minor):** `test_edge_make_m4b_chapters.py` (Phase 10) emits two
+> `SyntaxWarning: invalid escape sequence` at collection; they will become an error in a future
+> Python.
+>
+> **v0.6.7 manual backlog (Phase 10's, plus):**
+> - a hands-on double-click of each extracted archive on a **clean** Windows and a **clean** Mac:
+>   Python/FFmpeg acquisition, Gatekeeper quarantine and App Translocation, first-run network
+>   installs, and the Kokoro model offer;
+> - a live macOS run of `test_release_packaging.py`.
+>
+> **Not done:** Phase 12 not started. No merge, tag, release, publication, branch deletion,
+> history rewrite or force-push. Version identity unchanged (`0.6.2`, unreleased); `dist/` untouched.
+>
+> — Recorded by Claude Code, 2026-09-29.
+
 > ## CURRENT STATE — v0.6.6 PHASE 10: PRODUCT HARDENING + DEFERRAL DISPOSITION (2026-09-28)
 >
 > **Phase 9 is maintainer-approved** at `758e24f`. Phase 10 started from that exact commit, with the

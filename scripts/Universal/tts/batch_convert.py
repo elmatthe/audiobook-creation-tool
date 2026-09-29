@@ -170,7 +170,9 @@ def convert_single_pdf(
 
             try:
                 if pdf_path.suffix.lower() == ".txt":
-                    text = pdf_path.read_text(encoding="utf-8")
+                    # utf-8-sig: a leading BOM is a signature, not text (the
+                    # documented UTF-8 / UTF-8-with-BOM TXT contract).
+                    text = pdf_path.read_text(encoding="utf-8-sig")
                 else:
                     text = extract_text_from_pdf(str(pdf_path))
                 chunks = split_into_chunks(text)

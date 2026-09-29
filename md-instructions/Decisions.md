@@ -4,6 +4,135 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-29 -- Phase 10 approved; the v0.6.6 TXT encoding contract is UTF-8 only; Phase 11 packaging, setup and release hygiene, including a first-run setup Critical found by a real install from the archive
+
+**Phase 10 approved.** The maintainer approved the Phase 10 checkpoint `098ef9a`. Phase 11 started
+from that exact commit, with the local-only `.ai/`, `scripts/project-status.py` and screenshot
+renames preserved uncommitted.
+
+**1. Maintainer ruling on the Phase 10 TXT-encoding Minor: no fallback in v0.6.6.**
+- **Contract:** a `.txt` source is **UTF-8, with or without a byte-order mark**. No ANSI/cp1252 or
+  guessed-encoding fallback is added in v0.6.6. A file in another encoding fails that one item
+  (with the technical decode message) and the run continues; it is never guessed at or spoken as
+  mojibake. Broader encoding support is deferred to **v0.6.7**.
+- **Documented** as a README input requirement (the TTS feature line, and a Known Limitations entry
+  with the Notepad re-save step) and in `Briefing.md`'s known limitations.
+- **Made true on every read path.** Phase 10 fixed the three direct-file engines. Phase 11 found the
+  fourth: a folder-imported Edge `.txt` goes through `batch_convert.convert_single_pdf`, which still
+  read plain `utf-8`. The BOM reached Edge as the first character of the first chunk, and a BOM-only
+  file became one `"﻿"` chunk instead of "no text". It now reads `utf-8-sig`, RED-first.
+- **Pinned:** `test_tts_text_bom.py` gains the folder path (same text with or without a BOM; a
+  BOM-only file is "No text chunks") and one contract test. A cp1252 file with accented letters raises
+  `UnicodeDecodeError` in `get_book`, Kokoro and Chatterbox, and fails the folder item, speaking
+  nothing.
+
+**2. Only committed files are packaged, and the release build refuses a dirty tree.**
+- **Gap, confirmed by a real build:** `release.py` walked `scripts/` on disk, so the maintainer's
+  local-only, never-committed `scripts/project-status.py` landed in **both** archives. The existing
+  completeness test derived its expectation from the same disk walk, so it could not notice.
+- **Decision:** inside `scripts/` a file ships only if git tracks it. The name/suffix exclusions
+  (`__pycache__`, `*.pyc`, `.DS_Store`, `Thumbs.db`) still apply, even to a tracked file. `main()`
+  refuses to build while any packaged path (`scripts/`, `README.md`, `config.toml`, both
+  launchers) differs from HEAD in the working tree or index, so an archive always matches a commit.
+  Untracked files are reported as "not packaged (untracked)", not refused. Outside a git checkout
+  the packager refuses (`ReleaseError`) rather than guessing.
+- **Why not the alternatives:**
+  - excluding `project-status.py` by name is exactly the forgotten-exclusion trap that the
+    explicit-scope design (2026-08-08) exists to avoid;
+  - packaging HEAD blobs (`git archive` / `git show`) would ship the `.bat` with the repository's
+    normalized LF endings rather than the CRLF that `.gitattributes` gives it on checkout;
+  - silently packaging a modified tracked file would make an archive that matches no commit.
+- **Boundary kept:** `release.py` stays out of the application's import graph. Its only new import is
+  `subprocess`, for git; the stdlib-only import test now names it.
+
+**3. The launchers, proved byte for byte.** New tests read the packaged bytes:
+- the `.bat` is CRLF throughout;
+- the `.command` starts `#!/bin/bash`, holds no CR, parses under `bash -n`, is stored `0o755` and
+  is committed `100755`;
+- `.gitattributes` pins both endings.
+
+The `.command`'s App Translocation help told Mac users to move an `"audiobook-creation-tool"`
+folder. Finder actually extracts `AudiobookTool-MacOS-vX.Y.Z.zip` into a folder of that name. The
+text now names the `"AudiobookTool-MacOS-v..."` folder (text only; no logic changed).
+
+**4. README corrected to the package it describes:**
+- archive contents (`config.toml` was missing; the committed-only rule and the dirty-tree refusal);
+- the macOS extracted-folder name;
+- the Cover Image output (a numbered run folder by default, not "next to the source images"), and
+  the one opt-in exception to "originals are never modified";
+- the shared compact layout and the remembered Light/Dark toggle;
+- the UTF-8 TXT contract;
+- the disk requirement: the environment is ~2.5 GB, measured, because the local-voice libraries
+  always install. Only the voice models are optional. The old row said "a few hundred MB";
+- the clean-install limitation, restated with the evidence below.
+
+**5. CRITICAL, found by a real first-run install from the freshly built archive, and fixed:
+first-run setup failed on a healthy machine.**
+- **What happened:**
+  - built the Windows archive and extracted it under `files/dev-work/phase11/`;
+  - ran the launcher's first-run path, `bootstrap.py --headless`, with the base
+    Python the `.bat` would pick. Every package installed.
+  - `validate_installed_packages` then reported `nltk` and `chatterbox` as "failed to import";
+  - setup ended **"Python packages installed but could not be imported… Setup did not
+    complete"** (exit 1, 5:19).
+- **Root cause, measured:**
+  - nothing was broken; both imported fine afterwards;
+  - the per-module probe allowed **30 s**, and a cold first import in a brand-new venv
+    compiles and security-scans thousands of fresh files. `import nltk` (it pulls in
+    `scipy.stats`) took **32.4 s** cold against **1.1 s** warm, and `chatterbox` (torch) also
+    ran past 30 s;
+  - the launch-time proof (`prove_required_imports`) already allowed 600 s and treats a probe
+    that cannot finish as no finding. Only the setup-time check was tight.
+- **Second defect on the same path, measured:**
+  - the "repair" was `pip install --force-reinstall <name>` with no version, so it replaced the
+    package and its whole dependency tree with that day's PyPI releases;
+  - afterwards five pins had drifted: `nltk` 3.9.4→3.10.3, `pillow` 12.2.0→12.3.0,
+    `tqdm` 4.67.3→4.70.1, `soundfile` 0.13.1→0.14.0 and **`setuptools` 80.9.0→84.0.0**.
+    setuptools is the deliberate compatibility hold for `pkg_resources`, which Chatterbox's
+    watermarker needs;
+  - the fresh, uncompiled files also made the re-probe cold again, so it timed out again;
+  - the requirements stamp hashes the file, not the installed set, so the drift would never
+    have been reconciled.
+- **Decision:**
+  - one named window, `IMPORT_PROBE_TIMEOUT_S = 600`, is shared by both import proofs. The
+    stdlib capability probes on a base interpreter keep their 30 s;
+  - the reinstall is constrained with `-c scripts/requirements.txt`, so a real repair stays
+    on the pins.
+
+  RED-first: `test_bootstrap_import_validation.py` (6 tests). Both halves were mutation-checked.
+- **Re-proved for real, from a rebuilt archive:**
+  - first-run setup **exit 0** (1:32, warm pip cache): all required imports clean; the WinGet
+    Gyan FFmpeg 9.0.1 pair verified and pinned with nothing installed; **all 25 pins exact**
+    across 169 packages; `.venv` 2.5 GB;
+  - `--venv-check` then answered 0;
+  - the extracted **`.bat` itself**, run non-interactively, took the fast path. It started the
+    GUI detached under `pythonw.exe` from the extracted venv: a visible, responding "Audiobook
+    Creation Tool" window, closed cleanly, with no repair on that launch;
+  - all six tools were built in the extracted venv from the archive's code alone (no module
+    loaded from the dev tree).
+  - **Not a clean machine:** Python 3.12, the FFmpeg pair and the pip cache were already present.
+    The README says so.
+
+**Re-proved, not reopened:** the first-run, self-heal, venv-recovery, requirements-stamp and
+FFmpeg repair/acquisition contracts. Only the two validation defects above changed. The sweep counts
+are in `Handoff.md`.
+
+**Flagged, not fixed (Minor):** `files/tests/test_edge_make_m4b_chapters.py` (added in Phase 10)
+raises two `SyntaxWarning: invalid escape sequence` warnings at collection (`'\s'`, `'\`'` in a
+string and a docstring). This is harmless today and becomes an error in a future Python. It is left
+for the maintainer's review.
+
+**Deferred to the v0.6.7 manual backlog (maintainer ruling 2026-09-28):** a hands-on double-click of
+each extracted archive on a clean Windows and a clean macOS machine, including Gatekeeper
+quarantine, App Translocation and first-run network installs.
+
+Version identity remains `0.6.2`, unreleased. Nothing was tagged, released or published. Phase 12 is
+not started.
+
+— Recorded by Claude Code on the maintainer's Phase 10 approval and Phase 11 instruction, 2026-09-29.
+
+---
+
 ## 2026-09-28 -- Phase 9 approved; Phase 10 product hardening and the disposition of every open deferral
 
 **Phase 9 approved.** The maintainer approved the Phase 9 checkpoint `758e24f`. Phase 10 started

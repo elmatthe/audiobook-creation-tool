@@ -23,12 +23,21 @@ then pruned, so a file this module does not name — the maintainer's unrelated
 untracked root template beside ``config.toml``, for one — cannot leak because
 somebody forgot to extend an exclusion list.
 
+Only **committed** content ships (v0.6.6 Phase 11). Inside ``scripts/`` a file
+is packaged only if git tracks it, so local-only work in a dev checkout (the
+maintainer's uncommitted ``scripts/project-status.py`` used to land in both
+archives) stays behind whatever its name. ``main()`` also refuses to build while
+any packaged path has uncommitted changes, so an archive is always the committed
+state rather than a dirty working tree. Outside a git checkout the packager
+refuses rather than guessing.
+
 This module must never be imported by the launcher or any tool — it is a
 build-time developer utility only and depends on nothing inside the app.
 """
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -69,6 +78,43 @@ EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 # Phase 8 real-Mac packaging run found (scripts/.DS_Store on a checkout that
 # had simply been opened in Finder).
 EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
+
+
+class ReleaseError(RuntimeError):
+    """The checkout cannot be packaged as it stands."""
+
+
+def _git(*args: str) -> str:
+    """Run git in the repository root and return its stdout; raise ReleaseError."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), *args],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    except OSError as exc:  # git not installed
+        raise ReleaseError(f"git is required to package a release: {exc}") from exc
+    if result.returncode != 0:
+        raise ReleaseError(
+            f"git {' '.join(args)} failed in {REPO_ROOT}: {result.stderr.strip()}")
+    return result.stdout
+
+
+def _tracked_scripts() -> set[str]:
+    """The repo-relative POSIX paths git tracks under ``scripts/``."""
+    if not (REPO_ROOT / ".git").exists():
+        raise ReleaseError(
+            f"{REPO_ROOT} is not a git checkout; only committed files can be packaged.")
+    return {p for p in _git("ls-files", "-z", "--", "scripts").split("\0") if p}
+
+
+def _uncommitted_changes() -> list[str]:
+    """Packaged paths whose working tree or index differs from HEAD.
+
+    Untracked files are not listed: they are never packaged in the first place.
+    """
+    scope = ["scripts", *ROOT_FILES, *ENTRY_FILES.values()]
+    status = _git("status", "--porcelain=v1", "-z", "--untracked-files=no", "--", *scope)
+    return [entry[3:] for entry in status.split("\0") if len(entry) > 3]
 
 
 def _write_executable(zf: zipfile.ZipFile, src: Path, arcname: str) -> None:
@@ -112,6 +158,7 @@ def _package_os(os_name: str) -> Path:
     for required in [entry_file, *root_files]:
         if not required.is_file():
             raise FileNotFoundError(f"Required root file missing: {required}")
+    tracked = _tracked_scripts()
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = DIST_DIR / f"AudiobookTool-{os_name}-v{VERSION}.zip"
@@ -119,6 +166,7 @@ def _package_os(os_name: str) -> Path:
         zip_path.unlink()
 
     file_count = 0
+    left_behind: list[str] = []
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         # The launcher, README and config sit at the archive root so they're the
         # first thing a user sees on extract, and so bootstrap/config resolution
@@ -137,11 +185,16 @@ def _package_os(os_name: str) -> Path:
             rel = path.relative_to(REPO_ROOT)
             if _is_excluded(rel):
                 continue
+            if rel.as_posix() not in tracked:
+                left_behind.append(rel.as_posix())
+                continue
             zf.write(path, arcname=rel.as_posix())
             file_count += 1
 
     size_mb = zip_path.stat().st_size / (1024 * 1024)
     print(f"  [{os_name}] {zip_path.name}  ({file_count} files, {size_mb:.1f} MB)")
+    for rel in left_behind:
+        print(f"      not packaged (untracked): {rel}")
     return zip_path
 
 
@@ -155,6 +208,7 @@ def _print_checklist() -> None:
         "All test matrix cells PASS (see Briefing).",
         f"Changelog.md [Unreleased] -> [{VERSION}] - <date>.",
         f"Version bumped in scripts/Universal/shared/version.py = {VERSION}.",
+        "Everything committed (this script refuses uncommitted packaged paths).",
         "Build both zips (this script) -> dist/.",
         "Attach both zips to the GitHub Release; update README download links.",
     ]
@@ -168,7 +222,18 @@ def main() -> int:
     print(f"Repo root: {REPO_ROOT}")
     print(f"Output:    {DIST_DIR}")
     print()
-    built = [_package_os(os_name) for os_name in ("Windows", "MacOS")]
+    try:
+        dirty = _uncommitted_changes()
+        if dirty:
+            print("Refusing to package: these packaged paths have uncommitted changes.")
+            print("Commit or discard them first, so the archives match a commit.")
+            for rel in dirty:
+                print(f"  {rel}")
+            return 1
+        built = [_package_os(os_name) for os_name in ("Windows", "MacOS")]
+    except ReleaseError as exc:
+        print(f"Refusing to package: {exc}")
+        return 1
     _print_checklist()
     print()
     print(f"Done. {len(built)} archive(s) written to {DIST_DIR}.")

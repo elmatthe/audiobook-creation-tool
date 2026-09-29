@@ -72,6 +72,13 @@ flashing during use.
   cache into the project tree, then launches the GUI detached with stdout/stderr captured to
   `files/runtime-data/logs/launch_<date>.log`. `--launch-only` is the fast-path flag;
   `--self-test` is detection-only.
+  **Import proof (v0.6.6 Phase 11, 2026-09-29):**
+  - Both real-import checks share `IMPORT_PROBE_TIMEOUT_S = 600`: setup's per-module
+    `validate_installed_packages` and the launch-time `prove_required_imports`.
+  - A cold first import in a new venv is legitimately slow (`nltk` 32 s cold vs 1 s warm). The old
+    30 s setup window failed a healthy first-run install.
+  - Its repair reinstall is constrained by `-c requirements.txt`, so it can never drift the pins.
+  - Proved by a real first-run install from the built Windows archive.
 - **`scripts/Universal/launcher.py`** — the unified Tk GUI. Sidebar of 6 tools; each tool
   exposes `build_ui(parent_frame)`, is lazy-imported and guarded (a missing dependency renders
   an in-panel error, never a crash), built once and shown/hidden on selection so in-progress
@@ -434,6 +441,14 @@ flashing during use.
   maintainer's unrelated untracked root `config-template.toml` needs no exclusion rule and has
   none; the packager never names it, the runtime never loads it, and automated tests prove both
   even while it sits directly beside `config.toml`.
+  **Supersession — 2026-09-29 (v0.6.6 Phase 11):**
+  - **Committed files only.** Inside `scripts/` only git-tracked files ship; a real build had
+    packaged the local-only `scripts/project-status.py`.
+  - **Always dropped:** `.DS_Store`, `Thumbs.db`, `__pycache__` and compiled files, even if tracked.
+  - **Clean build only.** `release.py` refuses to build while a packaged path has uncommitted
+    changes, and outside a git checkout.
+  - **Launchers proved from the packaged bytes:** `.bat` CRLF; `.command` LF, `#!/bin/bash`,
+    `bash -n` clean, `0o755` in the zip and `100755` in git.
 
 - **Shared importing and job-control foundation (v0.6.0 Drop 3).** Four modules under
   `scripts/Universal/shared/`, built with **no production consumer at the time**. They exist so the
@@ -902,8 +917,9 @@ Audiobook-Creation-Tool/
     └── release-history/        ← one-shot docs from past releases (v0.3.1 set)
 ```
 
-Release zips (built by `shared/release.py` into `dist/`) contain README + the OS's launcher +
-the whole `scripts/` tree; both OS zips share the same code and differ only in launcher.
+Release zips (built by `shared/release.py` into `dist/`) contain README + `config.toml` + the OS's
+launcher + the committed (git-tracked) `scripts/` tree; both OS zips share the same code and differ
+only in launcher. (`config.toml` added to this line and the committed-only rule, 2026-09-29.)
 
 ## Current Version
 
@@ -1229,6 +1245,11 @@ v0.6.0 line has not been performed** — it is an explicitly approved deferral, 
 the exact five-step smoke test is written out in `Handoff.md`.
 
 **Known limitations (documented, not bugs):**
+- **TXT encoding contract — 2026-09-29 (maintainer ruling, v0.6.6 Phase 11).** A `.txt` source is
+  **UTF-8, with or without a BOM**, on every engine and on both the Add Files and folder paths. No
+  ANSI/cp1252 or guessed-encoding fallback exists in v0.6.6. Another encoding fails that one item
+  and is never mis-read. The README tells users how to re-save as UTF-8. Broader encoding support is
+  **deferred to v0.6.7**.
 - **TTS text encoding and Kokoro break placement — 2026-09-28 (v0.6.6 Phase 10).**
   - A `.txt` source must be UTF-8. A leading byte-order mark is fine. A legacy "ANSI"/cp1252 file
     fails that one item, with a technical decode message, and the rest of the run continues.

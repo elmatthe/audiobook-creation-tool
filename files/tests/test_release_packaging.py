@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import os
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -98,8 +99,7 @@ def fake_repo(root: Path) -> Path:
     (root / "scripts" / "Universal" / "stale.pyc").write_bytes(b"\x00")
     (root / ".venv" / "Scripts").mkdir(parents=True)
     (root / ".venv" / "Scripts" / "python.exe").write_bytes(b"\x00")
-    (root / ".git").mkdir()
-    (root / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    # (.git/ itself is created for real by commit_everything below.)
     (root / ".claude").mkdir()
     (root / ".claude" / "CLAUDE.md").write_text("agent\n", encoding="utf-8")
     (root / "dist").mkdir()
@@ -128,7 +128,29 @@ def fake_repo(root: Path) -> Path:
     # scripts/.DS_Store before this was caught).
     (root / "scripts" / "Universal" / ".DS_Store").write_bytes(b"\x00")
     (root / "scripts" / "Universal" / "Thumbs.db").write_bytes(b"\x00")
+    # Everything above is committed -- forced past any ignore rule -- so the
+    # name/suffix exclusions are proved on tracked junk too, not only on files
+    # the tracked-only rule would already have dropped.
+    commit_everything(root)
     return root
+
+
+def git(root: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(root), "-c", "user.name=packager-test",
+         "-c", "user.email=packager-test@example.invalid", "-c", "core.autocrlf=false",
+         # A throwaway fixture repository, never the project's: a global signing
+         # setting must not make the fixture commit fail on some machines.
+         "-c", "commit.gpgsign=false",
+         *args],
+        capture_output=True, text=True, check=True)
+    return result.stdout
+
+
+def commit_everything(root: Path) -> None:
+    git(root, "init", "-q")
+    git(root, "add", "-A", "-f")
+    git(root, "commit", "-q", "-m", "fixture")
 
 
 # --------------------------------------------------------------------------- #
@@ -246,10 +268,12 @@ def test_the_scripts_tree_is_complete(archives, os_name):
     ``release.py`` before this test's own copy of the exclusion rule knew
     about it).
     """
+    tracked = set(git(REPO_ROOT, "ls-files", "--", "scripts").splitlines())
     expected = {
         path.relative_to(REPO_ROOT).as_posix()
         for path in (REPO_ROOT / "scripts").rglob("*")
         if path.is_file()
+        and path.relative_to(REPO_ROOT).as_posix() in tracked
         and not release.EXCLUDED_DIR_NAMES & set(path.relative_to(REPO_ROOT).parts)
         and path.suffix not in release.EXCLUDED_SUFFIXES
         and path.name not in release.EXCLUDED_FILE_NAMES
@@ -302,6 +326,136 @@ def test_a_repository_full_of_state_still_ships_nothing_extra(tmp_path, os_name)
         for fragment in LEAKY_FRAGMENTS:
             assert fragment not in member, member
     assert members  # and it did package something
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_an_untracked_file_under_scripts_never_ships(tmp_path, os_name):
+    """Only committed content ships (v0.6.6 Phase 11).
+
+    Walking ``scripts/`` on disk used to package whatever happened to be there:
+    the maintainer's local-only, never-committed ``scripts/project-status.py``
+    landed in both archives. Uncommitted work -- notes, helpers, a stray ``.env``
+    -- is not part of the product, whatever its name.
+    """
+    root = fake_repo(tmp_path / "repo")
+    (root / "scripts" / "local-helper.py").write_text("x = 2\n", encoding="utf-8")
+    (root / "scripts" / "Universal" / ".env").write_text("TOKEN=not-real\n", encoding="utf-8")
+    members = names(build(root, tmp_path / "dist", os_name))
+    assert "scripts/local-helper.py" not in members
+    assert "scripts/Universal/.env" not in members
+    assert "scripts/Universal/launcher.py" in members
+
+
+def test_the_real_archives_carry_no_untracked_file(archives):
+    tracked = set(git(REPO_ROOT, "ls-files", "--", "scripts").splitlines())
+    for archive in archives.values():
+        untracked = [m for m in names(archive) if m.startswith("scripts/") and m not in tracked]
+        assert untracked == []
+
+
+def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
+    """Fail closed: without git there is no way to tell committed from local."""
+    root = tmp_path / "plain"
+    (root / "scripts" / "Universal").mkdir(parents=True)
+    (root / "scripts" / "Universal" / "launcher.py").write_text("x = 1\n", encoding="utf-8")
+    for name in (*ROOT_MEMBERS, *LAUNCHERS.values()):
+        (root / name).write_text("x\n", encoding="utf-8")
+    with pytest.raises(release.ReleaseError):
+        build(root, tmp_path / "dist", "Windows")
+    assert not (tmp_path / "dist").exists() or not any((tmp_path / "dist").iterdir())
+
+
+def run_main(root: Path, dist: Path) -> int:
+    saved = (release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR)
+    release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR = root, root / "scripts", dist
+    try:
+        return release.main()
+    finally:
+        release.REPO_ROOT, release.SCRIPTS_DIR, release.DIST_DIR = saved
+
+
+@pytest.mark.parametrize("edited", [
+    "scripts/Universal/launcher.py", "README.md", "config.toml",
+    "Setup_and_Run-audiobook-creation-tool.bat",
+    "Setup_and_Run-audiobook-creation-tool.command",
+])
+def test_the_release_build_refuses_uncommitted_changes(tmp_path, edited):
+    """A release archive is the committed state, never a dirty working tree."""
+    root = fake_repo(tmp_path / "repo")
+    (root / edited).write_text("edited, not committed\n", encoding="utf-8")
+    assert run_main(root, tmp_path / "dist") != 0
+    assert not (tmp_path / "dist").exists() or not any((tmp_path / "dist").iterdir())
+
+
+def test_a_staged_but_uncommitted_change_is_refused_too(tmp_path):
+    root = fake_repo(tmp_path / "repo")
+    (root / "scripts" / "Universal" / "launcher.py").write_text("x = 3\n", encoding="utf-8")
+    git(root, "add", "scripts/Universal/launcher.py")
+    assert run_main(root, tmp_path / "dist") != 0
+
+
+def test_a_clean_checkout_builds_both_archives(tmp_path):
+    root = fake_repo(tmp_path / "repo")
+    (root / "scripts" / "local-helper.py").write_text("x = 2\n", encoding="utf-8")
+    assert run_main(root, tmp_path / "dist") == 0
+    built = sorted(p.name for p in (tmp_path / "dist").iterdir())
+    # The name carries the packager's own VERSION, read once at import.
+    assert built == [f"AudiobookTool-MacOS-v{release.VERSION}.zip",
+                     f"AudiobookTool-Windows-v{release.VERSION}.zip"]
+    assert "scripts/local-helper.py" not in names(tmp_path / "dist" / built[0])
+
+
+# --------------------------------------------------------------------------- #
+# The launchers, byte for byte
+# --------------------------------------------------------------------------- #
+
+
+def test_the_windows_launcher_ships_with_crlf_line_endings(archives):
+    """cmd.exe misparses labels and blocks in an LF-only batch file."""
+    with zipfile.ZipFile(archives["Windows"]) as zf:
+        data = zf.read(LAUNCHERS["Windows"])
+    assert data.count(b"\n") > 0
+    assert data.count(b"\n") == data.count(b"\r\n")
+
+
+def test_the_macos_launcher_ships_lf_only_with_its_shebang(archives):
+    """A stray CR breaks bash with 'bad interpreter' / 'command not found'."""
+    with zipfile.ZipFile(archives["MacOS"]) as zf:
+        data = zf.read(LAUNCHERS["MacOS"])
+    assert data.startswith(b"#!/bin/bash\n")
+    assert b"\r" not in data
+
+
+def test_the_macos_launcher_is_committed_executable():
+    """A developer clone on a Mac double-clicks the committed file, not the zip."""
+    stage = git(REPO_ROOT, "ls-files", "-s", "--", LAUNCHERS["MacOS"]).split()
+    assert stage[0] == "100755", stage
+
+
+def test_the_packaged_macos_launcher_parses_as_bash(tmp_path, archives):
+    """``bash -n`` over the exact bytes a Mac user extracts (no execution)."""
+    import shutil
+
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("no bash on this machine")
+    with zipfile.ZipFile(archives["MacOS"]) as zf:
+        extracted = Path(zf.extract(LAUNCHERS["MacOS"], tmp_path))
+    result = subprocess.run([bash, "-n", extracted.as_posix()], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_translocation_help_names_the_folder_the_archive_extracts_to():
+    """Finder extracts ``AudiobookTool-MacOS-vX.Y.Z.zip`` into a folder of that name."""
+    text = (REPO_ROOT / LAUNCHERS["MacOS"]).read_text(encoding="utf-8")
+    assert '"AudiobookTool-MacOS-v..."' in text
+    assert '"audiobook-creation-tool" folder' not in text
+
+
+def test_the_launcher_line_endings_are_pinned_by_gitattributes():
+    rules = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert "*.command text eol=lf" in rules
+    assert "*.bat text eol=crlf" in rules
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
@@ -392,7 +546,8 @@ def test_the_packager_imports_nothing_from_the_application():
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             imported.add((node.module or "").split(".")[0])
-    assert imported <= {"__future__", "sys", "zipfile", "pathlib", "version"}
+    # subprocess is for git alone: v0.6.6 Phase 11 packages only committed files.
+    assert imported <= {"__future__", "subprocess", "sys", "zipfile", "pathlib", "version"}
 
 
 def test_building_is_not_part_of_application_startup():

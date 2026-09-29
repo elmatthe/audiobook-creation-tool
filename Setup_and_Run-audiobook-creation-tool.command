@@ -48,9 +48,10 @@ Downloads or unzipped-in-place location.
 
 To fix it (one time):
 
-  1. In Finder, move the WHOLE "audiobook-creation-tool" folder
-     OUT of Downloads — for example drag it onto your Desktop or
-     into Applications.
+  1. In Finder, move the WHOLE app folder (the extracted
+     "AudiobookTool-MacOS-v..." folder that holds this file) OUT
+     of Downloads — for example drag it onto your Desktop or into
+     Applications.
   2. Open that moved folder and double-click
      Setup_and_Run-audiobook-creation-tool.command again.
 
