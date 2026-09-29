@@ -240,7 +240,9 @@ def kokoro_file_to_mp3(
     if not src.exists():
         raise FileNotFoundError(f"Source text file not found: {source_path}")
 
-    raw_text = src.read_text(encoding="utf-8")
+    # utf-8-sig: a leading BOM would hide a "Title:" first line from the skip
+    # below and have it spoken (v0.6.6 Phase 10).
+    raw_text = src.read_text(encoding="utf-8-sig")
 
     lines = raw_text.splitlines()
     content_lines: list[str] = []

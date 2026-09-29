@@ -95,7 +95,7 @@ from shared.job_control import (
 )
 from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
 
-from PIL import Image  # needs: pip install pillow
+from PIL import Image, ImageOps  # needs: pip install pillow
 
 # HEIC/HEIF is optional and is now *probed*, not assumed (Decision 54A). The
 # shared seam imports pillow-heif once, registers its Pillow plugin once, and
@@ -336,7 +336,12 @@ def resize_for_audiobook(in_path: Path, out_path: Path, size: int, letterbox: bo
       - Scale so the LONG side == size
       - Paste on a square canvas with bars if needed.
     """
-    img = Image.open(in_path).convert("RGB")
+    # Upright first (v0.6.6 Phase 10): a phone photo is stored sideways with an
+    # EXIF Orientation tag that every viewer honours, and the save below drops
+    # the tag, so the raw pixels came out turned from the photo the user chose.
+    # HEIC is already upright here (pillow-heif rotates on decode, tag reset).
+    with Image.open(in_path) as opened:
+        img = ImageOps.exif_transpose(opened).convert("RGB")
     w, h = img.size
 
     if letterbox:
@@ -527,6 +532,11 @@ def path_facts(path: Path) -> ImageFacts:
     return ImageFacts(filename=resolved.name, folder=str(resolved.parent))
 
 
+#: The EXIF Orientation tag, and the values of it that turn a photo a quarter.
+_EXIF_ORIENTATION = 0x0112
+_QUARTER_TURNS = (5, 6, 7, 8)
+
+
 def read_image_facts(path: Path) -> ImageFacts:
     """Read one image's Details fields. Never raises, and never writes.
 
@@ -546,6 +556,10 @@ def read_image_facts(path: Path) -> ImageFacts:
         with Image.open(resolved) as img:
             width, height = img.size
             fmt = (img.format or "").upper() or UNAVAILABLE_TEXT
+            # The size the user sees: EXIF orientations 5-8 turn the photo a
+            # quarter, as the output from resize_for_audiobook does.
+            if img.getexif().get(_EXIF_ORIENTATION) in _QUARTER_TURNS:
+                width, height = height, width
     except Exception as exc:  # noqa: BLE001 - any decoder failure is the same answer
         return ImageFacts(filename, folder, UNAVAILABLE_TEXT, UNAVAILABLE_TEXT,
                           size_text, FACTS_UNAVAILABLE, str(exc))
@@ -563,7 +577,7 @@ def encode_thumbnail(path: Path, size: int) -> bytes | None:
     try:
         with Image.open(path) as img:
             img.draft("RGB", (size, size))
-            preview = img.convert("RGB")
+            preview = ImageOps.exif_transpose(img).convert("RGB")
             preview.thumbnail((size, size), Image.LANCZOS)
             buffer = io.BytesIO()
             preview.save(buffer, format="PNG")

@@ -402,10 +402,21 @@ def test_the_reset_clears_a_leaked_minsize_floor(real_root):
     width, height = real_root.minsize()
     assert (width, height) != (1024, 800)
     assert width < 920 and height < 600
+    # Measured mapped (v0.6.6 Phase 10). The reset leaves the root withdrawn,
+    # and Windows applies a withdrawn toplevel's ``geometry()`` only when it
+    # is mapped, so reading it unmapped saw the pre-reset size (200 or 1100)
+    # and failed although the floor was gone. Mapped, the leaked floor still
+    # clamps a 920x600 request to 1024x800 on Windows, as on macOS, so this
+    # still discriminates.
     real_root.geometry("920x600")
-    real_root.update_idletasks()
-    assert real_root.winfo_width() == 920
-    assert real_root.winfo_height() == 600
+    real_root.deiconify()
+    real_root.update()
+    try:
+        assert real_root.winfo_width() == 920
+        assert real_root.winfo_height() == 600
+    finally:
+        real_root.withdraw()
+        real_root.update_idletasks()
 
 
 def test_the_reset_restores_the_native_ttk_theme(real_root):

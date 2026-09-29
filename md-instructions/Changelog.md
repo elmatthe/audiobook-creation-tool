@@ -15,6 +15,40 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **Hardening: three TTS/Cover defects fixed, the Edge CLI M4B path hardened, and every open deferral dispositioned** (v0.6.6 Phase 10, 2026-09-28)
+
+- **TTS: a UTF-8 file with a byte-order mark read its header aloud.** Notepad's "UTF-8 with BOM" and
+  PowerShell 5's `Out-File` start a file with an invisible BOM. With one, Edge spoke the `Title:` and
+  `Author:` lines as narration, under an extra blank chapter. Kokoro and Chatterbox spoke the
+  `Title:` line. All three now ignore a leading BOM. A file without one reads exactly as before.
+- **TTS (Edge, Add Files): a file with nothing to speak "succeeded" as a silent MP3.** That covers an
+  empty file and one with only a header, only a `#` heading or only punctuation. The same file
+  already failed on a folder import and on Kokoro and Chatterbox. Now it fails there too, with the
+  same message ("No text content found after parsing source file."), and nothing is written.
+- **Cover Image: phone photos came out sideways or upside down.** A phone stores a portrait photo as
+  landscape pixels plus an EXIF orientation tag, which every viewer honours. Cover resized the raw
+  pixels and dropped the tag, so the cover was turned from the photo the user chose. In
+  replace-originals mode it overwrote the original that way. The output, the Medium Thumbnail and the
+  Details dimensions are now upright. HEIC was already upright and is unchanged.
+- **Edge `--format m4b` (command line only; the app always writes MP3).** The chapter-truncation
+  hazard from the 2026-09-20 M4B fix does **not** apply here. Proved with a real FFmpeg: this path
+  muxes no cover video, so the chapter track keeps the audio's timescale, and a 600 s chapter
+  survives. Three smaller defects on the same path were fixed:
+  - chapter titles and tags are now escaped (`;`, `=`, `#`, `\`);
+  - the metadata file is written as UTF-8, where a non-Latin title used to crash the build on Windows;
+  - a failed FFmpeg step now stops the build instead of being ignored.
+- **Accepted, not changed:** Kokoro can break a long text at an earlier sentence end than the last
+  one in its 3,000-character window. No text is lost, duplicated or reordered. Without listening
+  evidence it is not retuned, and a test now pins the behaviour.
+- **Tests:** the two long-standing Windows failures were test portability defects, not product bugs,
+  and now pass (`test_tk_gate.py`, `test_m4b_maker_processing.py`). New:
+  - `test_tts_text_bom.py` and `test_tts_contentless_source.py` (TTS);
+  - `test_cover_orientation.py` (Cover);
+  - `test_edge_make_m4b_chapters.py` (the Edge CLI M4B path);
+  - one Kokoro case in `test_segmentation_source_span.py`.
+
+  Details: `Decisions.md` and `Handoff.md`, 2026-09-28.
+
 ### Fixed -- **Cover Image: Tab no longer stops on the two hidden source-browser views; the six tools proved as one application** (v0.6.6 Phase 9, 2026-09-28)
 
 - **Fixed (keyboard):** Cover's Details / List / Medium Thumbnails views share one spot, so the two

@@ -4,6 +4,90 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 9 approved; Phase 10 product hardening and the disposition of every open deferral
+
+**Phase 9 approved.** The maintainer approved the Phase 9 checkpoint `758e24f`. Phase 10 started
+from that exact commit.
+
+**1. Edge `make_m4b` chapter-muxing hazard (v0.6.5 Phase 9 note): not reproducible here. The
+path is kept and hardened, not retired.**
+- **Evidence.** The 2026-09-20 truncation needed a cover-art *video* stream in the mux (lcm of
+  44.1 kHz and 1/90000 = 4,410,000; a chapter longer than ~487 s then does not fit). `make_m4b`
+  muxes audio only, so the chapter text track takes the audio's timescale: 1/24000 for Edge's clips.
+  That holds a chapter of about 24.8 hours. `add_cover` adds the cover afterwards with mutagen as a
+  `covr` atom and never re-muxes the chapter track.
+- **Measured** with FFmpeg 9.0.1 at 24 kHz and 44.1 kHz. Chapters of 30/600/1300/20 s kept four
+  titles, four text-track samples and exact boundaries, before and after `add_cover`.
+- **Negative control.** Forcing `-movie_timescale 4410000` into `make_m4b` reproduces the
+  2026-09-20 displacement exactly (`Intro, Outro, Outro`). The new test catches it.
+- **Why keep it.** The path stays CLI-only (`--format m4b`); the GUI's MP3-only dispatch is pinned in
+  `test_tts_importing.py`. Retiring it would edit the vendored upstream CLI and its provenance guards
+  for no user-facing gain. Three real defects on it were small and were fixed instead:
+  - `generate_metadata` wrote values unescaped; they now go through `shared.metadata.ffmetadata_escape`;
+  - it wrote in the locale encoding, so cp1252 raised on a non-Latin title; it now writes UTF-8;
+  - `_run_ffmpeg` ignored the exit status; it now uses `check=True`.
+- Pinned by `files/tests/test_edge_make_m4b_chapters.py` (real FFmpeg).
+
+**2. Kokoro break placement: accepted as-is, not retuned.** `split_into_chunks` tries `.`, `!` and
+`?` in turn and keeps the *last punctuation type* with a valid break, not the rightmost break. So a
+`?` near the start of a window can produce a one-sentence chunk; the measured case is 19 characters
+where the rightmost valid break was at 2,988.
+- No text is lost, duplicated or reordered, and no chunk passes the ceiling. The only effect is where
+  one 50 ms chunk seam falls, which only listening could judge.
+- Under the 2026-09-28 ruling (no listening evidence, so no retune) it is accepted and documented.
+- A multi-chunk case in `test_segmentation_source_span.py` pins it. The corpus items there were too
+  short to split at all.
+
+**3. The two persistent focused-suite failures were test portability defects, not product bugs.**
+- `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor`. Windows applies a *withdrawn*
+  toplevel's `geometry()` only when it is mapped, so the test read the pre-reset size (200 or 1100).
+  It now measures mapped. A leaked floor still clamps 920×600 to 1024×800 there (probed), so the
+  test still discriminates. A mutation that drops the reset's `minsize(1, 1)` fails it.
+- `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe...`. A POSIX literal
+  built as `Path` renders with backslashes on Windows. It now uses `PurePosixPath`. The escape was
+  always right, and the real-FFmpeg apostrophe build passes on Windows.
+
+**4. Fresh six-tool audit: three confirmed defects, each fixed with a regression written RED first.**
+- **TTS, UTF-8 BOM.** The three direct engines read `.txt` as plain `utf-8`, which keeps U+FEFF on
+  the first line; `strip` leaves it, so the `Title:` / `Author:` / `#` checks missed. Edge spoke the
+  header under an extra blank chapter and lost the title and author; Kokoro and Chatterbox spoke the
+  `Title:` line. Now `utf-8-sig`, which is identical for BOM-less files.
+- **TTS, Edge direct with nothing to speak.** This covers empty, header-only, heading-only and
+  punctuation-only files. It published a 0-second MP3 as a success, while the folder path, Kokoro
+  and Chatterbox already failed the item. The runner now raises the Kokoro/Chatterbox message
+  before any synthesis, and nothing is written.
+- **Cover, EXIF orientation.** Output, preview and Details used the raw pixels and dropped the tag,
+  so phone photos came out turned, and replace mode overwrote the original that way. Now the image
+  goes through `ImageOps.exif_transpose`. HEIC is untouched: pillow-heif rotates on decode and resets
+  the tag to 1, and a test proves there is no double turn. MP3/M4B artwork is out of scope here: it
+  embeds JPEG/PNG bytes unmodified by design, and HEIC arrives upright.
+
+**Audited clean, no change:**
+- Hidden files and subfolders: every tool's folder import goes through the shared walk, which skips
+  dot-prefixed names (including macOS `._` AppleDouble files) and Windows hidden files.
+- Naming, collisions and Unicode: the shared planner NFC-normalizes and case-folds, so NFC/NFD and
+  case-only twins are numbered, never overwritten.
+- Pause/Resume/Cancel/Retry Failed and partial cleanup: TTS discards the occurrence's own partial on
+  failure and on cancel. Cover's replace mode is temp-sibling → validate → atomic `os.replace`.
+- The list keyboard shortcuts added in Phase 2 go through the same run lock as the buttons in all
+  tools.
+- A PDF with no text already fails with a clear message.
+
+**Flagged minors, re-investigated:**
+- The latent status-bar squeeze is not a defect. Every launcher status message is a fixed string or
+  a tool title; the longest is 325 px against a ~467 px budget.
+- The tight→regular density step is inherent to the approved rule.
+- Family A/B importer wording stays accepted.
+- **New Minor, not fixed:** a `.txt` that is not UTF-8 (a legacy "ANSI"/cp1252 file) fails that one
+  item with a technical `UnicodeDecodeError` detail; the rest of the run continues. Adding an
+  encoding fallback is a policy choice, left to the maintainer.
+
+Version identity remains `0.6.2`, unreleased. Phase 11 is not started.
+
+— Recorded by Claude Code on the maintainer's Phase 9 approval and Phase 10 instruction, 2026-09-28.
+
+---
+
 ## 2026-09-28 -- Phase 8 approved; hands-on testing deferred to a v0.6.7 bug-fix branch; Phase 9 cross-tool geometry, DPI, accessibility and consistency
 
 **Phase 8 approved.** The maintainer's required Windows gate on the M4B Metadata Editor at

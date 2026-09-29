@@ -2,6 +2,95 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 10: PRODUCT HARDENING + DEFERRAL DISPOSITION (2026-09-28)
+>
+> **Phase 9 is maintainer-approved** at `758e24f`. Phase 10 started from that exact commit, with the
+> local-only `.ai/`, `scripts/project-status.py` and screenshot renames preserved uncommitted.
+>
+> **Dispositions (the four named items):**
+> 1. **Edge `make_m4b` chapter-muxing hazard: NOT REPRODUCIBLE; the path is kept and hardened.**
+>    - **Why the hazard needs video.** The 2026-09-20 truncation needed a cover *video* stream in
+>      the mux (lcm 4,410,000). `make_m4b` muxes audio only, so the chapter track keeps the audio
+>      timescale: 1/24000 for Edge, which holds a chapter of about 24.8 h. `add_cover` adds a
+>      mutagen `covr` atom and never re-muxes.
+>    - **Measured** (FFmpeg 9.0.1, 24 kHz and 44.1 kHz, chapters of 30/600/1300/20 s): 4/4
+>      titles, 4/4 text-track samples and exact boundaries, before and after the cover.
+>    - **Negative control:** forcing `-movie_timescale 4410000` reproduces
+>      `Intro, Outro, Outro` and fails the new test.
+>    - **Three CLI-path defects found and fixed:** unescaped FFMETADATA values;
+>      locale-encoded metadata (cp1252 raised on a non-Latin title); `_run_ffmpeg` ignoring the
+>      exit status.
+>    - **Still CLI-only:** the GUI's MP3-only dispatch is pinned in `test_tts_importing.py`.
+> 2. **Kokoro earlier-valid-vs-rightmost breakpoint: ACCEPTED, not retuned** (no listening
+>    evidence).
+>    - **Mechanism:** the `.`/`!`/`?` loop keeps the last punctuation *type* with a valid break.
+>    - **Measured:** a 19-char first chunk where the rightmost valid break was at 2,988.
+>    - **Pinned:** no loss, duplication or reordering, each chunk at most 3,000, every non-final
+>      chunk ends at punctuation (`test_segmentation_source_span.py`).
+> 3. **The two persistent failures were test portability defects, both fixed:**
+>    - `test_tk_gate.py` minsize: Windows applies a withdrawn root's geometry only when mapped. It
+>      now measures mapped, and was mutation-checked.
+>    - `test_m4b_maker_processing.py` apostrophe: `Path` rendered backslashes. It now uses
+>      `PurePosixPath`; the real-FFmpeg apostrophe build already passed on Windows.
+> 4. **Flagged minors, re-investigated:**
+>    - **Status-bar squeeze: not a defect.** All launcher messages are fixed strings or tool
+>      titles, 325 px at most against a ~467 px budget.
+>    - **Density step:** inherent to the approved rule.
+>    - **Family A/B wording:** accepted.
+>
+> **Fresh six-tool audit: three confirmed product defects fixed, each regression written RED
+> first:**
+> - **TTS: a UTF-8 BOM header was spoken.**
+>   - `\ufeff` survived `strip`. Edge spoke `Title:`/`Author:` under an extra blank chapter and
+>     lost the title and author; Kokoro and Chatterbox spoke `Title:`.
+>   - **Fix:** `utf-8-sig` in `get_book`, `kokoro_file_to_mp3` and `chatterbox_file_to_mp3`.
+>   - **Test:** `test_tts_text_bom.py`.
+> - **TTS: Edge direct published a 0-second MP3 as success for a contentless `.txt`.**
+>   - Affected: empty, header-only, heading-only and punctuation-only files, only when added by Add
+>     Files. The folder path, Kokoro and Chatterbox already failed the item.
+>   - **Fix:** the runner raises the same "No text content…" message before any synthesis.
+>   - **Test:** `test_tts_contentless_source.py`.
+> - **Cover: EXIF orientation ignored.**
+>   - Phone photos came out turned, and replace mode overwrote originals that way.
+>   - **Fix:** `ImageOps.exif_transpose` for the output and preview; Details report the upright
+>     size. HEIC is proved not to be turned twice.
+>   - **Test:** `test_cover_orientation.py`.
+>
+> **Audited clean, no change:**
+> - the list-shortcut run locks (all tools);
+> - hidden files and subfolders (shared walk, including `._` AppleDouble files);
+> - the planner's NFC + case-fold collision key;
+> - TTS partial discard on failure and on cancel;
+> - Cover's atomic replace;
+> - a PDF with no text.
+>
+> **New Minor, flagged, not fixed:** a non-UTF-8 ("ANSI"/cp1252) `.txt` fails its one item with a
+> technical `UnicodeDecodeError` detail. An encoding fallback is a maintainer policy choice.
+>
+> **Verification:**
+> - Focused, during the work:
+>   - TTS/engine sweep: 1,094 passed, then the one boundary pin (a comment naming Chatterbox in
+>     `runner.py`) fixed and re-run green;
+>   - Cover suites: 352 passed, 1 skipped;
+>   - Edge/FFmpeg-trust/EPUB-retirement: 141 passed.
+> - Full `scripts/verify.py`: **RESULT: PASS**, with pytest **7,868 passed / 58 skipped / 0 failed** in
+>   14:36; deps, docs, docnames and config all PASS.
+>   - It ran once, justified by the scope: five production files across two tools, and a Tk-gate
+>     fix that only a full-order run exercises.
+>   - **Zero failures:** the two persistent Windows failures are gone.
+>   - **Skips 58** (v0.6.5 reference 61). None is new: every Phase 10 test ran, including the
+>     HEIC case.
+>
+> **v0.6.7 manual backlog (unchanged from Phase 9, plus):**
+> - a listening check of a Kokoro file with an early `?` chunk seam, if the maintainer wants the
+>   placement judged;
+> - a real phone photo through Cover (source-side and run-folder modes).
+>
+> **Not done:** Phase 11 not started. No merge, tag, release, branch deletion, history rewrite or
+> force-push. Version identity unchanged (`0.6.2`, unreleased).
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 9: CROSS-TOOL GEOMETRY, DPI, ACCESSIBILITY + CONSISTENCY (2026-09-28)
 >
 > **Phase 8 is maintainer-approved.** The Windows M4B Metadata gate at `81680d1` (block below)

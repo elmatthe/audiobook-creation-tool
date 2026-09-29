@@ -1229,6 +1229,15 @@ v0.6.0 line has not been performed** — it is an explicitly approved deferral, 
 the exact five-step smoke test is written out in `Handoff.md`.
 
 **Known limitations (documented, not bugs):**
+- **TTS text encoding and Kokoro break placement — 2026-09-28 (v0.6.6 Phase 10).**
+  - A `.txt` source must be UTF-8. A leading byte-order mark is fine. A legacy "ANSI"/cp1252 file
+    fails that one item, with a technical decode message, and the rest of the run continues.
+  - A source with nothing speakable fails its item in every engine.
+  - Kokoro may break a long text at an earlier sentence end than the last one in its
+    3,000-character window. No text is lost; this is accepted without listening evidence.
+  - The Edge engine's CLI-only `--format m4b` path is hardened. The app itself only writes MP3.
+
+  See `Decisions.md` 2026-09-28.
 - **DPI disposition — 2026-09-28 (v0.6.6 Phase 9).** This supersedes the next bullet's
   "unresolved … reserved for Plan 9" wording only; its facts stand. **The process stays
   DPI-unaware for v0.6.x, by decision.** Staying unaware keeps the logical layout scale-invariant.
