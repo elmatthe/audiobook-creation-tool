@@ -334,6 +334,54 @@ def test_an_unknown_view_is_refused(make_panel):
     assert panel.browser.view == cover_resizer.VIEW_DETAILS
 
 
+def _shown(tk_root, panel):
+    panel.pack(fill="both", expand=True)
+    tk_root.deiconify()
+    for _ in range(6):
+        tk_root.update_idletasks()
+        tk_root.update()
+
+
+@pytest.mark.parametrize("view", ALL_VIEWS)
+def test_only_the_shown_view_is_a_tab_stop(make_panel, tk_root, view):
+    """v0.6.6 Phase 9. The three views share one grid cell, so the two lowered
+    ones stay mapped beneath the raised one. Tab used to stop on both of them:
+    two invisible focus targets between the view switch and Resize Options.
+    Tab now lands on the shown view only."""
+    panel = make_panel()
+    try:
+        _shown(tk_root, panel)
+        panel.browser.set_view(view)
+        surfaces = [panel.browser.surface(each) for each in ALL_VIEWS]
+        node, stops = panel.browser.view_buttons[ALL_VIEWS[-1]], []
+        for _ in range(80):
+            node = node.tk_focusNext()
+            if node is None or node in stops:
+                break
+            stops.append(node)
+        assert [stop for stop in stops if stop in surfaces] == [
+            panel.browser.surface(view)]
+    finally:
+        panel.pack_forget()
+        tk_root.withdraw()
+
+
+def test_the_keyboard_follows_a_view_switch(make_panel, tk_root):
+    """Switching away from the focused view hands the keyboard to the view that
+    is now shown, rather than leaving it in one that was just lowered."""
+    panel = make_panel()
+    try:
+        _shown(tk_root, panel)
+        panel.browser.surface(cover_resizer.VIEW_DETAILS).focus_force()
+        tk_root.update()
+        panel.browser.set_view(cover_resizer.VIEW_THUMBNAILS)
+        tk_root.update()
+        assert tk_root.focus_get() is panel.browser.surface(cover_resizer.VIEW_THUMBNAILS)
+    finally:
+        panel.pack_forget()
+        tk_root.withdraw()
+
+
 # --------------------------------------------------------------------------- #
 # Selection lives in the manager, keyed by occurrence id
 # --------------------------------------------------------------------------- #

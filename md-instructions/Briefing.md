@@ -1229,6 +1229,13 @@ v0.6.0 line has not been performed** — it is an explicitly approved deferral, 
 the exact five-step smoke test is written out in `Handoff.md`.
 
 **Known limitations (documented, not bugs):**
+- **DPI disposition — 2026-09-28 (v0.6.6 Phase 9).** This supersedes the next bullet's
+  "unresolved … reserved for Plan 9" wording only; its facts stand. **The process stays
+  DPI-unaware for v0.6.x, by decision.** Staying unaware keeps the logical layout scale-invariant.
+  The v0.6.6 cross-tool suite measures the logical maximized sizes at 125% and 150% on
+  1920×1080, and all six tools pass. A tripwire test blocks any silent DPI opt-in. Sharp-text
+  per-monitor DPI awareness is future work (a v0.6.7+ candidate) and needs a full re-measure.
+  See `Decisions.md` 2026-09-28.
 - **The application is DPI-unaware on Windows — unresolved future work, not finished
   behaviour.** `GetProcessDpiAwareness` returns `UNAWARE`, and neither the venv's
   `python.exe` / `pythonw.exe` nor the base Python 3.12.10 they are copied from carries a

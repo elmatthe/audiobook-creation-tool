@@ -528,8 +528,11 @@ def test_every_required_control_is_on_screen_with_activity_right_in_the_real_she
         panel = app.containers["m4b_converter"].winfo_children()[0]
         _assert_on_screen(app, panel, geometry)
         _assert_activity_right(panel, geometry)
-        assert panel.layout_mode == SHELL_GEOMETRIES[geometry], (geometry,
-                                                                 panel.layout_mode)
+        # The mode names are Windows measurements; aqua picks its own from its
+        # own metrics (Phase 9), and the on-screen checks hold either way.
+        if not _is_aqua(tk_root):
+            assert panel.layout_mode == SHELL_GEOMETRIES[geometry], (geometry,
+                                                                     panel.layout_mode)
         # The flexible regions keep a usable size: the list at least one row,
         # the log at least its floor lines.
         assert panel.importer.list.listbox.winfo_height() >= panel._needs["list_row_px"]

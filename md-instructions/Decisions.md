@@ -4,6 +4,142 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 8 approved; hands-on testing deferred to a v0.6.7 bug-fix branch; Phase 9 cross-tool geometry, DPI, accessibility and consistency
+
+**Phase 8 approved.** The maintainer's required Windows gate on the M4B Metadata Editor at
+`81680d1` passed: Light, Dark and the manual workflow. Phase 8 is closed.
+
+**Maintainer ruling: hands-on testing is deferred to v0.6.7.** For the rest of v0.6.6, hands-on
+bug and edge-case testing moves to a future long-lived **v0.6.7 post-merge bug-fix branch**. Each
+remaining phase instead automates and mechanically proves as much as it practically can through the
+CLI and tests. A phase does **not** stop merely because a manual-only check is unavailable. It
+records exactly what stayed unverified by hand, and that list becomes the v0.6.7 backlog (kept in
+`Handoff.md`). This supersedes the plan's remaining manual hard gates:
+
+- Phase 9: "Manual Windows and macOS matrix is a hard gate".
+- Phase 10: "Manual/listening gates wherever automation cannot establish correctness". With no
+  listening evidence, the Kokoro breakpoint rule is not retuned; Phase 10 accepts and documents it
+  instead.
+- Phase 11: "real packaged-launch manual gates on both platforms".
+- Phase 12: the manual visual matrix on both platforms and the long Pause/Resume/Cancel/Retry
+  Failed drills.
+- Phase 14: the final package launch smoke on both platforms.
+- The Hard Boundaries line "bypass a required Windows/macOS/manual/listening gate", and the
+  Definition of Done's "Windows/macOS visual/manual gates pass". Both now read "automated evidence
+  plus a recorded v0.6.7 manual backlog".
+
+**What is not superseded:** the maintainer's own authorization checkpoints. Every phase still
+stops and reports. Merge, tag, release and publication still each need their own explicit approval.
+Nothing deferred here is described anywhere as passed.
+
+**Phase 9 (cross-tool geometry, DPI, accessibility + consistency).** The six panels were audited
+as one application in the real launcher shell. A generic probe walked **every** interactive widget
+of every tool (not a hand-picked list) at seven sizes in Light and Dark. The real Windows content
+areas measured:
+
+| Window | Content area | Layouts (TTS / Converter / MP3 / Maker / Cover / Metadata) |
+|---|---|---|
+| 920×600 (minimum) | 721×457 | split / split / tight / tight / columns / tight |
+| 1024×720 (default) | 825×577 | split / split / tight / tight / columns / tight |
+| 1024×800 (the macOS minimum's size) | 825×657 | split / split / regular / tight / columns / tight |
+| 1280×900 | 1081×757 | wide / wide / regular / regular / split / regular |
+| 1536×800 (125% maximized, logical) | 1337×657 | split / split / regular / tight / columns / tight |
+| 1280×665 (150% maximized, logical) | 1081×522 | split / split / tight / tight / columns / tight |
+| maximized (100%, 1920×1080) | 1721×866 | wide / wide / regular / regular / wide / regular |
+
+Findings and dispositions:
+
+1. **Windows 920×600, no core scrolling: PASS.** At every size, in both appearances, every control
+   of all six tools is on screen, inside the content area and the window, and at its full requested
+   size, with no overlaps. The flexible lists, editors, browser and logs keep usable sizes. No
+   Canvas or Scrollbar wraps a section. Activity sits right of Sections 1–2 on the guided tools and
+   below Section 3 on the dense ones.
+2. **macOS 1024×800: automated evidence, not a live pass.** HOME-PC has no Mac. The evidence:
+   - the same contract passes at the 1024×800 size under Windows metrics;
+   - every panel picks its density or layout from live requested sizes, not pixel breakpoints;
+   - the new cross-tool module is platform-aware: on aqua it measures 1024×800, 1280×900 and
+     maximized, skips nothing, and pins no Windows pixel counts. It *is* the Mac gate.
+
+   The audit also found the aqua-only `test_m4b_layout.py` and `test_mp3_tool_layout.py` **stale
+   against the approved v0.6.6 design**. They still demanded a two-row floor, a separate preserve
+   note line, and growth across the tight→regular switch. Wherever the Mac lands in the tight
+   density, they would fail for the wrong reason. Both were reconciled to the approved density
+   rules. Run with their aqua skip removed, on Windows metrics, they pass except the two
+   `mode == "aqua"` identity pins, which are correct on a Mac. The five per-tool real-shell tests'
+   Windows-measured density/mode names are now asserted on Windows only; their on-screen checks
+   still run on aqua. **The live Mac run is deferred to v0.6.7.**
+3. **Windows 125% / DPI awareness: the 2026-08-02 deferral is dispositioned. The process stays
+   DPI-unaware for v0.6.x, deliberately.**
+   - **State:** `GetProcessDpiAwareness` is `UNAWARE` with Tk running, under both `python.exe` and
+     `pythonw.exe` (the `Setup_and_Run` path), and Tk lays out at 96 dpi.
+   - **Why that is a valid proof:** Windows bitmap-scales an unaware window, so its logical
+     geometry is scale-invariant. The logical client areas of a maximized window on 1920×1080 at
+     125% (1536×800) and 150% (1280×665) were measured and pass.
+   - **Why no live 125% run:** both HOME-PC displays are at 100% (checked per-monitor-aware).
+     Changing the system display setting was not done.
+   - **Why not opt in now:** it would make every fixed pixel metric wrong until re-measured. That
+     includes the 180/220 px sidebars, the 40 px previews, the 13 px check/radio images, the 170 px
+     status wrap, the 460 px dialog wrap and the tight paddings. It would also need fresh visual
+     evidence, which the deferral rules out. The cost of staying unaware is soft text; clipping
+     cannot result.
+   - **Guard:** a tripwire test fails on any `SetProcessDpiAwareness*` / `SetProcessDPIAware` /
+     `tk scaling` call.
+   - **Future:** sharp per-monitor DPI text is future work (a v0.6.7+ candidate), not v0.6.6.
+4. **Clipping / wrapping / field reachability: PASS; no new defect.** The Phase 6–8 known minors
+   stand as display-only yields at 920×600: long read-back lines and the navigator heading.
+5. **Focus and keyboard: one DEFECT, fixed.** Cover's three source-browser views share one grid
+   cell and switch by `tkraise`, so the two lowered views stayed mapped. Tab visited both — two
+   invisible focus stops before the visible one. `CoverBrowser._raise_view` now takes the lowered
+   views out of the Tab order (restoring each view's own `takefocus` when shown). A keyboard
+   already inside a lowered view follows to the one shown. In every tool, Tab reaches every
+   visible, enabled control and walks Section 1 → 2 → 3 → Activity.
+6. **Section / importer / Activity consistency: PASS.** In both appearances, all six share the
+   numbered titles, one section style, one Activity (Summary | Detailed, Clear Log, identical log
+   colors and font) and one job-control set (Pause / Resume / Cancel / Retry Failed). No ttk
+   widget sits on a non-`Compact` style. *Suggestion only:* the guided tools say
+   `Add Files…` / `Clear All` and the dense tools `Add Files` / `Clear All Imports`. That is
+   accepted Family A/B wording, so it was not changed.
+7. **Light/Dark switching and state: PASS.** The shell's toggle, pressed from one tool with the
+   other five hidden and then pressed back, moves and rebuilds no control in any tool, and every
+   layout mode is kept. Cover was the one tool without a toggle-during-a-running-job test; one was
+   added (parked real resize, SUCCEEDED, sources byte-identical).
+8. **Minimum vs maximized: PASS.** Every flexible region is at least as large maximized as at the
+   minimum. *Minor, flagged, not fixed:* the tight→regular density switch re-spends height on
+   chrome, so between those two sizes a region can shrink as the window grows. Examples: Metadata
+   Chapter Titles 76→58 px, 1024×720→1280×900; Maker 101→92 px. The step is inherent to the
+   approved §1 density rule and appears in the approved Phase 6–8 tables. Moving the threshold
+   would change approved appearance, so it is left for the maintainer (or v0.6.7).
+9. **Owned dialogs, title bar and combobox theming: no gap; no change.** Cover's replacement
+   confirmation and Preferences & Data already follow the bundle. Every other dialog is a native
+   messagebox or file dialog, which the contract keeps native. The TTS and three Family-B
+   drop-downs already recolor their pop-downs; the Converter and Cover have none. The title bar is
+   OS chrome over an unchanged shell.
+10. **Latent Minor, flagged, not fixed:** the status label in the Windows and aqua shell status
+    bars is packed before its buttons. A status message wider than ~467 px at 920 px would squeeze
+    Preferences & Data, the Light/Dark toggle and Open log folder out. The longest real message is
+    325 px, so it cannot happen today.
+
+**Alternatives considered:**
+- Turning DPI awareness on now: rejected (see 3).
+- Moving the density threshold for monotonic growth: rejected; it changes approved appearance.
+- A whole-panel scroll or larger minimum anywhere: rejected by §1, and not needed.
+- Leaving the stale aqua tests alone: rejected; they would fail on the Mac for the wrong reason
+  and hide the real gate.
+
+**Consequences:**
+- New `files/tests/test_cross_tool_consistency.py`.
+- The Cover focus fix, with its tests in `test_cover_browser.py`, and the Cover mid-run toggle
+  test.
+- The aqua reconciliation in seven test files.
+- The plan gains a manual-deferral clarification and Phase 8/9 notes; `Handoff.md` records the
+  checkpoint and the v0.6.7 backlog; `Briefing.md`'s DPI limitation gains its disposition.
+
+Version identity remains `0.6.2`, unreleased. Phase 10 is not started.
+
+— Recorded by Claude Code on the maintainer's Phase 8 approval and Phase 9 instruction, 2026-09-28.
+
+---
+
 ## 2026-09-28 -- Phase 7 approved; M4B Metadata Editor rebuilt to the compact Family-B hierarchy (Phase 8), retiring the last `ACT.*` tool interior
 
 **Phase 7 approved.** The maintainer's required Windows manual gate on the M4B Maker at `333134f`

@@ -2,6 +2,112 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 9: CROSS-TOOL GEOMETRY, DPI, ACCESSIBILITY + CONSISTENCY (2026-09-28)
+>
+> **Phase 8 is maintainer-approved.** The Windows M4B Metadata gate at `81680d1` (block below)
+> PASSED: Light, Dark and the manual workflow.
+>
+> **Maintainer ruling: hands-on testing is deferred to v0.6.7.** For the rest of v0.6.6,
+> hands-on bug and edge-case testing moves to a future long-lived v0.6.7 post-merge bug-fix branch.
+> This supersedes the plan's remaining manual hard gates: Phase 9's matrix, Phase 10's
+> manual/listening gates, Phase 11's packaged-launch gates, Phase 12's visual matrix and long
+> drills, and Phase 14's launch smoke. Phases automate what they can and do not stop for a
+> manual-only check. Authorization checkpoints (stop per phase; merge, tag and release approvals)
+> are unchanged. Record: `Decisions.md` 2026-09-28.
+>
+> **What Phase 9 did.** It audited the six panels as one application. A generic walk covered every
+> interactive widget of every tool in the real launcher shell, in Light and Dark, at seven sizes:
+>
+> | Window | Content area | TTS / Converter / MP3 / Maker / Cover / Metadata |
+> |---|---|---|
+> | 920×600 (min) | 721×457 | split / split / tight / tight / columns / tight |
+> | 1024×720 | 825×577 | split / split / tight / tight / columns / tight |
+> | 1024×800 | 825×657 | split / split / regular / tight / columns / tight |
+> | 1280×900 | 1081×757 | wide / wide / regular / regular / split / regular |
+> | 1536×800 (125% max, logical) | 1337×657 | split / split / regular / tight / columns / tight |
+> | 1280×665 (150% max, logical) | 1081×522 | split / split / tight / tight / columns / tight |
+> | maximized | 1721×866 | wide / wide / regular / regular / wide / regular |
+>
+> **Findings:**
+> - **No core scrolling at any size: PASS.** In both appearances, every control of all six tools
+>   is on screen, inside the content area and window, at its full size, with no overlaps. No
+>   Canvas or Scrollbar wraps a section. Activity is right (guided) or below (dense).
+> - **Keyboard: one DEFECT, fixed** (`mp3_tools/cover_resizer.py`, the only production change).
+>   Cover's three browser views share one grid cell, and Tab stopped on the two hidden ones.
+>   `CoverBrowser._raise_view` now leaves only the shown view in the Tab order, and the keyboard
+>   follows a view switch. In all six tools, Tab reaches every visible, enabled control, in the
+>   order 1 → 2 → 3 → Activity.
+> - **Consistency: PASS.** All six share one numbered section style, one Activity (Summary |
+>   Detailed + Clear Log, same log colors) and one job-control set. No non-`Compact` ttk style
+>   remains.
+> - **Light/Dark: PASS.** The shell toggle moves and rebuilds nothing in any tool, shown or hidden.
+>   Cover gained the missing toggle-during-a-running-job test.
+> - **Minimum vs maximized: PASS.** Every flexible region is at least as large maximized.
+> - **Owned dialogs, title bar and combobox theming: no gap, no change.**
+> - **DPI / 125%: the process stays DPI-unaware, deliberately** (the 2026-08-02 deferral is
+>   dispositioned).
+>   - **State:** `GetProcessDpiAwareness` is `UNAWARE` under `python.exe` and `pythonw.exe` with Tk
+>     up, and Tk lays out at 96 dpi.
+>   - **Proof:** Windows bitmap-scales the window, so the logical 125%/150% maximized sizes above
+>     are a valid proof.
+>   - **No live 125% run:** both HOME-PC displays are at 100%, and changing the system setting was
+>     not done.
+>   - **Guard:** a tripwire test blocks a silent DPI opt-in.
+> - **macOS 1024×800: automated evidence only, not a pass.** The new module is platform-aware and
+>   is the Mac gate as it stands. The aqua-only `test_m4b_layout.py` / `test_mp3_tool_layout.py`
+>   were stale against the approved tight density, and were reconciled. With their skip removed on
+>   Windows they pass, except the two correct `mode == "aqua"` pins. The five per-tool
+>   Windows-measured density/mode pins now apply on Windows only.
+>
+> **Flagged for the maintainer, not fixed:**
+> - **Minor:** the tight→regular switch shrinks a flexible region between the two sizes, e.g.
+>   Metadata Chapter Titles 76→58 px and Maker 101→92 px from 1024×720 to 1280×900. This is
+>   inherent to the approved density rule and visible in the Phase 6–8 tables.
+> - **Minor, latent:** a status-bar message wider than ~467 px at 920 px would squeeze out the
+>   shell's three buttons, because the label is packed first. The longest real message is 325 px.
+> - **Suggestion:** `Add Files…` / `Clear All` (guided) vs `Add Files` / `Clear All Imports`
+>   (dense) is accepted Family A/B wording.
+> - The Phase 6–8 display-only yields at 920×600 stand.
+>
+> **Verification:**
+> - New `files/tests/test_cross_tool_consistency.py` (10 tests): all six tools × seven sizes ×
+>   Light/Dark; maximized growth; Tab reach/visibility/order; consistency; shell toggle stability;
+>   the DPI state and tripwire.
+> - Cover: `test_cover_browser.py` +4 (tab stop per view, keyboard follows);
+>   `test_cover_appearance.py` +1 (mid-run toggle).
+> - **Mutations, each caught (8):**
+>   - Cover fix reverted, in both halves;
+>   - MP3 never tight; the toggle resizing the shell;
+>   - Cover's Clear Log renamed; a DPI opt-in in `main()`;
+>   - Cover's toggle unlocking Resize (first MISSED: `cget("state")` misses a ttk state flag, so
+>     the test now uses `instate`); Cover's toggle skipping the log.
+> - **Focused sweep, 63 files:** every appearance, layout, launcher, theme, Cover, TTS, Converter,
+>   MP3, Maker, Metadata, importer, job, preferences, settings, config and boundary suite:
+>   **3,736 passed, 41 skipped, 2 failed**.
+>   - The 2 failures are the pre-existing, unrelated
+>     `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor` and
+>     `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe...` (a POSIX path
+>     on Windows). Both were re-run at `81680d1` in a scratch worktree: the minsize test fails
+>     identically there; the Maker test errored in that environment, and neither file is touched
+>     by this phase.
+>   - No full `verify.py`: one production file changed and the focused gate covers it.
+>
+> **v0.6.7 manual backlog (deferred, never passed):**
+> - live macOS 1024×800 / maximized, Light/Dark, all six tools, including a run of this suite on
+>   the Mac;
+> - a live Windows 125% (and 150%) look;
+> - the Phase 12-style visual matrix;
+> - long Pause/Resume/Cancel/Retry Failed drills on real workloads;
+> - real packaged-launch smoke on both platforms;
+> - any listening-dependent TTS judgement.
+>
+> **Not done / out of scope:** no workflow, plan, engine or shared-module change; no layout
+> redesign. Version identity is unchanged and unreleased. The local-only `.ai/`,
+> `scripts/project-status.py` and screenshot renames are preserved uncommitted. **Phase 10 not
+> started.**
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 8: M4B METADATA COMPACT VISUAL STANDARDIZATION (2026-09-28)
 >
 > **Phase 7 is maintainer-approved.** The required Windows M4B Maker gate at `333134f` (block

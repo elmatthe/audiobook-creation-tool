@@ -894,7 +894,10 @@ class CoverBrowser:
         for widget in (self.details, self.simple, self.canvas):
             self._bind_surface(widget)
 
-        self._pages[DEFAULT_VIEW].tkraise()
+        #: Each view's own Tab behaviour, restored whenever it is the one shown.
+        self._takefocus = {view_id: self.surface(view_id).cget("takefocus")
+                           for view_id in VIEW_IDS}
+        self._raise_view(DEFAULT_VIEW)
         self._pump.add_drain(self.drain)
         self.placeholder = self._build_placeholder()
         self.refresh()
@@ -1126,9 +1129,29 @@ class CoverBrowser:
         self._view = view_id
         if self.var_view.get() != view_id:
             self.var_view.set(view_id)
-        self._pages[view_id].tkraise()
+        self._raise_view(view_id)
         self.refresh()
         return self._view
+
+    def _raise_view(self, view_id: str) -> None:
+        """Show *view_id*'s page and make it the only view in the Tab order.
+
+        The three pages share one grid cell, so the two lowered ones stay
+        mapped beneath the raised one. Left in the traversal they were two
+        invisible Tab stops (v0.6.6 Phase 9); a keyboard already inside a
+        lowered view follows to the one now shown.
+        """
+        hidden = [self.surface(other) for other in VIEW_IDS if other != view_id]
+        try:
+            focused = self.frame.focus_get()
+        except (KeyError, tk.TclError):  # pragma: no cover - a foreign popdown
+            focused = None
+        self._pages[view_id].tkraise()
+        for other in VIEW_IDS:
+            self.surface(other).configure(
+                takefocus=self._takefocus[other] if other == view_id else 0)
+        if focused is not None and focused in hidden:
+            self.surface(view_id).focus_set()
 
     def refresh(self) -> tuple[str, ...]:
         """Rebuild the active view from the manager, and ask for what is visible."""

@@ -15,7 +15,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-### Changed -- **M4B Metadata Editor rebuilt on the compact Family-B layout; no tool interior uses the retired `ACT.*` styles any more** (v0.6.6 Phase 8, 2026-09-28)
+### Fixed -- **Cover Image: Tab no longer stops on the two hidden source-browser views; the six tools proved as one application** (v0.6.6 Phase 9, 2026-09-28)
+
+- **Fixed (keyboard):** Cover's Details / List / Medium Thumbnails views share one spot, so the two
+  hidden ones stayed in the Tab order. Pressing Tab put the keyboard on views nobody could see.
+  Only the shown view is a Tab stop now, and the keyboard follows a view switch.
+- **Cross-tool audit, now a regression suite** (`files/tests/test_cross_tool_consistency.py`).
+  Every control of all six tools was checked in the real launcher. The sizes were 920×600,
+  1024×720, 1024×800, 1280×900, the logical maximized sizes at 125% and 150%, and maximized, in
+  Light and Dark. The suite checks that:
+  - nothing is clipped, squeezed, overlapped or scrolled;
+  - Tab reaches every visible control in workflow order;
+  - the sections, Activity and job controls are identical across tools;
+  - the Light/Dark toggle moves nothing;
+  - the application stays DPI-unaware.
+- **DPI:** the application stays DPI-unaware on Windows, a deliberate decision. At 125%/150%
+  Windows scales the proven layout, so text is soft but nothing can clip.
+- **macOS:** the aqua-only layout tests were brought up to date with the v0.6.6 compact design,
+  ready for the Mac run. The live Mac check is deferred to v0.6.7.
+- **Process:** by maintainer ruling, hands-on bug and edge-case testing for the rest of v0.6.6 is
+  deferred to a v0.6.7 bug-fix branch. Details: `Decisions.md`, 2026-09-28.
+
+### Changed -- **M4B Metadata Editor rebuilt on the compact Family-B layout; no tool interior uses the retired `ACT.*` styles any more** (v0.6.6 Phase 8, 2026-09-28; approved)
 
 - **Presentation only.** The Editor was the last panel on the oversized `ACT.*` interior. Inside
   the real launcher at 920×600 its Chapter Titles box and log were never shown, and Open Output
@@ -35,6 +56,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   batch, processing or shared module changed.
 - **Tests:** new `files/tests/test_m4b_metadata_appearance.py`, and the `ACT.*` pins in five suites
   moved to the compact system. Details and rulings: `Decisions.md`, 2026-09-28.
+- **Approved:** the maintainer's Windows Light/Dark/manual workflow gate passed at `81680d1`.
 
 ### Changed -- **M4B Maker rebuilt on the compact Family-B layout** (v0.6.6 Phase 7, 2026-09-28; approved)
 

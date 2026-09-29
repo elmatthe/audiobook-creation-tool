@@ -275,6 +275,52 @@ def test_a_live_toggle_preserves_every_piece_of_panel_state(make_panel, tk_root,
             panel.importer.list.listbox, panel.btn_convert) == widgets
 
 
+def test_toggling_mid_run_leaves_the_running_resize_alone(make_panel, tk_root, output_base,
+                                                          tmp_path, monkeypatch):
+    """v0.6.6 Phase 9: Cover was the one tool without a mid-run toggle test.
+    A theme switch while a real worker holds the first image touches no
+    controller, run or lock: the run settles as it would have, every output
+    lands, and the sources are byte-identical."""
+    import hashlib
+
+    from shared.job_control import JobState
+    from test_cover_jobs import (Gate, ThreadRunner, drain, import_files, make_image,
+                                 run_dir_of, start, written_under)
+
+    runner = ThreadRunner()
+    panel = make_panel(appearance_bundle=_bundle(tk_root, appearance.LIGHT),
+                       job_runner=runner)
+    sources = [make_image(tmp_path / "art" / f"{name}.jpg") for name in ("a", "b")]
+    hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
+    import_files(panel, *sources)
+    gate = Gate()
+    monkeypatch.setattr(cr, "resize_for_audiobook", gate)
+    try:
+        start(panel)
+        gate.wait_for_entry(1)
+        controller = panel.job_controller
+        assert controller.state is JobState.RUNNING
+        assert panel.btn_convert.instate(["disabled"])
+
+        dark = _bundle(tk_root, appearance.DARK)
+        panel._on_appearance_changed(dark)
+        drain(panel)
+        assert panel.job_controller is controller
+        assert controller.state is JobState.RUNNING
+        assert panel.btn_convert.instate(["disabled"])
+        assert panel.log.summary_text.cget("background") == dark["colors"]["field"]
+    finally:
+        gate.let_through(2)
+        runner.join()
+    drain(panel)
+    assert controller.state is JobState.SUCCEEDED
+    assert panel.run_result.succeeded_count == 2
+    assert written_under(run_dir_of(output_base)) == ["a.jpg", "b.jpg"]
+    assert {path: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sources} == hashes
+    _bundle(tk_root, appearance.LIGHT)
+
+
 def test_clear_log_clears_the_visible_activity_only(make_panel):
     panel = make_panel()
     panel.log_write("a transcript line\n")

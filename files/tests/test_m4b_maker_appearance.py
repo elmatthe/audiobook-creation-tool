@@ -638,7 +638,11 @@ def test_every_required_control_is_on_screen_in_the_real_shell(
             _show_custom(panel, tk_root)
         problems = _problems(app, panel, custom=custom)
         assert not problems, f"at {geometry}:\n  " + "\n  ".join(problems)
-        assert panel.density == SHELL_GEOMETRIES[geometry], (geometry, panel.density)
+        # The density names are Windows measurements; aqua picks its own from
+        # its own metrics (Phase 9), and the on-screen checks hold either way.
+        if not _is_aqua(tk_root):
+            assert panel.density == SHELL_GEOMETRIES[geometry], (geometry,
+                                                                 panel.density)
         _assert_floors(panel, geometry)
         # Activity is below, as wide as the workflow sections -- never beside.
         widths = {s.winfo_width() for s in panel.sections}
