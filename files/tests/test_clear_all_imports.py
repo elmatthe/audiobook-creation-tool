@@ -341,8 +341,9 @@ def test_the_button_sits_in_the_import_band_with_the_destructive_style(
     button = panel.btn_clear_imports
     assert str(button.cget("text")) == LABEL
     assert button.master is panel.btn_import_folder.master, "the import band"
-    # The MP3 Tool is styled from the shared compact bundle (v0.6.6 Phase 6);
-    # the Maker and the Editor still from the ACT theme until their phases.
+    # The MP3 Tool (v0.6.6 Phase 6) and the Maker (Phase 7) are styled from
+    # the shared compact bundle; the Editor still from the ACT theme until
+    # its phase.
     styles = getattr(panel, "appearance_bundle", panel.theme)["styles"]
     assert str(button.cget("style")) == styles["danger_button"]
     assert str(button.cget("command")), "wired"
@@ -369,11 +370,12 @@ def test_aqua_builds_the_button_natively(tk_root):
                         "artwork_buttons": "natural", "content_pad": 12}}
     for module, cls in ((m4b_maker, "M4BMakerUI"), (editor, "M4BMetadataEditorUI"),
                         (mp3_tool, "MP3ToolUI")):
-        # The MP3 Tool takes its styles from the appearance bundle, which on
-        # aqua carries none -- so it is asked for the macOS one explicitly.
+        # The MP3 Tool and the Maker take their styles from the appearance
+        # bundle, which on aqua carries none -- so each is asked for the macOS
+        # one explicitly.
         extra = ({"appearance_bundle": appearance.build_bundle(
                      ttk.Style(tk_root), appearance.LIGHT, platform="darwin",
-                     root=tk_root)} if module is mp3_tool else {})
+                     root=tk_root)} if module in (mp3_tool, m4b_maker) else {})
         panel = getattr(module, cls)(tk_root, theme=aqua, effective_config=make_config(),
                                      thread_factory=RecordingThreads(),
                                      choose_files=lambda: (), choose_folder=lambda: (),

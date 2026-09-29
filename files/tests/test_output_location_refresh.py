@@ -393,14 +393,14 @@ def test_registration_added_no_styling_or_layout_change(key):
     """Registration is one statement beside an existing variable, nothing more.
 
     The Plan 1 conversion boundary is unchanged: only the M4B Metadata editor
-    names ``ACT.*`` styles, and the five unconverted panels still name none.
+    names ``ACT.*`` styles, and the other five panels name none.
     """
     source = PANEL_SOURCES[key].read_text(encoding="utf-8")
     assert source.count("register_destination_hint") == 1, key
-    if key in ("m4b_metadata", "m4b_maker"):
-        # The editor (Plan 1) and, since v0.6.4 Phase 6, the M4B Maker are the
-        # ACT-converted panels; each names the design system. The MP3 Tool
-        # left it for the shared compact system at v0.6.6 Phase 6.
+    if key == "m4b_metadata":
+        # The editor (Plan 1) is the one remaining ACT-converted panel; it
+        # names the design system. The MP3 Tool left it for the shared compact
+        # system at v0.6.6 Phase 6 and the M4B Maker at v0.6.6 Phase 7.
         assert "ACT." in source, f"the converted {key} keeps its design system"
     else:
         assert "ACT." not in source, key

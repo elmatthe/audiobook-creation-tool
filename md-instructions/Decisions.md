@@ -4,6 +4,102 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 6 approved; M4B Maker rebuilt to the compact Family-B hierarchy (Phase 7), with the Phase 6 tight density plus three Maker-specific reflows
+
+**Phase 6 approved.** The maintainer's required Windows manual gate on the MP3 Tool at `d6cb0be`
+passed. It covered Light, Dark and the manual workflow. Phase 6 is closed.
+
+**Phase 7 (M4B Maker compact visual standardization).** The Maker was the second dense panel
+still drawn in the retired `ACT.*` interior. Measured inside the real launcher at 920×600
+(content 721×457), it asked for 1043×649:
+
+- the track list, Chapter Titles box and all four track buttons were never mapped;
+- Remove Book and the custom-destination toggle were outside the content area;
+- the log was 3 px tall.
+
+At 1024×720 the lists were squeezed to 5 px. Its presentation is rebuilt on the approved
+Cover/TTS/Converter/MP3 Tool control language, through the shared `appearance`/`job_ui`
+primitives only. It follows the MP3 Tool's Phase 6 pattern exactly where the panels are alike:
+
+- **Hierarchy:**
+  - `1. Import & Books`: Import Folder, Clear All Imports, import status, output hint, Book
+    navigator.
+  - `2. Book Settings`: Shared over Current Book. Current Book holds the five fields, artwork, and
+    the Book-only Title / Series Part / Output Filename / Status row.
+  - `3. Tracks, Chapters & Build`: the track list beside Chapter Titles, then the run options,
+    then Build and the shared job area.
+  - Activity below, with Summary | Detailed and Clear Log.
+- **Shared vs Current Book:** the same `shared_labelframe` / `labelframe` treatment as the MP3 Tool,
+  in Light and Dark.
+- **Build** is the tool's one run action. It uses the compact button with the restrained accent
+  outline (`default="active"`), and no button is a filled primary.
+- **Theme:** the whole interior uses the shared compact bundle through a new `appearance_bundle`
+  seam. `theme` supplies only the aqua composition hints. A live toggle recolors the track list,
+  Chapter Titles, the log panes and the Book selector's drop-down in place; nothing is rebuilt.
+- **Small windows:** the same measured **tight density** (the §1 order: padding and chrome, then
+  reflow, then one-row/one-line floors held by `rowconfigure(minsize=...)`). Also carried over:
+  the left-eliding output hint, and the §4 track-list shortcuts, which now exist on the Maker and
+  go through the run lock.
+
+Rulings taken within the maintainer's instructions, where the Maker differs from the MP3 Tool:
+
+- **The compact default puts the Book-only row full width beneath the artwork** (`"wide"`, aqua's
+  arrangement since v0.6.4 Phase 13). Beside the artwork, Title / Series Part / Output Filename /
+  Status widened the five field columns past the 920×600 content width. Title is 12 characters
+  and stretches.
+- **The job status sits beside the job controls in the tight density.** The Maker has one more
+  run row than the MP3 Tool: its options (series numbering, FAST, custom destination). At 920×600
+  the MP3 arrangement (controls over a two-line status, 65 px beside a 25 px Build) left Activity
+  ~28 px short. Tight now puts the status view's two lines beside Pause/Resume/Cancel/Retry
+  Failed, with a 110 px bar and a 150 px status wrap, so the area is 38 px. These are grid
+  positions only, on the same widgets and variables. Regular is the adapter's own layout.
+- **Two run options take a short wording in the tight density:** "Start Part:" and "Try FAST
+  first". This follows the MP3 Tool's "Mixed" precedent. Everywhere there is room they read
+  "Start Part (blank → 1):" and "Try FAST first (auto-fallback to Safe)". The variables, controls
+  and meaning are unchanged, and "Choose custom destination" keeps its pinned label.
+- **In the tight density the custom destination's path row joins the options line** (beside its
+  toggle) instead of adding a line beneath. At 920×600 every flexible region is already at its
+  floor, so an extra line pushed Activity off screen. With room, the path row stays beneath. It
+  is still hidden until the toggle is on (Decision 10A). Showing or hiding it re-measures the
+  density and row floors. The options line grows only by the Browse button's extra 4 px.
+- **The artwork preview is at most 40 px** (the MP3 Tool's Phase 6 value), so choosing artwork
+  never grows Book Settings. The Maker's `ArtworkControl` is shared with the Metadata Editor, so
+  this is an additive, opt-in `preview_max` argument (`COMPACT_PREVIEW_MAX`). The shared default
+  `PREVIEW_MAX` (56 px) and the Editor are unchanged until Phase 8.
+- The Start Part entry is 4 characters (was 6), and the option gaps are 8 px. Both are needed to
+  fit the options line at 920×600 in the regular wording.
+
+**Deliberately unchanged:**
+
+- the multi-Book import/workspace model and Shared precedence (`disabled_fields`);
+- series numbering (Auto-number Series Part disables the manual Series Part; Start Part), FAST/Safe;
+- the custom destination (off on every fresh build, never persisted, Decision 10A);
+- artwork validation, metadata, chapter titles, output naming and collisions;
+- Pause/Resume/Cancel, Retry Failed, the frozen run state and source immutability.
+
+`m4b_maker_workflow.py`, `m4b_maker_plan.py`, `m4b_maker_batch.py`, `m4b_maker_processing.py` and
+every `shared/` module are untouched. The track-list labels (Add Files / Move Up / Move Down /
+Remove Selected) and the workspace-level Import Folder / Clear All Imports are kept for the same
+reason as the MP3 Tool's (§4's per-list Add Folder / Clear All would duplicate workspace actions).
+
+**Known minor (shared, as the MP3 Tool):** at 920×600 a long Book name is truncated in the
+navigator's heading; the selector beside it shows the name whole.
+
+**Consequences:** the plan gains a Phase 7 note and `Handoff.md` records the checkpoint. Tests that
+pinned the Maker's `ACT.*` styling were moved to the compact system:
+- `test_m4b_maker_ui.py`: the compact-style test, and the aqua tests now pass a darwin bundle and
+  pin the compact default composition;
+- `test_launcher_smoke.py`: the Maker moves to `COMPACT_DENSE_TOOLS`;
+- `test_clear_all_imports.py`, `test_output_location_refresh.py` and
+  `test_prototype_regression.py`.
+
+The M4B Metadata Editor is now the one remaining `ACT.*` panel, until Phase 8. Version identity
+remains `0.6.2`, unreleased. Phase 8 is not started.
+
+— Recorded by Claude Code on the maintainer's Phase 6 approval and Phase 7 instruction, 2026-09-28.
+
+---
+
 ## 2026-09-28 -- Phase 5 approved; MP3 Tool rebuilt to the compact Family-B hierarchy (Phase 6), with a measured tight density for the launcher's small windows
 
 **Phase 5 approved.** The maintainer approved the Phase 5 documentation checkpoint (`bc52a05`).

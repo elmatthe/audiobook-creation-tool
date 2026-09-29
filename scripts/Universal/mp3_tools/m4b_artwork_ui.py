@@ -59,6 +59,11 @@ LOCK_KIND = ControlKind.PROCESSING_OPTION
 #: The preview is display-only: nothing embedded is ever this size.
 PREVIEW_MAX = (56, 56)
 
+#: The compact panels' preview (v0.6.6 Phase 7, the MP3 Tool's Phase 6 value):
+#: no taller than the control's caption and buttons, so choosing artwork never
+#: makes the group grow. A consumer opts in; the default is unchanged.
+COMPACT_PREVIEW_MAX = (40, 40)
+
 NO_ARTWORK = "(none)"
 NO_PREVIEW = "(no preview)"
 
@@ -95,12 +100,14 @@ class ArtworkControl:
 
     __slots__ = ("_guard", "caption", "path", "has_preview", "_overridden", "_locked",
                  "_closed", "_image", "_on_choose", "_on_clear", "frame", "caption_label",
-                 "preview", "btn_choose", "btn_clear")
+                 "preview", "btn_choose", "btn_clear", "preview_max")
 
     def __init__(self, parent: tk.Misc, *, caption: str, theme, shared: bool,
                  on_choose: Callable[[], object], on_clear: Callable[[], object],
-                 natural_buttons: bool = False, thread_id: int | None = None) -> None:
+                 natural_buttons: bool = False, thread_id: int | None = None,
+                 preview_max: tuple[int, int] = PREVIEW_MAX) -> None:
         self._guard = MainThreadGuard(thread_id)
+        self.preview_max = tuple(preview_max)
         self.caption = caption
         self.path = ""
         self.has_preview = False
@@ -179,7 +186,7 @@ class ArtworkControl:
             self._show(image="", text=NO_PREVIEW)
             return
         try:
-            thumb = m4b_artwork.preview_image(self.path, PREVIEW_MAX)
+            thumb = m4b_artwork.preview_image(self.path, self.preview_max)
             self._image = ImageTk.PhotoImage(thumb)
             self._show(image=self._image, text="")
             self.has_preview = True

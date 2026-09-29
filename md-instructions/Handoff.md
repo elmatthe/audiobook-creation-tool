@@ -2,6 +2,112 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 7: M4B MAKER COMPACT VISUAL STANDARDIZATION (2026-09-28)
+>
+> **Phase 6 is maintainer-approved.** The required Windows MP3 Tool gate at `d6cb0be` (block
+> below) PASSED: Light, Dark and the manual workflow.
+>
+> **What Phase 7 changed (presentation only):**
+> - **Files:** `mp3_tools/m4b_maker.py`, plus one additive, opt-in argument in
+>   `mp3_tools/m4b_artwork_ui.py`.
+> - **Family-B hierarchy:**
+>   - `1. Import & Books`: Import Folder, Clear All Imports, import status, output hint, Book
+>     navigator.
+>   - `2. Book Settings`: Shared over Current Book. The Book-only Title / Series Part / Output
+>     Filename / Status row runs the full width beneath the artwork.
+>   - `3. Tracks, Chapters & Build`: track list | Chapter Titles and the four track buttons; then
+>     Auto-number Series Part / Start Part / Try FAST first / Choose custom destination; then
+>     **Build M4B(s)** and the shared job area.
+>   - **Activity below:** Summary | Detailed with its note and Clear Log, full width.
+> - **Look:** the whole interior is on the shared compact bundle (a new `appearance_bundle` seam,
+>   as in the MP3 Tool). No ttk widget uses a generic or `ACT.*` style.
+>   - Shared is the tinted `shared_labelframe` group; Current Book is the ordinary surface.
+>   - Build takes the accent-outlined compact button; no filled primary.
+>   - The artwork preview is at most 40 px (`COMPACT_PREVIEW_MAX`, opt-in). The shared default
+>     (56 px) and the Metadata Editor are unchanged.
+> - **Live toggle:** presentation-only. The track list, Chapter Titles, log panes and the
+>   selector's drop-down recolor in place. The listener is removed on close.
+> - **Keyboard:** the §4 track-list shortcuts are now bound on the Maker (block moves, Delete,
+>   Ctrl+A) and go through the run lock; Entry and Chapter Titles keys are untouched.
+> - **Small windows:** the Phase 6 **tight density** (padding/chrome, then reflow, then
+>   1-row/1-line floors held by row minimum sizes), plus three Maker reflows:
+>   - the job status sits beside the job controls;
+>   - "Start Part:" / "Try FAST first" short wording;
+>   - the custom path row joins the options line instead of adding one.
+>
+>   The output hint elides from the left. Nothing is hidden; the minimum size is unchanged.
+> - **Unchanged:** the multi-Book model, Shared precedence, series numbering, FAST/Safe, custom
+>   destination (hidden until toggled, never persisted), artwork, metadata, chapter titles, output
+>   naming/collisions, Pause/Resume/Cancel/Retry Failed, the frozen run state and source
+>   immutability. Every `m4b_maker_*` layer and every shared module is untouched.
+>
+> **Real-launcher measurements (Windows, 100%; Light and Dark identical):**
+>
+> | Window | Content | Density | Panel req. width | Track list | Chapter Titles | Summary pane |
+> |---|---|---|---|---|---|---|
+> | 920×600 | 721×457 | `tight` | 714 px | 15 px (1.0 row) | 42 px | 21 px (1.4 lines) |
+> | 920×600 + custom path | 721×457 | `tight` | 714 px | 15 px (1.0 row) | 42 px | 17 px (1.1 lines) |
+> | 1024×720 | 825×577 | `tight` | 714 px | 74 px (4.9 rows) | 101 px | 82 px (5.5 lines) |
+> | 1280×900 | 1081×757 | `regular` | 744 px | 63 px (4.2 rows) | 92 px | 75 px (5.0 lines) |
+> | 1920×1009 | 1721×866 | `regular` | 744 px | 127 px (8.5 rows) | 156 px | 120 px (8.0 lines) |
+>
+> Before Phase 7 (the `ACT.*` interior) at 920×600 the panel asked for 1043×649:
+> - the track list, Chapter Titles and track buttons were unmapped;
+> - Remove Book and the custom-destination toggle were off screen;
+> - the log was 3 px.
+>
+> Now every required control is on screen at its full requested size at all four sizes, with and
+> without the custom path row. That includes a busy 920×600 workspace: three Books, 30 long
+> tracks, long title/filename/series, Shared values, both artworks, Auto-number on and a custom
+> path.
+>
+> **Verification:**
+> - New `test_m4b_maker_appearance.py` (24 tests):
+>   - hierarchy and homes; the Build/Activity presentation;
+>   - Shared vs Current Book in Light and Dark; Dark over the whole interior;
+>   - the compact preview, with the shared default unchanged;
+>   - a live toggle preserving Books, selection, values, Book-only fields, chapters, order, run
+>     options, custom path, log and density with no widget rebuilt;
+>   - a toggle during a parked real FFmpeg build settling SUCCEEDED;
+>   - listener removal; the §4 keys (block move, lock, no text-key hijack); Tab order 1→2→3→Activity;
+>   - real-shell tests at 920×600 / 1024×720 / 1280×900 / 1920×1009, each standard and with the
+>     custom path;
+>   - the path row inline only in tight; the busy minimum with no layout jump; the output hint
+>     tail; the shell's own toggle keeping layout and values.
+> - Thirteen mutations were each caught:
+>   - no tight density; no row floors; no unregister; track list not recolored;
+>   - keys ignoring the lock; no drop-down color; no hint elision; full wording in tight;
+>   - path row always beneath; status kept under the controls; the 56 px preview;
+>   - a filled-primary Build; the toggle not re-measuring.
+> - Updated pins (the Maker left `ACT.*`): `test_m4b_maker_ui.py` (3), `test_launcher_smoke.py`,
+>   `test_clear_all_imports.py` (2), `test_output_location_refresh.py`,
+>   `test_prototype_regression.py`.
+> - Focused sweep of 90 files (all M4B suites incl. Maker batch/plan/processing/smoke/workflow,
+>   custom destination, combined hardening, the MP3 Tool suites, the shared workspace, job,
+>   appearance, theme, launcher, boundary, preferences, output, import and settings suites, and
+>   the Converter/TTS/Cover appearance and layout suites):
+>   **5,295 passed, 55 skipped, 2 failed** on the confirming run.
+>   - Both failures are pre-existing and unrelated:
+>     - `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor`;
+>     - `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe...`, which
+>       builds a POSIX path on Windows.
+>   - The first run of the same 90 files also failed two Tab-order tests (this suite's and the MP3
+>     Tool's) with `invalid command name "tk_focusNext"`. Tk's autoloaded `focus.tcl` did not
+>     resolve in the shared interpreter: the known Windows Tk library-load transient.
+>   - That did not reproduce. It passed in a sequential run of the 40 files up to and including
+>     this suite (2,963 passed), in the neighbouring suites together, and in the identical 90-file
+>     rerun. Nothing was weakened or retried in code.
+>   - No full `verify.py`.
+>
+> **Not done / out of scope:** no Metadata Editor, MP3, Converter, TTS or Cover change, and no
+> `shared/` change. macOS 1024×800 and Windows 125% are Phase 9's. Version identity is unchanged
+> and unreleased. The local-only `.ai/`, `scripts/project-status.py` and screenshot renames are
+> preserved uncommitted. **Phase 8 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 6: MP3 TOOL COMPACT VISUAL STANDARDIZATION (2026-09-28)
 >
 > **Phase 5 is maintainer-approved** (the documentation checkpoint at `bc52a05`).

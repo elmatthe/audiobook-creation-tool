@@ -389,15 +389,15 @@ def test_building_the_whole_app_leaves_the_generic_styles_untouched(
     assert not changed, f"building the app leaked into generic styles: {changed}"
     assert style.theme_use() == "vista"
 
-    # Only the converted panels opted in: the editor (Plan 1, redone at v0.6.4
-    # Phase 10) and, since v0.6.4 Phase 6, the M4B Maker. The MP3 Tool left
-    # ACT for the shared compact system at v0.6.6 Phase 6; the rest use none.
+    # Only the converted panel opted in: the editor (Plan 1, redone at v0.6.4
+    # Phase 10). The MP3 Tool left ACT for the shared compact system at v0.6.6
+    # Phase 6 and the M4B Maker at v0.6.6 Phase 7; the rest use none.
     per_panel = {
         key: sorted({_style_of(w) for w in _walk(cont)
                      if _style_of(w).startswith("ACT.")})
         for key, cont in app.containers.items()
     }
-    for converted in ("m4b_metadata", "m4b_maker"):
+    for converted in ("m4b_metadata",):
         assert per_panel.pop(converted), f"the converted {converted} uses no ACT style"
     assert all(v == [] for v in per_panel.values()), per_panel
 
