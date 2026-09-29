@@ -15,6 +15,40 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed -- **M4B Metadata Editor rebuilt on the compact Family-B layout; no tool interior uses the retired `ACT.*` styles any more** (v0.6.6 Phase 8, 2026-09-28)
+
+- **Presentation only.** The Editor was the last panel on the oversized `ACT.*` interior. Inside
+  the real launcher at 920×600 its Chapter Titles box and log were never shown, and Open Output
+  Folder, Resume / Cancel / Retry Failed and Clear Log were off screen.
+- **New layout:** `1. Import & Books` / `2. Metadata` (Shared tinted over Current Book) /
+  `3. Chapters & Save`, with Activity (Summary | Detailed, Clear Log) below. It uses the same
+  compact Light/Dark controls as the other five tools, and the live toggle works in place.
+- **Buttons:** Save Tags is the one accent-outlined action. Open Output Folder now sits with the
+  actions, and the Shared caption uses the MP3 Tool/Maker wording.
+- **Small windows:** at the launcher's small sizes, padding shrinks first and then controls
+  reflow. The series numbering joins the Chapter Titles caption's line, and the "originals are
+  never modified" note joins the Current Book caption. Every control and statement stays on
+  screen, and the minimum size is unchanged.
+- **Unchanged:** preserve-by-default, Shared precedence, the per-file pages, Save Tags / Clear All
+  Tags / Remove Series Numbering, artwork, Auto-number, staged validation, output runs,
+  Pause/Resume/Cancel/Retry Failed, no re-encoding and source immutability. No workflow, plan,
+  batch, processing or shared module changed.
+- **Tests:** new `files/tests/test_m4b_metadata_appearance.py`, and the `ACT.*` pins in five suites
+  moved to the compact system. Details and rulings: `Decisions.md`, 2026-09-28.
+
+### Changed -- **M4B Maker rebuilt on the compact Family-B layout** (v0.6.6 Phase 7, 2026-09-28; approved)
+
+- **Presentation only.** The Maker left the `ACT.*` interior for the shared compact Light/Dark
+  system: `1. Import & Books` / `2. Book Settings` / `3. Tracks, Chapters & Build`, with Activity
+  below. At 920×600 its track list, Chapter Titles and track buttons had been off screen; now
+  every control shows at the launcher's small sizes.
+- **Build** is the one accent-outlined action. The track list's keyboard shortcuts obey the run
+  lock.
+- **Artwork:** the shared `ArtworkControl` gained an opt-in 40 px preview.
+- **Unchanged:** no Maker workflow, plan, batch, processing or output rule changed.
+- **Approved:** the maintainer's Windows Light/Dark/manual workflow gate passed at `333134f`.
+  Details: `Decisions.md`, 2026-09-28.
+
 ### Fixed -- **Kokoro's multi-file worker concurrency was never actually proven safe; capped to 1** (v0.6.5 Phase 9 fresh review, 2026-09-26)
 
 - A fresh independent review of the complete TTS text->synthesis->assembly->final-file flow (the

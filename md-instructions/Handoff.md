@@ -2,6 +2,126 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 8: M4B METADATA COMPACT VISUAL STANDARDIZATION (2026-09-28)
+>
+> **Phase 7 is maintainer-approved.** The required Windows M4B Maker gate at `333134f` (block
+> below) PASSED: Light, Dark and the manual workflow. Its missing `[Unreleased]` Changelog record
+> was added with this checkpoint.
+>
+> **What Phase 8 changed (presentation only):**
+> - **File:** `mp3_tools/m4b_metadata_editor.py`. No other production file.
+> - **Family-B hierarchy:**
+>   - `1. Import & Books`: Import Folder, Add Files, Clear All Imports, import status, output hint
+>     (elides from the left), Book navigator (Remove Book only).
+>   - `2. Metadata`: Shared over Current Book, seven fields plus artwork each. The source line runs
+>     full width beneath the Book's fields; the "Detected on file" line shares a line with the
+>     facts and Status.
+>   - `3. Chapters & Save`: Chapter Titles; Auto-number Series Part / Start Part and the preserve
+>     note; then **Save Tags** / Open Output Folder and Clear All Tags (keep chapters) / Remove
+>     Series Numbering in two columns beside the shared job area.
+>   - **Activity below:** Summary | Detailed with its note and Clear Log, full width.
+> - **Look:** the whole interior is on the shared compact bundle (a new `appearance_bundle` seam).
+>   No ttk widget uses a generic or `ACT.*` style; **no tool interior uses `ACT.*` any more**.
+>   - Shared is the tinted `shared_labelframe` group, with the MP3 Tool/Maker caption. Current
+>     Book is the ordinary surface and keeps "blank or unchanged = keep the source's own value".
+>   - Save Tags takes the accent-outlined compact button; the two destructive actions keep the
+>     destructive treatment; no filled primary.
+>   - Both artwork previews are at most 40 px (`COMPACT_PREVIEW_MAX`).
+> - **Live toggle:** presentation-only. Chapter Titles, the log panes and the selector's drop-down
+>   recolor in place. The listener is removed on close.
+> - **Small windows:** the Phase 6/7 **tight density** (padding/chrome, then reflow, then
+>   1-row/1-line floors held by row minimum sizes), plus two Editor reflows:
+>   - Auto-number Series Part / Start Part join the Chapter Titles caption's line, in short
+>     wording; the caption takes a short form that keeps its "blank or unchanged keeps it" rule;
+>   - the preserve note's line steps aside, and its statement joins the Current Book caption
+>     ("…; originals are never modified (copies are written)").
+>
+>   The job status takes two lines (the MP3 Tool's arrangement). Nothing is hidden; the minimum
+>   size is unchanged.
+> - **Unchanged:** one page per file, preserve-by-default, Shared precedence, prefill never an
+>   edit, per-page chapters, Save Tags / Clear All Tags / Remove Series Numbering and their
+>   confirmations, artwork, success-only Auto-number, staged validation, output runs/collisions,
+>   no re-encoding, Pause/Resume/Cancel/Retry Failed, the frozen run state and source
+>   immutability. Every `m4b_metadata_*` layer, `m4b_artwork_ui.py` and every shared module are
+>   untouched.
+>
+> **Real-launcher measurements (Windows, 100%; Light and Dark identical):**
+>
+> | Window | Content | Density | Panel req. width | Chapter Titles | Summary pane |
+> |---|---|---|---|---|---|
+> | 920×600 | 721×457 | `tight` | 663 px | 17 px (1.1 rows) | 21 px (1.3 lines) |
+> | 1024×720 | 825×577 | `tight` | 663 px | 76 px (4.8 rows) | 82 px (5.1 lines) |
+> | 1280×900 | 1081×757 | `regular` | 747 px | 58 px (3.6 rows) | 71 px (4.4 lines) |
+> | 1920×1009 | 1721×866 | `regular` | 747 px | 123 px (7.7 rows) | 115 px (7.2 lines) |
+>
+> Before Phase 8 (the `ACT.*` interior) at 920×600 the panel asked for 1334×665:
+> - Chapter Titles and the log were unmapped;
+> - Open Output Folder, Resume / Cancel / Retry Failed and Clear Log were off screen;
+> - all fourteen entries were squeezed to 57–66 of 78 px.
+>
+> Now every required control is on screen at its full requested size at all four sizes, with no
+> overlaps. That includes a busy 920×600 workspace: three Books, long Title/Series/Comment, Shared
+> values, both artworks, 40 chapter titles and Auto-number on.
+>
+> **Verification:**
+> - New `test_m4b_metadata_appearance.py` (20 tests):
+>   - hierarchy and homes; the actions/Activity presentation;
+>   - Shared vs Current Book in Light and Dark; Dark over the whole interior;
+>   - the compact previews;
+>   - a live toggle preserving Books, page, Shared/Book edits, chapters, run options, read-back,
+>     log and density with no widget rebuilt;
+>   - a toggle during a parked real Save settling SUCCEEDED, with the originals' hashes unchanged;
+>   - listener removal; text keys not hijacked; Tab order 1→2→3→Activity;
+>   - real-shell tests at 920×600 / 1024×720 / 1280×900 / 1920×1009, with no overlaps and the
+>     preserve statement always on screen;
+>   - the tight reflow and its return; the busy minimum with no layout jump; the output hint
+>     tail; the shell's own toggle keeping layout and values; no Editor rule moved into the panel.
+> - Sixteen mutations were each caught:
+>   - no tight density; no row floors; no unregister;
+>   - Chapter Titles / log / drop-down not recolored; no hint elision;
+>   - full wording in tight; options never inline; the note hidden without the Book caption;
+>   - a filled-primary Save; the 56 px preview; the status on three lines in tight;
+>   - Clear Log left over the log in tight (first MISSED, so the shell test gained a no-overlap
+>     check); the old Shared caption; the `ACT.*` styles back.
+> - Updated pins (the Editor left `ACT.*`):
+>   - `test_m4b_metadata_editor_ui.py`: compact and namespaced styles, the classic widgets in
+>     Light/Dark, and the two aqua composition tests;
+>   - `test_launcher_smoke.py`: `CONVERTED_TOOLS` is empty; the Editor joins
+>     `COMPACT_DENSE_TOOLS`;
+>   - `test_clear_all_imports.py` (2), `test_output_location_refresh.py`,
+>     `test_prototype_regression.py` (3).
+> - Focused sweep of 75 files (every M4B suite including the Editor's
+>   batch/plan/processing/workflow/shared, Maker and Converter suites; the MP3 Tool suites; the
+>   shared workspace, job, appearance, theme, launcher, boundary, preferences, output, import,
+>   settings and config suites; the Cover and TTS appearance/layout suites):
+>   **4,704 passed, 52 skipped, 2 failed**.
+>   - Both failures are pre-existing and unrelated, the same two as at Phase 7:
+>     - `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor`;
+>     - `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe...` (a POSIX
+>       path on Windows).
+>   - No full `verify.py`.
+>
+> **Known minor:** at 920×600 a long "Detected on file" line is clipped where the facts and Status
+> sit beside it, as is a long source path. Both show whole from 1280×900 up. (The navigator heading
+> truncation noted for the MP3 Tool and the Maker applies here too.)
+>
+> **Not done / out of scope:** no MP3, Maker, Converter, TTS or Cover change, and no `shared/`
+> change. macOS 1024×800 and Windows 125% are Phase 9's. Version identity is unchanged and
+> unreleased. The local-only `.ai/`, `scripts/project-status.py` and screenshot renames are
+> preserved uncommitted. **Phase 9 not started.**
+>
+> **Manual gate (Windows, required before Phase 9):** open M4B Metadata in the launcher at 920×600
+> and maximized, in Light and Dark. Check:
+> - the numbered sections, Shared vs Current Book, and nothing clipped or scrolled;
+> - Import Folder / Add Files, page navigation and Remove Book;
+> - a Shared value overriding and disabling a Book field;
+> - a Book edit, a chapter rename and artwork;
+> - Save Tags, Clear All Tags and Remove Series Numbering on copies (originals untouched);
+> - Auto-number, Pause/Resume/Cancel and Retry Failed;
+> - toggling Light/Dark mid-edit and mid-run.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 7: M4B MAKER COMPACT VISUAL STANDARDIZATION (2026-09-28)
 >
 > **Phase 6 is maintainer-approved.** The required Windows MP3 Tool gate at `d6cb0be` (block

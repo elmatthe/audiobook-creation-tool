@@ -392,18 +392,13 @@ def test_the_launcher_still_owns_panel_lifecycle():
 def test_registration_added_no_styling_or_layout_change(key):
     """Registration is one statement beside an existing variable, nothing more.
 
-    The Plan 1 conversion boundary is unchanged: only the M4B Metadata editor
-    names ``ACT.*`` styles, and the other five panels name none.
+    No panel names ``ACT.*`` styles: the M4B Metadata editor (Plan 1), the MP3
+    Tool and the M4B Maker, once converted, left them for the shared compact
+    system at v0.6.6 Phases 6-8.
     """
     source = PANEL_SOURCES[key].read_text(encoding="utf-8")
     assert source.count("register_destination_hint") == 1, key
-    if key == "m4b_metadata":
-        # The editor (Plan 1) is the one remaining ACT-converted panel; it
-        # names the design system. The MP3 Tool left it for the shared compact
-        # system at v0.6.6 Phase 6 and the M4B Maker at v0.6.6 Phase 7.
-        assert "ACT." in source, f"the converted {key} keeps its design system"
-    else:
-        assert "ACT." not in source, key
+    assert "ACT." not in source, key
 
 
 def test_reservation_still_re_reads_the_configuration_at_run_start():

@@ -4,6 +4,118 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 7 approved; M4B Metadata Editor rebuilt to the compact Family-B hierarchy (Phase 8), retiring the last `ACT.*` tool interior
+
+**Phase 7 approved.** The maintainer's required Windows manual gate on the M4B Maker at `333134f`
+passed. It covered Light, Dark and the manual workflow. Phase 7 is closed.
+
+**Phase 8 (M4B Metadata compact visual standardization).** The Editor was the last panel still
+drawn in the retired `ACT.*` interior. Measured inside the real launcher at 920×600 (content
+721×457), it asked for 1334×665:
+
+- the Chapter Titles box and the log were never mapped;
+- Open Output Folder, Resume / Cancel / Retry Failed and Clear Log lay outside the content area;
+- the fourteen Shared/Book entries were squeezed to 57–66 of their 78 px.
+
+At 1024×720 the chapter box was still unmapped and the log 3 px tall. Its presentation is rebuilt
+on the approved Cover/TTS/Converter/MP3 Tool/Maker control language, through the shared
+`appearance`/`job_ui` primitives only. It follows the Maker's Phase 7 pattern where the panels
+are alike:
+
+- **Hierarchy:**
+  - `1. Import & Books`: Import Folder, Add Files, Clear All Imports, import status, output hint,
+    Book navigator (Remove Book only).
+  - `2. Metadata`: Shared over Current Book, the seven text fields and artwork in each, the
+    source read-back beneath the Book's fields.
+  - `3. Chapters & Save`: the Chapter Titles box; Auto-number Series Part / Start Part and the
+    preserve note; then Save Tags, Clear All Tags (keep chapters), Remove Series Numbering and
+    Open Output Folder beside the shared job area.
+  - Activity below, with Summary | Detailed and Clear Log.
+- **Shared vs Current Book:** the same `shared_labelframe` / `labelframe` treatment as the MP3
+  Tool and the Maker, in Light and Dark.
+- **Save Tags** is the tool's one primary action: the compact button with the restrained accent
+  outline (`default="active"`). No button is a filled primary. Clear All Tags and Remove Series
+  Numbering keep the shared destructive treatment.
+- **Theme:** the whole interior uses the shared compact bundle through a new `appearance_bundle`
+  seam. `theme` supplies only the aqua composition hints. A live toggle recolors the Chapter
+  Titles box, the log panes and the Book selector's drop-down in place; nothing is rebuilt.
+- **Small windows:** the same measured **tight density** (the §1 order: padding and chrome, then
+  reflow, then one-row/one-line floors held by `rowconfigure(minsize=...)`), and the left-eliding
+  output hint.
+
+Rulings taken within the maintainer's instructions, where the Editor differs:
+
+- **The Shared caption takes the dense tools' one wording:** "Shared — applies to every Book and
+  overrides its own value" (was "Shared — a value here overrides every Book; blank = each Book on
+  its own"). The Current Book caption keeps the Editor's preserve-by-default statement ("blank or
+  unchanged = keep the source's own value"). Semantics are unchanged.
+- **Open Output Folder joins the actions**, beneath Save Tags, with the two destructive actions in
+  the second column. This was aqua's arrangement since v0.6.4 Phase 13 and is now the compact
+  default everywhere, on the Converter's precedent (its Open Output Folder lives in Output & Run).
+  In the import band it left the output hint almost no width at 920×600. Same control and command.
+- **Clear Log joins Activity**, as on every compact panel.
+- **The compact read-back is the default** (aqua's since Phase 13): the source line runs the full
+  width, and the "Detected on file" line shares a line with the facts and Status. The Windows
+  "rows" arrangement (three lines beside the artwork) is kept for a theme that asks for it.
+- **The tight density keeps every statement and control, on fewer lines.** At 920×600 every
+  flexible region was at its floor and Activity still ran ~12 px below the content area:
+  - The job area is 11 px taller than the two-column action grid beside it. The status cannot
+    sit beside the controls as on the Maker: the grid leaves 81 px there.
+  - The Editor's two read-back lines cost one more line than the Maker's Book-only row.
+
+  So in the tight density:
+  - Auto-number Series Part / Start Part join the Chapter Titles caption's line, in short
+    wording ("Auto-number Series Part", "Start Part:"). The caption takes a short form that
+    keeps its preserve rule: "Chapter Titles — line N renames chapter N; blank or unchanged
+    keeps it".
+  - The preserve note's own line steps aside, and its statement joins the Current Book caption,
+    which already carries the other half of it: "Current Book — blank or unchanged = keep the
+    source's own value; originals are never modified (copies are written)".
+  - The job status takes two lines (the MP3 Tool's Phase 6 arrangement).
+
+  With room, everything returns to its regular wording and lines. Variables, controls and meaning
+  are unchanged. The shell tests fail if the preserve statement is ever off screen.
+- **Both artwork previews are at most 40 px** (`COMPACT_PREVIEW_MAX`, opt-in, as on the Maker).
+  `PREVIEW_MAX` (56 px) remains the control's default, though no production panel uses it now.
+- **Metrics:** entries ask for 8 characters (was 9), field gap 6, group padding 6, artwork gap 8.
+  The Chapter Titles box asks for 6 rows (floor 2, tight 1) and the log for 6 lines (floor 2,
+  tight 1).
+- **No §4 list shortcuts are added.** The Editor has no ordered list; its Books are pages behind
+  the navigator, and Entry and Chapter Titles keys stay the text's own.
+
+**Deliberately unchanged:**
+
+- one page per imported file; preserve-by-default; Shared precedence (`disabled_fields`);
+- source prefill never becoming an edit; the per-page chapter buffers;
+- Save Tags / Clear All Tags / Remove Series Numbering and their confirmations;
+- artwork validation, success-only Auto-number, staged validation and publication, output runs and
+  collisions, no re-encoding;
+- Pause/Resume/Cancel, Retry Failed, the frozen run state and source immutability.
+
+`m4b_metadata_workflow.py`, `m4b_metadata_plan.py`, `m4b_metadata_batch.py`,
+`m4b_metadata_processing.py`, `m4b_artwork_ui.py` and every `shared/` module are untouched.
+
+**Known minor:** at 920×600 a long "Detected on file" line is clipped where the facts and Status
+sit beside it. The source line is also clipped when its path is long. Both show whole from
+1280×900 up, and the facts, Status and source file name stay visible.
+
+**Consequences:** the plan gains a Phase 8 note and `Handoff.md` records the checkpoint. Tests that
+pinned the Editor's `ACT.*` styling moved to the compact system:
+- `test_m4b_metadata_editor_ui.py`: the compact-style and namespaced-style tests, the classic
+  widgets in Light and Dark, and the two aqua tests now pass a darwin bundle and pin the compact
+  composition;
+- `test_launcher_smoke.py`: `CONVERTED_TOOLS` is empty, and the Editor joins `COMPACT_DENSE_TOOLS`;
+- `test_clear_all_imports.py`, `test_output_location_refresh.py` and
+  `test_prototype_regression.py`.
+
+No tool interior names an `ACT.*` style any more. `ACT.*` remains the launcher shell's chrome and
+the developer-only prototype specimen. Version identity remains `0.6.2`, unreleased. Phase 9 is
+not started.
+
+— Recorded by Claude Code on the maintainer's Phase 7 approval and Phase 8 instruction, 2026-09-28.
+
+---
+
 ## 2026-09-28 -- Phase 6 approved; M4B Maker rebuilt to the compact Family-B hierarchy (Phase 7), with the Phase 6 tight density plus three Maker-specific reflows
 
 **Phase 6 approved.** The maintainer's required Windows manual gate on the MP3 Tool at `d6cb0be`

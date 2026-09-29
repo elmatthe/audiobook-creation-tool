@@ -208,7 +208,7 @@ def test_cancellation_uses_the_shared_primitive_raised_by_the_controller_not_the
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
-from shared import ui_theme  # noqa: E402
+from shared import appearance, ui_theme  # noqa: E402
 from test_importing import make_config  # noqa: E402
 from test_import_coordination import RecordingThreads  # noqa: E402
 
@@ -254,10 +254,11 @@ def _classic_bundle(base: dict) -> dict:
     return out
 
 
-def _panel(parent, theme):
+def _panel(parent, theme, **kwargs):
     return editor.M4BMetadataEditorUI(
         parent, theme=theme, effective_config=make_config(),
-        thread_factory=RecordingThreads(), choose_files=lambda: (), choose_folder=lambda: ())
+        thread_factory=RecordingThreads(), choose_files=lambda: (), choose_folder=lambda: (),
+        **kwargs)
 
 
 @windows_only
@@ -272,8 +273,11 @@ def test_one_build_serves_the_windows_and_classic_bundles_with_the_same_surface(
             a, b = getattr(win, name, None), getattr(classic, name, None)
             assert a is not None and b is not None, name
             assert type(a) is type(b), f"{name}: {type(a)} vs {type(b)}"
-        assert str(win.btn_save.cget("style")).startswith("ACT.")
-        assert [str(w) for w in _walk(classic) if _style_of(w).startswith("ACT.")] == []
+        # v0.6.6 Phase 8: the look comes from the shared compact appearance
+        # bundle on either platform bundle; neither names the retired ACT.*.
+        assert str(win.btn_save.cget("style")).startswith("Compact.")
+        for ui in (win, classic):
+            assert [str(w) for w in _walk(ui) if _style_of(w).startswith("ACT.")] == []
         # The run lock reaches the same controls on both, through the shared group.
         for ui in (win, classic):
             ui.lock_group.apply(JobState.RUNNING)
@@ -295,7 +299,10 @@ def test_an_aqua_bundle_builds_the_same_panel_natively(fresh_root):
     aqua = dict(base)
     aqua["mode"] = "aqua"
     aqua["styles"] = None       # only the Windows branch publishes ACT styles
-    ui = _panel(ttk.Frame(fresh_root), aqua)
+    # The macOS appearance bundle draws natively: every style name is "".
+    ui = _panel(ttk.Frame(fresh_root), aqua,
+                appearance_bundle=appearance.build_bundle(
+                    style, appearance.LIGHT, platform="darwin", root=fresh_root))
     try:
         assert [str(w) for w in _walk(ui) if _style_of(w).startswith("ACT.")] == []
         assert str(ui.cget("style")) == ""
@@ -389,16 +396,15 @@ def test_building_the_whole_app_leaves_the_generic_styles_untouched(
     assert not changed, f"building the app leaked into generic styles: {changed}"
     assert style.theme_use() == "vista"
 
-    # Only the converted panel opted in: the editor (Plan 1, redone at v0.6.4
-    # Phase 10). The MP3 Tool left ACT for the shared compact system at v0.6.6
-    # Phase 6 and the M4B Maker at v0.6.6 Phase 7; the rest use none.
+    # No panel opts into the shell's ACT.* styles any more: the editor (Plan
+    # 1, redone at v0.6.4 Phase 10), the MP3 Tool and the M4B Maker each left
+    # them for the shared compact system at v0.6.6 Phases 8, 6 and 7.
     per_panel = {
         key: sorted({_style_of(w) for w in _walk(cont)
                      if _style_of(w).startswith("ACT.")})
         for key, cont in app.containers.items()
     }
-    for converted in ("m4b_metadata",):
-        assert per_panel.pop(converted), f"the converted {converted} uses no ACT style"
+    assert len(per_panel) == 6
     assert all(v == [] for v in per_panel.values()), per_panel
 
 
