@@ -259,12 +259,26 @@ def test_the_obsolete_single_book_controls_are_gone(make_panel):
 
 
 def test_exactly_two_primary_process_buttons(make_panel):
+    """v0.6.6 Phase 6: the two operations are the run actions, of equal rank.
+
+    Both take the compact button with ttk's restrained accent outline
+    (``default="active"``) -- TTS's Start, Cover's Resize and the Converter's
+    Convert treatment -- and no button is a filled primary: two filled blue
+    buttons would be two competing "primary actions" (§5).
+    """
     panel = make_panel()
     assert panel.btn_write_id3.cget("text") == "Write ID3 Tags"
     assert panel.btn_combine.cget("text") == "Combine MP3s → One MP3"
-    primary = [button for button in widgets_of(panel, ttk.Button)
-               if str(button.cget("style")) == "ACT.Primary.TButton"]
-    assert len(primary) == 2, [b.cget("text") for b in primary]
+    emphasised = [button for button in widgets_of(panel, ttk.Button)
+                  if str(button.cget("default")) == "active"]
+    assert emphasised == [panel.btn_write_id3, panel.btn_combine],         [b.cget("text") for b in emphasised]
+    compact = panel.appearance_bundle["styles"]
+    if compact:
+        for button in emphasised:
+            assert str(button.cget("style")) == compact["button"]
+        filled = [b for b in widgets_of(panel, ttk.Button)
+                  if str(b.cget("style")) == compact["primary_button"]]
+        assert filled == [], [b.cget("text") for b in filled]
     texts = labels_in(panel)
     assert not any("Process All" in text for text in texts)
 
@@ -1084,20 +1098,33 @@ def test_a_worker_thread_is_refused_before_a_widget_is_touched(make_panel):
     assert all(isinstance(exc, MainThreadError) for exc in seen), seen
 
 
-def test_windows_styles_are_act_namespaced_and_aqua_stays_native(tk_root, windows_theme, make_panel):
-    panel = make_panel()
-    assert str(panel.cget("style")).startswith("ACT.")
+def test_windows_styles_are_compact_namespaced_and_aqua_stays_native(tk_root, make_panel):
+    """v0.6.6 Phase 6: every widget is on the shared compact system, never on
+    ``ACT.*`` and never on a generic style; an aqua bundle stays native."""
+    from shared import appearance
+
+    bundle = appearance.build_bundle(ttk.Style(tk_root), appearance.LIGHT,
+                                     platform="win32", root=tk_root)
+    panel = make_panel(appearance_bundle=bundle)
+    styles = bundle["styles"]
+    assert str(panel.cget("style")) == styles["window"]
     for button in widgets_of(panel, ttk.Button):
-        assert str(button.cget("style")).startswith("ACT."), button.cget("text")
-    assert str(panel.surface.shared_frame.cget("style")) == "ACT.Shared.TLabelframe"
+        assert str(button.cget("style")).startswith("Compact."), button.cget("text")
+    assert str(panel.surface.shared_frame.cget("style")) == styles["shared_labelframe"]
+    assert str(panel.surface.book_frame.cget("style")) == styles["labelframe"]
     generic = [str(w) for w in widgets_of(panel, ttk.Widget) if not str(w.cget("style"))]
     assert generic == [], f"widgets left on generic styles: {generic}"
-    assert str(panel.status.indicator.bar.cget("style")) == "ACT.Horizontal.TProgressbar"
+    act = [str(w) for w in widgets_of(panel, ttk.Widget)
+           if str(w.cget("style")).startswith("ACT.")]
+    assert act == [], f"widgets still on the retired ACT interior: {act}"
+    assert str(panel.status.indicator.bar.cget("style")) == styles["progressbar"]
 
     native = mp3_tool.MP3ToolUI(
         tk_root, theme=AQUA_THEME, effective_config=make_config(),
         choose_files=lambda: (), choose_folder=lambda: (),
-        thread_factory=RecordingThreads())
+        thread_factory=RecordingThreads(),
+        appearance_bundle=appearance.build_bundle(
+            ttk.Style(tk_root), appearance.LIGHT, platform="darwin", root=tk_root))
     try:
         assert str(native.cget("style")) == ""
         for button in widgets_of(native, ttk.Button):

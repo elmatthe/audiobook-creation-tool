@@ -4,6 +4,92 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-28 -- Phase 5 approved; MP3 Tool rebuilt to the compact Family-B hierarchy (Phase 6), with a measured tight density for the launcher's small windows
+
+**Phase 5 approved.** The maintainer approved the Phase 5 documentation checkpoint (`bc52a05`).
+
+**Phase 6 (MP3 Tool compact visual standardization).** The MP3 Tool was the dense multi-Book panel
+still drawn in the retired oversized `ACT.*` interior. Measured inside the real launcher at
+920×600 (content 721×457), it asked for 1032×635:
+
+- the track list, the Chapter Titles box and the log collapsed to 1 px;
+- Remove Book and Retry Failed were cut off.
+
+Its presentation is rebuilt on the approved Cover/TTS/Converter control language, through the
+shared `appearance`/`job_ui` primitives only. There is no MP3-specific visual system:
+
+- **Hierarchy:** `1. Import & Books` (Import Folder, Clear All Imports, import status, output hint,
+  Book navigator) / `2. Book Settings` (Shared over Current Book) / `3. Tracks & Run` (track list |
+  Chapter Titles, then the operations and the shared job area). Activity (Summary | Detailed,
+  Clear Log) is below, at full width, never beside.
+- **Shared vs Current Book:** Shared uses the shared palette's `shared_labelframe` treatment, the
+  same in Light and Dark: a restrained cool tint (chroma ≤ 0.1), a stronger blue border and a bold
+  blue heading, captioned "Shared — applies to every Book and overrides its own value". Current
+  Book uses the ordinary section surface and border.
+- **Operations:** Write ID3 Tags and Combine MP3s are two run actions of equal rank. Both take the
+  compact button with ttk's restrained accent outline (`default="active"`, the Start/Resize/Convert
+  treatment). Two filled blue buttons would be two competing "primary actions" (§5).
+- **Theme:** the whole interior takes the shared compact bundle through a new `appearance_bundle`
+  seam, like the Family-A tools'. `theme` now supplies only the composition hints, so the accepted
+  aqua arrangement is unchanged. A live toggle recolors the classic Tk widgets in place (track
+  list, Chapter Titles, log panes, the Book selector's drop-down). Nothing is rebuilt.
+
+Rulings taken within the maintainer's instructions:
+
+- **A measured tight density for the real launcher's small content areas** (920×600 and 1024×720).
+  Where the regular density would squeeze a flexible region below its floor, §1's steps apply in
+  order. Every control stays at its full requested size, and the minimum size is unchanged:
+  - less padding and chrome: section/group padding and gaps tighten, and the run separator and
+    Activity's explanatory note step aside;
+  - then a reflow: Clear Log moves beside the Summary | Detailed view, and the shared job status
+    takes two lines instead of three;
+  - only then the lower floors: the track list gives way to one row and the log to one line (§3
+    lets Activity shrink before a setting does).
+
+  Tracks & Run and Activity carry measured row minimum sizes, so a short window can never squeeze
+  the buttons or job area inside them.
+- **Auto-number / Start # / Status share the mixed-marker row**, under Time and Artwork: the two
+  columns no marker uses. This makes Current Book one row shorter. The aqua arrangement keeps them
+  on their own row.
+- **The mixed-source marker reads "Mixed" in the tight density.** "Mixed source metadata" stays
+  everywhere there is room. At the minimum a field column is ~60–125 px, so the full wording either
+  widened its column (squeezing every Current Book label) or wrapped taller (pushing Activity off
+  screen). The marker keeps the same place, style and meaning.
+- **The output hint shows the path's tail.** ttk clips an overlong label from the right whatever
+  its anchor, which hid the run folder. The label now elides from the left ("…\MP3-Tool-Outputs");
+  `var_outdir` keeps the whole path.
+- **The artwork preview is at most 40 px,** the height of the control's caption and buttons, so
+  choosing artwork never makes Book Settings grow. It is still display-only.
+- **Fixed, not reopened: the §4 track-list shortcuts now obey the run lock.** Phase 2 bound
+  Delete/BackSpace/Alt+Up/Down straight to the move/remove methods, so while a run locked the four
+  track buttons the keys could still edit the list. They now pass through the same lock. No MP3
+  workflow decision changed.
+
+**Deliberately unchanged:**
+
+- **Behaviour:** multi-Book import/workspace behaviour, Shared precedence, chapter titles, artwork,
+  signed Time, Write ID3 Tags, Combine MP3s, FAST/Safe, numbering, output planning/collisions,
+  Pause/Resume/Cancel/Retry Failed, frozen run state and source immutability. No engine, plan or
+  workflow file changed.
+- **Track-list labels:** Add Files / Move Up / Move Down / Remove Selected keep their accepted
+  labels. Folder import stays workspace-level (`Import Folder`, Section 1) and Clear All stays
+  `Clear All Imports`. §4's per-list "Add Folder" and "Clear All" would each duplicate those
+  workspace actions per Book, so they genuinely do not apply here.
+
+**Known minor:** at 920×600 a long Book name is truncated in the navigator's heading. That label
+belongs to the shared navigator; the selector beside it, and its drop-down, show the name whole.
+
+**Consequences:** the plan gains a Phase 6 note and `Handoff.md` records the checkpoint. Tests that
+pinned the MP3 Tool's `ACT.*` styling were updated to the compact system:
+`test_mp3_tool_ui`, `test_launcher_smoke`, `test_clear_all_imports`,
+`test_output_location_refresh` and `test_prototype_regression`. The M4B Maker and Metadata Editor
+remain `ACT.*` until Phases 7–8. Version identity remains `0.6.2`, unreleased. Phase 7 is not
+started.
+
+— Recorded by Claude Code on the maintainer's Phase 5 approval and Phase 6 instruction, 2026-09-28.
+
+---
+
 ## 2026-09-28 -- Phase 4 approved; Phase 5 (Cover Image guided layout) recorded as SATISFIED by the approved Phase 2 remediation
 
 **Phase 4 approved.** The Windows manual M4B Converter gate at `cfe0678` passed. It covered:

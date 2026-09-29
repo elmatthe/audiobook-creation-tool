@@ -390,14 +390,14 @@ def test_building_the_whole_app_leaves_the_generic_styles_untouched(
     assert style.theme_use() == "vista"
 
     # Only the converted panels opted in: the editor (Plan 1, redone at v0.6.4
-    # Phase 10), the MP3 Tool (focused MP3 plan Phase 4) and, since v0.6.4
-    # Phase 6, the M4B Maker. The other three still use none.
+    # Phase 10) and, since v0.6.4 Phase 6, the M4B Maker. The MP3 Tool left
+    # ACT for the shared compact system at v0.6.6 Phase 6; the rest use none.
     per_panel = {
         key: sorted({_style_of(w) for w in _walk(cont)
                      if _style_of(w).startswith("ACT.")})
         for key, cont in app.containers.items()
     }
-    for converted in ("m4b_metadata", "mp3_tool", "m4b_maker"):
+    for converted in ("m4b_metadata", "m4b_maker"):
         assert per_panel.pop(converted), f"the converted {converted} uses no ACT style"
     assert all(v == [] for v in per_panel.values()), per_panel
 

@@ -2,6 +2,102 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 6: MP3 TOOL COMPACT VISUAL STANDARDIZATION (2026-09-28)
+>
+> **Phase 5 is maintainer-approved** (the documentation checkpoint at `bc52a05`).
+>
+> **What Phase 6 changed (`mp3_tools/mp3_tool.py`; presentation only):**
+> - **Family-B hierarchy:** `1. Import & Books` (Import Folder, Clear All Imports, import status,
+>   output hint, Book navigator) / `2. Book Settings` (Shared over Current Book) /
+>   `3. Tracks & Run` (track list | Chapter Titles, then Write ID3 Tags / Combine MP3s and the
+>   shared job area) / **Activity below**: the universal Summary | Detailed view with its note and
+>   Clear Log, full width, never beside. Dense geometry, the Book selector/navigation and the
+>   Shared/Current Book model are kept.
+> - **Look:** the whole interior is on the shared compact bundle (a new `appearance_bundle` seam,
+>   as in Cover/TTS/Converter). No ttk widget uses a generic or `ACT.*` style.
+>   - Shared is the `shared_labelframe` group: a restrained blue tint, stronger border and bold
+>     blue heading, in Light and Dark.
+>   - Current Book is the ordinary surface.
+>   - Both operations take the compact button with the accent outline, and no button is a
+>     filled primary.
+>   - `theme` now supplies only the aqua composition hints.
+> - **Live toggle:** presentation-only. The track list, Chapter Titles, log panes and the Book
+>   selector's drop-down recolor in place. The listener is removed on close.
+> - **Small windows (§1 order):** the real launcher's 920×600 and 1024×720 content areas take a
+>   measured **tight density**. Nothing is hidden and the minimum size is unchanged:
+>   - tighter padding and gaps; the run separator and Activity's note step aside;
+>   - Clear Log sits beside the log; the job status takes two lines;
+>   - the track list may give way to one row and the log to one line.
+>
+>   Tracks & Run and Activity carry measured row minimum sizes. Auto-number / Start # / Status
+>   share the mixed-marker row (under Time/Artwork), and the mixed marker reads "Mixed" in the
+>   tight density.
+> - **Also:**
+>   - the output hint elides from the left, so the run folder stays visible;
+>   - the artwork preview is at most 40 px (no layout jump);
+>   - the track list's §4 shortcuts now obey the run lock, which Phase 2's binding bypassed.
+> - **Unchanged:** every MP3 workflow, plan, engine and output rule, including Shared precedence,
+>   chapter titles, artwork, signed Time, Write ID3/Combine, FAST/Safe, numbering, collisions,
+>   Pause/Resume/Cancel/Retry Failed, the frozen run state and source immutability.
+>   `mp3_workflow.py`, `mp3_plan.py`, `mp3_processing.py`, `mp3_artwork.py` and every shared
+>   module are untouched.
+>
+> **Real-launcher measurements (Windows, 100%):**
+>
+> | Window | Content | Density | Panel req. width | Track list | Chapter Titles | Summary pane |
+> |---|---|---|---|---|---|---|
+> | 920×600 | 721×457 | `tight` | 719 px | 15 px (1.0 row) | 42 px | 16 px (1.0 line) |
+> | 1024×720 | 825×577 | `tight` | 719 px | 71 px (4.7 rows) | 98 px | 80 px (5.0 lines) |
+> | 1280×900 | 1081×757 | `regular` | 747 px | 80 px (5.3 rows) | 109 px | 87 px (5.4 lines) |
+> | 1920×1009 | 1721×866 | `regular` | 747 px | 145 px (9.7 rows) | 174 px | 131 px (8.2 lines) |
+>
+> Before Phase 6 (the `ACT.*` interior) at 920×600 the panel asked for 1032×635, and the track
+> list, Chapter Titles and log were 1 px, with Remove Book and Retry Failed cut off. Now every
+> required control is mapped inside the content area at its full requested size at all four
+> sizes. That includes a busy 920×600 workspace: three Books, 30 tracks, a long name, Shared
+> values, artwork and a mixed marker.
+>
+> **Verification:**
+> - New `test_mp3_tool_appearance.py` (18 tests):
+>   - the hierarchy and homes; the Activity/run presentation;
+>   - Shared vs Current Book in Light and Dark (tint, border, bold heading, chroma-restrained);
+>   - Dark reaching the whole interior, including the selector drop-down;
+>   - a live toggle preserving Books/current Book/selection/values/chapters/order/log/density
+>     with no widget rebuilt;
+>   - a toggle during a real gated Write ID3 run settling SUCCEEDED;
+>   - listener removal;
+>   - the §4 keys doing block moves and obeying the run lock;
+>   - text keys not hijacked in an Entry or Chapter Titles;
+>   - Tab order 1→2→3→Activity;
+>   - real-shell tests at 920×600 / 1024×720 / 1280×900 / 1920×1009, the busy minimum with no
+>     layout jump, the output hint tail, and the shell's own toggle keeping layout and values.
+> - Eleven mutations were each caught: no tight density; no row floors; no unregister; track list
+>   not recolored; keys ignoring the lock; no drop-down color; no hint elision; the long marker in
+>   tight; Shared losing its caption; filled primaries; the status staying on three lines.
+> - Updated pins (the MP3 Tool left `ACT.*`): `test_mp3_tool_ui.py` (2),
+>   `test_launcher_smoke.py` (a compact dense-tool check), `test_clear_all_imports.py` (2),
+>   `test_output_location_refresh.py`, `test_prototype_regression.py`.
+> - Focused sweep of 56 files (all MP3 suites incl. orchestration/hardening, the shared
+>   workspace/job/appearance/theme/launcher/boundary/preferences/output/import suites, the
+>   Converter/TTS/Cover appearance and layout suites, and the Maker/Metadata UI suites):
+>   **3,170 passed, 43 skipped, 1 failed**.
+>   - The one failure is pre-existing and unrelated:
+>     `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor` fails identically on a clean
+>     `bc52a05` worktree.
+>   - No full `verify.py`.
+>
+> **Known minor:** at 920×600 a long Book name is truncated in the navigator's heading (a shared
+> navigator label). The selector beside it shows the name whole.
+>
+> **Not done / out of scope:** no Maker/Metadata/Converter/TTS/Cover change and no shared-module
+> change. macOS 1024×800 and Windows 125% are Phase 9's. Version identity is unchanged and
+> unreleased. The local-only `.ai/`, `scripts/project-status.py` and screenshot renames are
+> preserved uncommitted. **Phase 7 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
 > ## CURRENT STATE — v0.6.6 PHASE 5: COVER IMAGE — SATISFIED BY THE APPROVED PHASE 2 REMEDIATION (2026-09-28)
 >
 > **Phase 4 is maintainer-approved.** The Windows manual M4B Converter gate at `cfe0678` (block
