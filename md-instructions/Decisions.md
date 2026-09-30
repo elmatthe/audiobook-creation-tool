@@ -36,6 +36,26 @@ Phase 15 has not started; no PR/merge/tag/GitHub Release/publication was perform
 ---
 
 
+## 2026-09-30 ? Refreshed integration candidate proof after archival reconciliation
+
+Reconciliation source `21e36163ccc992ef4ba94cb16e58caeda8f236c8` is committed/pushed. The real release builder
+then produced refreshed 82-member Windows/macOS RC archives. Their exact source/member/hashes
+are in `files/release-history/v0.6.6-integration-package-proof.json` and Handoff. Original
+Phase-14 archives and immutable proof are retained; publication must use the current proved
+candidate, not silently attach the historical package. Only the four documented verifier/reference
+paths changed in the payload. Executable application AST, pins/markers and launcher blobs are unchanged.
+Both final extracted code trees pass six-panel Windows Tk/in-place theme smoke; Mac shell paths
+pass Git Bash/shim smoke, never native Mac acceptance. Focused 212/0/0 and static gates pass;
+Phase-14 full gate/first-run smoke remain historical and no new full suite/install is claimed.
+This evidence-only checkpoint changes no packaged blob; reprove it after commit and push.
+Then perform the authorized read-only Step-1 recheck and STOP. No PR or later integration/
+publication/Phase-16 action is authorized. The archival policy and v0.6.7 deferrals below stand.
+
+? Codex under the maintainer's bounded reconciliation authorization.
+
+---
+
+
 ## 2026-09-30 ? Maintainer archival ruling and bounded Phase-15 readiness reconciliation
 
 The maintainer supersedes the former permanent-reference/archive contract. The only tracked

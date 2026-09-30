@@ -927,6 +927,20 @@ only in launcher. (`config.toml` added to this line and the committed-only rule,
 ## Current Version
 
 
+**Latest checkpoint ? 2026-09-30, Phase 15 Step 1 reconciliation complete.** Source
+`21e36163ccc992ef4ba94cb16e58caeda8f236c8` is pushed. The obsolete plan/references/code archive are retired;
+exactly the four canonical docs are tracked and optional Archives copies are ignored/unchanged.
+The warranted package refresh has exact 82-member source/hash/extraction/launcher proof and
+six-panel Windows Tk/in-place theme plus bounded Mac shell smoke. Current candidate evidence is
+`files/release-history/v0.6.6-integration-package-proof.json`; Phase-14 proof/archives remain
+historical. Focused 212/0/0 and static gates pass; no new full suite or manual PASS is claimed.
+Identity 0.6.6 remains unpublished; v0.4.0 remains published. Push the evidence-only checkpoint,
+repeat Step 1 read-only on that HEAD and STOP. Step 2 (PR) and every later gate require separate
+approval. Handoff preserves the live gate/closeout facts and v0.6.7 backlog; Phase 16 has not begun.
+All earlier phase/package-state statements below are dated history where superseded.
+
+
+
 **Current state ? 2026-09-30, Phase 15 Step 1 reconciliation.** Phase 14 is approved at
 `caadf5d4db0b51ef5d04182d92430bcaacdac63c`; identity remains **0.6.6, unpublished RC**, latest
 published release **v0.4.0**. The maintainer retires the completed instruction drop, old planning

@@ -16,6 +16,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 
+### Verified ? Phase 15 Step 1 reconciliation candidate (2026-09-30, unpublished)
+
+Source `21e36163ccc992ef4ba94cb16e58caeda8f236c8` is pushed; both refreshed 82-member archives have committed-
+content/hash/EOL/Unix-mode/safe-extraction proof. Final extracted code trees pass six-panel Windows
+Tk/theme smoke; Mac launcher paths pass Git Bash/shim smoke. Focused verification: **212 passed,
+zero skips/failures**, plus strict compile/static gates. Phase-14 full gate is retained as history;
+no full rerun or new native/clean-machine/listening acceptance is claimed. Handoff and the tracked
+integration-package proof identify the current candidate hashes; original Phase-14 archives remain
+retained. This unpackaged evidence checkpoint is followed by the authorized read-only Step-1 recheck
+and STOP; PR/merge/tag/release/publication and Phase 16 remain gated.
+
+
+
 ### Changed ? Phase 15 Step 1 archival and readiness reconciliation (2026-09-30)
 
 - Adopted the maintainer's four-file `md-instructions/` contract; retired the old planning

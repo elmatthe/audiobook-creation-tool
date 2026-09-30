@@ -3,6 +3,64 @@
 ## Current Focus
 
 
+> ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: RECONCILIATION COMPLETE; FINAL READ-ONLY RECHECK (2026-09-30)
+>
+> Maintainer-authorized remediation started at `caadf5d4db0b51ef5d04182d92430bcaacdac63c`.
+> Source reconciliation **`21e36163ccc992ef4ba94cb16e58caeda8f236c8`** is committed/pushed on
+> `feature/0.6.6-ui-parity-hardening-release`. This evidence checkpoint changes only unpackaged
+> canonical docs and `files/release-history/v0.6.6-integration-package-proof.json`; shipped blobs
+> remain identical to that source. The obsolete instruction drop, four planning references and
+> four EPUB archival files are absent from Git. `md-instructions/` contains exactly four canonical
+> tracked files. Archives is ignored and absent from Git; all eight maintainer-local file hashes
+> and their directory structure, plus all 16 original local-only hashes/status, are unchanged.
+> Briefing's Aqua presentation is `CompactAqua.*` with inherited native layouts/metrics.
+> The archival ruling and promoted gate/backlog contract in the preparation record below remain
+> current; all earlier conflicting permanent/protected/active-plan statements are dated history.
+>
+> **Refreshed RC packages, warranted because four shipped verifier/reference paths changed:**
+> `README.md`, `scripts/verify.py`, `scripts/requirements.txt`,
+> `scripts/Universal/tts/epub2tts_gui.py`. Application executable AST and dependency pins/markers
+> are unchanged; both launcher blobs and the real release builder are unchanged. Original
+> Phase-14 archives remain in ignored `files/dev-work/v066-phase15/phase14-archives/`, and their
+> original tracked proof remains historical, not the current publication candidate.
+> Both refreshed candidates were built through real `release.py main()` after the source commit
+> was pushed; its saved log proves `scripts/project-status.py` excluded. Each has exactly 82
+> members, clean CRC, safe names, correct executable metadata/EOL and exact per-member source/
+> archive hashes. Extracted bytes match; no Archives/docs/tests/runtime state, models or secrets.
+>
+> | Current candidate archive | Bytes | SHA-256 |
+> |---|---:|---|
+> | `dist/AudiobookTool-Windows-v0.6.6.zip` | 796271 | `c17160adbeac7bb80658dc625add0a612e8cbf8ba8eac1bfcb0b3139ad8d557b` |
+> | `dist/AudiobookTool-MacOS-v0.6.6.zip` | 798071 | `61d8f7e34c206ff0fca963044444016c658b3014f79ea8182a767819ee0e2b44` |
+>
+> `dist/SHA256SUMS.txt` and tracked integration-package proof agree. Six real hidden Windows Tk
+> panels from each final archive build and preserve containers during Light/Dark switching; all
+> app module paths/config/version resolve inside the extraction. The final Mac shell passes real
+> Git Bash success/repair/error/translocation/syntax checks with interpreter shims. These are
+> Windows shared-code/shell proofs, not native Aqua or hands-on clean-machine/listening PASS.
+> Phase-14 Windows first-run/batch-launch evidence is inherited only for unchanged runtime/pins;
+> no new installation or full-suite run is claimed.
+>
+> **Verification:** focused repository/EPUB/packaging/workspace suite and Plan-3 contract regression
+> **212 passed / 0 skipped / 0 failed**, 12.30 s, one existing pydub audioop deprecation warning.
+> The initial sandbox's three inaccessible-Bash failures are retained in scratch and superseded
+> by the host Git Bash rerun, never treated as PASS. Strict in-memory compilation of all 243
+> active tracked Python files; deps/docs/docnames/config; staged/working whitespace: PASS.
+> Phase-14 full acceptance remains historical **7,905 passed / 58 accounted skips / no failures**;
+> changed contract tests and verifier are independently covered by the focused/static gates.
+> Native Mac/clean-machine/physical scaling/listening/long-workload checks, broader TXT encoding
+> and DPI clarity remain the approved v0.6.7 backlog; USAC is still a waiver and Kokoro/density/
+> wording remain accepted. Retirement does not claim the v0.6.x program or Phase 16 complete.
+>
+> **Authorized next action:** after pushing this evidence-only checkpoint, immediately repeat
+> Phase 15 Step 1 READ-ONLY against its exact HEAD and live origin/master. Reprove the new package
+> members/hashes/source, topology, local-only preservation, contract/docs, historical gate evidence
+> and release state. Then STOP with READY/NOT READY and exact SHA. If READY, the next integration
+> action is separately authorized Step 2 (PR); none is authorized yet. No merge/tag/release/
+> publication, branch deletion, history rewrite, force-push, AI trailer or Phase 16 action.
+
+
+
 > ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: BOUNDED READINESS RECONCILIATION (2026-09-30)
 >
 > Phase 14 is maintainer-approved at `caadf5d4db0b51ef5d04182d92430bcaacdac63c`.

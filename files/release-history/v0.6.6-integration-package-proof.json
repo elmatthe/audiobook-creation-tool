@@ -1,0 +1,1215 @@
+{
+  "source_commit": "21e36163ccc992ef4ba94cb16e58caeda8f236c8",
+  "version": "0.6.6",
+  "archives": {
+    "Windows": {
+      "name": "AudiobookTool-Windows-v0.6.6.zip",
+      "bytes": 796271,
+      "sha256": "c17160adbeac7bb80658dc625add0a612e8cbf8ba8eac1bfcb0b3139ad8d557b",
+      "member_count": 82,
+      "members": [
+        {
+          "path": "README.md",
+          "archive_sha256": "5443d0cb26deafb49dd442108f98b0be89e3482c4d69cb7f647e0290c12e8eb8",
+          "git_blob_sha256": "dcbd6eb9dd904024f9d1c454d875f227cf40b62abfd564aab7af2b84f40c9312",
+          "bytes": 31730,
+          "eol_only_difference": true
+        },
+        {
+          "path": "config.toml",
+          "archive_sha256": "698ad8b57be9940471695dbc3e5c75f63a2468b7eb1db74d1bcb9a2073e506b1",
+          "git_blob_sha256": "f6c36c41e4fc488795de7b4eff556a712daa905aedd89f2592ccc08691a569aa",
+          "bytes": 3621,
+          "eol_only_difference": true
+        },
+        {
+          "path": "Setup_and_Run-audiobook-creation-tool.bat",
+          "archive_sha256": "a523f3222fa6427e8edbba3f867047346d44d0e452b81d53638a503387edd146",
+          "git_blob_sha256": "262756cf3c0ebad7f9dca85ce7ae45afc81a7c5c62815aff09e9145ce2de23dd",
+          "bytes": 5820,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/MacOS/.gitkeep",
+          "archive_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/requirements.txt",
+          "archive_sha256": "d819f805129568f44b76c54179beeb8d6a93bcb0eca20763febd9a4d359162d5",
+          "git_blob_sha256": "61d3b31e5a25611c5af346f4e346fd2b873030bdc9cf86c5191eeca25abfe7d8",
+          "bytes": 5900,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/launcher.py",
+          "archive_sha256": "4da81e5a1c6a7753d8bdc485d02c162cb7d5082c4fe2f22adce8aac9b26f5689",
+          "git_blob_sha256": "478baf38b6012d7d74239db461a68b28abafb3158c2e50583c78773b3a4dbcca",
+          "bytes": 35353,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/__init__.py",
+          "archive_sha256": "557ce9b8a75a7b68653dd0ff220532257a0af58ba1b1efc88ace4fe32f9a1836",
+          "git_blob_sha256": "a0241d104adeda328f1aca2a7ff24d124d7353d08a84967281a8efc2bc67a8a3",
+          "bytes": 77,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/cover_resizer.py",
+          "archive_sha256": "24b52f8e02306902b067879b2c3141c74dfd7c1a42eb6597c259e41c349abb52",
+          "git_blob_sha256": "88da4dff0d87d6e910c29682726b7c9a16dd3b868b0e03ec66b574c047bc35f1",
+          "bytes": 148468,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_artwork.py",
+          "archive_sha256": "a5904471c5c3d5d2f54fc032ca26f7dff97f7413698fe7897cdd949409ed3542",
+          "git_blob_sha256": "a5904471c5c3d5d2f54fc032ca26f7dff97f7413698fe7897cdd949409ed3542",
+          "bytes": 6016,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_artwork_ui.py",
+          "archive_sha256": "97b2e91471d6ff9ed1765064bf806aa6debd39ce1080f4d743727fe1b0c64cf8",
+          "git_blob_sha256": "97b2e91471d6ff9ed1765064bf806aa6debd39ce1080f4d743727fe1b0c64cf8",
+          "bytes": 9500,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_chapters.py",
+          "archive_sha256": "0942b7b11a4c5515d42817363789088eddf7539b5186c1efa8b3b0a33c73f7f7",
+          "git_blob_sha256": "7ee5624d7c0716b9687008a3a6b69effa5ffeaa562f18dc39eb6b9d94407842f",
+          "bytes": 19571,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_commands.py",
+          "archive_sha256": "96ce7b30f550f20e19c084a54b547a2cad24b4b6e4fd42ca1abb47c71b7dac50",
+          "git_blob_sha256": "3c8661a3ed222806229aa5faf5f8b70890b7cd9b318ea602f3ee489fe3b277fe",
+          "bytes": 20143,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_converter.py",
+          "archive_sha256": "fb847df28f4c8d47f67d78e706ad58ab1ebafe88e7a0bf13a2e9d61056b73241",
+          "git_blob_sha256": "fb847df28f4c8d47f67d78e706ad58ab1ebafe88e7a0bf13a2e9d61056b73241",
+          "bytes": 119037,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_destinations.py",
+          "archive_sha256": "deb8d314b3b433e9f0527cc8033d292a92835d9eea9d3fe2809fb8551803a1b5",
+          "git_blob_sha256": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
+          "bytes": 16148,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_execution.py",
+          "archive_sha256": "1b90cbd90a0b90109219cba13e11cf9791ad7136fbb3bc0ccea6408cc486fab3",
+          "git_blob_sha256": "0fb4658e4a146f77d1882f26cf1c858fb63e4d871cdabf02f3662434f71ae7a8",
+          "bytes": 31862,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker.py",
+          "archive_sha256": "6e633706aaa585930f7483cee973b866336bfa8a0267f680b112426095f008d9",
+          "git_blob_sha256": "6e633706aaa585930f7483cee973b866336bfa8a0267f680b112426095f008d9",
+          "bytes": 94155,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_batch.py",
+          "archive_sha256": "69d933de8ae1f429ce464123c0c230f6c46413936643a9663c28ac777866df23",
+          "git_blob_sha256": "581225e94e53db5cca01406b138341ba00e328bab0ec0a44eb525047835ffaeb",
+          "bytes": 20452,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_plan.py",
+          "archive_sha256": "ed1937d35475da9ebd45e66a0a3dec310e2328becb79e326f0099fdb72215692",
+          "git_blob_sha256": "ed1937d35475da9ebd45e66a0a3dec310e2328becb79e326f0099fdb72215692",
+          "bytes": 15309,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_processing.py",
+          "archive_sha256": "a27f9f813ea034cc5c55e44e38244c45b985a7915fac38d5fdaed812b771466f",
+          "git_blob_sha256": "b740f2e805ba476849d5aedd567934b7cbd3890ca793ed6e7ab1433c5fbd79a2",
+          "bytes": 29713,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_workflow.py",
+          "archive_sha256": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
+          "git_blob_sha256": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
+          "bytes": 21035,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata.py",
+          "archive_sha256": "b350f1a98e4d0aba416a9b9f7d056f0a2e389e3f44250b8ffa772906fed560c3",
+          "git_blob_sha256": "175a1b1b294da5e4f78077948daf10890c2327791158e0af9afbc5aba95fafcc",
+          "bytes": 17476,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_batch.py",
+          "archive_sha256": "961c8a34500c40fe2bbd483c6bc62f28a045d6705a74d40ddb1e27b50179aef2",
+          "git_blob_sha256": "ecb01513a6f5bb93f078969f26f4df0799c225f23ad4dc11c9fc0e8a243ef8aa",
+          "bytes": 20844,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_editor.py",
+          "archive_sha256": "896a4c8559ac0de44e536e9b32151046ef49510f686af38f051796ff181f49a7",
+          "git_blob_sha256": "896a4c8559ac0de44e536e9b32151046ef49510f686af38f051796ff181f49a7",
+          "bytes": 91137,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_plan.py",
+          "archive_sha256": "662bb1a91900161e1ab010b28a8affb167b360de7658e8e7c6d53ef450ecdeda",
+          "git_blob_sha256": "662bb1a91900161e1ab010b28a8affb167b360de7658e8e7c6d53ef450ecdeda",
+          "bytes": 12638,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_processing.py",
+          "archive_sha256": "7a2bb7f01671c93df600d55f6483f8dbc9013cbb6fe0f8bb773a29e1b811edcd",
+          "git_blob_sha256": "16aca81cc1463b8ab15f2c9dc334d401a5c8311cbce373ac44133c304a78727a",
+          "bytes": 25383,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_workflow.py",
+          "archive_sha256": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
+          "git_blob_sha256": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
+          "bytes": 26188,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_naming.py",
+          "archive_sha256": "19eb0745d4ad06bd3175bad587d5ec03d35c6ffa9afe0b134fc964035a1ce319",
+          "git_blob_sha256": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
+          "bytes": 4489,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_numbering.py",
+          "archive_sha256": "628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9",
+          "git_blob_sha256": "628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9",
+          "bytes": 637,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_plan.py",
+          "archive_sha256": "072752a26c29648a2b3ead417286a2d4943dcca67f33c744bae0404fc0e4f395",
+          "git_blob_sha256": "5da352a2d4e910d09df265508460f3b859b7276ef8db6d488aa7edff24261b43",
+          "bytes": 20681,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_probe.py",
+          "archive_sha256": "91b07b291b8cab76da9d61dd3931310ff122152ccf8242466cfb4e40831426b3",
+          "git_blob_sha256": "faeba65faeea384d8c89ed7371f9a58c785803c4eaed647ac522fe136c054cae",
+          "bytes": 12475,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_staging.py",
+          "archive_sha256": "a54a8da6a69dff20fefe4f6636b3f604701b0d31351df0b4015c1a2e04a9efc5",
+          "git_blob_sha256": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
+          "bytes": 7983,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_winaudio.py",
+          "archive_sha256": "077d1325d399ad20bbc6b422aa992a719ac26113f0f0e1ea48b4f8d06bb33265",
+          "git_blob_sha256": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
+          "bytes": 18929,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_artwork.py",
+          "archive_sha256": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
+          "git_blob_sha256": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
+          "bytes": 8197,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_plan.py",
+          "archive_sha256": "1c1d645e347591fedbcb046eea238a97d26f5829267176be82d3080820ab047d",
+          "git_blob_sha256": "552f55e52ec335ca784fffa92b6306eb393e1210699a9ac9f088426a08ac0aaf",
+          "bytes": 21816,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_processing.py",
+          "archive_sha256": "44b6b85d72fe54cc5c0ac6fc9a50d34355e6ddb0e8527d3c1fa0befd4c872a74",
+          "git_blob_sha256": "69b3b333e6bab1db6eae4037002db62aef5a764c0752be0a99f2dbe65da68bae",
+          "bytes": 52230,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_tool.py",
+          "archive_sha256": "04f627f7ef06bb94d699bcbe532cb1dd289f4f249a3021afd8813528cf3285d8",
+          "git_blob_sha256": "04f627f7ef06bb94d699bcbe532cb1dd289f4f249a3021afd8813528cf3285d8",
+          "bytes": 114257,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_workflow.py",
+          "archive_sha256": "d4a8ab3669aebaffdd89ea3ccb268b1bc15b3f2c7350f61a88c7c48782f42534",
+          "git_blob_sha256": "d4a8ab3669aebaffdd89ea3ccb268b1bc15b3f2c7350f61a88c7c48782f42534",
+          "bytes": 32036,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/__init__.py",
+          "archive_sha256": "2d29ac37d68d565c423435c02b08f2f2ebb9ae47ba7795cb484ae001bdbf04f7",
+          "git_blob_sha256": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
+          "bytes": 79,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/appearance.py",
+          "archive_sha256": "c44dcb8b225ea7320cf69ad8d939404e70de1c010d8b5657f40abcd509545f2b",
+          "git_blob_sha256": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
+          "bytes": 55236,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/book_workspace.py",
+          "archive_sha256": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
+          "git_blob_sha256": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
+          "bytes": 83398,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/book_workspace_ui.py",
+          "archive_sha256": "2c76f571d936eb4b62e2ae34b8b707fc1e24c584bacca7defc990a4a30b72d9c",
+          "git_blob_sha256": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
+          "bytes": 54903,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/bootstrap.py",
+          "archive_sha256": "991a4822202085724daf5294248c9ad6e69c56e3bbb2c3f762de864f14fb7b9b",
+          "git_blob_sha256": "689f85b73eb500b7f6a47838b1a3cb385804d020bdfef354f756cf2c1270982f",
+          "bytes": 143886,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/cancellation.py",
+          "archive_sha256": "e35906123dc14862e03cb147efa86d14175bd7c2f67b49f11d3f78f1b7cf7e6b",
+          "git_blob_sha256": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
+          "bytes": 3781,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/cleanup_state.py",
+          "archive_sha256": "d72e369161b9e673853c5b1f4c6e50c4c934eaed8632dcd48c6bcbec5c88cf1e",
+          "git_blob_sha256": "7c7c6489514ad419bc9603d38b8c91385f25551bf714110c408c908518161ce4",
+          "bytes": 30555,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/cleanup_worker.py",
+          "archive_sha256": "22497a4b50a81cd8e68817c0579dcdc15009eca3f24ba3aeb83aa61d88f6f92c",
+          "git_blob_sha256": "9842caa21a2fb8b7e6d49672d84f3037bec1dffc7424417b7432ab6ac69c9597",
+          "bytes": 16560,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/close_terminal.py",
+          "archive_sha256": "e08b4be58de71b3af035d28d0e87db2f3df65ff1c884c4985ca550e61d73b7f3",
+          "git_blob_sha256": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
+          "bytes": 2639,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/config.py",
+          "archive_sha256": "3e155855a79a22831783bdef0a3ed976f314028383b3834b64199da400086fd5",
+          "git_blob_sha256": "76c064fd106241a94a508b29d836e861435bef912f281b6691f9fb829b086893",
+          "bytes": 27391,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/espeak_data.py",
+          "archive_sha256": "a59fddbcec53a3e7b14cdd9edf713db1df6ee361f4d2836f6cc6c3c89fff7d79",
+          "git_blob_sha256": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
+          "bytes": 8917,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/ffmpeg_health.py",
+          "archive_sha256": "f13411c5f01cfae305e87314d074ab4496eb25e3e28c7c8ee45463d2f4911694",
+          "git_blob_sha256": "1cf3c24dfe323589d4d68ee49251ed82f7296029d3b3f4d4628a0d48201d4648",
+          "bytes": 29830,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/ffmpeg_portable.py",
+          "archive_sha256": "63fdc53c51e3e13d44238c816097a074ae2b12485365d73de64573d5a0e4cbc6",
+          "git_blob_sha256": "63fdc53c51e3e13d44238c816097a074ae2b12485365d73de64573d5a0e4cbc6",
+          "bytes": 19789,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/ffmpeg_utils.py",
+          "archive_sha256": "97231caf753a4e2dcbc40d3d2bf528ddb2d48a57fd5445343a2f98eea4d1c3e2",
+          "git_blob_sha256": "97dfa2d46a7e4e86a4b84cb81dafe9db2b556cf245f9fd497ed4a8545036f838",
+          "bytes": 17951,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/image_capabilities.py",
+          "archive_sha256": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
+          "git_blob_sha256": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
+          "bytes": 11244,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/import_coordination.py",
+          "archive_sha256": "20861f3abf00612a1761daed5f6ef1cb4b3109713bc2ab96fec8f61fe9d996a8",
+          "git_blob_sha256": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
+          "bytes": 62416,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/importing.py",
+          "archive_sha256": "0b3f209fe967c9973c4f8f62fe934c90297a20721e9d9911f09b0fd99e0134a8",
+          "git_blob_sha256": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
+          "bytes": 101926,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/job_control.py",
+          "archive_sha256": "37ecf66d02402f2d9337c2e9e098a3218c1cadfc409dbedb78a9d5271ad85cb8",
+          "git_blob_sha256": "32fd87fec086ab5df2a2a36f5dc6b27e1d2e3d444671dff401d32e31c8becdad",
+          "bytes": 120167,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/job_ui.py",
+          "archive_sha256": "70c7569fd55e90d8baaa7cba421c3f741173748c661b535b6b090683ed443457",
+          "git_blob_sha256": "a7d7833ec6acbc9eabe4354a5f8953097e3de85624caa2571241d5f30781fb53",
+          "bytes": 107437,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/logging_setup.py",
+          "archive_sha256": "03ad1e8b28abc8062a95fe280ff5d5986a54ca92c6275e6d94a4e6ef46184ed5",
+          "git_blob_sha256": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
+          "bytes": 7449,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/maintenance.py",
+          "archive_sha256": "4f40834e1e2fff45bca86e38004b6180dbe386a1bd5fb7b24fab23d59af692f6",
+          "git_blob_sha256": "ff64e22a1421c9c78e5290d17f60f8ad0e5c14e6a94faae4f0e408aeb6dabb7e",
+          "bytes": 41624,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/metadata.py",
+          "archive_sha256": "6138784a1c490c24adb58ab173b998287172456650166359fca33895f8fc7e72",
+          "git_blob_sha256": "9bdc0864a39f9c6a2a88a102bee877546c9f8a8e8bc3295d2e3ca3269602531b",
+          "bytes": 39757,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/numbering.py",
+          "archive_sha256": "a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b",
+          "git_blob_sha256": "a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b",
+          "bytes": 5246,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/output_paths.py",
+          "archive_sha256": "8bd4bcab85bea599ab99a5b9d2417eba9c53f1b445a8f7e69b49cf51205b721c",
+          "git_blob_sha256": "30c2443ece82baabc5ab051297f9a372df9950e698c8928355b82a29466bea8e",
+          "bytes": 45163,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/paths.py",
+          "archive_sha256": "2ff69d21d0dad99afd217449ff5b80f913ca99c7b48e1b4ab75b32aa849a9a36",
+          "git_blob_sha256": "e37c7328d7293df80b0196e1f11334ded7282ed2d7db9c4a9192631860aa6f17",
+          "bytes": 6483,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/preferences_ui.py",
+          "archive_sha256": "8465defbb62d783827278b30c704187f6f1aa27e730dd05aa393bb52b05accb7",
+          "git_blob_sha256": "8465defbb62d783827278b30c704187f6f1aa27e730dd05aa393bb52b05accb7",
+          "bytes": 53438,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/release.py",
+          "archive_sha256": "0414c0e8a722fb8940e5b4216b3084cb9b5bf1a93993f75481b5a7ae540fc94b",
+          "git_blob_sha256": "18d566517cbbb599ad8cfb84c0f96a391cbce43b10d0283b587ab940fbfb4d88",
+          "bytes": 10782,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/settings.py",
+          "archive_sha256": "56c6626ce10cd35f8f08636b7b9a944af815e8a2a129b1dc28a503804e756519",
+          "git_blob_sha256": "f65259720ef0d15f8c5e72f0fe241ab7bbf5528f8a8e5cc79279063f8594462b",
+          "bytes": 7248,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/subprocess_utils.py",
+          "archive_sha256": "e5bc8a582e513f1b131e136a62fc132a86ada40fd9bb77bdc9d8e1db9b0c3ed8",
+          "git_blob_sha256": "00433916c6b44cfd86c61c565a94c42d834bb2867c7a99eae365e70943724ec0",
+          "bytes": 4290,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/ui_theme.py",
+          "archive_sha256": "4bcfd32bc2a7f0bed9153bff589b8fe3b43bf9ab0df00ca92cef1a06a1e7d4fb",
+          "git_blob_sha256": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
+          "bytes": 55234,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/version.py",
+          "archive_sha256": "c385a05974456cd074cf4929afca9a7e8c5b8dede4f36f1bdcaeb0ac7413e9d0",
+          "git_blob_sha256": "9fe41495d1a48ff138b768a1d9f2851ad704022aa3778d5afaeca84d9be46927",
+          "bytes": 279,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/__init__.py",
+          "archive_sha256": "14abc3cfdf4228ce2e065c14a640029b6ffca1612b727ee5b8ad7eb0de51ee38",
+          "git_blob_sha256": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
+          "bytes": 70,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/batch_convert.py",
+          "archive_sha256": "18ae62e054ec09b4edbe2634d4af7e57d09e54d36e781ed9a1eb0aaabc2b3bc3",
+          "git_blob_sha256": "b635432a00e5b713757a3991d761247c14ef1c1c36e3b5ffb97adef09ec15c05",
+          "bytes": 14957,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/chatterbox_synth.py",
+          "archive_sha256": "9bec8640fd02f1cf5cbf12405bca54328f3401431668106c39e787d827b9b81a",
+          "git_blob_sha256": "8af74fcb965292457dd112df21d846bcc5e10ea0fa4d7c511a0089d50cec716f",
+          "bytes": 67048,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_edge/__init__.py",
+          "archive_sha256": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
+          "git_blob_sha256": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
+          "bytes": 31,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_edge/epub2tts_edge.py",
+          "archive_sha256": "fc54eaa9c7164a408213fd9fe3b6d4bdabf7a5c0bd2b25daa24b1d820e429d8f",
+          "git_blob_sha256": "8407e5f260d93e2773fd1ae048beebef0236ae0bcea0c95a093f2ea1fc588d1d",
+          "bytes": 26503,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_edge/runner.py",
+          "archive_sha256": "9aa988e058cc889ec582992f939f921d3f2aa80701595c4f03a5ea7264cf16ab",
+          "git_blob_sha256": "8f424eb98768723c69ed02d52bba8ad4fc97b71fc91c9f71c685d14d1f56dd8a",
+          "bytes": 9523,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_gui.py",
+          "archive_sha256": "3a9f5c837b39bd5c4cf9f00af599aa05011ec685b1ae6461de7b56efd782a06d",
+          "git_blob_sha256": "3a9f5c837b39bd5c4cf9f00af599aa05011ec685b1ae6461de7b56efd782a06d",
+          "bytes": 149777,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/tts/generate_voice_samples.py",
+          "archive_sha256": "ed334f964d17af17b2dad670f3c5a140a78c5169ebcbac5e2a000f7fb334fc3c",
+          "git_blob_sha256": "2639c50b4f64c7edcda2bcd0b5eff6cca760c279e6e1d3ae46a11b8e92aa2f0d",
+          "bytes": 57834,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/kokoro_synth.py",
+          "archive_sha256": "4cfffe804924ecf0bba8c930de2160b2389974337defab977acab0534b5ff3b6",
+          "git_blob_sha256": "09a9d32d3b5684d2fe36ddadacce266cc4232d8b52249d768d78333e73afb957",
+          "bytes": 12658,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/pdf_extractor.py",
+          "archive_sha256": "3c3be822ca04153f531559292bc78b9a45046861f7d8e644bf8859d238c6bd97",
+          "git_blob_sha256": "2795d296d083a967af10781387f4cc624363f3169c503af234c3278c00ed071d",
+          "bytes": 4403,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/quality_corpus.py",
+          "archive_sha256": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
+          "git_blob_sha256": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
+          "bytes": 22917,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/tts/voice_registry.py",
+          "archive_sha256": "955adb208df063687cf33ce1993344a0052e0ac670cd5952e4da68032b04e322",
+          "git_blob_sha256": "f999a62e1e7aa61118d2f561c52ddf446d2069b14b4121729beff860297fb48a",
+          "bytes": 13327,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/verify.py",
+          "archive_sha256": "04e0b79379d4f57443806baecb38d7f44ed5e60a9ae34ce9ed3d8aa62f710538",
+          "git_blob_sha256": "1499bf7ecf97de8129a43bb90f64a55f39e651134680f7a1ef8b79b44c09353d",
+          "bytes": 11359,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Windows/.gitkeep",
+          "archive_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "eol_only_difference": false
+        }
+      ]
+    },
+    "MacOS": {
+      "name": "AudiobookTool-MacOS-v0.6.6.zip",
+      "bytes": 798071,
+      "sha256": "61d8f7e34c206ff0fca963044444016c658b3014f79ea8182a767819ee0e2b44",
+      "member_count": 82,
+      "members": [
+        {
+          "path": "README.md",
+          "archive_sha256": "5443d0cb26deafb49dd442108f98b0be89e3482c4d69cb7f647e0290c12e8eb8",
+          "git_blob_sha256": "dcbd6eb9dd904024f9d1c454d875f227cf40b62abfd564aab7af2b84f40c9312",
+          "bytes": 31730,
+          "eol_only_difference": true
+        },
+        {
+          "path": "config.toml",
+          "archive_sha256": "698ad8b57be9940471695dbc3e5c75f63a2468b7eb1db74d1bcb9a2073e506b1",
+          "git_blob_sha256": "f6c36c41e4fc488795de7b4eff556a712daa905aedd89f2592ccc08691a569aa",
+          "bytes": 3621,
+          "eol_only_difference": true
+        },
+        {
+          "path": "Setup_and_Run-audiobook-creation-tool.command",
+          "archive_sha256": "4fe480390922530144001c8a36c05aa812b629b3c4583e73598f53da0f08d957",
+          "git_blob_sha256": "4fe480390922530144001c8a36c05aa812b629b3c4583e73598f53da0f08d957",
+          "bytes": 10925,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/MacOS/.gitkeep",
+          "archive_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/requirements.txt",
+          "archive_sha256": "d819f805129568f44b76c54179beeb8d6a93bcb0eca20763febd9a4d359162d5",
+          "git_blob_sha256": "61d3b31e5a25611c5af346f4e346fd2b873030bdc9cf86c5191eeca25abfe7d8",
+          "bytes": 5900,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/launcher.py",
+          "archive_sha256": "4da81e5a1c6a7753d8bdc485d02c162cb7d5082c4fe2f22adce8aac9b26f5689",
+          "git_blob_sha256": "478baf38b6012d7d74239db461a68b28abafb3158c2e50583c78773b3a4dbcca",
+          "bytes": 35353,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/__init__.py",
+          "archive_sha256": "557ce9b8a75a7b68653dd0ff220532257a0af58ba1b1efc88ace4fe32f9a1836",
+          "git_blob_sha256": "a0241d104adeda328f1aca2a7ff24d124d7353d08a84967281a8efc2bc67a8a3",
+          "bytes": 77,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/cover_resizer.py",
+          "archive_sha256": "24b52f8e02306902b067879b2c3141c74dfd7c1a42eb6597c259e41c349abb52",
+          "git_blob_sha256": "88da4dff0d87d6e910c29682726b7c9a16dd3b868b0e03ec66b574c047bc35f1",
+          "bytes": 148468,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_artwork.py",
+          "archive_sha256": "a5904471c5c3d5d2f54fc032ca26f7dff97f7413698fe7897cdd949409ed3542",
+          "git_blob_sha256": "a5904471c5c3d5d2f54fc032ca26f7dff97f7413698fe7897cdd949409ed3542",
+          "bytes": 6016,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_artwork_ui.py",
+          "archive_sha256": "97b2e91471d6ff9ed1765064bf806aa6debd39ce1080f4d743727fe1b0c64cf8",
+          "git_blob_sha256": "97b2e91471d6ff9ed1765064bf806aa6debd39ce1080f4d743727fe1b0c64cf8",
+          "bytes": 9500,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_chapters.py",
+          "archive_sha256": "0942b7b11a4c5515d42817363789088eddf7539b5186c1efa8b3b0a33c73f7f7",
+          "git_blob_sha256": "7ee5624d7c0716b9687008a3a6b69effa5ffeaa562f18dc39eb6b9d94407842f",
+          "bytes": 19571,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_commands.py",
+          "archive_sha256": "96ce7b30f550f20e19c084a54b547a2cad24b4b6e4fd42ca1abb47c71b7dac50",
+          "git_blob_sha256": "3c8661a3ed222806229aa5faf5f8b70890b7cd9b318ea602f3ee489fe3b277fe",
+          "bytes": 20143,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_converter.py",
+          "archive_sha256": "fb847df28f4c8d47f67d78e706ad58ab1ebafe88e7a0bf13a2e9d61056b73241",
+          "git_blob_sha256": "fb847df28f4c8d47f67d78e706ad58ab1ebafe88e7a0bf13a2e9d61056b73241",
+          "bytes": 119037,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_destinations.py",
+          "archive_sha256": "deb8d314b3b433e9f0527cc8033d292a92835d9eea9d3fe2809fb8551803a1b5",
+          "git_blob_sha256": "ee7bdeee0707b4ebfcd345d887b7bea86decc328c90628fd4aa1b7871013348a",
+          "bytes": 16148,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_execution.py",
+          "archive_sha256": "1b90cbd90a0b90109219cba13e11cf9791ad7136fbb3bc0ccea6408cc486fab3",
+          "git_blob_sha256": "0fb4658e4a146f77d1882f26cf1c858fb63e4d871cdabf02f3662434f71ae7a8",
+          "bytes": 31862,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker.py",
+          "archive_sha256": "6e633706aaa585930f7483cee973b866336bfa8a0267f680b112426095f008d9",
+          "git_blob_sha256": "6e633706aaa585930f7483cee973b866336bfa8a0267f680b112426095f008d9",
+          "bytes": 94155,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_batch.py",
+          "archive_sha256": "69d933de8ae1f429ce464123c0c230f6c46413936643a9663c28ac777866df23",
+          "git_blob_sha256": "581225e94e53db5cca01406b138341ba00e328bab0ec0a44eb525047835ffaeb",
+          "bytes": 20452,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_plan.py",
+          "archive_sha256": "ed1937d35475da9ebd45e66a0a3dec310e2328becb79e326f0099fdb72215692",
+          "git_blob_sha256": "ed1937d35475da9ebd45e66a0a3dec310e2328becb79e326f0099fdb72215692",
+          "bytes": 15309,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_processing.py",
+          "archive_sha256": "a27f9f813ea034cc5c55e44e38244c45b985a7915fac38d5fdaed812b771466f",
+          "git_blob_sha256": "b740f2e805ba476849d5aedd567934b7cbd3890ca793ed6e7ab1433c5fbd79a2",
+          "bytes": 29713,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_maker_workflow.py",
+          "archive_sha256": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
+          "git_blob_sha256": "d98b0e890277b970d80572b9b4978d7d9d9d2987e93f7e15ad2130c69924562b",
+          "bytes": 21035,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata.py",
+          "archive_sha256": "b350f1a98e4d0aba416a9b9f7d056f0a2e389e3f44250b8ffa772906fed560c3",
+          "git_blob_sha256": "175a1b1b294da5e4f78077948daf10890c2327791158e0af9afbc5aba95fafcc",
+          "bytes": 17476,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_batch.py",
+          "archive_sha256": "961c8a34500c40fe2bbd483c6bc62f28a045d6705a74d40ddb1e27b50179aef2",
+          "git_blob_sha256": "ecb01513a6f5bb93f078969f26f4df0799c225f23ad4dc11c9fc0e8a243ef8aa",
+          "bytes": 20844,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_editor.py",
+          "archive_sha256": "896a4c8559ac0de44e536e9b32151046ef49510f686af38f051796ff181f49a7",
+          "git_blob_sha256": "896a4c8559ac0de44e536e9b32151046ef49510f686af38f051796ff181f49a7",
+          "bytes": 91137,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_plan.py",
+          "archive_sha256": "662bb1a91900161e1ab010b28a8affb167b360de7658e8e7c6d53ef450ecdeda",
+          "git_blob_sha256": "662bb1a91900161e1ab010b28a8affb167b360de7658e8e7c6d53ef450ecdeda",
+          "bytes": 12638,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_processing.py",
+          "archive_sha256": "7a2bb7f01671c93df600d55f6483f8dbc9013cbb6fe0f8bb773a29e1b811edcd",
+          "git_blob_sha256": "16aca81cc1463b8ab15f2c9dc334d401a5c8311cbce373ac44133c304a78727a",
+          "bytes": 25383,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_metadata_workflow.py",
+          "archive_sha256": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
+          "git_blob_sha256": "dcbace33e9fa53cc2995c40e13c1e0c086a496a2a1f87637ac9d7799db87630d",
+          "bytes": 26188,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_naming.py",
+          "archive_sha256": "19eb0745d4ad06bd3175bad587d5ec03d35c6ffa9afe0b134fc964035a1ce319",
+          "git_blob_sha256": "aa699d7863537d9c50ef382af25ec47ed1f7998ce5b0699884b414d170065e00",
+          "bytes": 4489,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_numbering.py",
+          "archive_sha256": "628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9",
+          "git_blob_sha256": "628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9",
+          "bytes": 637,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_plan.py",
+          "archive_sha256": "072752a26c29648a2b3ead417286a2d4943dcca67f33c744bae0404fc0e4f395",
+          "git_blob_sha256": "5da352a2d4e910d09df265508460f3b859b7276ef8db6d488aa7edff24261b43",
+          "bytes": 20681,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_probe.py",
+          "archive_sha256": "91b07b291b8cab76da9d61dd3931310ff122152ccf8242466cfb4e40831426b3",
+          "git_blob_sha256": "faeba65faeea384d8c89ed7371f9a58c785803c4eaed647ac522fe136c054cae",
+          "bytes": 12475,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_staging.py",
+          "archive_sha256": "a54a8da6a69dff20fefe4f6636b3f604701b0d31351df0b4015c1a2e04a9efc5",
+          "git_blob_sha256": "3af64f8a0d6f09aefcb8f63230adbf7cc70cf028917508844ca17f061d0a3ae0",
+          "bytes": 7983,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/m4b_winaudio.py",
+          "archive_sha256": "077d1325d399ad20bbc6b422aa992a719ac26113f0f0e1ea48b4f8d06bb33265",
+          "git_blob_sha256": "ca3a6690cc425d649a2334ab985a8b49247051847a7f30591d97a92287d2dabe",
+          "bytes": 18929,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_artwork.py",
+          "archive_sha256": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
+          "git_blob_sha256": "2c3066ab4539c48a405a88c595e44d60539bd49e635f4f4d75cbc03ca6b8608e",
+          "bytes": 8197,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_plan.py",
+          "archive_sha256": "1c1d645e347591fedbcb046eea238a97d26f5829267176be82d3080820ab047d",
+          "git_blob_sha256": "552f55e52ec335ca784fffa92b6306eb393e1210699a9ac9f088426a08ac0aaf",
+          "bytes": 21816,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_processing.py",
+          "archive_sha256": "44b6b85d72fe54cc5c0ac6fc9a50d34355e6ddb0e8527d3c1fa0befd4c872a74",
+          "git_blob_sha256": "69b3b333e6bab1db6eae4037002db62aef5a764c0752be0a99f2dbe65da68bae",
+          "bytes": 52230,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_tool.py",
+          "archive_sha256": "04f627f7ef06bb94d699bcbe532cb1dd289f4f249a3021afd8813528cf3285d8",
+          "git_blob_sha256": "04f627f7ef06bb94d699bcbe532cb1dd289f4f249a3021afd8813528cf3285d8",
+          "bytes": 114257,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/mp3_tools/mp3_workflow.py",
+          "archive_sha256": "d4a8ab3669aebaffdd89ea3ccb268b1bc15b3f2c7350f61a88c7c48782f42534",
+          "git_blob_sha256": "d4a8ab3669aebaffdd89ea3ccb268b1bc15b3f2c7350f61a88c7c48782f42534",
+          "bytes": 32036,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/__init__.py",
+          "archive_sha256": "2d29ac37d68d565c423435c02b08f2f2ebb9ae47ba7795cb484ae001bdbf04f7",
+          "git_blob_sha256": "7cdb3a3d2a4b1c757d93646a31f9c8d2f64af265b4dfbd01e570a566ad4e72fc",
+          "bytes": 79,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/appearance.py",
+          "archive_sha256": "c44dcb8b225ea7320cf69ad8d939404e70de1c010d8b5657f40abcd509545f2b",
+          "git_blob_sha256": "d31e72c2eb06db6b65cc09091b8e52de50b420762806a5e148cdaab69e887f35",
+          "bytes": 55236,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/book_workspace.py",
+          "archive_sha256": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
+          "git_blob_sha256": "1d9f91bf97d33ca45af9ee344286dfb803a790ccac683aeb03acaf042e35e43b",
+          "bytes": 83398,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/book_workspace_ui.py",
+          "archive_sha256": "2c76f571d936eb4b62e2ae34b8b707fc1e24c584bacca7defc990a4a30b72d9c",
+          "git_blob_sha256": "eb9382537543d0fe9156821d9dbf54c66da8a20d7822e43299bc89a0e8c3c651",
+          "bytes": 54903,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/bootstrap.py",
+          "archive_sha256": "991a4822202085724daf5294248c9ad6e69c56e3bbb2c3f762de864f14fb7b9b",
+          "git_blob_sha256": "689f85b73eb500b7f6a47838b1a3cb385804d020bdfef354f756cf2c1270982f",
+          "bytes": 143886,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/cancellation.py",
+          "archive_sha256": "e35906123dc14862e03cb147efa86d14175bd7c2f67b49f11d3f78f1b7cf7e6b",
+          "git_blob_sha256": "d6e92845f45349af3de43516b415cf7235097fc8e45bb405fd54ea69f8f9ffac",
+          "bytes": 3781,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/cleanup_state.py",
+          "archive_sha256": "d72e369161b9e673853c5b1f4c6e50c4c934eaed8632dcd48c6bcbec5c88cf1e",
+          "git_blob_sha256": "7c7c6489514ad419bc9603d38b8c91385f25551bf714110c408c908518161ce4",
+          "bytes": 30555,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/cleanup_worker.py",
+          "archive_sha256": "22497a4b50a81cd8e68817c0579dcdc15009eca3f24ba3aeb83aa61d88f6f92c",
+          "git_blob_sha256": "9842caa21a2fb8b7e6d49672d84f3037bec1dffc7424417b7432ab6ac69c9597",
+          "bytes": 16560,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/close_terminal.py",
+          "archive_sha256": "e08b4be58de71b3af035d28d0e87db2f3df65ff1c884c4985ca550e61d73b7f3",
+          "git_blob_sha256": "ebf6086b42f695bcb7ef59b605804677cd12ea0aa0b0ab1aa3f6fec8b05dc56f",
+          "bytes": 2639,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/config.py",
+          "archive_sha256": "3e155855a79a22831783bdef0a3ed976f314028383b3834b64199da400086fd5",
+          "git_blob_sha256": "76c064fd106241a94a508b29d836e861435bef912f281b6691f9fb829b086893",
+          "bytes": 27391,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/espeak_data.py",
+          "archive_sha256": "a59fddbcec53a3e7b14cdd9edf713db1df6ee361f4d2836f6cc6c3c89fff7d79",
+          "git_blob_sha256": "d6580373565c5140a7be8f098d3285d22f48edf67406b766df4952fb4c2328c4",
+          "bytes": 8917,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/ffmpeg_health.py",
+          "archive_sha256": "f13411c5f01cfae305e87314d074ab4496eb25e3e28c7c8ee45463d2f4911694",
+          "git_blob_sha256": "1cf3c24dfe323589d4d68ee49251ed82f7296029d3b3f4d4628a0d48201d4648",
+          "bytes": 29830,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/ffmpeg_portable.py",
+          "archive_sha256": "63fdc53c51e3e13d44238c816097a074ae2b12485365d73de64573d5a0e4cbc6",
+          "git_blob_sha256": "63fdc53c51e3e13d44238c816097a074ae2b12485365d73de64573d5a0e4cbc6",
+          "bytes": 19789,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/ffmpeg_utils.py",
+          "archive_sha256": "97231caf753a4e2dcbc40d3d2bf528ddb2d48a57fd5445343a2f98eea4d1c3e2",
+          "git_blob_sha256": "97dfa2d46a7e4e86a4b84cb81dafe9db2b556cf245f9fd497ed4a8545036f838",
+          "bytes": 17951,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/image_capabilities.py",
+          "archive_sha256": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
+          "git_blob_sha256": "2fcabaaefe4a8dfafbac5675e17640450453d1e3feed8f0f5c857da2570549a2",
+          "bytes": 11244,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/import_coordination.py",
+          "archive_sha256": "20861f3abf00612a1761daed5f6ef1cb4b3109713bc2ab96fec8f61fe9d996a8",
+          "git_blob_sha256": "055cddf959b8dd7f7cc2b829763896ddf48cc62fdad099785991817e65939ad6",
+          "bytes": 62416,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/importing.py",
+          "archive_sha256": "0b3f209fe967c9973c4f8f62fe934c90297a20721e9d9911f09b0fd99e0134a8",
+          "git_blob_sha256": "5a57e4ed22317e0eba1821fc5dabb9e6b86128b0c942015266fabf7ac3addfbb",
+          "bytes": 101926,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/job_control.py",
+          "archive_sha256": "37ecf66d02402f2d9337c2e9e098a3218c1cadfc409dbedb78a9d5271ad85cb8",
+          "git_blob_sha256": "32fd87fec086ab5df2a2a36f5dc6b27e1d2e3d444671dff401d32e31c8becdad",
+          "bytes": 120167,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/job_ui.py",
+          "archive_sha256": "70c7569fd55e90d8baaa7cba421c3f741173748c661b535b6b090683ed443457",
+          "git_blob_sha256": "a7d7833ec6acbc9eabe4354a5f8953097e3de85624caa2571241d5f30781fb53",
+          "bytes": 107437,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/logging_setup.py",
+          "archive_sha256": "03ad1e8b28abc8062a95fe280ff5d5986a54ca92c6275e6d94a4e6ef46184ed5",
+          "git_blob_sha256": "4dcd19cf5528831d58d1afca51f0866ddf3f60c1bad7ade47f2976456bf53495",
+          "bytes": 7449,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/maintenance.py",
+          "archive_sha256": "4f40834e1e2fff45bca86e38004b6180dbe386a1bd5fb7b24fab23d59af692f6",
+          "git_blob_sha256": "ff64e22a1421c9c78e5290d17f60f8ad0e5c14e6a94faae4f0e408aeb6dabb7e",
+          "bytes": 41624,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/metadata.py",
+          "archive_sha256": "6138784a1c490c24adb58ab173b998287172456650166359fca33895f8fc7e72",
+          "git_blob_sha256": "9bdc0864a39f9c6a2a88a102bee877546c9f8a8e8bc3295d2e3ca3269602531b",
+          "bytes": 39757,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/numbering.py",
+          "archive_sha256": "a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b",
+          "git_blob_sha256": "a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b",
+          "bytes": 5246,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/output_paths.py",
+          "archive_sha256": "8bd4bcab85bea599ab99a5b9d2417eba9c53f1b445a8f7e69b49cf51205b721c",
+          "git_blob_sha256": "30c2443ece82baabc5ab051297f9a372df9950e698c8928355b82a29466bea8e",
+          "bytes": 45163,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/paths.py",
+          "archive_sha256": "2ff69d21d0dad99afd217449ff5b80f913ca99c7b48e1b4ab75b32aa849a9a36",
+          "git_blob_sha256": "e37c7328d7293df80b0196e1f11334ded7282ed2d7db9c4a9192631860aa6f17",
+          "bytes": 6483,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/preferences_ui.py",
+          "archive_sha256": "8465defbb62d783827278b30c704187f6f1aa27e730dd05aa393bb52b05accb7",
+          "git_blob_sha256": "8465defbb62d783827278b30c704187f6f1aa27e730dd05aa393bb52b05accb7",
+          "bytes": 53438,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/shared/release.py",
+          "archive_sha256": "0414c0e8a722fb8940e5b4216b3084cb9b5bf1a93993f75481b5a7ae540fc94b",
+          "git_blob_sha256": "18d566517cbbb599ad8cfb84c0f96a391cbce43b10d0283b587ab940fbfb4d88",
+          "bytes": 10782,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/settings.py",
+          "archive_sha256": "56c6626ce10cd35f8f08636b7b9a944af815e8a2a129b1dc28a503804e756519",
+          "git_blob_sha256": "f65259720ef0d15f8c5e72f0fe241ab7bbf5528f8a8e5cc79279063f8594462b",
+          "bytes": 7248,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/subprocess_utils.py",
+          "archive_sha256": "e5bc8a582e513f1b131e136a62fc132a86ada40fd9bb77bdc9d8e1db9b0c3ed8",
+          "git_blob_sha256": "00433916c6b44cfd86c61c565a94c42d834bb2867c7a99eae365e70943724ec0",
+          "bytes": 4290,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/ui_theme.py",
+          "archive_sha256": "4bcfd32bc2a7f0bed9153bff589b8fe3b43bf9ab0df00ca92cef1a06a1e7d4fb",
+          "git_blob_sha256": "ba59fbfefbf2d5a0de639c6dd4735d0add1a6dc6e8bd66139c0c5960b96939e5",
+          "bytes": 55234,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/shared/version.py",
+          "archive_sha256": "c385a05974456cd074cf4929afca9a7e8c5b8dede4f36f1bdcaeb0ac7413e9d0",
+          "git_blob_sha256": "9fe41495d1a48ff138b768a1d9f2851ad704022aa3778d5afaeca84d9be46927",
+          "bytes": 279,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/__init__.py",
+          "archive_sha256": "14abc3cfdf4228ce2e065c14a640029b6ffca1612b727ee5b8ad7eb0de51ee38",
+          "git_blob_sha256": "ae2a96121ae6db400b4330367485b2bd6c4d1deaccbe749f13b05b5d43e1a4ea",
+          "bytes": 70,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/batch_convert.py",
+          "archive_sha256": "18ae62e054ec09b4edbe2634d4af7e57d09e54d36e781ed9a1eb0aaabc2b3bc3",
+          "git_blob_sha256": "b635432a00e5b713757a3991d761247c14ef1c1c36e3b5ffb97adef09ec15c05",
+          "bytes": 14957,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/chatterbox_synth.py",
+          "archive_sha256": "9bec8640fd02f1cf5cbf12405bca54328f3401431668106c39e787d827b9b81a",
+          "git_blob_sha256": "8af74fcb965292457dd112df21d846bcc5e10ea0fa4d7c511a0089d50cec716f",
+          "bytes": 67048,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_edge/__init__.py",
+          "archive_sha256": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
+          "git_blob_sha256": "7074e99d0681b82f6e709a94d1c009f9fe6920d8e7eb16a2b48ebdded15b23b6",
+          "bytes": 31,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_edge/epub2tts_edge.py",
+          "archive_sha256": "fc54eaa9c7164a408213fd9fe3b6d4bdabf7a5c0bd2b25daa24b1d820e429d8f",
+          "git_blob_sha256": "8407e5f260d93e2773fd1ae048beebef0236ae0bcea0c95a093f2ea1fc588d1d",
+          "bytes": 26503,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_edge/runner.py",
+          "archive_sha256": "9aa988e058cc889ec582992f939f921d3f2aa80701595c4f03a5ea7264cf16ab",
+          "git_blob_sha256": "8f424eb98768723c69ed02d52bba8ad4fc97b71fc91c9f71c685d14d1f56dd8a",
+          "bytes": 9523,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/epub2tts_gui.py",
+          "archive_sha256": "3a9f5c837b39bd5c4cf9f00af599aa05011ec685b1ae6461de7b56efd782a06d",
+          "git_blob_sha256": "3a9f5c837b39bd5c4cf9f00af599aa05011ec685b1ae6461de7b56efd782a06d",
+          "bytes": 149777,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/tts/generate_voice_samples.py",
+          "archive_sha256": "ed334f964d17af17b2dad670f3c5a140a78c5169ebcbac5e2a000f7fb334fc3c",
+          "git_blob_sha256": "2639c50b4f64c7edcda2bcd0b5eff6cca760c279e6e1d3ae46a11b8e92aa2f0d",
+          "bytes": 57834,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/kokoro_synth.py",
+          "archive_sha256": "4cfffe804924ecf0bba8c930de2160b2389974337defab977acab0534b5ff3b6",
+          "git_blob_sha256": "09a9d32d3b5684d2fe36ddadacce266cc4232d8b52249d768d78333e73afb957",
+          "bytes": 12658,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/pdf_extractor.py",
+          "archive_sha256": "3c3be822ca04153f531559292bc78b9a45046861f7d8e644bf8859d238c6bd97",
+          "git_blob_sha256": "2795d296d083a967af10781387f4cc624363f3169c503af234c3278c00ed071d",
+          "bytes": 4403,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Universal/tts/quality_corpus.py",
+          "archive_sha256": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
+          "git_blob_sha256": "48f9526c5c8d2dd608c4cdf773e19419ffd12defb9d6f246aab1d736a592699a",
+          "bytes": 22917,
+          "eol_only_difference": false
+        },
+        {
+          "path": "scripts/Universal/tts/voice_registry.py",
+          "archive_sha256": "955adb208df063687cf33ce1993344a0052e0ac670cd5952e4da68032b04e322",
+          "git_blob_sha256": "f999a62e1e7aa61118d2f561c52ddf446d2069b14b4121729beff860297fb48a",
+          "bytes": 13327,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/verify.py",
+          "archive_sha256": "04e0b79379d4f57443806baecb38d7f44ed5e60a9ae34ce9ed3d8aa62f710538",
+          "git_blob_sha256": "1499bf7ecf97de8129a43bb90f64a55f39e651134680f7a1ef8b79b44c09353d",
+          "bytes": 11359,
+          "eol_only_difference": true
+        },
+        {
+          "path": "scripts/Windows/.gitkeep",
+          "archive_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0,
+          "eol_only_difference": false
+        }
+      ]
+    }
+  },
+  "changed_packaged_paths_from_phase14": [
+    "README.md",
+    "scripts/Universal/tts/epub2tts_gui.py",
+    "scripts/requirements.txt",
+    "scripts/verify.py"
+  ],
+  "previous_proof": "files/release-history/v0.6.6-rc-package-proof.json",
+  "previous_archives_retained": "files/dev-work/v066-phase15/phase14-archives/",
+  "verification": {
+    "focused": {
+      "passed": 212,
+      "skipped": 0,
+      "failed": 0,
+      "seconds": 12.3,
+      "warnings": [
+        "existing pydub audioop deprecation"
+      ],
+      "junit_sha256": "766a7ba924eb0e6e873733068b2867fad679e6597da9380baf96f53706668fa8"
+    },
+    "strict_compile_files": 243,
+    "static_gates": "deps/docs/docnames/config/whitespace PASS",
+    "full_suite": "Phase14 historical 7905 passed/58 skips; no rerun",
+    "runtime": "Application executable AST, pins and launcher blobs unchanged; Phase14 smoke retained",
+    "manual": "Native Mac/clean-machine/scaling/listening/long-workload checks deferred to v0.6.7",
+    "extracted_smoke": {
+      "Windows": "six hidden real Windows Tk panels; Light/Dark preserve containers; package-only module paths PASS",
+      "MacOS": "same shared-code check on Windows, not native Aqua"
+    },
+    "macos_shell": {
+      "bash": "C:\\Program Files\\Git\\bin\\bash.EXE",
+      "repair_rc3": "PASS",
+      "failure_rc1": "PASS",
+      "fast_path": "PASS",
+      "translocation_guard": "PASS",
+      "syntax": "PASS",
+      "native_mac": false,
+      "interpreters": "shell shims; no installs or native GUI inferred"
+    }
+  },
+  "release_status": "unpublished RC; Phase15 Step1 reconciliation; publication gated",
+  "build": {
+    "entry_point": "scripts/Universal/shared/release.py main()",
+    "log_sha256": "173d1559e634b426ce485f1fee807a0958747728544c1a684c172d0a2ae810bb",
+    "untracked_status_helper_excluded": true
+  }
+}
