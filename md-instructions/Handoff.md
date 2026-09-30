@@ -3,6 +3,72 @@
 ## Current Focus
 
 
+> ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: BOUNDED READINESS RECONCILIATION (2026-09-30)
+>
+> Phase 14 is maintainer-approved at `caadf5d4db0b51ef5d04182d92430bcaacdac63c`.
+> The first read-only Step-1 review returned NOT READY for stale index/roadmap current-state
+> records and Briefing's empty Aqua style lookup claim. The maintainer authorized this bounded
+> remediation, commit/push on the feature branch, and an immediate read-only Step-1 recheck.
+> Start HEAD and live origin matched that checkpoint; master/base remains the PR #12 integration
+> anchor `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`. Query live tips before future actions.
+>
+> **New repository contract:** `md-instructions/` contains exactly `Briefing.md`, `Changelog.md`,
+> `Decisions.md`, `Handoff.md`, in that casing. The old `don't-delete/` references, completed
+> `0.6.6-ui-parity-hardening-release.md` drop and `files/archived-code/` are retired from Git.
+> This is explicit early drop retirement and archival reconciliation, not Phase 16 execution.
+> The maintainer already moved eight archival files under `files/Archives/`; their original
+> bytes and directory structure are retained. No contents there are created, changed or deleted.
+> The whole Archives tree is ignored, outside packaging, and excluded from pytest recursion;
+> a fresh clone/test run requires no local archive copies. Original 16 local-only entries remain
+> preserved and unstaged. Historical statements below calling those paths permanent/protected
+> or the plan active are superseded by this ruling; dated execution evidence remains history.
+>
+> **Promoted integration/publication gates, each requiring separate explicit authorization:**
+> Step 1: read-only integration readiness; Step 2: open/update PR; Step 3: maintainer approves
+> merge; Step 4: merge to master; Step 5: verify live master ancestry/state; Step 6: authorize
+> tag separately; Step 7: authorize GitHub Release/publication separately; Step 8: publish only
+> packages with valid committed-source proof. Never infer authority from an earlier approval.
+> STOP at each gate. Feature branches remain unless deletion is separately authorized. No
+> history rewrite, force-push or new AI co-author trailer. Phase 16 has not started: only after
+> confirmed integration/publication and separate authorization, reconcile actual merge/tag/release
+> facts and residual limitations in these four docs; the obsolete roadmap/drop is not restored.
+>
+> **Candidate and acceptance:** application identity is 0.6.6, unpublished; published release
+> remains v0.4.0. Phase-14 full gate remains historical evidence: 7,905 passed / 58 accounted
+> skips / zero failures/errors. The 2026-09-28 hands-on deferral remains binding: native Mac
+> Light/Dark/Aqua/keyboard/geometry; clean Windows/Mac double-click/acquisition/repair and
+> Gatekeeper/translocation; physical Windows 125%/150% scaling; long real-workload controls,
+> listening and phone-photo Cover checks are v0.6.7 work, never manual PASS. Broader TXT
+> encodings and sharper per-monitor DPI remain future work; USAC remains a real-media waiver;
+> Kokoro's breakpoint and approved density/wording remain accepted. Historical resolved
+> packaging, setup, appearance and product defects are not reopened by archival retirement.
+>
+> **Package exception discovered:** the removed archive/docs paths do not ship, but
+> `scripts/verify.py` does; it must enforce the new four-file contract. README and shipped
+> TTS/requirements comments also need retired-reference corrections. Thus packaged bytes
+> change in these four paths only. Dependency pins and application AST/behavior remain unchanged.
+> Retain original Phase-14 archives under ignored `files/dev-work/v066-phase15/phase14-archives/`;
+> rebuild through the real release entry point after the reconciliation source commit is pushed,
+> then prove all 82 members against it and final HEAD. Reuse Phase-14 runtime launch evidence only
+> for unchanged application/launcher blobs; new docs/verifier need focused gates, not a full rerun.
+> New exact hashes/source and check results will be recorded in an evidence-only checkpoint.
+
+> **Preparation verification:** focused repository/EPUB/packaging/workspace suite and the Plan-3
+> contract regression: **212 passed / 0 skipped / 0 failed**, 12.30 s, one existing pydub audioop
+> deprecation warning. Initial sandbox run was 209 passed / 3 failed because inaccessible Git
+> Bash fell back to WSL; host-access rerun used installed Git Bash, with no test skip or app repair.
+> Strict in-memory compile: 243 Python files PASS; deps/docs/docnames/config and staged/working
+> whitespace gates PASS. Eight local archive files and their directory structure, plus all original
+> 16 local-only entries, retain before hashes/status. All obsolete live archive-content checks were
+> removed only because their contract was withdrawn; production EPUB and licence guards pass.
+> Commit/push these source/reference/gate changes now; the real build and final recheck follow.
+>
+> **STOP after the read-only Step-1 recheck.** No PR/merge/tag/release/publication, branch deletion,
+> history rewrite, force-push or Phase 16 work is authorized. The precise next integration action,
+> if READY, is separately authorized Phase 15 Step 2; it is not authorized by this remediation.
+
+
+
 > ## CURRENT STATE — v0.6.6 PHASE 14 COMPLETE: FINAL RC PACKAGE PROOF (2026-09-30)
 >
 > **Phase 13 READY was maintainer-approved.** Exact branch, local HEAD and live remote

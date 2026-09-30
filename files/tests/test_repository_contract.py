@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,7 +24,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MD_DIR = REPO_ROOT / "md-instructions"
-PROTECTED_DIR = MD_DIR / "don't-delete"
 
 CANONICAL_DOCS = ("Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md")
 FORBIDDEN_ALIASES = (
@@ -34,12 +34,6 @@ FORBIDDEN_ALIASES = (
     "changelog.md",
     "decisions.md",
     "briefing.md",
-)
-PROTECTED_REFERENCES = (
-    "Audiobook-Creation-Tool-v0.6.x-Approved-Plan-Series-Map.md",
-    "Audiobook-Creation-Tool-v0.6.x-Decision-Register-1-55.md",
-    "Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md",
-    "Audiobook-Creation-Tool-v0.6.x-Planning-Handoff-2026-07-31.md",
 )
 
 
@@ -52,13 +46,11 @@ def load_verify():
     return module
 
 
-def build_md_tree(root: Path, doc_names, reference_names=PROTECTED_REFERENCES) -> Path:
+def build_md_tree(root: Path, doc_names) -> Path:
     md = root / "md-instructions"
-    (md / "don't-delete").mkdir(parents=True)
+    md.mkdir(parents=True)
     for name in doc_names:
         (md / name).write_text("# doc\n", encoding="utf-8")
-    for name in reference_names:
-        (md / "don't-delete" / name).write_text("# reference\n", encoding="utf-8")
     return md
 
 
@@ -100,14 +92,27 @@ def test_the_exact_name_check_is_genuinely_case_sensitive():
         assert "Changelog.md" in entries
 
 
-@pytest.mark.parametrize("name", PROTECTED_REFERENCES)
-def test_each_permanent_planning_reference_survives(name):
-    assert name in os.listdir(PROTECTED_DIR), f"{name} is protected and must not be removed"
+def test_only_the_four_canonical_files_are_in_the_documentation_directory():
+    assert set(os.listdir(MD_DIR)) == set(CANONICAL_DOCS)
+    assert all((MD_DIR / name).is_file() for name in CANONICAL_DOCS)
 
 
-def test_the_protected_directory_itself_exists():
-    assert PROTECTED_DIR.is_dir()
-    assert "don't-delete" in os.listdir(MD_DIR)
+def test_only_the_four_canonical_documents_are_tracked():
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "--", "md-instructions"], cwd=REPO_ROOT, text=True)
+    assert set(tracked.splitlines()) == {
+        f"md-instructions/{name}" for name in CANONICAL_DOCS}
+
+
+def test_local_archives_and_the_retired_code_path_are_not_tracked():
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "--", "files/Archives", "files/archived-code"],
+        cwd=REPO_ROOT, text=True)
+    assert not tracked
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--", "files/Archives/probe.txt"],
+        cwd=REPO_ROOT, capture_output=True, text=True)
+    assert ignored.returncode == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -153,7 +158,6 @@ def test_verify_py_holds_no_stale_alias_as_a_real_string_value():
 def test_verify_py_knows_the_same_contract_this_suite_does():
     verify = load_verify()
     assert verify.CANONICAL_DOCS == CANONICAL_DOCS
-    assert set(verify.PROTECTED_REFERENCES) == set(PROTECTED_REFERENCES)
 
 
 # --------------------------------------------------------------------------- #
@@ -203,23 +207,34 @@ def test_the_gate_fails_for_every_lowercase_alias(tmp_path, alias):
     assert alias in detail
 
 
-def test_the_gate_fails_when_a_permanent_reference_is_deleted(tmp_path):
+@pytest.mark.parametrize("extra", ["notes.md", "0.6.6-ui-parity-hardening-release.md"])
+def test_the_gate_fails_for_an_extra_document(tmp_path, extra):
     verify = load_verify()
-    md = build_md_tree(tmp_path, CANONICAL_DOCS, reference_names=PROTECTED_REFERENCES[:2])
+    md = build_md_tree(tmp_path, CANONICAL_DOCS + (extra,))
     _name, ok, detail = verify.check_doc_names(md_dir=md)
     assert not ok
-    assert "missing permanent reference" in detail
+    assert "unexpected entry" in detail
+    assert extra in detail
 
 
-def test_the_gate_fails_when_the_protected_directory_is_gone(tmp_path):
+@pytest.mark.parametrize("directory", ["don't-delete", "archive"])
+def test_the_gate_fails_for_an_extra_directory(tmp_path, directory):
     verify = load_verify()
-    md = tmp_path / "md-instructions"
-    md.mkdir(parents=True)
-    for name in CANONICAL_DOCS:
-        (md / name).write_text("# doc\n", encoding="utf-8")
+    md = build_md_tree(tmp_path, CANONICAL_DOCS)
+    (md / directory).mkdir()
     _name, ok, detail = verify.check_doc_names(md_dir=md)
     assert not ok
-    assert "don't-delete" in detail
+    assert "unexpected entry" in detail
+    assert directory in detail
+
+
+def test_the_gate_fails_when_a_canonical_name_is_a_directory(tmp_path):
+    verify = load_verify()
+    md = build_md_tree(tmp_path, CANONICAL_DOCS[:-1])
+    (md / "Handoff.md").mkdir()
+    _name, ok, detail = verify.check_doc_names(md_dir=md)
+    assert not ok
+    assert "not a file" in detail and "Handoff.md" in detail
 
 
 # --------------------------------------------------------------------------- #

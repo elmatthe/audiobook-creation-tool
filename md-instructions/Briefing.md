@@ -11,7 +11,10 @@
 > enforces this by reading the real directory entries (`os.listdir`) rather than calling
 > `Path.exists()`, because a path lookup on Windows and macOS is case-insensitive and would
 > happily report a non-existent `CHANGELOG.md` as present. `files/tests/test_repository_contract.py`
-> holds the same line, including the permanent references under `md-instructions/don't-delete/`.
+> holds the same line: exactly these four files and no other tracked documentation entries.
+> The 2026-09-30 maintainer ruling retires the old planning references and completed instruction
+> drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
+> published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
 ## What This Project Does
 
@@ -859,7 +862,8 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
   and the batch-global "(varies)" form are gone. See *The M4B Maker and M4B Metadata Editor* above.
   **Presentation:** every widget asks `job_ui.style_name` of the shared compact appearance bundle
   (v0.6.6 Phase 8; `ACT.*` before it) — `Compact.*` in Light/Dark on Windows, native aqua on macOS
-  through the same lookups returning `""`; no `theme["mode"]` fork remains.
+  through `CompactAqua.*` styles that inherit native layouts and metrics while supplying
+  semantic colors and the Shared tint; no panel `theme["mode"]` fork remains.
 - **Shared Metadata is now the real Decision 20B model on all three multi-Book tools** (MP3 Tool
   v0.6.3; M4B Maker and M4B Metadata Editor v0.6.4): the distinct Shared surface introduced visually
   at v0.6.0 Drop 1 carries per-Book override, field precedence and disabling through
@@ -889,7 +893,7 @@ Audiobook-Creation-Tool/
 ├── .venv/                      ← auto-built by the bootstrap (gitignored)
 ├── .claude/  .codex/           ← agent wiring
 ├── config.toml                 ← committed project defaults (validated by verify.py)
-├── md-instructions/            ← Briefing, Changelog, Decisions, Handoff (+ temporary drops)
+├── md-instructions/            ← ONLY Briefing, Changelog, Decisions, Handoff
 ├── scripts/
 │   ├── requirements.txt        ← single pinned cross-platform list
 │   ├── verify.py               ← mechanical gate: pytest + pinned deps + de-templated docs
@@ -905,8 +909,8 @@ Audiobook-Creation-Tool/
     ├── test-files/             ← local fixtures incl. copyrighted media (entirely untracked;
     │                             point tests at it via KOKORO_TEST_PDF_FOLDER)
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
-    ├── archived-code/epub-tts/ ← PERMANENT. The retired EPUB source + its manifest (tracked,
-    │                             inert, unpackaged, uncollectable). Not a temporary drop.
+    ├── Archives/               ← maintainer-local planning/code archives (gitignored,
+    │                             optional, unpackaged, excluded from test collection)
     ├── Chatterbox-Voice-Uploads/ ← the four local reference recordings (entirely untracked and
     │                             gitignored; never committed, never packaged)
     ├── UI-Current-Screenshots/ ← the v0.5.1 before-state UI reference (8 images, tracked)
@@ -921,6 +925,20 @@ launcher + the committed (git-tracked) `scripts/` tree; both OS zips share the s
 only in launcher. (`config.toml` added to this line and the committed-only rule, 2026-09-29.)
 
 ## Current Version
+
+
+**Current state ? 2026-09-30, Phase 15 Step 1 reconciliation.** Phase 14 is approved at
+`caadf5d4db0b51ef5d04182d92430bcaacdac63c`; identity remains **0.6.6, unpublished RC**, latest
+published release **v0.4.0**. The maintainer retires the completed instruction drop, old planning
+references and tracked archive in favor of exactly the four canonical documents. All earlier
+active-plan/permanent-archive/current-action statements are historical where superseded.
+Handoff carries the integration/closeout gates and v0.6.7 manual backlog. Native Aqua uses
+`CompactAqua.*` with inherited native layouts and metrics. The bounded verifier/reference updates
+change four shipped files and therefore require refreshed committed-source archives; original
+Phase-14 packages/proof are retained. No application AST, dependency pin or launcher changes.
+Focused verification and new package proof are recorded in Handoff; no full-suite rerun is
+claimed. No PR/merge/tag/release/publication or Phase 16 is authorized by this reconciliation.
+
 
 **Current state — 2026-09-30, Phase 14 COMPLETE.** Phase 13 READY is maintainer-approved at
 `56012558a93853ec2b4847297a0372b4050743e7`. Application identity is now **0.6.6**, an
@@ -1119,8 +1137,8 @@ another feature phase.
 through pull request #5 (merge `81c9c06`); not released.** The first plan to adopt Plans 2 and 3
 inside production panels. It
 delivered: the **unified PDF/TXT queue** in TTS Audiobook; the **retirement of EPUB** from every
-production surface with its source preserved in the permanent tracked archive
-`files/archived-code/epub-tts/`; the Cover **Details / List / Medium Thumbnail** browser;
+production surface with its source retained in Git history and optional maintainer-local
+`files/Archives/archived-code/epub-tts/` copies; the Cover **Details / List / Medium Thumbnail** browser;
 **HEIC/HEIF capability detection** with decode and encode reported separately and **format
 preserved rather than silently substituted**; the **Chatterbox** engine with its **four
 maintainer-authorized voices** on **CPU-first** device selection and a truthful degraded path;

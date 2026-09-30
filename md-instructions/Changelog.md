@@ -15,6 +15,22 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+
+### Changed ? Phase 15 Step 1 archival and readiness reconciliation (2026-09-30)
+
+- Adopted the maintainer's four-file `md-instructions/` contract; retired the old planning
+  references, completed v0.6.6 drop and tracked EPUB archive. Existing `files/Archives/` copies
+  are untouched, ignored, excluded from packaging and test recursion, and optional for clones.
+- Promoted integration/closeout gates to Decisions/Handoff; corrected Briefing's native Aqua
+  `CompactAqua.*` description and live archived-path references. Verification now rejects extra
+  documentation files/directories while preserving exact casing, config and dependency gates.
+- Phase-14 package proof remains historical. Four shipped documentation/verifier paths change,
+  so a committed-source RC refresh is required; original candidate archives are retained locally.
+  Application behavior, pins, identity 0.6.6 and the approved v0.6.7 manual backlog are unchanged.
+- Phase 15 Step 1 is in progress; PR/merge/tag/release/publication and Phase 16 remain separately
+  gated. The dated Phase-14 notes below are superseded on current phase/package state only.
+
+
 ### v0.6.6 release candidate — 2026-09-30 (unpublished)
 
 **Phase 14 complete:** final Windows/macOS archives proved from pushed source `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`,

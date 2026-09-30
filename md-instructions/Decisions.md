@@ -36,6 +36,48 @@ Phase 15 has not started; no PR/merge/tag/GitHub Release/publication was perform
 ---
 
 
+## 2026-09-30 ? Maintainer archival ruling and bounded Phase-15 readiness reconciliation
+
+The maintainer supersedes the former permanent-reference/archive contract. The only tracked
+files under `md-instructions/` are `Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md`.
+Retire tracked `don't-delete/`, the completed v0.6.6 instruction drop, and `files/archived-code/`.
+The maintainer's existing copies under `files/Archives/` remain untouched; the entire tree is
+local-only and must never be tracked, packaged or published. Agents must not delete, overwrite
+or recreate its contents. Local copies are optional for fresh clones and verification.
+This ruling overrides earlier permanent/protected-path and active-drop language; dated records
+and Git history remain intact. Retiring the stale index/roadmap eliminates their current-state
+contradictions rather than editing them. EPUB remains retired; its upstream package names are a
+compatibility boundary preserving GPL-3.0 attribution, not an offer of EPUB support.
+
+Promote the live integration and closeout contract to Handoff before retiring the drop. The
+Phase-15 sequence remains independently gated: readiness, PR, maintainer merge approval, merge,
+live-master verification, separate tag authorization, separate release/publication authorization,
+then publication of proved packages. Phase 16 has not started and still requires separate
+approval after publication/integration facts are confirmed. No branch deletion, history rewrite,
+force-push or new AI co-author trailer is permitted by this authorization. Manual checks remain
+the accepted v0.6.7 backlog, and the USAC waiver, Kokoro breakpoint, density and wording decisions
+are carried truthfully rather than recast as passes.
+
+Briefing's Aqua description now matches `CompactAqua.*`: native layouts/fonts/metrics are
+inherited; semantic colors and the Shared tint come from the application appearance bundle.
+Verifier/tests enforce exactly four canonical files, reject extra files/directories and aliases,
+and prove local Archives exclusion without relying on local archive contents. Archive-content
+preservation tests are retired with the live archived-code contract; production EPUB rejection,
+dispatch, dependency, source-safety and licence/provenance guards remain.
+
+**Evidence warrants refreshing the RC.** The archived paths never ship, but `scripts/verify.py`
+is in both archives. Its new documentation gate and current README/TTS/requirements references
+change four packaged paths. Dependencies and application AST/behavior remain unchanged. Preserve
+Phase-14 archives and their original proof; build again from the pushed reconciliation source
+commit, then record a separate integration package proof. Historical full verification and
+runtime smoke apply to unchanged application blobs; focused verifier/repository/packaging gates
+cover this bounded change. No expensive full-suite rerun is justified by these edits.
+
+? Explicit maintainer instruction, recorded by Codex.
+
+---
+
+
 ## 2026-09-30 — Phase 13 READY approved; Phase 14 unpublished candidate identity and package repair
 
 The maintainer approved Phase 13 at `56012558a93853ec2b4847297a0372b4050743e7`; local/remote

@@ -8,9 +8,9 @@ traversal, dialog filters, dispatch and retry alike.
 survives legitimately in three places and a bare repository-wide substring
 prohibition would fail on every one of them:
 
-* ``files/archived-code/epub-tts/`` — the permanent reference archive, whose whole
-  purpose is to still contain the retired code;
-* the historical record (``Changelog.md``, ``Decisions.md``, ``don't-delete/``,
+* optional maintainer-local ``files/Archives/`` copies and Git history;
+  neither is a required live source or test fixture;
+* the historical record (``Changelog.md``, ``Decisions.md``,
   ``files/release-history/``) — append-only documents that must never be rewritten;
 * the surviving package **names** ``epub2tts_edge`` / ``epub2tts_gui``, which are the
   upstream project's names and carry this project's GPL-3.0 lineage. Phase 5 chose
@@ -36,12 +36,9 @@ UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
 TTS = UNIVERSAL / "tts"
 SHARED = UNIVERSAL / "shared"
 FILES = REPO_ROOT / "files"
-ARCHIVE = FILES / "archived-code" / "epub-tts"
+ARCHIVE = FILES / "Archives" / "archived-code" / "epub-tts"
 REQUIREMENTS = REPO_ROOT / "scripts" / "requirements.txt"
 README = REPO_ROOT / "README.md"
-
-#: The final active commit the archive was taken from — Phase 4's remediation.
-ARCHIVE_SOURCE_SHA = "3d9de97e7befc27fa22210bdcc27f174aa594883"
 
 #: Every production file Phase 5 touched or had to reason about. The guards below
 #: run over exactly these; nothing outside ``scripts/`` is ever scanned for the word.
@@ -66,7 +63,7 @@ PRODUCTION_TTS_SOURCES = (
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them
-#: is preserved in the archive instead.
+#: remains in Git history; local archives are optional.
 RETIRED_FUNCTIONS = (
     "chap2text_epub",
     "get_epub_cover",
@@ -588,13 +585,8 @@ def test_building_the_panel_reserves_nothing():
 
 
 # --------------------------------------------------------------------------- #
-# 8. The archive is tracked, inert, unimportable, uncollected and unpackaged
+# 8. Local archives stay outside production and packaging
 # --------------------------------------------------------------------------- #
-
-
-def test_the_archive_exists_at_its_contracted_location():
-    assert ARCHIVE.is_dir(), ARCHIVE
-    assert (ARCHIVE / "README.md").is_file()
 
 
 def test_the_archive_lives_outside_the_production_scripts_tree():
@@ -638,6 +630,7 @@ def test_no_production_module_puts_the_archive_on_sys_path():
                     continue
                 assert "archived-code" not in node.value, (path, node.value)
                 assert "archived_code" not in node.value, (path, node.value)
+                assert "files/Archives" not in node.value.replace("\\", "/"), (path, node.value)
         assert not [root for root in imported_roots(tree) if "archived" in root], path
 
 
@@ -649,41 +642,6 @@ def test_the_archive_is_not_importable_through_production():
         getattr(module, "__file__", None) and "archived-code" in str(module.__file__)
         for module in list(sys.modules.values())
     )
-
-
-def test_the_archive_contributes_no_pytest_collection_nodes():
-    """No archived file matches pytest's default collection patterns.
-
-    The suite is invoked as ``pytest files/tests`` (``verify.check_pytest``), so
-    ``files/archived-code/`` is already out of scope by path. This proves the
-    stronger property as well: even a whole-repository invocation would collect
-    nothing from the archive.
-    """
-    assert not list(ARCHIVE.rglob("test_*.py"))
-    assert not list(ARCHIVE.rglob("*_test.py"))
-    assert not list(ARCHIVE.rglob("conftest.py"))
-
-
-def test_the_archive_carries_no_runtime_entry_point_or_import_hook():
-    for path in sorted(ARCHIVE.rglob("*")):
-        if path.is_dir():
-            continue
-        assert path.suffix in {".py", ".md"}, path
-        assert path.name not in {
-            "__init__.py", "conftest.py", "sitecustomize.py", "usercustomize.py",
-            "pytest.ini", "setup.py", "pyproject.toml", "tox.ini",
-        }, path
-
-
-def test_no_archived_python_file_executes_on_import():
-    """Every archived module is a reference text: no ``__main__`` block, no top-level call."""
-    for path in sorted(ARCHIVE.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in tree.body:
-            assert not isinstance(node, ast.If), path
-            assert not isinstance(node, ast.Expr) or isinstance(
-                node.value, ast.Constant
-            ), path
 
 
 def test_the_release_packager_can_never_reach_the_archive():
@@ -711,51 +669,7 @@ def test_no_archived_path_appears_in_the_built_release_file_list(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# The archive manifest is accurate
-# --------------------------------------------------------------------------- #
-
-
-def test_the_manifest_names_every_archived_file():
-    manifest = (ARCHIVE / "README.md").read_text(encoding="utf-8")
-    for path in sorted(ARCHIVE.rglob("*.py")):
-        assert path.name in manifest, path
-
-
-def test_the_manifest_records_the_source_commit_and_the_retirement_reason():
-    manifest = (ARCHIVE / "README.md").read_text(encoding="utf-8")
-    assert ARCHIVE_SOURCE_SHA[:7] in manifest
-    assert "GPL-3.0" in manifest
-    assert "aedocw/epub2tts-edge" in manifest
-    assert "Christopher Aedo" in manifest
-
-
-def test_the_manifest_records_an_original_path_for_every_archived_module():
-    manifest = (ARCHIVE / "README.md").read_text(encoding="utf-8")
-    assert "scripts/Universal/tts/epub2tts_edge/epub2tts_edge.py" in manifest
-    assert "scripts/Universal/tts/epub2tts_edge/runner.py" in manifest
-    assert "scripts/Universal/tts/epub2tts_gui.py" in manifest
-
-
-def test_the_archive_preserves_the_retired_engine_functions():
-    archived = (ARCHIVE / "epub2tts_edge_epub_functions.py").read_text(encoding="utf-8")
-    tree = ast.parse(archived)
-    assert {"chap2text_epub", "get_epub_cover", "export", "check_for_file"} <= (
-        defined_functions(tree)
-    )
-
-
-def test_the_archive_holds_no_media_or_book_fixture():
-    for path in sorted(ARCHIVE.rglob("*")):
-        if path.is_dir():
-            continue
-        assert path.suffix.lower() not in {
-            ".epub", ".mp3", ".m4b", ".m4a", ".wav", ".flac", ".pdf",
-            ".png", ".jpg", ".jpeg", ".heic", ".heif", ".bin", ".zip",
-        }, path
-
-
-# --------------------------------------------------------------------------- #
-# 10. Licence and upstream attribution survive, in production as well as archive
+# 10. Licence and upstream attribution survive in production and Git history
 # --------------------------------------------------------------------------- #
 
 
@@ -899,9 +813,8 @@ def test_every_guarded_path_is_production_source_and_nothing_else():
     """The guards' scope, stated as data: only ``scripts/`` files are ever scanned.
 
     This is what stops a bare repository-wide substring prohibition creeping in.
-    The archive, the append-only history and the release-history notes all still
-    contain the word, legitimately, and none of them is in scope for any guard
-    above.
+    Optional local archives, append-only history and release-history notes may
+    contain the word legitimately; none is scanned as production source.
     """
     for relative in PRODUCTION_TTS_SOURCES:
         target = UNIVERSAL / relative
@@ -909,10 +822,8 @@ def test_every_guarded_path_is_production_source_and_nothing_else():
         assert target.is_relative_to(REPO_ROOT / "scripts"), relative
         assert not target.is_relative_to(FILES), relative
     for excluded in (
-        ARCHIVE,
         REPO_ROOT / "md-instructions" / "Changelog.md",
         REPO_ROOT / "md-instructions" / "Decisions.md",
-        REPO_ROOT / "md-instructions" / "don't-delete",
         FILES / "release-history",
     ):
         assert excluded.exists(), excluded
@@ -931,7 +842,7 @@ def test_the_surviving_package_names_are_a_documented_compatibility_boundary():
     """Phase 5 chose not to rename (drop §4.4). The choice must be written down."""
     assert (TTS / "epub2tts_edge" / "epub2tts_edge.py").is_file()
     assert (TTS / "epub2tts_gui.py").is_file()
-    manifest = (ARCHIVE / "README.md").read_text(encoding="utf-8")
-    assert "compatibility boundary" in manifest.lower()
+    decisions = (REPO_ROOT / "md-instructions" / "Decisions.md").read_text(encoding="utf-8")
+    assert "compatibility boundary" in decisions.lower()
     header = source("tts/epub2tts_gui.py")[:2000]
     assert "PDF" in header and "TXT" in header

@@ -119,6 +119,10 @@ def fake_repo(root: Path) -> Path:
     (root / "files" / "bin" / "ffmpeg.exe").write_bytes(b"\x00")
     (root / "files" / "tests").mkdir()
     (root / "files" / "tests" / "test_thing.py").write_text("def test_x(): pass\n", encoding="utf-8")
+    # Prove explicit scope excludes archives even if mistakenly tracked.
+    archive = root / "files" / "Archives" / "archived-code"
+    archive.mkdir(parents=True)
+    (archive / "retired.py").write_text("raise RuntimeError('archive')\n", encoding="utf-8")
     (root / "files" / "UI-Prototype-Screenshots").mkdir()
     (root / "files" / "UI-Prototype-Screenshots" / "shot.png").write_bytes(b"\x89PNG")
     # Folder-metadata artifacts a real OS drops just from browsing a folder in
@@ -205,6 +209,14 @@ def test_a_template_in_a_synthetic_root_is_excluded_by_scope(tmp_path, os_name):
     members = names(archive)
     assert "config.toml" in members
     assert not any("config-template" in name for name in members)
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_local_archives_are_excluded_even_if_tracked(tmp_path, os_name):
+    root = fake_repo(tmp_path / "repo")
+    archive = build(root, tmp_path / "dist", os_name)
+    assert not any(name.startswith("files/") for name in names(archive))
+    assert not any("Archives" in Path(name).parts for name in names(archive))
 
 
 def test_the_packager_never_names_the_template_at_all():

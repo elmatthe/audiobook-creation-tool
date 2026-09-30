@@ -1880,20 +1880,10 @@ def test_all_twenty_two_approved_screenshots_are_still_there():
     assert len(drop1) + len(drop2) == 22
 
 
-def test_the_canonical_documents_and_protected_references_keep_their_exact_names():
+def test_only_the_four_canonical_documents_keep_their_exact_names():
     md = REPO_ROOT / "md-instructions"
     entries = set(os.listdir(md))
-    for name in ("Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md"):
-        assert name in entries
-    for alias in ("CHANGELOG.md", "DECISIONS.md", "handoff.md", "BRIEFING.md"):
-        assert alias not in entries
-    protected = set(os.listdir(md / "don't-delete"))
-    assert protected == {
-        "Audiobook-Creation-Tool-v0.6.x-Approved-Plan-Series-Map.md",
-        "Audiobook-Creation-Tool-v0.6.x-Decision-Register-1-55.md",
-        "Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md",
-        "Audiobook-Creation-Tool-v0.6.x-Planning-Handoff-2026-07-31.md",
-    }
+    assert entries == {"Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md"}
 
 
 def test_the_new_modules_ship_and_the_new_tests_do_not():

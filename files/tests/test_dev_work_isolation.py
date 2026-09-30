@@ -88,6 +88,10 @@ def test_each_local_workspace_is_excluded_from_recursion(name):
     assert name in _norecursedirs()
 
 
+def test_maintainer_archives_are_excluded_from_recursion():
+    assert "Archives" in _norecursedirs()
+
+
 @pytest.mark.parametrize("pattern", PYTEST_DEFAULTS)
 def test_no_pytest_default_exclusion_was_dropped(pattern):
     """Re-declaring the key replaces the defaults; none may go missing."""

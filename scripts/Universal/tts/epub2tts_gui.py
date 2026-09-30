@@ -1,7 +1,7 @@
 """Desktop GUI for the PDF / TXT → MP3 audiobook engine — one unified queue.
 
 The module and package names (``epub2tts_gui``, ``tts.epub2tts_edge``) are the upstream
-project's names and are kept deliberately — see ``files/archived-code/epub-tts/README.md``
+project's names and are kept deliberately — see ``md-instructions/Decisions.md``
 for the documented compatibility boundary. EPUB itself was retired as an application input
 by maintainer decision on 2026-08-11; PDF and TXT are the only supported types.
 
