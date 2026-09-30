@@ -1,223 +1,58 @@
-# Audiobook Creation Tool
+# Audiobook Creation Tool v0.6.6
 
-**A cross-platform desktop app that turns books and loose audio into finished, tagged audiobooks — with a one-click installer, a single clean GUI, and no terminal required.**
+A Windows and macOS desktop app for turning PDF/TXT books into narrated audio and combining, converting, tagging and preparing audiobook files and cover images.
 
-The Audiobook Creation Tool bundles a **text-to-speech engine** (PDF / TXT → MP3, using Microsoft Edge TTS over the network plus two local AI voice engines, Kokoro‑82M and Chatterbox) with a suite of **MP3 / M4B utilities** (combine MP3s, batch‑convert M4B → MP3, build chaptered M4B files with cover art and Audiobookshelf series tags, resize cover images, and edit existing M4B metadata). It is built for **non‑technical users**: download a zip, double‑click one setup file, and get a single GUI window — no terminal, no manual Python or ffmpeg install, and no console windows flashing during use.
+## Download / Install
 
-> **Status:** the current application identity is **v0.6.6**, an **unpublished release candidate**. Windows and macOS candidate archives are built for verification; release and integration await separate maintainer authorization. The latest **published** release remains **v0.4.0** (self-healing Kokoro AI-voice install + fully self-contained model cache), so the download links below point at v0.4.0 until a newer release is actually published. Features described here as v0.5.x/v0.6.x are in the development tree and are not in the v0.4.0 download. See [Known Limitations](#known-limitations).
+**v0.6.6 is an unpublished release candidate.** When published, the [Releases page](https://github.com/elmatthe/audiobook-creation-tool/releases) will offer these packages:
 
----
-
-## Download
-
-Grab the latest release — extract the zip and double‑click the setup file (see [Installation](#installation)):
-
-- **Windows:** [**AudiobookTool-Windows-v0.4.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.4.0/AudiobookTool-Windows-v0.4.0.zip)
-- **macOS:** [**AudiobookTool-MacOS-v0.4.0.zip**](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.4.0/AudiobookTool-MacOS-v0.4.0.zip)
-
-All releases are listed on the [**Releases page**](https://github.com/elmatthe/audiobook-creation-tool/releases).
-
----
-
-## Table of Contents
-
-- [Download](#download)
-- [Features](#features)
-- [The Launcher](#the-launcher)
-- [Installation](#installation)
-- [System Requirements](#system-requirements)
-- [Tools — How to Use Each One](#tools--how-to-use-each-one)
-- [Architecture](#architecture)
-- [Building a Release](#building-a-release)
-- [Known Limitations](#known-limitations)
-- [Credits](#credits)
-- [License](#license)
-
----
-
-## Features
-
-Six tools, one window:
-
-1. **TTS Audiobook** — Convert a **PDF or TXT** — or a whole queue of them — into a narrated **MP3** using Microsoft **Edge TTS** (online, no setup, many natural voices), the local **Kokoro‑82M** AI model (offline once downloaded), or the local **Chatterbox** AI model (optional, ~3.9 GB, off by default). **PDF and TXT are the only supported input types** (EPUB was retired in v0.6.1), and a **TXT must be saved as UTF‑8** (with or without a byte‑order mark) — see [Known Limitations](#known-limitations). Add individual files and whole folders to **one queue** and convert them in a single run: folders keep their subfolder structure in the output so same‑named files in different books never collide, and individual files land flat. A live log, **Pause / Resume**, **Cancel** that cleans up cleanly mid‑run, and **Retry Failed** for just the items that did not finish.
-2. **M4B Converter** — Convert **M4B audiobooks → clean MP3s** (libmp3lame VBR), either as **one whole book** or **split by chapter** (v0.6.2). Add files or a folder, optionally including subfolders, and reorder the queue. Choose to **preserve**, **replace** or **write no** metadata; a whole book keeps its chapter markers **and their titles**, and split output gives every chapter its own file inside **its own folder per book**. Embedded cover art is carried over without re‑encoding. Optional whole‑book track numbering is off by default. **Pause / Resume**, **Cancel** that cleans up mid‑run, and **Retry Failed** for just the books that did not finish.
-3. **MP3 Tool** — Work on **several audiobooks (Books) at once** (v0.6.3): import a folder and get one Book per sub‑folder of MP3s, set Artist / Album Artist / Album / artwork once for all of them or per Book, paste **chapter titles**, and then either **Write ID3 Tags** (clean, numbered copies of every track with exactly the tags you chose) or **Combine MP3s → One MP3** (one combined file per Book with a timestamp sheet). One signed **Time** field pads or trims the end of every track. **Pause / Resume / Cancel** and **Retry Failed** for just the Books that did not finish.
-4. **M4B Maker** — Turn folders of MP3s into **chaptered .m4b audiobooks** with embedded **cover art**, metadata and **Audiobookshelf series tags** (series name + part) — **several Books in one run** (v0.6.4): import a folder and every sub‑folder of MP3s becomes a Book that builds into its own `.m4b`. Set Artist / Album Artist / Album / Series Name / silence / artwork once for all Books or per Book, give each Book its Title, Series Part, Output Filename and chapter titles, and let **Auto‑number Series Part** hand out parts to the Books that actually succeed. Fast join first, safe re‑encode automatically when needed. **Pause / Resume / Cancel** and **Retry Failed** for just the Books that did not finish.
-5. **Cover Image Converter** — Pad (letterbox) or center‑crop cover art to a clean **square**; accepts JPG / PNG / HEIC, and turns phone photos upright from their EXIF orientation first.
-6. **M4B Metadata Editor** — Open existing **.m4b / .m4a / .mp4** files and edit their tags **without re‑encoding** — Title, Author, Album, Year, Genre, Comment, Series Name and cover image. **Every file gets its own page** (v0.6.4), pre‑filled from that file, with a **Shared** row above for values you want on all of them. **Preserve‑by‑default:** a blank or unchanged field is never written, so each file keeps what it has; a filled Shared field overwrites that tag on every file. **Save Tags** writes just your changes; **Clear All Tags (keep chapters)** wipes identifying metadata and cover art while keeping the chapter markers and titles, then re‑applies only what you typed; **Remove Series Numbering** drops the series part and keeps the series name. Per‑page **chapter titles** (one per line, positional, blank line = leave that chapter). **Pause / Resume / Cancel** and **Retry Failed** for just the files that did not finish.
-
-**Where your finished files go:** standard outputs are written under the effective output base, which defaults to **`Downloads/Audiobook-Creation-Tool-Outputs`**, then grouped by tool and by numbered run — for example `Audiobook-Creation-Tool-Outputs/M4B-Maker-Outputs/M4B-Maker-1/`. A fresh numbered run folder is created each time you start an operation, so two runs never mix and nothing is ever overwritten. You can change the output base in **Preferences & Data**.
-
-**Non‑destructive by design:** every tool that transforms a file works on a **copy**. Your imported originals are only ever read, never modified, renamed or deleted — the single exception is the Cover Image Converter's opt‑in **Replace original files** mode, which is off by default and asks you to confirm on every run. If two imported files share a name, the second output is numbered (`Book.m4b`, `Book-1.m4b`) rather than replacing the first.
-
-Cross‑cutting niceties: every long operation runs on a worker thread with a live log and a **Cancel** button; all six tools share one compact layout with numbered workflow sections and the same **Summary | Detailed** Activity log; one **☾ Dark mode / ☀ Light mode** toggle next to **Preferences & Data** switches every tool's appearance at once (Light is the default, and your choice is remembered); the app remembers your last‑used input folder, window size, and selected tool between runs; and **no console window ever flashes** during normal use.
-
----
-
-## The Launcher
-
-A single window: a sidebar of the six tools on the left, and one swappable content panel on the right. Selecting a tool raises its panel — in‑progress state (file lists, typed metadata) survives switching between tools.
-
-```
-+--------------------------------------------------------------+
-|  Audiobook Creation Tool                           [_][[]][X]|
-+--------------------------------------------------------------+
-|  +----------------+                                          |
-|  | TTS Audiobook  |  <- Sidebar: 6 tool buttons              |
-|  | M4B Converter  |                                          |
-|  | MP3 Tool       |     +-------------------------------+    |
-|  | M4B Maker      |     |   Selected tool's UI renders  |    |
-|  | Cover Image    |     |   into this content panel     |    |
-|  | M4B Metadata   |     |                               |    |
-|  +----------------+     +-------------------------------+    |
-+--------------------------------------------------------------+
-|  Status: Ready.                     |  Log: [open log folder]|
-+--------------------------------------------------------------+
-```
-
----
-
-## Installation
-
-The app installs itself on first run. There is nothing to configure by hand.
-
-### Windows
-
-1. Download `AudiobookTool-Windows-v0.4.0.zip` and extract it anywhere.
-2. Double‑click **`Setup_and_Run-audiobook-creation-tool.bat`** (named `setup_and_run.bat` in the v0.4.0 zip).
-3. The **first** run opens a small setup window that installs a private Python environment, the audio libraries, and ffmpeg — and (optionally) pre‑downloads the Kokoro AI voice model. A progress bar and live log show what's happening.
-4. **Every run after that** opens the app instantly, with no console window.
-
-### macOS
-
-1. Download `AudiobookTool-MacOS-v0.4.0.zip` and extract it (double‑click the zip in Finder).
-2. **Drag the extracted folder (named after the zip, e.g. `AudiobookTool-MacOS-v0.4.0`) out of Downloads** — onto your Desktop or into Applications. (macOS runs items launched straight from Downloads from a temporary read‑only copy, which can stop the app finding its files; moving the folder once in Finder clears that. If you skip this step the launcher shows a message telling you to do it.)
-3. Double‑click **`Setup_and_Run-audiobook-creation-tool.command`** in Finder (named `setup_and_run.command` in the v0.4.0 zip). The first time, macOS may block it — **right‑click → Open**, then confirm. After it starts, the setup Terminal window closes by itself.
-4. Same as Windows: the first run sets everything up in a small window; later runs just open the app.
-
-> The setup uses **winget** (Windows) or **Homebrew** (macOS) to fetch Python 3.12 and ffmpeg if they aren't already present — on Windows these install **for your user account**, so there is no administrator prompt. If winget cannot provide a working ffmpeg, Windows falls back to a checksum‑verified copy the app downloads into the project folder. If no route is available, it tells you exactly what to install and gives you the download link. The app never crashes with a raw error because something is missing.
-
----
-
-## System Requirements
-
-| | Recommended | Notes |
+| Platform | Archive | Double-click after extraction |
 |---|---|---|
-| **OS** | Windows 10/11, or macOS 12+ | |
-| **Python** | **3.11 or 3.12** | Auto‑installed by the setup. **3.12 is the target** because the Kokoro AI voice model requires Python **< 3.13**. |
-| **Edge TTS voices** | works on **3.13 too** | Edge TTS has no Python upper bound — only Kokoro does. |
-| **ffmpeg / ffprobe** | auto‑established by setup / launch | Not bundled. Setup — and any later launch that finds them missing — establishes a matching **ffmpeg + ffprobe pair** and checks it by actually running it before the app will use it. Windows installs **Gyan.FFmpeg via winget for your user account** (no admin prompt); if that route is unavailable or cannot be proved, the app fetches its own checksum‑verified copy into the project folder. macOS uses **Homebrew** when it is installed. A copy that merely exists somewhere on your `PATH` is never used on that basis alone. |
-| **Disk** | ~2.5 GB for the app's private Python environment, plus optional voice models | Setup always installs the local‑voice libraries (PyTorch, Kokoro, Chatterbox) on Python 3.12: the environment measured **2.5 GB** on Windows. The **voice models** are downloaded only when wanted: Kokoro's ~300 MB model (offered during setup, otherwise on first use) and Chatterbox's ~3.9 GB model (off by default). Skip both and Edge TTS covers the full pipeline online. |
-| **Network** | required for Edge TTS | Kokoro runs fully offline once its model is downloaded. |
+| Windows | `AudiobookTool-Windows-v0.6.6.zip` | `Setup_and_Run-audiobook-creation-tool.bat` |
+| macOS | `AudiobookTool-MacOS-v0.6.6.zip` | `Setup_and_Run-audiobook-creation-tool.command` |
 
----
+Extract the whole archive and keep its contents together. On macOS, move the extracted `AudiobookTool-MacOS-v0.6.6` folder from Downloads to Desktop or Applications before opening the launcher. If macOS blocks it, right-click the launcher, choose **Open**, and confirm.
 
-## Tools — How to Use Each One
+First run opens a setup window with progress and a log. It prepares a private Python environment and required libraries, establishes FFmpeg/ffprobe, and offers the optional Kokoro voice-model download. Allow time and an internet connection for setup; follow any installation guidance it displays. Later launches open the app using the prepared environment.
 
-**TTS Audiobook.** Add PDFs and TXT files — individually, by folder, or both together in the same queue — choose a voice, and click Start. **Only PDF and TXT are accepted**; EPUB was retired in v0.6.1 and is no longer a supported input. Edge voices need no setup and run over the network; Kokoro and Chatterbox voices run locally once their models are downloaded (Python < 3.13 only), and Chatterbox also needs its reference recordings placed on the machine — without them it says so plainly rather than offering a voice that cannot work. The log streams progress and the run controls offer Pause/Resume, **Cancel** (which stops at the next chapter/paragraph boundary and removes all temp files) and Retry Failed.
+## What it can do
 
-**M4B Converter.** Add `.m4b` files or a whole folder (with an **Include subfolders** option), pick **Whole book** or **Split by chapter**, choose what happens to the metadata — **Preserve**, **Replace** or **Write none** — and convert. Each book is re‑encoded to a clean VBR MP3. A whole book keeps its chapter markers and chapter titles unless you write no metadata; a split gives you one MP3 per chapter, covering the whole book including anything before the first chapter and after the last, gathered into a folder named after the book. Cover art is copied across as‑is, only the five standard fields (title, artist, album artist, album and an optional track number) are ever written, and your source files are never modified. Track numbering for whole books is optional and off by default. The log streams progress with a time estimate, and the run controls offer Pause/Resume, **Cancel** and **Retry Failed**.
+- **TTS Audiobook:** turn PDF or TXT files into MP3 narration using online Edge TTS or optional local Kokoro/Chatterbox voices.
+- **M4B Converter:** convert M4B to one MP3 per book or split MP3s by chapter, with metadata options.
+- **MP3 Tool:** write tags to track copies, combine tracks into one MP3 per Book, and add or trim time at track ends.
+- **M4B Maker:** build chaptered M4B audiobooks from MP3s with cover art, metadata and series tags.
+- **Cover Image:** make square covers by padding or cropping JPG, PNG or HEIC images; correct phone-photo orientation.
+- **M4B Metadata Editor:** edit tags, artwork and chapter titles in existing M4B/M4A/MP4 files without re-encoding audio.
 
-**MP3 Tool.** Click **Import Folder** on a folder of audiobooks: every sub‑folder that directly contains MP3s becomes a **Book** (non‑MP3 files are skipped), or use **Add Files** to add MP3s to the current Book. Move between Books with **Previous / Next** or the Book selector, and **Add / Duplicate / Remove** Books as needed. The **Shared** row applies to every Book — Artist / Author, Album Artist / Author, Album, *Add/Remove Time at End of Each Track (seconds)* and artwork — and a filled Shared value greys out the same field on each Book; clear it and the Books' own values return. Each Book also has **Chapter Titles** (one per line, pre‑filled from the files; line N names track N, blank lines are ignored), **Auto‑number** with a **Start #**, and its own track list. Artwork is chosen per Book or once for all — JPG/PNG, plus HEIC/HEIF when your machine can read them — and is shown as a preview; your picture is never modified. Then choose one of the two actions: **Write ID3 Tags** writes a **new numbered copy** of every track carrying exactly the title, artist, album artist, album, track number and cover you set (nothing else from the source survives); **Combine MP3s → One MP3** joins each Book into **one** MP3 titled by its Album, with a `combined_time-stamps.txt` beside it — the fast join is used automatically when the tracks match and the safe (re‑encoding) join otherwise. Positive Time adds that many seconds of silence to the end of every track, negative Time trims them. Output lands in a numbered `MP3-Tool-N` run folder with one sub‑folder per Book; a Book is written whole or not at all, a failed Book does not stop the others, and **Retry Failed** re‑runs just what failed with the settings the run started with. The run controls offer Pause/Resume and **Cancel**; the **Summary | Detailed** log keeps its history until you press **Clear Log**.
+## Basic use
 
-**M4B Maker.** Click **Import Folder** on a folder of audiobooks: every sub‑folder that directly contains MP3s becomes a **Book** (tracks in natural order; separate folders are never merged), or use **Add Files** to add MP3s to the current Book. Move between Books with **Previous / Next** or the Book selector, and **Add / Duplicate / Remove** Books as needed; reorder or remove tracks inside a Book. The **Shared** row applies to every Book — Artist / Author, Album Artist / Author, Album, Series Name, *Silence Between Tracks (seconds)* and artwork — and a filled Shared value greys out the same field on each Book; clear it and the Books' own values return. Each Book also has its own **Title**, **Series Part**, optional **Output Filename** and **Chapter Titles** (one per line, pre‑filled from the cleaned filenames; line N names chapter N). The Maker writes Title, Artist, Album Artist, Album, Series Name, Series Part and the cover — there are no Year, Genre or Comment fields here; use the Metadata Editor for those. Artwork is chosen per Book or once for all — JPG/PNG, plus HEIC/HEIF when your machine can read them — and previewed; your picture is never modified. Silence is a gap inserted **between** tracks (never after the last); inserting silence uses the safe re‑encoding path, otherwise **Try FAST first (auto‑fallback to Safe)** is on by default. Turn on **Auto‑number Series Part** (with a **Start Part**, blank = 1) and parts are handed out in order only to the Books that actually build — a failed Book leaves no gap, and **Retry Failed** gives it the next number. Press **Build M4B(s)**: each Book becomes one chaptered `.m4b` named from its Output Filename, else its Title, else its Album, else its folder; the series tags are written so **Audiobookshelf** reads them correctly. Output lands directly in a numbered `M4B-Maker-N` run folder — or, with **Choose custom destination**, directly in the folder you pick with no extra sub‑folder. A Book appears only when it is complete; a failed Book leaves nothing behind and does not stop the others; **Retry Failed** rebuilds just the failed Books with the settings the run started with. The run controls offer Pause/Resume and **Cancel**; the **Summary | Detailed** log keeps its history until you press **Clear Log**, and **Clear All Imports** returns the tool to an empty workspace.
+1. Choose a tool in the sidebar and import files or folders. Review their order; where supported, folders become separate Books.
+2. Choose a voice or output mode and configure metadata, chapters and artwork. **Shared** settings apply across Books; individual Book settings fill in the rest.
+3. Start the operation and follow progress in **Activity**, switching between **Summary** and **Detailed** logs. Use **Pause/Resume**, **Cancel** or **Retry Failed** where available.
+4. Use **Open Output Folder** to find finished files. Change the output base in **Preferences & Data** if needed.
 
-**Cover Image Converter.** Add one or more images, choose **letterbox** (pad to square, no crop) or **center‑crop**, and convert. Each run writes its squared copies into a numbered `Cover-Image-N` run folder under the output base. Turn on **Save beside source images** to write numbered copies (`cover-1.jpg`) next to each original instead, or — only if you also pick **Replace original files** and confirm the prompt — to replace the originals in place.
+The global **Light/Dark** toggle changes all tools and remembers your choice. Switching tools keeps their current inputs and settings.
 
-**M4B Metadata Editor.** Click **Import Folder** (optionally including subfolders) or **Add Files** to load `.m4b`, `.m4a` or `.mp4` files: **every file gets its own page**, pre‑filled from that file's tags — Title, Author / Artist, Album, Year, Genre, Comment, Series Name, the detected Series Part, whether it has a cover, and its chapter titles. Move between pages with **Previous / Next** or the selector and **Remove** a page you do not want. **Blank means keep:** a field you leave alone or blank preserves whatever the file already has, retyping the same value writes nothing, and only a change is written. The **Shared** row starts empty on purpose; fill a Shared field and it is written to every file and greys out that field on each page, clear it and the pages' own values return. Artwork can be replaced once for all files or per page (JPG/PNG, plus HEIC/HEIF when your machine can read them); choose nothing and each file keeps its own cover. Per‑page **Chapter Titles**: paste new titles one per line and they apply positionally (line N → chapter N; a blank or unchanged line leaves that chapter alone; extra lines are ignored). Then choose an action: **Save Tags** writes exactly your changes and leaves every other tag alone; **Clear All Tags (keep chapters)** strips every identifying tag and the cover while keeping the chapter markers and titles, then re‑applies only what you explicitly typed or chose; **Remove Series Numbering** drops the series part (and a track number or movement number used as one) while keeping the Series Name and everything else. **Auto‑number Series Part** (Save / Clear, with a **Start Part**) numbers only the files that actually succeed. Everything is written to **copies** in a numbered `M4B-Metadata-N` folder (**Open Output Folder** takes you there), the audio is never re‑encoded, and your originals are never modified; a file is published only when its whole edit succeeded, and one failure doesn't stop the others — **Retry Failed** re‑runs just those. The run controls offer Pause/Resume and **Cancel**; the **Summary | Detailed** log keeps its history until you press **Clear Log**, and **Clear All Imports** returns the tool to an empty workspace.
+## Outputs / safety
 
----
+Outputs default to `Downloads/Audiobook-Creation-Tool-Outputs`, grouped by tool and numbered run, for example `M4B-Maker-Outputs/M4B-Maker-1/`. New runs use separate folders; filename collisions receive numbered names.
 
-## Architecture
+Originals are preserved. The exception is Cover Image's optional **Replace original files** mode, which is off by default and requires confirmation for each run.
 
-### Repository layout
+TTS accepts **PDF and TXT only**. Save TXT files as **UTF-8**, with or without a byte-order mark; re-save other encodings as UTF-8 before importing. PDFs must contain extractable text.
 
-```
-Audiobook-Creation-Tool/
-├── README.md                                       # this file
-├── Setup_and_Run-audiobook-creation-tool.bat       # Windows double-click entry point
-├── Setup_and_Run-audiobook-creation-tool.command   # macOS double-click entry point
-├── config.toml                  # documented project defaults (safe to edit; falls back)
-├── md-instructions/             # developer docs (Briefing, Changelog, Decisions, Handoff)
-├── scripts/
-│   ├── requirements.txt         # pinned dependencies (one cross-platform list)
-│   ├── verify.py                # mechanical test/dep/docs gate (dev-only)
-│   ├── Universal/               # ALL program code — single cross-platform tree
-│   │   ├── launcher.py          # the unified GUI
-│   │   ├── tts/                 # TTS engine (Edge + Kokoro), PDF text extraction, batch
-│   │   ├── mp3_tools/           # the five MP3/M4B tools
-│   │   └── shared/              # cross-cutting modules (see below)
-│   └── Windows/  MacOS/         # empty by design — only truly OS-specific code
-└── files/                       # dev assets + runtime state (logs, settings, model cache,
-                                 #   portable ffmpeg) — recreated as needed, never shipped
-```
+## Requirements
 
-A release zip is even simpler: a user who extracts it sees only the README, `config.toml`, one launcher, and `scripts/` — everything else (`.venv/`, `files/runtime-data/`, any repo-local ffmpeg under `files/bin/`) is created on first run.
+- Windows 10/11 or macOS 12+, with space for the Python environment, outputs and any voice models.
+- Setup can acquire Python and FFmpeg when supported acquisition tools are available (winget on Windows, Homebrew on macOS), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13.
+- Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; Chatterbox also needs local reference recordings. Models need additional disk space.
 
-### `scripts/{tts, mp3_tools, shared}`
+## More information
 
-- **`tts/`** — the PDF/TXT → MP3 engine: `epub2tts_edge/` (a hardened fork of [epub2tts‑edge](https://github.com/aedocw/epub2tts-edge); the name is kept for provenance — EPUB itself was retired in v0.6.1, with its source retained in Git history and maintainer-local archives), `batch_convert.py`, `kokoro_synth.py` (local AI), `pdf_extractor.py` (PyMuPDF), and `voice_registry.py`.
-- **`mp3_tools/`** — one panel module per tool (`m4b_converter.py`, `mp3_tool.py`, `m4b_maker.py`, `cover_resizer.py`, `m4b_metadata_editor.py`), each exposing `build_ui(parent)` to embed in the launcher and a standalone `main()` for debugging. The Converter and the MP3 Tool keep their policy in Tk‑free helper modules beside the panel (`m4b_*.py`; `mp3_workflow.py`, `mp3_plan.py`, `mp3_artwork.py`, `mp3_processing.py`).
-- **`shared/`** — `paths.py` (single source of truth for all paths), `subprocess_utils.py` (hidden‑console process wrappers), `ffmpeg_health.py` (candidate discovery, proof by execution, and durable pinning — the sole authority on whether FFmpeg is usable), `ffmpeg_utils.py` (consumes only the accepted pinned pair and configures pydub), `settings.py` (atomic JSON persistence), `cancellation.py` (cooperative cancel primitive), `metadata.py` (mutagen read/write + series atoms), `logging_setup.py`, `version.py`, `bootstrap.py` (the installer), and `release.py` (the dev packaging tool).
+Detailed project and developer information: [Briefing](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Briefing.md), [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md), [Decisions](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Decisions.md), and [Handoff](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Handoff.md).
 
-### Key design decisions
+## Credits / License
 
-- **Install‑on‑first‑run, not a frozen binary.** Because the TTS engine depends on Kokoro → PyTorch (multi‑GB), a PyInstaller/py2app bundle would be fragile and huge. Instead a small `bootstrap.py` builds a private `.venv` on first run and installs pinned dependencies; updates are as simple as replacing `scripts/`.
-- **Thread safety.** Every long operation runs on a worker thread. Tk variables are read **on the main thread** and handed to the worker as plain copies; the worker talks back only through a `queue.Queue` drained by an `after()` pump loop. This eliminates the classic *"main thread is not in main loop"* Tcl crash.
-- **Console suppression.** The GUI launches under `pythonw.exe`, and **every** subprocess call routes through `shared/subprocess_utils` (`CREATE_NO_WINDOW` + hidden `STARTUPINFO`). An audit confirms zero direct `subprocess.*` calls in tool code — so no black window flashes during use.
-- **Atomic settings.** `settings.py` writes JSON via a temp file + `os.replace`, and never raises on a missing or corrupt file — a bad settings file degrades to defaults instead of crashing.
-- **ffmpeg trust: observation is not permission.** Finding an ffmpeg is not the same as being allowed to run it. `ffmpeg_health.py` owns the whole question: it *looks* in the project folder, on `PATH` and in the package‑manager locations, but a directory it merely spotted grants nothing. One coherent **ffmpeg + ffprobe pair from the same installation** has to be executed successfully, and is then pinned by absolute path. `ffmpeg_utils.py` consumes only that accepted pair — it resolves nothing itself, points pydub at those absolute paths, and raises `FFmpegUnavailable` rather than falling back to a bare `ffmpeg` name, so no unproved copy on your `PATH` can be run by accident.
-- **Cooperative cancellation.** A reusable `cancellation.py` primitive (`ConversionCancelled` + `raise_if_cancelled`) backs the Cancel button in every tool: the button sets a `threading.Event`, and workers check it at natural checkpoints (between chapters / files / stages), clean up partial output, and log `Cancelled.`
-- **One codebase, one tree.** Since v0.5.0 all program code lives in a single `scripts/Universal/` tree shared by both platforms; platform differences live in `sys.platform` branches inside the shared code, not in divergent copies. (`scripts/Windows/` and `scripts/MacOS/` exist for any future code that genuinely cannot be shared — both are empty today.)
-- **Audiobookshelf‑correct series tags.** Series metadata is written as the freeform MP4 atoms `----:com.apple.iTunes:SERIES` / `SERIES-PART`, which ffprobe (and therefore Audiobookshelf) surfaces as `series` / `series-part`. ffmpeg can't write these, so mutagen writes them immediately after the encode.
+[epub2tts-edge](https://github.com/aedocw/epub2tts-edge) by Christopher Aedo is the basis of the TTS engine. Licensed **GPL‑3.0**. Also uses Edge TTS, Kokoro and other open-source audio/image libraries.
 
----
-
-## Building a Release
-
-Maintainers package the two distributable zips with the developer helper:
-
-```
-python scripts/Universal/shared/release.py
-```
-
-It reads the version from `scripts/Universal/shared/version.py` (the single source of truth) and
-writes `dist/AudiobookTool-Windows-vX.Y.Z.zip` and `dist/AudiobookTool-MacOS-vX.Y.Z.zip` — each
-holding, at the archive root, `README.md`, `config.toml`, the matching double-click launcher, and
-the `scripts/` tree. Only **committed** files ship: inside `scripts/` a file is packaged only if git
-tracks it, and machine or OS artifacts (`__pycache__/`, `*.pyc`, `.DS_Store`, `Thumbs.db`) are
-dropped even then. Nothing under `files/`, `md-instructions/` or `.venv/` is ever packaged. The
-build must run from a git checkout and **refuses to package while any packaged path has uncommitted
-changes**, so an archive always matches a commit. The macOS launcher is stored executable
-(`rwxr-xr-x`) with LF line endings, and the Windows launcher with CRLF. It then prints the full
-release checklist. `release.py` is a build‑time tool only — it is never imported by the app.
-
----
-
-## Known Limitations
-
-- **macOS is verified live (v0.3.1).** The tool was run end‑to‑end on a real Mac (macOS 26.3.1, Apple Silicon, Python 3.13) against the real test assets — 41 `.m4b` audiobooks plus a cover image and a TXT — and six macOS launch/UX/packaging defects found there were fixed (App Translocation, an invisible launcher-startup crash, the Terminal close dialog, the executable‑bit packaging, the TTS log/layout, and the M4B Maker FAST‑path cover). Both trees stay byte‑identical and compile cleanly. One caveat: the **Kokoro** local AI voices need Python < 3.13, and this Mac runs Python 3.13, so the Kokoro path was not exercised on macOS (Edge TTS was).
-- **TXT files must be UTF‑8.** A `.txt` saved as UTF‑8, with or without a byte‑order mark (Notepad's "UTF‑8" and "UTF‑8 with BOM" both work), is read exactly. A `.txt` saved in another encoding — for example Windows "ANSI" (cp1252) with accented letters or curly quotes — is **not** guessed at: that one file fails with a technical decode message and the rest of the queue carries on. Re‑save it as UTF‑8 (in Notepad: **File → Save as → Encoding: UTF‑8**) and add it again. A plain‑ASCII file is already valid UTF‑8. Support for other encodings is planned for a later release.
-- **Kokoro requires Python < 3.13.** The Kokoro AI voice model's wheels don't support Python 3.13+, which is why the installer targets 3.12. On a 3.13 system, **Edge TTS voices still work fully** — only the local Kokoro voices are unavailable.
-- **The clean‑machine one‑click install isn't yet live‑verified end‑to‑end.** A first‑run install from a freshly built Windows release zip has been run for real (v0.6.6): it built the private environment with every package at its pinned version, proved ffmpeg, and the Windows launcher then opened the app. That machine already had Python 3.12 and ffmpeg, though, so a truly clean Windows or Mac — including the Python/ffmpeg installs and macOS's first‑open security prompts — is still to be checked by hand.
-
----
-
-## Credits
-
-This project builds on excellent open‑source work:
-
-- **[epub2tts‑edge](https://github.com/aedocw/epub2tts-edge)** by **Christopher Aedo** — the basis of the TTS engine. Licensed **GPL‑3.0**.
-- **[edge‑tts](https://github.com/rany2/edge-tts)** — the Microsoft Edge TTS client.
-- **[Kokoro‑82M](https://huggingface.co/hexgrad/Kokoro-82M)** — the local AI text‑to‑speech model.
-
-Also gratefully relying on: [mutagen](https://mutagen.readthedocs.io/) (metadata), [PyMuPDF](https://pymupdf.readthedocs.io/) (PDF extraction), [pydub](https://github.com/jiaaro/pydub) + [ffmpeg](https://ffmpeg.org/) (audio), [Pillow](https://python-pillow.org/) (images), and [NLTK](https://www.nltk.org/) (sentence tokenization).
-
----
-
-## License
-
-Released under the **GNU General Public License v3.0 (GPL‑3.0)**, inherited from the upstream
-epub2tts‑edge project. You may use, modify, and redistribute this software under the terms of the
-GPL‑3.0; derivative works must also be licensed under GPL‑3.0. See the upstream project for the full
-license text.
+GNU General Public License v3.0 (GPL‑3.0), inherited from the upstream project; derivative works must also be licensed under GPL‑3.0. See the [full license text](https://www.gnu.org/licenses/gpl-3.0.html).

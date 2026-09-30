@@ -688,7 +688,7 @@ def test_the_readme_upstream_credit_is_untouched():
 
 
 def test_the_readme_capability_text_is_pdf_and_txt_only():
-    """Only the *capability* prose changes; credits and licence keep their words."""
+    """The user guide must limit TTS inputs while keeping upstream attribution."""
     text = README.read_text(encoding="utf-8")
     head, _, credits = text.partition("## Credits")
     #: Every surviving mention above the Credits section must be a retirement or
@@ -696,8 +696,7 @@ def test_the_readme_capability_text_is_pdf_and_txt_only():
     for line in head.splitlines():
         if "EPUB" in line:
             assert "retired" in line, line
-    assert "PDF / TXT" in head
-    assert "a **PDF or TXT**" in head
+    assert "**PDF and TXT only**" in head
     assert "epub2tts" in credits
 
 
