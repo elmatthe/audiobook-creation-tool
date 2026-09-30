@@ -806,8 +806,8 @@ class TtsPanel(ttk.Frame):
         # both reach every widget this panel owns. ``appearance_bundle`` is a
         # seam like every keyword above: the production default reads the real
         # remembered setting, and the suite injects an exact Light or Dark
-        # bundle. On aqua the bundle carries no ttk style names, so every
-        # ``style=`` below resolves to "" and the native look is untouched.
+        # bundle. On Aqua the styles inherit native control layouts and
+        # metrics, with the same app appearance as the classic Tk content.
         if appearance_bundle is None:
             appearance_bundle = appearance.build_bundle(
                 ttk.Style(parent), appearance.get_appearance(),
@@ -1255,7 +1255,7 @@ class TtsPanel(ttk.Frame):
     # ------- appearance: the shared compact control language -------
 
     def _style(self, key: str) -> str:
-        """The shared ``Compact.*`` style for *key* ("" on aqua: native)."""
+        """The shared compact style for *key* (native control inheritance on Aqua)."""
         return job_ui.style_name(self.appearance_bundle, key)
 
     def _tone(self, key: str, fallback: str) -> dict:
@@ -1263,8 +1263,8 @@ class TtsPanel(ttk.Frame):
 
         Where the compact styles are active the caption takes the shared
         palette's role style, so it follows Light/Dark with everything else.
-        On aqua there are no compact styles, and the caption keeps the exact
-        native color it has always had there.
+        Aqua also supplies semantic caption colors while keeping native
+        control layouts and metrics.
         """
         name = self._style(key)
         return {"style": name} if name else {"foreground": fallback}
@@ -1631,7 +1631,7 @@ class TtsPanel(ttk.Frame):
         # indicator stays generic for every panel that has not adopted the
         # compact system, but inside this one an unstyled native frame would be
         # a light island in Dark, and the status line sits on the section
-        # surface rather than the window. On aqua every name is "" -- native.
+        # surface rather than the window. Aqua names inherit native controls.
         self.progress.frame.configure(style=job_ui.style_name(bundle, "card"))
         self.progress.bar.configure(style=job_ui.style_name(bundle, "progressbar"))
         self.progress.label.configure(style=job_ui.style_name(bundle, "secondary_label"))
@@ -1647,8 +1647,8 @@ class TtsPanel(ttk.Frame):
             # (plan Section 11's "Activity is dominant"). A fresh JobAdapter
             # is built per run (see this method's own docstring), so this
             # runs every time rather than once in __init__. No danger style is
-            # lost -- the compact bundle registers no ttk styles on aqua, so
-            # Cancel already draws as a plain native button here.
+            # lost -- Aqua danger-button names inherit the native push-button
+            # layout; the built-in Toolbutton remains native as well.
             for button in self.jobs.controls.buttons.values():
                 button.configure(style="Toolbutton")
             # The status row's progress bar defaults to 240px (job_ui.py's own

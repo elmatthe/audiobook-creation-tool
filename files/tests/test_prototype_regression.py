@@ -299,13 +299,15 @@ def test_an_aqua_bundle_builds_the_same_panel_natively(fresh_root):
     aqua = dict(base)
     aqua["mode"] = "aqua"
     aqua["styles"] = None       # only the Windows branch publishes ACT styles
-    # The macOS appearance bundle draws natively: every style name is "".
+    # The macOS appearance bundle inherits native control layouts and metrics.
     ui = _panel(ttk.Frame(fresh_root), aqua,
                 appearance_bundle=appearance.build_bundle(
                     style, appearance.LIGHT, platform="darwin", root=fresh_root))
     try:
         assert [str(w) for w in _walk(ui) if _style_of(w).startswith("ACT.")] == []
-        assert str(ui.cget("style")) == ""
+        assert str(ui.cget("style")) == ui.appearance_bundle["styles"]["window"]
+        name = str(ui.btn_save.cget("style"))
+        assert style.layout(name) == style.layout("TButton")
         for name in GUARDED:
             assert getattr(ui, name, None) is not None, name
     finally:

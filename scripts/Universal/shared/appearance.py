@@ -28,15 +28,12 @@ palettes (light/dark) available on **every** platform, so it clones the same
 ``ACT.*`` and from every generic style name. Nothing here ever touches
 ``ACT.*``, a generic ``TButton``/``TFrame``/etc., or ``style.theme_use()``.
 
-On macOS, native aqua ttk widgets cannot be recolored by style options either,
-and already track the OS appearance automatically — forcing a ``Compact.*``
-ttk catalogue there would fight the native chrome the frozen contract requires
-this system to preserve. So the aqua branch registers no ttk styles at all
-(``styles`` comes back empty, ``ttk_active`` is False) and a caller degrades to
-native rendering, the same pattern ``preferences_ui._style`` already uses for
-the ``ACT.*`` system. The resolved ``colors`` dict is still returned there, so
-a classic Tk widget (``Canvas``/``Listbox``/``Text``) that cannot be aqua-native
-anyway can still follow the chosen appearance via :func:`style_tk_widget`.
+On macOS, the controls retain their native Aqua layouts and metrics. Their
+window's native appearance is explicitly set to match the app preference;
+otherwise native controls follow the OS while classic Tk content follows the
+app, producing a mixed Light/Dark interior. Namespaced surface/label colors
+and the Shared border provide the same semantic distinction as other platforms,
+without installing Windows button, field or check/radio layouts on Aqua.
 
 State-preserving refresh
 -------------------------
@@ -113,7 +110,9 @@ def toggle_stored_appearance() -> str:
     """
     new_value = DARK if get_appearance() == LIGHT else LIGHT
     set_appearance(new_value)
-    return new_value
+    # settings.set rolls back on a failed atomic write. Render that actual
+    # value as well, so a failed save cannot put the live UI ahead of storage.
+    return get_appearance()
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +242,12 @@ _STYLES: dict[str, str] = {
     "treeview": f"{STYLE_PREFIX}.Treeview",
     "separator": f"{STYLE_PREFIX}.TSeparator",
 }
+
+# A separate namespace prevents a Windows comparison/test registration from
+# leaving cloned control layouts or padding behind in the native Aqua branch.
+_AQUA_STYLE_PREFIX = "CompactAqua"
+_AQUA_STYLES = {key: name.replace(STYLE_PREFIX + ".", _AQUA_STYLE_PREFIX + ".", 1)
+                for key, name in _STYLES.items()}
 
 #: ``clam`` elements cloned under this module's own prefix. Same source
 #: elements ``ui_theme`` clones for ``ACT.*`` — cloning is per-target-name, so
@@ -834,6 +839,98 @@ def _register_ttk_styles(style: ttk.Style, c: dict, m: dict, f: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def apply_native_appearance(window: tk.Misc, bundle: dict) -> bool:
+    """Match one app-owned Aqua window to the app setting, keeping native controls.
+
+    Tk 8.6's documented MacWindowStyle appearance command operates per window.
+    Unsupported/older Tk builds and other window systems are harmless no-ops.
+    https://github.com/tcltk/tk/blob/core-8-6-branch/macosx/README
+    """
+    try:
+        if window.tk.call("tk", "windowingsystem") != "aqua":
+            return False
+        native = "darkaqua" if bundle.get("appearance") == DARK else "aqua"
+        top = window.winfo_toplevel()
+        pending = getattr(top, "_compact_native_map_binding", None)
+        if pending is not None:
+            top.unbind("<Map>", pending)
+            top._compact_native_map_binding = None
+        previous = window.tk.call("tk::unsupported::MacWindowStyle", "appearance",
+                                  str(top), native)
+        if previous == "":
+            # Tk's WmWinAppearance silently returns empty before an NSWindow
+            # exists. Retry once when this window maps, without running an
+            # event loop inside a half-built launcher/dialog constructor.
+            def on_map(event):
+                if event.widget is top:
+                    apply_native_appearance(top, bundle)
+
+            top._compact_native_map_binding = top.bind("<Map>", on_map, add="+")
+            return False
+        return True
+    except tk.TclError:
+        return False
+
+
+def _refresh_native_windows(root: tk.Misc, bundle: dict) -> None:
+    """Refresh already-open app windows, including modeless result/warning dialogs."""
+    apply_native_appearance(root, bundle)
+
+    def visit(widget):
+        try:
+            children = widget.winfo_children()
+        except tk.TclError:
+            return
+        for child in children:
+            if isinstance(child, tk.Toplevel):
+                apply_native_appearance(child, bundle)
+            # A Toplevel may be owned by a panel or another dialog's frame.
+            visit(child)
+
+    visit(root)
+
+
+def _register_aqua_styles(style: ttk.Style, c: dict) -> dict[str, str]:
+    """Native control inheritance, with named colors and one tinted Shared border.
+
+    No control padding, fonts, indicator images or native control layouts change.
+    The only cloned element is the Shared group's recolorable section border.
+    """
+    for key, color in {
+        "window": "window", "surface": "surface", "card": "surface",
+        "elevated": "elevated", "muted": "muted", "shared_surface": "shared_bg",
+        "sidebar": "sidebar", "divider": "border", "toolbar": "window",
+    }.items():
+        style.configure(_AQUA_STYLES[key], background=c[color])
+    for key, foreground in {
+        "label": "text", "title": "text", "heading": "text", "subheading": "text",
+        "section": "text", "secondary_label": "secondary", "status_label": "secondary",
+        "link_label": "link", "success_label": "success", "warning_label": "warning",
+        "danger_label": "danger", "muted_label": "secondary",
+        "shared_header": "shared_header", "shared_label": "text",
+        "shared_secondary": "secondary",
+    }.items():
+        shared = key.startswith("shared_")
+        style.configure(_AQUA_STYLES[key], foreground=c[foreground],
+                        background=c["shared_bg" if shared else "surface"])
+        style.map(_AQUA_STYLES[key], foreground=[("disabled", c["disabled"])])
+    style.configure(_AQUA_STYLES["treeview"], background=c["field"],
+                    fieldbackground=c["field"], foreground=c["text"])
+    style.map(_AQUA_STYLES["treeview"], background=[("selected", c["selection"])],
+              foreground=[("selected", c["selection_text"])])
+    shared = _AQUA_STYLES["shared_labelframe"]
+    element = f"{_AQUA_STYLE_PREFIX}.Shared.border"
+    if element not in style.element_names():
+        style.element_create(element, "from", "clam", "Labelframe.border")
+    style.layout(shared, [(element, {"sticky": "nswe"})])
+    style.configure(shared, background=c["shared_bg"], bordercolor=c["shared_border"],
+                    lightcolor=c["shared_bg"], darkcolor=c["shared_bg"],
+                    borderwidth=1, relief="solid")
+    style.configure(shared + ".Label", background=c["shared_bg"],
+                    foreground=c["shared_header"])
+    return dict(_AQUA_STYLES)
+
+
 def build_bundle(style: ttk.Style, appearance: str | None = None, *,
                  platform: str | None = None, root: tk.Misc | None = None) -> dict:
     """Build (or refresh in place) the compact bundle for *appearance*.
@@ -847,9 +944,9 @@ def build_bundle(style: ttk.Style, appearance: str | None = None, *,
     widget already built with one repaints without being destroyed. Nothing
     here reads or writes Python-level widget state.
 
-    On macOS, no ttk style is registered (``styles`` is empty, ``ttk_active``
-    is False) so native aqua rendering is preserved; ``colors`` is still
-    populated for :func:`style_tk_widget` on a classic Tk widget.
+    On macOS, names inherit native Aqua controls; only semantic surface/label
+    colors and the Shared section border are configured. The native window
+    appearance and classic Tk colors follow the same resolved setting.
     """
     resolved = appearance if appearance in _VALID else get_appearance()
     branch = sys.platform if platform is None else platform
@@ -858,13 +955,13 @@ def build_bundle(style: ttk.Style, appearance: str | None = None, *,
 
     if branch == "darwin":
         family = _mac_font_family(root) if root is not None else "Helvetica Neue"
-        styles: dict[str, str] = {}
+        styles = _register_aqua_styles(style, colors)
     else:
         family = _classic_font_family(branch)
         _register_ttk_styles(style, colors, METRICS, _fonts(family, body))
         styles = dict(_STYLES)
 
-    return {
+    bundle = {
         "mode": "compact",
         "appearance": resolved,
         "platform": branch,
@@ -873,9 +970,12 @@ def build_bundle(style: ttk.Style, appearance: str | None = None, *,
         "colors": colors,
         "metrics": dict(METRICS),
         "styles": styles,
-        "style_prefix": STYLE_PREFIX if styles else "",
+        "style_prefix": _AQUA_STYLE_PREFIX if branch == "darwin" else STYLE_PREFIX,
         "ttk_active": bool(styles),
     }
+    if branch == "darwin" and root is not None:
+        _refresh_native_windows(root, bundle)
+    return bundle
 
 
 # ---------------------------------------------------------------------------
@@ -945,7 +1045,8 @@ def style_combobox_popdown(combo, bundle: dict) -> bool:
     native and so is its menu. Returns whether anything was colored.
     """
     colors = (bundle or {}).get("colors")
-    if not colors or not (bundle or {}).get("ttk_active"):
+    if (not colors or not (bundle or {}).get("ttk_active")
+            or bundle.get("platform") == "darwin"):
         return False
     try:
         popdown = combo.tk.eval(f"ttk::combobox::PopdownWindow {combo}")

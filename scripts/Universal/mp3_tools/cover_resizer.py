@@ -255,6 +255,7 @@ def build_replacement_dialog(parent, title: str, message: str, confirm_label: st
     """
     answer = {"ok": False}
     win = tk.Toplevel(parent)
+    appearance.apply_native_appearance(win, theme or {})
     win.title(title)
     try:
         win.transient(parent.winfo_toplevel())
@@ -2251,8 +2252,8 @@ class CoverResizerUI(ttk.Frame):
         # Per-instance restyling only, the way MP3 Tool and the M4B Metadata
         # Editor do it: the shared indicator stays generic for every panel that
         # has not adopted the compact system, but inside this one an unstyled
-        # native frame would be a light island in Dark. On aqua every name
-        # below is "" -- native, exactly as before.
+        # native frame would be a light island in Dark. Aqua's names inherit
+        # native control layouts, with the same semantic surface colors.
         self.progress.frame.configure(style=job_ui.style_name(bundle, "card"))
         self.progress.bar.configure(style=job_ui.style_name(bundle, "progressbar"),
                                     length=PROGRESS_BAR_LENGTH)

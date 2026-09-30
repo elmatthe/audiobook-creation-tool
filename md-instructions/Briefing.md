@@ -367,25 +367,24 @@ flashing during use.
   parity, hardening, packaging and release now belong to v0.6.6, not an unassigned future plan.
   Every other "Plan 9" reference throughout this file is unaffected by this note — Plan 9 still
   owns all of it; only its version binding changes, from DISPLACED to v0.6.6.
-- **Conversion boundary (still in force, two additions).** The **Windows launcher shell**, the
+- **Historical conversion boundary (superseded by v0.6.6).** The **Windows launcher shell**, the
   **M4B Metadata Editor** (rebuilt on the same boundary at v0.6.4 Phase 10), the **MP3 Tool**
   (v0.6.3 focused MP3 redesign, by that plan's explicit supersession) and — since v0.6.4 Phase 6,
   by that plan's explicit scope — the **M4B Maker** are the converted surfaces: on Windows they
   draw only `ACT.*` styles, on macOS the same lookups return `""` and native aqua draws them.
-  **TTS Audiobook, M4B Converter and Cover Image Resizer remain classic** and must stay that way
-  until the final parity drop (v0.6.5) — measured live, they carry **zero** `ACT.*` styles between
-  them. Approval of the prototype did not add them to its scope.
-- **Conversion boundary — current owner (2026-09-27).** The three classic panels above (TTS
-  Audiobook, M4B Converter, Cover Image Resizer) are v0.6.6 Phases 3–5 scope under the new plan's
-  frozen UI contract: TTS Audiobook is frozen as the **Family-A layout reference** (Sources / Voice
-  & Audio / Output & Run / Activity-right — no redesign); M4B Converter and Cover Image Resizer
-  adopt that same Family-A guided-workflow-plus-right-Activity structure. MP3 Tool, M4B Maker and
-  M4B Metadata Editor (already `ACT.*`-converted, Family B, dense multi-Book geometry preserved)
-  get compact-styling and bottom-Activity work in v0.6.6 Phases 6–8 — a styling pass, not a
-  re-conversion. Verified against the current tree at Phase 0: `ACT.*` usage is still confined to
-  `job_ui.py`, `mp3_tool.py`, `book_workspace_ui.py`, `m4b_metadata_editor.py`, `m4b_maker.py`,
-  `m4b_artwork_ui.py`, `launcher.py` and `preferences_ui.py`; no global Light/Dark appearance
-  setting or universal Activity/importer contract exists yet anywhere in `scripts/Universal/`.
+  TTS Audiobook, M4B Converter and Cover Image Resizer stayed classic through the integrated
+  v0.6.5 baseline. Approval of the prototype did not add them to its scope.
+- **Current conversion boundary (v0.6.6 Phase 13, 2026-09-29).** All six interiors now use
+  `shared.appearance`, one remembered Light/Dark preference and shared Activity/importer behavior.
+  Cover, TTS and Converter have Family-A workflow sections with Activity on the right; MP3 Tool,
+  Maker and Metadata have Family-B sections with bottom Activity and preserved multi-Book editing.
+  The Windows shell retains `ACT.*`; every tool interior uses `Compact.*`. macOS uses
+  `CompactAqua.*`, inheriting native control layouts and metrics, with semantic surface/label
+  colors and a tinted Shared border. The app preference sets each owned Aqua window's native
+  appearance; native file/folder dialogs remain OS-owned. This is covered by host-independent
+  command/style-inheritance tests, **not a native Mac visual PASS**. Successful Reset Preferences
+  refreshes the live bundle and toggle to the default Light; a failed appearance save keeps the
+  UI consistent with storage. No panel or active job is rebuilt by either refresh.
 - **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
@@ -1256,6 +1255,12 @@ v0.6.0 line has not been performed** — it is an explicitly approved deferral, 
 the exact five-step smoke test is written out in `Handoff.md`.
 
 **Known limitations (documented, not bugs):**
+- **Current v0.6.6 disposition (Phase 13, 2026-09-29).** The historical Plan-9 targets below
+  are superseded by the frozen v0.6.6 contract: all six core-control groups must fit without
+  core scrolling at Windows 920×600 and Mac 1024×800. Windows geometry/keyboard suites cover
+  minimum through maximized sizes and logical scaling sizes; native Aqua, physical scaling,
+  listening, clean-machine and long real-workload checks remain deferred to v0.6.7 by the
+  maintainer. Those deferrals are evidence gaps, never manual passes.
 - **TXT encoding contract — 2026-09-29 (maintainer ruling, v0.6.6 Phase 11).** A `.txt` source is
   **UTF-8, with or without a BOM**, on every engine and on both the Add Files and folder paths. No
   ANSI/cp1252 or guessed-encoding fallback exists in v0.6.6. Another encoding fails that one item
@@ -1264,7 +1269,9 @@ the exact five-step smoke test is written out in `Handoff.md`.
 - **TTS text encoding and Kokoro break placement — 2026-09-28 (v0.6.6 Phase 10).**
   - A `.txt` source must be UTF-8. A leading byte-order mark is fine. A legacy "ANSI"/cp1252 file
     fails that one item, with a technical decode message, and the rest of the run continues.
-  - A source with nothing speakable fails its item in every engine.
+  - Edge rejects empty, header-only, heading-only and punctuation-only direct sources before
+    synthesis. The local engines reject text left empty after stripping Title/Author headers;
+    their heading/body parsing is different. No all-engine punctuation-only rejection is proved.
   - Kokoro may break a long text at an earlier sentence end than the last one in its
     3,000-character window. No text is lost; this is accepted without listening evidence.
   - The Edge engine's CLI-only `--format m4b` path is hardened. The app itself only writes MP3.
@@ -1316,17 +1323,17 @@ the exact five-step smoke test is written out in `Handoff.md`.
   at `AQUA_GEOMETRY` (the same size) — the maintainer's v0.6.4 Phase 13 ruling (2026-09-15), which
   raised the v0.6.3 Phase 12 floor of 1024×720 (2026-09-12); see *The M4B Maker and M4B Metadata
   Editor* above and `Decisions.md` (2026-09-17); the launcher
-  applies whatever `theme["min_size"]` says. At the 920×600 minimum the **M4B
-  Converter's** primary action and Log are still clipped (~19 px and ~108 px bottom + 75 px
-  right, identical at both scaling levels). That panel is unconverted and Plan 9 will rebuild
-  it, so the clipping is deferred there rather than fixed by widening the minimum on behalf
-  of a layout that is about to change. The converted Editor, Maker and MP3 Tool clip nothing at
+  applies whatever `theme["min_size"]` says. The **M4B Converter's historical minimum-size
+  clipping was discharged by v0.6.6 Phase 4**: its rebuilt guided workflow keeps the primary
+  action, run controls and Activity visible. All six tools are covered by real Windows shell
+  geometry tests. The earlier Editor, Maker and MP3 Tool checks found no clipping at
   any size or scaling — every region is mapped inside a 920×600 window on Windows (proved on a
   deiconified root) and at 1024×800 on macOS; since v0.6.4 the Editor has no scroll region other
   than its chapter box and log.
-- **The Windows `ttk.Combobox` popdown is unthemed** (Tk draws it as a native list ttk
-  cannot restyle), and the **window title bar stays light** above the dark app (Tk would need
-  a Win32 `DwmSetWindowAttribute` call). Both are Plan 9 items.
+- **Windows combobox popdowns follow Light/Dark** through the shared appearance helper;
+  the historical unthemed-popdown deferral is discharged. **The Windows title bar stays
+  OS-owned**: the frozen v0.6.6 contract explicitly excludes that native decoration. No Win32
+  title-bar override is planned for this release.
 - **xHE-AAC decode is routed but unproven on real media.** ffmpeg's native AAC decoder cannot
   decode xHE-AAC (USAC) M4Bs. Since v0.6.2 the M4B Converter routes such a source through
   **Windows Media Foundation** on Windows, and macOS uses Apple's `aac_at`; where neither route

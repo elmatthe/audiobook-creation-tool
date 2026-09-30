@@ -1126,10 +1126,14 @@ def test_windows_styles_are_compact_namespaced_and_aqua_stays_native(tk_root, ma
         appearance_bundle=appearance.build_bundle(
             ttk.Style(tk_root), appearance.LIGHT, platform="darwin", root=tk_root))
     try:
-        assert str(native.cget("style")) == ""
+        assert str(native.cget("style")) == native.appearance_bundle["styles"]["window"]
         for button in widgets_of(native, ttk.Button):
-            assert str(button.cget("style")) == ""
-        assert str(native.navigator.selector.cget("style")) == ""
+            name = str(button.cget("style"))
+            assert name.startswith("CompactAqua.")
+            assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
+        name = native.appearance_bundle["styles"]["combobox"]
+        assert str(native.navigator.selector.cget("style")) == name
+        assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TCombobox")
     finally:
         native.close()
         native.destroy()

@@ -2,7 +2,91 @@
 
 ## Current Focus
 
-> ## CURRENT STATE — v0.6.6 PHASE 12: RELEASE-CANDIDATE ACCEPTANCE (2026-09-29)
+> ## CURRENT STATE — v0.6.6 PHASE 13: INDEPENDENT RELEASE REVIEW (2026-09-29)
+>
+> **Phase 12 is maintainer-approved.** Before any review/edit, branch
+> `feature/0.6.6-ui-parity-hardening-release`, local HEAD, tracking ref and live remote were
+> verified at **`685c29becae1453d33c1349865d48a2a3bc78957`**. The integrated v0.6.5/master
+> baseline and merge base were independently verified at
+> **`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`**. Prior agent conclusions were treated as
+> claims to check, not release-review evidence.
+>
+> **Review scope:** the complete baseline-to-HEAD v0.6.6 diff, current tree and Git history;
+> correctness/regressions, frozen UI contract/platform drift, setup/packaging, current-state
+> documentation, security/path/source/output safety, historical deferrals and test quality.
+> The permanent planning references and active plan were used to resolve intentional behavior.
+>
+> **Confirmed findings, bounded remediation:**
+> 1. Successful Reset Preferences cleared stored Dark to default Light but left the live bundle
+>    and toggle Dark; the next toggle did not change the visible theme. Reset now rebuilds styles
+>    from the actual default, notifies existing listeners and synchronizes the launcher/dialog.
+>    Cancelled and failed resets preserve Dark. No panel, Book, job or widget is rebuilt.
+> 2. A failed atomic appearance write rolled storage back but still returned the requested mode.
+>    The toggle now renders the actual stored value, preventing live/persisted divergence.
+> 3. Aqua registered no semantic styles and native controls followed OS appearance independently
+>    of the app's classic Tk content; the Shared tint was absent. `CompactAqua.*` now inherits
+>    native control layouts/fonts/padding, supplies semantic surface/label colors, and clones only
+>    the Shared section border. A documented per-window native appearance command matches the
+>    preference on the root and existing/new owned dialogs; native combobox menus remain native.
+>    Tk can silently return an empty result before the NSWindow exists: a one-time Map binding
+>    applies the latest choice then, without entering an event loop during construction. Existing
+>    platform composition hints remain. This is command/inheritance evidence, **not a Mac PASS**.
+> 4. Briefing overstated contentless-input parity: local engines retain headings as text and do
+>    not have Edge's alphanumeric paragraph filter. Current wording and the regression's docstring
+>    now distinguish Edge's four rejected cases from the proven empty/header-only local case.
+>    Existing engine parsing is unchanged; no model/listening outcome is inferred.
+>
+> **Independent evidence:**
+> - Before remediation, the selected UI/consistency/packaging/bootstrap/EXIF/BOM/contentless/Edge
+>   chapter/segmentation sweep passed **446 tests, 0 skips** (81.82 s), independently reproducing
+>   material automated claims without accepting the documented review conclusions.
+> - The first six regression cases produced **4 failures / 2 passing reset controls** on the
+>   approved tree. The additional unmapped-native-window seam produced **2 failures**, then
+>   **2 passes** after correction. Eight new test cases in total; old empty-style Aqua pins now
+>   assert native layout inheritance instead. Generic styles, platform layout hints and actual
+>   native control metrics stay asserted rather than being dropped.
+> - Affected UI suites: **254 passed / 0 skipped / 0 failed** (29.51 s),
+>   after all application-code remediation; one existing pydub audioop deprecation warning.
+> - Full `scripts/verify.py`: **RESULT: PASS**, **7,903 passed / 58 skipped /
+>   0 failed / 0 errors** (963.78 s; 2 warnings). Deps, docs, docnames and config all PASS.
+>   It collected before the final Aqua Map-seam
+>   refinement; the affected-suite rerun above covers the final application code after that fix.
+> - An earlier full run was stopped to complete native-style assertions; it is not counted
+>   as PASS evidence.
+> - All 243 tracked Python files compile with `SyntaxWarning` as an error; `git diff --check`
+>   passes. The installed Git Bash is selected for packaged `.command` parsing, not Windows WSL.
+>
+> **Re-review conclusions:**
+>
+> | Area | Verified disposition |
+> |---|---|
+> | UI/platform | Six interiors use compact appearance, numbered Family-A/B hierarchy and persistent Activity; existing real Windows geometry/keyboard/state tests are retained. Aqua command and native inheritance are mechanically covered; native rendering is deferred. |
+> | Processing/source/output | AST comparison confines dense-panel changes to presentation, lock/keyboard/lifecycle hooks; widget variable/command bindings are preserved apart from replaced log/scroll chrome. Shared import walker/output planner and MP3, Maker and Metadata processing/batch modules are baseline-identical. Source hashes, collision reservation, atomic publication, cancellation and cleanup regressions remain. Cover replacement remains the explicit opt-in exception. |
+> | Hardening/history | BOM, contentless Edge and EXIF fixes agree with code and focused regressions. CLI M4B chapter read-back uses real FFmpeg and retains titles/boundaries past the historical overflow case. Kokoro breakpoint placement remains characterized/accepted, with no retune or new listening claim. USAC real-media evidence remains a waiver. |
+> | Setup/package/security | Pinned package repair and bounded import probes agree with tests; package scope is tracked scripts plus named root files, rejects dirty packaged paths and excludes dev/runtime state. Exact launcher line endings, Bash syntax and executable archive mode are tested in disposable archives. No new dependency, command-injection/path-write surface or source-mutating default was found. |
+> | Docs/identity | Briefing now distinguishes current compact interiors from the historical ACT boundary and discharges stale Converter/popdown deferrals. README/config/version/release-tool identity is consistent with the intentional pre-Phase-14 `0.6.2`, unreleased state. Historical entries remain historical. |
+>
+> **Skips:** **39 Aqua-only tests** (37 geometry, 2 theme), **12 symlink-privilege
+> limitations**, **3 case-sensitive path cases**, **3 optional Jack Ryan fixtures**, and
+> **1 retired hash-gate empty parameter set**; independently counted from JUnit.
+> No manual evidence is manufactured. Native Mac, physical
+> scaling, listening, clean-machine and long real-workload checks remain the maintainer-approved
+> v0.6.7 backlog; broader TXT encodings and sharp-text per-monitor DPI awareness remain future work.
+>
+> **Local-only preservation:** all 16 original status entries were hash/status checked unchanged:
+> `.ai/`, `scripts/project-status.py`, six untracked replacement screenshots and eight existing
+> tracked screenshot deletions. They are excluded from this checkpoint. Scratch logs, JUnit and
+> review scripts stay ignored under `files/dev-work/v066-phase13/`.
+>
+> **Phase 13 COMPLETE — READY under the approved deferrals; STOP.** The checkpoint is the
+> commit containing this entry, directly
+> atop the approved Phase-12 SHA; subject `Complete Phase 13 independent release review`.
+> Commit and push that checkpoint on the feature branch. **Phase 14 has not started.** The next
+> phase requires maintainer approval; no version bump, final artifacts, merge, tag, publication,
+> branch deletion, history rewrite, force-push or AI co-author trailer was performed.
+>
+
+> ## PREVIOUS CHECKPOINT — v0.6.6 PHASE 12: RELEASE-CANDIDATE ACCEPTANCE (2026-09-29)
 >
 > **Phase 11 is maintainer-approved.** Before any edit, branch
 > `feature/0.6.6-ui-parity-hardening-release` and both local/remote HEAD were verified at

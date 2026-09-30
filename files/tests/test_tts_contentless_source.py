@@ -1,13 +1,14 @@
-"""A source with nothing to speak fails its item in every engine, never publishes silence.
+"""Edge sources without book content fail; local engines reject empty parsed text.
 
 v0.6.6 Phase 10 defect. With nothing speakable in it, Edge's direct path
 (``runner.run_conversion_job``, which Add Files items take) published a
 0-second MP3 and reported success. That covers an empty ``.txt``, one with only
 ``Title:``/``Author:`` lines or only a ``#`` heading, and one with only
-punctuation. The same file failed when imported by folder (``batch_convert``: "No
-text chunks after split") and failed on Kokoro and Chatterbox ("No text content
-found after parsing source file."). Now Edge's direct path fails the item the same
-way, before any synthesis or network call, and writes nothing.
+punctuation. Empty parsed text also fails on Kokoro and Chatterbox ("No text
+content found after parsing source file."). Their heading/body parsing differs:
+the local-engine test below proves the empty/header-only case, not rejection of
+all four Edge inputs. Edge's direct path now fails before any synthesis or
+network call, and writes nothing.
 """
 
 from __future__ import annotations

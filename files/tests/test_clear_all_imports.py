@@ -369,8 +369,7 @@ def test_aqua_builds_the_button_natively(tk_root):
                         "artwork_buttons": "natural", "content_pad": 12}}
     for module, cls in ((m4b_maker, "M4BMakerUI"), (editor, "M4BMetadataEditorUI"),
                         (mp3_tool, "MP3ToolUI")):
-        # All three take their styles from the appearance bundle, which on
-        # aqua carries none -- so each is asked for the macOS one explicitly.
+        # Aqua uses its own namespace inheriting native control layouts.
         extra = {"appearance_bundle": appearance.build_bundle(
                      ttk.Style(tk_root), appearance.LIGHT, platform="darwin",
                      root=tk_root)}
@@ -379,7 +378,10 @@ def test_aqua_builds_the_button_natively(tk_root):
                                      choose_files=lambda: (), choose_folder=lambda: (),
                                      **extra)
         try:
-            assert str(panel.btn_clear_imports.cget("style")) == ""
+            name = extra["appearance_bundle"]["styles"]["danger_button"]
+            assert str(panel.btn_clear_imports.cget("style")) == name
+            style = ttk.Style(tk_root)
+            assert style.layout(name) == style.layout("TButton")
             assert str(panel.btn_clear_imports.cget("text")) == LABEL
         finally:
             panel.close()

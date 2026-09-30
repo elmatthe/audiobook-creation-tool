@@ -24,12 +24,14 @@ through the platform's generic ttk styles. A converted panel opts in by naming
 
 **Separately (v0.6.6 Phase 1),** ``shared/appearance.py`` owns one global
 remembered Light/Dark setting and its own ``Compact.*`` style family. The
-outer shell above is unaffected by it — only app-owned dialogs (Preferences &
+shell layouts and style families above are retained — app-owned dialogs (Preferences &
 Data, the launch-time warning/result dialogs) and, from later phases on,
 individual tool-panel interiors read ``self.appearance_bundle``. A single
 status-bar toggle (``self.appearance_button``, beside Preferences & Data)
 flips it; :meth:`LauncherApp._on_appearance_changed` fans the refreshed bundle
 out to whichever owned dialog is open, in place, with no widget destroyed.
+On Aqua the window's native appearance also follows the app choice, preserving
+native control and decoration layouts rather than installing Windows chrome.
 
 Run under ``pythonw.exe`` on Windows so no console window appears; all external
 binaries (ffmpeg/ffprobe) are invoked through ``shared.subprocess_utils`` which
@@ -214,8 +216,8 @@ class LauncherApp:
         self.font_heading = self.theme["font_heading"]
         self.font_button = self.theme["font_button"]
         # The new compact Light/Dark system (v0.6.6 Phase 1) is fully separate
-        # from the shell theme above: the outer shell stays exactly as
-        # ``ui_theme`` renders it, and this bundle governs app-owned dialogs
+        # from the shell style family above: shell layout remains
+        # ``ui_theme``'s, and this bundle governs app-owned dialogs
         # (and, from later phases on, individual tool-panel interiors).
         self.appearance_bundle = appearance.build_bundle(
             self.style, appearance.get_appearance(), root=self.root
@@ -422,7 +424,7 @@ class LauncherApp:
         )
         self.preferences_button.pack(side="right", padx=(0, m["row_padx"]))
         # The v0.6.6 Phase 1 shell toggle — an unstyled native aqua ttk.Button,
-        # same as Preferences, so the Finder-style shell itself never changes.
+        # same as Preferences; its native window appearance follows the choice.
         self.appearance_button = ttk.Button(
             status, text=_appearance_toggle_label(self.appearance_bundle["appearance"]),
             command=self._toggle_appearance, takefocus=True,
@@ -532,8 +534,8 @@ class LauncherApp:
     def _toggle_appearance(self):
         """Flip the remembered Light/Dark setting and refresh live dialogs.
 
-        The outer shell built above is never touched: only the separate
-        compact bundle app-owned dialogs use. ``appearance.toggle_appearance``
+        The shell's layout/style family is retained. Native Aqua window
+        appearance and the compact bundle follow the choice. The helper
         reconfigures the ``Compact.*`` ttk styles in place and notifies every
         registered listener, so nothing here destroys or rebuilds a widget.
         """
@@ -548,6 +550,10 @@ class LauncherApp:
 
     def _on_appearance_changed(self, bundle: dict) -> None:
         """Fan the new bundle out to whichever owned dialog is open right now."""
+        self.appearance_bundle = bundle
+        if self.appearance_button is not None:
+            self.appearance_button.configure(
+                text=_appearance_toggle_label(bundle["appearance"]))
         try:
             alive = self.preferences_dialog is not None and self.preferences_dialog.winfo_exists()
         except tk.TclError:

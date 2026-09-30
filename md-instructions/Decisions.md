@@ -4,6 +4,57 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-29 — Phase 12 approved; Phase 13 independent release review and bounded appearance remediation
+
+Started from the verified local/tracking/live-remote Phase-12 checkpoint
+`685c29becae1453d33c1349865d48a2a3bc78957`, against the integrated v0.6.5/master merge base
+`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`. Prior review conclusions were independently checked
+against the complete diff, current code, regressions and Git history. Scope is Phase 13 only.
+
+**Three confirmed appearance defects were release blockers and are fixed.** Reset Preferences
+cleared saved Dark without refreshing the live theme/toggle; a failed atomic appearance save
+returned the requested value after storage rolled back; Aqua native controls followed OS appearance
+while classic Tk content followed the app, and its empty style catalogue omitted the Shared tint.
+Reset now refreshes existing listeners from the actual default; the toggle returns the actual stored
+value. Cancelled/failed reset remains unchanged. No panel, Book, job or widget is reconstructed.
+
+**Aqua retains native controls.** `CompactAqua.*` is a distinct namespace, so even a platform-branch
+comparison cannot leave Windows cloned layouts/font/padding on native controls. Semantic surface,
+label and Treeview colors are configured; only the Shared group border is cloned from clam.
+Per-window native appearance follows the app preference for the root and new/existing owned dialogs.
+Native menus are left to Aqua. This keeps control layouts/metrics and existing composition hints.
+
+The API and startup timing were checked against Tk's own
+[macOS documentation](https://github.com/tcltk/tk/blob/core-8-6-branch/macosx/README) and
+[WmWinAppearance implementation](https://github.com/tcltk/tk/blob/core-8-6-branch/macosx/tkMacOSXWm.c).
+The command can return an empty result before the native window exists. A one-time Map binding
+retries the latest choice, replacing an older pending binding; it does not run an event loop inside
+construction. Unsupported builds are harmless no-ops. Command, timing, nested-window refresh,
+native inheritance and Shared tint are automated seams, **not native Mac rendering evidence**.
+
+**Documentation truth:** Briefing's old ACT/classic boundary and unresolved Converter/popdown
+claims were superseded by the implemented compact state. Its all-engine contentless-source claim
+was too broad: Edge rejects all four empty/header/heading/punctuation cases; local engines reject
+empty text after header stripping and retain headings as text. Current documentation and the test
+docstring now state the actual coverage. No parsing policy/model behavior was changed.
+
+Eight regressions were added; failing-write/reset/native-command cases were observed RED first,
+and the unmapped-window seam separately failed before its correction. Old Aqua empty-style
+assertions now prove native inheritance instead. Full verification passed 7,903 tests with 58
+independently accounted skips; after the last native timing refinement, all 254 affected tests
+passed. Strict compilation of 243 tracked Python files and whitespace checks pass. Exact sequencing,
+review dispositions, evidence limits and skip categories are recorded in Handoff's Phase-13 entry.
+
+**READY under the maintainer's standing deferrals.** No confirmed release blocker remains after
+re-review. Hands-on Mac/scaling/listening/clean-machine/long-workload evidence remains v0.6.7 work;
+USAC is still a real-media waiver, Kokoro's breakpoint stays accepted without a retune, and broader
+TXT encodings/DPI awareness remain future work. Identity stays `0.6.2`, unreleased; no final artifacts,
+merge, tag, publication or Phase 14 action. Local-only work is preserved and excluded from the commit.
+
+— Recorded by Codex, independent reviewer, under the maintainer's Phase-13 authorization.
+
+---
+
 ## 2026-09-29 -- Phase 11 approved; Phase 12 automated acceptance and warning-safe test literals
 
 The maintainer approved Phase 11 at `1a218f96ab57c53758186ac1e2cd9f483ce22d96` and

@@ -65,7 +65,7 @@ Maker-specific visual system:
                                     Log, below
 
 Every widget asks ``job_ui.style_name`` of the ``appearance_bundle`` for its
-``Compact.*`` style (``""`` on aqua, which draws natively), and a live Light/Dark
+compact style (native control inheritance on Aqua), and a live Light/Dark
 toggle recolors the few classic Tk widgets in place. No colour, font or metric
 is declared here. Nothing scrolls the whole tool: the track list, the Chapter
 Titles box and the log scroll locally and give up height first, and in the
@@ -467,7 +467,7 @@ class M4BMakerUI(ttk.Frame):
     # ------------------------------------------------------------------ #
 
     def _style(self, key: str) -> str:
-        """The shared ``Compact.*`` style for *key* (``""`` on aqua: native)."""
+        """The shared compact style for *key* (native control inheritance on Aqua)."""
         return style_name(self.appearance_bundle, key)
 
     def _build(self, theme) -> None:
@@ -863,7 +863,7 @@ class M4BMakerUI(ttk.Frame):
         # Per-instance restyling, exactly as Cover, TTS, the Converter and the
         # MP3 Tool do it: the shared indicator stays generic for every panel
         # that has not adopted the compact system, but here an unstyled native
-        # frame would be a light island in Dark. On aqua every name is "".
+        # frame would be a light island in Dark. Aqua names inherit native controls.
         self.status.indicator.frame.configure(style=style_name(bundle, "card"))
         self.status.indicator.bar.configure(style=style_name(bundle, "progressbar"),
                                             length=PROGRESS_BAR_LENGTH)

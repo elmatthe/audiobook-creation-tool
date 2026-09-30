@@ -15,6 +15,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — **Independent release review: appearance synchronization and Aqua coherence** (v0.6.6 Phase 13, 2026-09-29)
+
+- Reset Preferences now returns the live theme/toggle to default Light; cancelled or failed resets
+  preserve the current choice. Failed appearance saves keep the displayed theme consistent with storage.
+- Aqua controls follow the app's appearance while retaining native layouts, fonts and padding;
+  semantic surfaces and the Shared tint are supplied through a separate namespace. New windows apply
+  their choice when the native window exists; existing dialogs refresh in place.
+- Reconciled Briefing's stale conversion/clipping/popdown statements and narrowed an overstated
+  all-engine contentless-input claim to the actual parsing and regression coverage.
+- Eight regression cases added. Full verification: **7,903 passed / 58 accounted skips / no failures**;
+  the final affected suites after the native timing fix: **254 passed / no skips**. Review evidence and
+  sequencing are in Handoff. **Phase 13 READY** under the approved v0.6.7 hands-on deferrals.
+- Identity remains `0.6.2`, unreleased. No final artifact, merge, tag, publication or Phase 14 action.
+
 ### Fixed -- **Warning-safe test literals; full release-candidate acceptance** (v0.6.6 Phase 12, 2026-09-29)
 
 - Reproduced and removed two invalid-escape `SyntaxWarning`s in the Edge CLI M4B chapter test

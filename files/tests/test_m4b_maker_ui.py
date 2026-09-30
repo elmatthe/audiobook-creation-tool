@@ -666,7 +666,7 @@ def test_the_windows_minimum_geometry_keeps_every_region_reachable(tk_root, make
 
 
 def _aqua_bundle(root) -> dict:
-    """The macOS appearance bundle: its style names are all ``""`` (native)."""
+    """The macOS bundle inherits native controls through its own namespace."""
     return appearance.build_bundle(ttk.Style(root), appearance.LIGHT,
                                    platform="darwin", root=root)
 
@@ -682,7 +682,9 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
                                  appearance_bundle=_aqua_bundle(tk_root))
     try:
         assert panel.navigator.layout == "stacked"
-        assert str(panel.btn_build.cget("style")) == ""
+        name = panel.appearance_bundle["styles"]["button"]
+        assert str(panel.btn_build.cget("style")) == name
+        assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
         # Without the Phase 13 hints the composition is the compact one
         # (v0.6.6 Phase 7): the options on one line, and the Book-only row
@@ -750,7 +752,7 @@ def test_the_phase_13_aqua_hints_fold_the_composition_through_the_same_seam(tk_r
         panel.var_custom_dest.set(False)
         panel._on_custom_dest_change()
         assert not panel.customrow.winfo_manager()
-        assert str(panel.btn_build.cget("style")) == ""
+        assert str(panel.btn_build.cget("style")) == panel.appearance_bundle["styles"]["button"]
     finally:
         panel.close()
         panel.destroy()

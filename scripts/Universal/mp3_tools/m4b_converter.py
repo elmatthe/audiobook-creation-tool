@@ -403,8 +403,8 @@ class M4BConverterUI(ttk.Frame):
         """
         # v0.6.6 Phase 4: the whole interior is built from the shared compact
         # appearance bundle -- the approved Cover/TTS control language -- so no
-        # native light island is left inside a Dark panel. On aqua every style
-        # name is "" and the panel draws natively, exactly as before.
+        # native light island is left inside a Dark panel. Aqua style names inherit
+        # native control layouts and metrics, with the app appearance.
         if appearance_bundle is None:
             appearance_bundle = appearance.build_bundle(
                 ttk.Style(parent), appearance.get_appearance(),
@@ -940,7 +940,7 @@ class M4BConverterUI(ttk.Frame):
         # Per-instance restyling, exactly as Cover and TTS do it: the shared
         # indicator stays generic for every panel that has not adopted the
         # compact system, but here an unstyled native frame would be a light
-        # island in Dark. On aqua every name is "" -- native.
+        # island in Dark. Aqua names inherit native controls.
         self.progress.frame.configure(style=job_ui.style_name(bundle, "card"))
         self.progress.bar.configure(style=job_ui.style_name(bundle, "progressbar"),
                                     length=PROGRESS_BAR_LENGTH)
@@ -2014,7 +2014,7 @@ class M4BConverterUI(ttk.Frame):
     # ------- appearance: the shared compact control language -------
 
     def _style(self, key: str) -> str:
-        """The shared ``Compact.*`` style for *key* ("" on aqua: native)."""
+        """The shared compact style for *key* (native control inheritance on Aqua)."""
         return job_ui.style_name(self.appearance_bundle, key)
 
     def _on_appearance_changed(self, bundle: dict) -> None:

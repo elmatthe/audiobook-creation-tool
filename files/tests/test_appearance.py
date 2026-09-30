@@ -80,6 +80,114 @@ def test_toggle_stored_appearance_flips_and_persists():
     assert appearance.get_appearance() == "light"
 
 
+def test_failed_appearance_write_keeps_the_live_bundle_in_sync(tk_root, monkeypatch):
+    style = ttk.Style(tk_root)
+    before = appearance.build_bundle(style, "light", root=tk_root)
+    monkeypatch.setattr(app_settings, "_write", lambda _data: False)
+    seen = []
+    appearance.register_listener(seen.append)
+    after = appearance.toggle_appearance(style, root=tk_root)
+    assert appearance.get_appearance() == "light"
+    assert after["appearance"] == before["appearance"]
+    assert seen == [after]
+
+
+@pytest.mark.parametrize("value,native", [("light", "aqua"), ("dark", "darkaqua")])
+def test_darwin_bundle_drives_native_window_appearance(monkeypatch, value, native):
+    """Prove the native command seam without claiming an Aqua rendering pass."""
+    calls = []
+
+    class Window:
+        tk = None
+
+        def __init__(self):
+            self.tk = self
+            self.mapped = False
+            self.on_map = None
+
+        def call(self, *args):
+            calls.append(args)
+            if args == ("tk", "windowingsystem"):
+                return "aqua"
+            if args[0] == "tk::unsupported::MacWindowStyle":
+                return "auto" if self.mapped else ""
+
+        def bind(self, event, callback, add):
+            assert event == "<Map>" and add == "+"
+            self.on_map = callback
+            return "map-id"
+
+        def unbind(self, event, binding):
+            assert event == "<Map>" and binding == "map-id"
+
+        def winfo_toplevel(self):
+            return self
+
+        def winfo_children(self):
+            return []
+
+        def __str__(self):
+            return "."
+
+    root = Window()
+    monkeypatch.setattr(appearance, "_default_font_size", lambda _root: 13)
+    monkeypatch.setattr(appearance, "_mac_font_family", lambda _root: "Helvetica Neue")
+
+    class NativeStyles:
+        def configure(self, *_args, **kwargs):
+            assert "padding" not in kwargs and "font" not in kwargs
+
+        def map(self, *_args, **_kwargs):
+            pass
+
+        def element_names(self):
+            return ()
+
+        def element_create(self, _name, _source, _theme, element):
+            assert element == "Labelframe.border"
+
+        def layout(self, name, _layout):
+            assert name == "CompactAqua.Shared.TLabelframe"
+
+    bundle = appearance.build_bundle(NativeStyles(), value, platform="darwin", root=root)
+    assert bundle["styles"]["shared_labelframe"] == "CompactAqua.Shared.TLabelframe"
+    assert ("tk::unsupported::MacWindowStyle", "appearance", ".", native) in calls
+    assert root.on_map is not None, "uncreated NSWindow needs a one-time map retry"
+    root.mapped = True
+    root.on_map(type("Event", (), {"widget": root})())
+    assert calls.count(("tk::unsupported::MacWindowStyle", "appearance", ".", native)) == 2
+
+
+def test_aqua_namespace_preserves_control_layouts_and_metrics(tk_root):
+    """A branch comparison proves inheritance, not real macOS rendering."""
+    style = ttk.Style(tk_root)
+    appearance.build_bundle(style, "dark", platform="win32", root=tk_root)
+    controls = ("TButton", "TEntry", "TCombobox", "TCheckbutton", "TRadiobutton")
+    before = {name: (style.layout(name), style.lookup(name, "font"),
+                     style.lookup(name, "padding")) for name in controls}
+    bundle = appearance.build_bundle(style, "light", platform="darwin", root=tk_root)
+    for name, expected in before.items():
+        native_name = "CompactAqua." + name
+        assert (style.layout(native_name), style.lookup(native_name, "font"),
+                style.lookup(native_name, "padding")) == expected
+        assert (style.layout(name), style.lookup(name, "font"),
+                style.lookup(name, "padding")) == expected
+    shared = bundle["styles"]["shared_labelframe"]
+    assert style.lookup(shared, "background") == bundle["colors"]["shared_bg"]
+    assert style.lookup(shared, "bordercolor") == bundle["colors"]["shared_border"]
+
+
+def test_native_refresh_reaches_nested_dialogs_once(tk_root, monkeypatch):
+    frame = ttk.Frame(tk_root)
+    first = tk.Toplevel(frame)
+    second = tk.Toplevel(ttk.Frame(first))
+    seen = []
+    monkeypatch.setattr(appearance, "apply_native_appearance",
+                        lambda window, _bundle: seen.append(window))
+    appearance.build_bundle(ttk.Style(tk_root), "dark", platform="darwin", root=tk_root)
+    assert seen == [tk_root, first, second]
+
+
 def test_the_setting_never_touches_config_toml(tmp_path):
     """The settings-key contract, asserted directly against the key name."""
     appearance.set_appearance("dark")
@@ -205,17 +313,12 @@ def test_build_bundle_contract(tk_root, platform):
     assert bundle["platform"] == platform
     assert bundle["colors"] and bundle["metrics"] and bundle["fonts"]
 
-    if platform == "darwin":
-        # Native aqua is preserved: no ttk style registered.
-        assert bundle["styles"] == {}
-        assert bundle["ttk_active"] is False
-        assert bundle["style_prefix"] == ""
-    else:
-        assert bundle["styles"]
-        assert bundle["ttk_active"] is True
-        assert bundle["style_prefix"] == appearance.STYLE_PREFIX
-        for name in bundle["styles"].values():
-            assert name.startswith(appearance.STYLE_PREFIX + "."), name
+    assert bundle["styles"]
+    assert bundle["ttk_active"] is True
+    expected_prefix = "CompactAqua" if platform == "darwin" else appearance.STYLE_PREFIX
+    assert bundle["style_prefix"] == expected_prefix
+    for name in bundle["styles"].values():
+        assert name.startswith(expected_prefix + "."), name
 
 
 def test_registering_compact_styles_leaves_generic_styles_untouched(tk_root):

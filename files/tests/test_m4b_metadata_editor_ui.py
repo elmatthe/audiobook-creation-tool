@@ -919,7 +919,7 @@ def test_the_shared_book_band_fits_the_padded_windows_minimum(tk_root, make_pane
 
 
 def _aqua_bundle(root) -> dict:
-    """The macOS appearance bundle: its style names are all ``""`` (native)."""
+    """The macOS bundle inherits native controls through its own namespace."""
     return appearance.build_bundle(ttk.Style(root), appearance.LIGHT,
                                    platform="darwin", root=root)
 
@@ -935,7 +935,9 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
                                        appearance_bundle=_aqua_bundle(tk_root))
     try:
         assert panel.navigator.layout == "stacked"
-        assert str(panel.btn_save.cget("style")) == ""
+        name = panel.appearance_bundle["styles"]["button"]
+        assert str(panel.btn_save.cget("style")) == name
+        assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
         assert [str(w) for w in _walk(panel) if _style_of(w).startswith("ACT.")] == []
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
         # Without the Phase 13 hints the composition is the compact one
