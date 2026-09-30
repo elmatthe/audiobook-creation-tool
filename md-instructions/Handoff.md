@@ -2,7 +2,77 @@
 
 ## Current Focus
 
-> ## CURRENT STATE - v0.6.6 PRE-MERGE USER GUIDE REFRESH (2026-09-30)
+## CURRENT STATE — v0.6.6 PUBLISHED; DOCUMENTATION CLOSEOUT (2026-09-30)
+
+**v0.6.6 is the current published release (2026-09-30).**
+PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as
+`7222083a732bbb0f1ef91e104725fc9a5cd2d141`, the verified master SHA at publication.
+Tag `v0.6.6` points exactly to that commit. The
+[GitHub Release](https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.6.6) is published,
+neither draft nor prerelease.
+
+| Published archive | Bytes | Approved SHA-256 |
+|---|---:|---|
+| [AudiobookTool-Windows-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-Windows-v0.6.6.zip) | 786842 | `e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75` |
+| [AudiobookTool-MacOS-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) | 788642 | `fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6` |
+
+GitHub's live asset digests match these approved hashes. The published artifacts retain
+the committed-source proof at `files/release-history/v0.6.6-integration-package-proof.json`
+(package source `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`). This documentation closeout does not
+rebuild packages; their embedded pre-publication README remains part of the approved artifacts.
+
+PR #13 merged at **2026-09-30 19:52:33 UTC**; the release was published at
+**2026-09-30 20:35:05 UTC**. Live master/tag/PR/release/assets were verified before editing.
+Application implementation, integration and publication are complete. This checkpoint changes
+only README and the four canonical docs on master: direct live downloads, final release state,
+dated Changelog release section and a fresh `[Unreleased]`. The closeout commit is the commit
+containing this record; Git is authoritative for the subsequent master documentation tip.
+
+**Closeout verification:** focused repository-contract and README/licence/history checks:
+**46 passed / zero skips/failures/errors**, 0.36 s, with the existing pydub audioop
+deprecation warning. Docs/docnames/config gates, compact README/direct links, canonical
+published-state/hash/backlog assertions, preservation hashes/status and `git diff --check`
+PASS. Evidence is local-only under `files/dev-work/v066-postrelease/`.
+Historical Phase-14 full verification remains **7,905 passed / 58 accounted skips / zero
+failures/errors**. The later README/package check was **192 passed / zero skips/failures**.
+These are prior evidence, not new full-suite or hands-on claims; no full verifier rerun is needed
+for this documentation-only closeout.
+
+The approved **v0.6.7 manual/follow-up backlog remains deferred, never passed**:
+
+- Native macOS all-six-tool Light/Dark, minimum/maximized geometry, Aqua rendering,
+  keyboard/dialog/menu behavior and native automated suites.
+- Hands-on clean Windows/macOS double-click setup, Python/FFmpeg acquisition, cold network
+  install, Gatekeeper quarantine/App Translocation, optional models, repair and relaunch.
+- Physical Windows 125%/150% scaling and the hands-on all-tool visual matrix.
+- Long real-workload Pause/Resume/Cancel/Retry Failed drills, listening judgments
+  (including Kokoro's accepted early breakpoint) and real phone-photo Cover checks.
+- Broader TXT encoding support and sharper per-monitor DPI rendering remain future work.
+
+USAC remains a real-media evidence waiver; accepted Kokoro breakpoint, density and wording
+decisions stand. Publication does not turn these evidence gaps into manual acceptance.
+
+**Repository/preservation contract:** exactly four tracked canonical docs; Archives ignored,
+local-only and excluded from release payloads. Existing archive contents/directories, `.ai/`,
+`scripts/project-status.py`, replacement screenshots and tracked screenshot deletions remain
+preserved and unstaged. Retired planning/drop/archive files remain retired; the feature branch
+`feature/0.6.6-ui-parity-hardening-release` is retained at
+`4e35d3fe73a56a0a0e71f10e54da27486e5155df`.
+
+**Execution boundary:** this documentation closeout is the final authorized checkpoint.
+After commit/push to master and live README/canonical-doc verification, STOP with the final
+master SHA. No next implementation action is authorized. No application,
+version, tag, release or asset mutation, branch deletion, history rewrite, force-push or v0.6.7
+implementation is part of this authorization.
+
+## Historical Execution Records
+
+All dated records below describe earlier checkpoints. Their current-state labels, pending gates,
+unpublished release claims, candidate hashes and next actions are superseded by this published
+closeout. Historical verification and accepted limitations retain their original evidence scope.
+Earlier retired planning/drop/archive references are history, never instructions to restore them.
+
+> ## HISTORICAL CHECKPOINT - v0.6.6 PRE-MERGE USER GUIDE REFRESH (2026-09-30)
 >
 > PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is open, non-draft and
 > unmerged, targeting `master` at `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`.
@@ -44,7 +114,7 @@
 > below are dated history, superseded by this record for README, PR and current archive state.
 
 
-> ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: RECONCILIATION COMPLETE; FINAL READ-ONLY RECHECK (2026-09-30)
+> ## HISTORICAL CHECKPOINT ? v0.6.6 PHASE 15 STEP 1: RECONCILIATION COMPLETE; FINAL READ-ONLY RECHECK (2026-09-30)
 >
 > Maintainer-authorized remediation started at `caadf5d4db0b51ef5d04182d92430bcaacdac63c`.
 > Source reconciliation **`21e36163ccc992ef4ba94cb16e58caeda8f236c8`** is committed/pushed on
@@ -102,7 +172,7 @@
 
 
 
-> ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: BOUNDED READINESS RECONCILIATION (2026-09-30)
+> ## HISTORICAL CHECKPOINT ? v0.6.6 PHASE 15 STEP 1: BOUNDED READINESS RECONCILIATION (2026-09-30)
 >
 > Phase 14 is maintainer-approved at `caadf5d4db0b51ef5d04182d92430bcaacdac63c`.
 > The first read-only Step-1 review returned NOT READY for stale index/roadmap current-state
@@ -168,7 +238,7 @@
 
 
 
-> ## CURRENT STATE — v0.6.6 PHASE 14 COMPLETE: FINAL RC PACKAGE PROOF (2026-09-30)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 14 COMPLETE: FINAL RC PACKAGE PROOF (2026-09-30)
 >
 > **Phase 13 READY was maintainer-approved.** Exact branch, local HEAD and live remote
 > matched **`56012558a93853ec2b4847297a0372b4050743e7`** before edits. Phase 14 alone executed.
@@ -463,7 +533,7 @@
 >
 > — Recorded by Codex, 2026-09-29.
 
-> ## CURRENT STATE — v0.6.6 PHASE 11: PACKAGING / SETUP / RELEASE HYGIENE (2026-09-29)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 11: PACKAGING / SETUP / RELEASE HYGIENE (2026-09-29)
 >
 > **Phase 10 is maintainer-approved** at `098ef9a`. Phase 11 started from that exact commit
 > (local = origin), with the local-only `.ai/`, `scripts/project-status.py` and screenshot
@@ -551,7 +621,7 @@
 >
 > — Recorded by Claude Code, 2026-09-29.
 
-> ## CURRENT STATE — v0.6.6 PHASE 10: PRODUCT HARDENING + DEFERRAL DISPOSITION (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 10: PRODUCT HARDENING + DEFERRAL DISPOSITION (2026-09-28)
 >
 > **Phase 9 is maintainer-approved** at `758e24f`. Phase 10 started from that exact commit, with the
 > local-only `.ai/`, `scripts/project-status.py` and screenshot renames preserved uncommitted.
@@ -640,7 +710,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 9: CROSS-TOOL GEOMETRY, DPI, ACCESSIBILITY + CONSISTENCY (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 9: CROSS-TOOL GEOMETRY, DPI, ACCESSIBILITY + CONSISTENCY (2026-09-28)
 >
 > **Phase 8 is maintainer-approved.** The Windows M4B Metadata gate at `81680d1` (block below)
 > PASSED: Light, Dark and the manual workflow.
@@ -746,7 +816,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 8: M4B METADATA COMPACT VISUAL STANDARDIZATION (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 8: M4B METADATA COMPACT VISUAL STANDARDIZATION (2026-09-28)
 >
 > **Phase 7 is maintainer-approved.** The required Windows M4B Maker gate at `333134f` (block
 > below) PASSED: Light, Dark and the manual workflow. Its missing `[Unreleased]` Changelog record
@@ -866,7 +936,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 7: M4B MAKER COMPACT VISUAL STANDARDIZATION (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 7: M4B MAKER COMPACT VISUAL STANDARDIZATION (2026-09-28)
 >
 > **Phase 6 is maintainer-approved.** The required Windows MP3 Tool gate at `d6cb0be` (block
 > below) PASSED: Light, Dark and the manual workflow.
@@ -972,7 +1042,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 6: MP3 TOOL COMPACT VISUAL STANDARDIZATION (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 6: MP3 TOOL COMPACT VISUAL STANDARDIZATION (2026-09-28)
 >
 > **Phase 5 is maintainer-approved** (the documentation checkpoint at `bc52a05`).
 >
@@ -1068,7 +1138,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 5: COVER IMAGE — SATISFIED BY THE APPROVED PHASE 2 REMEDIATION (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 5: COVER IMAGE — SATISFIED BY THE APPROVED PHASE 2 REMEDIATION (2026-09-28)
 >
 > **Phase 4 is maintainer-approved.** The Windows manual M4B Converter gate at `cfe0678` (block
 > below) PASSED. It covered Light/Dark, the responsive small-window layout, the metadata modes and
@@ -1101,7 +1171,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 4: M4B CONVERTER GUIDED LAYOUT (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 4: M4B CONVERTER GUIDED LAYOUT (2026-09-28)
 >
 > **Phase 3 is maintainer-approved.** The Windows manual TTS gate at `d03a7aa` (block below) PASSED
 > in Light and Dark, maximized and at the small supported size. The responsive small-window TTS
@@ -1192,7 +1262,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 3: TTS REFERENCE CONFORMANCE (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 3: TTS REFERENCE CONFORMANCE (2026-09-28)
 >
 > **Phase 2 is maintainer-approved.** The final Cover Image manual gate at `39352c7` (block below)
 > PASSED in Light and Dark: Family-A layout, right-side Activity, compact controls, no core
@@ -1275,7 +1345,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28.
 
-> ## CURRENT STATE — v0.6.6 PHASE 2 FINAL REMEDIATION: COVER IMAGE CONVERTED TO FAMILY A ON TTS'S CONTROL LANGUAGE (2026-09-28)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 2 FINAL REMEDIATION: COVER IMAGE CONVERTED TO FAMILY A ON TTS'S CONTROL LANGUAGE (2026-09-28)
 >
 > **The Phase 2 repeat manual gate on `5e41f9d` (block below) FAILED on Cover presentation/layout.**
 > Dark coverage passed and all tested functionality still worked; that work is preserved. By
@@ -1358,7 +1428,7 @@
 >
 > — Recorded by Claude Code, 2026-09-28, on the maintainer's explicit Phase 2 remediation override.
 
-> ## CURRENT STATE — v0.6.6 PHASE 2 REMEDIATED: COVER IMAGE RESIZER NOW FULLY COHERENT IN LIGHT/DARK (2026-09-27)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 2 REMEDIATED: COVER IMAGE RESIZER NOW FULLY COHERENT IN LIGHT/DARK (2026-09-27)
 >
 > **The maintainer's manual gate on the Phase 2 checkpoint below (`0ab862d`) FAILED.** Toggling to
 > Dark only recolored the two shared `job_ui` components that checkpoint had wired (the imported-file
@@ -1426,7 +1496,7 @@
 >
 > — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 2 remediation authorization.
 
-> ## CURRENT STATE — v0.6.6 PHASE 2 COMPLETE: SHARED ACTIVITY + IMPORTER/LIST INTERACTION CONTRACTS (2026-09-27)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 2 COMPLETE: SHARED ACTIVITY + IMPORTER/LIST INTERACTION CONTRACTS (2026-09-27)
 >
 > **This block records Phase 2 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,**
 > executed on `feature/0.6.6-ui-parity-hardening-release` from the Phase 1 checkpoint `c597031`,
@@ -1522,7 +1592,7 @@
 >
 > — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 2 authorization.
 
-> ## CURRENT STATE — v0.6.6 PHASE 1 COMPLETE: SHARED APPEARANCE FOUNDATION + SHELL TOGGLE (2026-09-27)
+> ## HISTORICAL CHECKPOINT — v0.6.6 PHASE 1 COMPLETE: SHARED APPEARANCE FOUNDATION + SHELL TOGGLE (2026-09-27)
 >
 > **This block records Phase 1 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,
 > executed on `feature/0.6.6-ui-parity-hardening-release` from the Phase 0 checkpoint
@@ -1603,7 +1673,7 @@
 >
 > — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 1 authorization.
 
-> ## CURRENT STATE — PULL REQUEST #12 MERGED; v0.6.5 COMPLETE AND INTEGRATED; PLAN 9 REASSIGNED TO v0.6.6 (2026-09-27)
+> ## HISTORICAL CHECKPOINT — PULL REQUEST #12 MERGED; v0.6.5 COMPLETE AND INTEGRATED; PLAN 9 REASSIGNED TO v0.6.6 (2026-09-27)
 >
 > **This block supersedes every statement below that calls `feature/0.6.5-tts-quality-refactor`
 > unmerged, integration "pending," or Plan 9 "DISPLACED — FUTURE ALLOCATION UNASSIGNED."** Those
@@ -1657,7 +1727,7 @@
 >
 > — Decided by maintainer (Elijah Matthew), recorded by Claude Code, 2026-09-27.
 
-> ## CURRENT STATE — v0.6.5 HISTORICAL AI CO-AUTHOR TRAILER DISPOSITION RESOLVED (2026-09-26)
+> ## HISTORICAL CHECKPOINT — v0.6.5 HISTORICAL AI CO-AUTHOR TRAILER DISPOSITION RESOLVED (2026-09-26)
 >
 > **Explicit maintainer decision at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71`: RESOLVED.**
 > Existing AI `Co-Authored-By` trailers already present in the completed v0.6.5 feature-branch
@@ -1682,7 +1752,7 @@
 >
 > — Disposition explicitly decided by maintainer Elijah Matthew, 2026-09-26.
 
-> ## CURRENT STATE — v0.6.5 INTEGRATION-REVIEW DOCUMENTATION REMEDIATION (2026-09-26)
+> ## HISTORICAL CHECKPOINT — v0.6.5 INTEGRATION-REVIEW DOCUMENTATION REMEDIATION (2026-09-26)
 >
 > **Scope:** documentation only, from reviewed closeout
 > `bffb7dbf557f7a2656247f336666a4458937b1f3` on `feature/0.6.5-tts-quality-refactor`.

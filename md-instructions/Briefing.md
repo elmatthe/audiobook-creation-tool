@@ -926,8 +926,49 @@ only in launcher. (`config.toml` added to this line and the committed-only rule,
 
 ## Current Version
 
+**v0.6.6 is the current published release (2026-09-30).**
+PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as
+`7222083a732bbb0f1ef91e104725fc9a5cd2d141`, the verified master SHA at publication.
+Tag `v0.6.6` points exactly to that commit. The
+[GitHub Release](https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.6.6) is published,
+neither draft nor prerelease.
 
-**Latest checkpoint ? 2026-09-30, Phase 15 Step 1 reconciliation complete.** Source
+| Published archive | Bytes | Approved SHA-256 |
+|---|---:|---|
+| [AudiobookTool-Windows-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-Windows-v0.6.6.zip) | 786842 | `e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75` |
+| [AudiobookTool-MacOS-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) | 788642 | `fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6` |
+
+GitHub's live asset digests match these approved hashes. The published artifacts retain
+the committed-source proof at `files/release-history/v0.6.6-integration-package-proof.json`
+(package source `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`). This documentation closeout does not
+rebuild packages; their embedded pre-publication README remains part of the approved artifacts.
+
+The approved **v0.6.7 manual/follow-up backlog remains deferred, never passed**:
+
+- Native macOS all-six-tool Light/Dark, minimum/maximized geometry, Aqua rendering,
+  keyboard/dialog/menu behavior and native automated suites.
+- Hands-on clean Windows/macOS double-click setup, Python/FFmpeg acquisition, cold network
+  install, Gatekeeper quarantine/App Translocation, optional models, repair and relaunch.
+- Physical Windows 125%/150% scaling and the hands-on all-tool visual matrix.
+- Long real-workload Pause/Resume/Cancel/Retry Failed drills, listening judgments
+  (including Kokoro's accepted early breakpoint) and real phone-photo Cover checks.
+- Broader TXT encoding support and sharper per-monitor DPI rendering remain future work.
+
+USAC remains a real-media evidence waiver; accepted Kokoro breakpoint, density and wording
+decisions stand. Publication does not turn these evidence gaps into manual acceptance.
+
+v0.6.6 implementation, integration and publication are complete. Exactly the four canonical
+documents remain tracked under `md-instructions/`; `files/Archives/` remains ignored/local-only.
+The feature branch is retained. No v0.6.7 implementation has started in this closeout.
+
+The dated version checkpoints below are historical. Their unpublished/merge/tag/publication
+and next-action statements are superseded by the published state above; verification remains
+evidence for the scope and platform actually tested.
+
+### Version checkpoint history
+
+
+**Historical checkpoint — 2026-09-30, Phase 15 Step 1 reconciliation complete.** Source
 `21e36163ccc992ef4ba94cb16e58caeda8f236c8` is pushed. The obsolete plan/references/code archive are retired;
 exactly the four canonical docs are tracked and optional Archives copies are ignored/unchanged.
 The warranted package refresh has exact 82-member source/hash/extraction/launcher proof and
@@ -941,7 +982,7 @@ All earlier phase/package-state statements below are dated history where superse
 
 
 
-**Current state ? 2026-09-30, Phase 15 Step 1 reconciliation.** Phase 14 is approved at
+**Historical checkpoint — 2026-09-30, Phase 15 Step 1 reconciliation.** Phase 14 is approved at
 `caadf5d4db0b51ef5d04182d92430bcaacdac63c`; identity remains **0.6.6, unpublished RC**, latest
 published release **v0.4.0**. The maintainer retires the completed instruction drop, old planning
 references and tracked archive in favor of exactly the four canonical documents. All earlier
@@ -954,7 +995,7 @@ Focused verification and new package proof are recorded in Handoff; no full-suit
 claimed. No PR/merge/tag/release/publication or Phase 16 is authorized by this reconciliation.
 
 
-**Current state — 2026-09-30, Phase 14 COMPLETE.** Phase 13 READY is maintainer-approved at
+**Historical checkpoint — 2026-09-30, Phase 14 COMPLETE.** Phase 13 READY is maintainer-approved at
 `56012558a93853ec2b4847297a0372b4050743e7`. Application identity is now **0.6.6**, an
 **unpublished release candidate**; `version.py`, `config.toml` and live version guards agree.
 The `[Unreleased]` candidate notes cover all Plan-9 phases and retain earlier dated history.
@@ -983,7 +1024,7 @@ at 1024×800 does not claim native Aqua acceptance, and synthetic/stubbed jobs d
 listening or long real-workload validation. Identity remains **`0.6.2`, unreleased** until Phase 14.
 The next phase is Phase 13's fresh independent review, only after maintainer acceptance of Phase 12.
 
-**Current-state supersession — 2026-09-27.** Supersedes the 2026-09-26 paragraph immediately below
+**Historical supersession — 2026-09-27.** Supersedes the 2026-09-26 paragraph immediately below
 on merge state and Plan 9 allocation only; its `0.6.2` version-identity statement stands unchanged.
 Pull request #12 merged `feature/0.6.5-tts-quality-refactor` into `master` as merge commit
 `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`: **v0.6.5 TTS Quality Refinement is confirmed merged**,
@@ -994,7 +1035,7 @@ DISPLACED** — it is reassigned to **v0.6.6**, the final v0.6.x implementation 
 bump, tag, package, or release accompanies this merge or reassignment; identity remains `0.6.2`,
 unreleased.
 
-**Current-state supersession — 2026-09-26.** Application version identity remains **`0.6.2`,
+**Historical supersession — 2026-09-26.** Application version identity remains **`0.6.2`,
 unreleased**, exactly as described below. The following older narrative is retained as history
 where it says v0.6.4 is "not merged" or the v0.6.5/Plan-9 assignment is "unchanged":
 **v0.6.4 merged through PR #11**, merge `1f9bdcf347edaad36d68e237933d3ac6036d0a42`;
@@ -1026,6 +1067,20 @@ split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisi
 release — is unchanged and undrafted.
 
 ## High-Level State
+
+**2026-09-30 final state:** v0.6.6 is complete, merged through PR #13 and published under
+tag `v0.6.6` at the release merge SHA recorded above. README is the compact user guide with
+direct Windows/macOS release-asset links. The four canonical docs carry the final release
+facts and retained v0.6.7 backlog. Remaining manual checks keep their approved deferral status.
+The documentation closeout ends here; future implementation needs a separate instruction.
+
+### Historical implementation and integration records
+
+The following dated records describe their checkpoints, not today's release or next action.
+Earlier pending integration, displaced plans, version identities and v0.4.0-latest claims
+are superseded by the final published state above. Retired planning/drop/archive references
+remain historical references and must not be restored.
+
 
 **Current-state supersession — 2026-09-27.** Supersedes the "not merged" / integration-pending
 statements in both paragraphs below: pull request #12 is **merged**
@@ -1303,6 +1358,8 @@ arm. Four automated tests keep it that way (`test_apply_theme_on_current_platfor
 `test_an_aqua_bundle_builds_the_historical_layout`). **A live macOS re-verification of the
 v0.6.0 line has not been performed** — it is an explicitly approved deferral, not a pass, and
 the exact five-step smoke test is written out in `Handoff.md`.
+
+### Known limitations and retained follow-up
 
 **Known limitations (documented, not bugs):**
 - **Current v0.6.6 disposition (Phase 13, 2026-09-29).** The historical Plan-9 targets below

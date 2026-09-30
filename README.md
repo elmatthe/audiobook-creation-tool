@@ -4,12 +4,12 @@ A Windows and macOS desktop app for turning PDF/TXT books into narrated audio an
 
 ## Download / Install
 
-**v0.6.6 is an unpublished release candidate.** When published, the [Releases page](https://github.com/elmatthe/audiobook-creation-tool/releases) will offer these packages:
+**v0.6.6 is the current published release.** Download the archive for your platform:
 
 | Platform | Archive | Double-click after extraction |
 |---|---|---|
-| Windows | `AudiobookTool-Windows-v0.6.6.zip` | `Setup_and_Run-audiobook-creation-tool.bat` |
-| macOS | `AudiobookTool-MacOS-v0.6.6.zip` | `Setup_and_Run-audiobook-creation-tool.command` |
+| Windows | [AudiobookTool-Windows-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-Windows-v0.6.6.zip) | `Setup_and_Run-audiobook-creation-tool.bat` |
+| macOS | [AudiobookTool-MacOS-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) | `Setup_and_Run-audiobook-creation-tool.command` |
 
 Extract the whole archive and keep its contents together. On macOS, move the extracted `AudiobookTool-MacOS-v0.6.6` folder from Downloads to Desktop or Applications before opening the launcher. If macOS blocks it, right-click the launcher, choose **Open**, and confirm.
 
@@ -48,6 +48,8 @@ TTS accepts **PDF and TXT only**. Save TXT files as **UTF-8**, with or without a
 - Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; Chatterbox also needs local reference recordings. Models need additional disk space.
 
 ## More information
+
+See the [Releases page](https://github.com/elmatthe/audiobook-creation-tool/releases) for release notes and other versions.
 
 Detailed project and developer information: [Briefing](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Briefing.md), [Changelog](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Changelog.md), [Decisions](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Decisions.md), and [Handoff](https://github.com/elmatthe/audiobook-creation-tool/blob/master/md-instructions/Handoff.md).
 

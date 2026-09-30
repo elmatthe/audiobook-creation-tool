@@ -15,7 +15,69 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-### Changed - Compact v0.6.6 user guide and refreshed pre-merge RC (2026-09-30)
+No changes recorded yet.
+
+## [0.6.6] - 2026-09-30
+
+### Published
+
+**v0.6.6 is the current published release (2026-09-30).**
+PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as
+`7222083a732bbb0f1ef91e104725fc9a5cd2d141`, the verified master SHA at publication.
+Tag `v0.6.6` points exactly to that commit. The
+[GitHub Release](https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.6.6) is published,
+neither draft nor prerelease.
+
+| Published archive | Bytes | Approved SHA-256 |
+|---|---:|---|
+| [AudiobookTool-Windows-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-Windows-v0.6.6.zip) | 786842 | `e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75` |
+| [AudiobookTool-MacOS-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) | 788642 | `fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6` |
+
+GitHub's live asset digests match these approved hashes. The published artifacts retain
+the committed-source proof at `files/release-history/v0.6.6-integration-package-proof.json`
+(package source `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`). This documentation closeout does not
+rebuild packages; their embedded pre-publication README remains part of the approved artifacts.
+
+The release includes the integrated v0.6.x foundations and all v0.6.6 implementation phases:
+shared configuration/output/maintenance, frozen job/import/retry controls, multi-Book MP3/Maker/
+Metadata workflows, TTS quality refinements, six-tool compact Light/Dark presentation and
+product/setup/packaging hardening. Full Phase-14 verification remains historical evidence:
+**7,905 passed / 58 accounted skips / zero failures/errors**.
+
+### Changed — Documentation closeout
+
+- README states the current published v0.6.6 release and links Windows/macOS archive names
+  directly to live release assets. The general Releases page remains secondary; the compact
+  user-guide format, PDF/TXT boundary and GPL/upstream credit remain.
+- Briefing/Decisions/Handoff reconcile final merge, tag, publication and approved artifact
+  facts. Retired planning/drop/archive files stay retired; exactly four canonical docs remain
+  tracked and existing `files/Archives/` contents remain ignored/local-only.
+
+### Retained follow-up
+
+The approved **v0.6.7 manual/follow-up backlog remains deferred, never passed**:
+
+- Native macOS all-six-tool Light/Dark, minimum/maximized geometry, Aqua rendering,
+  keyboard/dialog/menu behavior and native automated suites.
+- Hands-on clean Windows/macOS double-click setup, Python/FFmpeg acquisition, cold network
+  install, Gatekeeper quarantine/App Translocation, optional models, repair and relaunch.
+- Physical Windows 125%/150% scaling and the hands-on all-tool visual matrix.
+- Long real-workload Pause/Resume/Cancel/Retry Failed drills, listening judgments
+  (including Kokoro's accepted early breakpoint) and real phone-photo Cover checks.
+- Broader TXT encoding support and sharper per-monitor DPI rendering remain future work.
+
+USAC remains a real-media evidence waiver; accepted Kokoro breakpoint, density and wording
+decisions stand. Publication does not turn these evidence gaps into manual acceptance.
+
+### Historical development and verification records
+
+The dated checkpoints below are release-development history. Their unpublished/candidate,
+pending merge/tag/publication and next-action statements are superseded by the published state
+above. Earlier candidate hashes remain historical; the table above identifies the published
+artifacts. This documentation closeout neither repackages the release nor starts v0.6.7.
+
+
+### Historical — Compact v0.6.6 user guide and refreshed pre-merge RC (2026-09-30)
 
 - Replaced the long README with a short install/use guide covering all six tools, exact v0.6.6
   package/launcher names, output safety and requirements. Removed old-version download examples
@@ -30,7 +92,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   maintainer's separate merge approval; no tagging, release creation or publication is claimed.
 
 
-### Verified ? Phase 15 Step 1 reconciliation candidate (2026-09-30, unpublished)
+### Historical verification — Phase 15 Step 1 reconciliation candidate (2026-09-30, unpublished)
 
 Source `21e36163ccc992ef4ba94cb16e58caeda8f236c8` is pushed; both refreshed 82-member archives have committed-
 content/hash/EOL/Unix-mode/safe-extraction proof. Final extracted code trees pass six-panel Windows
@@ -43,7 +105,7 @@ and STOP; PR/merge/tag/release/publication and Phase 16 remain gated.
 
 
 
-### Changed ? Phase 15 Step 1 archival and readiness reconciliation (2026-09-30)
+### Historical — Phase 15 Step 1 archival and readiness reconciliation (2026-09-30)
 
 - Adopted the maintainer's four-file `md-instructions/` contract; retired the old planning
   references, completed v0.6.6 drop and tracked EPUB archive. Existing `files/Archives/` copies
@@ -58,17 +120,12 @@ and STOP; PR/merge/tag/release/publication and Phase 16 remain gated.
   gated. The dated Phase-14 notes below are superseded on current phase/package state only.
 
 
-### v0.6.6 release candidate — 2026-09-30 (unpublished)
+### v0.6.6 implementation summary
 
-**Phase 14 complete:** final Windows/macOS archives proved from pushed source `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`,
-82 members each; actual Windows install/batch launch and bounded Mac shell smoke pass.
-Full verification: **7,905 passed / 58 accounted skips / no failures or errors**;
-strict compilation and whitespace checks pass. Exact hashes and evidence limits are in Handoff.
-Release/integration remain gated; Phase 15 has not started.
-
-Application identity is **0.6.6**. These are candidate notes, with no release date,
-merge, tag, GitHub Release or publication claimed. The dated development entries below
-remain the audit history; a dated `[0.6.6]` heading belongs to authorized publication.
+Phase 14 completed on 2026-09-30 with committed-source package and automated launch proof;
+the later README refresh supplied the final approved artifacts listed above. Implementation,
+PR #13 integration, tag and GitHub Release publication are complete. The dated development
+entries retain the audit history and the limits of their verification.
 
 - **Phases 0–1:** reconciled the merged v0.6.5 baseline and Plan-9 allocation; added a
   remembered global Light/Dark preference, shell toggle, compact palette/styles and owned-dialog
@@ -104,13 +161,13 @@ remain the audit history; a dated `[0.6.6]` heading belongs to authorized public
   Windows-built launcher entries now declare Unix metadata as well as mode `100755`, so
   executable permissions are correctly described for macOS extraction.
 
-The candidate also includes the previously integrated v0.6.x foundations and workflows documented
+The release also includes the previously integrated v0.6.x foundations and workflows documented
 below: configuration/output/maintenance services, frozen job/retry/import controls, TTS/Cover,
 chaptered M4B conversion, multi-Book MP3/Maker/Metadata and v0.6.5 TTS quality refinements.
 The full Plan 9 scope is covered here, including early phases previously absent from the session log.
 Hands-on clean Windows/Mac setup, native Aqua/Gatekeeper, physical scaling, listening and long
-real-workload checks remain the maintainer-approved **v0.6.7 backlog**. Phase 15 requires explicit
-authorization and has not started.
+real-workload checks remain the maintainer-approved **v0.6.7 backlog**. Phase 15 integration and
+publication are complete; this final documentation closeout stops before v0.6.7 implementation.
 
 
 ### Fixed — **Independent release review: appearance synchronization and Aqua coherence** (v0.6.6 Phase 13, 2026-09-29)

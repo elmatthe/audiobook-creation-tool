@@ -4,6 +4,60 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-30 — Published v0.6.6 documentation closeout
+
+**v0.6.6 is the current published release (2026-09-30).**
+PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as
+`7222083a732bbb0f1ef91e104725fc9a5cd2d141`, the verified master SHA at publication.
+Tag `v0.6.6` points exactly to that commit. The
+[GitHub Release](https://github.com/elmatthe/audiobook-creation-tool/releases/tag/v0.6.6) is published,
+neither draft nor prerelease.
+
+| Published archive | Bytes | Approved SHA-256 |
+|---|---:|---|
+| [AudiobookTool-Windows-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-Windows-v0.6.6.zip) | 786842 | `e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75` |
+| [AudiobookTool-MacOS-v0.6.6.zip](https://github.com/elmatthe/audiobook-creation-tool/releases/download/v0.6.6/AudiobookTool-MacOS-v0.6.6.zip) | 788642 | `fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6` |
+
+GitHub's live asset digests match these approved hashes. The published artifacts retain
+the committed-source proof at `files/release-history/v0.6.6-integration-package-proof.json`
+(package source `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`). This documentation closeout does not
+rebuild packages; their embedded pre-publication README remains part of the approved artifacts.
+
+**Decision:** close out README and the four canonical documents against verified live release
+facts under the maintainer's explicit documentation-only authorization. README remains a
+compact user guide, states the current published release and links each archive directly;
+the general Releases page remains a secondary link. Changelog promotes the release material
+to `## [0.6.6] - 2026-09-30` with a fresh `[Unreleased]` above it.
+
+This record supersedes all earlier current-state claims that v0.6.6 is unpublished or awaits
+PR merge, tag or publication, and earlier instructions to stop at those now-completed gates.
+Dated pre-release decisions and execution evidence remain history. This closeout changes no
+application behavior, version identity, tag, GitHub Release or release asset.
+
+The approved **v0.6.7 manual/follow-up backlog remains deferred, never passed**:
+
+- Native macOS all-six-tool Light/Dark, minimum/maximized geometry, Aqua rendering,
+  keyboard/dialog/menu behavior and native automated suites.
+- Hands-on clean Windows/macOS double-click setup, Python/FFmpeg acquisition, cold network
+  install, Gatekeeper quarantine/App Translocation, optional models, repair and relaunch.
+- Physical Windows 125%/150% scaling and the hands-on all-tool visual matrix.
+- Long real-workload Pause/Resume/Cancel/Retry Failed drills, listening judgments
+  (including Kokoro's accepted early breakpoint) and real phone-photo Cover checks.
+- Broader TXT encoding support and sharper per-monitor DPI rendering remain future work.
+
+USAC remains a real-media evidence waiver; accepted Kokoro breakpoint, density and wording
+decisions stand. Publication does not turn these evidence gaps into manual acceptance.
+
+Exactly `Briefing.md`, `Changelog.md`, `Decisions.md`, `Handoff.md` remain tracked under
+`md-instructions/`. Archives and known local-only items are preserved; retired planning/drop/
+archive files stay retired. The feature branch remains. Commit/push only this documentation
+closeout to master, verify live content, then STOP. No history rewrite, force-push, branch
+deletion or v0.6.7 implementation is authorized.
+
+Recorded by Codex under explicit maintainer authorization.
+
+---
+
 ## 2026-09-30 - Maintainer pre-merge README refinement and final candidate refresh
 
 PR #13 was opened under separate Phase-15 Step-2 authorization and remains unmerged into
