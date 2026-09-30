@@ -15,6 +15,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed - Compact v0.6.6 user guide and refreshed pre-merge RC (2026-09-30)
+
+- Replaced the long README with a short install/use guide covering all six tools, exact v0.6.6
+  package/launcher names, output safety and requirements. Removed old-version download examples
+  and developer/history narrative; detailed information is linked to the four canonical docs.
+  v0.6.6 remains explicitly unpublished. Upstream attribution and GPL terms remain.
+- Refreshed both 82-member archives from pushed source
+  `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`; only the shipped README changed. Current hashes
+  and committed-member proof are in Handoff and the integration-package evidence. Focused
+  checks: 192 passed, no skips/failures; static and archive gates PASS. Full/runtime evidence
+  remains historical for unchanged application bytes; approved v0.6.7 deferrals are unchanged.
+- PR #13 remains open and unmerged. Final read-only readiness recheck and STOP precede the
+  maintainer's separate merge approval; no tagging, release creation or publication is claimed.
+
 
 ### Verified ? Phase 15 Step 1 reconciliation candidate (2026-09-30, unpublished)
 

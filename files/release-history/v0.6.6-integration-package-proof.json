@@ -1,19 +1,19 @@
 {
-  "source_commit": "21e36163ccc992ef4ba94cb16e58caeda8f236c8",
+  "source_commit": "1e100e98b5c4f4a11020bdce0e98a631df8b0ee7",
   "version": "0.6.6",
   "archives": {
     "Windows": {
       "name": "AudiobookTool-Windows-v0.6.6.zip",
-      "bytes": 796271,
-      "sha256": "c17160adbeac7bb80658dc625add0a612e8cbf8ba8eac1bfcb0b3139ad8d557b",
+      "bytes": 786842,
+      "sha256": "e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75",
       "member_count": 82,
       "members": [
         {
           "path": "README.md",
-          "archive_sha256": "5443d0cb26deafb49dd442108f98b0be89e3482c4d69cb7f647e0290c12e8eb8",
-          "git_blob_sha256": "dcbd6eb9dd904024f9d1c454d875f227cf40b62abfd564aab7af2b84f40c9312",
-          "bytes": 31730,
-          "eol_only_difference": true
+          "archive_sha256": "b1204da560eb1dbff8854b5422d7a89d275e03b77c92fed2b04daa4de1a08705",
+          "git_blob_sha256": "b1204da560eb1dbff8854b5422d7a89d275e03b77c92fed2b04daa4de1a08705",
+          "bytes": 4866,
+          "eol_only_difference": false
         },
         {
           "path": "config.toml",
@@ -586,16 +586,16 @@
     },
     "MacOS": {
       "name": "AudiobookTool-MacOS-v0.6.6.zip",
-      "bytes": 798071,
-      "sha256": "61d8f7e34c206ff0fca963044444016c658b3014f79ea8182a767819ee0e2b44",
+      "bytes": 788642,
+      "sha256": "fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6",
       "member_count": 82,
       "members": [
         {
           "path": "README.md",
-          "archive_sha256": "5443d0cb26deafb49dd442108f98b0be89e3482c4d69cb7f647e0290c12e8eb8",
-          "git_blob_sha256": "dcbd6eb9dd904024f9d1c454d875f227cf40b62abfd564aab7af2b84f40c9312",
-          "bytes": 31730,
-          "eol_only_difference": true
+          "archive_sha256": "b1204da560eb1dbff8854b5422d7a89d275e03b77c92fed2b04daa4de1a08705",
+          "git_blob_sha256": "b1204da560eb1dbff8854b5422d7a89d275e03b77c92fed2b04daa4de1a08705",
+          "bytes": 4866,
+          "eol_only_difference": false
         },
         {
           "path": "config.toml",
@@ -1167,49 +1167,110 @@
       ]
     }
   },
+  "changed_packaged_paths_from_previous_candidate": [
+    "README.md"
+  ],
   "changed_packaged_paths_from_phase14": [
     "README.md",
     "scripts/Universal/tts/epub2tts_gui.py",
     "scripts/requirements.txt",
     "scripts/verify.py"
   ],
+  "previous_candidate": {
+    "checkpoint": "03d60484f9ecee7ec341a0420e85f7c514f9d8d7",
+    "source_commit": "21e36163ccc992ef4ba94cb16e58caeda8f236c8",
+    "proof_git_reference": "03d60484f9ecee7ec341a0420e85f7c514f9d8d7:files/release-history/v0.6.6-integration-package-proof.json",
+    "proof_sha256": "8e4cbe63b848b714762b8d459cd6cf0b7f68248fb10d76d0ccadb9b1ec1149fe",
+    "archives": {
+      "Windows": {
+        "name": "AudiobookTool-Windows-v0.6.6.zip",
+        "bytes": 796271,
+        "sha256": "c17160adbeac7bb80658dc625add0a612e8cbf8ba8eac1bfcb0b3139ad8d557b",
+        "member_count": 82
+      },
+      "MacOS": {
+        "name": "AudiobookTool-MacOS-v0.6.6.zip",
+        "bytes": 798071,
+        "sha256": "61d8f7e34c206ff0fca963044444016c658b3014f79ea8182a767819ee0e2b44",
+        "member_count": 82
+      }
+    },
+    "local_evidence_retained": "files/dev-work/v066-readme/prior-archives/"
+  },
   "previous_proof": "files/release-history/v0.6.6-rc-package-proof.json",
   "previous_archives_retained": "files/dev-work/v066-phase15/phase14-archives/",
   "verification": {
     "focused": {
-      "passed": 212,
+      "passed": 192,
       "skipped": 0,
-      "failed": 0,
-      "seconds": 12.3,
-      "warnings": [
-        "existing pydub audioop deprecation"
+      "failures": 0,
+      "errors": 0,
+      "seconds": 12.066,
+      "targets": [
+        "files/tests/test_epub_retirement.py",
+        "files/tests/test_repository_contract.py",
+        "files/tests/test_release_packaging.py"
       ],
-      "junit_sha256": "766a7ba924eb0e6e873733068b2867fad679e6597da9380baf96f53706668fa8"
+      "static": [
+        [
+          "deps",
+          true,
+          "all dependencies '=='-pinned"
+        ],
+        [
+          "docs",
+          true,
+          "Changelog.md + Briefing.md de-templated, version entry present"
+        ],
+        [
+          "docnames",
+          true,
+          "exactly 4 canonical files, no aliases or extra entries"
+        ],
+        [
+          "config",
+          true,
+          "config.toml valid; version 0.6.6, platforms Windows, MacOS"
+        ]
+      ],
+      "readme_bytes": 4866,
+      "readme_words": 622,
+      "readme_lines": 58,
+      "junit_sha256": "59155b371a03afea26e45fa5f5a0d1fc1e8408d7b9b71c2d016264bc74297a7b",
+      "warnings": [
+        "existing pydub audioop deprecation",
+        "sandbox PATH did not expose ffmpeg; no media test required"
+      ]
     },
-    "strict_compile_files": 243,
-    "static_gates": "deps/docs/docnames/config/whitespace PASS",
-    "full_suite": "Phase14 historical 7905 passed/58 skips; no rerun",
-    "runtime": "Application executable AST, pins and launcher blobs unchanged; Phase14 smoke retained",
-    "manual": "Native Mac/clean-machine/scaling/listening/long-workload checks deferred to v0.6.7",
-    "extracted_smoke": {
-      "Windows": "six hidden real Windows Tk panels; Light/Dark preserve containers; package-only module paths PASS",
-      "MacOS": "same shared-code check on Windows, not native Aqua"
+    "static_gates": "deps/docs/docnames/config/changed-test compile/README version, size, links/whitespace PASS",
+    "full_suite": "Phase14 historical 7905 passed/58 accounted skips; no full rerun",
+    "runtime": "All 81 non-README members in each archive exactly match prior candidate bytes; no application, dependency or launcher change",
+    "inherited_evidence": {
+      "source_commit": "21e36163ccc992ef4ba94cb16e58caeda8f236c8",
+      "strict_compile_files": 243,
+      "extracted_smoke": {
+        "Windows": "six hidden real Windows Tk panels; Light/Dark preserve containers; package-only module paths PASS",
+        "MacOS": "same shared-code check on Windows, not native Aqua"
+      },
+      "macos_shell": {
+        "bash": "C:\\Program Files\\Git\\bin\\bash.EXE",
+        "repair_rc3": "PASS",
+        "failure_rc1": "PASS",
+        "fast_path": "PASS",
+        "translocation_guard": "PASS",
+        "syntax": "PASS",
+        "native_mac": false,
+        "interpreters": "shell shims; no installs or native GUI inferred"
+      },
+      "limits": "Previous candidate Windows Tk and Bash/shim checks retained for identical runtime bytes; no fresh smoke/install/native-Mac claim"
     },
-    "macos_shell": {
-      "bash": "C:\\Program Files\\Git\\bin\\bash.EXE",
-      "repair_rc3": "PASS",
-      "failure_rc1": "PASS",
-      "fast_path": "PASS",
-      "translocation_guard": "PASS",
-      "syntax": "PASS",
-      "native_mac": false,
-      "interpreters": "shell shims; no installs or native GUI inferred"
-    }
+    "manual": "Approved v0.6.7 native Mac/clean-machine/physical scaling/listening/long-workload backlog unchanged"
   },
-  "release_status": "unpublished RC; Phase15 Step1 reconciliation; publication gated",
+  "release_status": "unpublished RC; PR #13 open; bounded pre-merge README refresh; separate merge/tag/release/publication gates",
   "build": {
     "entry_point": "scripts/Universal/shared/release.py main()",
-    "log_sha256": "173d1559e634b426ce485f1fee807a0958747728544c1a684c172d0a2ae810bb",
-    "untracked_status_helper_excluded": true
+    "log_sha256": "4513ea604025e718992bbfe118fb0bee462180f9afb818c1089b1d69aa099d3a",
+    "untracked_status_helper_excluded": true,
+    "source_pushed_before_build": true
   }
 }

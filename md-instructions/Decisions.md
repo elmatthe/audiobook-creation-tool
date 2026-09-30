@@ -4,6 +4,39 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-30 - Maintainer pre-merge README refinement and final candidate refresh
+
+PR #13 was opened under separate Phase-15 Step-2 authorization and remains unmerged into
+master. The maintainer now authorizes a bounded README rewrite and package refresh, followed
+by a final read-only PR readiness check. README is a compact v0.6.6 user guide, with exact
+archive/launcher names, install/use/output/safety/requirements information and brief GPL
+attribution. It links the four canonical documents for project/developer detail. Old release
+download names and historical engineering narrative are removed; the Releases-page wording
+explicitly treats v0.6.6 as unpublished, rather than claiming a download already exists.
+This supersedes earlier README capability-only or published-v0.4.0-link restrictions.
+
+Pushed source `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7` contains only README and its
+existing PDF/TXT wording-guard reconciliation. The real release builder then refreshed both
+82-member RCs. Only README bytes differ from the prior candidate; every other payload byte,
+including application code, pins and both launchers, is unchanged. Handoff and the integration
+package proof record the new sizes/hashes/source and prior evidence references; SHA256SUMS
+agrees. Earlier candidate archives and proof are retained in ignored scratch and Git history.
+
+Focused README/attribution/docs/repository/packaging checks pass 192/0/0, with static gates,
+changed-test compile and exact archive/source/extraction/EOL/executable metadata proof.
+Phase-14 full verification and previous extracted runtime smoke remain historical and
+applicable to unchanged runtime bytes; no full rerun or new native/clean-machine/listening
+acceptance is claimed. Approved v0.6.7 deferrals, waivers and the four-doc/local-Archives
+contract remain unchanged. Existing local-only/archive content and status are preserved.
+
+The following checkpoint records unpackaged evidence only. After pushing and rechecking PR
+head/base/mergeability and package proof, STOP for separate Step-3 merge approval. This scope
+authorizes no merge/auto-merge, tag, GitHub Release, publication or Phase 16 work.
+
+Recorded by Codex under explicit maintainer authorization.
+
+---
+
 ## 2026-09-30 — Phase 14 final package proof complete; release and integration remain gated
 
 Final Windows/macOS 0.6.6 archives were built through the real release entry point after source

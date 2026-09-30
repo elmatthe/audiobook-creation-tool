@@ -2,6 +2,47 @@
 
 ## Current Focus
 
+> ## CURRENT STATE - v0.6.6 PRE-MERGE USER GUIDE REFRESH (2026-09-30)
+>
+> PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is open, non-draft and
+> unmerged, targeting `master` at `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`.
+> The maintainer approved Step 1 READY at `03d60484f9ecee7ec341a0420e85f7c514f9d8d7` and
+> separately authorized opening the PR. This bounded pre-merge refinement replaces README
+> with a 58-line, approximately 622-word user guide: 31,509 to 4,866 committed bytes (85% less).
+> All application package names/examples are v0.6.6; the Releases-page link explicitly says
+> the candidate is unpublished. Detailed project information stays in the four canonical docs.
+> The existing PDF/TXT capability wording guard was reconciled; upstream/GPL guards still pass.
+>
+> **Pushed package source:** `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`.
+> Both final archives were rebuilt through real `scripts/Universal/shared/release.py main()`
+> after pushing that commit. README is the only changed member; all 81 other members in each
+> archive exactly match the prior candidate, including application code, pins and launchers.
+> Current member-level proof: `files/release-history/v0.6.6-integration-package-proof.json`.
+> `dist/SHA256SUMS.txt` agrees. Prior integration candidates/proof are preserved under ignored
+> `files/dev-work/v066-readme/`; Phase-14 archives/proof remain intact at their prior locations.
+>
+> | Current unpublished candidate | Bytes | SHA-256 |
+> |---|---:|---|
+> | `AudiobookTool-Windows-v0.6.6.zip` | 786842 | `e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75` |
+> | `AudiobookTool-MacOS-v0.6.6.zip` | 788642 | `fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6` |
+>
+> **Verification:** README/EPUB attribution, docs/repository contract and release packaging:
+> **192 passed / 0 skipped / 0 failures/errors**, 12.07 s. Two environment/dependency warnings:
+> existing pydub audioop deprecation and sandbox PATH not exposing FFmpeg (no media run claimed).
+> Deps/docs/docnames/config, changed-test compile, README version/size/links and whitespace PASS.
+> Both 82-member archives pass CRC, safe extraction, source/current-HEAD member hashes, launcher
+> EOL and Unix executable-mode checks. Previous Windows Tk/shared-code and Git Bash/shim smoke
+> remain applicable to byte-identical runtime; no new smoke/install/native-Mac claim is made.
+> Phase-14 full gate remains historical 7,905 passed / 58 accounted skips; no full rerun needed.
+> Approved v0.6.7 native/clean-machine/scaling/listening/long-workload deferrals and other waivers
+> are unchanged. Known local-only status/hashes and Archives files/directories remain unchanged.
+>
+> **Next:** push this unpackaged proof/docs checkpoint, perform the authorized final read-only
+> PR readiness check against its exact HEAD, then STOP for separate maintainer Step-3 merge
+> approval. No merge, auto-merge, tag, GitHub Release, publication, branch deletion, history
+> rewrite, force-push or Phase 16 action is authorized. Earlier current-state/package entries
+> below are dated history, superseded by this record for README, PR and current archive state.
+
 
 > ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: RECONCILIATION COMPLETE; FINAL READ-ONLY RECHECK (2026-09-30)
 >
