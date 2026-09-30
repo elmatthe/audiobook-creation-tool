@@ -17,6 +17,12 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### v0.6.6 release candidate — 2026-09-30 (unpublished)
 
+**Phase 14 complete:** final Windows/macOS archives proved from pushed source `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`,
+82 members each; actual Windows install/batch launch and bounded Mac shell smoke pass.
+Full verification: **7,905 passed / 58 accounted skips / no failures or errors**;
+strict compilation and whitespace checks pass. Exact hashes and evidence limits are in Handoff.
+Release/integration remain gated; Phase 15 has not started.
+
 Application identity is **0.6.6**. These are candidate notes, with no release date,
 merge, tag, GitHub Release or publication claimed. The dated development entries below
 remain the audit history; a dated `[0.6.6]` heading belongs to authorized publication.

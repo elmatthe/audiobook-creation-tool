@@ -922,7 +922,7 @@ only in launcher. (`config.toml` added to this line and the committed-only rule,
 
 ## Current Version
 
-**Current state — 2026-09-30, Phase 14.** Phase 13 READY is maintainer-approved at
+**Current state — 2026-09-30, Phase 14 COMPLETE.** Phase 13 READY is maintainer-approved at
 `56012558a93853ec2b4847297a0372b4050743e7`. Application identity is now **0.6.6**, an
 **unpublished release candidate**; `version.py`, `config.toml` and live version guards agree.
 The `[Unreleased]` candidate notes cover all Plan-9 phases and retain earlier dated history.
@@ -932,6 +932,12 @@ Hands-on native Mac, clean-machine setup, physical scaling, listening and long r
 checks remain deferred to v0.6.7. Integration, tag, release and publication require separate
 maintainer authorization; Phase 15 has not started. The older dated states below are history
 and are superseded on current identity and next action only.
+Final Windows/macOS archives contain 82 committed-content members each (source `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`);
+real Windows setup/batch launch and both extracted code trees pass automated smoke, with Mac
+shell paths proved through Git Bash and interpreter shims. Full verification is **7,905 passed /
+58 accounted skips / zero failures or errors**, strict compile and whitespace checks PASS.
+Handoff and the tracked package-proof record hold exact hashes and evidence limits.
+**STOP for explicit release/integration authorization; Phase 15 has not started.**
 
 
 **Phase-12 acceptance — 2026-09-29.** Phase 11 is maintainer-approved at

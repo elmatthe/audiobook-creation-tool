@@ -4,6 +4,69 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-30 — Phase 14 final package proof complete; release and integration remain gated
+
+Final Windows/macOS 0.6.6 archives were built through the real release entry point after source
+commit `3bb7425801ae18e4a0a40ef27baceb8d5c64a692` was pushed. Both have exact 82-member scope, committed-content/EOL proof,
+CRC/safe extraction and correct launcher syntax/Unix executable metadata. Handoff records the
+archive sizes/hashes; `files/release-history/v0.6.6-rc-package-proof.json` retains member-level proof.
+This evidence-only checkpoint changes no shipped blob and is re-proved against the same archives.
+
+Real first-run pinned setup in the extracted Windows package passed; its actual batch launcher
+opened a responsive window and exited normally through WM_CLOSE. Both extracted code trees built
+all six panels and preserved containers during appearance switching on Windows. The final macOS
+shell executed success/error/repair/translocation paths under Git Bash with interpreter shims;
+none of this claims native Aqua, physical scaling, listening or clean-machine acceptance.
+The initial disposable Windows window harness timed out because venv redirectors use base
+pythonw for the GUI; exact package command-line matching fixed the harness, without app changes.
+
+Full `scripts/verify.py` passed once after final packaged changes: 7,905 passed, 58 skips,
+zero failures/errors; all five gates green. Capture-only logging preserved pytest output/JUnit.
+All skips are accounted for, strict compilation and whitespace checks pass, and all 16 original
+local-only entries are unchanged. The remaining hands-on/native checks stay the approved v0.6.7
+backlog, detailed in Handoff. Broader TXT encoding, DPI clarity, USAC waiver and accepted Kokoro
+breakpoint disposition are unchanged. No further Phase-14 application change is justified.
+
+**Phase 14 complete; STOP.** Candidate notes remain under `[Unreleased]`, identity 0.6.6.
+Maintainer approval of readiness authorizes neither integration nor release/publication.
+Phase 15 has not started; no PR/merge/tag/GitHub Release/publication was performed.
+
+— Recorded by Codex under the maintainer's Phase-14 authorization.
+
+---
+
+
+## 2026-09-30 — Phase 13 READY approved; Phase 14 unpublished candidate identity and package repair
+
+The maintainer approved Phase 13 at `56012558a93853ec2b4847297a0372b4050743e7`; local/remote
+feature-branch state matched before edits. Phase 14 alone is authorized. Application identity
+advances coherently to 0.6.6; live guards/config/README agree. `[Unreleased]` holds explicit
+candidate notes covering the whole plan, including Phases 0–6 omitted from the later session log.
+There is no dated release heading or claim of merge/tag/GitHub Release/publication. Download
+links remain on the existing published release. Older dated identity statements remain history.
+
+**Confirmed defects justify bounded remediation.** Real Bash over packaged macOS launcher bytes
+reproduced a repair failure: `rc=$?` after an `if` without `else` receives zero rather than the
+failed bootstrap status. Capture moves into `else`; exit 3 enters repair and ordinary failure
+still stops. Interpreter shims prevent installs/GUI activity during this shell regression.
+Archive metadata also reproduced `create_system=0` (DOS) despite high-bit Unix mode `100755`
+on Windows. Executable entries now declare Unix (`3`), so their intended permissions are
+unambiguous to Unix extractors. The existing mode test gains that assertion; it failed first.
+No runtime policy, dependency pin, application processing or UI behavior is otherwise changed.
+
+**Proof ordering:** commit/push packaged identity and documentation first; run the real builder,
+prove exact contents against that commit, perform available extracted-package smoke, and run
+the full checkpoint after final packaged changes. A later evidence-only commit may update
+unpackaged documents; reproof must establish identical shipped content at the final checkpoint.
+Release checklist text now distinguishes automated gates/approved deferrals and stops for
+separate integration/release/publication authorization. Native Mac, clean-machine, physical
+scaling, listening and long real-workload checks remain v0.6.7 deferrals, never manual PASS.
+Exact final source/hash/verification evidence belongs in Handoff and the active Phase-14 note.
+
+— Recorded by Codex under the maintainer's Phase-14 authorization.
+
+---
+
 ## 2026-09-29 — Phase 12 approved; Phase 13 independent release review and bounded appearance remediation
 
 Started from the verified local/tracking/live-remote Phase-12 checkpoint
@@ -55,37 +118,6 @@ merge, tag, publication or Phase 14 action. Local-only work is preserved and exc
 
 ---
 
-
-## 2026-09-30 — Phase 13 READY approved; Phase 14 unpublished candidate identity and package repair
-
-The maintainer approved Phase 13 at `56012558a93853ec2b4847297a0372b4050743e7`; local/remote
-feature-branch state matched before edits. Phase 14 alone is authorized. Application identity
-advances coherently to 0.6.6; live guards/config/README agree. `[Unreleased]` holds explicit
-candidate notes covering the whole plan, including Phases 0–6 omitted from the later session log.
-There is no dated release heading or claim of merge/tag/GitHub Release/publication. Download
-links remain on the existing published release. Older dated identity statements remain history.
-
-**Confirmed defects justify bounded remediation.** Real Bash over packaged macOS launcher bytes
-reproduced a repair failure: `rc=$?` after an `if` without `else` receives zero rather than the
-failed bootstrap status. Capture moves into `else`; exit 3 enters repair and ordinary failure
-still stops. Interpreter shims prevent installs/GUI activity during this shell regression.
-Archive metadata also reproduced `create_system=0` (DOS) despite high-bit Unix mode `100755`
-on Windows. Executable entries now declare Unix (`3`), so their intended permissions are
-unambiguous to Unix extractors. The existing mode test gains that assertion; it failed first.
-No runtime policy, dependency pin, application processing or UI behavior is otherwise changed.
-
-**Proof ordering:** commit/push packaged identity and documentation first; run the real builder,
-prove exact contents against that commit, perform available extracted-package smoke, and run
-the full checkpoint after final packaged changes. A later evidence-only commit may update
-unpackaged documents; reproof must establish identical shipped content at the final checkpoint.
-Release checklist text now distinguishes automated gates/approved deferrals and stops for
-separate integration/release/publication authorization. Native Mac, clean-machine, physical
-scaling, listening and long real-workload checks remain v0.6.7 deferrals, never manual PASS.
-Exact final source/hash/verification evidence belongs in Handoff and the active Phase-14 note.
-
-— Recorded by Codex under the maintainer's Phase-14 authorization.
-
----
 
 ## 2026-09-29 -- Phase 11 approved; Phase 12 automated acceptance and warning-safe test literals
 

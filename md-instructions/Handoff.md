@@ -3,7 +3,109 @@
 ## Current Focus
 
 
-> ## CURRENT STATE — v0.6.6 PHASE 14: RC IDENTITY / PACKAGE PROOF (2026-09-30)
+> ## CURRENT STATE — v0.6.6 PHASE 14 COMPLETE: FINAL RC PACKAGE PROOF (2026-09-30)
+>
+> **Phase 13 READY was maintainer-approved.** Exact branch, local HEAD and live remote
+> matched **`56012558a93853ec2b4847297a0372b4050743e7`** before edits. Phase 14 alone executed.
+> Application identity is **0.6.6, unpublished release candidate**; the single `VERSION` constant,
+> root config, nine live test guards and README agree. `[Unreleased]` now explicitly covers
+> Phases 0–14 and the inherited integrated v0.6.x work; missing Phases 0–6 coverage is reconciled.
+> Older dated records remain history. No dated release heading or publication claim was added.
+>
+> **Two confirmed package defects, narrow RED-first repairs:**
+> - Real Bash reproduced lost bootstrap status after `fi`: repair code 3 became ordinary failure.
+>   Capture moved into `else`. Both repair and failure controls now pass.
+> - Windows-built executable entries declared DOS (`create_system=0`) despite Unix `100755` bits.
+>   They now declare Unix (`3`); the strengthened existing mode regression failed first.
+> The initial sandboxed shell attempt selected inaccessible WSL; host-access Git Bash reproduced
+> the actual repair defect (1 failed / 1 passing error control). No test was weakened or skipped.
+>
+> **Committed build ordering and package provenance:**
+> - Preparation commit **`3bb7425801ae18e4a0a40ef27baceb8d5c64a692`** (`Prepare v0.6.6 release candidate identity and package
+>   repairs`) was pushed before the real `scripts/Universal/shared/release.py` build.
+> - Both archives were built by its actual `main()` from clean packaged paths in this checkout,
+>   while all local-only items stayed present. Its log explicitly excludes `scripts/project-status.py`.
+> - Each zip contains **82 members**: 79 tracked `scripts/` files, README, config and its own
+>   launcher. Scope is exact; no duplicate/unsafe member or CRC error. No `.DS_Store`, `Thumbs.db`,
+>   caches, compiled files, `.venv`, Git, `.ai`, developer tests/docs/screenshots, user state,
+>   models, credentials or outputs ship. Every archive byte matches its checkout source, and
+>   every member matches the committed Git blob after only Git CRLF/LF normalization.
+> - Windows `.bat` is CRLF. Mac `.command` is LF with `#!/bin/bash`; both executable entries
+>   declare Unix and mode `100755`. The committed `.command` remains `100755`. Bash syntax passes.
+> - Safe extraction, config identity and shared script contents are proved for both archives.
+>
+> | Final candidate archive | Bytes | SHA-256 |
+> |---|---:|---|
+> | `dist/AudiobookTool-Windows-v0.6.6.zip` | 796487 | `4fc3ca4ebc5887fd7d3e4dfb090b67470787d150c0714b25e57c173812790356` |
+> | `dist/AudiobookTool-MacOS-v0.6.6.zip` | 798287 | `baff231b004908b36d329fb30c9990df4c4d5f6122030af2cc8d4993aaf31ce8` |
+>
+> `dist/SHA256SUMS.txt` holds both hashes. Durable per-member source/archive hashes and bounded
+> smoke/skip evidence are tracked in `files/release-history/v0.6.6-rc-package-proof.json`.
+> The final checkpoint containing this entry changes only unpackaged docs/evidence after the
+> source commit above; shipped paths/blobs are identical. Final HEAD is independently re-proved
+> against both existing archives after commit; no rebuild is warranted for unpackaged records.
+>
+> **Strongest practical extracted-package smoke on HOME-PC (Windows, Python 3.12.10):**
+> - Windows: actual extracted bootstrap `--headless --skip-kokoro-download` first run **exit 0**,
+>   **186.91 s**; all required imports proved, **24 applicable direct pins
+>   exact** (the Python >=3.13 `audioop-lts` marker excludes the 25th pin), 171 distributions.
+>   Existing WinGet FFmpeg/ffprobe **9.0.1** proved and pinned; no model download.
+> - Extracted `--venv-check` **0**; real `.bat` **0**, visible/non-hung app window owned by the
+>   extraction's launcher, then normal `WM_CLOSE` and process exit, **2.59 s**.
+>   Windows venv redirectors initially confused the disposable HWND/process harness; matching
+>   the exact package launcher command line corrected that timeout. Final smoke passed; no
+>   application change was needed and the timeout is not counted as PASS.
+> - All six panels built from **each** archive's own code under real Windows Tk; Light/Dark
+>   switches preserve the same containers. Paths/config/version/imported app modules resolve
+>   inside the corresponding extraction. This is shared-code evidence on Windows, not Aqua.
+> - Mac: exact final `.command` executed under installed **Git Bash**. Success fast path exits 0;
+>   bootstrap code 3 reaches repair; code 1 remains a visible failure; missing-scripts/translocated
+>   path exits 1 with actionable help; `bash -n` passes. Interpreter shims prevent native installs
+>   and GUI activity. Unix mode metadata is proved; **native macOS launch is deferred**.
+> - Fresh extracted Windows environment is **not a clean machine**: Python/FFmpeg and pip cache
+>   were already available. No hands-on double-click, listening or physical-scaling PASS is claimed.
+>
+> **Final automated checkpoint after all packaged changes:**
+> - Focused identity/package/bootstrap/launch suite: **247 passed / 0 skipped / 0 failed**,
+>   6.93 s, one existing pydub `audioop` deprecation warning.
+> - Full `scripts/verify.py` ran **once**, through the unchanged real entry point with a
+>   capture-only subprocess wrapper retaining pytest's otherwise discarded report.
+>   **RESULT: PASS — 7,905 passed / 58 skipped / 0 failed / 0 errors.**
+>   Exact verifier summary: `[PASS] pytest   - 7905 passed, 58 skipped, 2 warnings in 958.86s (0:15:58)`. Deps, docs, docnames and config all PASS.
+> - Both full-run warnings are existing dependency notices: pydub imports deprecated
+>   `audioop`; Perth imports deprecated `pkg_resources` under the documented setuptools
+>   80.9.0 compatibility hold. No invalid-escape, unexpected runtime or test warnings remain.
+> - Full skips are independently enumerated from JUnit: **39 native Aqua** (37 geometry,
+>   2 theme), **12 symlink privilege**, **3 case-sensitive path**, **3 optional Jack Ryan media**,
+>   **1 retired hash-gate empty parameter set**. No unexpected Tk/FFmpeg/Bash skips.
+> - All **243 tracked Python files** compile with `SyntaxWarning` as an error; live guard AST
+>   changes are identity-only. Working/staged `git diff --check` and docs/config/static gates pass.
+> - All **16 original local-only entries** retain their original hash/status: `.ai/`,
+>   `scripts/project-status.py`, six replacement screenshots and eight tracked screenshot deletions.
+>   They remain outside both Phase-14 commits and both packages.
+>
+> **Remaining v0.6.7 backlog, deferred rather than passed:**
+> - Native Mac all-six-tool Light/Dark, 1024×800/minimum/maximized, Aqua command/style rendering,
+>   keyboard/dialog/menu behavior and native automated suites.
+> - Hands-on clean Windows/Mac double-click installs: Python/FFmpeg acquisition, cold network
+>   setup, Gatekeeper quarantine/App Translocation, optional model offer, repair and relaunch.
+> - Physical Windows 125%/150% scaling and the hands-on all-tool visual matrix.
+> - Long real-workload Pause/Resume/Cancel/Retry Failed drills, audio/listening judgments
+>   (including Kokoro's accepted early breakpoint), and real phone-photo Cover checks.
+> Broader TXT encodings remain future v0.6.7 work; sharp-text per-monitor DPI awareness remains
+> future work. USAC's real-media waiver remains a waiver. Accepted density/wording decisions stand.
+>
+> **PHASE 14 COMPLETE — STOP FOR EXPLICIT MAINTAINER RELEASE/INTEGRATION AUTHORIZATION.**
+> Final checkpoint is the commit containing this entry, directly atop `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`; subject
+> `Complete Phase 14 v0.6.6 RC package proof`. Push only this feature branch.
+> **Phase 15 has not started.** No PR opened, master merged, tag/GitHub Release/publication,
+> branch deletion, history rewrite, force-push or AI co-author trailer was performed.
+> Local logs, extracted copies, environments and helper scripts remain ignored under
+> `files/dev-work/v066-phase14/`; final archives stay local in ignored `dist/`.
+
+
+
+> ## PREPARATION CHECKPOINT — v0.6.6 PHASE 14: RC IDENTITY / PACKAGE PROOF (2026-09-30)
 >
 > Phase 13 READY is explicitly maintainer-approved. Branch, HEAD and live remote were verified
 > at **`56012558a93853ec2b4847297a0372b4050743e7`** before editing. Scope is Phase 14 only.
@@ -24,7 +126,7 @@
 > **Phase 14 in progress; Phase 15 not started.** No merge/tag/release/publication is authorized.
 
 
-> ## CURRENT STATE — v0.6.6 PHASE 13: INDEPENDENT RELEASE REVIEW (2026-09-29)
+> ## PREVIOUS CHECKPOINT — v0.6.6 PHASE 13: INDEPENDENT RELEASE REVIEW (2026-09-29)
 >
 > **Phase 12 is maintainer-approved.** Before any review/edit, branch
 > `feature/0.6.6-ui-parity-hardening-release`, local HEAD, tracking ref and live remote were
