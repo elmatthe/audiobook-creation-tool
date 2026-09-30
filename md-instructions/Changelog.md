@@ -15,6 +15,21 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed -- **Warning-safe test literals; full release-candidate acceptance** (v0.6.6 Phase 12, 2026-09-29)
+
+- Reproduced and removed two invalid-escape `SyntaxWarning`s in the Edge CLI M4B chapter test
+  using raw-string prefixes. Literal values and test behavior are unchanged, proved by AST equality.
+- Corrected seven test-only assumptions exposed by repository-contained temporary files: eSpeak
+  short-path fixtures now fit regardless of checkout depth, and cleanup assertions protect the
+  real environment while allowing nested disposable copies. All 302 affected-module tests pass.
+- Revalidated all six tools' Light/Dark geometry, keyboard/focus and state-preservation contracts;
+  the focused acceptance passed all 126 tests. Final full verification: **7,895 passed, 58 skips
+  accounted for, zero failures/errors**; all other gates pass. The initial failed run, remediation
+  and platform/skip accounting are recorded in `Handoff.md`'s Phase-12 entry.
+- Application behavior and version identity are unchanged (`0.6.2`, unreleased). Hands-on Mac,
+  scaling, clean-machine, listening and long real-workload checks remain deferred to v0.6.7 by
+  the maintainer's standing ruling. Phase 13 has not started.
+
 ### Fixed -- **First-run setup failed on a healthy machine; release packaging ships only committed files; the TXT encoding contract made true everywhere and documented** (v0.6.6 Phase 11, 2026-09-29)
 
 - **First-run setup reported "Python packages installed but could not be imported" on a healthy

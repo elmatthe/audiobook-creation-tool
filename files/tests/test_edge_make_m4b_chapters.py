@@ -109,11 +109,11 @@ def test_add_cover_keeps_the_chapter_track_intact(edge_book, tmp_path):
 
 #: FFMETADATA's reserved characters, a backslash, and text outside cp1252, which
 #: the metadata file could not even be written in on a Windows locale.
-AWKWARD_TITLES = ("Part 1; a=b #x", "Back\slash", "日本語の章")
+AWKWARD_TITLES = ("Part 1; a=b #x", r"Back\slash", "日本語の章")
 
 
 def test_awkward_chapter_titles_and_tags_survive_the_real_mux(tmp_path, monkeypatch):
-    """``generate_metadata`` wrote values unescaped, so ``;``/``=``/``#``/``\``
+    r"""``generate_metadata`` wrote values unescaped, so ``;``/``=``/``#``/``\``
     garbled a title, and in the locale encoding (cp1252 on Windows), so a
     Japanese title raised ``UnicodeEncodeError`` and the build never ran."""
     require_ffmpeg()

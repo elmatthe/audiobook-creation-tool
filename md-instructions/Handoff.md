@@ -2,6 +2,94 @@
 
 ## Current Focus
 
+> ## CURRENT STATE — v0.6.6 PHASE 12: RELEASE-CANDIDATE ACCEPTANCE (2026-09-29)
+>
+> **Phase 11 is maintainer-approved.** Before any edit, branch
+> `feature/0.6.6-ui-parity-hardening-release` and both local/remote HEAD were verified at
+> `1a218f96ab57c53758186ac1e2cd9f483ce22d96`. The local-only `.ai/`,
+> `scripts/project-status.py` and screenshot changes remain uncommitted and untouched.
+>
+> **Scope:** Phase 12 only. The standing maintainer ruling replaces hands-on gates with practical
+> automated/CLI evidence and a truthful v0.6.7 backlog. Native Mac, physical display scaling,
+> clean-machine setup, listening and long real-workload drills are not claimed as passed.
+>
+> **Warning fix:** two raw-string prefixes in `test_edge_make_m4b_chapters.py`. Forced
+> compilation reproduced both invalid escapes (`\s` and backslash-backtick); the fixed file
+> compiles with `SyntaxWarning` treated as an error. The entire before/after AST is identical,
+> including the backslash-containing title and docstring. No application behavior changed.
+>
+> **Focused acceptance: 126 passed, 0 skipped, 0 failed (84.26 s).** Eight files: the Edge M4B
+> chapter regression, `test_cross_tool_consistency.py`, and all six `test_*_appearance.py` files.
+> Real Windows Tk, Python 3.12.10, installed FFmpeg/ffprobe 9.0.1:
+> - All six tools, Light/Dark, 920×600 minimum, 1024×720, 1024×800, 1280×900, logical
+>   125%/150% maximized sizes (1536×800 / 1280×665), and actual maximized windows.
+> - No core scrolling/clipping/overlap, numbered hierarchy, flexible-region growth, Tab
+>   reachability/order, shared Activity, Shared/Current Book distinction, importer/list shortcuts,
+>   text-edit focus and run locks, and idle/running theme state preservation.
+> - These are Windows measurements, including the 1024×800 size; they do not emulate Aqua.
+>
+> **Full checkpoint:** the initial gate reported **7,887 passed / 58 skipped / 8 failed**
+> (940.98 s). All eight were diagnosed; no production defect was found:
+> - Five eSpeak tests assumed pytest's absolute temporary path fit a 160-character buffer. In
+>   this deep repository-contained scratch tree it did not. Short candidates now use relative
+>   paths under a temporarily selected test cwd; long sources remain absolute, real links are
+>   still exercised, and the exact 160/144/145 boundary tests are unchanged.
+> - Two cleanup tests assumed a disposable repository could not be nested under the real repo.
+>   They now assert the exact supplied-copy target and exclusion of the real `.venv`, compatible
+>   with the required repository-contained scratch policy. Actual deletion/isolation tests stand.
+> - The packaged macOS shell check found Windows' unusable WSL `bash.exe`. Prepending installed
+>   Git Bash to this verification process's PATH fixes executable selection; no global setting
+>   or test implementation changed for this case.
+> **Focused remediation:** all four affected modules, **302 passed / 0 skipped / 0 failed**
+> (8.18 s), including the same eight failed cases. This confirmed remediation justified the
+> final full `scripts/verify.py` rerun: **RESULT: PASS**, **7,895 passed / 58 skipped /
+> 0 failed / 0 errors** (962.64 s; 2 warnings). Deps, docs, docnames and config all PASS.
+> Final test totals equal Phase 11's; existing tests were repaired, none added or removed.
+>
+> **All 58 skips accounted for from the final JUnit report:**
+> - 39 native Aqua tests on this Windows host (37 geometry, 2 theme branches);
+> - 12 symlink-creation privilege limitations;
+> - 3 case-sensitive filesystem/path cases on case-insensitive Windows;
+> - 3 optional Jack Ryan media-fixture cases (fixture environment variable unset);
+> - 1 empty parameter set for the already-retired Plan-6 Phase-0 hash-pin gate.
+> No unexpected Tk, FFmpeg or Bash skips. No unexplained failures remain.
+>
+> Its existing coverage supplies the bounded representative workload evidence:
+>
+> | Tool / concern | Regression evidence and limits |
+> |---|---|
+> | TTS | `test_tts_jobs.py`, runner/engine and lifecycle suites: pause/resume/cancel, frozen retry, failure isolation, collision-safe destinations and partial cleanup; synthesis is stubbed, not a listening or network/model run. |
+> | Converter | `test_m4b_converter_jobs.py`, `test_m4b_execution.py`, `test_m4b_retry.py`: real synthetic FFmpeg media, whole/split outputs, cancellation/reaping/cleanup, retry and unchanged source hashes. |
+> | Cover | `test_cover_jobs.py`, browser/import/orientation suites: generated images, bounded threaded boundaries around real resize, retry, atomic replacement gates and source preservation outside the explicit replacement mode. |
+> | MP3 Tool | `test_mp3_orchestration.py`, `test_mp3_hardening.py`, processing suites: short synthetic audio, pause/cancel, failed-only frozen retry, source hashes, FAST/Safe fallback and output isolation. |
+> | Maker / Metadata | batch/processing and `test_m4b_combined_hardening.py`: real synthetic media, bounded threaded pause/resume, cancellation and publication races, failed-only retry, source hashes and staged output cleanup. |
+> | Shared / platform / release | importer traversal/order/duplicates, output reservations/collisions, lifecycle/cleanup and isolation guards; Phase-9 platform-aware geometry; Phase-11 packaging/bootstrap/import-probe/pinned-repair/launcher regressions. |
+>
+> **Static checks:** all 243 git-tracked Python files under `scripts/` and `files/tests/` compile
+> with `SyntaxWarning` as an error; literal-equivalence AST check PASS; macOS launcher `bash -n`
+> PASS; `git diff --check` PASS. The focused run reports only pydub's existing Python 3.12
+> `audioop` deprecation, not an invalid-escape warning.
+>
+> **Environment accounting:** the initial sandboxed focused invocation could not read installed
+> Tcl/Tk or resolve FFmpeg (2 failures, 118 setup errors, 2 dependency skips, 4 passes). The exact
+> same eight files passed with host access, with no environment repair or test weakening. This
+> was an execution-permission failure, not a product defect. Local disposable logs/XML/static
+> helper are under `files/dev-work/v066-phase12-20260929/` (not shipped or committed).
+>
+> **v0.6.7 backlog remains:** native macOS Light/Dark minimum/maximized and native Aqua suite;
+> live Windows 125%/150% visual inspection; clean Windows/Mac packaged double-click, dependency
+> acquisition, Gatekeeper/translocation and optional model offer; listening (including the
+> accepted Kokoro breakpoint); real phone-photo checks; long real-workload job-control drills.
+>
+> **Phase 12 COMPLETE; STOP for maintainer review.** The checkpoint is the commit containing
+> this entry, directly atop the approved Phase-11 SHA, on the same feature branch. Commit subject:
+> `Complete Phase 12 release-candidate acceptance`. Push that checkpoint to origin before handoff.
+> **Next, only after maintainer acceptance:** Phase 13, fresh independent release review.
+> Phase 13 has not started. Identity remains `0.6.2`, unreleased. No merge, tag, release,
+> publication, branch deletion, history rewrite or force-push is authorized by this checkpoint.
+>
+> — Recorded by Codex, 2026-09-29.
+
 > ## CURRENT STATE — v0.6.6 PHASE 11: PACKAGING / SETUP / RELEASE HYGIENE (2026-09-29)
 >
 > **Phase 10 is maintainer-approved** at `098ef9a`. Phase 11 started from that exact commit

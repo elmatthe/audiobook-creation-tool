@@ -4,6 +4,44 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-09-29 -- Phase 11 approved; Phase 12 automated acceptance and warning-safe test literals
+
+The maintainer approved Phase 11 at `1a218f96ab57c53758186ac1e2cd9f483ce22d96` and
+authorized Phase 12 only. Local and remote feature-branch HEAD matched that exact checkpoint
+before edits. Known local-only workspace/status-helper/screenshot changes remain outside the commit.
+
+The standing 2026-09-28 manual-testing deferral applies: Phase 12 uses the existing real-Tk
+six-tool matrix, bounded synthetic-media jobs, deterministic failure/control seams, and the
+complete regression gate. Native Aqua, physical Windows scaling, clean-machine installation,
+listening and long real-workload drills remain the v0.6.7 backlog. Windows measurements at
+1024×800 are not native macOS acceptance; stubbed TTS synthesis is not audio-quality evidence.
+No test is weakened or relabelled as a manual pass to close this phase.
+
+Forced compilation reproduced both invalid-escape `SyntaxWarning`s in
+`test_edge_make_m4b_chapters.py`. Only the backslash-containing title literal and its nearby
+docstring gain raw-string prefixes. A before/after AST comparison proves their values and all
+test behavior are identical; all 243 tracked Python files compile with `SyntaxWarning` as an
+error. The existing real-FFmpeg chapter regression passes with the original title expectations.
+
+The first full gate exposed seven additional test portability defects with repository-contained
+temporary files: five eSpeak fixtures presumed an absolute short path, and two cleanup assertions
+presumed temporary repositories lived outside the checkout. The eSpeak tests now pass short
+relative candidate paths from a temporary cwd while keeping real links, absolute long sources
+and the exact buffer boundary checks. Cleanup tests assert the supplied copy's exact target and
+protect the real environment, rather than excluding the whole repository's developer scratch.
+The eighth failure was executable selection: WSL's `bash.exe` exists but cannot start Bash here.
+The verification process now selects installed Git Bash through its own PATH, without changing
+the packaged-launcher test or global settings. The four affected modules pass all 302 tests.
+These confirmed failures require a final full gate after remediation; the earlier failed gate
+is retained as evidence, not reported as acceptance.
+
+Acceptance evidence and final gate/skip accounting live in the Phase-12 Handoff entry. No
+production change or version bump is warranted. Identity stays `0.6.2`, unreleased, until Phase 14.
+Phase 12 ends at a committed/pushed checkpoint for maintainer review; Phase 13 requires the next
+authorization and has not started.
+
+— Codex, 2026-09-29.
+
 ## 2026-09-29 -- Phase 10 approved; the v0.6.6 TXT encoding contract is UTF-8 only; Phase 11 packaging, setup and release hygiene, including a first-run setup Critical found by a real install from the archive
 
 **Phase 10 approved.** The maintainer approved the Phase 10 checkpoint `098ef9a`. Phase 11 started

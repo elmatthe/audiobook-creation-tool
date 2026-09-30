@@ -923,6 +923,17 @@ only in launcher. (`config.toml` added to this line and the committed-only rule,
 
 ## Current Version
 
+**Phase-12 acceptance — 2026-09-29.** Phase 11 is maintainer-approved at
+`1a218f96ab57c53758186ac1e2cd9f483ce22d96`. Phase 12 is complete with a passing final full gate,
+awaiting maintainer review. It validated the complete current tree,
+including all six tools and the packaging/bootstrap path; evidence and skip accounting are in
+`Handoff.md`. Test-only changes make two literals warning-safe and correct temporary-path
+assumptions in eSpeak and cleanup tests; no application behavior changes. The standing v0.6.7
+manual backlog remains authoritative: Windows automated geometry
+at 1024×800 does not claim native Aqua acceptance, and synthetic/stubbed jobs do not claim
+listening or long real-workload validation. Identity remains **`0.6.2`, unreleased** until Phase 14.
+The next phase is Phase 13's fresh independent review, only after maintainer acceptance of Phase 12.
+
 **Current-state supersession — 2026-09-27.** Supersedes the 2026-09-26 paragraph immediately below
 on merge state and Plan 9 allocation only; its `0.6.2` version-identity statement stands unchanged.
 Pull request #12 merged `feature/0.6.5-tts-quality-refactor` into `master` as merge commit

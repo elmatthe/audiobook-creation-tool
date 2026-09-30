@@ -251,7 +251,7 @@ def test_a_target_is_always_inside_the_supplied_root(tmp_path):
 def test_mapping_follows_the_root_it_is_given_not_the_real_repository(tmp_path):
     root = fake_root(tmp_path)
     target = mnt.authorized_target("virtual_environment", root)
-    assert REPO_ROOT not in target.parents
+    assert target == root / ".venv"
     assert target != REPO_ROOT / ".venv"
 
 
