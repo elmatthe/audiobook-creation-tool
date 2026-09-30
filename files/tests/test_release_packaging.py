@@ -255,6 +255,9 @@ def test_the_macos_launcher_keeps_its_executable_mode(archives):
     mode = info.external_attr >> 16
     assert mode & 0o111 == 0o111, oct(mode)
     assert mode & 0o777 == 0o755, oct(mode)
+    # The high bits describe a Unix mode only when the archive declares Unix
+    # as the originating system, including archives built on Windows.
+    assert info.create_system == 3
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
@@ -450,6 +453,58 @@ def test_the_translocation_help_names_the_folder_the_archive_extracts_to():
     text = (REPO_ROOT / LAUNCHERS["MacOS"]).read_text(encoding="utf-8")
     assert '"AudiobookTool-MacOS-v..."' in text
     assert '"audiobook-creation-tool" folder' not in text
+
+
+@pytest.mark.parametrize("launch_rc,expected_rc,repairs", [(3, 0, True), (1, 1, False)])
+def test_packaged_macos_launcher_routes_bootstrap_exit_code(
+    tmp_path, archives, launch_rc, expected_rc, repairs
+):
+    """Execute the packaged shell; only bootstrap's rebuild code enters repair.
+
+    Interpreter shims prevent installs or GUI launches. This exercises real Bash
+    control flow, including the status of a failed command inside an ``if``.
+    """
+    import shutil
+
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("no bash on this machine")
+    root = tmp_path / "app folder"
+    with zipfile.ZipFile(archives["MacOS"]) as zf:
+        zf.extractall(root)
+    shim = (
+        '#!/bin/bash\n'
+        'printf "%s\\n" "$*" >> "$RC_CALLS"\n'
+        'case "$*" in\n'
+        '  *--launch-only*) exit "$RC_LAUNCH_EXIT" ;;\n'
+        '  --version) echo "Python 3.12 shim" ;;\n'
+        'esac\n'
+        'exit 0\n'
+    )
+    for relative in (".venv/bin/python", "shim-bin/python3.12"):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(shim, encoding="utf-8", newline="\n")
+        path.chmod(0o755)
+    calls = root / "calls.txt"
+    env = dict(os.environ, RC_CALLS=calls.as_posix(), RC_LAUNCH_EXIT=str(launch_rc))
+    # Use MSYS paths on Windows so a drive colon is not a PATH separator.
+    def shell_path(path):
+        value = Path(path).as_posix()
+        if os.name == "nt":
+            return "/" + value[0].lower() + value[2:]
+        return value
+
+    env["PATH"] = shell_path(root / "shim-bin") + ":" + shell_path(Path(bash).parent) + ":/usr/bin:/bin"
+    result = subprocess.run(
+        [bash, (root / LAUNCHERS["MacOS"]).as_posix()],
+        input="x\n", capture_output=True, text=True, env=env, timeout=30,
+    )
+    assert result.returncode == expected_rc, result.stdout + result.stderr
+    recorded = calls.read_text(encoding="utf-8").splitlines()
+    assert recorded[0].endswith("--launch-only")
+    assert any("--repair-venv" in call for call in recorded) is repairs
+    assert not any("close_terminal.py" in call for call in recorded)
 
 
 def test_the_launcher_line_endings_are_pinned_by_gitattributes():

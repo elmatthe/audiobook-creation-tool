@@ -113,8 +113,11 @@ if [ -x ".venv/bin/python" ]; then
             >/dev/null 2>&1 &
         disown 2>/dev/null || true
         exit 0
+    else
+        # Capture bootstrap's status here: after `fi`, a failed condition with
+        # no else branch has status zero and would hide its repair request.
+        rc=$?
     fi
-    rc=$?
     if [ "$rc" -eq "$VENV_REPAIR_REQUIRED" ]; then
         NEEDS_VENV_REPAIR=1
     else

@@ -288,9 +288,9 @@ def test_the_launcher_still_registers_exactly_six_tools():
 def test_the_version_did_not_move():
     from shared import version
 
-    # v0.6.2 Plan 5 Phase 18 closeout: the bump from 0.6.1 happened here and
-    # nowhere else. This guard now pins the approved closeout version.
-    assert version.VERSION == "0.6.2"
+    # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
+    # This pins the application version without asserting publication.
+    assert version.VERSION == "0.6.6"
 
 
 # --------------------------------------------------------------------------- #

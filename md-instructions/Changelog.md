@@ -15,6 +15,55 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### v0.6.6 release candidate — 2026-09-30 (unpublished)
+
+Application identity is **0.6.6**. These are candidate notes, with no release date,
+merge, tag, GitHub Release or publication claimed. The dated development entries below
+remain the audit history; a dated `[0.6.6]` heading belongs to authorized publication.
+
+- **Phases 0–1:** reconciled the merged v0.6.5 baseline and Plan-9 allocation; added a
+  remembered global Light/Dark preference, shell toggle, compact palette/styles and owned-dialog
+  refresh while preserving panel, Book, import and job state. Historical Windows shell and
+  native Aqua composition remain; platform-specific styles stay isolated.
+- **Phase 2:** shared persistent Activity (Summary/Detailed, Clear Log, progress/status), importer
+  and list selection, focus-sensitive Ctrl+A/Delete and contiguous/discontiguous block movement.
+  Input/run locks and existing job/output behavior remain. Cover's approved visual reference
+  and Family-A conversion were completed here by the explicit sequencing override.
+- **Phases 3–5:** TTS, Converter and Cover use the compact Family-A guided workflow. TTS keeps
+  its approved geometry where it fits; the small-window split keeps Start, controls and Activity
+  reachable. Converter puts Whole book/Split by chapter above its metadata modes; Cover retains
+  Details/List/Medium Thumbnails. Phase 5 was satisfied by the approved Phase-2 Cover work,
+  rather than a second conversion. TTS quality, conversion and image/output policies are preserved.
+- **Phases 6–8:** MP3 Tool, M4B Maker and Metadata Editor use numbered Family-B workflows,
+  tinted Shared settings above Current Book, persistent bottom Activity and responsive density.
+  Actions remain reachable at the supported minimum sizes; list/chapter/log scrolling is local.
+  The Maker/Editor use 40 px artwork previews. All six interiors have left the old `ACT.*` styles.
+- **Phase 9:** all-six-tool automated geometry, keyboard/focus, theme and state checks; Cover's
+  hidden browser views leave Tab order. Windows remains DPI-unaware by accepted decision.
+- **Phases 10–11:** UTF-8 BOM handling, empty Edge input, EXIF orientation, escaped UTF-8 CLI
+  M4B chapters and FFmpeg failure propagation; cold-import setup timeout and pinned repair;
+  committed-only packages, dirty packaged-path refusal and exact launcher format checks.
+  TXT is UTF-8 with/without BOM; broader encodings are future work. Kokoro's breakpoint remains
+  characterized and accepted without a listening-backed retune; USAC retains its real-media waiver.
+- **Phases 12–13:** full acceptance and independent review, warning-safe test literals and
+  portable fixture assumptions; reset/save appearance synchronization and native Aqua appearance
+  timing/inheritance fixes. Native Mac rendering is deferred, never inferred from Windows.
+- **Phase 14:** coherent identity/guards/docs, final committed-source Windows/macOS package proof
+  and automated launch smoke. Fixed the macOS launcher's lost repair exit code; real Bash
+  regression proves repair code 3 routes to repair, while ordinary failures remain failures.
+  Exact archive hashes, source commit and final gates are recorded in Handoff at completion.
+  Windows-built launcher entries now declare Unix metadata as well as mode `100755`, so
+  executable permissions are correctly described for macOS extraction.
+
+The candidate also includes the previously integrated v0.6.x foundations and workflows documented
+below: configuration/output/maintenance services, frozen job/retry/import controls, TTS/Cover,
+chaptered M4B conversion, multi-Book MP3/Maker/Metadata and v0.6.5 TTS quality refinements.
+The full Plan 9 scope is covered here, including early phases previously absent from the session log.
+Hands-on clean Windows/Mac setup, native Aqua/Gatekeeper, physical scaling, listening and long
+real-workload checks remain the maintainer-approved **v0.6.7 backlog**. Phase 15 requires explicit
+authorization and has not started.
+
+
 ### Fixed — **Independent release review: appearance synchronization and Aqua coherence** (v0.6.6 Phase 13, 2026-09-29)
 
 - Reset Preferences now returns the live theme/toggle to default Light; cancelled or failed resets

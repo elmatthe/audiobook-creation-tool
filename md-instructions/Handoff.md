@@ -2,6 +2,28 @@
 
 ## Current Focus
 
+
+> ## CURRENT STATE — v0.6.6 PHASE 14: RC IDENTITY / PACKAGE PROOF (2026-09-30)
+>
+> Phase 13 READY is explicitly maintainer-approved. Branch, HEAD and live remote were verified
+> at **`56012558a93853ec2b4847297a0372b4050743e7`** before editing. Scope is Phase 14 only.
+> Identity is **0.6.6, unpublished release candidate**. README/version/config and all live guards
+> agree; `[Unreleased]` has full-plan candidate notes, including the missing Phases 0–6 coverage.
+> Historical records and v0.4.0 download links stay dated/unpublished truthfully.
+>
+> Two confirmed package defects fixed narrowly with RED-first checks: macOS bootstrap exit code
+> 3 was lost after `fi`, preventing repair; Windows-built zips declared DOS despite storing Unix
+> executable bits. The launcher captures failure status in `else`; executable entries declare Unix.
+> Focused identity/package/launch gate: **247 passed / 0 skipped / 0 failed**, 6.93 s, one existing
+> pydub `audioop` deprecation warning. This is preparation evidence, not final package acceptance.
+>
+> Committing packaged content now permits the real release builder's committed-source proof.
+> Final archive hashes, extracted-package smoke and full checkpoint are pending this preparatory
+> commit. All 16 original local-only status entries are preserved and excluded. Scratch evidence
+> stays ignored under `files/dev-work/v066-phase14/`.
+> **Phase 14 in progress; Phase 15 not started.** No merge/tag/release/publication is authorized.
+
+
 > ## CURRENT STATE — v0.6.6 PHASE 13: INDEPENDENT RELEASE REVIEW (2026-09-29)
 >
 > **Phase 12 is maintainer-approved.** Before any review/edit, branch

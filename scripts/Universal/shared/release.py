@@ -129,6 +129,9 @@ def _write_executable(zf: zipfile.ZipFile, src: Path, arcname: str) -> None:
     and ``unzip`` both honour the stored mode on extract.
     """
     zi = zipfile.ZipInfo.from_file(src, arcname)
+    # Unix attributes must be declared Unix even when building on Windows;
+    # otherwise an extractor may interpret the stored mode as DOS attributes.
+    zi.create_system = 3
     zi.external_attr = (0o100755 << 16)  # high 16 bits = Unix st_mode (reg file + 0755)
     zi.compress_type = zipfile.ZIP_DEFLATED
     with open(src, "rb") as fh:
@@ -205,12 +208,13 @@ def _print_checklist() -> None:
     print(f"  Release checklist  (Audiobook Creation Tool v{VERSION})")
     print("=" * 64)
     steps = [
-        "All test matrix cells PASS (see Briefing).",
-        f"Changelog.md [Unreleased] -> [{VERSION}] - <date>.",
+        "Required automated gates PASS; manual deferrals recorded (see Handoff).",
+        f"Changelog.md records the unpublished v{VERSION} release candidate.",
         f"Version bumped in scripts/Universal/shared/version.py = {VERSION}.",
         "Everything committed (this script refuses uncommitted packaged paths).",
         "Build both zips (this script) -> dist/.",
-        "Attach both zips to the GitHub Release; update README download links.",
+        "STOP for maintainer integration/release/publication authorization.",
+        "Only after publication: date the release notes and update download links.",
     ]
     for i, step in enumerate(steps, 1):
         print(f"  {i}. {step}")

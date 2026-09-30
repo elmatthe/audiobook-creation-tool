@@ -55,6 +55,38 @@ merge, tag, publication or Phase 14 action. Local-only work is preserved and exc
 
 ---
 
+
+## 2026-09-30 — Phase 13 READY approved; Phase 14 unpublished candidate identity and package repair
+
+The maintainer approved Phase 13 at `56012558a93853ec2b4847297a0372b4050743e7`; local/remote
+feature-branch state matched before edits. Phase 14 alone is authorized. Application identity
+advances coherently to 0.6.6; live guards/config/README agree. `[Unreleased]` holds explicit
+candidate notes covering the whole plan, including Phases 0–6 omitted from the later session log.
+There is no dated release heading or claim of merge/tag/GitHub Release/publication. Download
+links remain on the existing published release. Older dated identity statements remain history.
+
+**Confirmed defects justify bounded remediation.** Real Bash over packaged macOS launcher bytes
+reproduced a repair failure: `rc=$?` after an `if` without `else` receives zero rather than the
+failed bootstrap status. Capture moves into `else`; exit 3 enters repair and ordinary failure
+still stops. Interpreter shims prevent installs/GUI activity during this shell regression.
+Archive metadata also reproduced `create_system=0` (DOS) despite high-bit Unix mode `100755`
+on Windows. Executable entries now declare Unix (`3`), so their intended permissions are
+unambiguous to Unix extractors. The existing mode test gains that assertion; it failed first.
+No runtime policy, dependency pin, application processing or UI behavior is otherwise changed.
+
+**Proof ordering:** commit/push packaged identity and documentation first; run the real builder,
+prove exact contents against that commit, perform available extracted-package smoke, and run
+the full checkpoint after final packaged changes. A later evidence-only commit may update
+unpackaged documents; reproof must establish identical shipped content at the final checkpoint.
+Release checklist text now distinguishes automated gates/approved deferrals and stops for
+separate integration/release/publication authorization. Native Mac, clean-machine, physical
+scaling, listening and long real-workload checks remain v0.6.7 deferrals, never manual PASS.
+Exact final source/hash/verification evidence belongs in Handoff and the active Phase-14 note.
+
+— Recorded by Codex under the maintainer's Phase-14 authorization.
+
+---
+
 ## 2026-09-29 -- Phase 11 approved; Phase 12 automated acceptance and warning-safe test literals
 
 The maintainer approved Phase 11 at `1a218f96ab57c53758186ac1e2cd9f483ce22d96` and
