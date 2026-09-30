@@ -210,10 +210,11 @@ def test_the_two_new_buttons_are_not_registered_as_processing_options(make_panel
 # 3. Output & Run (the workflow) plus Activity (the one Summary | Detailed log).
 # ``TtsPanel._choose_layout`` arranges them from the panel's size alone, using
 # thresholds measured from the live widgets: two columns (workflow left,
-# Activity right) when both fit at their natural widths, otherwise Activity
-# drops beneath the workflow; Voice & Audio and Output & Run sit side by side
-# whenever the width allows. Never a whole-tool scrollbar -- only the imported
-# list and the log scroll, and each keeps a measured floor.
+# Activity right) when both fit at their natural widths; otherwise -- v0.6.6
+# Phase 3, maintainer ruling 2026-09-28 -- 1 over 2 on the left and 3 over
+# Activity on the right ("split"), and only a panel too small even for that
+# drops Activity beneath the workflow. Never a whole-tool scrollbar -- only
+# the imported list and the log scroll, and each keeps a measured floor.
 #
 # Every geometry test packs and deiconifies the panel: make_panel only
 # constructs it, and winfo_* geometry of an unmanaged panel or a withdrawn
@@ -422,13 +423,23 @@ def test_every_region_fits_and_nothing_overlaps(make_panel, geometry):
         _assert_composed(panel, geometry)
 
 
-def test_the_minimum_window_stacks_and_large_windows_use_two_columns(make_panel):
-    """At 920x600 the two columns cannot both have their natural widths, so
-    Activity sits beneath the workflow; maximized, it is a column to its right."""
+def test_the_minimum_window_keeps_activity_right_and_large_windows_use_two_columns(
+    make_panel
+):
+    """v0.6.6 Phase 3 (maintainer ruling 2026-09-28; this test used to pin
+    Activity *beneath* the workflow at 920x600): where the vertical workflow
+    cannot fit, 1 over 2 sit on the left and 3 over Activity on the right, so
+    Activity is still right of the workflow; maximized, the frozen vertical
+    workflow is unchanged with Activity a full-height column to its right."""
     panel = make_panel()
     with _Shown(panel, "920x600") as shown:
-        assert panel._layout_mode[0] == "stacked"
-        assert _box(panel, panel.activity)[1] >= _box(panel, panel.run_section)[3]
+        assert panel._layout_mode == ("split", "narrow")
+        sources, voice = (_box(panel, panel.sources_section),
+                          _box(panel, panel.voice_section))
+        run, activity = _box(panel, panel.run_section), _box(panel, panel.activity)
+        assert voice[1] >= sources[3] and voice[0] == sources[0]
+        assert run[0] >= sources[2] and activity[0] >= sources[2]
+        assert activity[1] >= run[3] and activity[0] == run[0]
         shown.resize("1920x1009")
         assert panel._layout_mode == ("wide", "stack")
         assert _box(panel, panel.activity)[0] >= _box(panel, panel.workflow)[2]
@@ -467,8 +478,10 @@ def test_beside_activity_the_workflow_is_one_vertical_column(make_panel, geometr
 
 def test_no_size_ever_puts_sections_2_and_3_side_by_side_beside_activity(make_panel):
     """``_choose_layout`` is a pure function of size, so sweep it: across every
-    width from the 920 minimum to 2560 and every height from 600 to 1440, a
-    two-column result is always the vertical workflow."""
+    width from the 920 minimum to 2560 and every height from 600 to 1440, the
+    frozen two-column result is always the vertical workflow, and the only
+    other result is the v0.6.6 small-window split (1 over 2 | 3 over
+    Activity) -- never 2 and 3 side by side within one workflow column."""
     panel = make_panel()
     seen = set()
     for width in range(920, 2561, 20):
@@ -477,24 +490,31 @@ def test_no_size_ever_puts_sections_2_and_3_side_by_side_beside_activity(make_pa
             seen.add(mode)
             if mode[0] == "wide":
                 assert mode[1] == "stack", (width, height, mode)
-    assert ("wide", "stack") in seen and ("stacked", "side") in seen, seen
+            if mode[0] == "split":
+                assert mode[1] == "narrow", (width, height, mode)
+    assert ("wide", "stack") in seen and ("split", "narrow") in seen, seen
 
 
 @windows_only
-def test_the_minimum_falls_back_only_because_the_vertical_workflow_cannot_fit(
+def test_the_minimum_splits_only_because_the_vertical_workflow_cannot_fit(
     make_panel
 ):
-    """Why 920x600 is the one place 2 and 3 share a row: measured, the vertical
+    """Why 920x600 leaves the frozen vertical workflow: measured, that
     workflow at its floors is taller than the window's content height by
     itself -- before Activity gets a single pixel -- and it cannot sit beside
-    Activity because both columns' natural widths exceed the window width."""
+    Activity because both columns' natural widths exceed the window width.
+    The real launcher's 920x600 and 1024x720 content areas (721x457 and
+    825x577 -- the sidebar and header take the rest) are tighter still, and
+    split is what keeps Activity on the right there too."""
     panel = make_panel()
     flow_w, flow_floor = panel._workflow_needs("stack")
     room_w = 920 - 2 * panel_module.OUTER_PAD
     room_h = 600 - 2 * panel_module.OUTER_PAD
     assert flow_floor > room_h, (flow_floor, room_h)
     assert flow_w + panel._needs["activity"][0] + panel_module.COLUMN_GAP > room_w
-    assert panel._choose_layout(920, 600) == ("stacked", "side")
+    assert panel._choose_layout(920, 600) == ("split", "narrow")
+    assert panel._choose_layout(721, 457) == ("split", "narrow")
+    assert panel._choose_layout(825, 577) == ("split", "narrow")
 
 
 @pytest.mark.parametrize("geometry", ("1280x900", "1920x1009", "2560x1400"))
@@ -624,6 +644,11 @@ def test_the_floors_are_the_measured_values(make_panel, geometry):
         if panel._layout_mode[0] == "stacked":
             assert int(panel.workflow.grid_rowconfigure(0)["minsize"]) == (
                 panel.sources_section.winfo_reqheight() - needs["list_give"])
+        elif panel._layout_mode[0] == "split":
+            # v0.6.6 Phase 3: in split the list may give way to one row.
+            assert int(panel.workflow.grid_rowconfigure(0)["minsize"]) == (
+                panel.sources_section.winfo_reqheight() - needs["list_give_split"])
+            assert needs["list_give_split"] > needs["list_give"]
         else:
             assert int(panel.workflow.grid_rowconfigure(0)["weight"]) == 0
         assert int(panel.activity.grid_rowconfigure(1)["minsize"]) == (

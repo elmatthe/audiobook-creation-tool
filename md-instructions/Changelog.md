@@ -15,6 +15,262 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed - Compact v0.6.6 user guide and refreshed pre-merge RC (2026-09-30)
+
+- Replaced the long README with a short install/use guide covering all six tools, exact v0.6.6
+  package/launcher names, output safety and requirements. Removed old-version download examples
+  and developer/history narrative; detailed information is linked to the four canonical docs.
+  v0.6.6 remains explicitly unpublished. Upstream attribution and GPL terms remain.
+- Refreshed both 82-member archives from pushed source
+  `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`; only the shipped README changed. Current hashes
+  and committed-member proof are in Handoff and the integration-package evidence. Focused
+  checks: 192 passed, no skips/failures; static and archive gates PASS. Full/runtime evidence
+  remains historical for unchanged application bytes; approved v0.6.7 deferrals are unchanged.
+- PR #13 remains open and unmerged. Final read-only readiness recheck and STOP precede the
+  maintainer's separate merge approval; no tagging, release creation or publication is claimed.
+
+
+### Verified ? Phase 15 Step 1 reconciliation candidate (2026-09-30, unpublished)
+
+Source `21e36163ccc992ef4ba94cb16e58caeda8f236c8` is pushed; both refreshed 82-member archives have committed-
+content/hash/EOL/Unix-mode/safe-extraction proof. Final extracted code trees pass six-panel Windows
+Tk/theme smoke; Mac launcher paths pass Git Bash/shim smoke. Focused verification: **212 passed,
+zero skips/failures**, plus strict compile/static gates. Phase-14 full gate is retained as history;
+no full rerun or new native/clean-machine/listening acceptance is claimed. Handoff and the tracked
+integration-package proof identify the current candidate hashes; original Phase-14 archives remain
+retained. This unpackaged evidence checkpoint is followed by the authorized read-only Step-1 recheck
+and STOP; PR/merge/tag/release/publication and Phase 16 remain gated.
+
+
+
+### Changed ? Phase 15 Step 1 archival and readiness reconciliation (2026-09-30)
+
+- Adopted the maintainer's four-file `md-instructions/` contract; retired the old planning
+  references, completed v0.6.6 drop and tracked EPUB archive. Existing `files/Archives/` copies
+  are untouched, ignored, excluded from packaging and test recursion, and optional for clones.
+- Promoted integration/closeout gates to Decisions/Handoff; corrected Briefing's native Aqua
+  `CompactAqua.*` description and live archived-path references. Verification now rejects extra
+  documentation files/directories while preserving exact casing, config and dependency gates.
+- Phase-14 package proof remains historical. Four shipped documentation/verifier paths change,
+  so a committed-source RC refresh is required; original candidate archives are retained locally.
+  Application behavior, pins, identity 0.6.6 and the approved v0.6.7 manual backlog are unchanged.
+- Phase 15 Step 1 is in progress; PR/merge/tag/release/publication and Phase 16 remain separately
+  gated. The dated Phase-14 notes below are superseded on current phase/package state only.
+
+
+### v0.6.6 release candidate — 2026-09-30 (unpublished)
+
+**Phase 14 complete:** final Windows/macOS archives proved from pushed source `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`,
+82 members each; actual Windows install/batch launch and bounded Mac shell smoke pass.
+Full verification: **7,905 passed / 58 accounted skips / no failures or errors**;
+strict compilation and whitespace checks pass. Exact hashes and evidence limits are in Handoff.
+Release/integration remain gated; Phase 15 has not started.
+
+Application identity is **0.6.6**. These are candidate notes, with no release date,
+merge, tag, GitHub Release or publication claimed. The dated development entries below
+remain the audit history; a dated `[0.6.6]` heading belongs to authorized publication.
+
+- **Phases 0–1:** reconciled the merged v0.6.5 baseline and Plan-9 allocation; added a
+  remembered global Light/Dark preference, shell toggle, compact palette/styles and owned-dialog
+  refresh while preserving panel, Book, import and job state. Historical Windows shell and
+  native Aqua composition remain; platform-specific styles stay isolated.
+- **Phase 2:** shared persistent Activity (Summary/Detailed, Clear Log, progress/status), importer
+  and list selection, focus-sensitive Ctrl+A/Delete and contiguous/discontiguous block movement.
+  Input/run locks and existing job/output behavior remain. Cover's approved visual reference
+  and Family-A conversion were completed here by the explicit sequencing override.
+- **Phases 3–5:** TTS, Converter and Cover use the compact Family-A guided workflow. TTS keeps
+  its approved geometry where it fits; the small-window split keeps Start, controls and Activity
+  reachable. Converter puts Whole book/Split by chapter above its metadata modes; Cover retains
+  Details/List/Medium Thumbnails. Phase 5 was satisfied by the approved Phase-2 Cover work,
+  rather than a second conversion. TTS quality, conversion and image/output policies are preserved.
+- **Phases 6–8:** MP3 Tool, M4B Maker and Metadata Editor use numbered Family-B workflows,
+  tinted Shared settings above Current Book, persistent bottom Activity and responsive density.
+  Actions remain reachable at the supported minimum sizes; list/chapter/log scrolling is local.
+  The Maker/Editor use 40 px artwork previews. All six interiors have left the old `ACT.*` styles.
+- **Phase 9:** all-six-tool automated geometry, keyboard/focus, theme and state checks; Cover's
+  hidden browser views leave Tab order. Windows remains DPI-unaware by accepted decision.
+- **Phases 10–11:** UTF-8 BOM handling, empty Edge input, EXIF orientation, escaped UTF-8 CLI
+  M4B chapters and FFmpeg failure propagation; cold-import setup timeout and pinned repair;
+  committed-only packages, dirty packaged-path refusal and exact launcher format checks.
+  TXT is UTF-8 with/without BOM; broader encodings are future work. Kokoro's breakpoint remains
+  characterized and accepted without a listening-backed retune; USAC retains its real-media waiver.
+- **Phases 12–13:** full acceptance and independent review, warning-safe test literals and
+  portable fixture assumptions; reset/save appearance synchronization and native Aqua appearance
+  timing/inheritance fixes. Native Mac rendering is deferred, never inferred from Windows.
+- **Phase 14:** coherent identity/guards/docs, final committed-source Windows/macOS package proof
+  and automated launch smoke. Fixed the macOS launcher's lost repair exit code; real Bash
+  regression proves repair code 3 routes to repair, while ordinary failures remain failures.
+  Exact archive hashes, source commit and final gates are recorded in Handoff at completion.
+  Windows-built launcher entries now declare Unix metadata as well as mode `100755`, so
+  executable permissions are correctly described for macOS extraction.
+
+The candidate also includes the previously integrated v0.6.x foundations and workflows documented
+below: configuration/output/maintenance services, frozen job/retry/import controls, TTS/Cover,
+chaptered M4B conversion, multi-Book MP3/Maker/Metadata and v0.6.5 TTS quality refinements.
+The full Plan 9 scope is covered here, including early phases previously absent from the session log.
+Hands-on clean Windows/Mac setup, native Aqua/Gatekeeper, physical scaling, listening and long
+real-workload checks remain the maintainer-approved **v0.6.7 backlog**. Phase 15 requires explicit
+authorization and has not started.
+
+
+### Fixed — **Independent release review: appearance synchronization and Aqua coherence** (v0.6.6 Phase 13, 2026-09-29)
+
+- Reset Preferences now returns the live theme/toggle to default Light; cancelled or failed resets
+  preserve the current choice. Failed appearance saves keep the displayed theme consistent with storage.
+- Aqua controls follow the app's appearance while retaining native layouts, fonts and padding;
+  semantic surfaces and the Shared tint are supplied through a separate namespace. New windows apply
+  their choice when the native window exists; existing dialogs refresh in place.
+- Reconciled Briefing's stale conversion/clipping/popdown statements and narrowed an overstated
+  all-engine contentless-input claim to the actual parsing and regression coverage.
+- Eight regression cases added. Full verification: **7,903 passed / 58 accounted skips / no failures**;
+  the final affected suites after the native timing fix: **254 passed / no skips**. Review evidence and
+  sequencing are in Handoff. **Phase 13 READY** under the approved v0.6.7 hands-on deferrals.
+- Identity remains `0.6.2`, unreleased. No final artifact, merge, tag, publication or Phase 14 action.
+
+### Fixed -- **Warning-safe test literals; full release-candidate acceptance** (v0.6.6 Phase 12, 2026-09-29)
+
+- Reproduced and removed two invalid-escape `SyntaxWarning`s in the Edge CLI M4B chapter test
+  using raw-string prefixes. Literal values and test behavior are unchanged, proved by AST equality.
+- Corrected seven test-only assumptions exposed by repository-contained temporary files: eSpeak
+  short-path fixtures now fit regardless of checkout depth, and cleanup assertions protect the
+  real environment while allowing nested disposable copies. All 302 affected-module tests pass.
+- Revalidated all six tools' Light/Dark geometry, keyboard/focus and state-preservation contracts;
+  the focused acceptance passed all 126 tests. Final full verification: **7,895 passed, 58 skips
+  accounted for, zero failures/errors**; all other gates pass. The initial failed run, remediation
+  and platform/skip accounting are recorded in `Handoff.md`'s Phase-12 entry.
+- Application behavior and version identity are unchanged (`0.6.2`, unreleased). Hands-on Mac,
+  scaling, clean-machine, listening and long real-workload checks remain deferred to v0.6.7 by
+  the maintainer's standing ruling. Phase 13 has not started.
+
+### Fixed -- **First-run setup failed on a healthy machine; release packaging ships only committed files; the TXT encoding contract made true everywhere and documented** (v0.6.6 Phase 11, 2026-09-29)
+
+- **First-run setup reported "Python packages installed but could not be imported" on a healthy
+  install.** This was found by a real first-run install from the freshly built Windows zip.
+  - **Cause:** setup gave each package's first import 30 seconds. In a brand-new environment that
+    first import is slow while Python compiles and the virus scanner checks thousands of new files:
+    `nltk` took 32 s the first time and 1 s after that. Setup now allows the same 10 minutes the
+    launch check already did.
+  - **Its "repair" drifted the pins.** It reinstalled the package with no version, pulling that
+    day's newest releases of it and its dependencies. Five pinned packages changed, including the
+    `setuptools` hold that Chatterbox needs. A repair now stays on the versions in
+    `requirements.txt`.
+- **Release archives could carry uncommitted local files.** The packager walked `scripts/` on disk,
+  so a developer's never-committed `scripts/project-status.py` was packaged into both zips. Now a
+  file under `scripts/` ships only if git tracks it; `.DS_Store`, `Thumbs.db`, caches and compiled
+  files are still dropped even then. The release build also refuses to run while any packaged path
+  has uncommitted changes, and it refuses outside a git checkout.
+- **TXT files are UTF-8, with or without a byte-order mark** (maintainer ruling; other encodings
+  are deferred to v0.6.7). A folder-imported `.txt` on Edge still passed a BOM through as text, and
+  a BOM-only file was sent to Edge as a single invisible character. It now reads exactly like the
+  other three engines. A non-UTF-8 file fails its one item, never mis-read, and the README says how
+  to re-save it.
+- **macOS launcher:** the "move the folder out of Downloads" help now names the folder Finder
+  actually creates (`AudiobookTool-MacOS-v…`). Text only.
+- **README:**
+  - the archive contents (`config.toml`, committed files only);
+  - the macOS folder name;
+  - Cover Image output (a numbered run folder, with the opt-in replace-originals exception stated);
+  - the shared compact layout and the remembered Light/Dark toggle;
+  - the UTF-8 TXT requirement;
+  - the real disk need (~2.5 GB environment; only the voice models are optional).
+- **Proved:** after the fix, a real first-run install from a rebuilt Windows zip finished with every
+  package at its pinned version. The zip's own `.bat` then opened the app. New packaging tests prove
+  the launchers byte for byte (`.bat` CRLF; `.command` LF with its shebang, `bash -n`, executable
+  mode). New: `test_bootstrap_import_validation.py`; extended: `test_release_packaging.py`,
+  `test_tts_text_bom.py`.
+
+  Details: `Decisions.md` and `Handoff.md`, 2026-09-29.
+
+### Fixed -- **Hardening: three TTS/Cover defects fixed, the Edge CLI M4B path hardened, and every open deferral dispositioned** (v0.6.6 Phase 10, 2026-09-28)
+
+- **TTS: a UTF-8 file with a byte-order mark read its header aloud.** Notepad's "UTF-8 with BOM" and
+  PowerShell 5's `Out-File` start a file with an invisible BOM. With one, Edge spoke the `Title:` and
+  `Author:` lines as narration, under an extra blank chapter. Kokoro and Chatterbox spoke the
+  `Title:` line. All three now ignore a leading BOM. A file without one reads exactly as before.
+- **TTS (Edge, Add Files): a file with nothing to speak "succeeded" as a silent MP3.** That covers an
+  empty file and one with only a header, only a `#` heading or only punctuation. The same file
+  already failed on a folder import and on Kokoro and Chatterbox. Now it fails there too, with the
+  same message ("No text content found after parsing source file."), and nothing is written.
+- **Cover Image: phone photos came out sideways or upside down.** A phone stores a portrait photo as
+  landscape pixels plus an EXIF orientation tag, which every viewer honours. Cover resized the raw
+  pixels and dropped the tag, so the cover was turned from the photo the user chose. In
+  replace-originals mode it overwrote the original that way. The output, the Medium Thumbnail and the
+  Details dimensions are now upright. HEIC was already upright and is unchanged.
+- **Edge `--format m4b` (command line only; the app always writes MP3).** The chapter-truncation
+  hazard from the 2026-09-20 M4B fix does **not** apply here. Proved with a real FFmpeg: this path
+  muxes no cover video, so the chapter track keeps the audio's timescale, and a 600 s chapter
+  survives. Three smaller defects on the same path were fixed:
+  - chapter titles and tags are now escaped (`;`, `=`, `#`, `\`);
+  - the metadata file is written as UTF-8, where a non-Latin title used to crash the build on Windows;
+  - a failed FFmpeg step now stops the build instead of being ignored.
+- **Accepted, not changed:** Kokoro can break a long text at an earlier sentence end than the last
+  one in its 3,000-character window. No text is lost, duplicated or reordered. Without listening
+  evidence it is not retuned, and a test now pins the behaviour.
+- **Tests:** the two long-standing Windows failures were test portability defects, not product bugs,
+  and now pass (`test_tk_gate.py`, `test_m4b_maker_processing.py`). New:
+  - `test_tts_text_bom.py` and `test_tts_contentless_source.py` (TTS);
+  - `test_cover_orientation.py` (Cover);
+  - `test_edge_make_m4b_chapters.py` (the Edge CLI M4B path);
+  - one Kokoro case in `test_segmentation_source_span.py`.
+
+  Details: `Decisions.md` and `Handoff.md`, 2026-09-28.
+
+### Fixed -- **Cover Image: Tab no longer stops on the two hidden source-browser views; the six tools proved as one application** (v0.6.6 Phase 9, 2026-09-28)
+
+- **Fixed (keyboard):** Cover's Details / List / Medium Thumbnails views share one spot, so the two
+  hidden ones stayed in the Tab order. Pressing Tab put the keyboard on views nobody could see.
+  Only the shown view is a Tab stop now, and the keyboard follows a view switch.
+- **Cross-tool audit, now a regression suite** (`files/tests/test_cross_tool_consistency.py`).
+  Every control of all six tools was checked in the real launcher. The sizes were 920×600,
+  1024×720, 1024×800, 1280×900, the logical maximized sizes at 125% and 150%, and maximized, in
+  Light and Dark. The suite checks that:
+  - nothing is clipped, squeezed, overlapped or scrolled;
+  - Tab reaches every visible control in workflow order;
+  - the sections, Activity and job controls are identical across tools;
+  - the Light/Dark toggle moves nothing;
+  - the application stays DPI-unaware.
+- **DPI:** the application stays DPI-unaware on Windows, a deliberate decision. At 125%/150%
+  Windows scales the proven layout, so text is soft but nothing can clip.
+- **macOS:** the aqua-only layout tests were brought up to date with the v0.6.6 compact design,
+  ready for the Mac run. The live Mac check is deferred to v0.6.7.
+- **Process:** by maintainer ruling, hands-on bug and edge-case testing for the rest of v0.6.6 is
+  deferred to a v0.6.7 bug-fix branch. Details: `Decisions.md`, 2026-09-28.
+
+### Changed -- **M4B Metadata Editor rebuilt on the compact Family-B layout; no tool interior uses the retired `ACT.*` styles any more** (v0.6.6 Phase 8, 2026-09-28; approved)
+
+- **Presentation only.** The Editor was the last panel on the oversized `ACT.*` interior. Inside
+  the real launcher at 920×600 its Chapter Titles box and log were never shown, and Open Output
+  Folder, Resume / Cancel / Retry Failed and Clear Log were off screen.
+- **New layout:** `1. Import & Books` / `2. Metadata` (Shared tinted over Current Book) /
+  `3. Chapters & Save`, with Activity (Summary | Detailed, Clear Log) below. It uses the same
+  compact Light/Dark controls as the other five tools, and the live toggle works in place.
+- **Buttons:** Save Tags is the one accent-outlined action. Open Output Folder now sits with the
+  actions, and the Shared caption uses the MP3 Tool/Maker wording.
+- **Small windows:** at the launcher's small sizes, padding shrinks first and then controls
+  reflow. The series numbering joins the Chapter Titles caption's line, and the "originals are
+  never modified" note joins the Current Book caption. Every control and statement stays on
+  screen, and the minimum size is unchanged.
+- **Unchanged:** preserve-by-default, Shared precedence, the per-file pages, Save Tags / Clear All
+  Tags / Remove Series Numbering, artwork, Auto-number, staged validation, output runs,
+  Pause/Resume/Cancel/Retry Failed, no re-encoding and source immutability. No workflow, plan,
+  batch, processing or shared module changed.
+- **Tests:** new `files/tests/test_m4b_metadata_appearance.py`, and the `ACT.*` pins in five suites
+  moved to the compact system. Details and rulings: `Decisions.md`, 2026-09-28.
+- **Approved:** the maintainer's Windows Light/Dark/manual workflow gate passed at `81680d1`.
+
+### Changed -- **M4B Maker rebuilt on the compact Family-B layout** (v0.6.6 Phase 7, 2026-09-28; approved)
+
+- **Presentation only.** The Maker left the `ACT.*` interior for the shared compact Light/Dark
+  system: `1. Import & Books` / `2. Book Settings` / `3. Tracks, Chapters & Build`, with Activity
+  below. At 920×600 its track list, Chapter Titles and track buttons had been off screen; now
+  every control shows at the launcher's small sizes.
+- **Build** is the one accent-outlined action. The track list's keyboard shortcuts obey the run
+  lock.
+- **Artwork:** the shared `ArtworkControl` gained an opt-in 40 px preview.
+- **Unchanged:** no Maker workflow, plan, batch, processing or output rule changed.
+- **Approved:** the maintainer's Windows Light/Dark/manual workflow gate passed at `333134f`.
+  Details: `Decisions.md`, 2026-09-28.
+
 ### Fixed -- **Kokoro's multi-file worker concurrency was never actually proven safe; capped to 1** (v0.6.5 Phase 9 fresh review, 2026-09-26)
 
 - A fresh independent review of the complete TTS text->synthesis->assembly->final-file flow (the

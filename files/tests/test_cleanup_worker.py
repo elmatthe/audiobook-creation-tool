@@ -786,7 +786,9 @@ def test_the_real_repository_is_never_the_coordinators_target(tmp_path):
     assert finished.returncode == 0, finished.stderr
     target = Path(finished.stdout.strip())
     assert target == root / ".venv"
-    assert not mnt.is_within(REPO_ROOT, target)
+    # Repository-contained test scratch may itself be below REPO_ROOT. The
+    # protected target is the real environment, not all developer scratch.
+    assert not mnt.is_within(REPO_ROOT / ".venv", target)
 
 
 def _dead_pid() -> int:

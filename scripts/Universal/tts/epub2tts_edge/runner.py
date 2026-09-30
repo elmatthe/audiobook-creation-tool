@@ -188,6 +188,12 @@ def run_conversion_job(
                 shutil.copy2(sourcefile, work_txt)
 
             book_contents, book_title, book_author, chapter_titles = get_book(work_txt)
+            # Nothing speakable (empty, header-only, heading-only or punctuation-only)
+            # used to publish a silent MP3 as a success. Fail the item instead, with
+            # the local engines' own message, as the folder path already did
+            # (v0.6.6 Phase 10).
+            if not book_contents:
+                raise ValueError("No text content found after parsing source file.")
             files = read_book(
                 book_contents,
                 speaker,

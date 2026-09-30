@@ -40,6 +40,16 @@ whatever the aqua floor is.
 accepted Phase 11 layout is protected by ``test_mp3_tool_ui.py`` and the
 theme suite, and asking Windows to satisfy aqua numbers would be a fake gate.
 The module skips itself wherever ``tk windowingsystem`` is not ``aqua``.
+
+**v0.6.6 Phase 9 reconciliation.** Phases 6-8 rebuilt these panels on the
+compact system with an approved *tight density* for small content areas
+(``Decisions.md`` 2026-09-28): padding and chrome shrink, controls reflow, and
+only then do the flexible regions give way -- to **one** row/line, not two.
+So the floors below are the panel's own for the density it is in, the
+Editor's preserve statement may be in its note *or* (tight) in the Current
+Book caption, and "a larger window grows the regions" is compared within one
+density (the tight -> regular switch re-spends height on chrome by design;
+across it the regular floors must hold).
 """
 
 from __future__ import annotations
@@ -56,6 +66,8 @@ import tk_gate  # noqa: E402
 # real launcher built below logs through it.
 from shared import paths  # noqa: E402,F401
 from shared import ui_theme  # noqa: E402
+
+from mp3_tools import mp3_tool  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -263,10 +275,18 @@ def test_primary_and_job_controls_never_overlap(fake_settings, tk_root, which):
         _tear_down_shell(tk_root, existing)
 
 
+def _floors(density: str) -> dict[str, int]:
+    """The rows each flexible region keeps in *density*."""
+    tight = density == "tight"
+    rows = mp3_tool.TIGHT_TRACK_FLOOR_ROWS if tight else mp3_tool.TRACK_FLOOR_ROWS
+    lines = mp3_tool.TIGHT_LOG_FLOOR_LINES if tight else mp3_tool.LOG_FLOOR_LINES
+    return {"MP3 Tracks": rows, "Chapter Titles": rows, "Summary/Detailed": lines}
+
+
 @pytest.mark.parametrize("which", ["default", "minimum", "larger"])
-def test_the_variable_regions_show_at_least_two_rows(fake_settings, tk_root, which):
-    """Yielding space is not collapsing: a list or log you cannot read is not
-    a list or log. Two rows is the floor for interacting with content at all."""
+def test_the_variable_regions_keep_their_density_floor(fake_settings, tk_root, which):
+    """Yielding space is not collapsing: each list or log keeps at least its
+    density's floor -- two rows, or one in the approved tight density."""
     geometry = _geometries(tk_root)[which]
     existing = set(tk_root.winfo_children())
     try:
@@ -281,11 +301,13 @@ def test_the_variable_regions_show_at_least_two_rows(fake_settings, tk_root, whi
             "Summary/Detailed": summary_text,
         }
         problems = []
+        floors = _floors(panel.density)
         for name, widget in regions.items():
             rows = widget.winfo_height() / max(1, _linespace(widget))
-            if rows < 2:
+            if rows < floors[name] - 0.1:
                 problems.append(f"{name}: {widget.winfo_height()}px shows "
-                                f"{rows:.1f} rows")
+                                f"{rows:.1f} rows ({panel.density} floor "
+                                f"{floors[name]})")
         assert not problems, f"at {geometry}:\n  " + "\n  ".join(problems)
     finally:
         _tear_down_shell(tk_root, existing)
@@ -353,16 +375,25 @@ def test_a_larger_window_expands_the_variable_regions(fake_settings, tk_root):
                 widget for widget in panel.log.frame.winfo_children()[0].winfo_children()
                 if isinstance(widget, tk.Text))
             row = panel.surface._row(panel.surface.fields[0])
-            return {
-                "tracks": panel.track_list.winfo_height(),
-                "chapters": panel.chapter_text.winfo_height(),
-                "log": summary_text.winfo_height(),
+            measured = {
+                "MP3 Tracks": panel.track_list.winfo_height(),
+                "Chapter Titles": panel.chapter_text.winfo_height(),
+                "Summary/Detailed": summary_text.winfo_height(),
                 "entry": row.shared_entry.winfo_width(),
                 "chapters_width": panel.chapter_text.winfo_width(),
             }
+            return measured, panel.density, {
+                "MP3 Tracks": _linespace(panel.track_list),
+                "Chapter Titles": _linespace(panel.chapter_text),
+                "Summary/Detailed": _linespace(summary_text)}
         finally:
             _tear_down_shell(tk_root, existing)
 
-    small, large = measure(_geometries(tk_root)["default"]), measure(LARGER)
+    (small, small_density, _), (large, large_density, lines) = (
+        measure(_geometries(tk_root)["default"]), measure(LARGER))
+    floors = _floors(large_density)
     for name in small:
+        if name in lines and small_density != large_density:
+            assert large[name] >= floors[name] * lines[name] - 2, (name, large[name])
+            continue
         assert large[name] > small[name], f"{name}: {small[name]} -> {large[name]}"

@@ -85,6 +85,8 @@ USER_STATE_SETTINGS: frozenset[str] = frozenset(
     {
         # launcher.py — which panel was open last
         "last_tool",
+        # shared/appearance.py — the remembered Light/Dark choice (v0.6.6)
+        "appearance",
         # mp3_tools/cover_resizer.py
         "cover_resizer.input_dir",
         # mp3_tools/m4b_converter.py

@@ -9,12 +9,14 @@ artwork control, the Phase 7 model, the Phase 8 planner and the Phase 9
 operation and renders the result; each of the three actions freezes one plan
 and hands it to one ``EditorRun``; Retry Failed re-runs that frozen run.
 
-What this file keeps from the v0.6.0 Drop 1 suite it replaces: the panel still
-carries only ``ACT.*`` styles on the Windows bundle, leaves the generic ttk
-styles alone, themes its classic Tk widgets through ``style_tk_widget``, keeps
-its launcher contract, and the developer-only visual fixture still drives the
-real panel offline. What changed by design: the batch-global form, the
-whole-form ``Canvas`` scroller, the private worker and its busy flag are gone.
+What this file keeps from the v0.6.0 Drop 1 suite it replaces: the panel
+leaves the generic ttk styles alone, themes its classic Tk widgets, keeps its
+launcher contract, and the developer-only visual fixture still drives the real
+panel offline. What changed by design: the batch-global form, the whole-form
+``Canvas`` scroller, the private worker and its busy flag are gone; and at
+v0.6.6 Phase 8 the panel left the retired ``ACT.*`` interior for the shared
+compact Light/Dark system (``test_m4b_metadata_appearance.py`` proves the
+presentation; the pins here moved with it).
 
 Media are the Phase 7 fixtures (real tiny FFmpeg-built containers); every
 processing test proves the sources are never written.
@@ -34,7 +36,7 @@ from tkinter import ttk  # noqa: E402
 
 import tk_gate  # noqa: E402
 
-from shared import job_ui, metadata, output_paths, ui_theme  # noqa: E402
+from shared import appearance, job_ui, metadata, output_paths, ui_theme  # noqa: E402
 from shared.book_workspace import BookDisposition  # noqa: E402
 from shared.book_workspace_ui import BookNavigator, SharedMetadataSurface  # noqa: E402
 from shared.job_control import JobAction, JobState  # noqa: E402
@@ -58,7 +60,7 @@ MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
 FIXTURE_PATH = Path(__file__).with_name("manual_windows_ui_prototype.py")
 
 windows_only = pytest.mark.skipif(
-    sys.platform != "win32", reason="the ACT design system only applies on win32")
+    sys.platform != "win32", reason="the Windows bundle's metrics only apply on win32")
 
 #: Generic styles the unconverted panels render with. Building the Editor
 #: must not disturb one of them.
@@ -916,6 +918,12 @@ def test_the_shared_book_band_fits_the_padded_windows_minimum(tk_root, make_pane
         tk_root.withdraw()
 
 
+def _aqua_bundle(root) -> dict:
+    """The macOS bundle inherits native controls through its own namespace."""
+    return appearance.build_bundle(ttk.Style(root), appearance.LIGHT,
+                                   platform="darwin", root=root)
+
+
 def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
     aqua = {"mode": "aqua", "geometry": ui_theme.DEFAULT_GEOMETRY,
             "min_size": ui_theme.AQUA_MIN_SIZE,
@@ -923,19 +931,25 @@ def test_aqua_uses_the_stacked_hints_through_the_existing_seam(tk_root):
                         "artwork_buttons": "natural", "content_pad": 12}}
     panel = editor.M4BMetadataEditorUI(tk_root, theme=aqua, effective_config=make_config(),
                                        thread_factory=RecordingThreads(),
-                                       choose_files=lambda: (), choose_folder=lambda: ())
+                                       choose_files=lambda: (), choose_folder=lambda: (),
+                                       appearance_bundle=_aqua_bundle(tk_root))
     try:
         assert panel.navigator.layout == "stacked"
-        assert str(panel.btn_save.cget("style")) == ""
+        name = panel.appearance_bundle["styles"]["button"]
+        assert str(panel.btn_save.cget("style")) == name
+        assert ttk.Style(tk_root).layout(name) == ttk.Style(tk_root).layout("TButton")
         assert [str(w) for w in _walk(panel) if _style_of(w).startswith("ACT.")] == []
         assert str(panel.book_artwork.btn_choose.cget("width")) in ("", "0")
-        # Without the Phase 13 hints the composition is the Windows one.
-        assert panel.btn_open_out.master is panel.btn_import_folder.master
+        # Without the Phase 13 hints the composition is the compact one
+        # (v0.6.6 Phase 8): Open Output Folder with the actions, the seven
+        # fields on one line, the read-back beneath them with the facts on
+        # the series line, Clear Log with Activity.
+        assert panel.btn_open_out.master is panel.btn_save.master
         assert panel.surface.field_lines == 1 and panel.surface.field_columns == 7
-        assert panel.btn_clear_log.grid_info()["row"] == 3
-        assert panel.btn_clear_log.grid_info()["column"] == 0
-        assert panel.facts_label.master.grid_info()["row"] == 2
-        assert int(panel.chapter_text.cget("height")) == 3
+        assert panel.btn_clear_log.master is panel.activity_bar
+        assert panel.facts_label.master.grid_info()["row"] == 1
+        assert panel.facts_label.master.grid_info()["column"] == 1
+        assert int(panel.chapter_text.cget("height")) == editor.CHAPTER_ROWS
     finally:
         panel.close()
         panel.destroy()
@@ -956,7 +970,8 @@ def test_the_phase_13_aqua_hints_fold_the_composition_through_the_same_seam(tk_r
                         "chapter_rows": 2}}
     panel = editor.M4BMetadataEditorUI(tk_root, theme=aqua, effective_config=make_config(),
                                        thread_factory=RecordingThreads(),
-                                       choose_files=lambda: (), choose_folder=lambda: ())
+                                       choose_files=lambda: (), choose_folder=lambda: (),
+                                       appearance_bundle=_aqua_bundle(tk_root))
     try:
         # The one-action navigator takes the one-line layout the theme allows it.
         assert panel.navigator.layout == "row"
@@ -967,14 +982,14 @@ def test_the_phase_13_aqua_hints_fold_the_composition_through_the_same_seam(tk_r
         assert panel.output_label.grid_info()["sticky"] == "ew"
         assert panel.import_status.frame.grid_info()["sticky"] == "w"
         # Open Output Folder is the same control with the same command, in
-        # the actions block, beneath the two destructive actions.
+        # the actions block, beneath the primary action (v0.6.6 Phase 8:
+        # Clear Log moved to Activity, as on every compact panel).
         assert panel.btn_open_out.master is panel.btn_save.master
         assert str(panel.btn_open_out.cget("text")) == "Open Output Folder"
-        assert panel.btn_open_out.grid_info()["row"] == 2
-        assert panel.btn_open_out.grid_info()["column"] == 1
+        assert panel.btn_open_out.grid_info()["row"] == 1
+        assert panel.btn_open_out.grid_info()["column"] == 0
         assert (panel.btn_save.grid_info()["row"], panel.btn_save.grid_info()["column"]) == (0, 0)
-        assert (panel.btn_clear_log.grid_info()["row"],
-                panel.btn_clear_log.grid_info()["column"]) == (1, 0)
+        assert panel.btn_clear_log.master is panel.activity_bar
         assert (panel.btn_clear_tags.grid_info()["row"],
                 panel.btn_clear_tags.grid_info()["column"]) == (0, 1)
         assert (panel.btn_remove_numbering.grid_info()["row"],
@@ -999,10 +1014,31 @@ def test_the_phase_13_aqua_hints_fold_the_composition_through_the_same_seam(tk_r
         panel.destroy()
 
 
-def test_the_panel_asks_for_act_styles_and_declares_no_colour_or_platform_branch(make_panel):
-    panel = make_panel()
-    assert str(panel.btn_save.cget("style")).startswith("ACT.")
-    assert str(panel.navigator.frame.cget("style")).startswith("ACT.")
+def test_the_panel_asks_for_compact_styles_and_declares_no_colour_or_platform_branch(
+        make_panel, tk_root):
+    """v0.6.6 Phase 8: every widget is on the shared compact system, never on
+    ``ACT.*`` and never on a generic style; Save Tags is the one run action
+    with the restrained accent outline, the two destructive actions take the
+    shared destructive treatment, and no button is a filled primary."""
+    bundle = appearance.build_bundle(ttk.Style(tk_root), appearance.LIGHT,
+                                     platform="win32", root=tk_root)
+    panel = make_panel(appearance_bundle=bundle)
+    styles = bundle["styles"]
+    assert str(panel.cget("style")) == styles["window"]
+    assert str(panel.btn_save.cget("style")) == styles["button"]
+    assert str(panel.btn_save.cget("default")) == "active"
+    assert [b for b in widgets_of(panel, ttk.Button)
+            if str(b.cget("default")) == "active"] == [panel.btn_save]
+    assert [b.cget("text") for b in widgets_of(panel, ttk.Button)
+            if str(b.cget("style")) == styles["primary_button"]] == []
+    assert str(panel.btn_clear_tags.cget("style")) == styles["danger_button"]
+    assert str(panel.btn_remove_numbering.cget("style")) == styles["danger_button"]
+    assert str(panel.navigator.frame.cget("style")).startswith("Compact.")
+    generic = [str(w) for w in widgets_of(panel, ttk.Widget) if not str(w.cget("style"))]
+    assert generic == [], f"widgets left on generic styles: {generic}"
+    act = [str(w) for w in widgets_of(panel, ttk.Widget)
+           if str(w.cget("style")).startswith("ACT.")]
+    assert act == [], f"widgets still on the retired ACT interior: {act}"
     tree = ast.parse(MODULE.read_text(encoding="utf-8"))
     literals = {node.value for node in ast.walk(tree)
                 if isinstance(node, ast.Constant) and isinstance(node.value, str)}
@@ -1017,32 +1053,40 @@ def test_the_panel_asks_for_act_styles_and_declares_no_colour_or_platform_branch
 @windows_only
 def test_windows_editor_uses_only_namespaced_styles_and_leaves_generic_styles_alone(
         tk_root, make_panel):
+    """Building the Editor on the compact bundle names only ``Compact.*``
+    styles and disturbs none of the generic ones the other panels share."""
     style = ttk.Style(tk_root)
     ui_theme.apply_theme(tk_root, style)
+    bundle = appearance.build_bundle(style, appearance.LIGHT, platform="win32", root=tk_root)
     before = _snapshot_generic(style)
-    panel = make_panel()
+    panel = make_panel(appearance_bundle=bundle)
     tk_root.update_idletasks()
     after = _snapshot_generic(style)
     assert [n for n in GENERIC_STYLES if before[n] != after[n]] == []
-    s = panel.theme["styles"]
+    s = bundle["styles"]
     assert str(panel.cget("style")) == s["window"]
     used = {_style_of(w) for w in _walk(panel)} - {""}
-    assert used and all(name.startswith("ACT.") for name in used), sorted(used)
+    assert used and all(name.startswith("Compact.") for name in used), sorted(used)
     stragglers = [str(w) for w in _walk(panel)
                   if isinstance(w, ttk.Widget) and not _style_of(w)]
     assert stragglers == [], stragglers
-    assert str(panel.btn_save.cget("style")) == s["primary_button"]
+    assert str(panel.btn_save.cget("style")) == s["button"]
     assert str(panel.btn_clear_tags.cget("style")) == s["danger_button"]
     assert str(panel.btn_remove_numbering.cget("style")) == s["danger_button"]
 
 
 @windows_only
-def test_windows_editor_themes_its_classic_tk_widgets(make_panel):
-    panel = make_panel()
-    c = panel.theme["colors"]
-    assert panel.chapter_text.cget("background") == c["field"]
-    for text in (panel.log.summary_text, panel.log.details_text):
-        assert text.cget("background") in (c["elevated"], c["field"], c["window"])
+@pytest.mark.parametrize("value", [appearance.LIGHT, appearance.DARK])
+def test_windows_editor_themes_its_classic_tk_widgets(make_panel, tk_root, value):
+    bundle = appearance.build_bundle(ttk.Style(tk_root), value, platform="win32",
+                                     root=tk_root)
+    panel = make_panel(appearance_bundle=bundle)
+    c = bundle["colors"]
+    for text in (panel.chapter_text, panel.log.summary_text, panel.log.details_text):
+        assert text.cget("background") == c["field"], str(text)
+        assert text.cget("foreground") == c["text"], str(text)
+    appearance.build_bundle(ttk.Style(tk_root), appearance.LIGHT, platform="win32",
+                            root=tk_root)
 
 
 # --------------------------------------------------------------------------- #

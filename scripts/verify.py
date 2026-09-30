@@ -14,9 +14,8 @@ Checks (all must PASS, else the script exits non-zero):
   3. docs        — Changelog.md and Briefing.md must be de-templated real content
                    with a real version entry (not a template stub/placeholder).
   4. docnames    — md-instructions/ must contain the four canonical documents
-                   under their EXACT names, must not contain a case-variant
-                   alias of any of them, and must still carry the permanent
-                   don't-delete/ planning references.
+                   under their EXACT names, with no aliases, extra files or
+                   subdirectories. Local archives are not repository inputs.
   5. config      — the committed root config.toml must parse and every key must
                    be valid. The running application deliberately falls back on
                    a bad value; the repository gate deliberately does not.
@@ -55,16 +54,6 @@ CANONICAL_DOCS: tuple[str, ...] = (
     "Decisions.md",
     "Handoff.md",
 )
-
-# Permanent planning references that must survive every drop closeout.
-PROTECTED_REFERENCES: tuple[str, ...] = (
-    "Audiobook-Creation-Tool-v0.6.x-Approved-Plan-Series-Map.md",
-    "Audiobook-Creation-Tool-v0.6.x-Decision-Register-1-55.md",
-    "Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md",
-    "Audiobook-Creation-Tool-v0.6.x-Planning-Handoff-2026-07-31.md",
-)
-#: Directory holding PROTECTED_REFERENCES, relative to md-instructions/.
-PROTECTED_DIR_NAME = "don't-delete"
 
 # Lines on this allowlist are exempt from the strict '==' rule. Documented
 # exceptions only — currently none.
@@ -177,7 +166,7 @@ def check_docs() -> tuple[str, bool, str]:
 
 
 def check_doc_names(md_dir: Path | None = None) -> tuple[str, bool, str]:
-    """The four canonical documents exist under EXACTLY those names, with no alias.
+    """Only the four canonical files exist, under EXACTLY those names.
 
     ``os.listdir`` is used rather than ``Path.exists`` on purpose. On Windows a
     path lookup is case-insensitive, so ``md-instructions/CHANGELOG.md`` reports
@@ -191,7 +180,6 @@ def check_doc_names(md_dir: Path | None = None) -> tuple[str, bool, str]:
     will not let us stage inside the real repository.
     """
     md_dir = MD_DIR if md_dir is None else Path(md_dir)
-    protected_dir = md_dir / PROTECTED_DIR_NAME
     if not md_dir.is_dir():
         return _fail("docnames", f"missing {md_dir}")
     entries = sorted(os.listdir(md_dir))
@@ -207,20 +195,19 @@ def check_doc_names(md_dir: Path | None = None) -> tuple[str, bool, str]:
         if canonical is not None and entry != canonical:
             problems.append(f"forbidden alias {entry!r} (the canonical name is {canonical!r})")
 
-    if not protected_dir.is_dir():
-        problems.append(f"missing protected directory {protected_dir.name}/")
-    else:
-        protected_entries = set(os.listdir(protected_dir))
-        absent = [name for name in PROTECTED_REFERENCES if name not in protected_entries]
-        if absent:
-            problems.append("missing permanent reference(s): " + ", ".join(absent))
+    unexpected = [name for name in entries if name not in CANONICAL_DOCS]
+    if unexpected:
+        problems.append("unexpected entry(s): " + ", ".join(unexpected))
+    nonfiles = [name for name in CANONICAL_DOCS
+                if name in entries and not (md_dir / name).is_file()]
+    if nonfiles:
+        problems.append("canonical name is not a file: " + ", ".join(nonfiles))
 
     if problems:
         return _fail("docnames", "; ".join(problems))
     return _pass(
         "docnames",
-        f"{len(CANONICAL_DOCS)} canonical names exact, no alias, "
-        f"{len(PROTECTED_REFERENCES)} permanent references present",
+        f"exactly {len(CANONICAL_DOCS)} canonical files, no aliases or extra entries",
     )
 
 

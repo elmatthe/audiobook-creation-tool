@@ -251,7 +251,7 @@ def test_a_target_is_always_inside_the_supplied_root(tmp_path):
 def test_mapping_follows_the_root_it_is_given_not_the_real_repository(tmp_path):
     root = fake_root(tmp_path)
     target = mnt.authorized_target("virtual_environment", root)
-    assert REPO_ROOT not in target.parents
+    assert target == root / ".venv"
     assert target != REPO_ROOT / ".venv"
 
 
@@ -1144,9 +1144,9 @@ def test_phase_six_added_no_output_or_tool_behaviour():
 def test_the_application_version_is_still_unchanged():
     from shared.version import VERSION
 
-    # v0.6.2 Plan 5 Phase 18 closeout: the bump from 0.6.1 happened here and
-    # nowhere else. This guard now pins the approved closeout version.
-    assert VERSION == "0.6.2"
+    # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
+    # This pins the application version without asserting publication.
+    assert VERSION == "0.6.6"
 
 
 def test_no_test_in_this_module_measures_the_real_repository():

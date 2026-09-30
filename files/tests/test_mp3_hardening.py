@@ -766,7 +766,7 @@ def test_the_launcher_and_the_other_panels_are_where_they_were():
                          for t in (node.targets if isinstance(node, ast.Assign)
                                    else [node.target])))
     assert len(tools.value.elts) == 6
-    assert config.get_effective().project.version == "0.6.2"
+    assert config.get_effective().project.version == "0.6.6"
     # The M4B Maker left this list at v0.6.4 Phase 6 and the Metadata Editor
     # at Phase 10: both are workspace adopters now and name ``book_workspace``
     # on purpose. The Converter is the one M4B panel still held to it.

@@ -231,3 +231,33 @@ def test_nltk_sent_tokenize_currently_splits_mid_sentence_at_ie_and_eg():
     # Confirmed NOT split at these — no false positive there today.
     assert "vs. gone out entirely." in sentences[6]
     assert sentences[0].startswith("Dr. Elena")
+
+
+# --------------------------------------------------------------------------- #
+# D. Kokoro's multi-chunk break placement — accepted as-is (v0.6.6 Phase 10).
+# --------------------------------------------------------------------------- #
+
+
+def test_kokoro_break_placement_is_accepted_as_is_and_preserves_every_character():
+    """The v0.6.5 Phase 9 review note, characterized rather than retuned.
+
+    ``split_into_chunks`` tries ``.``, ``!`` and ``?`` in turn and keeps the
+    *last punctuation type* with a valid break. It does not keep the rightmost
+    break. Here a ``?`` at 19 characters wins over a ``.`` near 3,000, so the
+    first chunk is one short sentence. With no listening evidence the
+    maintainer's 2026-09-28 ruling accepts that placement instead of retuning
+    it (``Decisions.md``).
+
+    What the acceptance rests on is pinned here, on text long enough to take
+    several chunks: nothing is lost, duplicated or reordered, no chunk passes
+    the ceiling, and every non-final chunk ends at sentence punctuation. The
+    corpus items in section A are too short to split at all.
+    """
+    text = ("Is this a question? " + "Word " * 400 + "End of the long sentence. "
+            + "More text here. " * 300)
+    chunks = kokoro_synth.split_into_chunks(text)
+    assert squeeze("".join(chunks)) == squeeze(text)
+    assert all(len(chunk) <= 3000 for chunk in chunks)
+    assert all(chunk[-1] in ".!?" for chunk in chunks[:-1])
+    assert chunks[0] == "Is this a question?"
+    assert len(chunks) == 4

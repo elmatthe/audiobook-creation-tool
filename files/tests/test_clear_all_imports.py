@@ -24,7 +24,7 @@ import pytest
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
-from shared import output_paths, ui_theme  # noqa: E402
+from shared import appearance, output_paths, ui_theme  # noqa: E402
 from shared.book_workspace import has_meaningful_work  # noqa: E402
 from shared.job_control import JobState  # noqa: E402
 
@@ -341,7 +341,9 @@ def test_the_button_sits_in_the_import_band_with_the_destructive_style(
     button = panel.btn_clear_imports
     assert str(button.cget("text")) == LABEL
     assert button.master is panel.btn_import_folder.master, "the import band"
-    styles = panel.theme["styles"]
+    # The MP3 Tool (v0.6.6 Phase 6), the Maker (Phase 7) and the Editor
+    # (Phase 8) are styled from the shared compact bundle.
+    styles = panel.appearance_bundle["styles"]
     assert str(button.cget("style")) == styles["danger_button"]
     assert str(button.cget("command")), "wired"
     assert panel.import_status.frame.master is button.master
@@ -367,11 +369,19 @@ def test_aqua_builds_the_button_natively(tk_root):
                         "artwork_buttons": "natural", "content_pad": 12}}
     for module, cls in ((m4b_maker, "M4BMakerUI"), (editor, "M4BMetadataEditorUI"),
                         (mp3_tool, "MP3ToolUI")):
+        # Aqua uses its own namespace inheriting native control layouts.
+        extra = {"appearance_bundle": appearance.build_bundle(
+                     ttk.Style(tk_root), appearance.LIGHT, platform="darwin",
+                     root=tk_root)}
         panel = getattr(module, cls)(tk_root, theme=aqua, effective_config=make_config(),
                                      thread_factory=RecordingThreads(),
-                                     choose_files=lambda: (), choose_folder=lambda: ())
+                                     choose_files=lambda: (), choose_folder=lambda: (),
+                                     **extra)
         try:
-            assert str(panel.btn_clear_imports.cget("style")) == ""
+            name = extra["appearance_bundle"]["styles"]["danger_button"]
+            assert str(panel.btn_clear_imports.cget("style")) == name
+            style = ttk.Style(tk_root)
+            assert style.layout(name) == style.layout("TButton")
             assert str(panel.btn_clear_imports.cget("text")) == LABEL
         finally:
             panel.close()

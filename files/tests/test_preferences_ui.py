@@ -20,7 +20,7 @@ import pytest
 tk = pytest.importorskip("tkinter")
 from tkinter import ttk  # noqa: E402
 
-from shared import config, preferences_ui  # noqa: E402
+from shared import appearance, config, preferences_ui, logging_setup  # noqa: E402
 from shared import settings as app_settings  # noqa: E402
 from shared import ui_theme  # noqa: E402
 import tk_gate  # noqa: E402
@@ -90,6 +90,36 @@ def make_dialog(root, *, answer=True, chosen=None, theme=None, logger=None):
         ask_directory=lambda: chosen,
         logger=logger,
     )
+
+
+@pytest.mark.parametrize("outcome", ["success", "cancel", "write_failure"])
+def test_reset_keeps_live_appearance_and_next_toggle_consistent(fresh_root, monkeypatch, outcome):
+    import launcher
+
+    # The launcher owns the live bundle and toggle label. Isolate unrelated
+    # launch reports and lazy panel imports; use real settings, styles and reset.
+    monkeypatch.setattr(launcher.LauncherApp, "_available_tools", lambda _app: [])
+    monkeypatch.setattr(launcher.LauncherApp, "present_configuration_warnings", lambda _app: None)
+    monkeypatch.setattr(launcher.LauncherApp, "present_downloaded_data_report", lambda _app: None)
+    listeners = list(appearance._listeners)
+    appearance.set_appearance("dark")
+    app = launcher.LauncherApp(fresh_root)
+    dialog = make_dialog(fresh_root, answer=outcome != "cancel", theme=app.appearance_bundle)
+    app.preferences_dialog = dialog
+    try:
+        if outcome == "write_failure":
+            monkeypatch.setattr(app_settings, "_write", lambda _data: False)
+        assert dialog.reset_preferences() is (outcome == "success")
+        expected = "light" if outcome == "success" else "dark"
+        assert appearance.get_appearance() == expected
+        assert app.appearance_bundle["appearance"] == expected
+        assert dialog.theme["appearance"] == expected
+        assert app.appearance_button.cget("text") == launcher._appearance_toggle_label(expected)
+        if outcome == "success":
+            app._toggle_appearance()
+            assert app.appearance_bundle["appearance"] == appearance.get_appearance() == "dark"
+    finally:
+        appearance._listeners[:] = listeners
 
 
 def toplevels(root):

@@ -11,7 +11,10 @@
 > enforces this by reading the real directory entries (`os.listdir`) rather than calling
 > `Path.exists()`, because a path lookup on Windows and macOS is case-insensitive and would
 > happily report a non-existent `CHANGELOG.md` as present. `files/tests/test_repository_contract.py`
-> holds the same line, including the permanent references under `md-instructions/don't-delete/`.
+> holds the same line: exactly these four files and no other tracked documentation entries.
+> The 2026-09-30 maintainer ruling retires the old planning references and completed instruction
+> drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
+> published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
 ## What This Project Does
 
@@ -72,6 +75,13 @@ flashing during use.
   cache into the project tree, then launches the GUI detached with stdout/stderr captured to
   `files/runtime-data/logs/launch_<date>.log`. `--launch-only` is the fast-path flag;
   `--self-test` is detection-only.
+  **Import proof (v0.6.6 Phase 11, 2026-09-29):**
+  - Both real-import checks share `IMPORT_PROBE_TIMEOUT_S = 600`: setup's per-module
+    `validate_installed_packages` and the launch-time `prove_required_imports`.
+  - A cold first import in a new venv is legitimately slow (`nltk` 32 s cold vs 1 s warm). The old
+    30 s setup window failed a healthy first-run install.
+  - Its repair reinstall is constrained by `-c requirements.txt`, so it can never drift the pins.
+  - Proved by a real first-run install from the built Windows archive.
 - **`scripts/Universal/launcher.py`** — the unified Tk GUI. Sidebar of 6 tools; each tool
   exposes `build_ui(parent_frame)`, is lazy-imported and guarded (a missing dependency renders
   an in-panel error, never a crash), built once and shown/hidden on selection so in-progress
@@ -350,14 +360,34 @@ flashing during use.
   by the 2026-09-18 maintainer ruling: final parity belongs to **Plan 9 — DISPLACED — FUTURE
   ALLOCATION UNASSIGNED**, not the completed v0.6.5 TTS Quality Refinement plan. No broader
   visual conversion or release is authorized by the TTS closeout.
-- **Conversion boundary (still in force, two additions).** The **Windows launcher shell**, the
+- **Allocation supersession (2026-09-27).** The bullet above is itself superseded on final-parity
+  ownership: Plan 9 is **no longer DISPLACED**. Pull request #12 merged
+  `feature/0.6.5-tts-quality-refactor` into `master` at
+  `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`, confirming v0.6.5 TTS Quality Refinement complete
+  and integrated, and the maintainer reassigned Plan 9 to **v0.6.6**
+  (`md-instructions/0.6.6-ui-parity-hardening-release.md`,
+  `feature/0.6.6-ui-parity-hardening-release`), the final v0.6.x implementation plan. Final visual
+  parity, hardening, packaging and release now belong to v0.6.6, not an unassigned future plan.
+  Every other "Plan 9" reference throughout this file is unaffected by this note — Plan 9 still
+  owns all of it; only its version binding changes, from DISPLACED to v0.6.6.
+- **Historical conversion boundary (superseded by v0.6.6).** The **Windows launcher shell**, the
   **M4B Metadata Editor** (rebuilt on the same boundary at v0.6.4 Phase 10), the **MP3 Tool**
   (v0.6.3 focused MP3 redesign, by that plan's explicit supersession) and — since v0.6.4 Phase 6,
   by that plan's explicit scope — the **M4B Maker** are the converted surfaces: on Windows they
   draw only `ACT.*` styles, on macOS the same lookups return `""` and native aqua draws them.
-  **TTS Audiobook, M4B Converter and Cover Image Resizer remain classic** and must stay that way
-  until the final parity drop (v0.6.5) — measured live, they carry **zero** `ACT.*` styles between
-  them. Approval of the prototype did not add them to its scope.
+  TTS Audiobook, M4B Converter and Cover Image Resizer stayed classic through the integrated
+  v0.6.5 baseline. Approval of the prototype did not add them to its scope.
+- **Current conversion boundary (v0.6.6 Phase 13, 2026-09-29).** All six interiors now use
+  `shared.appearance`, one remembered Light/Dark preference and shared Activity/importer behavior.
+  Cover, TTS and Converter have Family-A workflow sections with Activity on the right; MP3 Tool,
+  Maker and Metadata have Family-B sections with bottom Activity and preserved multi-Book editing.
+  The Windows shell retains `ACT.*`; every tool interior uses `Compact.*`. macOS uses
+  `CompactAqua.*`, inheriting native control layouts and metrics, with semantic surface/label
+  colors and a tinted Shared border. The app preference sets each owned Aqua window's native
+  appearance; native file/folder dialogs remain OS-owned. This is covered by host-independent
+  command/style-inheritance tests, **not a native Mac visual PASS**. Successful Reset Preferences
+  refreshes the live bundle and toggle to the default Light; a failed appearance save keeps the
+  UI consistent with storage. No panel or active job is rebuilt by either refresh.
 - **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
@@ -413,6 +443,14 @@ flashing during use.
   maintainer's unrelated untracked root `config-template.toml` needs no exclusion rule and has
   none; the packager never names it, the runtime never loads it, and automated tests prove both
   even while it sits directly beside `config.toml`.
+  **Supersession — 2026-09-29 (v0.6.6 Phase 11):**
+  - **Committed files only.** Inside `scripts/` only git-tracked files ship; a real build had
+    packaged the local-only `scripts/project-status.py`.
+  - **Always dropped:** `.DS_Store`, `Thumbs.db`, `__pycache__` and compiled files, even if tracked.
+  - **Clean build only.** `release.py` refuses to build while a packaged path has uncommitted
+    changes, and outside a git checkout.
+  - **Launchers proved from the packaged bytes:** `.bat` CRLF; `.command` LF, `#!/bin/bash`,
+    `bash -n` clean, `0o755` in the zip and `100755` in git.
 
 - **Shared importing and job-control foundation (v0.6.0 Drop 3).** Four modules under
   `scripts/Universal/shared/`, built with **no production consumer at the time**. They exist so the
@@ -614,7 +652,7 @@ authorities it consumes rather than copies.
 | `mp3_tools/mp3_plan.py` | The frozen `RunPlan` a processing button builds before any work: Book order and ids, every occurrence, final Title / number / filename (`track_filename` — **from the final Title**, one leading number removed, sanitised, the calculated number added once; source-name fallback for a Title that sanitises to nothing), effective metadata, signed Time, artwork, one Book subfolder each (Album → source folder → `Book N`, through the shared collision planner) and the private `.work/` staging; `prepare_staging` / `publish_book` (atomic, whole Book or nothing) / `discard_staging` (links unlinked as links, never followed). |
 | `mp3_tools/mp3_artwork.py` | Artwork through `shared/image_capabilities`: the chooser filter from `decodable_suffixes()`, `load_artwork` (JPG/PNG bytes embedded as-is; HEIC/HEIF decoded to an **in-memory** PNG for the embed only), `preview_image`, `apply_artwork` (one front-cover APIC). The source picture is never written. |
 | `mp3_tools/mp3_processing.py` | The FFmpeg helpers and the two engines. Write ID3: every track becomes a new staged copy with the frozen Time applied (0 = `-map_metadata -1 -c copy`; + appends silence; − trims; an excessive trim fails before FFmpeg runs) and exactly the whitelisted frames written from a clean tag. Combine: constituents staged the same way — the final one too — then FAST (`fast_eligibility`: one codec / sample rate / channel count) or Safe (WAV normalisation), combined tag from a clean state, `combined_time-stamps.txt`. Tk-free; handed a checkpoint and an event listener. |
-| `mp3_tools/mp3_tool.py` | The panel: composes the adapters, freezes the plan, runs **one** `JobController` / `JobReporter` / `JobAdapter` per operation on its one pump, projects engine events into shared job events, composes per-Book `RunResult`s into the `WorkspaceRunResult` Book statuses are read from (Ready / Queued / Processing / Completed / Failed / Skipped / Not attempted), and asks `retry_failed_books` for Retry Failed. Presentation follows `_layout_hints(theme)` — accepted Windows values by default, the aqua bundle's compact hints on macOS. |
+| `mp3_tools/mp3_tool.py` | The panel: composes the adapters, freezes the plan, runs **one** `JobController` / `JobReporter` / `JobAdapter` per operation on its one pump, projects engine events into shared job events, composes per-Book `RunResult`s into the `WorkspaceRunResult` Book statuses are read from (Ready / Queued / Processing / Completed / Failed / Skipped / Not attempted), and asks `retry_failed_books` for Retry Failed. Presentation (v0.6.6 Phase 6): the compact Family-B hierarchy — `1. Import & Books` / `2. Book Settings` (Shared tinted over Current Book) / `3. Tracks & Run`, Activity below — styled from the shared `appearance_bundle`, with a measured tight density in the launcher's small windows; `_layout_hints(theme)` supplies only the aqua composition. |
 
 Shared authorities it consumes unchanged: `shared/importing.py` + `import_coordination.py`
 (the scan), `shared/job_control.py` (controller, checkpoints, `RunResult`, `RetryRequest`),
@@ -672,18 +710,18 @@ Converter's independent pure helpers (`m4b_numbering`, `m4b_probe`, …) untouch
 | Module | Responsibility |
 |---|---|
 | `mp3_tools/m4b_artwork.py` | The one M4B cover service (Tk-free), reusing `mp3_artwork`'s decode path through `shared/image_capabilities`: `load_cover` (JPG/PNG bytes as their own `MP4Cover` format; HEIC/HEIF decoded only where the probe allows and converted to an **in-memory** PNG, dimensions preserved, no sidecar), `cover_for(plan)` (reads only the frozen artwork value), `apply_cover` / `embed_cover` (exactly one `covr`, a metadata-only rewrite of a **staged** container — packed audio proved unchanged). The ID3 `apply_artwork` is deliberately not reused. |
-| `mp3_tools/m4b_artwork_ui.py` | The Tk `ArtworkControl` both panels compose twice (Shared and Book): caption, in-memory preview, Choose…/Clear, two disabling reasons kept apart (Shared override vs run lock), `MainThreadGuard` on every Tk-reaching method; `ask_artwork` filters the native dialog by the probe's decodable suffixes; `validated_artwork` decodes before accepting. |
+| `mp3_tools/m4b_artwork_ui.py` | The Tk `ArtworkControl` both panels compose twice (Shared and Book): caption, in-memory preview, Choose…/Clear, two disabling reasons kept apart (Shared override vs run lock), `MainThreadGuard` on every Tk-reaching method; `ask_artwork` filters the native dialog by the probe's decodable suffixes; `validated_artwork` decodes before accepting. An optional `preview_max` (v0.6.6 Phase 7) lets a compact panel ask for `COMPACT_PREVIEW_MAX` (40 px); the default stays `PREVIEW_MAX` (56 px). Both consumers (the Maker since Phase 7, the Editor since Phase 8) opt in. |
 | `mp3_tools/m4b_staging.py` | The private-staging / atomic-publication pattern both engines delegate to (Tk-free, not a Plan 3 adopter): `require_owned` (staging is exactly `<work root>/<stem>`), `prepare_staging`, `discard_staging` (a bounded walk that asks `output_paths.assert_no_link_in` — reparse-aware, so a Windows junction counts — and unlinks a link as a link, never following it, no `rmtree`), `publish_staged` (refuses an existing destination; `os.replace`; EXDEV → plan-owned `temporary_sibling` + `atomic_replace`), `prune_work_root` (`rmdir` only when empty, never through a link). |
 | `mp3_tools/m4b_maker_workflow.py` | The Maker vocabulary over the shared workspace: six Shared fields (Artist / Author, Album Artist / Author, Album, Series Name, Silence Between Tracks, Book Artwork) and four Book-only fields (Title, Series Part, Output Filename, Chapter Titles); `import_folder` = one Book per directory directly containing MP3s (shared `replace_workspace_from_import`, no source-tag prefill — the Maker observes no ID3); `add_files` to the current Book; track move/remove; the existing `strip_leading_numbers` / `normalize_title` preserved verbatim; positional chapter titles (line *n* → chapter *n*, short list keeps defaults, extras ignored); `parse_silence` (blank → 0, negative refused) and `parse_start_part` (blank → 1); `output_name_candidates` = the Decision 51A chain (Output Filename → Title → effective Album → unambiguous folder → `Book N`), unsanitised. |
 | `mp3_tools/m4b_maker_plan.py` | The frozen `RunPlan` Build makes before any media work: `standard_destination` (one reserved `M4B-Maker-N`, staging under its `.work/`) or `custom_destination` (the validated folder used directly, **no nested run folder**, a caller-owned work root that must lie outside it); every Book's silence and the Start Part parsed first; `assert_outside_source_trees` in standard mode; one `DestinationPlanner`; `BookPlan` carries sources, frozen chapter titles, the embedded Title (the Book's, else the resolved output name — no nameless Book), effective metadata, `series_part` (raw text while Auto-number is OFF, `None` while ON), artwork path, silence, and `filename` / `staging_dir` / `staged` / `published` — sanitised and collision-numbered through `output_paths` only, `.m4b` appended exactly once. |
 | `mp3_tools/m4b_maker_processing.py` | The Maker engine for **one** frozen `BookPlan` (Tk-free): the proven concat/encode moved verbatim from the old panel — WAV normalisation, one silence WAV *between* adjacent tracks (never after the last; silence forces Safe), FAST first with automatic Safe fallback emitted as a `fallback` event, ffmetadata with 250 ms lead-in and escaped titles (`shared.metadata.ffmetadata_escape`), every launch through `ffmpeg_utils` — encoding to `BookPlan.staged` never `published`; series tags via `metadata.write_m4b_tags`; the cover resolved **before** any FFmpeg launch and embedded on the staged file; `validate_staged_m4b` reads the result back (duration, exact chapter titles, Title, cover presence); `stage_book` / `publish_book` split so the batch can write a success number between them. |
 | `mp3_tools/m4b_maker_batch.py` | `MakerRun` / `Attempt`: exactly one `JobController` + `JobReporter` per attempt, one worker body, Books in frozen order with `checkpoint()` between and inside them, continue-on-failure, `RunResult.settle` per Book against its exact `RunSnapshot`, `WorkspaceRunResult` over all attempts, `retry_failed_books` for Retry Failed (same run id, same frozen `BookPlan` objects, no re-plan / re-reserve). Auto-number = one `shared.numbering.SuccessNumbers` for the whole retry chain: `propose()` → write the part on the staged file → re-validate → `checkpoint()` → publish → `commit()`; a failure consumes nothing, a publication failure retains the validated candidate for the retry. |
-| `mp3_tools/m4b_maker.py` | The panel, on the `mp3_tool.py` precedent: import band (`Import Folder`, shared `ImportStatusBar`, `Clear All Imports`, output hint) → `BookNavigator` (default action set) → `SharedMetadataSurface` + `ArtworkControl` ×2 → the Book-only row (Title, Series Part, Output Filename, Status) → local track list | Chapter Titles box → run options (Auto-number Series Part, Start Part, Try FAST first, `Choose custom destination`) → `Build M4B(s)` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. No whole-tool scrollbar; only the list, chapter box and log scroll. Every widget asks `job_ui.style_name`; layout hints come off the theme through `_layout_hints`. |
+| `mp3_tools/m4b_maker.py` | The panel, on the `mp3_tool.py` precedent: import band (`Import Folder`, shared `ImportStatusBar`, `Clear All Imports`, output hint) → `BookNavigator` (default action set) → `SharedMetadataSurface` + `ArtworkControl` ×2 → the Book-only row (Title, Series Part, Output Filename, Status) → local track list | Chapter Titles box → run options (Auto-number Series Part, Start Part, Try FAST first, `Choose custom destination`) → `Build M4B(s)` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. No whole-tool scrollbar; only the list, chapter box and log scroll. Every widget asks `job_ui.style_name`; layout hints come off the theme through `_layout_hints`. Presentation (v0.6.6 Phase 7): the compact Family-B hierarchy — `1. Import & Books` / `2. Book Settings` (Shared tinted over Current Book, the Book-only row beneath) / `3. Tracks, Chapters & Build` (lists, run options, Build + job area), Activity below with Clear Log — styled from the shared `appearance_bundle`, with a measured tight density in the launcher's small windows (short option wording, the custom path row on the options line, the job status beside its controls); `_layout_hints(theme)` supplies only the aqua composition. |
 | `mp3_tools/m4b_metadata_workflow.py` | The Editor vocabulary, with one deliberate contrast: **one imported occurrence = one Book**, whatever directory it came from (`.m4b`, `.m4a`, `.mp4`). Eight Shared fields (Title, Author / Artist, Album, Year, Genre, Comment, Series Name, artwork); `series_part` is **not** a Shared or Book text field — it is read-back plus the batch-level Auto-number contract. `SourceObservation` (frozen, per occurrence, never raises: the seven text fields, series and part with provenance as `read_m4b_tags` resolves them, cover presence, chapter titles) in an immutable `ObservationStore`. A Book's configuration holds **only explicit edits**; `prefill_values` / `page_values` are display, `edit_intent` is what an action would write or `None` = preserve (blank → preserve; equal to source → nothing, so a vendor / movement / album-implied series is never migrated); `shared_intent` (populated Shared only); `artwork_intent`; positional `chapter_edits` with **blank-line-preserve** (not the MP3 collapse rule); `series_readback` reproduces the accepted "Detected on file" lines. |
 | `mp3_tools/m4b_metadata_plan.py` | The frozen plans for the three actions (`SAVE_TAGS`, `CLEAR_ALL_TAGS`, `REMOVE_SERIES_NUMBERING`): `BookPlan` keeps the observation, `shared_overrides`, `book_edits`, `artwork` (explicit replacement or `None`), `chapter_edits` and the action apart — `writes` is a derived view (Shared over Book), `has_intent` says whether a Book asks for anything. Save freezes only actual intent; Clear freezes exactly the same explicit values to re-apply after the clear and nothing prefilled; Remove freezes the action alone (`auto_number=False`, no writes, `artwork=None`). Exactly **one** standard `M4B-Metadata-N` reservation per operation, every Book flat under its source filename (extension kept, sanitised, collision-numbered), staging under the run's `.work/`; unreadable sources are `SKIPPED_INVALID` with their error reachable. |
 | `mp3_tools/m4b_metadata_processing.py` | The Editor engine for one frozen `BookPlan` (Tk-free): preflight the source → load the explicit cover first (unusable → fails **before any copy**) → `prepare_staging` → `shutil.copy2` **into staging** → the action through `shared.metadata` only (Save: `write_m4b_tags`; Clear: `clear_metadata_keep_chapters` then the frozen writes; Remove: `clear_series_numbering(keep_series_name=True)`) → explicit cover (`m4b_artwork.embed_cover`) → positional chapter edits (`apply_chapter_titles`, `-c copy` remux) → `validate_staged` (audio readable; every write present exactly; Clear → non-written text fields absent; Remove → no part, Series Name kept; cover present iff the action leaves one; chapters in order) → publish through `m4b_staging`. No re-encode anywhere (audio MD5 proved equal); a failure after the copy leaves the run directory empty. |
 | `mp3_tools/m4b_metadata_batch.py` | `EditorRun` / `Attempt` on the Maker precedent: one controller + reporter per attempt, continue-on-failure, `SKIPPED_INVALID` kept for unreadable Books, Retry Failed from the same frozen plan, Pause/Resume/Cancel; Auto-number (Save/Clear only) through the same `SuccessNumbers` propose → write → validate → checkpoint → publish → commit sequence, successes only. |
-| `mp3_tools/m4b_metadata_editor.py` | The panel: import band (`Import Folder` with the shared subfolders option, `Add Files`, `ImportStatusBar`, `Clear All Imports`, output hint, `Open Output Folder`) → `BookNavigator` with the action subset `(REMOVE,)` (no Add Book, no Duplicate Book) → `SharedMetadataSurface` over the seven text fields + `ArtworkControl` ×2 → the Book read-back lines (source path/readability, the series read-back, `Series Part · Artwork · Chapters` facts, Status) → local Chapter Titles box → Auto-number Series Part + Start Part + the preserve hint → `Save Tags` / `Clear All Tags (keep chapters)` / `Remove Series Numbering` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. `render()` shows `page_values` under a guard so prefill never becomes an edit; only a keystroke does. The v0.6.0 whole-form scrolling `Canvas` is gone. |
+| `mp3_tools/m4b_metadata_editor.py` | The panel: import band (`Import Folder` with the shared subfolders option, `Add Files`, `ImportStatusBar`, `Clear All Imports`, output hint, `Open Output Folder`) → `BookNavigator` with the action subset `(REMOVE,)` (no Add Book, no Duplicate Book) → `SharedMetadataSurface` over the seven text fields + `ArtworkControl` ×2 → the Book read-back lines (source path/readability, the series read-back, `Series Part · Artwork · Chapters` facts, Status) → local Chapter Titles box → Auto-number Series Part + Start Part + the preserve hint → `Save Tags` / `Clear All Tags (keep chapters)` / `Remove Series Numbering` + Clear Log + the shared `JobAdapter` → one `SummaryDetailsView`. `render()` shows `page_values` under a guard so prefill never becomes an edit; only a keystroke does. The v0.6.0 whole-form scrolling `Canvas` is gone. Presentation (v0.6.6 Phase 8): the compact Family-B hierarchy — `1. Import & Books` (import band, navigator) / `2. Metadata` (Shared tinted over Current Book, the read-back beneath the fields) / `3. Chapters & Save` (Chapter Titles, series numbering and the preserve note, then Save Tags / Open Output Folder and Clear All Tags / Remove Series Numbering in two columns beside the shared job area), Activity below with Clear Log — styled from the shared `appearance_bundle`, with a measured tight density in the launcher's small windows (the series numbering on the Chapter Titles caption's line, the preserve statement in the Current Book caption, the job status on two lines); `_layout_hints(theme)` supplies only the aqua composition. |
 
 Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with the Phase 1
 `BookNavigator(actions=…)` opt-in subset — the default is behaviour-identical for the MP3 Tool),
@@ -822,8 +860,10 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
   blank-line-preserve; success-only Auto-number; one `JobController`, Pause/Resume/Cancel, Retry
   Failed from the frozen plan, one Summary | Detailed log. The v0.6.0 whole-form scrolling canvas
   and the batch-global "(varies)" form are gone. See *The M4B Maker and M4B Metadata Editor* above.
-  **Presentation:** every widget asks `job_ui.style_name` — `ACT.*` on Windows, native aqua on
-  macOS through the same lookups returning `""`; no `theme["mode"]` fork remains.
+  **Presentation:** every widget asks `job_ui.style_name` of the shared compact appearance bundle
+  (v0.6.6 Phase 8; `ACT.*` before it) — `Compact.*` in Light/Dark on Windows, native aqua on macOS
+  through `CompactAqua.*` styles that inherit native layouts and metrics while supplying
+  semantic colors and the Shared tint; no panel `theme["mode"]` fork remains.
 - **Shared Metadata is now the real Decision 20B model on all three multi-Book tools** (MP3 Tool
   v0.6.3; M4B Maker and M4B Metadata Editor v0.6.4): the distinct Shared surface introduced visually
   at v0.6.0 Drop 1 carries per-Book override, field precedence and disabling through
@@ -853,7 +893,7 @@ Audiobook-Creation-Tool/
 ├── .venv/                      ← auto-built by the bootstrap (gitignored)
 ├── .claude/  .codex/           ← agent wiring
 ├── config.toml                 ← committed project defaults (validated by verify.py)
-├── md-instructions/            ← Briefing, Changelog, Decisions, Handoff (+ temporary drops)
+├── md-instructions/            ← ONLY Briefing, Changelog, Decisions, Handoff
 ├── scripts/
 │   ├── requirements.txt        ← single pinned cross-platform list
 │   ├── verify.py               ← mechanical gate: pytest + pinned deps + de-templated docs
@@ -869,8 +909,8 @@ Audiobook-Creation-Tool/
     ├── test-files/             ← local fixtures incl. copyrighted media (entirely untracked;
     │                             point tests at it via KOKORO_TEST_PDF_FOLDER)
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
-    ├── archived-code/epub-tts/ ← PERMANENT. The retired EPUB source + its manifest (tracked,
-    │                             inert, unpackaged, uncollectable). Not a temporary drop.
+    ├── Archives/               ← maintainer-local planning/code archives (gitignored,
+    │                             optional, unpackaged, excluded from test collection)
     ├── Chatterbox-Voice-Uploads/ ← the four local reference recordings (entirely untracked and
     │                             gitignored; never committed, never packaged)
     ├── UI-Current-Screenshots/ ← the v0.5.1 before-state UI reference (8 images, tracked)
@@ -880,10 +920,79 @@ Audiobook-Creation-Tool/
     └── release-history/        ← one-shot docs from past releases (v0.3.1 set)
 ```
 
-Release zips (built by `shared/release.py` into `dist/`) contain README + the OS's launcher +
-the whole `scripts/` tree; both OS zips share the same code and differ only in launcher.
+Release zips (built by `shared/release.py` into `dist/`) contain README + `config.toml` + the OS's
+launcher + the committed (git-tracked) `scripts/` tree; both OS zips share the same code and differ
+only in launcher. (`config.toml` added to this line and the committed-only rule, 2026-09-29.)
 
 ## Current Version
+
+
+**Latest checkpoint ? 2026-09-30, Phase 15 Step 1 reconciliation complete.** Source
+`21e36163ccc992ef4ba94cb16e58caeda8f236c8` is pushed. The obsolete plan/references/code archive are retired;
+exactly the four canonical docs are tracked and optional Archives copies are ignored/unchanged.
+The warranted package refresh has exact 82-member source/hash/extraction/launcher proof and
+six-panel Windows Tk/in-place theme plus bounded Mac shell smoke. Current candidate evidence is
+`files/release-history/v0.6.6-integration-package-proof.json`; Phase-14 proof/archives remain
+historical. Focused 212/0/0 and static gates pass; no new full suite or manual PASS is claimed.
+Identity 0.6.6 remains unpublished; v0.4.0 remains published. Push the evidence-only checkpoint,
+repeat Step 1 read-only on that HEAD and STOP. Step 2 (PR) and every later gate require separate
+approval. Handoff preserves the live gate/closeout facts and v0.6.7 backlog; Phase 16 has not begun.
+All earlier phase/package-state statements below are dated history where superseded.
+
+
+
+**Current state ? 2026-09-30, Phase 15 Step 1 reconciliation.** Phase 14 is approved at
+`caadf5d4db0b51ef5d04182d92430bcaacdac63c`; identity remains **0.6.6, unpublished RC**, latest
+published release **v0.4.0**. The maintainer retires the completed instruction drop, old planning
+references and tracked archive in favor of exactly the four canonical documents. All earlier
+active-plan/permanent-archive/current-action statements are historical where superseded.
+Handoff carries the integration/closeout gates and v0.6.7 manual backlog. Native Aqua uses
+`CompactAqua.*` with inherited native layouts and metrics. The bounded verifier/reference updates
+change four shipped files and therefore require refreshed committed-source archives; original
+Phase-14 packages/proof are retained. No application AST, dependency pin or launcher changes.
+Focused verification and new package proof are recorded in Handoff; no full-suite rerun is
+claimed. No PR/merge/tag/release/publication or Phase 16 is authorized by this reconciliation.
+
+
+**Current state — 2026-09-30, Phase 14 COMPLETE.** Phase 13 READY is maintainer-approved at
+`56012558a93853ec2b4847297a0372b4050743e7`. Application identity is now **0.6.6**, an
+**unpublished release candidate**; `version.py`, `config.toml` and live version guards agree.
+The `[Unreleased]` candidate notes cover all Plan-9 phases and retain earlier dated history.
+Final archives are built through the real release path from committed packaged content;
+their exact source/hash/launch/verification evidence is recorded in Handoff at this checkpoint.
+Hands-on native Mac, clean-machine setup, physical scaling, listening and long real-workload
+checks remain deferred to v0.6.7. Integration, tag, release and publication require separate
+maintainer authorization; Phase 15 has not started. The older dated states below are history
+and are superseded on current identity and next action only.
+Final Windows/macOS archives contain 82 committed-content members each (source `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`);
+real Windows setup/batch launch and both extracted code trees pass automated smoke, with Mac
+shell paths proved through Git Bash and interpreter shims. Full verification is **7,905 passed /
+58 accounted skips / zero failures or errors**, strict compile and whitespace checks PASS.
+Handoff and the tracked package-proof record hold exact hashes and evidence limits.
+**STOP for explicit release/integration authorization; Phase 15 has not started.**
+
+
+**Phase-12 acceptance — 2026-09-29.** Phase 11 is maintainer-approved at
+`1a218f96ab57c53758186ac1e2cd9f483ce22d96`. Phase 12 is complete with a passing final full gate,
+awaiting maintainer review. It validated the complete current tree,
+including all six tools and the packaging/bootstrap path; evidence and skip accounting are in
+`Handoff.md`. Test-only changes make two literals warning-safe and correct temporary-path
+assumptions in eSpeak and cleanup tests; no application behavior changes. The standing v0.6.7
+manual backlog remains authoritative: Windows automated geometry
+at 1024×800 does not claim native Aqua acceptance, and synthetic/stubbed jobs do not claim
+listening or long real-workload validation. Identity remains **`0.6.2`, unreleased** until Phase 14.
+The next phase is Phase 13's fresh independent review, only after maintainer acceptance of Phase 12.
+
+**Current-state supersession — 2026-09-27.** Supersedes the 2026-09-26 paragraph immediately below
+on merge state and Plan 9 allocation only; its `0.6.2` version-identity statement stands unchanged.
+Pull request #12 merged `feature/0.6.5-tts-quality-refactor` into `master` as merge commit
+`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`: **v0.6.5 TTS Quality Refinement is confirmed merged**,
+not merely complete-and-awaiting-integration as the paragraph below states. **Plan 9 is no longer
+DISPLACED** — it is reassigned to **v0.6.6**, the final v0.6.x implementation plan
+(`md-instructions/0.6.6-ui-parity-hardening-release.md`, on
+`feature/0.6.6-ui-parity-hardening-release`, created from that verified `origin/master`). No version
+bump, tag, package, or release accompanies this merge or reassignment; identity remains `0.6.2`,
+unreleased.
 
 **Current-state supersession — 2026-09-26.** Application version identity remains **`0.6.2`,
 unreleased**, exactly as described below. The following older narrative is retained as history
@@ -917,6 +1026,13 @@ split was superseded by the maintainer on 2026-09-13 into that one drop (`Decisi
 release — is unchanged and undrafted.
 
 ## High-Level State
+
+**Current-state supersession — 2026-09-27.** Supersedes the "not merged" / integration-pending
+statements in both paragraphs below: pull request #12 is **merged**
+(`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`), so `feature/0.6.5-tts-quality-refactor`'s integration
+is no longer pending — it is done. The trailer disposition, Phase 9 closeout facts, and every other
+statement in the paragraphs below stand unchanged. **Plan 9 is reassigned to v0.6.6** (see Current
+Version above and `Decisions.md`, 2026-09-27).
 
 **Trailer-disposition amendment — 2026-09-26, after `1c3844d`: RESOLVED by explicit maintainer
 decision.** Existing AI `Co-Authored-By` trailers in the completed v0.6.5 feature-branch history
@@ -1035,8 +1151,8 @@ another feature phase.
 through pull request #5 (merge `81c9c06`); not released.** The first plan to adopt Plans 2 and 3
 inside production panels. It
 delivered: the **unified PDF/TXT queue** in TTS Audiobook; the **retirement of EPUB** from every
-production surface with its source preserved in the permanent tracked archive
-`files/archived-code/epub-tts/`; the Cover **Details / List / Medium Thumbnail** browser;
+production surface with its source retained in Git history and optional maintainer-local
+`files/Archives/archived-code/epub-tts/` copies; the Cover **Details / List / Medium Thumbnail** browser;
 **HEIC/HEIF capability detection** with decode and encode reported separately and **format
 preserved rather than silently substituted**; the **Chatterbox** engine with its **four
 maintainer-authorized voices** on **CPU-first** device selection and a truthful degraded path;
@@ -1189,6 +1305,35 @@ v0.6.0 line has not been performed** — it is an explicitly approved deferral, 
 the exact five-step smoke test is written out in `Handoff.md`.
 
 **Known limitations (documented, not bugs):**
+- **Current v0.6.6 disposition (Phase 13, 2026-09-29).** The historical Plan-9 targets below
+  are superseded by the frozen v0.6.6 contract: all six core-control groups must fit without
+  core scrolling at Windows 920×600 and Mac 1024×800. Windows geometry/keyboard suites cover
+  minimum through maximized sizes and logical scaling sizes; native Aqua, physical scaling,
+  listening, clean-machine and long real-workload checks remain deferred to v0.6.7 by the
+  maintainer. Those deferrals are evidence gaps, never manual passes.
+- **TXT encoding contract — 2026-09-29 (maintainer ruling, v0.6.6 Phase 11).** A `.txt` source is
+  **UTF-8, with or without a BOM**, on every engine and on both the Add Files and folder paths. No
+  ANSI/cp1252 or guessed-encoding fallback exists in v0.6.6. Another encoding fails that one item
+  and is never mis-read. The README tells users how to re-save as UTF-8. Broader encoding support is
+  **deferred to v0.6.7**.
+- **TTS text encoding and Kokoro break placement — 2026-09-28 (v0.6.6 Phase 10).**
+  - A `.txt` source must be UTF-8. A leading byte-order mark is fine. A legacy "ANSI"/cp1252 file
+    fails that one item, with a technical decode message, and the rest of the run continues.
+  - Edge rejects empty, header-only, heading-only and punctuation-only direct sources before
+    synthesis. The local engines reject text left empty after stripping Title/Author headers;
+    their heading/body parsing is different. No all-engine punctuation-only rejection is proved.
+  - Kokoro may break a long text at an earlier sentence end than the last one in its
+    3,000-character window. No text is lost; this is accepted without listening evidence.
+  - The Edge engine's CLI-only `--format m4b` path is hardened. The app itself only writes MP3.
+
+  See `Decisions.md` 2026-09-28.
+- **DPI disposition — 2026-09-28 (v0.6.6 Phase 9).** This supersedes the next bullet's
+  "unresolved … reserved for Plan 9" wording only; its facts stand. **The process stays
+  DPI-unaware for v0.6.x, by decision.** Staying unaware keeps the logical layout scale-invariant.
+  The v0.6.6 cross-tool suite measures the logical maximized sizes at 125% and 150% on
+  1920×1080, and all six tools pass. A tripwire test blocks any silent DPI opt-in. Sharp-text
+  per-monitor DPI awareness is future work (a v0.6.7+ candidate) and needs a full re-measure.
+  See `Decisions.md` 2026-09-28.
 - **The application is DPI-unaware on Windows — unresolved future work, not finished
   behaviour.** `GetProcessDpiAwareness` returns `UNAWARE`, and neither the venv's
   `python.exe` / `pythonw.exe` nor the base Python 3.12.10 they are copied from carries a
@@ -1228,17 +1373,17 @@ the exact five-step smoke test is written out in `Handoff.md`.
   at `AQUA_GEOMETRY` (the same size) — the maintainer's v0.6.4 Phase 13 ruling (2026-09-15), which
   raised the v0.6.3 Phase 12 floor of 1024×720 (2026-09-12); see *The M4B Maker and M4B Metadata
   Editor* above and `Decisions.md` (2026-09-17); the launcher
-  applies whatever `theme["min_size"]` says. At the 920×600 minimum the **M4B
-  Converter's** primary action and Log are still clipped (~19 px and ~108 px bottom + 75 px
-  right, identical at both scaling levels). That panel is unconverted and Plan 9 will rebuild
-  it, so the clipping is deferred there rather than fixed by widening the minimum on behalf
-  of a layout that is about to change. The converted Editor, Maker and MP3 Tool clip nothing at
+  applies whatever `theme["min_size"]` says. The **M4B Converter's historical minimum-size
+  clipping was discharged by v0.6.6 Phase 4**: its rebuilt guided workflow keeps the primary
+  action, run controls and Activity visible. All six tools are covered by real Windows shell
+  geometry tests. The earlier Editor, Maker and MP3 Tool checks found no clipping at
   any size or scaling — every region is mapped inside a 920×600 window on Windows (proved on a
   deiconified root) and at 1024×800 on macOS; since v0.6.4 the Editor has no scroll region other
   than its chapter box and log.
-- **The Windows `ttk.Combobox` popdown is unthemed** (Tk draws it as a native list ttk
-  cannot restyle), and the **window title bar stays light** above the dark app (Tk would need
-  a Win32 `DwmSetWindowAttribute` call). Both are Plan 9 items.
+- **Windows combobox popdowns follow Light/Dark** through the shared appearance helper;
+  the historical unthemed-popdown deferral is discharged. **The Windows title bar stays
+  OS-owned**: the frozen v0.6.6 contract explicitly excludes that native decoration. No Win32
+  title-bar override is planned for this release.
 - **xHE-AAC decode is routed but unproven on real media.** ffmpeg's native AAC decoder cannot
   decode xHE-AAC (USAC) M4Bs. Since v0.6.2 the M4B Converter routes such a source through
   **Windows Media Foundation** on Windows, and macOS uses Apple's `aac_at`; where neither route

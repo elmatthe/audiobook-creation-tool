@@ -133,13 +133,16 @@ def test_no_user_or_machine_path_is_hardcoded():
 # --------------------------------------------------------------------------- #
 
 
-def test_an_installation_that_already_fits_is_left_completely_alone(tmp_path):
+def test_an_installation_that_already_fits_is_left_completely_alone(tmp_path, monkeypatch):
     """This is every machine Kokoro works on today, Windows included.
 
     No link, no environment variable, no override of what misaki configured —
     the seam exists for the overflow case and must be invisible otherwise.
     """
-    data = make_data_dir(tmp_path / "short")
+    # Keep the spelling passed to eSpeak short even in a deeply nested checkout;
+    # all actual filesystem work still lives inside pytest's temporary directory.
+    monkeypatch.chdir(tmp_path)
+    data = make_data_dir(Path("short"))
     assert espeak_data.root_fits(data) and espeak_data.root_fits(data.parent)
     environ: dict = {}
     assert espeak_data.configure(data_dir=data, environ=environ) is None
@@ -152,10 +155,11 @@ def test_an_installation_that_already_fits_is_left_completely_alone(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_a_path_too_long_is_relinked_under_a_root_that_fits(tmp_path):
+def test_a_path_too_long_is_relinked_under_a_root_that_fits(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     data = make_data_dir(deep_dir(tmp_path / "deep", 150))
     assert not espeak_data.root_fits(data)
-    short = tmp_path / "s"
+    short = Path("s")
     environ: dict = {}
 
     root = espeak_data.configure(data_dir=data, candidates=[short], environ=environ)
@@ -167,10 +171,11 @@ def test_a_path_too_long_is_relinked_under_a_root_that_fits(tmp_path):
     assert environ["ESPEAK_DATA_PATH"] == str(short)
 
 
-def test_the_bundled_data_is_linked_and_never_copied(tmp_path):
+def test_the_bundled_data_is_linked_and_never_copied(tmp_path, monkeypatch):
     """The wheel stays the one source of the data; the seam adds a pointer."""
+    monkeypatch.chdir(tmp_path)
     data = make_data_dir(deep_dir(tmp_path / "deep", 150))
-    short = tmp_path / "s"
+    short = Path("s")
     espeak_data.configure(data_dir=data, candidates=[short], environ={})
     link = short / espeak_data.DATA_DIR_NAME
     if sys.platform == "win32":          # a junction reports as a directory
@@ -180,9 +185,10 @@ def test_the_bundled_data_is_linked_and_never_copied(tmp_path):
         assert Path(os.readlink(link)) == data
 
 
-def test_configuring_twice_is_idempotent(tmp_path):
+def test_configuring_twice_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     data = make_data_dir(deep_dir(tmp_path / "deep", 150))
-    short = tmp_path / "s"
+    short = Path("s")
     environ: dict = {}
     first = espeak_data.configure(data_dir=data, candidates=[short], environ=environ)
     before = sorted(p.name for p in short.iterdir())
@@ -191,10 +197,11 @@ def test_configuring_twice_is_idempotent(tmp_path):
     assert sorted(p.name for p in short.iterdir()) == before == [espeak_data.DATA_DIR_NAME]
 
 
-def test_a_candidate_that_is_itself_too_long_is_skipped_for_one_that_fits(tmp_path):
+def test_a_candidate_that_is_itself_too_long_is_skipped_for_one_that_fits(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     data = make_data_dir(deep_dir(tmp_path / "deep", 150))
     too_long = deep_dir(tmp_path / "also-deep", 150)
-    short = tmp_path / "s"
+    short = Path("s")
     root = espeak_data.configure(data_dir=data, candidates=[too_long, short],
                                  environ={})
     assert root == str(short)

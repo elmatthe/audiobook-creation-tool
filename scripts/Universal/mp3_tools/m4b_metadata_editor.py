@@ -49,14 +49,36 @@ private worker, busy flag, cancel event and log queue, the chapter pager, the
 "(varies)" detection and the position-based auto-number (now the shared
 success-only ``SuccessNumbers``), and the whole-form ``Canvas`` scroller.
 
-Presentation: every widget asks ``job_ui.style_name`` for the approved ``ACT.*``
-style on Windows; on macOS and the classic branch the lookup returns ``""`` and
-the panel is drawn natively. No colour, font or metric is declared here. Nothing
-scrolls the whole tool: the Chapter Titles box and the log scroll locally and
-give up height first. Where the theme's metrics carry the panel hints (the aqua
-bundle) the navigator's actions fold under its navigation row, the actions
-stack, and the artwork buttons take their natural width — the same seam the
-MP3 Tool and the Maker read.
+Presentation (v0.6.6 Phase 8): the panel is the dense multi-Book (Family B)
+workflow on the shared compact Light/Dark control language, the same one the
+approved Cover, TTS, Converter, MP3 Tool and M4B Maker interiors use. There is
+no Metadata-specific visual system:
+
+  1. Import & Books   -- Import Folder, Add Files, Clear All Imports, the import
+                         status, the output hint and the Book navigator
+  2. Metadata         -- Shared (the tinted group whose values override every
+                         Book's own) above Current Book (the ordinary surface,
+                         with the source read-back and the Book's status)
+  3. Chapters & Save  -- the Chapter Titles box, the series numbering and the
+                         preserve note, then Save Tags / Clear All Tags / Remove
+                         Series Numbering / Open Output Folder and the shared
+                         job area
+  Activity            -- the one Summary | Detailed log with Clear Log, below
+
+Every widget asks ``job_ui.style_name`` of the ``appearance_bundle`` for its
+compact style (native control inheritance on Aqua), and a live Light/Dark
+toggle recolors the few classic Tk widgets in place. No colour, font or metric
+is declared here. Nothing scrolls the whole tool: the Chapter Titles box and
+the log scroll locally and give up height first, and in the real launcher's
+small windows the fixed bands take tighter padding (``_apply_density``) before
+either flexible region is squeezed.
+
+Composition follows the theme's metrics where it offers panel hints
+(``_layout_hints``): where native aqua controls are wider and taller, the seven
+fields fold onto two lines, the artwork buttons take their natural width and
+the preserve note wraps -- the same seam the MP3 Tool and the Maker read. A
+bundle without those hints gets the compact composition. Only where things
+sit differs.
 """
 
 import queue
@@ -66,6 +88,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # Make the scripts/ root importable so `shared.*` resolves whether this tool is
@@ -74,6 +97,7 @@ _SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from shared import appearance
 from shared import config as shared_config
 from shared import job_control
 from shared import job_ui
@@ -151,11 +175,75 @@ IDLE_RUN_ID = "m4b-metadata-idle"
 #: Rules a line under the previous run's lines in both log panes.
 DIVIDER_MARK = "────"
 
-#: What the panel says about preserve-by-default, once, where the fields are.
-SHARED_TITLE = "Shared — a value here overrides every Book; blank = each Book on its own"
+#: What the panel says about Shared precedence and preserve-by-default, once,
+#: where the fields are. The Shared caption is the one the MP3 Tool and the
+#: Maker carry (v0.6.6 Phase 8: one wording across the three dense tools).
+SHARED_TITLE = "Shared — applies to every Book and overrides its own value"
 BOOK_TITLE = "Current Book — blank or unchanged = keep the source's own value"
 PRESERVE_HINT = ("Originals are never modified; each action writes copies to a new output "
                  "run. Blank or unchanged Book fields keep the source's values.")
+
+#: The Chapter Titles caption: positional, and preserve-by-default per line.
+CHAPTERS_CAPTION = ("Chapter Titles (this Book) — line N renames chapter N; "
+                    "a blank or unchanged line keeps the source title")
+
+#: The tight density's wording (v0.6.6 Phase 8; the Maker's short-wording
+#: precedent). At the real launcher's 920x600 content area every flexible
+#: region is already at its floor, so the options line and the preserve note's
+#: own line pushed Activity off screen. In the tight density the series
+#: numbering joins the Chapter Titles caption's line, and the preserve note's
+#: statement joins the Current Book caption, which already carries the other
+#: half of it. Nothing is hidden: the same statements, the same controls and
+#: variables, fewer lines.
+CHAPTERS_CAPTION_SHORT = "Chapter Titles — line N renames chapter N; blank or unchanged keeps it"
+BOOK_TITLE_TIGHT = ("Current Book — blank or unchanged = keep the source's own value; "
+                    "originals are never modified (copies are written)")
+
+#: The series-numbering option's wording, and the same option in the tight
+#: density. Same control, same variable, same meaning.
+AUTO_NUMBER_LABEL = "Auto-number Series Part (Save / Clear; successes only)"
+AUTO_NUMBER_LABEL_SHORT = "Auto-number Series Part"
+START_PART_LABEL = "Start Part (blank → 1):"
+START_PART_LABEL_SHORT = "Start Part:"
+
+#: The numbered Family-B hierarchy (frozen UI contract §2), and Activity below.
+SECTION_TITLES = ("1. Import & Books", "2. Metadata", "3. Chapters & Save", "Activity")
+
+#: Spacing, identical to the Cover, TTS, Converter, MP3 Tool and Maker panels'
+#: own constants: the approved Cover UI is the concrete visual reference for
+#: every tool interior (maintainer ruling 2026-09-28), so these are copied, not
+#: re-chosen.
+OUTER_PAD = 10
+SECTION_GAP = 8
+SECTION_PADDING = (10, 6, 10, 8)
+
+#: The frozen contract's tight-window steps (§1), used where the regular
+#: density would squeeze a flexible region below its floor -- the real
+#: launcher's 920x600 and 1024x720 content areas. Padding and chrome shrink
+#: first; no control is hidden and the minimum size is unchanged.
+TIGHT_OUTER_PAD = 3
+TIGHT_SECTION_GAP = 2
+TIGHT_SECTION_PADDING = (5, 0, 5, 1)
+
+#: Rows the Chapter Titles box asks for, and the rows it keeps however small
+#: the window gets.
+CHAPTER_ROWS = 6
+CHAPTER_FLOOR_ROWS = 2
+TIGHT_CHAPTER_FLOOR_ROWS = 1
+
+#: The Activity log: natural size in lines, and the lines it keeps at the
+#: smallest window (§3: Activity may shrink before a required control does).
+LOG_HEIGHT = 6
+LOG_FLOOR_LINES = 2
+TIGHT_LOG_FLOOR_LINES = 1
+
+#: The shared progress bar defaults to 240 px; the job area sits beside the
+#: actions, so a shorter bar keeps that row inside the minimum.
+PROGRESS_BAR_LENGTH = 160
+
+#: In the tight density the status line sits beside the progress bar; a long
+#: message wraps there instead of widening the row.
+TIGHT_STATUS_WRAP = 170
 
 #: The action labels the run announces and the log headings use.
 ACTION_LABELS = batch.ACTION_LABELS
@@ -184,40 +272,47 @@ def _remembered_dir(key: str) -> Path:
 def _layout_hints(theme) -> dict:
     """The panel's composition, read off the theme bundle with its own defaults.
 
-    The defaults are the accepted Windows composition. A theme whose ``metrics``
-    carry the panel hints (the aqua bundle) overrides them; one without changes
-    nothing. Presentation only: nothing read here reaches the model or the plan.
+    The defaults are the compact composition (v0.6.6 Phase 8: the outer pad and
+    section gap are the Cover/TTS/Converter/MP3 Tool/Maker constants; the output
+    hint yields in the import band; the actions take two columns beside the job
+    area; the read-back runs the full width beneath the fields, facts and
+    status on the series line -- which is what keeps Metadata and Chapters &
+    Save inside the real launcher's 920x600 content area). A theme whose
+    ``metrics`` carry the panel hints (the aqua bundle) overrides them; one
+    without changes nothing. Presentation only: nothing read here reaches the
+    model or the plan.
     """
     metrics = (theme or {}).get("metrics") or {}
     if not isinstance(metrics, Mapping):
         metrics = {}
     return {
-        "pad": int(metrics.get("panel_pad", 10)),
-        "gap": int(metrics.get("panel_gap", 6)),
+        "pad": int(metrics.get("panel_pad", OUTER_PAD)),
+        "gap": int(metrics.get("panel_gap", SECTION_GAP)),
         "gap_small": int(metrics.get("panel_gap_small", 4)),
         # This navigator carries one action (Remove Book), so a theme may say
         # it fits on one line where a fuller navigator must stack.
         "navigator_layout": str(metrics.get(
             "navigator_layout_one_action", metrics.get("navigator_layout", "row"))),
         "actions_layout": str(metrics.get("actions_layout", "row")),
-        "entry_width": int(metrics.get("field_entry_width", 9)),
+        "entry_width": int(metrics.get("field_entry_width", 8)),
         "label_wrap": metrics.get("field_label_wrap"),
         "artwork_buttons": str(metrics.get("artwork_buttons", "fixed")),
-        "artwork_gap": int(metrics.get("artwork_gap", 12)),
+        "artwork_gap": int(metrics.get("artwork_gap", 8)),
         # v0.6.4 Phase 13 (macOS parity), measured on the real launcher at
         # the aqua floor: the import band pushed Open Output Folder past the
         # host, seven fields beside the artwork squeezed every entry, and the
-        # fixed bands left the chapter editor and log under two rows. Same
-        # defaults rule: the Windows bundle carries none of these, so its
-        # accepted composition is untouched.
-        "import_band_layout": str(metrics.get("import_band_layout", "row")),
-        "group_pad": int(metrics.get("group_pad", 8)),
-        "field_gap": int(metrics.get("field_gap", 8)),
+        # fixed bands left the chapter editor and log under two rows. v0.6.6
+        # Phase 8: the compact composition takes the same compact import band,
+        # two action columns and compact read-back for the same reason inside
+        # the launcher's 920x600 content area.
+        "import_band_layout": str(metrics.get("import_band_layout", "compact")),
+        "group_pad": int(metrics.get("group_pad", 6)),
+        "field_gap": int(metrics.get("field_gap", 6)),
         "field_columns": metrics.get("field_columns"),
-        "actions_columns": int(metrics.get("actions_columns", 1)),
-        "readback_layout": str(metrics.get("readback_layout", "rows")),
+        "actions_columns": int(metrics.get("actions_columns", 2)),
+        "readback_layout": str(metrics.get("readback_layout", "compact")),
         "note_wrap": metrics.get("note_wrap"),
-        "chapter_rows": int(metrics.get("chapter_rows", 3)),
+        "chapter_rows": int(metrics.get("chapter_rows", CHAPTER_ROWS)),
     }
 
 
@@ -248,6 +343,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         home=None,
         bridge=None,
         run_factory=None,
+        appearance_bundle: dict | None = None,
     ):
         """Build the panel.
 
@@ -255,10 +351,22 @@ class M4BMetadataEditorUI(ttk.Frame):
         or thread. Production passes none of them. ``thread_factory`` makes both
         the import scan's thread and the processing worker's; ``run_factory``
         builds the ``EditorRun`` (the Phase 9 class by default).
+
+        ``appearance_bundle`` (v0.6.6 Phase 8) is the seam Cover, TTS, the
+        Converter, the MP3 Tool and the Maker take: the production default
+        reads the remembered Light/Dark setting, and the suite may inject an
+        exact bundle. Every widget is styled from it. ``theme`` is the platform
+        bundle and now supplies only the composition hints (``_layout_hints``)
+        -- the aqua arrangement.
         """
         if theme is None:
             theme = ui_theme.apply_theme(parent.winfo_toplevel(), ttk.Style(parent))
-        super().__init__(parent, style=style_name(theme, "window"))
+        if appearance_bundle is None:
+            appearance_bundle = appearance.build_bundle(
+                ttk.Style(parent), appearance.get_appearance(),
+                root=parent.winfo_toplevel())
+        self.appearance_bundle = appearance_bundle
+        super().__init__(parent, style=style_name(appearance_bundle, "window"))
         self.theme = theme
         self._guard = MainThreadGuard()
         self._closed = False
@@ -321,6 +429,9 @@ class M4BMetadataEditorUI(ttk.Frame):
         output_paths.register_destination_hint(TOOL_KEY, self.var_outdir)
 
         self._build(theme)
+        # Registered only once every widget it recolors exists; ``close``
+        # removes it, so a closed panel is never reached by a later toggle.
+        appearance.register_listener(self._on_appearance_changed)
 
         # Run locking is the shared contract: the adapter's lock group applies
         # the approved matrix to these seams whenever the run's state moves.
@@ -339,80 +450,119 @@ class M4BMetadataEditorUI(ttk.Frame):
     # Construction
     # ------------------------------------------------------------------ #
 
-    def _build(self, theme) -> None:
-        hints = _layout_hints(theme)
-        pad, gap, gap_small = hints["pad"], hints["gap"], hints["gap_small"]
-        self.columnconfigure(0, weight=1)
-        # Pinned rows keep their requested height; the two variable-length
-        # regions -- the chapter box and the log -- absorb a short window, so
-        # at 920x600 the actions row never falls off the bottom and no
-        # whole-panel scrollbar is needed.
-        self.rowconfigure(0, weight=0)   # Import Folder, Add Files, import status, output
-        self.rowconfigure(1, weight=0)   # navigator
-        self.rowconfigure(2, weight=0)   # Shared + Current Book
-        self.rowconfigure(3, weight=3)   # chapter titles -- scrolls
-        self.rowconfigure(4, weight=0)   # run options + preserve hint
-        self.rowconfigure(5, weight=0)   # actions, job controls, progress
-        self.rowconfigure(6, weight=2)   # the one log region -- scrolls
+    def _style(self, key: str) -> str:
+        """The shared compact style for *key* (native control inheritance on Aqua)."""
+        return style_name(self.appearance_bundle, key)
 
-        # -- row 0: workspace-level import ------------------------------ #
-        top = ttk.Frame(self, style=style_name(theme, "window"))
-        top.grid(row=0, column=0, sticky="ew", padx=pad, pady=(pad, gap_small))
-        compact_band = hints["import_band_layout"] == "compact"
-        top.columnconfigure(4 if compact_band else 3, weight=1)
+    def _build(self, theme) -> None:
+        """Compose the four sections from the live widgets.
+
+        v0.6.6 Phase 8: the dense Family-B hierarchy on the approved compact
+        control language. Every control, variable and callback is the one the
+        panel already had, re-homed into its numbered section and styled from
+        the appearance bundle; ``theme`` supplies only the composition hints.
+        """
+        hints = _layout_hints(theme)
+        self._hints = hints
+        bundle = self.appearance_bundle
+        st = self._style
+        pad, gap = hints["pad"], hints["gap"]
+        self._tight = False
+        self._density_needs: dict | None = None
+        self.columnconfigure(0, weight=1)
+        # The two fixed sections keep their requested height; the two variable
+        # ones -- Chapters & Save, whose Chapter Titles box scrolls, and
+        # Activity, whose log scrolls -- absorb a short window. Nothing else
+        # yields, so no required control falls off the bottom and no
+        # whole-panel scrollbar is needed.
+        self.rowconfigure(0, weight=0)   # 1. Import & Books
+        self.rowconfigure(1, weight=0)   # 2. Metadata
+        self.rowconfigure(2, weight=3)   # 3. Chapters & Save -- the chapter box scrolls
+        self.rowconfigure(3, weight=2)   # Activity -- the log scrolls
+
+        self.import_section, self.metadata_section, self.chapters_section, self.activity = (
+            ttk.LabelFrame(self, text=title, padding=SECTION_PADDING,
+                           style=st("labelframe"))
+            for title in SECTION_TITLES)
+        self.sections = (self.import_section, self.metadata_section,
+                         self.chapters_section, self.activity)
+        for row, section in enumerate(self.sections):
+            section.grid(row=row, column=0, sticky="nsew", padx=pad,
+                         pady=(pad if row == 0 else 0,
+                               pad if row == len(self.sections) - 1 else gap))
+
+        # -- 1. Import & Books: workspace import, then the navigator ----------- #
+        imp = self.import_section
+        imp.columnconfigure(0, weight=1)
+        top = ttk.Frame(imp, style=st("surface"))
+        top.grid(row=0, column=0, sticky="ew")
+        self.import_band = top
         self.btn_import_folder = ttk.Button(
-            top, text="Import Folder", style=style_name(theme, "button"),
-            command=self.import_folder)
+            top, text="Import Folder", style=st("button"), command=self.import_folder)
         self.btn_import_folder.grid(row=0, column=0, sticky="w")
         self.btn_add_files = ttk.Button(
-            top, text="Add Files", style=style_name(theme, "button"),
-            command=self.add_files)
+            top, text="Add Files", style=st("button"), command=self.add_files)
         self.btn_add_files.grid(row=0, column=1, sticky="w", padx=(4, 0))
         # The destructive workspace reset lives with the import controls it
         # undoes, in the shared destructive treatment (Phase 12 amendment) --
         # deliberately not "Clear All": this tool also has Clear All Tags.
         self.btn_clear_imports = ttk.Button(
-            top, text=CLEAR_IMPORTS_LABEL, style=style_name(theme, "danger_button"),
+            top, text=CLEAR_IMPORTS_LABEL, style=st("danger_button"),
             command=self.clear_all_imports)
         self.btn_clear_imports.grid(row=0, column=2, sticky="w", padx=(4, 0))
         self.import_status = job_ui.ImportStatusBar(
-            top, theme=theme, on_cancel=self.cancel_import)
-        self.output_label = ttk.Label(
-            top, textvariable=self.var_outdir, anchor="e",
-            style=style_name(theme, "secondary_label"))
-        if compact_band:
+            top, theme=bundle, on_cancel=self.cancel_import)
+        self._outdir_trace = None
+        if hints["import_band_layout"] == "compact":
             # The status bar keeps its natural width — it is the only place
             # a running scan and its Cancel appear — and the output hint is
-            # the one thing that yields: right-anchored, so a path the band
-            # cannot hold in full still shows where the run lands. Open
-            # Output Folder joins the actions (built below) where the band
-            # has no room for it at all.
+            # the one thing that yields. ttk clips an overlong label from the
+            # right whatever its anchor, which would cut off the run folder --
+            # the part that says where the run lands -- so the label asks for
+            # almost no width, takes whatever the band has left, and shows the
+            # path's tail behind an ellipsis when the whole will not fit
+            # (``_fit_output_hint``). The full path stays in ``var_outdir``.
+            self.output_label = ttk.Label(top, width=1, anchor="e",
+                                          style=st("secondary_label"))
+            top.columnconfigure(4, weight=1)
             self.import_status.frame.grid(row=0, column=3, sticky="w", padx=(10, 10))
             self.output_label.grid(row=0, column=4, sticky="ew")
+            self.output_label.bind("<Configure>", self._fit_output_hint, add="+")
+            self._outdir_trace = self.var_outdir.trace_add(
+                "write", lambda *_a: self._fit_output_hint())
+            self._fit_output_hint()
         else:
+            self.output_label = ttk.Label(
+                top, textvariable=self.var_outdir, anchor="e",
+                style=st("secondary_label"))
+            top.columnconfigure(3, weight=1)
             self.import_status.frame.grid(row=0, column=3, sticky="ew", padx=(10, 10))
             self.output_label.grid(row=0, column=4, sticky="e")
-            self.btn_open_out = ttk.Button(
-                top, text="Open Output Folder", style=style_name(theme, "button"),
-                command=self.open_outdir)
-            self.btn_open_out.grid(row=0, column=5, sticky="e", padx=(6, 0))
 
-        # -- row 1: the shared navigator, Editor action subset ------------ #
         self.navigator = BookNavigator(
-            self, theme=theme, layout=hints["navigator_layout"],
+            imp, theme=bundle, layout=hints["navigator_layout"],
             actions=(BookNavigator.REMOVE,),
             describe=self._describe, label_for=self._label_for,
             on_previous=self.on_previous, on_next=self.on_next,
             on_remove=self.on_remove, on_select=self.on_select)
-        self.navigator.frame.grid(row=1, column=0, sticky="ew", padx=pad,
-                                  pady=(0, gap_small))
+        self.navigator.frame.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        # The selector's drop-down list is a classic Tk listbox no ttk style
+        # reaches; without this a Dark combobox would open a white list.
+        appearance.style_combobox_popdown(self.navigator.selector, bundle)
 
-        # -- row 2: Shared above Current Book ----------------------------- #
+        # -- 2. Metadata: Shared above Current Book ----------------------------- #
+        meta = self.metadata_section
+        meta.columnconfigure(0, weight=1)
         text_fields = tuple((key, wf.FIELD_LABELS[key]) for key in wf.TEXT_FIELDS)
         wrap = hints["label_wrap"]
         columns = hints["field_columns"]
+        # Shared is the tinted group -- the shared palette's restrained blue
+        # surface, stronger border and heading, in Light and Dark alike -- and
+        # Current Book the ordinary section surface with the quieter border.
+        # Both treatments are the shared surface's own ``shared_labelframe`` /
+        # ``labelframe`` styles; nothing here picks a color.
         self.surface = SharedMetadataSurface(
-            self, text_fields, theme=theme, layout="rows",
+            meta, text_fields, theme=bundle, layout="rows",
             show_header=False, entry_width=hints["entry_width"],
             field_gap=hints["field_gap"],
             wraplength=None if wrap is None else int(wrap),
@@ -420,166 +570,193 @@ class M4BMetadataEditorUI(ttk.Frame):
             shared_title=SHARED_TITLE, book_title=BOOK_TITLE,
             on_shared_change=self.on_shared_change,
             on_book_change=self.on_book_change)
-        self.surface.frame.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, gap))
+        self.surface.frame.grid(row=0, column=0, sticky="ew")
         field_columns = self.surface.field_columns
         field_rows = 2 * self.surface.field_lines
+        # Widget padding, not a style: two stacked groups at the section's own
+        # padding would spend the height the chapter box needs at the supported
+        # minimum. The style (and its colours) is unchanged.
         for group in (self.surface.shared_frame, self.surface.book_frame):
             group.configure(padding=(hints["group_pad"], 2))
 
-        # "rows": the artwork column runs the height of the Book group and
-        # the read-back lines sit beside it (the accepted Windows
-        # composition). "compact": the artwork spans the field rows only and
-        # the read-back runs the full width beneath, facts and status on the
-        # series line — two lines where aqua metrics cannot afford three.
+        # "compact" (the compact default, and aqua's): the artwork spans the
+        # field rows only and the read-back runs the full width beneath, facts
+        # and status on the series line. "rows": the artwork column runs the
+        # height of the Book group and three read-back lines sit beside it.
         compact_readback = hints["readback_layout"] == "compact"
         natural = hints["artwork_buttons"] == "natural"
+        # The preview is no taller than the control's caption and buttons, so
+        # choosing artwork never makes Metadata grow (no layout jump).
         self.shared_artwork = ArtworkControl(
             self.surface.shared_frame, caption=wf.FIELD_LABELS["artwork"],
-            theme=theme, shared=True, natural_buttons=natural,
+            theme=bundle, shared=True, natural_buttons=natural,
+            preview_max=m4b_artwork_ui.COMPACT_PREVIEW_MAX,
             on_choose=self.choose_shared_artwork, on_clear=self.clear_shared_artwork)
         self.shared_artwork.frame.grid(row=0, column=field_columns, rowspan=field_rows,
                                        sticky="nw", padx=(hints["artwork_gap"], 0))
         self.book_artwork = ArtworkControl(
             self.surface.book_frame, caption=wf.FIELD_LABELS["artwork"],
-            theme=theme, shared=False, natural_buttons=natural,
+            theme=bundle, shared=False, natural_buttons=natural,
+            preview_max=m4b_artwork_ui.COMPACT_PREVIEW_MAX,
             on_choose=self.choose_book_artwork, on_clear=self.clear_book_artwork)
         self.book_artwork.frame.grid(row=0, column=field_columns,
                                      rowspan=field_rows + (0 if compact_readback else 3),
                                      sticky="nw", padx=(hints["artwork_gap"], 0))
 
         # The read-back lines under the Book fields: source identity, the
-        # series read-back and the compact facts + status. Display only.
-        readback = ttk.Frame(self.surface.book_frame, style=style_name(theme, "surface"))
+        # series read-back and the compact facts + status. Display only, on
+        # the Book group's surface like every other label in it.
+        readback = ttk.Frame(self.surface.book_frame, style=st("surface"))
         readback.grid(row=field_rows, column=0,
                       columnspan=field_columns + (1 if compact_readback else 0),
                       sticky="ew", pady=(4, 0))
         readback.columnconfigure(0, weight=1)
+        self.readback = readback
         self.var_source = tk.StringVar(master=self, value="")
         self.source_label = ttk.Label(readback, textvariable=self.var_source, anchor="w",
-                                      style=style_name(theme, "secondary_label"))
-        self.source_label.grid(row=0, column=0, sticky="ew")
+                                      style=st("secondary_label"))
+        self.source_label.grid(row=0, column=0, columnspan=2, sticky="ew")
         self.var_readback = tk.StringVar(master=self, value="")
         self.readback_label = ttk.Label(readback, textvariable=self.var_readback, anchor="w",
-                                        style=style_name(theme, "secondary_label"))
+                                        style=st("secondary_label"))
         self.readback_label.grid(row=1, column=0, sticky="ew")
-        facts = ttk.Frame(readback, style=style_name(theme, "surface"))
+        facts = ttk.Frame(readback, style=st("surface"))
         if compact_readback:
             facts.grid(row=1, column=1, sticky="e", padx=(12, 0))
         else:
             facts.grid(row=2, column=0, sticky="ew")
         self.var_facts = tk.StringVar(master=self, value="")
         self.facts_label = ttk.Label(facts, textvariable=self.var_facts, anchor="w",
-                                     style=style_name(theme, "secondary_label"))
+                                     style=st("secondary_label"))
         self.facts_label.grid(row=0, column=0, sticky="w")
-        ttk.Label(facts, text="Status:", style=style_name(theme, "label")).grid(
+        ttk.Label(facts, text="Status:", style=st("label")).grid(
             row=0, column=1, sticky="w", padx=(12, 4))
-        self.status_label = ttk.Label(facts, text=STATUS_READY,
-                                      style=style_name(theme, "status_label"))
+        self.status_label = ttk.Label(facts, text=STATUS_READY, style=st("label"))
         self.status_label.grid(row=0, column=2, sticky="w")
 
-        # -- row 3: the local Chapter Titles editor ------------------------ #
-        chapters = ttk.Labelframe(
-            self, text="Chapter Titles (this Book) — line N renames chapter N; "
-                       "a blank or unchanged line keeps the source title",
-            style=style_name(theme, "labelframe"), padding=(6, 2))
-        chapters.grid(row=3, column=0, sticky="nsew", padx=pad, pady=(0, gap))
+        # -- 3. Chapters & Save ------------------------------------------------- #
+        run = self.chapters_section
+        run.columnconfigure(0, weight=1)
+        run.rowconfigure(1, weight=1)
+        self.chapters_caption = ttk.Label(run, text=CHAPTERS_CAPTION, style=st("label"))
+        self.chapters_caption.grid(row=0, column=0, sticky="w", pady=(0, 2))
+        chapters = ttk.Frame(run, style=st("surface"))
+        chapters.grid(row=1, column=0, columnspan=2, sticky="nsew")
         chapters.columnconfigure(0, weight=1)
         chapters.rowconfigure(0, weight=1)
-        self.chapter_text = tk.Text(chapters, height=hints["chapter_rows"], width=24,
+        self._chapter_rows = hints["chapter_rows"]
+        self.chapter_text = tk.Text(chapters, height=self._chapter_rows, width=24,
                                     wrap="none", undo=True)
         chapter_scroll = ttk.Scrollbar(chapters, orient="vertical",
                                        command=self.chapter_text.yview,
-                                       style=style_name(theme, "vscrollbar"))
+                                       style=st("vscrollbar"))
         self.chapter_text.configure(yscrollcommand=chapter_scroll.set)
         self.chapter_text.grid(row=0, column=0, sticky="nsew")
         chapter_scroll.grid(row=0, column=1, sticky="ns")
-        ui_theme.style_tk_widget(self.chapter_text, theme, role="text")
+        job_ui.style_tk_widget(self.chapter_text, bundle, "text")
         ui_theme.enable_mousewheel(self.chapter_text)
         self.chapter_text.bind("<KeyRelease>", self.on_chapter_edit)
         self._suspend_chapters = False
         self._chapter_baseline = ""
 
-        # -- row 4: series numbering + the preserve hint ------------------- #
-        options = ttk.Frame(self, style=style_name(theme, "window"))
-        options.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, gap_small))
+        self.run_separator = ttk.Separator(run, orient=tk.HORIZONTAL,
+                                           style=st("separator"))
+        self.run_separator.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 5))
+
+        # Series numbering, with the preserve note beneath; in the tight
+        # density the options join the caption's line (``_place_options``).
+        options = ttk.Frame(run, style=st("surface"))
         options.columnconfigure(3, weight=1)
+        self.run_options = options
         self.var_auto_number = tk.BooleanVar(master=self, value=False)
         self.check_auto_number = ttk.Checkbutton(
-            options, text="Auto-number Series Part (Save / Clear; successes only)",
-            variable=self.var_auto_number, style=style_name(theme, "checkbutton"))
+            options, text=AUTO_NUMBER_LABEL, variable=self.var_auto_number,
+            style=st("checkbutton"))
         self.check_auto_number.grid(row=0, column=0, sticky="w")
-        ttk.Label(options, text="Start Part (blank → 1):",
-                  style=style_name(theme, "label")).grid(
-            row=0, column=1, sticky="w", padx=(12, 4))
+        self.label_start_part = ttk.Label(options, text=START_PART_LABEL, style=st("label"))
+        self.label_start_part.grid(row=0, column=1, sticky="w", padx=(8, 4))
         self.var_start_part = tk.StringVar(master=self, value="")
         self.entry_start_part = ttk.Entry(
-            options, textvariable=self.var_start_part, width=6,
-            style=style_name(theme, "entry"))
+            options, textvariable=self.var_start_part, width=4, style=st("entry"))
         self.entry_start_part.grid(row=0, column=2, sticky="w")
         note_wrap = hints["note_wrap"]
         self.hint_label = ttk.Label(options, text=PRESERVE_HINT, anchor="w",
-                                    style=style_name(theme, "secondary_label"),
+                                    style=st("secondary_label"),
                                     **({} if note_wrap is None else
                                        {"wraplength": int(note_wrap), "justify": "left"}))
         self.hint_label.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 0))
+        self._place_options()
 
-        # -- row 5: the three actions, the shared job area, Clear Log ------ #
-        self.actions = ttk.Frame(self, style=style_name(theme, "window"))
-        self.actions.grid(row=5, column=0, sticky="ew", padx=pad, pady=(0, gap))
+        # The three actions and Open Output Folder, then the shared job area
+        # beside them: one adapter per run, installed into column 2 by
+        # ``_install_jobs``. Save Tags is the tool's one primary action, so it
+        # takes the compact button with ttk's restrained accent outline -- the
+        # treatment TTS's Start, Cover's Resize, the Converter's Convert and the
+        # Maker's Build get; the two destructive actions take the shared
+        # destructive treatment. Open Output Folder sits with the actions whose
+        # copies it reveals, as the Converter's does in its Output & Run.
+        self.actions = ttk.Frame(run, style=st("surface"))
+        self.actions.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.actions.columnconfigure(2, weight=1)
-        buttons = ttk.Frame(self.actions, style=style_name(theme, "window"))
+        buttons = ttk.Frame(self.actions, style=st("surface"))
         buttons.grid(row=0, column=0, rowspan=2, sticky="nw")
+        self.action_buttons = buttons
         self.btn_save = ttk.Button(
-            buttons, text="Save Tags", style=style_name(theme, "primary_button"),
+            buttons, text="Save Tags", default="active", style=st("button"),
             command=self.save)
         self.btn_clear_tags = ttk.Button(
             buttons, text="Clear All Tags (keep chapters)",
-            style=style_name(theme, "danger_button"), command=self.on_clear_all_tags)
+            style=st("danger_button"), command=self.on_clear_all_tags)
         self.btn_remove_numbering = ttk.Button(
             buttons, text="Remove Series Numbering",
-            style=style_name(theme, "danger_button"), command=self.on_remove_series_numbering)
-        self.btn_clear_log = ttk.Button(
-            buttons, text="Clear Log", style=style_name(theme, "button"),
-            command=self.clear_log)
-        stacked = [self.btn_save, self.btn_clear_tags, self.btn_remove_numbering,
-                   self.btn_clear_log]
-        if compact_band:
-            # Open Output Folder lives here when the import band has no room
-            # for it; the same control, the same callback.
-            self.btn_open_out = ttk.Button(
-                buttons, text="Open Output Folder", style=style_name(theme, "button"),
-                command=self.open_outdir)
-            stacked.append(self.btn_open_out)
-        if hints["actions_layout"] == "row":
-            self.btn_save.grid(row=0, column=0, sticky="w")
-            self.btn_clear_tags.grid(row=0, column=1, sticky="w", padx=(6, 0))
-            self.btn_remove_numbering.grid(row=0, column=2, sticky="w", padx=(6, 0))
-            self.btn_clear_log.grid(row=1, column=0, sticky="w", pady=(4, 0))
-            if compact_band:
-                self.btn_open_out.grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(4, 0))
-        elif hints["actions_columns"] >= 2:
+            style=st("danger_button"), command=self.on_remove_series_numbering)
+        self.btn_open_out = ttk.Button(
+            buttons, text="Open Output Folder", style=st("button"),
+            command=self.open_outdir)
+        if hints["actions_layout"] == "stacked" and hints["actions_columns"] < 2:
+            for row, button in enumerate((self.btn_save, self.btn_clear_tags,
+                                          self.btn_remove_numbering, self.btn_open_out)):
+                button.grid(row=row, column=0, sticky="ew", pady=(0 if row == 0 else 4, 0))
+        else:
             # Two columns, no taller than the job area beside them. A grid
             # column is as wide as its widest button, so the two long
-            # destructive captions share the second column (with Open Output
-            # Folder beneath them) and the primary action heads the first;
-            # any other split pushes the job controls past the host.
-            cells = [(self.btn_save, 0, 0), (self.btn_clear_log, 1, 0),
+            # destructive captions share the second column and the primary
+            # action heads the first, Open Output Folder beneath it; any other
+            # split pushes the job controls past the host.
+            cells = [(self.btn_save, 0, 0), (self.btn_open_out, 1, 0),
                      (self.btn_clear_tags, 0, 1), (self.btn_remove_numbering, 1, 1)]
-            if compact_band:
-                cells.append((self.btn_open_out, 2, 1))
             for button, row, column in cells:
                 button.grid(row=row, column=column, sticky="ew",
                             padx=(0 if column == 0 else 6, 0),
                             pady=(0 if row == 0 else 4, 0))
-        else:
-            for row, button in enumerate(stacked):
-                button.grid(row=row, column=0, sticky="ew", pady=(0 if row == 0 else 4, 0))
         self._jobs_rowspan = 2
 
-        # -- row 6: the one log region ----------------------------------- #
-        self.log = job_ui.SummaryDetailsView(self, theme=theme, height=2,
+        # -- Activity: the one Summary | Detailed log, below -------------------- #
+        # The universal Activity presentation (frozen contract §3): the note and
+        # Clear Log above the shared Summary | Detailed view. Built once and
+        # handed to every run's adapter, so the history of one run is still
+        # there when the next one starts.
+        act = self.activity
+        act.columnconfigure(0, weight=1)
+        act.rowconfigure(1, weight=1)
+        bar = ttk.Frame(act, style=st("surface"))
+        bar.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        bar.columnconfigure(0, weight=1)
+        self.activity_bar = bar
+        self.activity_note = ttk.Label(
+            bar, text="Summary: progress and results.  Detailed: every step.",
+            style=st("secondary_label"), justify=tk.LEFT)
+        self.activity_note.grid(row=0, column=0, sticky="w")
+        # Not a processing option, so it never locks: clearing the visible log
+        # never interferes with a run in flight.
+        self.btn_clear_log = ttk.Button(bar, text="Clear Log", style=st("button"),
+                                        command=self.clear_log)
+        self.btn_clear_log.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.log = job_ui.SummaryDetailsView(act, theme=bundle, height=LOG_HEIGHT,
                                              details_label="Detailed", limit=LOG_LIMIT)
-        self.log.frame.grid(row=6, column=0, sticky="nsew", padx=pad, pady=(0, pad))
+        self.log.frame.grid(row=1, column=0, sticky="nsew")
+
+        self.bind("<Configure>", self._on_panel_configure, add="+")
 
     def _install_jobs(self, run_id: str, item_ids) -> None:
         """Point the shared job area at one run. Main thread only.
@@ -593,14 +770,16 @@ class M4BMetadataEditorUI(ttk.Frame):
         if previous is not None:
             previous.close()
             previous.frame.destroy()
-        theme = self.theme
+        bundle = self.appearance_bundle
         self._event_q = queue.Queue()
         self._estimator = job_control.EtaEstimator(run_id, clock=self._clock)
         self.jobs = job_ui.JobAdapter(
             self.actions,
             run_id=run_id,
             pump=self._pump,
-            theme=theme,
+            # The shared compact bundle, exactly as Cover's, TTS's, the
+            # Converter's, the MP3 Tool's and the Maker's job areas use it.
+            theme=bundle,
             pull=job_ui.queue_pull(self._event_q),
             estimator=self._estimator,
             bridge=self._bridge,
@@ -614,19 +793,269 @@ class M4BMetadataEditorUI(ttk.Frame):
             on_event=self._on_job_event,
             on_terminal=self._on_terminal,
         )
-        self.jobs.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="ew",
+        self.jobs.frame.grid(row=0, column=2, rowspan=self._jobs_rowspan, sticky="new",
                              padx=(12, 0))
         self.jobs.controls.frame.grid_configure(sticky="e")
         self.controls = self.jobs.controls
         self.status = self.jobs.status
         self.lock_group = self.jobs.locks
-        self.status.indicator.frame.configure(style=style_name(theme, "card"))
-        self.status.indicator.bar.configure(style=style_name(theme, "progressbar"))
-        self.status.indicator.label.configure(style=style_name(theme, "status_label"))
+        # Per-instance restyling, exactly as Cover, TTS, the Converter, the MP3
+        # Tool and the Maker do it: the shared indicator stays generic for every
+        # panel that has not adopted the compact system, but here an unstyled
+        # native frame would be a light island in Dark. Aqua names inherit native controls.
+        self.status.indicator.frame.configure(style=style_name(bundle, "card"))
+        self.status.indicator.bar.configure(style=style_name(bundle, "progressbar"),
+                                            length=PROGRESS_BAR_LENGTH)
+        self.status.indicator.label.configure(style=style_name(bundle, "secondary_label"))
+        self.status.label_status.configure(style=style_name(bundle, "secondary_label"))
+        self._arrange_status()
         self.jobs.register_inputs(self.navigator, self._import_lock)
         self.jobs.register_options(self.surface, self.shared_artwork, self.book_artwork,
                                    self._options_lock, self._chapters_lock)
         self.jobs.render()
+
+    def _fit_output_hint(self, _event=None) -> None:
+        """Show as much of the output path as the band holds, tail first.
+
+        Presentation only: ``var_outdir`` keeps the whole path, and the
+        shared destination registry still writes it there.
+        """
+        if self._closed or self._outdir_trace is None:
+            return
+        label = self.output_label
+        full = str(self.var_outdir.get())
+        try:
+            width = label.winfo_width()
+            described = ttk.Style(label).lookup(
+                str(label.cget("style")) or "TLabel", "font")
+            font = tkfont.Font(font=described or "TkDefaultFont")
+        except tk.TclError:
+            return
+        text = full
+        if width > 1 and font.measure(full) > width:
+            tail = full
+            while tail and font.measure("…" + tail) > width:
+                tail = tail[1:]
+            text = "…" + tail if tail else ""
+        try:
+            label.configure(text=text)
+        except tk.TclError:
+            pass
+
+    @property
+    def output_hint_text(self) -> str:
+        """What the output hint currently shows."""
+        if self._outdir_trace is None:
+            return str(self.var_outdir.get())
+        return str(self.output_label.cget("text"))
+
+    # -- appearance: the shared compact control language -------------------- #
+
+    def _on_appearance_changed(self, bundle: dict) -> None:
+        """Re-color the few classic Tk widgets a ttk style mutation cannot reach.
+
+        Every ttk widget here names a ``Compact.*`` style, and
+        ``shared.appearance`` reconfigured those in place before calling this,
+        so they have already repainted. What is left is classic Tk: the Chapter
+        Titles box, the Activity log's two panes and the Book selector's
+        drop-down list. Nothing is rebuilt, so no Book, page, value, chapter
+        title, run option, log line, progress or running job moves.
+        """
+        self.appearance_bundle = bundle
+        if self._closed:
+            return
+        job_ui.style_tk_widget(self.chapter_text, bundle, "text")
+        self.log.apply_appearance(bundle)
+        appearance.style_combobox_popdown(self.navigator.selector, bundle)
+
+    # -- density: the frozen contract's tight-window steps ----------------- #
+
+    def _linespace(self, widget) -> int:
+        try:
+            return max(1, int(tkfont.Font(font=widget.cget("font")).metrics("linespace")))
+        except (tk.TclError, ValueError):
+            return 1
+
+    def _gives(self) -> tuple[int, int]:
+        """Pixels the two flexible regions may give up above their floors.
+
+        The Chapter Titles box gives up to the density's chapter floor, the log
+        to the density's log floor. From the live fonts, so the numbers follow
+        the platform's real metrics and scaling.
+        """
+        floor_rows = TIGHT_CHAPTER_FLOOR_ROWS if self._tight else CHAPTER_FLOOR_ROWS
+        chapters = self._linespace(self.chapter_text) * max(0, self._chapter_rows - floor_rows)
+        log_floor = TIGHT_LOG_FLOOR_LINES if self._tight else LOG_FLOOR_LINES
+        log = self._linespace(self.log.summary_text) * (LOG_HEIGHT - log_floor)
+        return chapters, log
+
+    def _measure_density(self) -> dict:
+        """What the regular density needs, from the live widgets.
+
+        ``floor`` is the panel height at which the regular padding still leaves
+        the Chapter Titles box and the log at or above their floors. Below it
+        the tight density applies.
+        """
+        self.update_idletasks()
+        chapters, log = self._gives()
+        return {"floor": self.winfo_reqheight() - chapters - log}
+
+    def _set_row_floors(self) -> None:
+        """Hold Chapters & Save and Activity at their measured floors.
+
+        A short window takes its height from these two rows only (the other two
+        have no weight); the minimum sizes stop either from being squeezed below
+        the height its options, actions, job area and chrome need plus the floor
+        rows of its chapter box or log, so no control inside is ever clipped.
+        """
+        self.update_idletasks()
+        chapters, log = self._gives()
+        self.rowconfigure(2, minsize=max(0, self.chapters_section.winfo_reqheight() - chapters))
+        self.rowconfigure(3, minsize=max(0, self.activity.winfo_reqheight() - log))
+
+    def _apply_density(self, tight: bool) -> None:
+        """Regular or tight. Positions, padding and chrome only -- the same
+        widgets, variables and commands, and nothing of the workspace.
+
+        Tight is the frozen contract's §1 order: less padding and chrome first
+        (section padding, gaps, the separator, Activity's explanatory note),
+        then a reflow (Clear Log beside the Summary | Detailed view rather than
+        above it; the job status on two lines; the series numbering on the
+        Chapter Titles caption's line and the preserve statement in the
+        Current Book caption, ``_place_options``), and only then the flexible
+        regions' lower floor. Nothing is hidden that can be used.
+        """
+        self._tight = bool(tight)
+        hints = self._hints
+        pad = TIGHT_OUTER_PAD if tight else hints["pad"]
+        gap = TIGHT_SECTION_GAP if tight else hints["gap"]
+        padding = TIGHT_SECTION_PADDING if tight else SECTION_PADDING
+        last = len(self.sections) - 1
+        for row, section in enumerate(self.sections):
+            section.configure(padding=padding)
+            section.grid_configure(padx=pad, pady=(pad if row == 0 else 0,
+                                                   pad if row == last else gap))
+        small = 2 if tight else 4
+        self.navigator.frame.grid_configure(pady=(small, 0))
+        # The shared surface's own gap between its Shared and Current Book
+        # groups, and the groups' own padding.
+        self.surface.book_frame.grid_configure(pady=(2 if tight else 8, 0))
+        for group in (self.surface.shared_frame, self.surface.book_frame):
+            group.configure(padding=(4, 0, 4, 1) if tight else (hints["group_pad"], 2))
+        self.readback.grid_configure(pady=(small, 0))
+        self.chapters_caption.grid_configure(pady=(0, 0 if tight else 2))
+        if tight:
+            self.run_separator.grid_remove()
+            self.actions.grid_configure(pady=(small, 0))
+            # Clear Log beside the log view, level with its tabs.
+            self.activity_note.grid_remove()
+            self.log.frame.grid_configure(row=0, column=0, rowspan=2)
+            self.activity_bar.grid_configure(row=0, column=1, sticky="ne",
+                                             padx=(6, 0), pady=0)
+        else:
+            self.run_separator.grid()
+            self.actions.grid_configure(pady=(6, 0))
+            self.activity_note.grid()
+            self.log.frame.grid_configure(row=1, column=0, rowspan=1)
+            self.activity_bar.grid_configure(row=0, column=0, sticky="ew",
+                                             padx=0, pady=(0, 4))
+        self._place_options()
+        self._arrange_status()
+        self._set_row_floors()
+
+    @property
+    def _inline_options(self) -> bool:
+        """The tight reflow applies: the compact composition in the tight
+        density (a theme that wraps the note keeps its own arrangement)."""
+        return self._tight and self._hints["note_wrap"] is None
+
+    def _place_options(self) -> None:
+        """Where the series numbering and the preserve note go.
+
+        Regular: the options on their own line beneath the Chapter Titles box,
+        the preserve note beneath them. Tight (a §1 reflow): the options, in
+        their short wording, on the caption's line, and the preserve note's
+        statement in the Current Book caption beside the other half of it, so
+        both lines give their height to the flexible regions. Positions and
+        wording only -- the same widgets, variables and commands.
+        """
+        inline = self._inline_options
+        if inline:
+            self.run_options.grid(row=0, column=1, columnspan=1, sticky="e",
+                                  padx=(12, 0), pady=0)
+            self.hint_label.grid_remove()
+        else:
+            self.run_options.grid(row=3, column=0, columnspan=2, sticky="ew",
+                                  padx=0, pady=0)
+            self.hint_label.grid()
+        self.chapters_caption.configure(
+            text=CHAPTERS_CAPTION_SHORT if inline else CHAPTERS_CAPTION)
+        self.surface.book_frame.configure(text=BOOK_TITLE_TIGHT if inline else BOOK_TITLE)
+        self.check_auto_number.configure(
+            text=AUTO_NUMBER_LABEL_SHORT if self._tight else AUTO_NUMBER_LABEL)
+        self.label_start_part.configure(
+            text=START_PART_LABEL_SHORT if self._tight else START_PART_LABEL)
+
+    @property
+    def preserve_note_text(self) -> str:
+        """Where the preserve-by-default statement currently shows."""
+        if self._inline_options:
+            return str(self.surface.book_frame.cget("text"))
+        return str(self.hint_label.cget("text"))
+
+    def _arrange_status(self) -> None:
+        """The shared status view's lines: three, or two in the tight density.
+
+        Grid positions and wrap only -- the same labels, bound to the same
+        variables the shared view writes. Regular is the view's own layout:
+        progress, then stage and ETA, then the status line. Tight sets the
+        status beside the progress bar and the stage beside the ETA, one line
+        fewer beside the actions (the MP3 Tool's Phase 6 arrangement).
+        """
+        jobs = getattr(self, "jobs", None)
+        if jobs is None:
+            return
+        view = jobs.status
+        view.frame.grid_configure(pady=(2 if self._tight else 4, 0))
+        if self._tight:
+            view.indicator.frame.grid_configure(row=0, column=0, columnspan=1, sticky="w")
+            view.label_status.grid_configure(row=0, column=1, columnspan=2, sticky="w",
+                                             padx=(8, 0))
+            view.label_stage.grid_configure(row=1, column=0, columnspan=2, sticky="w")
+            view.label_eta.grid_configure(row=1, column=2, columnspan=1, sticky="e")
+            view.frame.columnconfigure(0, weight=0)
+            view.frame.columnconfigure(1, weight=1)
+            view.label_status.configure(wraplength=TIGHT_STATUS_WRAP)
+        else:
+            view.indicator.frame.grid_configure(row=0, column=0, columnspan=2, sticky="ew")
+            view.label_stage.grid_configure(row=1, column=0, columnspan=1, sticky="w")
+            view.label_eta.grid_configure(row=1, column=1, columnspan=1, sticky="e")
+            view.label_status.grid_configure(row=2, column=0, columnspan=2, sticky="w",
+                                             padx=0)
+            view.frame.columnconfigure(0, weight=1)
+            view.frame.columnconfigure(1, weight=0)
+            view.label_status.configure(wraplength=0)
+
+    @property
+    def density(self) -> str:
+        """``"regular"`` or ``"tight"``: the padding currently applied."""
+        return "tight" if self._tight else "regular"
+
+    def _on_panel_configure(self, event=None) -> None:
+        """Choose the density for the panel's real height. Main thread only."""
+        if self._closed or (event is not None and event.widget is not self):
+            return
+        if self._density_needs is None:
+            if self._tight:
+                self._apply_density(False)
+            self._density_needs = self._measure_density()
+            self._set_row_floors()
+        height = self.winfo_height()
+        if height <= 1:
+            return
+        tight = height < self._density_needs["floor"]
+        if tight != self._tight:
+            self._apply_density(tight)
 
     class _ButtonLock:
         """Registers a set of this panel's own widgets with the shared group."""
@@ -1429,6 +1858,7 @@ class M4BMetadataEditorUI(ttk.Frame):
         if self._closed:
             return
         self._closed = True
+        appearance.unregister_listener(self._on_appearance_changed)
         if self.run is not None:
             try:
                 self.run.cancel()
@@ -1449,6 +1879,11 @@ class M4BMetadataEditorUI(ttk.Frame):
             self._pump.close()
         except Exception:
             pass
+        if self._outdir_trace is not None:
+            try:
+                self.var_outdir.trace_remove("write", self._outdir_trace)
+            except (tk.TclError, ValueError):
+                pass
 
 
 def build_ui(parent: tk.Misc, theme=None) -> M4BMetadataEditorUI:

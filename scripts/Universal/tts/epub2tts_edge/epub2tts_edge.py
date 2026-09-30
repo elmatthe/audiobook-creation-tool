@@ -39,7 +39,9 @@ def _run_ffmpeg(cmd):
 
     if cmd and cmd[0] == "ffmpeg":
         cmd = [_ff.ffmpeg_cmd()] + list(cmd[1:])
-    return _sp.run(cmd)
+    # check=True (v0.6.6 Phase 10): a failed step used to be ignored, and
+    # make_m4b went on to clean up and return an output that was never written.
+    return _sp.run(cmd, check=True)
 
 
 DEFAULT_SPEAKER = "en-US-SteffanNeural"
@@ -119,7 +121,10 @@ def get_book(sourcefile):
     book_author = "Unknown"
     chapter_titles = []
 
-    with open(sourcefile, "r", encoding="utf-8") as file:
+    # utf-8-sig, not utf-8 (v0.6.6 Phase 10): a Windows "UTF-8 with BOM" file
+    # otherwise keeps U+FEFF on its first line, which ``strip`` leaves in place,
+    # so its "Title:"/"Author:"/"#" line was spoken aloud instead of parsed.
+    with open(sourcefile, "r", encoding="utf-8-sig") as file:
         current_chapter = {"title": "blank", "paragraphs": []}
         initialized_first_chapter = False
         header_done = False
@@ -408,13 +413,20 @@ def read_book(
     return segments
 
 def generate_metadata(files, author, title, chapter_titles):
+    # v0.6.6 Phase 10: UTF-8 rather than the locale encoding (cp1252 on Windows
+    # raised on any title outside it), and every value escaped, because a ";",
+    # "=", "#" or backslash in a title garbled it. The CLI's --format m4b is the
+    # only caller; the GUI always writes MP3.
+    _ensure_shared_on_path()
+    from shared.metadata import ffmetadata_escape as _esc
+
     chap = 0
     start_time = 0
-    with open("FFMETADATAFILE", "w") as file:
+    with open("FFMETADATAFILE", "w", encoding="utf-8") as file:
         file.write(";FFMETADATA1\n")
-        file.write(f"ARTIST={author}\n")
-        file.write(f"ALBUM={title}\n")
-        file.write(f"TITLE={title}\n")
+        file.write(f"ARTIST={_esc(author)}\n")
+        file.write(f"ALBUM={_esc(title)}\n")
+        file.write(f"TITLE={_esc(title)}\n")
         file.write("DESCRIPTION=Made with https://github.com/aedocw/epub2tts-edge\n")
         for file_name in files:
             duration = get_duration(file_name)
@@ -422,7 +434,7 @@ def generate_metadata(files, author, title, chapter_titles):
             file.write("TIMEBASE=1/1000\n")
             file.write(f"START={start_time}\n")
             file.write(f"END={start_time + duration}\n")
-            file.write(f"title={chapter_titles[chap]}\n")
+            file.write(f"title={_esc(chapter_titles[chap])}\n")
             chap += 1
             start_time += duration
 

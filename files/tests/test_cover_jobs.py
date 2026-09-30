@@ -1316,7 +1316,7 @@ def test_cancel_after_a_completed_replacement_leaves_it_replaced_and_says_so(
     with Image.open(first) as img:
         assert img.size == (64, 64), "a completed replacement is never rolled back"
     assert sha(second) == second_before, "the unreached original is unchanged"
-    log = panel.log.get("1.0", "end")
+    log = "\n".join(panel.log.details)
     assert "1 of 2 original(s) replaced" in log
     assert "unchanged" in log
     assert panel.run_result.cancelled is True

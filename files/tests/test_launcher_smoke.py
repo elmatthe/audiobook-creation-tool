@@ -23,11 +23,15 @@ import tk_gate  # noqa: E402
 
 EXPECTED_TOOLS = ["tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b_metadata"]
 
-#: The only tool panel this drop may convert (Phase 3). Everything else in
-#: EXPECTED_TOOLS must still render through the generic ttk styles.
-CONVERTED_TOOL = "m4b_metadata"
-#: The MP3 Tool joined the converted set at the focused MP3 plan's Phase 4.
-CONVERTED_TOOLS = ("m4b_metadata", "mp3_tool", "m4b_maker")
+#: Tool panels that name the shell's ``ACT.*`` styles themselves. The M4B
+#: Metadata Editor was converted at v0.6.0 Drop 1 Phase 3, the MP3 Tool at the
+#: focused MP3 plan's Phase 4 and the M4B Maker at v0.6.4 Phase 6; all three
+#: left for the shared compact system at v0.6.6 Phases 6-8, so none remains.
+CONVERTED_TOOLS: tuple[str, ...] = ()
+#: Dense multi-Book panels rebuilt on the shared compact Light/Dark system
+#: (v0.6.6 Phase 6 onward). Like the Family-A panels they carry no ``ACT.*``
+#: style; unlike them, they are held to "every ttk widget is ``Compact.*``" here.
+COMPACT_DENSE_TOOLS = ("mp3_tool", "m4b_maker", "m4b_metadata")
 UNCONVERTED_TOOLS = [k for k in EXPECTED_TOOLS if k not in CONVERTED_TOOLS]
 
 #: The Windows shell only exists on win32 — ``apply_theme`` routes on the real
@@ -312,11 +316,22 @@ def test_windows_shell_chrome_uses_act_styles(fresh_root, fake_settings):
     assert str(app._status_label.cget("style")) == s["status_label"]
     assert str(app._log_button.cget("style")) == s["ghost_button"]
 
-    # Every styled widget in the shell is inside the namespace, and the shell
-    # actually uses it (a silently-unstyled shell would also pass "no leak").
-    used = {_style_of(w) for w in _walk(fresh_root)} - {""}
+    # Every styled widget in the shell chrome is inside the namespace, and the
+    # shell actually uses it (a silently-unstyled shell would also pass "no
+    # leak"). v0.6.6 Phase 3: the default tool (TTS) now draws its interior
+    # with the shared compact tool-interior system, so the walk separates the
+    # chrome from the hosted tool content -- which may use either namespace,
+    # never a generic style name.
+    content = str(app.content)
+    widgets = list(_walk(fresh_root))
+    chrome = [w for w in widgets if not str(w).startswith(content + ".")]
+    hosted = [w for w in widgets if str(w).startswith(content + ".")]
+    used = {_style_of(w) for w in chrome} - {""}
     assert used, "the Windows shell applied no styles at all"
     assert all(name.startswith("ACT.") for name in used), sorted(used)
+    hosted_used = {_style_of(w) for w in hosted} - {""}
+    assert all(name.startswith(("ACT.", "Compact.")) for name in hosted_used), \
+        sorted(hosted_used)
 
     # The base theme is still the native one, so unconverted panels are safe.
     assert app.theme["base_theme"] == "vista"
@@ -356,12 +371,13 @@ def test_windows_selected_tool_state_and_status(fresh_root, fake_settings,
 @windows_only
 def test_child_panels_do_not_inherit_act_styles(fresh_root, fake_settings,
                                                 error_recorder):
-    """The four unconverted panels stay generic; two are converted.
+    """No panel inherits the shell's ``ACT.*`` styles, and none opts in now.
 
-    Phase 3 converted the M4B Metadata Editor, and the focused MP3 plan's
-    Phase 4 the MP3 Tool, so each now *names* ``ACT.*`` styles itself. That is
-    opting in, not inheriting — which the other four panels prove by still
-    carrying not one namespaced style between them.
+    Phase 3 converted the M4B Metadata Editor, and later plans the MP3 Tool and
+    the M4B Maker, so each once *named* ``ACT.*`` styles itself -- opting in,
+    not inheriting. All three moved to the shared compact system at v0.6.6
+    Phases 6-8, so all six panels now prove it by carrying not one ``ACT.*``
+    style between them.
     """
     import launcher
 
@@ -381,17 +397,18 @@ def test_child_panels_do_not_inherit_act_styles(fresh_root, fake_settings,
                 offenders.append((key, str(widget), style))
     assert counted > 0
     assert offenders == [], f"panel contents inherited shell styles: {offenders}"
+    assert UNCONVERTED_TOOLS == EXPECTED_TOOLS, "every panel is checked for ACT styles"
 
-    # Each converted panel opted in deliberately, and did so completely: no ttk
-    # widget in it was left on a generic style.
+    # A dense panel on the compact system opted in completely: no ttk widget
+    # in it was left on a generic style.
     # (the container itself is launcher-owned and stays deliberately unstyled)
-    for key in CONVERTED_TOOLS:
-        converted = list(_walk(app.containers[key]))[1:]
-        act_styled = [w for w in converted if _style_of(w).startswith("ACT.")]
-        assert len(act_styled) > 40, f"the converted {key} barely uses the design system"
-        generic = [str(w) for w in converted
+    for key in COMPACT_DENSE_TOOLS:
+        panel = list(_walk(app.containers[key]))[1:]
+        compact = [w for w in panel if _style_of(w).startswith("Compact.")]
+        assert len(compact) > 40, f"the compact {key} barely uses the shared system"
+        generic = [str(w) for w in panel
                    if isinstance(w, ttk.Widget) and not _style_of(w)]
-        assert generic == [], f"converted {key} left widgets on generic styles: {generic}"
+        assert generic == [], f"compact {key} left widgets on generic styles: {generic}"
 
     # The swap host and every tool container are deliberately unstyled, which
     # is *why* nothing inherits: there is nothing to inherit from.

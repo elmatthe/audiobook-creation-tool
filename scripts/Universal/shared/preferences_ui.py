@@ -16,12 +16,17 @@ positively acknowledged the request, and if anything at all goes wrong it says
 so plainly, keeps every window open and leaves every asset untouched. The
 deletion itself happens in another process, after this one has exited.
 
-Platform handling follows the Plan 1 contract. On Windows every widget names an
-``ACT.*`` style from ``theme["styles"]``; on macOS and Linux that map is absent,
-:func:`_style` returns ``""``, and a widget with no style resolves the platform's
-generic one — which is exactly what keeps aqua native. There is no
-platform-specific *logic* anywhere in this file, only styling lookups that
-degrade to nothing.
+Every dialog here is an **app-owned dialog** under the v0.6.6 Frozen UI
+Contract, so ``theme`` is a ``shared.appearance`` compact bundle (built by the
+launcher from the remembered Light/Dark setting), not the ``shared.ui_theme``
+shell bundle. On Windows and the classic branch every widget names a
+``Compact.*`` style from ``theme["styles"]``; on macOS ``CompactAqua.*``
+inherits native control layouts and metrics. The shared appearance helper
+matches each app-owned window's native appearance to the preference. A live toggle
+calls each open dialog's ``apply_appearance`` rather than rebuilding it, so
+``ttk.Style.configure`` (already reconfigured by the caller) repaints every
+child widget with no state lost; only the dialog's own raw ``Toplevel``
+background needs the explicit re-apply that method does.
 
 ``confirm`` and ``ask_directory`` are injected so the suite can drive the reset
 and browse flows deterministically without a real message box.
@@ -34,7 +39,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import cleanup_state, config, maintenance, output_paths, paths
+from . import appearance, cleanup_state, config, maintenance, output_paths, paths
 
 DIALOG_TITLE = "Preferences & Data"
 MENU_LABEL = "Preferences & Data…"
@@ -60,11 +65,10 @@ _SOURCE_TEXT = {
 
 
 def _style(theme, name: str) -> str:
-    """The ``ACT.*`` style for *name*, or ``""`` where the map does not exist.
+    """The ``Compact.*`` style for *name*, or ``""`` where the map does not exist.
 
-    An empty style string is not a fallback hack — it is how a widget resolves
-    the platform's generic ttk style, which is what keeps macOS native and is
-    the same mechanism that leaves the five unconverted panels alone.
+    An empty style string resolves the platform's generic ttk style when a
+    caller supplies no appearance bundle.
     """
     styles = (theme or {}).get("styles") or {}
     return styles.get(name, "")
@@ -104,6 +108,7 @@ class PreferencesDialog(tk.Toplevel):
                  close_application=None):
         super().__init__(master)
         self.theme = theme or {}
+        appearance.apply_native_appearance(self, self.theme)
         self._confirm = confirm if confirm is not None else self._default_confirm
         self._ask_directory = ask_directory if ask_directory is not None else self._default_browse
         self._logger = logger
@@ -120,7 +125,7 @@ class PreferencesDialog(tk.Toplevel):
         self.resizable(True, True)
 
         colors = self.theme.get("colors") or {}
-        if self.theme.get("mode") == "windows" and colors.get("window"):
+        if self.theme.get("ttk_active") and colors.get("window"):
             self.configure(background=colors["window"])
 
         self.var_mode = tk.StringVar(value="default")
@@ -428,6 +433,11 @@ class PreferencesDialog(tk.Toplevel):
         # The default base is back in force, so the built panels must say so.
         output_paths.refresh_destination_hints()
         self._set_status("Preferences reset. Defaults are back in force.", "success")
+        if self.theme.get("mode") == "compact":
+            bundle = appearance.build_bundle(
+                ttk.Style(self), root=self.master.winfo_toplevel())
+            appearance.notify_listeners(bundle)
+            self.apply_appearance(bundle)
         return True
 
     def open_cleanup(self):
@@ -438,6 +448,25 @@ class PreferencesDialog(tk.Toplevel):
             close_application=self._close_application, logger=self._logger,
         )
         return self.cleanup_dialog
+
+    def apply_appearance(self, bundle: dict) -> None:
+        """Live Light/Dark refresh: re-apply this window's own background.
+
+        Every ``Compact.*``-styled child already repaints on its own — the
+        caller reconfigured those styles in place before calling this — so
+        nothing here is destroyed and no field, selection or status message
+        is lost. Fans out to the nested cleanup dialog if one is open.
+        """
+        self.theme = bundle or {}
+        appearance.apply_native_appearance(self, self.theme)
+        colors = self.theme.get("colors") or {}
+        if self.theme.get("ttk_active") and colors.get("window"):
+            try:
+                self.configure(background=colors["window"])
+            except tk.TclError:
+                pass
+        if _is_alive(self.cleanup_dialog):
+            self.cleanup_dialog.apply_appearance(bundle)
 
     def focus_dialog(self) -> None:
         """Bring this window forward — the single-instance path."""
@@ -517,6 +546,7 @@ class CleanupDialog(tk.Toplevel):
                  measure=True, close_delay=None):
         super().__init__(master)
         self.theme = theme or {}
+        appearance.apply_native_appearance(self, self.theme)
         self._repo_root = paths.REPO_ROOT if repo_root is None else repo_root
         #: The production handoff: save the request, start the helper outside
         #: the virtual environment, and report whether it acknowledged.
@@ -539,7 +569,7 @@ class CleanupDialog(tk.Toplevel):
         self.resizable(True, True)
 
         colors = self.theme.get("colors") or {}
-        if self.theme.get("mode") == "windows" and colors.get("window"):
+        if self.theme.get("ttk_active") and colors.get("window"):
             self.configure(background=colors["window"])
 
         #: The request handed to the callback on the last acceptance. Held for
@@ -918,6 +948,17 @@ class CleanupDialog(tk.Toplevel):
         except tk.TclError:
             pass
 
+    def apply_appearance(self, bundle: dict) -> None:
+        """Live Light/Dark refresh — see ``PreferencesDialog.apply_appearance``."""
+        self.theme = bundle or {}
+        appearance.apply_native_appearance(self, self.theme)
+        colors = self.theme.get("colors") or {}
+        if self.theme.get("ttk_active") and colors.get("window"):
+            try:
+                self.configure(background=colors["window"])
+            except tk.TclError:
+                pass
+
 
 def open_cleanup_dialog(master, theme=None, existing=None, **kwargs):
     """Focus the live cleanup review, or create the one instance."""
@@ -952,13 +993,14 @@ class CleanupConfirmationDialog(tk.Toplevel):
     def __init__(self, master, body: str, count: int, theme=None):
         super().__init__(master)
         self.theme = theme or {}
+        appearance.apply_native_appearance(self, self.theme)
         t = self.theme
         self.title(maintenance.CONFIRM_TITLE)
         self.transient(master)
         self.resizable(False, False)
 
         colors = t.get("colors") or {}
-        if t.get("mode") == "windows" and colors.get("window"):
+        if t.get("ttk_active") and colors.get("window"):
             self.configure(background=colors["window"])
 
         self.result = False
@@ -1018,6 +1060,22 @@ class CleanupConfirmationDialog(tk.Toplevel):
         except tk.TclError:
             pass
 
+    def apply_appearance(self, bundle: dict) -> None:
+        """Live Light/Dark refresh — see ``PreferencesDialog.apply_appearance``.
+
+        Unreachable in practice while :meth:`show` holds its modal grab (the
+        toggle lives in the blocked launcher window), but kept for interface
+        consistency with the other app-owned dialogs in this module.
+        """
+        self.theme = bundle or {}
+        appearance.apply_native_appearance(self, self.theme)
+        colors = self.theme.get("colors") or {}
+        if self.theme.get("ttk_active") and colors.get("window"):
+            try:
+                self.configure(background=colors["window"])
+            except tk.TclError:
+                pass
+
     def show(self) -> bool:
         """Run modally and report the choice. False on every safe exit."""
         try:
@@ -1043,12 +1101,13 @@ class ConfigWarningDialog(tk.Toplevel):
     def __init__(self, master, summary: str, theme=None):
         super().__init__(master)
         self.theme = theme or {}
+        appearance.apply_native_appearance(self, self.theme)
         t = self.theme
         self.title("Configuration warnings")
         self.transient(master)
 
         colors = t.get("colors") or {}
-        if t.get("mode") == "windows" and colors.get("window"):
+        if t.get("ttk_active") and colors.get("window"):
             self.configure(background=colors["window"])
 
         pad = _metric(t, "content_pad", 16)
@@ -1081,6 +1140,17 @@ class ConfigWarningDialog(tk.Toplevel):
         self.bind("<Escape>", lambda _e: self.destroy())
         self.update_idletasks()
         self.minsize(max(420, self.winfo_reqwidth()), max(200, self.winfo_reqheight()))
+
+    def apply_appearance(self, bundle: dict) -> None:
+        """Live Light/Dark refresh — see ``PreferencesDialog.apply_appearance``."""
+        self.theme = bundle or {}
+        appearance.apply_native_appearance(self, self.theme)
+        colors = self.theme.get("colors") or {}
+        if self.theme.get("ttk_active") and colors.get("window"):
+            try:
+                self.configure(background=colors["window"])
+            except tk.TclError:
+                pass
 
 
 def present_launch_warnings(master, theme=None, logger=None, dialog_factory=None):
@@ -1129,13 +1199,14 @@ class CleanupResultDialog(tk.Toplevel):
     def __init__(self, master, result, theme=None):
         super().__init__(master)
         self.theme = theme or {}
+        appearance.apply_native_appearance(self, self.theme)
         t = self.theme
         self.result = result
         self.title(maintenance.RESULT_DIALOG_TITLE)
         self.transient(master)
 
         colors = t.get("colors") or {}
-        if t.get("mode") == "windows" and colors.get("window"):
+        if t.get("ttk_active") and colors.get("window"):
             self.configure(background=colors["window"])
 
         pad = _metric(t, "content_pad", 16)
@@ -1169,6 +1240,17 @@ class CleanupResultDialog(tk.Toplevel):
         self.bind("<Escape>", lambda _e: self.destroy())
         self.update_idletasks()
         self.minsize(max(420, self.winfo_reqwidth()), max(220, self.winfo_reqheight()))
+
+    def apply_appearance(self, bundle: dict) -> None:
+        """Live Light/Dark refresh — see ``PreferencesDialog.apply_appearance``."""
+        self.theme = bundle or {}
+        appearance.apply_native_appearance(self, self.theme)
+        colors = self.theme.get("colors") or {}
+        if self.theme.get("ttk_active") and colors.get("window"):
+            try:
+                self.configure(background=colors["window"])
+            except tk.TclError:
+                pass
 
 
 def present_cleanup_result(master, theme=None, repo_root=None, logger=None,

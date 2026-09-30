@@ -86,3 +86,6 @@ Map-Repo-Structure.bat
 # external folders. Do not create project workspaces outside the repository.
 # Deliberate cross-platform fixtures stay in their approved tracked paths.
 files/dev-work/
+
+# Maintainer archives: local-only, never tracked, packaged or published.
+files/Archives/

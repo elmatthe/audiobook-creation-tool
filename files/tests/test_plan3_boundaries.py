@@ -1818,9 +1818,9 @@ def test_the_foundation_added_no_runtime_dependency(name):
 def test_the_version_is_untouched():
     from shared.version import VERSION
 
-    # v0.6.2 Plan 5 Phase 18 closeout: the bump from 0.6.1 happened here and
-    # nowhere else. This guard now pins the approved closeout version.
-    assert VERSION == "0.6.2"
+    # v0.6.6 Plan 9 Phase 14: approved release-candidate identity.
+    # This pins the application version without asserting publication.
+    assert VERSION == "0.6.6"
 
 
 def test_the_root_config_template_remains_absent():
@@ -1880,20 +1880,10 @@ def test_all_twenty_two_approved_screenshots_are_still_there():
     assert len(drop1) + len(drop2) == 22
 
 
-def test_the_canonical_documents_and_protected_references_keep_their_exact_names():
+def test_only_the_four_canonical_documents_keep_their_exact_names():
     md = REPO_ROOT / "md-instructions"
     entries = set(os.listdir(md))
-    for name in ("Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md"):
-        assert name in entries
-    for alias in ("CHANGELOG.md", "DECISIONS.md", "handoff.md", "BRIEFING.md"):
-        assert alias not in entries
-    protected = set(os.listdir(md / "don't-delete"))
-    assert protected == {
-        "Audiobook-Creation-Tool-v0.6.x-Approved-Plan-Series-Map.md",
-        "Audiobook-Creation-Tool-v0.6.x-Decision-Register-1-55.md",
-        "Audiobook-Creation-Tool-v0.6.x-Master-Implementation-Plan-Index.md",
-        "Audiobook-Creation-Tool-v0.6.x-Planning-Handoff-2026-07-31.md",
-    }
+    assert entries == {"Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md"}
 
 
 def test_the_new_modules_ship_and_the_new_tests_do_not():

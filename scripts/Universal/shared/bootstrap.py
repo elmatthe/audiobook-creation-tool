@@ -281,6 +281,15 @@ IMPORT_PROOF_NAME = ".import-proof.json"
 #: the proof's cost on every launch.
 IMPORT_PROOF_MAX_AGE_DAYS = 7
 
+#: How long one real-import probe of the installed packages may take before it
+#: counts as broken. Shared by the launch-time proof and the setup-time
+#: per-module check. A *cold* first import in a brand-new venv compiles and
+#: security-scans thousands of just-written files: measured on HOME-PC (v0.6.6
+#: Phase 11) ``import nltk`` took 32.4 s cold against 1.1 s warm, and
+#: ``chatterbox`` (torch) also ran past 30 s. The old 30 s setup window turned
+#: that into a false "failed to import" and failed a healthy first-run install.
+IMPORT_PROBE_TIMEOUT_S = 600
+
 #: Exit code meaning "the user chose not to install", as distinct from "the
 #: install broke".
 #:
@@ -1007,10 +1016,15 @@ def _as_argv(py) -> list[str]:
     return [str(x) for x in py] if isinstance(py, list) else [str(py)]
 
 
-def _probe_import(py, module: str) -> bool:
-    """Return True if ``<py> -c 'import <module>'`` exits 0."""
+def _probe_import(py, module: str, timeout: float = 30) -> bool:
+    """Return True if ``<py> -c 'import <module>'`` exits 0 within *timeout* s.
+
+    30 s suits the stdlib capability probes on a base interpreter; checking an
+    installed package passes :data:`IMPORT_PROBE_TIMEOUT_S` instead.
+    """
     try:
-        return _run(_as_argv(py) + ["-c", f"import {module}"], timeout=30).returncode == 0
+        return _run(_as_argv(py) + ["-c", f"import {module}"],
+                    timeout=timeout).returncode == 0
     except Exception:
         return False
 
@@ -1581,12 +1595,16 @@ def validate_installed_packages(log: SetupLog) -> bool:
         if mod in _GATED_BELOW_313 and not _is_kokoro_compatible(venv_ver):
             log.line(f"  '{mod}' is gated to Python <3.13 — skipping on this venv.")
             continue
-        if _probe_import(py, mod):
+        if _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             continue
         dist = _PIP_NAME.get(mod, mod)
         log.line(f"  [!!] '{mod}' failed to import — reinstalling {dist}…")
-        _run(venv_pip() + ["install", "--force-reinstall", dist])
-        if not _probe_import(py, mod):
+        # Constrained by requirements.txt: a bare --force-reinstall would replace
+        # the package and its dependency tree with the latest from PyPI, and the
+        # requirements stamp (a hash of the file) could never notice that drift.
+        _run(venv_pip() + ["install", "--force-reinstall", dist,
+                           "-c", str(REQUIREMENTS_FILE)])
+        if not _probe_import(py, mod, timeout=IMPORT_PROBE_TIMEOUT_S):
             failed.append(mod)
     if failed:
         log.line("  WARNING: these packages still fail to import: "
@@ -1690,7 +1708,7 @@ def prove_required_imports(venv_py: Path) -> tuple[Optional[bool], str, str]:
     try:
         r = subprocess.run(
             [str(venv_py), "-c", probe],
-            capture_output=True, text=True, timeout=600, **_hidden(),
+            capture_output=True, text=True, timeout=IMPORT_PROBE_TIMEOUT_S, **_hidden(),
         )
         out = (r.stdout or "").strip()
         if r.returncode == 0 and out.startswith("OK"):

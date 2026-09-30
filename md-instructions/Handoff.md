@@ -2,6 +2,1661 @@
 
 ## Current Focus
 
+> ## CURRENT STATE - v0.6.6 PRE-MERGE USER GUIDE REFRESH (2026-09-30)
+>
+> PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is open, non-draft and
+> unmerged, targeting `master` at `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`.
+> The maintainer approved Step 1 READY at `03d60484f9ecee7ec341a0420e85f7c514f9d8d7` and
+> separately authorized opening the PR. This bounded pre-merge refinement replaces README
+> with a 58-line, approximately 622-word user guide: 31,509 to 4,866 committed bytes (85% less).
+> All application package names/examples are v0.6.6; the Releases-page link explicitly says
+> the candidate is unpublished. Detailed project information stays in the four canonical docs.
+> The existing PDF/TXT capability wording guard was reconciled; upstream/GPL guards still pass.
+>
+> **Pushed package source:** `1e100e98b5c4f4a11020bdce0e98a631df8b0ee7`.
+> Both final archives were rebuilt through real `scripts/Universal/shared/release.py main()`
+> after pushing that commit. README is the only changed member; all 81 other members in each
+> archive exactly match the prior candidate, including application code, pins and launchers.
+> Current member-level proof: `files/release-history/v0.6.6-integration-package-proof.json`.
+> `dist/SHA256SUMS.txt` agrees. Prior integration candidates/proof are preserved under ignored
+> `files/dev-work/v066-readme/`; Phase-14 archives/proof remain intact at their prior locations.
+>
+> | Current unpublished candidate | Bytes | SHA-256 |
+> |---|---:|---|
+> | `AudiobookTool-Windows-v0.6.6.zip` | 786842 | `e8e1e7cafb97c2915e5a25af65759356799b46838732eb4e2b887dc3a1f96c75` |
+> | `AudiobookTool-MacOS-v0.6.6.zip` | 788642 | `fe2462917936e45d4c224736784c4d8f52bc51fefc4b7929651df641e7521de6` |
+>
+> **Verification:** README/EPUB attribution, docs/repository contract and release packaging:
+> **192 passed / 0 skipped / 0 failures/errors**, 12.07 s. Two environment/dependency warnings:
+> existing pydub audioop deprecation and sandbox PATH not exposing FFmpeg (no media run claimed).
+> Deps/docs/docnames/config, changed-test compile, README version/size/links and whitespace PASS.
+> Both 82-member archives pass CRC, safe extraction, source/current-HEAD member hashes, launcher
+> EOL and Unix executable-mode checks. Previous Windows Tk/shared-code and Git Bash/shim smoke
+> remain applicable to byte-identical runtime; no new smoke/install/native-Mac claim is made.
+> Phase-14 full gate remains historical 7,905 passed / 58 accounted skips; no full rerun needed.
+> Approved v0.6.7 native/clean-machine/scaling/listening/long-workload deferrals and other waivers
+> are unchanged. Known local-only status/hashes and Archives files/directories remain unchanged.
+>
+> **Next:** push this unpackaged proof/docs checkpoint, perform the authorized final read-only
+> PR readiness check against its exact HEAD, then STOP for separate maintainer Step-3 merge
+> approval. No merge, auto-merge, tag, GitHub Release, publication, branch deletion, history
+> rewrite, force-push or Phase 16 action is authorized. Earlier current-state/package entries
+> below are dated history, superseded by this record for README, PR and current archive state.
+
+
+> ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: RECONCILIATION COMPLETE; FINAL READ-ONLY RECHECK (2026-09-30)
+>
+> Maintainer-authorized remediation started at `caadf5d4db0b51ef5d04182d92430bcaacdac63c`.
+> Source reconciliation **`21e36163ccc992ef4ba94cb16e58caeda8f236c8`** is committed/pushed on
+> `feature/0.6.6-ui-parity-hardening-release`. This evidence checkpoint changes only unpackaged
+> canonical docs and `files/release-history/v0.6.6-integration-package-proof.json`; shipped blobs
+> remain identical to that source. The obsolete instruction drop, four planning references and
+> four EPUB archival files are absent from Git. `md-instructions/` contains exactly four canonical
+> tracked files. Archives is ignored and absent from Git; all eight maintainer-local file hashes
+> and their directory structure, plus all 16 original local-only hashes/status, are unchanged.
+> Briefing's Aqua presentation is `CompactAqua.*` with inherited native layouts/metrics.
+> The archival ruling and promoted gate/backlog contract in the preparation record below remain
+> current; all earlier conflicting permanent/protected/active-plan statements are dated history.
+>
+> **Refreshed RC packages, warranted because four shipped verifier/reference paths changed:**
+> `README.md`, `scripts/verify.py`, `scripts/requirements.txt`,
+> `scripts/Universal/tts/epub2tts_gui.py`. Application executable AST and dependency pins/markers
+> are unchanged; both launcher blobs and the real release builder are unchanged. Original
+> Phase-14 archives remain in ignored `files/dev-work/v066-phase15/phase14-archives/`, and their
+> original tracked proof remains historical, not the current publication candidate.
+> Both refreshed candidates were built through real `release.py main()` after the source commit
+> was pushed; its saved log proves `scripts/project-status.py` excluded. Each has exactly 82
+> members, clean CRC, safe names, correct executable metadata/EOL and exact per-member source/
+> archive hashes. Extracted bytes match; no Archives/docs/tests/runtime state, models or secrets.
+>
+> | Current candidate archive | Bytes | SHA-256 |
+> |---|---:|---|
+> | `dist/AudiobookTool-Windows-v0.6.6.zip` | 796271 | `c17160adbeac7bb80658dc625add0a612e8cbf8ba8eac1bfcb0b3139ad8d557b` |
+> | `dist/AudiobookTool-MacOS-v0.6.6.zip` | 798071 | `61d8f7e34c206ff0fca963044444016c658b3014f79ea8182a767819ee0e2b44` |
+>
+> `dist/SHA256SUMS.txt` and tracked integration-package proof agree. Six real hidden Windows Tk
+> panels from each final archive build and preserve containers during Light/Dark switching; all
+> app module paths/config/version resolve inside the extraction. The final Mac shell passes real
+> Git Bash success/repair/error/translocation/syntax checks with interpreter shims. These are
+> Windows shared-code/shell proofs, not native Aqua or hands-on clean-machine/listening PASS.
+> Phase-14 Windows first-run/batch-launch evidence is inherited only for unchanged runtime/pins;
+> no new installation or full-suite run is claimed.
+>
+> **Verification:** focused repository/EPUB/packaging/workspace suite and Plan-3 contract regression
+> **212 passed / 0 skipped / 0 failed**, 12.30 s, one existing pydub audioop deprecation warning.
+> The initial sandbox's three inaccessible-Bash failures are retained in scratch and superseded
+> by the host Git Bash rerun, never treated as PASS. Strict in-memory compilation of all 243
+> active tracked Python files; deps/docs/docnames/config; staged/working whitespace: PASS.
+> Phase-14 full acceptance remains historical **7,905 passed / 58 accounted skips / no failures**;
+> changed contract tests and verifier are independently covered by the focused/static gates.
+> Native Mac/clean-machine/physical scaling/listening/long-workload checks, broader TXT encoding
+> and DPI clarity remain the approved v0.6.7 backlog; USAC is still a waiver and Kokoro/density/
+> wording remain accepted. Retirement does not claim the v0.6.x program or Phase 16 complete.
+>
+> **Authorized next action:** after pushing this evidence-only checkpoint, immediately repeat
+> Phase 15 Step 1 READ-ONLY against its exact HEAD and live origin/master. Reprove the new package
+> members/hashes/source, topology, local-only preservation, contract/docs, historical gate evidence
+> and release state. Then STOP with READY/NOT READY and exact SHA. If READY, the next integration
+> action is separately authorized Step 2 (PR); none is authorized yet. No merge/tag/release/
+> publication, branch deletion, history rewrite, force-push, AI trailer or Phase 16 action.
+
+
+
+> ## CURRENT STATE ? v0.6.6 PHASE 15 STEP 1: BOUNDED READINESS RECONCILIATION (2026-09-30)
+>
+> Phase 14 is maintainer-approved at `caadf5d4db0b51ef5d04182d92430bcaacdac63c`.
+> The first read-only Step-1 review returned NOT READY for stale index/roadmap current-state
+> records and Briefing's empty Aqua style lookup claim. The maintainer authorized this bounded
+> remediation, commit/push on the feature branch, and an immediate read-only Step-1 recheck.
+> Start HEAD and live origin matched that checkpoint; master/base remains the PR #12 integration
+> anchor `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`. Query live tips before future actions.
+>
+> **New repository contract:** `md-instructions/` contains exactly `Briefing.md`, `Changelog.md`,
+> `Decisions.md`, `Handoff.md`, in that casing. The old `don't-delete/` references, completed
+> `0.6.6-ui-parity-hardening-release.md` drop and `files/archived-code/` are retired from Git.
+> This is explicit early drop retirement and archival reconciliation, not Phase 16 execution.
+> The maintainer already moved eight archival files under `files/Archives/`; their original
+> bytes and directory structure are retained. No contents there are created, changed or deleted.
+> The whole Archives tree is ignored, outside packaging, and excluded from pytest recursion;
+> a fresh clone/test run requires no local archive copies. Original 16 local-only entries remain
+> preserved and unstaged. Historical statements below calling those paths permanent/protected
+> or the plan active are superseded by this ruling; dated execution evidence remains history.
+>
+> **Promoted integration/publication gates, each requiring separate explicit authorization:**
+> Step 1: read-only integration readiness; Step 2: open/update PR; Step 3: maintainer approves
+> merge; Step 4: merge to master; Step 5: verify live master ancestry/state; Step 6: authorize
+> tag separately; Step 7: authorize GitHub Release/publication separately; Step 8: publish only
+> packages with valid committed-source proof. Never infer authority from an earlier approval.
+> STOP at each gate. Feature branches remain unless deletion is separately authorized. No
+> history rewrite, force-push or new AI co-author trailer. Phase 16 has not started: only after
+> confirmed integration/publication and separate authorization, reconcile actual merge/tag/release
+> facts and residual limitations in these four docs; the obsolete roadmap/drop is not restored.
+>
+> **Candidate and acceptance:** application identity is 0.6.6, unpublished; published release
+> remains v0.4.0. Phase-14 full gate remains historical evidence: 7,905 passed / 58 accounted
+> skips / zero failures/errors. The 2026-09-28 hands-on deferral remains binding: native Mac
+> Light/Dark/Aqua/keyboard/geometry; clean Windows/Mac double-click/acquisition/repair and
+> Gatekeeper/translocation; physical Windows 125%/150% scaling; long real-workload controls,
+> listening and phone-photo Cover checks are v0.6.7 work, never manual PASS. Broader TXT
+> encodings and sharper per-monitor DPI remain future work; USAC remains a real-media waiver;
+> Kokoro's breakpoint and approved density/wording remain accepted. Historical resolved
+> packaging, setup, appearance and product defects are not reopened by archival retirement.
+>
+> **Package exception discovered:** the removed archive/docs paths do not ship, but
+> `scripts/verify.py` does; it must enforce the new four-file contract. README and shipped
+> TTS/requirements comments also need retired-reference corrections. Thus packaged bytes
+> change in these four paths only. Dependency pins and application AST/behavior remain unchanged.
+> Retain original Phase-14 archives under ignored `files/dev-work/v066-phase15/phase14-archives/`;
+> rebuild through the real release entry point after the reconciliation source commit is pushed,
+> then prove all 82 members against it and final HEAD. Reuse Phase-14 runtime launch evidence only
+> for unchanged application/launcher blobs; new docs/verifier need focused gates, not a full rerun.
+> New exact hashes/source and check results will be recorded in an evidence-only checkpoint.
+
+> **Preparation verification:** focused repository/EPUB/packaging/workspace suite and the Plan-3
+> contract regression: **212 passed / 0 skipped / 0 failed**, 12.30 s, one existing pydub audioop
+> deprecation warning. Initial sandbox run was 209 passed / 3 failed because inaccessible Git
+> Bash fell back to WSL; host-access rerun used installed Git Bash, with no test skip or app repair.
+> Strict in-memory compile: 243 Python files PASS; deps/docs/docnames/config and staged/working
+> whitespace gates PASS. Eight local archive files and their directory structure, plus all original
+> 16 local-only entries, retain before hashes/status. All obsolete live archive-content checks were
+> removed only because their contract was withdrawn; production EPUB and licence guards pass.
+> Commit/push these source/reference/gate changes now; the real build and final recheck follow.
+>
+> **STOP after the read-only Step-1 recheck.** No PR/merge/tag/release/publication, branch deletion,
+> history rewrite, force-push or Phase 16 work is authorized. The precise next integration action,
+> if READY, is separately authorized Phase 15 Step 2; it is not authorized by this remediation.
+
+
+
+> ## CURRENT STATE — v0.6.6 PHASE 14 COMPLETE: FINAL RC PACKAGE PROOF (2026-09-30)
+>
+> **Phase 13 READY was maintainer-approved.** Exact branch, local HEAD and live remote
+> matched **`56012558a93853ec2b4847297a0372b4050743e7`** before edits. Phase 14 alone executed.
+> Application identity is **0.6.6, unpublished release candidate**; the single `VERSION` constant,
+> root config, nine live test guards and README agree. `[Unreleased]` now explicitly covers
+> Phases 0–14 and the inherited integrated v0.6.x work; missing Phases 0–6 coverage is reconciled.
+> Older dated records remain history. No dated release heading or publication claim was added.
+>
+> **Two confirmed package defects, narrow RED-first repairs:**
+> - Real Bash reproduced lost bootstrap status after `fi`: repair code 3 became ordinary failure.
+>   Capture moved into `else`. Both repair and failure controls now pass.
+> - Windows-built executable entries declared DOS (`create_system=0`) despite Unix `100755` bits.
+>   They now declare Unix (`3`); the strengthened existing mode regression failed first.
+> The initial sandboxed shell attempt selected inaccessible WSL; host-access Git Bash reproduced
+> the actual repair defect (1 failed / 1 passing error control). No test was weakened or skipped.
+>
+> **Committed build ordering and package provenance:**
+> - Preparation commit **`3bb7425801ae18e4a0a40ef27baceb8d5c64a692`** (`Prepare v0.6.6 release candidate identity and package
+>   repairs`) was pushed before the real `scripts/Universal/shared/release.py` build.
+> - Both archives were built by its actual `main()` from clean packaged paths in this checkout,
+>   while all local-only items stayed present. Its log explicitly excludes `scripts/project-status.py`.
+> - Each zip contains **82 members**: 79 tracked `scripts/` files, README, config and its own
+>   launcher. Scope is exact; no duplicate/unsafe member or CRC error. No `.DS_Store`, `Thumbs.db`,
+>   caches, compiled files, `.venv`, Git, `.ai`, developer tests/docs/screenshots, user state,
+>   models, credentials or outputs ship. Every archive byte matches its checkout source, and
+>   every member matches the committed Git blob after only Git CRLF/LF normalization.
+> - Windows `.bat` is CRLF. Mac `.command` is LF with `#!/bin/bash`; both executable entries
+>   declare Unix and mode `100755`. The committed `.command` remains `100755`. Bash syntax passes.
+> - Safe extraction, config identity and shared script contents are proved for both archives.
+>
+> | Final candidate archive | Bytes | SHA-256 |
+> |---|---:|---|
+> | `dist/AudiobookTool-Windows-v0.6.6.zip` | 796487 | `4fc3ca4ebc5887fd7d3e4dfb090b67470787d150c0714b25e57c173812790356` |
+> | `dist/AudiobookTool-MacOS-v0.6.6.zip` | 798287 | `baff231b004908b36d329fb30c9990df4c4d5f6122030af2cc8d4993aaf31ce8` |
+>
+> `dist/SHA256SUMS.txt` holds both hashes. Durable per-member source/archive hashes and bounded
+> smoke/skip evidence are tracked in `files/release-history/v0.6.6-rc-package-proof.json`.
+> The final checkpoint containing this entry changes only unpackaged docs/evidence after the
+> source commit above; shipped paths/blobs are identical. Final HEAD is independently re-proved
+> against both existing archives after commit; no rebuild is warranted for unpackaged records.
+>
+> **Strongest practical extracted-package smoke on HOME-PC (Windows, Python 3.12.10):**
+> - Windows: actual extracted bootstrap `--headless --skip-kokoro-download` first run **exit 0**,
+>   **186.91 s**; all required imports proved, **24 applicable direct pins
+>   exact** (the Python >=3.13 `audioop-lts` marker excludes the 25th pin), 171 distributions.
+>   Existing WinGet FFmpeg/ffprobe **9.0.1** proved and pinned; no model download.
+> - Extracted `--venv-check` **0**; real `.bat` **0**, visible/non-hung app window owned by the
+>   extraction's launcher, then normal `WM_CLOSE` and process exit, **2.59 s**.
+>   Windows venv redirectors initially confused the disposable HWND/process harness; matching
+>   the exact package launcher command line corrected that timeout. Final smoke passed; no
+>   application change was needed and the timeout is not counted as PASS.
+> - All six panels built from **each** archive's own code under real Windows Tk; Light/Dark
+>   switches preserve the same containers. Paths/config/version/imported app modules resolve
+>   inside the corresponding extraction. This is shared-code evidence on Windows, not Aqua.
+> - Mac: exact final `.command` executed under installed **Git Bash**. Success fast path exits 0;
+>   bootstrap code 3 reaches repair; code 1 remains a visible failure; missing-scripts/translocated
+>   path exits 1 with actionable help; `bash -n` passes. Interpreter shims prevent native installs
+>   and GUI activity. Unix mode metadata is proved; **native macOS launch is deferred**.
+> - Fresh extracted Windows environment is **not a clean machine**: Python/FFmpeg and pip cache
+>   were already available. No hands-on double-click, listening or physical-scaling PASS is claimed.
+>
+> **Final automated checkpoint after all packaged changes:**
+> - Focused identity/package/bootstrap/launch suite: **247 passed / 0 skipped / 0 failed**,
+>   6.93 s, one existing pydub `audioop` deprecation warning.
+> - Full `scripts/verify.py` ran **once**, through the unchanged real entry point with a
+>   capture-only subprocess wrapper retaining pytest's otherwise discarded report.
+>   **RESULT: PASS — 7,905 passed / 58 skipped / 0 failed / 0 errors.**
+>   Exact verifier summary: `[PASS] pytest   - 7905 passed, 58 skipped, 2 warnings in 958.86s (0:15:58)`. Deps, docs, docnames and config all PASS.
+> - Both full-run warnings are existing dependency notices: pydub imports deprecated
+>   `audioop`; Perth imports deprecated `pkg_resources` under the documented setuptools
+>   80.9.0 compatibility hold. No invalid-escape, unexpected runtime or test warnings remain.
+> - Full skips are independently enumerated from JUnit: **39 native Aqua** (37 geometry,
+>   2 theme), **12 symlink privilege**, **3 case-sensitive path**, **3 optional Jack Ryan media**,
+>   **1 retired hash-gate empty parameter set**. No unexpected Tk/FFmpeg/Bash skips.
+> - All **243 tracked Python files** compile with `SyntaxWarning` as an error; live guard AST
+>   changes are identity-only. Working/staged `git diff --check` and docs/config/static gates pass.
+> - All **16 original local-only entries** retain their original hash/status: `.ai/`,
+>   `scripts/project-status.py`, six replacement screenshots and eight tracked screenshot deletions.
+>   They remain outside both Phase-14 commits and both packages.
+>
+> **Remaining v0.6.7 backlog, deferred rather than passed:**
+> - Native Mac all-six-tool Light/Dark, 1024×800/minimum/maximized, Aqua command/style rendering,
+>   keyboard/dialog/menu behavior and native automated suites.
+> - Hands-on clean Windows/Mac double-click installs: Python/FFmpeg acquisition, cold network
+>   setup, Gatekeeper quarantine/App Translocation, optional model offer, repair and relaunch.
+> - Physical Windows 125%/150% scaling and the hands-on all-tool visual matrix.
+> - Long real-workload Pause/Resume/Cancel/Retry Failed drills, audio/listening judgments
+>   (including Kokoro's accepted early breakpoint), and real phone-photo Cover checks.
+> Broader TXT encodings remain future v0.6.7 work; sharp-text per-monitor DPI awareness remains
+> future work. USAC's real-media waiver remains a waiver. Accepted density/wording decisions stand.
+>
+> **PHASE 14 COMPLETE — STOP FOR EXPLICIT MAINTAINER RELEASE/INTEGRATION AUTHORIZATION.**
+> Final checkpoint is the commit containing this entry, directly atop `3bb7425801ae18e4a0a40ef27baceb8d5c64a692`; subject
+> `Complete Phase 14 v0.6.6 RC package proof`. Push only this feature branch.
+> **Phase 15 has not started.** No PR opened, master merged, tag/GitHub Release/publication,
+> branch deletion, history rewrite, force-push or AI co-author trailer was performed.
+> Local logs, extracted copies, environments and helper scripts remain ignored under
+> `files/dev-work/v066-phase14/`; final archives stay local in ignored `dist/`.
+
+
+
+> ## PREPARATION CHECKPOINT — v0.6.6 PHASE 14: RC IDENTITY / PACKAGE PROOF (2026-09-30)
+>
+> Phase 13 READY is explicitly maintainer-approved. Branch, HEAD and live remote were verified
+> at **`56012558a93853ec2b4847297a0372b4050743e7`** before editing. Scope is Phase 14 only.
+> Identity is **0.6.6, unpublished release candidate**. README/version/config and all live guards
+> agree; `[Unreleased]` has full-plan candidate notes, including the missing Phases 0–6 coverage.
+> Historical records and v0.4.0 download links stay dated/unpublished truthfully.
+>
+> Two confirmed package defects fixed narrowly with RED-first checks: macOS bootstrap exit code
+> 3 was lost after `fi`, preventing repair; Windows-built zips declared DOS despite storing Unix
+> executable bits. The launcher captures failure status in `else`; executable entries declare Unix.
+> Focused identity/package/launch gate: **247 passed / 0 skipped / 0 failed**, 6.93 s, one existing
+> pydub `audioop` deprecation warning. This is preparation evidence, not final package acceptance.
+>
+> Committing packaged content now permits the real release builder's committed-source proof.
+> Final archive hashes, extracted-package smoke and full checkpoint are pending this preparatory
+> commit. All 16 original local-only status entries are preserved and excluded. Scratch evidence
+> stays ignored under `files/dev-work/v066-phase14/`.
+> **Phase 14 in progress; Phase 15 not started.** No merge/tag/release/publication is authorized.
+
+
+> ## PREVIOUS CHECKPOINT — v0.6.6 PHASE 13: INDEPENDENT RELEASE REVIEW (2026-09-29)
+>
+> **Phase 12 is maintainer-approved.** Before any review/edit, branch
+> `feature/0.6.6-ui-parity-hardening-release`, local HEAD, tracking ref and live remote were
+> verified at **`685c29becae1453d33c1349865d48a2a3bc78957`**. The integrated v0.6.5/master
+> baseline and merge base were independently verified at
+> **`f7fb762e63bc7d46d099ddc8cead2dc68fb188e0`**. Prior agent conclusions were treated as
+> claims to check, not release-review evidence.
+>
+> **Review scope:** the complete baseline-to-HEAD v0.6.6 diff, current tree and Git history;
+> correctness/regressions, frozen UI contract/platform drift, setup/packaging, current-state
+> documentation, security/path/source/output safety, historical deferrals and test quality.
+> The permanent planning references and active plan were used to resolve intentional behavior.
+>
+> **Confirmed findings, bounded remediation:**
+> 1. Successful Reset Preferences cleared stored Dark to default Light but left the live bundle
+>    and toggle Dark; the next toggle did not change the visible theme. Reset now rebuilds styles
+>    from the actual default, notifies existing listeners and synchronizes the launcher/dialog.
+>    Cancelled and failed resets preserve Dark. No panel, Book, job or widget is rebuilt.
+> 2. A failed atomic appearance write rolled storage back but still returned the requested mode.
+>    The toggle now renders the actual stored value, preventing live/persisted divergence.
+> 3. Aqua registered no semantic styles and native controls followed OS appearance independently
+>    of the app's classic Tk content; the Shared tint was absent. `CompactAqua.*` now inherits
+>    native control layouts/fonts/padding, supplies semantic surface/label colors, and clones only
+>    the Shared section border. A documented per-window native appearance command matches the
+>    preference on the root and existing/new owned dialogs; native combobox menus remain native.
+>    Tk can silently return an empty result before the NSWindow exists: a one-time Map binding
+>    applies the latest choice then, without entering an event loop during construction. Existing
+>    platform composition hints remain. This is command/inheritance evidence, **not a Mac PASS**.
+> 4. Briefing overstated contentless-input parity: local engines retain headings as text and do
+>    not have Edge's alphanumeric paragraph filter. Current wording and the regression's docstring
+>    now distinguish Edge's four rejected cases from the proven empty/header-only local case.
+>    Existing engine parsing is unchanged; no model/listening outcome is inferred.
+>
+> **Independent evidence:**
+> - Before remediation, the selected UI/consistency/packaging/bootstrap/EXIF/BOM/contentless/Edge
+>   chapter/segmentation sweep passed **446 tests, 0 skips** (81.82 s), independently reproducing
+>   material automated claims without accepting the documented review conclusions.
+> - The first six regression cases produced **4 failures / 2 passing reset controls** on the
+>   approved tree. The additional unmapped-native-window seam produced **2 failures**, then
+>   **2 passes** after correction. Eight new test cases in total; old empty-style Aqua pins now
+>   assert native layout inheritance instead. Generic styles, platform layout hints and actual
+>   native control metrics stay asserted rather than being dropped.
+> - Affected UI suites: **254 passed / 0 skipped / 0 failed** (29.51 s),
+>   after all application-code remediation; one existing pydub audioop deprecation warning.
+> - Full `scripts/verify.py`: **RESULT: PASS**, **7,903 passed / 58 skipped /
+>   0 failed / 0 errors** (963.78 s; 2 warnings). Deps, docs, docnames and config all PASS.
+>   It collected before the final Aqua Map-seam
+>   refinement; the affected-suite rerun above covers the final application code after that fix.
+> - An earlier full run was stopped to complete native-style assertions; it is not counted
+>   as PASS evidence.
+> - All 243 tracked Python files compile with `SyntaxWarning` as an error; `git diff --check`
+>   passes. The installed Git Bash is selected for packaged `.command` parsing, not Windows WSL.
+>
+> **Re-review conclusions:**
+>
+> | Area | Verified disposition |
+> |---|---|
+> | UI/platform | Six interiors use compact appearance, numbered Family-A/B hierarchy and persistent Activity; existing real Windows geometry/keyboard/state tests are retained. Aqua command and native inheritance are mechanically covered; native rendering is deferred. |
+> | Processing/source/output | AST comparison confines dense-panel changes to presentation, lock/keyboard/lifecycle hooks; widget variable/command bindings are preserved apart from replaced log/scroll chrome. Shared import walker/output planner and MP3, Maker and Metadata processing/batch modules are baseline-identical. Source hashes, collision reservation, atomic publication, cancellation and cleanup regressions remain. Cover replacement remains the explicit opt-in exception. |
+> | Hardening/history | BOM, contentless Edge and EXIF fixes agree with code and focused regressions. CLI M4B chapter read-back uses real FFmpeg and retains titles/boundaries past the historical overflow case. Kokoro breakpoint placement remains characterized/accepted, with no retune or new listening claim. USAC real-media evidence remains a waiver. |
+> | Setup/package/security | Pinned package repair and bounded import probes agree with tests; package scope is tracked scripts plus named root files, rejects dirty packaged paths and excludes dev/runtime state. Exact launcher line endings, Bash syntax and executable archive mode are tested in disposable archives. No new dependency, command-injection/path-write surface or source-mutating default was found. |
+> | Docs/identity | Briefing now distinguishes current compact interiors from the historical ACT boundary and discharges stale Converter/popdown deferrals. README/config/version/release-tool identity is consistent with the intentional pre-Phase-14 `0.6.2`, unreleased state. Historical entries remain historical. |
+>
+> **Skips:** **39 Aqua-only tests** (37 geometry, 2 theme), **12 symlink-privilege
+> limitations**, **3 case-sensitive path cases**, **3 optional Jack Ryan fixtures**, and
+> **1 retired hash-gate empty parameter set**; independently counted from JUnit.
+> No manual evidence is manufactured. Native Mac, physical
+> scaling, listening, clean-machine and long real-workload checks remain the maintainer-approved
+> v0.6.7 backlog; broader TXT encodings and sharp-text per-monitor DPI awareness remain future work.
+>
+> **Local-only preservation:** all 16 original status entries were hash/status checked unchanged:
+> `.ai/`, `scripts/project-status.py`, six untracked replacement screenshots and eight existing
+> tracked screenshot deletions. They are excluded from this checkpoint. Scratch logs, JUnit and
+> review scripts stay ignored under `files/dev-work/v066-phase13/`.
+>
+> **Phase 13 COMPLETE — READY under the approved deferrals; STOP.** The checkpoint is the
+> commit containing this entry, directly
+> atop the approved Phase-12 SHA; subject `Complete Phase 13 independent release review`.
+> Commit and push that checkpoint on the feature branch. **Phase 14 has not started.** The next
+> phase requires maintainer approval; no version bump, final artifacts, merge, tag, publication,
+> branch deletion, history rewrite, force-push or AI co-author trailer was performed.
+>
+
+> ## PREVIOUS CHECKPOINT — v0.6.6 PHASE 12: RELEASE-CANDIDATE ACCEPTANCE (2026-09-29)
+>
+> **Phase 11 is maintainer-approved.** Before any edit, branch
+> `feature/0.6.6-ui-parity-hardening-release` and both local/remote HEAD were verified at
+> `1a218f96ab57c53758186ac1e2cd9f483ce22d96`. The local-only `.ai/`,
+> `scripts/project-status.py` and screenshot changes remain uncommitted and untouched.
+>
+> **Scope:** Phase 12 only. The standing maintainer ruling replaces hands-on gates with practical
+> automated/CLI evidence and a truthful v0.6.7 backlog. Native Mac, physical display scaling,
+> clean-machine setup, listening and long real-workload drills are not claimed as passed.
+>
+> **Warning fix:** two raw-string prefixes in `test_edge_make_m4b_chapters.py`. Forced
+> compilation reproduced both invalid escapes (`\s` and backslash-backtick); the fixed file
+> compiles with `SyntaxWarning` treated as an error. The entire before/after AST is identical,
+> including the backslash-containing title and docstring. No application behavior changed.
+>
+> **Focused acceptance: 126 passed, 0 skipped, 0 failed (84.26 s).** Eight files: the Edge M4B
+> chapter regression, `test_cross_tool_consistency.py`, and all six `test_*_appearance.py` files.
+> Real Windows Tk, Python 3.12.10, installed FFmpeg/ffprobe 9.0.1:
+> - All six tools, Light/Dark, 920×600 minimum, 1024×720, 1024×800, 1280×900, logical
+>   125%/150% maximized sizes (1536×800 / 1280×665), and actual maximized windows.
+> - No core scrolling/clipping/overlap, numbered hierarchy, flexible-region growth, Tab
+>   reachability/order, shared Activity, Shared/Current Book distinction, importer/list shortcuts,
+>   text-edit focus and run locks, and idle/running theme state preservation.
+> - These are Windows measurements, including the 1024×800 size; they do not emulate Aqua.
+>
+> **Full checkpoint:** the initial gate reported **7,887 passed / 58 skipped / 8 failed**
+> (940.98 s). All eight were diagnosed; no production defect was found:
+> - Five eSpeak tests assumed pytest's absolute temporary path fit a 160-character buffer. In
+>   this deep repository-contained scratch tree it did not. Short candidates now use relative
+>   paths under a temporarily selected test cwd; long sources remain absolute, real links are
+>   still exercised, and the exact 160/144/145 boundary tests are unchanged.
+> - Two cleanup tests assumed a disposable repository could not be nested under the real repo.
+>   They now assert the exact supplied-copy target and exclusion of the real `.venv`, compatible
+>   with the required repository-contained scratch policy. Actual deletion/isolation tests stand.
+> - The packaged macOS shell check found Windows' unusable WSL `bash.exe`. Prepending installed
+>   Git Bash to this verification process's PATH fixes executable selection; no global setting
+>   or test implementation changed for this case.
+> **Focused remediation:** all four affected modules, **302 passed / 0 skipped / 0 failed**
+> (8.18 s), including the same eight failed cases. This confirmed remediation justified the
+> final full `scripts/verify.py` rerun: **RESULT: PASS**, **7,895 passed / 58 skipped /
+> 0 failed / 0 errors** (962.64 s; 2 warnings). Deps, docs, docnames and config all PASS.
+> Final test totals equal Phase 11's; existing tests were repaired, none added or removed.
+>
+> **All 58 skips accounted for from the final JUnit report:**
+> - 39 native Aqua tests on this Windows host (37 geometry, 2 theme branches);
+> - 12 symlink-creation privilege limitations;
+> - 3 case-sensitive filesystem/path cases on case-insensitive Windows;
+> - 3 optional Jack Ryan media-fixture cases (fixture environment variable unset);
+> - 1 empty parameter set for the already-retired Plan-6 Phase-0 hash-pin gate.
+> No unexpected Tk, FFmpeg or Bash skips. No unexplained failures remain.
+>
+> Its existing coverage supplies the bounded representative workload evidence:
+>
+> | Tool / concern | Regression evidence and limits |
+> |---|---|
+> | TTS | `test_tts_jobs.py`, runner/engine and lifecycle suites: pause/resume/cancel, frozen retry, failure isolation, collision-safe destinations and partial cleanup; synthesis is stubbed, not a listening or network/model run. |
+> | Converter | `test_m4b_converter_jobs.py`, `test_m4b_execution.py`, `test_m4b_retry.py`: real synthetic FFmpeg media, whole/split outputs, cancellation/reaping/cleanup, retry and unchanged source hashes. |
+> | Cover | `test_cover_jobs.py`, browser/import/orientation suites: generated images, bounded threaded boundaries around real resize, retry, atomic replacement gates and source preservation outside the explicit replacement mode. |
+> | MP3 Tool | `test_mp3_orchestration.py`, `test_mp3_hardening.py`, processing suites: short synthetic audio, pause/cancel, failed-only frozen retry, source hashes, FAST/Safe fallback and output isolation. |
+> | Maker / Metadata | batch/processing and `test_m4b_combined_hardening.py`: real synthetic media, bounded threaded pause/resume, cancellation and publication races, failed-only retry, source hashes and staged output cleanup. |
+> | Shared / platform / release | importer traversal/order/duplicates, output reservations/collisions, lifecycle/cleanup and isolation guards; Phase-9 platform-aware geometry; Phase-11 packaging/bootstrap/import-probe/pinned-repair/launcher regressions. |
+>
+> **Static checks:** all 243 git-tracked Python files under `scripts/` and `files/tests/` compile
+> with `SyntaxWarning` as an error; literal-equivalence AST check PASS; macOS launcher `bash -n`
+> PASS; `git diff --check` PASS. The focused run reports only pydub's existing Python 3.12
+> `audioop` deprecation, not an invalid-escape warning.
+>
+> **Environment accounting:** the initial sandboxed focused invocation could not read installed
+> Tcl/Tk or resolve FFmpeg (2 failures, 118 setup errors, 2 dependency skips, 4 passes). The exact
+> same eight files passed with host access, with no environment repair or test weakening. This
+> was an execution-permission failure, not a product defect. Local disposable logs/XML/static
+> helper are under `files/dev-work/v066-phase12-20260929/` (not shipped or committed).
+>
+> **v0.6.7 backlog remains:** native macOS Light/Dark minimum/maximized and native Aqua suite;
+> live Windows 125%/150% visual inspection; clean Windows/Mac packaged double-click, dependency
+> acquisition, Gatekeeper/translocation and optional model offer; listening (including the
+> accepted Kokoro breakpoint); real phone-photo checks; long real-workload job-control drills.
+>
+> **Phase 12 COMPLETE; STOP for maintainer review.** The checkpoint is the commit containing
+> this entry, directly atop the approved Phase-11 SHA, on the same feature branch. Commit subject:
+> `Complete Phase 12 release-candidate acceptance`. Push that checkpoint to origin before handoff.
+> **Next, only after maintainer acceptance:** Phase 13, fresh independent release review.
+> Phase 13 has not started. Identity remains `0.6.2`, unreleased. No merge, tag, release,
+> publication, branch deletion, history rewrite or force-push is authorized by this checkpoint.
+>
+> — Recorded by Codex, 2026-09-29.
+
+> ## CURRENT STATE — v0.6.6 PHASE 11: PACKAGING / SETUP / RELEASE HYGIENE (2026-09-29)
+>
+> **Phase 10 is maintainer-approved** at `098ef9a`. Phase 11 started from that exact commit
+> (local = origin), with the local-only `.ai/`, `scripts/project-status.py` and screenshot
+> renames preserved uncommitted.
+>
+> **Maintainer ruling (TXT Minor):**
+> - No ANSI/cp1252 or guessed-encoding fallback in v0.6.6. A `.txt` is **UTF-8, with or without a
+>   BOM**; broader support is deferred to v0.6.7.
+> - Documented in the README (the TTS feature line, plus Known Limitations with the Notepad re-save
+>   step) and in Briefing.
+>
+> **Confirmed gaps, all fixed with RED-first regressions:**
+> 1. **CRITICAL — first-run setup failed on a healthy machine.** A real first-run install from the
+>    freshly built Windows archive ended "Python packages installed but could not be imported"
+>    (exit 1).
+>    - **Cause:** `validate_installed_packages` probed each import for 30 s. A cold first import
+>      in a new venv runs longer: `nltk` measured 32.4 s cold vs 1.1 s warm, and `chatterbox` also
+>      ran over 30 s.
+>    - **The unpinned `--force-reinstall` repair then drifted five pins:** `nltk`, `pillow`,
+>      `tqdm`, `soundfile` and `setuptools` 80.9.0→84.0.0, which is the Chatterbox
+>      `pkg_resources` hold.
+>    - **Fix** (`shared/bootstrap.py`): one `IMPORT_PROBE_TIMEOUT_S = 600` shared with the launch
+>      proof, and the reinstall constrained with `-c requirements.txt`. Tests:
+>      `test_bootstrap_import_validation.py` (6), both halves mutation-checked.
+> 2. **Packaging leaked uncommitted files.** A real build put the local-only
+>    `scripts/project-status.py` in both zips.
+>    - **Fix** (`shared/release.py`): only git-tracked `scripts/` files ship. The exclusions still
+>      apply to tracked files. `main()` refuses while any packaged path differs from HEAD, and it
+>      refuses outside git.
+>    - **Tests:** `test_release_packaging.py` 34→51 (a fixture repo now really commits), both
+>      guards mutation-checked.
+> 3. **TXT contract not true on the Edge folder path.** `batch_convert` read plain `utf-8`, so the
+>    BOM reached Edge and a BOM-only file became a `"﻿"` chunk. Now `utf-8-sig`.
+>    `test_tts_text_bom.py` +3, including a cp1252-refused-on-every-path contract pin.
+> 4. **Launcher text:** the `.command` translocation help named a nonexistent
+>    `audiobook-creation-tool` folder; it now names `AudiobookTool-MacOS-v…`. `bash -n` clean,
+>    LF, still `100755`.
+> 5. **README corrected:** archive contents (config.toml, committed-only, dirty refusal), the macOS
+>    folder name, Cover output modes (plus the opt-in replace exception), Light/Dark, UTF-8 TXT,
+>    disk (~2.5 GB measured) and the clean-install limitation.
+>
+> **Proved mechanically (HOME-PC, Windows 11, evidence under `files/dev-work/phase11/`,
+> disposable):**
+> - Both archives are built from the real tree:
+>   - root = README.md, config.toml, its own launcher, scripts/;
+>   - 79 tracked files each, no untracked or OS/dev state;
+>   - `.bat` CRLF; `.command` LF, `#!/bin/bash`, `0o755`.
+> - Extracted Windows tree, `--self-test`: every path resolves inside the extracted root. It finds
+>   Python 3.12 and the WinGet FFmpeg candidate; `--venv-check` = 3 (absent).
+> - **Real first run** (`bootstrap.py --headless` from the base Python the `.bat` picks):
+>   - **run 1 FAILED** (the Critical above);
+>   - **run 2**, from a rebuilt archive, **exit 0** in 1:32 (warm pip cache). Imports clean;
+>     Gyan FFmpeg 9.0.1 verified and pinned with no install; **all 25 pins exact** (169
+>     packages); `.venv` 2.5 GB; `--venv-check` = 0.
+> - **The extracted `.bat` itself** (non-interactive): fast path, then the GUI detached under the
+>   extracted venv's `pythonw.exe`. The window "Audiobook Creation Tool" was visible and
+>   responding, closed cleanly, with no repair on that launch.
+> - All six tools were built in the extracted venv from the archive's code only.
+> - **Not a clean machine:** Python, FFmpeg and the pip cache were already present.
+>
+> **Verification:**
+> - Focused sweep (31 packaging/bootstrap/first-run/self-heal/venv-recovery/requirements/FFmpeg/
+>   TTS-contract/boundary/Kokoro files): **1,375 passed, 0 failed**.
+> - Full `scripts/verify.py`: **RESULT: PASS**, with pytest **7,895 passed / 58 skipped / 0 failed**
+>   in 15:12; deps, docs, docnames and config all PASS.
+>   - **Justified** by a production bootstrap fix (the Critical), a TTS read-path change and the
+>     release path.
+>   - **Reconciled:** +27 over Phase 10's 7,868 = packaging +17, import validation +6,
+>     BOM/contract +4. Skips unchanged at 58.
+> - The real `release.main()` against this uncommitted tree **refused**, listing the five dirty
+>   packaged paths and writing nothing.
+>
+> **Flagged, not fixed (Minor):** `test_edge_make_m4b_chapters.py` (Phase 10) emits two
+> `SyntaxWarning: invalid escape sequence` at collection; they will become an error in a future
+> Python.
+>
+> **v0.6.7 manual backlog (Phase 10's, plus):**
+> - a hands-on double-click of each extracted archive on a **clean** Windows and a **clean** Mac:
+>   Python/FFmpeg acquisition, Gatekeeper quarantine and App Translocation, first-run network
+>   installs, and the Kokoro model offer;
+> - a live macOS run of `test_release_packaging.py`.
+>
+> **Not done:** Phase 12 not started. No merge, tag, release, publication, branch deletion,
+> history rewrite or force-push. Version identity unchanged (`0.6.2`, unreleased); `dist/` untouched.
+>
+> — Recorded by Claude Code, 2026-09-29.
+
+> ## CURRENT STATE — v0.6.6 PHASE 10: PRODUCT HARDENING + DEFERRAL DISPOSITION (2026-09-28)
+>
+> **Phase 9 is maintainer-approved** at `758e24f`. Phase 10 started from that exact commit, with the
+> local-only `.ai/`, `scripts/project-status.py` and screenshot renames preserved uncommitted.
+>
+> **Dispositions (the four named items):**
+> 1. **Edge `make_m4b` chapter-muxing hazard: NOT REPRODUCIBLE; the path is kept and hardened.**
+>    - **Why the hazard needs video.** The 2026-09-20 truncation needed a cover *video* stream in
+>      the mux (lcm 4,410,000). `make_m4b` muxes audio only, so the chapter track keeps the audio
+>      timescale: 1/24000 for Edge, which holds a chapter of about 24.8 h. `add_cover` adds a
+>      mutagen `covr` atom and never re-muxes.
+>    - **Measured** (FFmpeg 9.0.1, 24 kHz and 44.1 kHz, chapters of 30/600/1300/20 s): 4/4
+>      titles, 4/4 text-track samples and exact boundaries, before and after the cover.
+>    - **Negative control:** forcing `-movie_timescale 4410000` reproduces
+>      `Intro, Outro, Outro` and fails the new test.
+>    - **Three CLI-path defects found and fixed:** unescaped FFMETADATA values;
+>      locale-encoded metadata (cp1252 raised on a non-Latin title); `_run_ffmpeg` ignoring the
+>      exit status.
+>    - **Still CLI-only:** the GUI's MP3-only dispatch is pinned in `test_tts_importing.py`.
+> 2. **Kokoro earlier-valid-vs-rightmost breakpoint: ACCEPTED, not retuned** (no listening
+>    evidence).
+>    - **Mechanism:** the `.`/`!`/`?` loop keeps the last punctuation *type* with a valid break.
+>    - **Measured:** a 19-char first chunk where the rightmost valid break was at 2,988.
+>    - **Pinned:** no loss, duplication or reordering, each chunk at most 3,000, every non-final
+>      chunk ends at punctuation (`test_segmentation_source_span.py`).
+> 3. **The two persistent failures were test portability defects, both fixed:**
+>    - `test_tk_gate.py` minsize: Windows applies a withdrawn root's geometry only when mapped. It
+>      now measures mapped, and was mutation-checked.
+>    - `test_m4b_maker_processing.py` apostrophe: `Path` rendered backslashes. It now uses
+>      `PurePosixPath`; the real-FFmpeg apostrophe build already passed on Windows.
+> 4. **Flagged minors, re-investigated:**
+>    - **Status-bar squeeze: not a defect.** All launcher messages are fixed strings or tool
+>      titles, 325 px at most against a ~467 px budget.
+>    - **Density step:** inherent to the approved rule.
+>    - **Family A/B wording:** accepted.
+>
+> **Fresh six-tool audit: three confirmed product defects fixed, each regression written RED
+> first:**
+> - **TTS: a UTF-8 BOM header was spoken.**
+>   - `\ufeff` survived `strip`. Edge spoke `Title:`/`Author:` under an extra blank chapter and
+>     lost the title and author; Kokoro and Chatterbox spoke `Title:`.
+>   - **Fix:** `utf-8-sig` in `get_book`, `kokoro_file_to_mp3` and `chatterbox_file_to_mp3`.
+>   - **Test:** `test_tts_text_bom.py`.
+> - **TTS: Edge direct published a 0-second MP3 as success for a contentless `.txt`.**
+>   - Affected: empty, header-only, heading-only and punctuation-only files, only when added by Add
+>     Files. The folder path, Kokoro and Chatterbox already failed the item.
+>   - **Fix:** the runner raises the same "No text content…" message before any synthesis.
+>   - **Test:** `test_tts_contentless_source.py`.
+> - **Cover: EXIF orientation ignored.**
+>   - Phone photos came out turned, and replace mode overwrote originals that way.
+>   - **Fix:** `ImageOps.exif_transpose` for the output and preview; Details report the upright
+>     size. HEIC is proved not to be turned twice.
+>   - **Test:** `test_cover_orientation.py`.
+>
+> **Audited clean, no change:**
+> - the list-shortcut run locks (all tools);
+> - hidden files and subfolders (shared walk, including `._` AppleDouble files);
+> - the planner's NFC + case-fold collision key;
+> - TTS partial discard on failure and on cancel;
+> - Cover's atomic replace;
+> - a PDF with no text.
+>
+> **New Minor, flagged, not fixed:** a non-UTF-8 ("ANSI"/cp1252) `.txt` fails its one item with a
+> technical `UnicodeDecodeError` detail. An encoding fallback is a maintainer policy choice.
+>
+> **Verification:**
+> - Focused, during the work:
+>   - TTS/engine sweep: 1,094 passed, then the one boundary pin (a comment naming Chatterbox in
+>     `runner.py`) fixed and re-run green;
+>   - Cover suites: 352 passed, 1 skipped;
+>   - Edge/FFmpeg-trust/EPUB-retirement: 141 passed.
+> - Full `scripts/verify.py`: **RESULT: PASS**, with pytest **7,868 passed / 58 skipped / 0 failed** in
+>   14:36; deps, docs, docnames and config all PASS.
+>   - It ran once, justified by the scope: five production files across two tools, and a Tk-gate
+>     fix that only a full-order run exercises.
+>   - **Zero failures:** the two persistent Windows failures are gone.
+>   - **Skips 58** (v0.6.5 reference 61). None is new: every Phase 10 test ran, including the
+>     HEIC case.
+>
+> **v0.6.7 manual backlog (unchanged from Phase 9, plus):**
+> - a listening check of a Kokoro file with an early `?` chunk seam, if the maintainer wants the
+>   placement judged;
+> - a real phone photo through Cover (source-side and run-folder modes).
+>
+> **Not done:** Phase 11 not started. No merge, tag, release, branch deletion, history rewrite or
+> force-push. Version identity unchanged (`0.6.2`, unreleased).
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 9: CROSS-TOOL GEOMETRY, DPI, ACCESSIBILITY + CONSISTENCY (2026-09-28)
+>
+> **Phase 8 is maintainer-approved.** The Windows M4B Metadata gate at `81680d1` (block below)
+> PASSED: Light, Dark and the manual workflow.
+>
+> **Maintainer ruling: hands-on testing is deferred to v0.6.7.** For the rest of v0.6.6,
+> hands-on bug and edge-case testing moves to a future long-lived v0.6.7 post-merge bug-fix branch.
+> This supersedes the plan's remaining manual hard gates: Phase 9's matrix, Phase 10's
+> manual/listening gates, Phase 11's packaged-launch gates, Phase 12's visual matrix and long
+> drills, and Phase 14's launch smoke. Phases automate what they can and do not stop for a
+> manual-only check. Authorization checkpoints (stop per phase; merge, tag and release approvals)
+> are unchanged. Record: `Decisions.md` 2026-09-28.
+>
+> **What Phase 9 did.** It audited the six panels as one application. A generic walk covered every
+> interactive widget of every tool in the real launcher shell, in Light and Dark, at seven sizes:
+>
+> | Window | Content area | TTS / Converter / MP3 / Maker / Cover / Metadata |
+> |---|---|---|
+> | 920×600 (min) | 721×457 | split / split / tight / tight / columns / tight |
+> | 1024×720 | 825×577 | split / split / tight / tight / columns / tight |
+> | 1024×800 | 825×657 | split / split / regular / tight / columns / tight |
+> | 1280×900 | 1081×757 | wide / wide / regular / regular / split / regular |
+> | 1536×800 (125% max, logical) | 1337×657 | split / split / regular / tight / columns / tight |
+> | 1280×665 (150% max, logical) | 1081×522 | split / split / tight / tight / columns / tight |
+> | maximized | 1721×866 | wide / wide / regular / regular / wide / regular |
+>
+> **Findings:**
+> - **No core scrolling at any size: PASS.** In both appearances, every control of all six tools
+>   is on screen, inside the content area and window, at its full size, with no overlaps. No
+>   Canvas or Scrollbar wraps a section. Activity is right (guided) or below (dense).
+> - **Keyboard: one DEFECT, fixed** (`mp3_tools/cover_resizer.py`, the only production change).
+>   Cover's three browser views share one grid cell, and Tab stopped on the two hidden ones.
+>   `CoverBrowser._raise_view` now leaves only the shown view in the Tab order, and the keyboard
+>   follows a view switch. In all six tools, Tab reaches every visible, enabled control, in the
+>   order 1 → 2 → 3 → Activity.
+> - **Consistency: PASS.** All six share one numbered section style, one Activity (Summary |
+>   Detailed + Clear Log, same log colors) and one job-control set. No non-`Compact` ttk style
+>   remains.
+> - **Light/Dark: PASS.** The shell toggle moves and rebuilds nothing in any tool, shown or hidden.
+>   Cover gained the missing toggle-during-a-running-job test.
+> - **Minimum vs maximized: PASS.** Every flexible region is at least as large maximized.
+> - **Owned dialogs, title bar and combobox theming: no gap, no change.**
+> - **DPI / 125%: the process stays DPI-unaware, deliberately** (the 2026-08-02 deferral is
+>   dispositioned).
+>   - **State:** `GetProcessDpiAwareness` is `UNAWARE` under `python.exe` and `pythonw.exe` with Tk
+>     up, and Tk lays out at 96 dpi.
+>   - **Proof:** Windows bitmap-scales the window, so the logical 125%/150% maximized sizes above
+>     are a valid proof.
+>   - **No live 125% run:** both HOME-PC displays are at 100%, and changing the system setting was
+>     not done.
+>   - **Guard:** a tripwire test blocks a silent DPI opt-in.
+> - **macOS 1024×800: automated evidence only, not a pass.** The new module is platform-aware and
+>   is the Mac gate as it stands. The aqua-only `test_m4b_layout.py` / `test_mp3_tool_layout.py`
+>   were stale against the approved tight density, and were reconciled. With their skip removed on
+>   Windows they pass, except the two correct `mode == "aqua"` pins. The five per-tool
+>   Windows-measured density/mode pins now apply on Windows only.
+>
+> **Flagged for the maintainer, not fixed:**
+> - **Minor:** the tight→regular switch shrinks a flexible region between the two sizes, e.g.
+>   Metadata Chapter Titles 76→58 px and Maker 101→92 px from 1024×720 to 1280×900. This is
+>   inherent to the approved density rule and visible in the Phase 6–8 tables.
+> - **Minor, latent:** a status-bar message wider than ~467 px at 920 px would squeeze out the
+>   shell's three buttons, because the label is packed first. The longest real message is 325 px.
+> - **Suggestion:** `Add Files…` / `Clear All` (guided) vs `Add Files` / `Clear All Imports`
+>   (dense) is accepted Family A/B wording.
+> - The Phase 6–8 display-only yields at 920×600 stand.
+>
+> **Verification:**
+> - New `files/tests/test_cross_tool_consistency.py` (10 tests): all six tools × seven sizes ×
+>   Light/Dark; maximized growth; Tab reach/visibility/order; consistency; shell toggle stability;
+>   the DPI state and tripwire.
+> - Cover: `test_cover_browser.py` +4 (tab stop per view, keyboard follows);
+>   `test_cover_appearance.py` +1 (mid-run toggle).
+> - **Mutations, each caught (8):**
+>   - Cover fix reverted, in both halves;
+>   - MP3 never tight; the toggle resizing the shell;
+>   - Cover's Clear Log renamed; a DPI opt-in in `main()`;
+>   - Cover's toggle unlocking Resize (first MISSED: `cget("state")` misses a ttk state flag, so
+>     the test now uses `instate`); Cover's toggle skipping the log.
+> - **Focused sweep, 63 files:** every appearance, layout, launcher, theme, Cover, TTS, Converter,
+>   MP3, Maker, Metadata, importer, job, preferences, settings, config and boundary suite:
+>   **3,736 passed, 41 skipped, 2 failed**.
+>   - The 2 failures are the pre-existing, unrelated
+>     `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor` and
+>     `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe...` (a POSIX path
+>     on Windows). Both were re-run at `81680d1` in a scratch worktree: the minsize test fails
+>     identically there; the Maker test errored in that environment, and neither file is touched
+>     by this phase.
+>   - No full `verify.py`: one production file changed and the focused gate covers it.
+>
+> **v0.6.7 manual backlog (deferred, never passed):**
+> - live macOS 1024×800 / maximized, Light/Dark, all six tools, including a run of this suite on
+>   the Mac;
+> - a live Windows 125% (and 150%) look;
+> - the Phase 12-style visual matrix;
+> - long Pause/Resume/Cancel/Retry Failed drills on real workloads;
+> - real packaged-launch smoke on both platforms;
+> - any listening-dependent TTS judgement.
+>
+> **Not done / out of scope:** no workflow, plan, engine or shared-module change; no layout
+> redesign. Version identity is unchanged and unreleased. The local-only `.ai/`,
+> `scripts/project-status.py` and screenshot renames are preserved uncommitted. **Phase 10 not
+> started.**
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 8: M4B METADATA COMPACT VISUAL STANDARDIZATION (2026-09-28)
+>
+> **Phase 7 is maintainer-approved.** The required Windows M4B Maker gate at `333134f` (block
+> below) PASSED: Light, Dark and the manual workflow. Its missing `[Unreleased]` Changelog record
+> was added with this checkpoint.
+>
+> **What Phase 8 changed (presentation only):**
+> - **File:** `mp3_tools/m4b_metadata_editor.py`. No other production file.
+> - **Family-B hierarchy:**
+>   - `1. Import & Books`: Import Folder, Add Files, Clear All Imports, import status, output hint
+>     (elides from the left), Book navigator (Remove Book only).
+>   - `2. Metadata`: Shared over Current Book, seven fields plus artwork each. The source line runs
+>     full width beneath the Book's fields; the "Detected on file" line shares a line with the
+>     facts and Status.
+>   - `3. Chapters & Save`: Chapter Titles; Auto-number Series Part / Start Part and the preserve
+>     note; then **Save Tags** / Open Output Folder and Clear All Tags (keep chapters) / Remove
+>     Series Numbering in two columns beside the shared job area.
+>   - **Activity below:** Summary | Detailed with its note and Clear Log, full width.
+> - **Look:** the whole interior is on the shared compact bundle (a new `appearance_bundle` seam).
+>   No ttk widget uses a generic or `ACT.*` style; **no tool interior uses `ACT.*` any more**.
+>   - Shared is the tinted `shared_labelframe` group, with the MP3 Tool/Maker caption. Current
+>     Book is the ordinary surface and keeps "blank or unchanged = keep the source's own value".
+>   - Save Tags takes the accent-outlined compact button; the two destructive actions keep the
+>     destructive treatment; no filled primary.
+>   - Both artwork previews are at most 40 px (`COMPACT_PREVIEW_MAX`).
+> - **Live toggle:** presentation-only. Chapter Titles, the log panes and the selector's drop-down
+>   recolor in place. The listener is removed on close.
+> - **Small windows:** the Phase 6/7 **tight density** (padding/chrome, then reflow, then
+>   1-row/1-line floors held by row minimum sizes), plus two Editor reflows:
+>   - Auto-number Series Part / Start Part join the Chapter Titles caption's line, in short
+>     wording; the caption takes a short form that keeps its "blank or unchanged keeps it" rule;
+>   - the preserve note's line steps aside, and its statement joins the Current Book caption
+>     ("…; originals are never modified (copies are written)").
+>
+>   The job status takes two lines (the MP3 Tool's arrangement). Nothing is hidden; the minimum
+>   size is unchanged.
+> - **Unchanged:** one page per file, preserve-by-default, Shared precedence, prefill never an
+>   edit, per-page chapters, Save Tags / Clear All Tags / Remove Series Numbering and their
+>   confirmations, artwork, success-only Auto-number, staged validation, output runs/collisions,
+>   no re-encoding, Pause/Resume/Cancel/Retry Failed, the frozen run state and source
+>   immutability. Every `m4b_metadata_*` layer, `m4b_artwork_ui.py` and every shared module are
+>   untouched.
+>
+> **Real-launcher measurements (Windows, 100%; Light and Dark identical):**
+>
+> | Window | Content | Density | Panel req. width | Chapter Titles | Summary pane |
+> |---|---|---|---|---|---|
+> | 920×600 | 721×457 | `tight` | 663 px | 17 px (1.1 rows) | 21 px (1.3 lines) |
+> | 1024×720 | 825×577 | `tight` | 663 px | 76 px (4.8 rows) | 82 px (5.1 lines) |
+> | 1280×900 | 1081×757 | `regular` | 747 px | 58 px (3.6 rows) | 71 px (4.4 lines) |
+> | 1920×1009 | 1721×866 | `regular` | 747 px | 123 px (7.7 rows) | 115 px (7.2 lines) |
+>
+> Before Phase 8 (the `ACT.*` interior) at 920×600 the panel asked for 1334×665:
+> - Chapter Titles and the log were unmapped;
+> - Open Output Folder, Resume / Cancel / Retry Failed and Clear Log were off screen;
+> - all fourteen entries were squeezed to 57–66 of 78 px.
+>
+> Now every required control is on screen at its full requested size at all four sizes, with no
+> overlaps. That includes a busy 920×600 workspace: three Books, long Title/Series/Comment, Shared
+> values, both artworks, 40 chapter titles and Auto-number on.
+>
+> **Verification:**
+> - New `test_m4b_metadata_appearance.py` (20 tests):
+>   - hierarchy and homes; the actions/Activity presentation;
+>   - Shared vs Current Book in Light and Dark; Dark over the whole interior;
+>   - the compact previews;
+>   - a live toggle preserving Books, page, Shared/Book edits, chapters, run options, read-back,
+>     log and density with no widget rebuilt;
+>   - a toggle during a parked real Save settling SUCCEEDED, with the originals' hashes unchanged;
+>   - listener removal; text keys not hijacked; Tab order 1→2→3→Activity;
+>   - real-shell tests at 920×600 / 1024×720 / 1280×900 / 1920×1009, with no overlaps and the
+>     preserve statement always on screen;
+>   - the tight reflow and its return; the busy minimum with no layout jump; the output hint
+>     tail; the shell's own toggle keeping layout and values; no Editor rule moved into the panel.
+> - Sixteen mutations were each caught:
+>   - no tight density; no row floors; no unregister;
+>   - Chapter Titles / log / drop-down not recolored; no hint elision;
+>   - full wording in tight; options never inline; the note hidden without the Book caption;
+>   - a filled-primary Save; the 56 px preview; the status on three lines in tight;
+>   - Clear Log left over the log in tight (first MISSED, so the shell test gained a no-overlap
+>     check); the old Shared caption; the `ACT.*` styles back.
+> - Updated pins (the Editor left `ACT.*`):
+>   - `test_m4b_metadata_editor_ui.py`: compact and namespaced styles, the classic widgets in
+>     Light/Dark, and the two aqua composition tests;
+>   - `test_launcher_smoke.py`: `CONVERTED_TOOLS` is empty; the Editor joins
+>     `COMPACT_DENSE_TOOLS`;
+>   - `test_clear_all_imports.py` (2), `test_output_location_refresh.py`,
+>     `test_prototype_regression.py` (3).
+> - Focused sweep of 75 files (every M4B suite including the Editor's
+>   batch/plan/processing/workflow/shared, Maker and Converter suites; the MP3 Tool suites; the
+>   shared workspace, job, appearance, theme, launcher, boundary, preferences, output, import,
+>   settings and config suites; the Cover and TTS appearance/layout suites):
+>   **4,704 passed, 52 skipped, 2 failed**.
+>   - Both failures are pre-existing and unrelated, the same two as at Phase 7:
+>     - `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor`;
+>     - `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe...` (a POSIX
+>       path on Windows).
+>   - No full `verify.py`.
+>
+> **Known minor:** at 920×600 a long "Detected on file" line is clipped where the facts and Status
+> sit beside it, as is a long source path. Both show whole from 1280×900 up. (The navigator heading
+> truncation noted for the MP3 Tool and the Maker applies here too.)
+>
+> **Not done / out of scope:** no MP3, Maker, Converter, TTS or Cover change, and no `shared/`
+> change. macOS 1024×800 and Windows 125% are Phase 9's. Version identity is unchanged and
+> unreleased. The local-only `.ai/`, `scripts/project-status.py` and screenshot renames are
+> preserved uncommitted. **Phase 9 not started.**
+>
+> **Manual gate (Windows, required before Phase 9):** open M4B Metadata in the launcher at 920×600
+> and maximized, in Light and Dark. Check:
+> - the numbered sections, Shared vs Current Book, and nothing clipped or scrolled;
+> - Import Folder / Add Files, page navigation and Remove Book;
+> - a Shared value overriding and disabling a Book field;
+> - a Book edit, a chapter rename and artwork;
+> - Save Tags, Clear All Tags and Remove Series Numbering on copies (originals untouched);
+> - Auto-number, Pause/Resume/Cancel and Retry Failed;
+> - toggling Light/Dark mid-edit and mid-run.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 7: M4B MAKER COMPACT VISUAL STANDARDIZATION (2026-09-28)
+>
+> **Phase 6 is maintainer-approved.** The required Windows MP3 Tool gate at `d6cb0be` (block
+> below) PASSED: Light, Dark and the manual workflow.
+>
+> **What Phase 7 changed (presentation only):**
+> - **Files:** `mp3_tools/m4b_maker.py`, plus one additive, opt-in argument in
+>   `mp3_tools/m4b_artwork_ui.py`.
+> - **Family-B hierarchy:**
+>   - `1. Import & Books`: Import Folder, Clear All Imports, import status, output hint, Book
+>     navigator.
+>   - `2. Book Settings`: Shared over Current Book. The Book-only Title / Series Part / Output
+>     Filename / Status row runs the full width beneath the artwork.
+>   - `3. Tracks, Chapters & Build`: track list | Chapter Titles and the four track buttons; then
+>     Auto-number Series Part / Start Part / Try FAST first / Choose custom destination; then
+>     **Build M4B(s)** and the shared job area.
+>   - **Activity below:** Summary | Detailed with its note and Clear Log, full width.
+> - **Look:** the whole interior is on the shared compact bundle (a new `appearance_bundle` seam,
+>   as in the MP3 Tool). No ttk widget uses a generic or `ACT.*` style.
+>   - Shared is the tinted `shared_labelframe` group; Current Book is the ordinary surface.
+>   - Build takes the accent-outlined compact button; no filled primary.
+>   - The artwork preview is at most 40 px (`COMPACT_PREVIEW_MAX`, opt-in). The shared default
+>     (56 px) and the Metadata Editor are unchanged.
+> - **Live toggle:** presentation-only. The track list, Chapter Titles, log panes and the
+>   selector's drop-down recolor in place. The listener is removed on close.
+> - **Keyboard:** the §4 track-list shortcuts are now bound on the Maker (block moves, Delete,
+>   Ctrl+A) and go through the run lock; Entry and Chapter Titles keys are untouched.
+> - **Small windows:** the Phase 6 **tight density** (padding/chrome, then reflow, then
+>   1-row/1-line floors held by row minimum sizes), plus three Maker reflows:
+>   - the job status sits beside the job controls;
+>   - "Start Part:" / "Try FAST first" short wording;
+>   - the custom path row joins the options line instead of adding one.
+>
+>   The output hint elides from the left. Nothing is hidden; the minimum size is unchanged.
+> - **Unchanged:** the multi-Book model, Shared precedence, series numbering, FAST/Safe, custom
+>   destination (hidden until toggled, never persisted), artwork, metadata, chapter titles, output
+>   naming/collisions, Pause/Resume/Cancel/Retry Failed, the frozen run state and source
+>   immutability. Every `m4b_maker_*` layer and every shared module is untouched.
+>
+> **Real-launcher measurements (Windows, 100%; Light and Dark identical):**
+>
+> | Window | Content | Density | Panel req. width | Track list | Chapter Titles | Summary pane |
+> |---|---|---|---|---|---|---|
+> | 920×600 | 721×457 | `tight` | 714 px | 15 px (1.0 row) | 42 px | 21 px (1.4 lines) |
+> | 920×600 + custom path | 721×457 | `tight` | 714 px | 15 px (1.0 row) | 42 px | 17 px (1.1 lines) |
+> | 1024×720 | 825×577 | `tight` | 714 px | 74 px (4.9 rows) | 101 px | 82 px (5.5 lines) |
+> | 1280×900 | 1081×757 | `regular` | 744 px | 63 px (4.2 rows) | 92 px | 75 px (5.0 lines) |
+> | 1920×1009 | 1721×866 | `regular` | 744 px | 127 px (8.5 rows) | 156 px | 120 px (8.0 lines) |
+>
+> Before Phase 7 (the `ACT.*` interior) at 920×600 the panel asked for 1043×649:
+> - the track list, Chapter Titles and track buttons were unmapped;
+> - Remove Book and the custom-destination toggle were off screen;
+> - the log was 3 px.
+>
+> Now every required control is on screen at its full requested size at all four sizes, with and
+> without the custom path row. That includes a busy 920×600 workspace: three Books, 30 long
+> tracks, long title/filename/series, Shared values, both artworks, Auto-number on and a custom
+> path.
+>
+> **Verification:**
+> - New `test_m4b_maker_appearance.py` (24 tests):
+>   - hierarchy and homes; the Build/Activity presentation;
+>   - Shared vs Current Book in Light and Dark; Dark over the whole interior;
+>   - the compact preview, with the shared default unchanged;
+>   - a live toggle preserving Books, selection, values, Book-only fields, chapters, order, run
+>     options, custom path, log and density with no widget rebuilt;
+>   - a toggle during a parked real FFmpeg build settling SUCCEEDED;
+>   - listener removal; the §4 keys (block move, lock, no text-key hijack); Tab order 1→2→3→Activity;
+>   - real-shell tests at 920×600 / 1024×720 / 1280×900 / 1920×1009, each standard and with the
+>     custom path;
+>   - the path row inline only in tight; the busy minimum with no layout jump; the output hint
+>     tail; the shell's own toggle keeping layout and values.
+> - Thirteen mutations were each caught:
+>   - no tight density; no row floors; no unregister; track list not recolored;
+>   - keys ignoring the lock; no drop-down color; no hint elision; full wording in tight;
+>   - path row always beneath; status kept under the controls; the 56 px preview;
+>   - a filled-primary Build; the toggle not re-measuring.
+> - Updated pins (the Maker left `ACT.*`): `test_m4b_maker_ui.py` (3), `test_launcher_smoke.py`,
+>   `test_clear_all_imports.py` (2), `test_output_location_refresh.py`,
+>   `test_prototype_regression.py`.
+> - Focused sweep of 90 files (all M4B suites incl. Maker batch/plan/processing/smoke/workflow,
+>   custom destination, combined hardening, the MP3 Tool suites, the shared workspace, job,
+>   appearance, theme, launcher, boundary, preferences, output, import and settings suites, and
+>   the Converter/TTS/Cover appearance and layout suites):
+>   **5,295 passed, 55 skipped, 2 failed** on the confirming run.
+>   - Both failures are pre-existing and unrelated:
+>     - `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor`;
+>     - `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe...`, which
+>       builds a POSIX path on Windows.
+>   - The first run of the same 90 files also failed two Tab-order tests (this suite's and the MP3
+>     Tool's) with `invalid command name "tk_focusNext"`. Tk's autoloaded `focus.tcl` did not
+>     resolve in the shared interpreter: the known Windows Tk library-load transient.
+>   - That did not reproduce. It passed in a sequential run of the 40 files up to and including
+>     this suite (2,963 passed), in the neighbouring suites together, and in the identical 90-file
+>     rerun. Nothing was weakened or retried in code.
+>   - No full `verify.py`.
+>
+> **Not done / out of scope:** no Metadata Editor, MP3, Converter, TTS or Cover change, and no
+> `shared/` change. macOS 1024×800 and Windows 125% are Phase 9's. Version identity is unchanged
+> and unreleased. The local-only `.ai/`, `scripts/project-status.py` and screenshot renames are
+> preserved uncommitted. **Phase 8 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 6: MP3 TOOL COMPACT VISUAL STANDARDIZATION (2026-09-28)
+>
+> **Phase 5 is maintainer-approved** (the documentation checkpoint at `bc52a05`).
+>
+> **What Phase 6 changed (`mp3_tools/mp3_tool.py`; presentation only):**
+> - **Family-B hierarchy:** `1. Import & Books` (Import Folder, Clear All Imports, import status,
+>   output hint, Book navigator) / `2. Book Settings` (Shared over Current Book) /
+>   `3. Tracks & Run` (track list | Chapter Titles, then Write ID3 Tags / Combine MP3s and the
+>   shared job area) / **Activity below**: the universal Summary | Detailed view with its note and
+>   Clear Log, full width, never beside. Dense geometry, the Book selector/navigation and the
+>   Shared/Current Book model are kept.
+> - **Look:** the whole interior is on the shared compact bundle (a new `appearance_bundle` seam,
+>   as in Cover/TTS/Converter). No ttk widget uses a generic or `ACT.*` style.
+>   - Shared is the `shared_labelframe` group: a restrained blue tint, stronger border and bold
+>     blue heading, in Light and Dark.
+>   - Current Book is the ordinary surface.
+>   - Both operations take the compact button with the accent outline, and no button is a
+>     filled primary.
+>   - `theme` now supplies only the aqua composition hints.
+> - **Live toggle:** presentation-only. The track list, Chapter Titles, log panes and the Book
+>   selector's drop-down recolor in place. The listener is removed on close.
+> - **Small windows (§1 order):** the real launcher's 920×600 and 1024×720 content areas take a
+>   measured **tight density**. Nothing is hidden and the minimum size is unchanged:
+>   - tighter padding and gaps; the run separator and Activity's note step aside;
+>   - Clear Log sits beside the log; the job status takes two lines;
+>   - the track list may give way to one row and the log to one line.
+>
+>   Tracks & Run and Activity carry measured row minimum sizes. Auto-number / Start # / Status
+>   share the mixed-marker row (under Time/Artwork), and the mixed marker reads "Mixed" in the
+>   tight density.
+> - **Also:**
+>   - the output hint elides from the left, so the run folder stays visible;
+>   - the artwork preview is at most 40 px (no layout jump);
+>   - the track list's §4 shortcuts now obey the run lock, which Phase 2's binding bypassed.
+> - **Unchanged:** every MP3 workflow, plan, engine and output rule, including Shared precedence,
+>   chapter titles, artwork, signed Time, Write ID3/Combine, FAST/Safe, numbering, collisions,
+>   Pause/Resume/Cancel/Retry Failed, the frozen run state and source immutability.
+>   `mp3_workflow.py`, `mp3_plan.py`, `mp3_processing.py`, `mp3_artwork.py` and every shared
+>   module are untouched.
+>
+> **Real-launcher measurements (Windows, 100%):**
+>
+> | Window | Content | Density | Panel req. width | Track list | Chapter Titles | Summary pane |
+> |---|---|---|---|---|---|---|
+> | 920×600 | 721×457 | `tight` | 719 px | 15 px (1.0 row) | 42 px | 16 px (1.0 line) |
+> | 1024×720 | 825×577 | `tight` | 719 px | 71 px (4.7 rows) | 98 px | 80 px (5.0 lines) |
+> | 1280×900 | 1081×757 | `regular` | 747 px | 80 px (5.3 rows) | 109 px | 87 px (5.4 lines) |
+> | 1920×1009 | 1721×866 | `regular` | 747 px | 145 px (9.7 rows) | 174 px | 131 px (8.2 lines) |
+>
+> Before Phase 6 (the `ACT.*` interior) at 920×600 the panel asked for 1032×635, and the track
+> list, Chapter Titles and log were 1 px, with Remove Book and Retry Failed cut off. Now every
+> required control is mapped inside the content area at its full requested size at all four
+> sizes. That includes a busy 920×600 workspace: three Books, 30 tracks, a long name, Shared
+> values, artwork and a mixed marker.
+>
+> **Verification:**
+> - New `test_mp3_tool_appearance.py` (18 tests):
+>   - the hierarchy and homes; the Activity/run presentation;
+>   - Shared vs Current Book in Light and Dark (tint, border, bold heading, chroma-restrained);
+>   - Dark reaching the whole interior, including the selector drop-down;
+>   - a live toggle preserving Books/current Book/selection/values/chapters/order/log/density
+>     with no widget rebuilt;
+>   - a toggle during a real gated Write ID3 run settling SUCCEEDED;
+>   - listener removal;
+>   - the §4 keys doing block moves and obeying the run lock;
+>   - text keys not hijacked in an Entry or Chapter Titles;
+>   - Tab order 1→2→3→Activity;
+>   - real-shell tests at 920×600 / 1024×720 / 1280×900 / 1920×1009, the busy minimum with no
+>     layout jump, the output hint tail, and the shell's own toggle keeping layout and values.
+> - Eleven mutations were each caught: no tight density; no row floors; no unregister; track list
+>   not recolored; keys ignoring the lock; no drop-down color; no hint elision; the long marker in
+>   tight; Shared losing its caption; filled primaries; the status staying on three lines.
+> - Updated pins (the MP3 Tool left `ACT.*`): `test_mp3_tool_ui.py` (2),
+>   `test_launcher_smoke.py` (a compact dense-tool check), `test_clear_all_imports.py` (2),
+>   `test_output_location_refresh.py`, `test_prototype_regression.py`.
+> - Focused sweep of 56 files (all MP3 suites incl. orchestration/hardening, the shared
+>   workspace/job/appearance/theme/launcher/boundary/preferences/output/import suites, the
+>   Converter/TTS/Cover appearance and layout suites, and the Maker/Metadata UI suites):
+>   **3,170 passed, 43 skipped, 1 failed**.
+>   - The one failure is pre-existing and unrelated:
+>     `test_tk_gate.py::test_the_reset_clears_a_leaked_minsize_floor` fails identically on a clean
+>     `bc52a05` worktree.
+>   - No full `verify.py`.
+>
+> **Known minor:** at 920×600 a long Book name is truncated in the navigator's heading (a shared
+> navigator label). The selector beside it shows the name whole.
+>
+> **Not done / out of scope:** no Maker/Metadata/Converter/TTS/Cover change and no shared-module
+> change. macOS 1024×800 and Windows 125% are Phase 9's. Version identity is unchanged and
+> unreleased. The local-only `.ai/`, `scripts/project-status.py` and screenshot renames are
+> preserved uncommitted. **Phase 7 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 5: COVER IMAGE — SATISFIED BY THE APPROVED PHASE 2 REMEDIATION (2026-09-28)
+>
+> **Phase 4 is maintainer-approved.** The Windows manual M4B Converter gate at `cfe0678` (block
+> below) PASSED. It covered Light/Dark, the responsive small-window layout, the metadata modes and
+> the approved Cover/TTS visual language.
+>
+> **Phase 5 is a documentation checkpoint only; no code changed.** Under the plan's 2026-09-28
+> sequencing override, Cover's Family-A conversion and its Windows manual gate were completed and
+> approved during the final Phase 2 remediation (`39352c7`, gate PASSED). Re-checked at `cfe0678`:
+> - **Layout:** `1. Sources` / `2. Resize Options` / `3. Output & Run` with Activity on the right
+>   (`cover_resizer.py`, unchanged since `39352c7`).
+> - **Source browser:** the Details / List / Medium Thumbnails views are preserved.
+> - **Look:** the compact Cover/TTS control language, with coherent Light/Dark
+>   (`test_cover_appearance.py`).
+> - **No core-panel scrolling:** the real launcher shell tests in `test_cover_layout.py` show every
+>   control on screen with Activity right.
+> - **Behavior:** image, HEIC, output and job behavior are preserved (the importing, jobs,
+>   source-side, browser and image-capability suites).
+> - **Later shared changes:** the only shared change since `39352c7` is Phase 3's `appearance.py`
+>   addition (combobox drop-down helper, `Link.TLabel` surface). Cover uses neither, and Phase 4
+>   touched no shared module.
+>
+> **Verification:** a focused run of 16 files covered Cover (appearance, browser, browser scroll,
+> importing, jobs, layout, smoke, source-side), appearance, image capabilities, job_ui, launcher
+> smoke, ui_theme, the plan-3 boundaries, output paths and tool-output integration. Result:
+> **965 passed, 4 skipped, 0 failed**. The skips are environment-only: Windows symlink privilege
+> and aqua-only branches. No full `verify.py`.
+>
+> **Not done / out of scope:** no Cover change; macOS 1024×800 and Windows 125% remain Phase 9.
+> **Phase 6 not started.**
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 4: M4B CONVERTER GUIDED LAYOUT (2026-09-28)
+>
+> **Phase 3 is maintainer-approved.** The Windows manual TTS gate at `d03a7aa` (block below) PASSED
+> in Light and Dark, maximized and at the small supported size. The responsive small-window TTS
+> arrangement is approved and is now the Family-A precedent. See `Decisions.md` 2026-09-28
+> ("Phase 3 approved; M4B Converter rebuilt...").
+>
+> **What Phase 4 changed (`mp3_tools/m4b_converter.py`; presentation only):**
+> - **Family-A composition:** `1. Sources` / `2. Conversion & Metadata` / `3. Output & Run` on the
+>   left, Activity (Summary | Detailed, Clear Log) on the right.
+> - **Shared primitives and look:** the Cover/TTS constants, measured-layout approach and compact
+>   control language, with an `appearance_bundle` seam like theirs.
+> - **Section 2:** **Output structure** (Whole book / Split by chapter) is the first, heading-weight
+>   row, then MP3 quality, the metadata mode, the four fields (2×2) and Auto-number/Start #.
+> - **Metadata fields:** always visible. They are disabled only under **Write none**, and during a
+>   run, because Preserve uses a filled field as an override. Typed text is kept, and `read_options`
+>   is unchanged.
+> - **Section 3:** Output path, Open Output Folder, the output note, then **Convert M4Bs → MP3s** (the
+>   default button) with the shared Pause/Resume/Cancel/Retry Failed, progress and status beneath it.
+> - **Activity:** the one persistent `SummaryDetailsView`, handed to every run's adapter. The old raw
+>   "Log" box's transcript now goes to **Detailed**. The FFmpeg status and each run's closing line go
+>   to both panes.
+> - **Theme:** the whole interior is on the shared compact bundle, with no generic-styled ttk widget.
+>   The listbox and log panes recolor on a live toggle, and the listener is removed on close.
+> - **Small windows:** the approved TTS precedent. At 920×600 and 1024×720 the Converter uses `split`
+>   (1 over 2 | 3 over Activity) with §1's tight-window steps:
+>   - tighter padding and separators;
+>   - job controls in two rows of two;
+>   - a shorter requested path width;
+>   - the list may give way to one row.
+>
+>   1280×900 and larger use the vertical workflow. There is no core scrollbar, and the minimum size
+>   is unchanged.
+> - **Unchanged:** Whole/Split processing, the complete-timeline chapter behavior and chapter titles,
+>   Preserve/Replace/Write none semantics, artwork, optional track numbering, output
+>   planning/collisions, Pause/Resume/Cancel/Retry, the frozen run state and source immutability.
+>   The worker, plan and execution code paths were not touched.
+>
+> **Real-launcher measurements (Windows, 100%):**
+>
+> | Window | Content | Mode | Activity | List | Summary pane |
+> |---|---|---|---|---|---|
+> | 920×600 | 721×457 | `split` | 287 px wide | 56 px | 65 px |
+> | 1024×720 | 825×577 | `split` | 391 px wide | 176 px | 215 px |
+> | 1280×900 | 1081×757 | `wide` | 647 px wide | 108 px | 650 px |
+> | 1920×1009 | 1721×866 | `wide` | 1113 px wide | 232 px | 759 px |
+>
+> Every required control is mapped inside the content area at all four sizes. That includes a
+> 30-book queue under Write none at 920×600.
+>
+> **Verification:**
+> - New `test_m4b_converter_appearance.py` (21 tests):
+>   - the Family-A composition, with Output structure first and heading-weight;
+>   - Dark on the panel and its sections, no generic ttk style, and no color-literal keywords (AST);
+>   - the Activity/progress/Convert/Cancel presentation;
+>   - the metadata fields following the mode without moving, a run keeping them disabled, and
+>     disabling leaving `read_options` unchanged;
+>   - a live toggle preserving imports/selection/mode/metadata/quality/numbering/output/log/layout
+>     with no widget rebuilt, and a toggle between Start and the worker's end still settling SUCCEEDED;
+>   - listener removal, Clear Log, and the transcript going to Detailed only;
+>   - the §4 keyboard contract via real key events;
+>   - real-shell tests: every control on screen with Activity right at
+>     920×600/1024×720/1280×900/1920×1009, a filled queue under Write none at 920×600, and the
+>     shell's own toggle keeping layout and values.
+> - Seven mutations (no split, no unregister, fields ignoring Write none, log not recolored,
+>   transcript to Summary, importer unthemed, a 4-row split floor) were each caught.
+> - Updated tests:
+>   - `test_m4b_converter_jobs.py`: Summary/Detailed now prove the projection is shown complete and
+>     in order, with the panel's own lines identified. The unexpected-stop test reads Activity.
+>   - `test_m4b_converter_importing.py`: the bare-toplevel minimum test gained the new controls.
+>   - `test_plan6_boundaries.py`: the Plan-5 Converter pin is retired to `CONVERTER_PHASE0_HASH`
+>     evidence (see `Decisions.md`). The line-ending pin test now has no pinned files and reports as
+>     skipped (empty parameter set).
+> - Focused sweep of 67 files: all M4B suites (Converter, Maker, Metadata, plan/retry/numbering/
+>   execution/chapters), TTS, Cover, appearance, plan boundaries, preferences, output, FFmpeg,
+>   launcher smoke, job_ui, tool-output integration, settings and EPUB retirement.
+>   **3,526 passed, 30 skipped, 1 failed.**
+>   - The one failure is pre-existing and unrelated:
+>     `test_m4b_maker_processing.py::test_write_concat_list_escapes_an_apostrophe_the_way_ffmpeg_requires`
+>     builds a POSIX `/Users/...` path, which Windows `Path` renders with backslashes.
+>   - Neither that file nor its module is touched here; both were last changed in `b9a9419`.
+>   - No full `verify.py`.
+>
+> **Not done / out of scope:** no Cover/MP3/Maker/Metadata work and no business-logic change.
+> macOS 1024×800 and Windows 125% are not verified here (Phase 9). Version identity is unchanged and
+> unreleased. **Phase 5 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 3: TTS REFERENCE CONFORMANCE (2026-09-28)
+>
+> **Phase 2 is maintainer-approved.** The final Cover Image manual gate at `39352c7` (block below)
+> PASSED in Light and Dark: Family-A layout, right-side Activity, compact controls, no core
+> scrolling, and a working resize run.
+>
+> **New standing ruling:** the approved Cover UI at `39352c7` is the concrete visual reference for
+> every remaining tool interior. That means the same control sizing, button/field treatment,
+> check/radio indicators, section borders, spacing and density, disabled states, Light/Dark treatment
+> and Activity presentation. Geometry differs only where the plan distinguishes Family A from
+> Family B, and no tool gets its own visual system. See `Decisions.md` 2026-09-28 and the plan's §5
+> clarification.
+>
+> **What Phase 3 changed (`tts/epub2tts_gui.py`, plus two small shared-primitive additions):**
+> - **Whole interior on the shared compact bundle:** the panel, all four sections, every
+>   label/field/combobox/spinbox/checkbutton/button/separator, the shared importer, the job controls,
+>   progress/status, and the Summary | Detailed log. It has an `appearance_bundle` seam like Cover's.
+> - **Captions** take palette roles (link/warning/danger/secondary). On aqua they keep their old
+>   native colors.
+> - **Live toggle** is presentation-only. It recolors the list, log panes and both combobox drop-down
+>   lists in place. The listener is unregistered on close.
+> - **Shared primitives:**
+>   - `appearance.style_combobox_popdown` colors a compact combobox's drop-down list.
+>   - The compact `Link.TLabel` (previously unused) now sits on the section surface.
+> - **Small windows, by maintainer ruling:** the v0.6.5 suite sized a bare 920×600 toplevel, but the
+>   real launcher gives the panel 721×457 (and 825×577 at 1024×720). There, the frozen vertical
+>   workflow and its old Activity-beneath fallback put Start, the job controls and Activity **off
+>   screen**. Where the frozen layout cannot fit, TTS now uses `split`: 1 over 2 on the left, 3 over
+>   Activity on the right.
+>   - Within `split`, §1's steps apply: tighter vertical padding and gaps, Sources' actions in two
+>     rows of three, job controls in two rows of two, and a shorter requested path width.
+>   - The list may give way to one row. Nothing is hidden or removed.
+>   - 1280×900 and larger are pixel-identical to before.
+> - **Unchanged:** text segmentation, voices, the Edge/Kokoro/Chatterbox paths, worker caps and
+>   concurrency, Pause/Resume/Cancel/Retry, output planning and source immutability. All 260
+>   pre-existing TTS job/importing/concurrency/reporting tests pass untouched.
+>
+> **Real-launcher measurements (Windows, 100%):**
+>
+> | Window | Content | Mode | Activity | List | Log |
+> |---|---|---|---|---|---|
+> | 920×600 | 721×457 | `split` | 324 px wide | 42 px (Edge) | 100 px |
+> | 1024×720 | 825×577 | `split` | 395 px wide | 162 px | 220 px |
+> | 1280×900 | 1081×757 | `wide` (unchanged) | 499 px wide | 7 rows | 668 px |
+> | 1920×1009 | 1721×866 | `wide` (unchanged) | 1134 px wide | 8 rows | 786 px |
+>
+> Every required control is mapped inside the content area at all four sizes, including with the
+> Kokoro notice and a Chatterbox setup-required message at 920×600.
+>
+> **Verification:**
+> - New `test_tts_appearance.py` (17 tests):
+>   - Dark on the panel and its sections, and no TTS-owned ttk widget on a generic style;
+>   - caption palette roles, and an AST check for no `foreground=`/`background=` keywords;
+>   - the Activity/progress/Start/Cancel presentation, and combobox drop-downs recoloring on toggle;
+>   - a live toggle preserving imports/selection/voice/speed/workers/bitrate/checks/log/layout with
+>     no widget rebuilt, and a toggle during a running (gated) job leaving it RUNNING through to
+>     SUCCEEDED;
+>   - listener removal on close, and Clear Log;
+>   - the §4 keyboard contract via real key events;
+>   - real-shell tests: every control on screen with Activity right at 920×600/1024×720/1920×1009,
+>     the Kokoro/Chatterbox tallest states at 920×600, and the shell's own toggle keeping layout and
+>     values.
+> - Six mutations (no split, one unstyled spinbox, no popdown recolor, no unregister, log not
+>   recolored, 2-row split floor) were each caught.
+> - `test_tts_compact_ui.py`: four tests that pinned "Activity beneath at 920×600" were updated to
+>   the ruled `split`.
+> - `test_launcher_smoke.py`: the chrome must still be `ACT.*` only, and hosted tool content may be
+>   `ACT.*` or `Compact.*`, never generic.
+> - Focused sweep of 46 files (all TTS/Chatterbox/Kokoro/voice suites, Cover, appearance, job_ui,
+>   ui_theme, launcher, preferences, output, M4B/MP3 UI, settings/config/repository/isolation):
+>   **2,324 passed, 16 skipped, 0 failed**. No full `verify.py`; no concrete reason surfaced.
+> - Pre-existing, not changed: `test_launcher_smoke.py` run *alone* trips the session-scoped
+>   real-log guard, reproduced on untouched HEAD sources. Its stray session logs were deleted, and it
+>   is clean inside any multi-file run.
+>
+> **Not done / out of scope:** no Converter/MP3/Maker/Metadata conversion and no business-logic
+> change. macOS 1024×800 and Windows 125% are not verified here (Phase 9). Version identity remains
+> `0.6.2`, unreleased. **Phase 4 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28.
+
+> ## CURRENT STATE — v0.6.6 PHASE 2 FINAL REMEDIATION: COVER IMAGE CONVERTED TO FAMILY A ON TTS'S CONTROL LANGUAGE (2026-09-28)
+>
+> **The Phase 2 repeat manual gate on `5e41f9d` (block below) FAILED on Cover presentation/layout.**
+> Dark coverage passed and all tested functionality still worked; that work is preserved. By
+> **explicit maintainer sequencing override**, Cover's Family-A conversion (plan Phase 5) was brought
+> forward and completed here as the final Phase 2 remediation. Phase 5 must not redo it. See
+> `Decisions.md` 2026-09-28 and the plan's §5 2026-09-28 clarification and Phase 5 note. This block
+> supersedes nothing below; it adds the checkpoint on top.
+>
+> **Ruling:** the current TTS panel is the exact visual-control reference. That covers control
+> metrics, borders, glyphs, spacing, section treatment, disabled state and density, not just colors,
+> and it is expressed through the shared `shared/appearance.py` primitives.
+>
+> **Shared primitives changed** (measured on Windows `vista`, TTS's native controls vs compact):
+> - Body font = `TkDefaultFont` size.
+> - `button_pad`/`field_pad`/`tab_pad`/`tree_row_height` retuned. Button 103×31 → 76×25 (native
+>   76×25); Entry 76×25 → 68×21 (native 66×21).
+> - Buttons use `relief="raised"`, so they are outlined in every state; `default="active"` gets an
+>   accent outline.
+> - Palette-drawn check/radio image indicators replace the `clam` X.
+> - Light palette retuned to classic Windows (#f0f0f0 surfaces, near-white buttons, white fields;
+>   accent darkened, all WCAG tests pass).
+> - The compact log pane is a white field.
+> - `shared/config.py`: `appearance` added to `USER_STATE_SETTINGS`. This fixes a Phase 1 defect where
+>   every launch after a toggle reported it as an unrecognised configuration override.
+>
+> **Cover (`mp3_tools/cover_resizer.py`):**
+> - **Hierarchy:** `1. Sources` / `2. Resize Options` / `3. Output & Run` on the left, `Activity` on
+>   the right.
+> - **Sources:** the browser is the list and the flexible region. The importer's duplicate listbox is
+>   withdrawn but kept in step. The six actions, filters, options and Cancel Import are unchanged, and
+>   the §4 shortcuts are on all three views.
+> - **Resize Options:** a plain section with no canvas and no scrollbar.
+> - **Output & Run:** Resize Covers as the default button, with the shared controls and progress
+>   beneath it.
+> - **Activity:** the shared persistent Summary | Detailed view plus **Clear Log**. The worker
+>   transcript goes to Detailed.
+> - **Responsive, measured modes:** `wide`, `split`, `columns`, and `stacked` as a last resort.
+>   Activity stays right at every size, and Sources-on-top is used only while the browser keeps a
+>   full thumbnail row.
+> - **Unchanged:** output planning, collision handling, replacement safety, Retry and job control.
+>
+> **Real-launcher measurements** (content host → mode, Activity width, browser height):
+>
+> | Window | Content host | Mode | Activity | Browser |
+> |---|---|---|---|---|
+> | 920×600 | 721×457 | `columns` | 188 px | 148 px |
+> | 1024×720 | 825×577 | `columns` | 292 px | 268 px |
+> | 1280×900 | 1081×757 | `split` | 588 px | 281 px |
+> | 1920×1009 | 1721×866 | `wide` | 1113 px | 247 px |
+>
+> Every required control is mapped inside the content area at all four sizes.
+>
+> **Verification:**
+> - `test_cover_layout.py` rewritten (15 tests; the two tests pinning the old six-row stack and the
+>   scrolling options canvas are retired by the ruling). Real-shell tests cover every required
+>   control on screen and Activity to the right at 920×600 / default / 1920×1009, and the browser
+>   and log growing while buttons don't. Also: hierarchy titles and ownership, only
+>   browser-views/log scrollbars, Resize Options in no scrollable container, the pure layout choice
+>   over a size grid, all three views functional, and the browser keyboard contract via real key
+>   events.
+> - `test_cover_appearance.py` extended: no Cover-owned ttk widget on a generic style, Activity
+>   panes in Dark, the TTS-style default button, live toggle preserving
+>   imports/selection/view/settings/log with no widget rebuilt, Clear Log, and transcript to
+>   Detailed only.
+> - `test_appearance.py`: `appearance` key recognised (mutation-checked: the old tree reproduces
+>   the defect).
+> - `test_job_ui.py`, `test_cover_importing.py`, `test_cover_jobs.py`: assertions moved to the log's
+>   new home.
+> - Focused sweep of 30 files (all Cover suites, appearance/preferences/job_ui/ui_theme,
+>   hardening/prototype regression, settings/config, `test_mp3_tool_ui.py`,
+>   `test_tts_compact_ui.py`, `test_launcher_smoke.py`, repository/first-run contracts, suite
+>   isolation): **1,289 passed, 3 skipped, 0 failed**.
+> - `git diff --check` clean on code. No full `verify.py` — no concrete reason surfaced.
+>
+> **Not done / out of scope:** no TTS (Phase 3), Converter, MP3 Tool, Maker or Metadata conversion;
+> no business-logic change; macOS 1024×800 and Windows 125% scaling not verified here (Phase 9 owns
+> them). Version identity remains `0.6.2`, unreleased. **Phase 3 not started.**
+>
+> **Manual gate:** see the report accompanying this checkpoint's commit.
+>
+> — Recorded by Claude Code, 2026-09-28, on the maintainer's explicit Phase 2 remediation override.
+
+> ## CURRENT STATE — v0.6.6 PHASE 2 REMEDIATED: COVER IMAGE RESIZER NOW FULLY COHERENT IN LIGHT/DARK (2026-09-27)
+>
+> **The maintainer's manual gate on the Phase 2 checkpoint below (`0ab862d`) FAILED.** Toggling to
+> Dark only recolored the two shared `job_ui` components that checkpoint had wired (the imported-file
+> list and the Activity log); every other widget on Cover Image Resizer — the browser's three views,
+> the resize-options form, the output/action row, the panel's own run log — stayed classic/native,
+> leaving large light/white regions inside an otherwise-Dark tool. A thumbnail canvas hardcoded to
+> `background="white"` and a selection-highlight tile painted with two hardcoded hex colors made it
+> worse. This block records the remediation. It supersedes nothing on facts below — the Phase 2 block
+> itself, and everything before it, stands as an accurate record of what that checkpoint actually did
+> and why it was judged insufficient; this block only adds the fix and the maintainer's now-binding
+> ruling on top.
+>
+> **The maintainer's ruling, in full, is recorded in `Decisions.md` (2026-09-27, "TTS is the
+> visual-control reference for every tool interior...") and appended to the Frozen UI Contract in
+> `md-instructions/0.6.6-ui-parity-hardening-release.md` (§5, "2026-09-27 clarification"). In short:**
+> TTS Audiobook is the visual-control reference for every tool interior, not only layout — every tool
+> converges on the same compact ttk-style buttons/entries/checks/radios/labels/sections TTS uses. Dark
+> mode must theme an app-owned tool interior coherently; no large light/white region may remain inside
+> a Dark tool. Cover's prior oversized/ACT-like impression must not become the standard — the compact
+> metrics were never actually larger than intended; a partially-styled "card" against native chrome is
+> what reads as boxy/ACT-like, and full-surface coverage removes that contrast without enlarging
+> anything. The outer launcher shell is unaffected; this governs each tool's own interior.
+>
+> **What the remediation changed, bounded to `mp3_tools/cover_resizer.py` — no other tool panel, and
+> no Phase 5 layout reorganization (nothing moved a grid/pack position):**
+> - Every widget the panel or its `CoverBrowser` builds now carries `style=job_ui.style_name(self.
+>   appearance_bundle, ...)`: the panel's own frame, the browser's `LabelFrame`/`Radiobutton`s/
+>   `Treeview`s, the resize-options `Spinbox`/`Checkbutton`s/`Radiobutton`s/`Entry`/`Label`s, the
+>   primary action button, and the panel's raw run log.
+> - The thumbnail canvas's hardcoded `background="white"` and the selection tile's hardcoded
+>   `fill="#cde3f7"`/`outline="#3b7dd8"` are gone, replaced by `job_ui.style_tk_widget(..., "field")`
+>   and the live `colors` dict.
+> - The destructive replacement-confirmation `Toplevel` now takes and follows the same bundle.
+> - `CoverBrowser.apply_appearance()` (new) and the panel's own `_on_appearance_changed` (extended)
+>   re-color every remaining classic Tk widget in place on a live toggle, mirroring Phase 1's pattern.
+> - `CoverResizerUI` gained an `appearance_bundle` constructor seam (production default: the real
+>   remembered setting) so the suite can inject an exact Light or Dark bundle deterministically —
+>   `shared/appearance.py` and `shared/job_ui.py` needed **no** changes; both were already correct and
+>   already more compact than `ACT.*`. The defect was coverage, not the primitives.
+>
+> **Verification:** two new AST-based regression tests in `files/tests/test_cover_browser.py` —
+> every `style=` keyword anywhere in the module must resolve through `style_name(...)`, never a
+> literal string (superseding that file's own prior "the browser sets no ttk style at all" assertion,
+> which this ruling deliberately overturns), and no classic-widget color keyword may carry a literal
+> hex or named-color string. A new `files/tests/test_cover_appearance.py` (6 tests) proves real
+> coherence against a panel built on an explicit Dark bundle: the panel's own background, every
+> resize-option control, the browser's three views including the thumbnail canvas, the run log, and
+> the selection-tile colors all resolve to the Dark palette; plus the live in-place toggle path with
+> state preserved. Full targeted re-run — `test_job_ui.py` + `test_appearance.py` +
+> `test_preferences_ui.py` + `test_ui_theme.py` + `test_mp3_tool_ui.py` + `test_mp3_tool_smoke.py` +
+> `test_mp3_hardening.py` + `test_cover_resizer_smoke.py` + `test_cover_importing.py` +
+> `test_cover_jobs.py` + `test_cover_layout.py` + `test_cover_browser.py` +
+> `test_cover_browser_scroll.py` + `test_cover_source_side.py` + `test_cover_appearance.py` +
+> `test_importing.py` + `test_import_manager.py` + `test_hardening_matrix.py` +
+> `test_prototype_regression.py` + `test_settings.py` — **991 passed, 6 skipped** (platform-guarded,
+> pre-existing), 0 failed. `git diff --check` clean on every touched file. No full `verify.py` run —
+> no concrete reason surfaced.
+>
+> **Nothing else is authorized here.** No other tool panel, no Phase 3+ work, no version bump, tag,
+> release or merge. Version identity remains `0.6.2`, unreleased.
+>
+> **Manual gate for the maintainer (repeat of Phase 2's gate on Cover Image Resizer only):** see the
+> report accompanying this checkpoint's commit — every section of the panel, in both Light and Dark,
+> including a live toggle while the panel is open, with no leftover native/light region anywhere.
+>
+> — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 2 remediation authorization.
+
+> ## CURRENT STATE — v0.6.6 PHASE 2 COMPLETE: SHARED ACTIVITY + IMPORTER/LIST INTERACTION CONTRACTS (2026-09-27)
+>
+> **This block records Phase 2 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,**
+> executed on `feature/0.6.6-ui-parity-hardening-release` from the Phase 1 checkpoint `c597031`,
+> **after the maintainer's Phase 1 manual-gate PASS recorded in the block below.** It supersedes
+> nothing on facts — Phase 1's record stands unchanged — it only adds the next phase's own record on
+> top, per the plan's "commit/push the phase, update Handoff.md, STOP" rule.
+>
+> **What Phase 2 built, all additive to the existing Plan 3 (`shared/job_ui.py`) foundation every one
+> of the six tools already builds through — nothing pre-existing was removed or renamed:**
+> - **`shared/job_ui.py`**: a new `style_tk_widget()` dispatches a classic Tk widget's coloring to
+>   `ui_theme.style_tk_widget` or `shared.appearance.style_tk_widget` by the bundle's own `mode` —
+>   closing a real gap where `ui_theme`'s version silently no-ops for anything but its own
+>   `"windows"` bundle, which would have left `ImportedFileList`'s `Listbox` and
+>   `SummaryDetailsView`'s two `Text` widgets unstyled under the new compact appearance system. Both
+>   classes gained `apply_appearance()` for the live-refresh path a listener drives (mirroring
+>   Phase 1's own pattern for a `Toplevel` background), and `ImportedFileList` gained a manager-
+>   synced `select_all()`. A new `bind_list_shortcuts()` binds the frozen §4 keyboard contract —
+>   Ctrl/Cmd+A, Delete/BackSpace, Alt+Up/Alt+Down — to one `Listbox`; `ImportedFileList` uses it on
+>   its own listbox, and it is exposed publicly so a dense tool's *bespoke* listbox can call it
+>   directly. Shift-click/Ctrl-click range and additive selection needed no work: Tk's
+>   `selectmode="extended"` already provides both. Because all six tools already build
+>   `ImportedFileList`/`SummaryDetailsView` (directly or through `ImportAdapter`/`JobAdapter`), the
+>   keyboard contract and the Light/Dark dispatch fix reach every one of them from this one module —
+>   no panel needed to change for that half of Phase 2.
+> - **`mp3_tools/cover_resizer.py`** (the Family-A / simple representative): now builds a live
+>   `appearance_bundle` and threads it into its existing `job_ui.ImportAdapter` and `job_ui.JobAdapter`
+>   calls, replacing the literal `theme=None` those two call sites carried with a comment naming this
+>   exact plan ("Converting it to the namespaced design system belongs to Plan 9") — Plan 9 is
+>   v0.6.6, so this discharges that placeholder rather than inventing new scope. Registers an
+>   appearance listener; `_on_appearance_changed` re-colors the imported-file `Listbox` and, while a
+>   run is on screen, its log's `Text` widgets in place. The panel's own remaining chrome (labels,
+>   buttons outside the shared components) is untouched — full Family-A adoption stays Phase 5's job.
+> - **`mp3_tools/mp3_tool.py`** (the Family-B / dense representative): `track_list` — a bespoke
+>   `Listbox` that predates `ImportedFileList` and is not one — now carries the same keyboard contract
+>   via a direct `job_ui.bind_list_shortcuts(self.track_list, ...)` call. Pure behavior, zero color or
+>   style change.
+>
+> **A reverted attempt, kept here because it is a real finding, not a blind alley:** the first pass
+> also threaded `mp3_tool.py`'s whole Activity block (`JobControlBar`/`JobStatusView`/
+> `SummaryDetailsView`, reached via `JobAdapter`'s `theme=`) onto the compact bundle, to prove
+> Light/Dark end-to-end on the dense representative too. This broke the pre-existing
+> `test_windows_styles_are_act_namespaced_and_aqua_stays_native` regression test, which asserts every
+> ttk widget in this still-unconverted panel carries an `ACT.*`-namespaced style on Windows. The
+> failure is correct, not a test that needs updating: MP3 Tool is still wholly `ACT.*`/native today
+> (Phase 6 converts it), and a half-repainted Activity block inside an otherwise-`ACT.*` panel is
+> exactly the inconsistent, "broad panel redesign" state Phase 2 is not authorized to create. That
+> change was fully reverted. **Light/Dark is proven only on Cover Image Resizer**, which carried no
+> such invariant — its `theme=None` comment already said its chrome stays native/classic until this
+> plan, so filling that gap with the compact bundle completes a placeholder rather than contradicting
+> a standing regression test. MP3 Tool's own Light/Dark adoption remains Phase 6's job.
+>
+> **A second finding, left for its owning phase rather than fixed here:** Cover Image Resizer and
+> M4B Converter both already build a `job_ui.JobAdapter`/`SummaryDetailsView` Activity region but,
+> unlike TTS/MP3 Tool/M4B Maker/M4B Metadata Editor, neither one builds a **Clear Log** button for it
+> — the frozen contract's §3 lists `Clear Log` as part of the one universal Activity design every
+> tool shares. Adding it is a real Phase 4/5 item, not Phase 2 scope (it is a one-line-per-panel
+> addition, not a shared-primitive gap), and is recorded here so it is not lost before those phases.
+>
+> **Explicitly not done, per the plan's Phase 2 boundary:** no Family A/B panel redesign; no Phase 3+
+> work; no adoption beyond the two representative tools plus the shared-module fixes that reach all
+> six automatically; the Clear Log gap above is flagged, not fixed.
+>
+> **Verification:** two new tests in `files/tests/test_job_ui.py` (select-all/remove/block-move
+> through real synthetic key events on a mapped, focused window — briefly un-withdrawing the shared
+> `tk_root` session the same way `test_cover_source_side.py`'s own Escape-key test already does on a
+> `Toplevel`, always re-withdrawn on teardown; a locked list ignoring every shortcut; the
+> `bind_list_shortcuts` primitive proven directly on a bespoke `Listbox`; the `style_tk_widget`
+> dispatch proven under both bundle shapes; `apply_appearance` proven to recolor in place without
+> losing widget state) and one in `files/tests/test_mp3_tool_ui.py` (the same three shortcuts proven
+> on the real `track_list`, end to end, including the actual track reorder/removal). Full targeted
+> re-run — `test_job_ui.py` + `test_appearance.py` + `test_preferences_ui.py` + `test_ui_theme.py` +
+> `test_mp3_tool_ui.py` + `test_mp3_tool_smoke.py` + `test_mp3_hardening.py` +
+> `test_cover_resizer_smoke.py` + `test_cover_importing.py` + `test_cover_jobs.py` +
+> `test_cover_layout.py` + `test_cover_browser.py` + `test_cover_source_side.py` + `test_importing.py`
+> + `test_import_manager.py` + `test_hardening_matrix.py` + `test_prototype_regression.py` +
+> `test_settings.py` — **964 passed, 6 skipped** (platform-guarded, pre-existing), 0 failed. A
+> broader cross-tool sweep (every M4B Converter/Maker/Metadata/TTS/book-workspace/hardening/
+> prototype-regression test, none of which this phase's files touch) — **1,560 passed, 24 skipped**,
+> one failure (`test_write_concat_list_escapes_an_apostrophe_the_way_ffmpeg_requires`) confirmed via
+> `git stash` to reproduce identically on the unmodified Phase 1 checkpoint — a pre-existing
+> POSIX-path-literal-on-Windows test artifact, unrelated to this phase, not touched. `git diff --check`
+> clean on every touched file; `test_job_ui.py` was rewritten CRLF→LF by an intermediate scripted edit
+> and restored to CRLF before this checkpoint. No full `verify.py` run — no concrete reason surfaced.
+>
+> **Nothing else is authorized here.** No individual tool layout beyond the two bounded representative
+> changes above, no Phase 3+ work, no version bump, tag, release or merge. Version identity remains
+> `0.6.2`, unreleased.
+>
+> **Manual gate for the maintainer (Phase 2's own gate, from the plan — representative simple + dense):**
+> see the report accompanying this checkpoint's commit for the exact steps on Cover Image Resizer
+> (Light/Dark on the imported-file list and Activity log) and MP3 Tool (Ctrl+A/Delete/Alt+Up+Down on
+> the track list, and confirmation the rest of the panel's appearance is untouched).
+>
+> — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 2 authorization.
+
+> ## CURRENT STATE — v0.6.6 PHASE 1 COMPLETE: SHARED APPEARANCE FOUNDATION + SHELL TOGGLE (2026-09-27)
+>
+> **This block records Phase 1 of `md-instructions/0.6.6-ui-parity-hardening-release.md`,
+> executed on `feature/0.6.6-ui-parity-hardening-release` from the Phase 0 checkpoint
+> `02dd2e12671cb606a02f160336699c03067a7702`.** It supersedes nothing below on facts — Phase 0's
+> merge/reassignment record and every historical block beneath it stand unchanged — it only adds
+> the next phase's own record on top, per the plan's "commit/push the phase, update Handoff.md,
+> STOP" rule.
+>
+> **What Phase 1 built, all new and additive — nothing pre-existing was removed or renamed:**
+> - **`shared/appearance.py`** (new module): one remembered `"light"`/`"dark"` setting, persisted
+>   through `shared.settings` under the key `"appearance"` (never `config.toml`), defaulting to
+>   `"light"` on a fresh install or an unrecognised stored value. `LIGHT_COLORS`/`DARK_COLORS` are
+>   two full semantic palettes (mirroring `ui_theme._WINDOWS_COLORS`'s vocabulary), each held to the
+>   exact same WCAG contrast bar `test_ui_theme.py` holds the `ACT.*` palette to. A full `Compact.*`
+>   ttk style catalogue (frames/labels/buttons/entries/combobox/spinbox/checkbutton/radiobutton/
+>   labelframe/notebook/progressbar/scrollbar/treeview/separator) clones the same `clam` elements
+>   `ui_theme.py` clones for `ACT.*`, under a disjoint `Compact.*` prefix — proven non-colliding with
+>   `ACT.*` and with every generic style name in both directions. On macOS no ttk style is registered
+>   at all (`ttk_active=False`); native aqua rendering is untouched, exactly like the existing
+>   `ACT.*`-degrades-to-`""` pattern. `style_tk_widget()` colors classic Tk widgets (Canvas/Listbox/
+>   Text) on any platform. A module-level listener registry plus `toggle_appearance(style)` give the
+>   state-preserving refresh path: `ttk.Style.configure` repaints every already-built `Compact.*`
+>   widget in place (no destroy, no lost state); a listener callback covers the one thing style
+>   mutation cannot reach — a `Toplevel`'s own raw background.
+> - **`launcher.py`**: builds `self.style`/`self.appearance_bundle` at startup (fully separate from
+>   `self.theme`, the unchanged `ui_theme` shell bundle) and adds one status-bar toggle button
+>   (`self.appearance_button`, "☾ Dark mode" / "☀ Light mode") beside Preferences & Data in **all
+>   three** shell branches (classic, Windows — using the shell's own existing `ghost_button` style,
+>   Darwin — an unstyled native aqua button). `_toggle_appearance` flips + persists + refreshes in
+>   place; `_on_appearance_changed` fans the new bundle out to the live Preferences dialog (and its
+>   nested cleanup dialog) if one is open. The outer shell itself — sidebar, header, status bar
+>   chrome — is untouched by any of this, per the frozen contract's "substantially unchanged" rule.
+> - **`preferences_ui.py`**: every dialog (`PreferencesDialog`, `CleanupDialog`,
+>   `CleanupConfirmationDialog`, `ConfigWarningDialog`, `CleanupResultDialog`) now receives the new
+>   compact appearance bundle instead of the `ui_theme` shell bundle from every launcher call site,
+>   making Preferences & Data (and its siblings) the Phase 1 "app-owned dialog" the frozen contract
+>   requires — this is the intended appearance-system consumer, not a workaround. The one background-
+>   setting gate in each class changed from `theme.get("mode") == "windows"` to `theme.get("ttk_active")`,
+>   which is platform-general rather than Windows-specific and is exactly what the new bundle's
+>   `ttk_active` flag exists for. Each class gained a small `apply_appearance(bundle)` method for the
+>   live-refresh path. No business logic in this file changed at all.
+>
+> **Explicitly not done, per the plan's Phase 1 boundary:** no individual tool-panel layout was
+> touched; no Family A/B conversion; no Activity/importer contract (Phase 2). The `Compact.*` catalogue
+> is deliberately more complete than Preferences & Data alone needs (notebook/treeview/progressbar/
+> scrollbar are unused this phase) so Phases 2–8 have a ready-made primitive set and never need to
+> revisit this module's foundations.
+>
+> **Verification:** `files/tests/test_appearance.py` (new, 26 tests) — settings round-trip/defaults/
+> invalid-value guards, palette structure + WCAG contrast, live `ttk.Style` registration isolation
+> from both generic styles and `ACT.*` (in both directions, on the same live `Style` object exactly as
+> the launcher does at startup), the state-preserving refresh path (same style names, changed colors,
+> a live widget's own Tk variable and style name provably untouched across a refresh), the
+> `style_tk_widget` primitive, and the listener registry (register/unregister/idempotent-register/a
+> raising listener not blocking the others/`toggle_appearance` end-to-end). Full existing suite
+> re-run clean: `test_appearance.py` + `test_preferences_ui.py` + `test_ui_theme.py` +
+> `test_settings.py` — **148 passed, 2 skipped** (platform-guarded, pre-existing), 0 failed.
+> `test_launcher_smoke.py` — 10 of 11 pass; the one exception
+> (`test_narrowed_nav_rail_still_fits_every_tool_name`) fails at a **session-scoped teardown check**
+> for a real-log-directory write, **reproduced identically on the unmodified Phase 0 checkpoint**
+> (confirmed via `git stash`) — a pre-existing `logging_setup`/test-isolation gap in that module,
+> unrelated to this phase, not touched here. `git diff --check` shows only this repo's known
+> CRLF-related whitespace noise (see Phase 0's record) on the Markdown files; the touched Python
+> files carry no real trailing whitespace. No full `verify.py` run — no concrete reason surfaced.
+>
+> **Nothing else is authorized here.** No individual tool layout, no Phase 2 work, no version bump,
+> tag, release or merge. Version identity remains `0.6.2`, unreleased.
+>
+> **Manual gate for the maintainer (Phase 1's own gate, from the plan):** see the report accompanying
+> this checkpoint's commit for the exact steps — shell chrome unchanged, the toggle's initial label,
+> Preferences & Data rendering in the compact Light palette, a live toggle refreshing the open dialog
+> to Dark with no state lost, persistence across a close/reopen and a relaunch, and the reverse.
+>
+> **Maintainer's manual gate result: PASS.** The maintainer performed the Phase 1 manual gate above
+> and confirmed it in full before authorizing Phase 2 (2026-09-27): "Phase 1 at c597031 is
+> maintainer-approved; its required Light/Dark shell + owned-dialog manual gate PASSED." Phase 1 is
+> therefore fully closed, mechanically and manually, with no open items.
+>
+> — Recorded by Claude Code, 2026-09-27, on the maintainer's explicit Phase 1 authorization.
+
+> ## CURRENT STATE — PULL REQUEST #12 MERGED; v0.6.5 COMPLETE AND INTEGRATED; PLAN 9 REASSIGNED TO v0.6.6 (2026-09-27)
+>
+> **This block supersedes every statement below that calls `feature/0.6.5-tts-quality-refactor`
+> unmerged, integration "pending," or Plan 9 "DISPLACED — FUTURE ALLOCATION UNASSIGNED."** Those
+> statements were accurate when written and are preserved as history; they are overtaken by the
+> maintainer's subsequent merge and reassignment decision, not corrected as wrong.
+>
+> **Pull request #12 is merged.** Fresh `git fetch origin` confirmed `origin/master` at
+> `f7fb762e63bc7d46d099ddc8cead2dc68fb188e0` — the merge commit for pull request #12, merging
+> `feature/0.6.5-tts-quality-refactor` (post-remediation tip `e94a212`) into `master`. v0.6.5 TTS
+> Quality Refinement is therefore **confirmed merged and integrated**; the independent
+> integration-readiness recheck this file's prior blocks called for has run to a merge decision.
+> Local `master` was fast-forwarded from the stale `e36ab7d` to `f7fb762` in this checkpoint.
+>
+> **Plan 9 is reassigned from DISPLACED to v0.6.6.** The maintainer has opened Plan 9 — remaining
+> Windows panel conversion, macOS parity, full regression, packaging and the final release
+> checkpoint — as **v0.6.6**, the final v0.6.x implementation plan:
+> `md-instructions/0.6.6-ui-parity-hardening-release.md`.
+> `feature/0.6.6-ui-parity-hardening-release` was created from that verified `origin/master`
+> (`f7fb762`) and pushed to `origin` with upstream tracking. Plan 9's full previously-approved
+> scope (Master Index §7) carries forward intact.
+>
+> **Old Plan-9 deferrals were audited against the current tree, not carried forward blindly:**
+> `shared/ui_theme.py` still defines `MIN_SIZE = (920, 600)` and `AQUA_MIN_SIZE = (1024, 800)`;
+> no Windows DPI-awareness call exists anywhere under `scripts/Universal/`; `ACT.*` styling is
+> still confined to `job_ui.py`, `mp3_tool.py`, `book_workspace_ui.py`, `m4b_metadata_editor.py`,
+> `m4b_maker.py`, `m4b_artwork_ui.py`, `launcher.py` and `preferences_ui.py` — **TTS Audiobook,
+> M4B Converter and Cover Image Resizer remain classic**, exactly as previously recorded. The
+> `.DS_Store`/`Thumbs.db` packaging leak and the M4B Metadata Editor's whole-form scroll are
+> confirmed already discharged (`07ebbe8`; v0.6.4 Phase 10) and are **not** reopened as v0.6.6
+> scope. No global Light/Dark appearance setting, universal Activity component, or universal
+> importer/list keyboard contract exists yet anywhere in `scripts/Universal/` — these are
+> genuinely new v0.6.6 scope (Phases 1–2), not a restatement of an older deferral.
+>
+> **The frozen UI contract from the new plan is recorded as the active direction:** compact
+> Tkinter/ttk-styled interiors project-wide; **TTS Audiobook frozen as the Family-A layout
+> reference** (Sources / Voice & Audio / Output & Run / Activity-right — no redesign); **M4B
+> Converter and Cover Image Resizer adopt that same Family-A 1/2/3-plus-right-Activity
+> structure**; **MP3 Tool, M4B Maker and M4B Metadata Editor keep their dense multi-Book geometry
+> (Family B)** but revert to compact ttk styling with Activity at the bottom; a **global
+> remembered Light/Dark appearance** setting (in `settings`, not `config.toml`; Light is the
+> first-run default); **universal Activity and importer/list contracts**; and **no core-panel
+> scrolling** at the supported Windows (920×600) / macOS (1024×800) minimums.
+>
+> **Nothing else is authorized here.** No production code, version bump, tag, package, release,
+> or merge beyond the already-completed PR #12 happened in this checkpoint. Version identity
+> remains `0.6.2`, unreleased. This is Phase 0 of the new plan, in progress; Phase 1 is not
+> started and is not authorized by this checkpoint.
+>
+> **Focused validation:** documentation/repository-contract review and `git diff --check` only
+> (clean); no full `verify.py` run — no production code was touched.
+>
+> — Decided by maintainer (Elijah Matthew), recorded by Claude Code, 2026-09-27.
+
 > ## CURRENT STATE — v0.6.5 HISTORICAL AI CO-AUTHOR TRAILER DISPOSITION RESOLVED (2026-09-26)
 >
 > **Explicit maintainer decision at `1c3844dc2b6904b42d9f22af53b7c6023c42ec71`: RESOLVED.**

@@ -25,7 +25,7 @@ import io
 import json
 import os
 import subprocess
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 
 import pytest
 from PIL import Image
@@ -230,8 +230,13 @@ def test_write_concat_list_escapes_an_apostrophe_the_way_ffmpeg_requires(tmp_pat
     Failed alike with ffmpeg reporting "Impossible to open" a path it had
     corrupted itself. write_concat_list's own quote-escape doubled an extra
     escaped quote (carried verbatim from the pre-refactor m4b_maker.py); this
-    pins the fix against the documented-correct ffmpeg concat escape."""
-    path = Path("/Users/x/Dark Lord's Dreadful Travelogue/001.mp3")
+    pins the fix against the documented-correct ffmpeg concat escape.
+
+    v0.6.6 Phase 10: a ``PurePosixPath`` so the pinned text is the same on every
+    platform. A ``Path`` renders this POSIX literal with backslashes on Windows,
+    which failed the exact-string pin there although the escape was right (the
+    real-ffmpeg build below passes on Windows too)."""
+    path = PurePosixPath("/Users/x/Dark Lord's Dreadful Travelogue/001.mp3")
     dest = tmp_path / "inputs.txt"
     proc.write_concat_list([path], dest)
     line = dest.read_text(encoding="utf-8")
