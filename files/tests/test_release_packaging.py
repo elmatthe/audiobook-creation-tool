@@ -39,6 +39,14 @@ LAUNCHERS = {
     "MacOS": "Setup_and_Run-audiobook-creation-tool.command",
 }
 ROOT_MEMBERS = {"README.md", "config.toml"}
+REFERENCE_MEMBERS = {
+    "files/Chatterbox-Voice-Uploads/Female-1.wav",
+    "files/Chatterbox-Voice-Uploads/Female-2.wav",
+    "files/Chatterbox-Voice-Uploads/Male-1.wav",
+    "files/Chatterbox-Voice-Uploads/Male-2.wav",
+    "files/Chatterbox-Voice-Uploads/Male-3.wav",
+    "files/Chatterbox-Voice-Uploads/Male-4.wav",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -92,6 +100,16 @@ def fake_repo(root: Path) -> Path:
     (root / "config-template.toml").write_text("# unrelated maintainer file\n", encoding="utf-8")
     for launcher in LAUNCHERS.values():
         (root / launcher).write_text("launcher\n", encoding="utf-8")
+
+    for name in REFERENCE_MEMBERS:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((REPO_ROOT / name).read_bytes())
+    # Even accidentally tracked extra audio/state must not broaden the allowlist.
+    for name in ["Female-1.mp3", "Male-4.mp3", "Extra.wav", "Another.WAV",
+                 "derivative.wav", "conditional.pt", "manifest.json"]:
+        (root / "files/Chatterbox-Voice-Uploads" / name).write_bytes(b"excluded")
+    (root / "files/arbitrary.txt").write_text("excluded", encoding="utf-8")
 
     # Everything below is developer or runtime state and must stay behind.
     (root / "scripts" / "Universal" / "__pycache__").mkdir()
@@ -215,7 +233,7 @@ def test_a_template_in_a_synthetic_root_is_excluded_by_scope(tmp_path, os_name):
 def test_local_archives_are_excluded_even_if_tracked(tmp_path, os_name):
     root = fake_repo(tmp_path / "repo")
     archive = build(root, tmp_path / "dist", os_name)
-    assert not any(name.startswith("files/") for name in names(archive))
+    assert {name for name in names(archive) if name.startswith("files/")} == REFERENCE_MEMBERS
     assert not any("Archives" in Path(name).parts for name in names(archive))
 
 
@@ -247,9 +265,49 @@ def test_the_packaged_root_files_are_a_closed_named_set():
 # --------------------------------------------------------------------------- #
 
 
+def test_reference_assets_are_a_closed_allowlist_matching_production():
+    from tts import chatterbox_synth as cbx
+
+    assert len(release.REFERENCE_ASSETS) == 6
+    assert set(release.REFERENCE_ASSETS) == REFERENCE_MEMBERS
+    assert {f"files/Chatterbox-Voice-Uploads/{v.source_name}"
+            for v in cbx.REFERENCE_VOICES.values()} == REFERENCE_MEMBERS
+
+
+@pytest.mark.parametrize("os_name", OS_NAMES)
+def test_bundled_wav_bytes_and_hashes_match_production(archives, os_name):
+    from tts import chatterbox_synth as cbx
+
+    with zipfile.ZipFile(archives[os_name]) as zf:
+        assert zf.testzip() is None
+        assert {m for m in zf.namelist() if m.startswith("files/")} == REFERENCE_MEMBERS
+        for voice in cbx.REFERENCE_VOICES.values():
+            member = f"files/Chatterbox-Voice-Uploads/{voice.source_name}"
+            data = zf.read(member)
+            assert data == (REPO_ROOT / member).read_bytes()
+            assert hashlib.sha256(data).hexdigest() == voice.source_sha256
+
+
+@pytest.mark.parametrize("action", ["delete", "untrack", "staged_edit"])
+def test_reference_assets_cannot_be_missing_untracked_or_dirty(tmp_path, action):
+    root = fake_repo(tmp_path / "repo")
+    name = sorted(REFERENCE_MEMBERS)[0]
+    if action == "delete":
+        (root / name).unlink()
+    elif action == "untrack":
+        git(root, "rm", "--cached", "--", name)
+        git(root, "commit", "-qm", "untrack fixture reference")
+    else:
+        (root / name).write_bytes(b"dirty reference")
+        git(root, "add", "--", name)
+    dist = tmp_path / "dist"
+    assert run_main(root, dist) != 0
+    assert not dist.exists() or not any(dist.iterdir())
+
+
 @pytest.mark.parametrize("os_name", OS_NAMES)
 def test_the_archive_root_holds_only_the_approved_entries(archives, os_name):
-    assert top_level(archives[os_name]) == ROOT_MEMBERS | {LAUNCHERS[os_name], "scripts"}
+    assert top_level(archives[os_name]) == ROOT_MEMBERS | {LAUNCHERS[os_name], "scripts", "files"}
 
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
@@ -313,7 +371,7 @@ def test_the_version_in_the_archive_name_comes_from_version_py(archives, os_name
 
 
 LEAKY_PREFIXES = (
-    ".venv/", ".git/", ".github/", ".claude/", ".codex/", "files/", "md-instructions/",
+    ".venv/", ".git/", ".github/", ".claude/", ".codex/", "md-instructions/",
     "dist/", "test-logs/", "scripts/__pycache__/",
 )
 LEAKY_FRAGMENTS = (
@@ -325,6 +383,7 @@ LEAKY_FRAGMENTS = (
 
 @pytest.mark.parametrize("os_name", OS_NAMES)
 def test_no_developer_or_runtime_state_leaks(archives, os_name):
+    assert {m for m in names(archives[os_name]) if m.startswith("files/")} == REFERENCE_MEMBERS
     for member in names(archives[os_name]):
         assert not member.startswith(LEAKY_PREFIXES), member
         for fragment in LEAKY_FRAGMENTS:
@@ -336,6 +395,7 @@ def test_a_repository_full_of_state_still_ships_nothing_extra(tmp_path, os_name)
     """The synthetic root plants every forbidden artifact; none may appear."""
     root = fake_repo(tmp_path / "repo")
     members = names(build(root, tmp_path / "dist", os_name))
+    assert {m for m in members if m.startswith("files/")} == REFERENCE_MEMBERS
     for member in members:
         assert not member.startswith(LEAKY_PREFIXES), member
         for fragment in LEAKY_FRAGMENTS:
@@ -393,7 +453,7 @@ def run_main(root: Path, dist: Path) -> int:
     "scripts/Universal/launcher.py", "README.md", "config.toml",
     "Setup_and_Run-audiobook-creation-tool.bat",
     "Setup_and_Run-audiobook-creation-tool.command",
-])
+] + sorted(REFERENCE_MEMBERS))
 def test_the_release_build_refuses_uncommitted_changes(tmp_path, edited):
     """A release archive is the committed state, never a dirty working tree."""
     root = fake_repo(tmp_path / "repo")
@@ -532,7 +592,7 @@ def test_maintenance_state_can_never_be_packaged(archives, os_name):
 
     assert cleanup_state.STATE_DIR_PARTS[0] == "files"
     members = names(archives[os_name])
-    assert not any(member.startswith("files/") for member in members)
+    assert {member for member in members if member.startswith("files/")} == REFERENCE_MEMBERS
     for filename in cleanup_state.STATE_FILENAMES:
         assert not any(member.endswith(filename) for member in members), filename
 

@@ -556,25 +556,27 @@ def test_the_proof_window_is_still_one_named_constant():
 # --------------------------------------------------------------------------- #
 # F. The launchers, run for real in a sandbox
 # --------------------------------------------------------------------------- #
-def _sandbox(tmp_path: Path, *, exit_code: int | None, runnable: bool = True) -> Path:
+def _sandbox(tmp_path: Path, *, exit_code: int | None, runnable: bool = True,
+             venv_present: bool = True) -> Path:
     """A copy of the real launcher beside a stub bootstrap that answers as told.
 
     ``exit_code`` is what the stub returns for ``--venv-check``; ``runnable``
     decides whether the venv interpreter is a real one or a file that merely
-    exists.
+    exists. A first-run fixture never creates an environment just to delete it.
     """
     root = tmp_path / "tree"
     (root / "scripts" / "Universal" / "shared").mkdir(parents=True)
-    (root / ".venv" / "Scripts").mkdir(parents=True)
+    if venv_present:
+        (root / ".venv" / "Scripts").mkdir(parents=True)
 
-    if runnable:
+    if venv_present and runnable:
         subprocess.run([sys.executable, "-m", "venv", "--without-pip",
                         str(root / ".venv")], capture_output=True, check=True)
-    else:
+    elif venv_present:
         (root / ".venv" / "Scripts" / "python.exe").write_bytes(b"not an executable")
     # pythonw.exe only has to exist for the fast path's launch step.
     pythonw = root / ".venv" / "Scripts" / "pythonw.exe"
-    if not pythonw.exists():
+    if venv_present and not pythonw.exists():
         pythonw.write_bytes(b"")
 
     stub = root / "scripts" / "Universal" / "shared" / "bootstrap.py"
@@ -633,9 +635,8 @@ def test_an_interpreter_that_cannot_run_at_all_is_repaired(tmp_path):
 
 @WINDOWS_ONLY
 def test_a_missing_environment_still_runs_first_time_setup(tmp_path):
-    root = _sandbox(tmp_path, exit_code=0)
-    import shutil
-    shutil.rmtree(root / ".venv")
+    root = _sandbox(tmp_path, exit_code=0, venv_present=False)
+    assert not (root / ".venv").exists()
 
     r = subprocess.run(["cmd", "/c", str(root / BAT.name)], cwd=root,
                        capture_output=True, text=True, timeout=180)

@@ -4,7 +4,7 @@ Phase 8 builds the machinery only. Nothing here loads real weights, reads a real
 maintainer recording, or reaches the network: the model is stubbed at the seams
 the module exposes, and every audio fixture is generated into ``tmp_path``.
 
-The safety rules under test come from the drop's §4.3: the four raw MP3s are
+The original safety rules now cover the six bundled WAVs: references are
 read-only inputs verified by SHA-256 before use, and every derivative or cached
 conditional lands under the ignored ``files/runtime-data/`` tree.
 """
@@ -241,18 +241,18 @@ def test_the_six_reference_voices_are_declared_and_closed():
 
 
 @pytest.mark.parametrize("voice_id,name,sha", [
-    ("chatterbox-female-1", "Female-1.mp3",
-     "a047d77fe191c1a957d36b1e9f9af8e67756a63672686c55731b30534bb8bde2"),
-    ("chatterbox-female-2", "Female-2.mp3",
-     "4bad0d3845199eae723aceb7a864b419fe553cd9d23799ee6390f54df08d3140"),
-    ("chatterbox-male-1", "Male-1.mp3",
-     "6258dde294a91b0c2e965e8579aafde10e9cff48957c2138432be4c6c80165ae"),
-    ("chatterbox-male-2", "Male-2.mp3",
-     "7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2"),
-    ("chatterbox-male-3", "Male-3.mp3",
-     "0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4"),
-    ("chatterbox-male-4", "Male-4.mp3",
-     "1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5"),
+    ("chatterbox-female-1", "Female-1.wav",
+     "b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4"),
+    ("chatterbox-female-2", "Female-2.wav",
+     "428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205"),
+    ("chatterbox-male-1", "Male-1.wav",
+     "45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58"),
+    ("chatterbox-male-2", "Male-2.wav",
+     "592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355"),
+    ("chatterbox-male-3", "Male-3.wav",
+     "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
+    ("chatterbox-male-4", "Male-4.wav",
+     "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
 ])
 def test_each_voice_maps_to_its_exact_source_and_hash(voice_id, name, sha):
     voice = cbx.REFERENCE_VOICES[voice_id]
@@ -265,20 +265,20 @@ def test_a_missing_reference_reports_setup_required_and_does_not_raise(monkeypat
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: tmp_path / "empty")
     ok, reason = cbx.reference_status("chatterbox-male-1")
     assert ok is False
-    assert "Male-1.mp3" in reason
+    assert "Male-1.wav" in reason
 
 
 def test_a_missing_reference_never_substitutes_another_voice(monkeypatch, tmp_path):
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: tmp_path / "empty")
     with pytest.raises(cbx.ChatterboxUnavailable) as exc:
         cbx.resolve_reference("chatterbox-male-1")
-    assert "Male-1.mp3" in str(exc.value)
+    assert "Male-1.wav" in str(exc.value)
 
 
 def test_a_wrong_hash_is_rejected_and_the_expected_hash_is_named(monkeypatch, tmp_path):
     uploads = tmp_path / "uploads"
     uploads.mkdir()
-    (uploads / "Male-1.mp3").write_bytes(b"not the maintainer's recording")
+    (uploads / "Male-1.wav").write_bytes(b"not the maintainer's recording")
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
     with pytest.raises(cbx.ChatterboxUnavailable) as exc:
         cbx.resolve_reference("chatterbox-male-1")
@@ -291,13 +291,13 @@ def test_a_correct_hash_is_accepted(monkeypatch, tmp_path):
     uploads = tmp_path / "uploads"
     uploads.mkdir()
     payload = b"pretend recording"
-    target = uploads / "Male-1.mp3"
+    target = uploads / "Male-1.wav"
     target.write_bytes(payload)
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
     # ReferenceVoice is frozen — swap the whole entry instead of mutating it
     voice = cbx.ReferenceVoice(
         voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
-        source_name="Male-1.mp3", source_sha256=hashlib.sha256(payload).hexdigest(),
+        source_name="Male-1.wav", source_sha256=hashlib.sha256(payload).hexdigest(),
     )
     monkeypatch.setitem(cbx.REFERENCE_VOICES, "chatterbox-male-1", voice)
     assert cbx.resolve_reference("chatterbox-male-1") == target
@@ -347,7 +347,7 @@ def test_the_conditionals_root_is_inside_the_ignored_runtime_tree():
 
 
 def test_a_destination_inside_the_protected_uploads_folder_is_refused():
-    target = cbx.protected_uploads_dir() / "Male-1.mp3"
+    target = cbx.protected_uploads_dir() / "Male-1.wav"
     with pytest.raises(cbx.ChatterboxUnavailable):
         cbx._assert_writable_destination(target)
 
@@ -384,6 +384,8 @@ def test_a_changed_source_hash_yields_a_different_derivative(stub_engine):
     a = cbx.derivative_path("chatterbox-female-1", "a" * 64)
     b = cbx.derivative_path("chatterbox-female-1", "b" * 64)
     assert a != b
+    assert cbx.conditionals_path("chatterbox-female-1", "a" * 64) != (
+        cbx.conditionals_path("chatterbox-female-1", "b" * 64))
 
 
 def test_the_conditional_identity_binds_source_model_and_derivative_spec(stub_engine):
@@ -483,10 +485,10 @@ def test_preparing_a_reference_writes_a_manifest_tracing_it_to_its_source(
         monkeypatch, stub_engine, tmp_path):
     uploads = tmp_path / "uploads"
     uploads.mkdir()
-    source = _write_source_audio(uploads / "Male-1.mp3", seconds=25)
+    source = _write_source_audio(uploads / "Male-1.wav", seconds=25)
     voice = cbx.ReferenceVoice(
         voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
-        source_name="Male-1.mp3", source_sha256=_sha(source),
+        source_name="Male-1.wav", source_sha256=_sha(source),
     )
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
     monkeypatch.setitem(cbx.REFERENCE_VOICES, "chatterbox-male-1", voice)
@@ -495,7 +497,7 @@ def test_preparing_a_reference_writes_a_manifest_tracing_it_to_its_source(
     manifest = json.loads((clip.parent / "manifest.json").read_text(encoding="utf-8"))
     entry = manifest["chatterbox-male-1"]
     assert entry["source_sha256"] == _sha(source)
-    assert entry["source_path"].endswith("Male-1.mp3")
+    assert entry["source_path"].endswith("Male-1.wav")
     assert Path(entry["derivative_path"]).name == clip.name
     assert entry["parameters"] == cbx.derivative_spec()
 
@@ -505,10 +507,10 @@ def test_a_prepared_derivative_is_reused_rather_than_rebuilt(
         monkeypatch, stub_engine, tmp_path):
     uploads = tmp_path / "uploads"
     uploads.mkdir()
-    source = _write_source_audio(uploads / "Male-1.mp3", seconds=25)
+    source = _write_source_audio(uploads / "Male-1.wav", seconds=25)
     voice = cbx.ReferenceVoice(
         voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
-        source_name="Male-1.mp3", source_sha256=_sha(source),
+        source_name="Male-1.wav", source_sha256=_sha(source),
     )
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
     monkeypatch.setitem(cbx.REFERENCE_VOICES, "chatterbox-male-1", voice)
@@ -526,10 +528,10 @@ def test_a_prepared_derivative_is_reused_rather_than_rebuilt(
 def _prepared_voice(monkeypatch, tmp_path):
     uploads = tmp_path / "uploads"
     uploads.mkdir()
-    source = _write_source_audio(uploads / "Male-1.mp3", seconds=25)
+    source = _write_source_audio(uploads / "Male-1.wav", seconds=25)
     voice = cbx.ReferenceVoice(
         voice_id="chatterbox-male-1", label="Chatterbox — Male 1",
-        source_name="Male-1.mp3", source_sha256=_sha(source),
+        source_name="Male-1.wav", source_sha256=_sha(source),
     )
     monkeypatch.setattr(cbx, "protected_uploads_dir", lambda: uploads)
     monkeypatch.setitem(cbx.REFERENCE_VOICES, "chatterbox-male-1", voice)

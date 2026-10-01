@@ -19,7 +19,44 @@ No changes recorded yet.
 
 ## [0.6.6] - 2026-09-30
 
-### Published
+### Changed - Later post-release bundled-reference cleanup
+
+This is the explicitly maintainer-authorized later master cleanup, starting from live
+`d2be236832eb5d5e5ce0cde5ed82b08edfa740de`. The six curated MP3s currently present are the
+approved sources, superseding older reference hashes for this task. They remain byte-identical,
+read-only, ignored and untracked. Exactly six same-stem WAVs (Female-1, Female-2, Male-1,
+Male-2, Male-3, Male-4) are now canonical production references. Each is exactly the leading
+15 seconds, PCM s16le, mono, 24 kHz. Only trim/channel/rate/sample-format conversion was used;
+no normalization, denoising, pitch/speed changes or silence padding. No LFS/dependency was added.
+
+Voice IDs/labels, leading-window conditioning, read-only handling and source-hash derivative/
+conditional identity remain intact. Runtime derivatives/caches stay in ignored runtime-data.
+`release.py` uses a closed six-path WAV allowlist, requires tracked/present assets, refuses
+uncommitted packaged-asset changes, and never walks `files/`. Tests prove exact names/hashes,
+PCM metadata, tracked/package scope, byte identity and exclusion of MP3s/extras/runtime state.
+README states that six references are bundled and no manual recording placement is needed.
+
+Required full-gate remediation also reconciles the screenshot guard with the already-changed
+kickoff master (exact 14-image set and committed bytes) and makes the first-run test fixture
+start without a venv instead of creating/deleting one. No screenshot, bootstrap or launcher
+changes were made. Single full run: 7,914 passed / 58 skips / 4 initial failures; all four are
+closed by the final 380-test focused pass. The full verifier was not repeated or reported PASS.
+
+**Publication distinction:** historical tag `v0.6.6` remains at
+`7222083a732bbb0f1ef91e104725fc9a5cd2d141`. Original publication/archive facts below remain
+history. Application/config identity stays **0.6.6**. The authorized local v0.6.6 ZIP rebuild
+uses the later committed/pushed cleanup master containing this record, not the historical tag.
+GitHub Release metadata/assets are not changed; the maintainer will manually replace the two
+ZIPs after reviewing the local proof. No tag movement, force-push or history rewrite.
+
+After focused checks and one full verifier, commit/push this cleanup on master, create/push
+`feature/0.6.7-bundled-chatterbox-references` at exactly that SHA with no unique commit, leave
+that branch checked out, rebuild/prove both local `dist/` v0.6.6 ZIPs through real `release.py`,
+then STOP. This reserves a future branch; it does not start v0.6.7 feature work or publication.
+The approved v0.6.7 manual backlog and waivers remain deferred, never newly passed.
+
+
+### Original publication (historical)
 
 **v0.6.6 is the current published release (2026-09-30).**
 PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as

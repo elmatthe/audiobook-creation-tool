@@ -441,7 +441,7 @@ def unavailable(voice_id: str, reason: str) -> ChatterboxStub:
 def test_an_unavailable_voice_is_shown_as_setup_required(make_panel):
     stub = unavailable("chatterbox-female-1",
                        "Setup required for Chatterbox - Female 1: the reference "
-                       "recording 'Female-1.mp3' is not present.")
+                       "recording 'Female-1.wav' is not present.")
     panel = make_panel(chatterbox_status=stub.status)
     select(panel)
 
@@ -515,7 +515,7 @@ def test_a_refused_run_substitutes_no_other_voice_and_downloads_nothing(
 def test_one_missing_recording_leaves_the_other_three_usable(
     make_panel, output_base, tmp_path, stubs, monkeypatch
 ):
-    stub = unavailable("chatterbox-female-1", "Female-1.mp3 is not present")
+    stub = unavailable("chatterbox-female-1", "Female-1.wav is not present")
     stub.install(monkeypatch)
     panel, _chosen = direct_panel(make_panel, tmp_path, "one.txt",
                                   chatterbox_status=stub.status)
@@ -667,7 +667,7 @@ def test_a_present_and_matching_recording_reports_available(engine, monkeypatch)
 def test_an_absent_recording_reports_unavailable_with_a_readable_reason(engine):
     ok, reason = engine.voice_availability("chatterbox-female-2")
     assert ok is False
-    assert "Female-2.mp3" in reason
+    assert "Female-2.wav" in reason
     assert "Edge and Kokoro" in reason, "the message reassures about the rest"
 
 

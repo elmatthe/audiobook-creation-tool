@@ -16,6 +16,36 @@
 > drop. Optional `files/Archives/` copies are local-only, ignored, and never required, packaged or
 > published. Their existing contents must not be deleted, overwritten or recreated by an agent.
 
+## Post-release v0.6.6 bundled-reference contract (2026-09-30)
+
+This is the explicitly maintainer-authorized later master cleanup, starting from live
+`d2be236832eb5d5e5ce0cde5ed82b08edfa740de`. The six curated MP3s currently present are the
+approved sources, superseding older reference hashes for this task. They remain byte-identical,
+read-only, ignored and untracked. Exactly six same-stem WAVs (Female-1, Female-2, Male-1,
+Male-2, Male-3, Male-4) are now canonical production references. Each is exactly the leading
+15 seconds, PCM s16le, mono, 24 kHz. Only trim/channel/rate/sample-format conversion was used;
+no normalization, denoising, pitch/speed changes or silence padding. No LFS/dependency was added.
+
+Voice IDs/labels, leading-window conditioning, read-only handling and source-hash derivative/
+conditional identity remain intact. Runtime derivatives/caches stay in ignored runtime-data.
+`release.py` uses a closed six-path WAV allowlist, requires tracked/present assets, refuses
+uncommitted packaged-asset changes, and never walks `files/`. Tests prove exact names/hashes,
+PCM metadata, tracked/package scope, byte identity and exclusion of MP3s/extras/runtime state.
+README states that six references are bundled and no manual recording placement is needed.
+
+**Publication distinction:** historical tag `v0.6.6` remains at
+`7222083a732bbb0f1ef91e104725fc9a5cd2d141`. Original publication/archive facts below remain
+history. Application/config identity stays **0.6.6**. The authorized local v0.6.6 ZIP rebuild
+uses the later committed/pushed cleanup master containing this record, not the historical tag.
+GitHub Release metadata/assets are not changed; the maintainer will manually replace the two
+ZIPs after reviewing the local proof. No tag movement, force-push or history rewrite.
+
+After focused checks and one full verifier, commit/push this cleanup on master, create/push
+`feature/0.6.7-bundled-chatterbox-references` at exactly that SHA with no unique commit, leave
+that branch checked out, rebuild/prove both local `dist/` v0.6.6 ZIPs through real `release.py`,
+then STOP. This reserves a future branch; it does not start v0.6.7 feature work or publication.
+The approved v0.6.7 manual backlog and waivers remain deferred, never newly passed.
+
 ## What This Project Does
 
 The Audiobook Creation Tool is a cross-platform (Windows + macOS) desktop app that turns books
@@ -437,8 +467,8 @@ flashing during use.
   then retired. `.venv` removal is expected to be followed by an ordinary launcher rebuild.
 - **Release packaging (v0.6.0 Drop 2 Phase 8).** Both platform archives carry the committed root
   `config.toml` byte-for-byte beside `README.md`, the correct platform launcher (stored `0o755`
-  so a macOS extraction is immediately runnable) and the complete `scripts/` tree — and nothing
-  else. Packaging works by **explicit scope**: the root files are a named list and exactly one
+  so a macOS extraction is immediately runnable) and the committed `scripts/` tree. The later post-release cleanup also bundles
+  exactly six allowlisted Chatterbox WAVs; all other `files/` content stays excluded. Packaging works by **explicit scope**: the root files are a named list and exactly one
   tree is walked, so nothing is ever copied wholesale and then pruned. That is why the
   maintainer's unrelated untracked root `config-template.toml` needs no exclusion rule and has
   none; the packager never names it, the runtime never loads it, and automated tests prove both
@@ -557,7 +587,7 @@ identical worker signature. It drives `chatterbox.tts_turbo.ChatterboxTurboTTS` 
 
 - **Device selection resolves `cuda → mps → cpu` behind one testable seam.** The engine was
   adopted CPU-first on measured evidence and is **optional and non-default**.
-- **Four fixed voices** cloned from four maintainer-supplied reference recordings. Reference audio
+- **Six fixed voices** conditioned on the six bundled leading-15-second WAV references. Reference audio
   is verified by SHA-256 **on every use**; short derivatives and cached voice-identity
   conditionals live under the ignored `files/runtime-data/chatterbox/`, keyed on voice + source
   hash + engine release + clip spec so a stale entry misses rather than gets reused. A manifest
@@ -573,10 +603,10 @@ identical worker signature. It drives `chatterbox.tts_turbo.ChatterboxTurboTTS` 
   requirement, and no broken selection is offered.
 - The upstream PerTh watermark path is untouched.
 
-**Local assets are a portability boundary, not an asset.** The four reference recordings and every
-derivative and cached conditional are ignored, untracked and never packaged. Making Chatterbox
-work on a different machine requires the maintainer to place their own recordings and is a
-separately authorized action — nothing in this repository carries them.
+**Bundled references (post-release v0.6.6 cleanup):** six WAVs ship with the app and
+require no manual recording placement. Curated MP3 originals remain local-only and ignored;
+derivatives/conditionals remain ignored under runtime-data. Missing or altered bundled WAVs
+still report truthful setup-required status without voice substitution.
 
 ### The M4B Converter (v0.6.2 Plan 5)
 
@@ -911,20 +941,23 @@ Audiobook-Creation-Tool/
     ├── test-logs/              ← QA logs + harness outputs (gitignored)
     ├── Archives/               ← maintainer-local planning/code archives (gitignored,
     │                             optional, unpackaged, excluded from test collection)
-    ├── Chatterbox-Voice-Uploads/ ← the four local reference recordings (entirely untracked and
-    │                             gitignored; never committed, never packaged)
-    ├── UI-Current-Screenshots/ ← the v0.5.1 before-state UI reference (8 images, tracked)
-    ├── UI-Prototype-Screenshots/v0.6.0-drop1/
-    │                           ← the APPROVED v0.6.0 Drop 1 evidence: 10 images, 1920x1080
-    │                             maximized, true 100% and true 125% Windows scaling (tracked)
+    ├── Chatterbox-Voice-Uploads/ ← six tracked/bundled WAVs plus six ignored local MP3s
+    │                             (derivatives/caches remain in runtime-data)
+    ├── UI-Tool-Screenshots/     ← current upstream Light/Dark references (14 images,
+    │                             tracked at kickoff d2be236; retired screenshots remain history)
     └── release-history/        ← one-shot docs from past releases (v0.3.1 set)
 ```
 
 Release zips (built by `shared/release.py` into `dist/`) contain README + `config.toml` + the OS's
-launcher + the committed (git-tracked) `scripts/` tree; both OS zips share the same code and differ
-only in launcher. (`config.toml` added to this line and the committed-only rule, 2026-09-29.)
+launcher + the committed (git-tracked) `scripts/` tree + exactly the six named Chatterbox WAVs.
+Both OS zips share code/references and differ only in launcher. No other `files/` content ships.
+Packaged-asset changes must be committed before building.
 
 ## Current Version
+
+The later bundled-reference cleanup above retains identity 0.6.6. The following original
+publication/tag/asset facts describe the historical GitHub release, not the local cleanup-master
+rebuild awaiting manual asset replacement.
 
 **v0.6.6 is the current published release (2026-09-30).**
 PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as
@@ -1072,7 +1105,8 @@ release — is unchanged and undrafted.
 tag `v0.6.6` at the release merge SHA recorded above. README is the compact user guide with
 direct Windows/macOS release-asset links. The four canonical docs carry the final release
 facts and retained v0.6.7 backlog. Remaining manual checks keep their approved deferral status.
-The documentation closeout ends here; future implementation needs a separate instruction.
+The later maintainer-authorized bundled-reference cleanup is recorded above. Its future
+v0.6.7 branch has no unique commit; additional feature work still needs a separate instruction.
 
 ### Historical implementation and integration records
 

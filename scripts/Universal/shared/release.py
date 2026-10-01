@@ -13,8 +13,10 @@ Since v0.5.0 there is a single cross-platform code tree (``scripts/Universal``),
 so both archives contain the same ``scripts/`` folder; they differ only in which
 double-click launcher sits at the archive root (``.bat`` vs ``.command``), plus
 ``README.md`` and the committed ``config.toml``. All machine-specific /
-regenerable artifacts (venv, caches, ``files/`` dev assets and runtime data —
-recreated on first run) are excluded. The version string comes from the single
+regenerable artifacts (venv, caches, dev assets and runtime data — recreated on
+first run) are excluded. Exactly six named Chatterbox WAV references ship from
+``files/Chatterbox-Voice-Uploads/``; no other ``files/`` content ships.
+The version string comes from the single
 source of truth in ``version.py``.
 
 Packaging works by **explicit scope**: the root files are a named list and
@@ -67,6 +69,17 @@ ENTRY_FILES = {
 # defaults from the archive root.
 ROOT_FILES = ("README.md", "config.toml")
 
+# CLOSED ALLOWLIST: never walk files/ or the reference directory. MP3 originals,
+# extra recordings, derivatives and caches are not distributable assets.
+REFERENCE_ASSETS = (
+    "files/Chatterbox-Voice-Uploads/Female-1.wav",
+    "files/Chatterbox-Voice-Uploads/Female-2.wav",
+    "files/Chatterbox-Voice-Uploads/Male-1.wav",
+    "files/Chatterbox-Voice-Uploads/Male-2.wav",
+    "files/Chatterbox-Voice-Uploads/Male-3.wav",
+    "files/Chatterbox-Voice-Uploads/Male-4.wav",
+)
+
 # Directory names that are excluded wherever they appear in the tree.
 EXCLUDED_DIR_NAMES = {".venv", "__pycache__", ".pytest_cache"}
 # File suffixes that are always excluded.
@@ -112,7 +125,7 @@ def _uncommitted_changes() -> list[str]:
 
     Untracked files are not listed: they are never packaged in the first place.
     """
-    scope = ["scripts", *ROOT_FILES, *ENTRY_FILES.values()]
+    scope = ["scripts", *ROOT_FILES, *ENTRY_FILES.values(), *REFERENCE_ASSETS]
     status = _git("status", "--porcelain=v1", "-z", "--untracked-files=no", "--", *scope)
     return [entry[3:] for entry in status.split("\0") if len(entry) > 3]
 
@@ -162,6 +175,10 @@ def _package_os(os_name: str) -> Path:
         if not required.is_file():
             raise FileNotFoundError(f"Required root file missing: {required}")
     tracked = _tracked_scripts()
+    tracked_assets = set(_git("ls-files", "-z", "--", *REFERENCE_ASSETS).split("\0"))
+    for name in REFERENCE_ASSETS:
+        if name not in tracked_assets or not (REPO_ROOT / name).is_file():
+            raise ReleaseError(f"Required tracked Chatterbox reference missing: {name}")
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = DIST_DIR / f"AudiobookTool-{os_name}-v{VERSION}.zip"
@@ -178,6 +195,10 @@ def _package_os(os_name: str) -> Path:
             zf.write(source, arcname=name)
         # Force the launcher executable so a user never has to `chmod +x`.
         _write_executable(zf, entry_file, entry_name)
+
+        for name in REFERENCE_ASSETS:
+            zf.write(REPO_ROOT / name, arcname=name)
+            file_count += 1
 
         # The whole scripts/ tree (Universal code + requirements.txt), archived
         # under "scripts/..." beside the launcher — matching the launcher's
@@ -209,8 +230,8 @@ def _print_checklist() -> None:
     print("=" * 64)
     steps = [
         "Required automated gates PASS; manual deferrals recorded (see Handoff).",
-        f"Changelog.md records the unpublished v{VERSION} release candidate.",
-        f"Version bumped in scripts/Universal/shared/version.py = {VERSION}.",
+        f"Changelog.md records v{VERSION} publication/rebuild state truthfully.",
+        f"Application identity in scripts/Universal/shared/version.py = {VERSION}.",
         "Everything committed (this script refuses uncommitted packaged paths).",
         "Build both zips (this script) -> dist/.",
         "STOP for maintainer integration/release/publication authorization.",
@@ -227,6 +248,7 @@ def main() -> int:
     print(f"Output:    {DIST_DIR}")
     print()
     try:
+        print(f"Source commit: {_git('rev-parse', 'HEAD').strip()}")
         dirty = _uncommitted_changes()
         if dirty:
             print("Refusing to package: these packaged paths have uncommitted changes.")

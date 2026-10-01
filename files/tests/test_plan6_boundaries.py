@@ -2098,7 +2098,7 @@ def release_tree() -> ast.Module:
 
 
 def test_the_packager_walks_exactly_one_tree_and_it_is_not_files():
-    """``scripts/`` is walked; ``files/`` is never named as a source at all."""
+    """``scripts/`` is walked; bundled references use a closed named allowlist."""
     tree = release_tree()
     walked = {ast.unparse(node.func.value) for node in ast.walk(tree)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)

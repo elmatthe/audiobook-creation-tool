@@ -380,7 +380,7 @@ def test_a_source_hash_mismatch_never_substitutes_another_source(engine):
     engine.fail_hash_for = "chatterbox-male-2"
     results = _run()
     sources = {Path(r.source_path).name for r in results if r.source_path}
-    assert "Male-2.mp3" not in sources or all(not r.ok for r in results)
+    assert "Male-2.wav" not in sources or all(not r.ok for r in results)
     assert engine.generated == []
 
 
@@ -623,7 +623,8 @@ def test_the_evaluation_leaves_the_protected_sources_byte_identical(engine, tmp_
 def test_the_evaluation_adds_no_file_to_the_protected_folder(engine, tmp_path):
     uploads = _made(tmp_path / "uploads")
     _run()
-    assert all(p.suffix == ".mp3" for p in uploads.iterdir())
+    assert {p.name for p in uploads.iterdir()} == {
+        cbx.REFERENCE_VOICES[voice_id].source_name for voice_id in APPROVED_VOICE_IDS}
 
 
 def test_the_generator_names_no_write_target_inside_the_protected_folder():

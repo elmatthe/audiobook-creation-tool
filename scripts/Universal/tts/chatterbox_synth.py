@@ -21,10 +21,10 @@ input is longer than 5 seconds. Derivatives here are therefore a deterministic
 consults. It also normalises loudness itself (to about -27 LUFS), so this module
 must not pre-normalise; doing it twice would be wrong.
 
-**Local reference assets.** ``files/Chatterbox-Voice-Uploads/`` holds
-maintainer-supplied local reference recordings, authorized by the maintainer for
-use by this local Chatterbox integration. They are strictly read-only inputs: this
-module verifies each one's SHA-256 before use, never writes into that directory,
+**Bundled reference assets.** ``files/Chatterbox-Voice-Uploads/`` holds
+six distributable WAV references made from the approved curated local MP3s,
+authorized by the maintainer for bundled Chatterbox use. They are strictly
+read-only inputs: this module verifies each one's SHA-256 before use, never writes into that directory,
 and puts every derivative and cached conditional under the ignored
 ``files/runtime-data/`` tree. A missing or altered recording degrades to a truthful
 "setup required" status — it never substitutes another voice and never fetches a
@@ -630,54 +630,53 @@ class ReferenceVoice:
 # The closed set of six (drop §5.7 plus v0.6.5 Phase 2's approved Male 3 and
 # Male 4). These are engine-internal identifiers: they are deliberately NOT
 # VoiceEntry rows on their own, so nothing reaches the GUI dropdown until a
-# phase registers them.
+# phase registers them. The 2026-09-30 post-release cleanup binds the bundled
+# leading-15-second WAVs; curated MP3 originals remain local-only and untouched.
 REFERENCE_VOICES: dict[str, ReferenceVoice] = {
     "chatterbox-female-1": ReferenceVoice(
         voice_id="chatterbox-female-1",
         label="Chatterbox — Female 1",
-        source_name="Female-1.mp3",
-        source_sha256="a047d77fe191c1a957d36b1e9f9af8e67756a63672686c55731b30534bb8bde2",
+        source_name="Female-1.wav",
+        source_sha256="b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4",
     ),
     "chatterbox-female-2": ReferenceVoice(
         voice_id="chatterbox-female-2",
         label="Chatterbox — Female 2",
-        source_name="Female-2.mp3",
-        source_sha256="4bad0d3845199eae723aceb7a864b419fe553cd9d23799ee6390f54df08d3140",
+        source_name="Female-2.wav",
+        source_sha256="428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205",
     ),
     "chatterbox-male-1": ReferenceVoice(
         voice_id="chatterbox-male-1",
         label="Chatterbox — Male 1",
-        source_name="Male-1.mp3",
-        source_sha256="6258dde294a91b0c2e965e8579aafde10e9cff48957c2138432be4c6c80165ae",
+        source_name="Male-1.wav",
+        source_sha256="45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58",
     ),
     "chatterbox-male-2": ReferenceVoice(
         voice_id="chatterbox-male-2",
         label="Chatterbox — Male 2",
-        source_name="Male-2.mp3",
-        source_sha256="7b8fd74dfb262740476fba8317c0b7483a9f8b290e58c1d7e496e48b048d6ab2",
+        source_name="Male-2.wav",
+        source_sha256="592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355",
     ),
     # v0.6.5 Phase 2: approved by the maintainer's final listening ruling on
     # 2026-09-20 — the ORIGINAL candidate sample (a separate bounded
     # pitch-retry variant was rejected; the maintainer preferred the voice
     # exactly as it was before that retry). Moved here from
-    # CANDIDATE_REFERENCE_VOICES verbatim (same source_name, same hash, same
-    # label wording minus "(candidate)"). No hash was recomputed for this
-    # move; the source file was never touched.
+    # CANDIDATE_REFERENCE_VOICES at that historical checkpoint. The later
+    # maintainer-authorized bundling uses the curated MP3's leading WAV window.
     "chatterbox-male-3": ReferenceVoice(
         voice_id="chatterbox-male-3",
         label="Chatterbox — Male 3",
-        source_name="Male-3.mp3",
-        source_sha256="0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4",
+        source_name="Male-3.wav",
+        source_sha256="4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80",
     ),
     # v0.6.5 Phase 2: approved by the maintainer's listening gate (Section 5)
-    # on 2026-09-20 — moved here from CANDIDATE_REFERENCE_VOICES verbatim
-    # (same source_name, same hash, same label wording minus "(candidate)").
-    # No hash was recomputed for this move; the source file was never touched.
+    # on 2026-09-20. The later maintainer-authorized bundling binds the WAV
+    # from the curated MP3, preserving the voice ID and label.
     "chatterbox-male-4": ReferenceVoice(
         voice_id="chatterbox-male-4",
         label="Chatterbox — Male 4",
-        source_name="Male-4.mp3",
-        source_sha256="1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5",
+        source_name="Male-4.wav",
+        source_sha256="47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad",
     ),
 }
 

@@ -1847,37 +1847,28 @@ def test_both_root_launchers_are_still_present():
         assert (REPO_ROOT / launcher).is_file()
 
 
-def test_all_twenty_two_approved_screenshots_are_still_there():
-    shots = REPO_ROOT / "files" / "UI-Prototype-Screenshots"
-    drop1 = {
-        "windows-100-launcher-overview.png",
-        "windows-100-m4b-metadata-active-run.png",
-        "windows-100-m4b-metadata-empty.png",
-        "windows-100-m4b-metadata-populated.png",
-        "windows-100-summary-details-specimen.png",
-        "windows-125-launcher-overview.png",
-        "windows-125-m4b-metadata-active-run.png",
-        "windows-125-m4b-metadata-empty.png",
-        "windows-125-m4b-metadata-populated.png",
-        "windows-125-summary-details-specimen.png",
-    }
-    drop2 = {
-        "windows-100-cleanup-confirmation.png",
-        "windows-100-cleanup-inventory.png",
-        "windows-100-cleanup-result.png",
-        "windows-100-cleanup-selected.png",
-        "windows-100-config-warning.png",
-        "windows-100-cover-replace-confirmation.png",
-        "windows-100-launcher-maximized.png",
-        "windows-100-launcher-minimum-size.png",
-        "windows-100-preferences-after-reset.png",
-        "windows-100-preferences-custom-saved.png",
-        "windows-100-preferences-default.png",
-        "windows-100-preferences-invalid-path.png",
-    }
-    assert set(os.listdir(shots / "v0.6.0-drop1")) == drop1
-    assert set(os.listdir(shots / "v0.6.0-drop2")) == drop2
-    assert len(drop1) + len(drop2) == 22
+def test_the_current_upstream_screenshot_set_is_exact_and_unchanged():
+    """Live master d2be236 replaced the old 22-image guard's source set.
+
+    Verify the fourteen current references and committed bytes; never restore
+    retired screenshots just to satisfy a stale guard.
+    """
+    import subprocess
+
+    shots = REPO_ROOT / "files" / "UI-Tool-Screenshots"
+    expected = {f"{tool}-UI-({mode}).png" for tool in (
+        "Cover-Image", "M4B-Converter", "M4B-Maker", "M4B-Metadata",
+        "MP3-Tool", "Preferences-and-Data", "TTS-Audiobook")
+        for mode in ("DARK", "LIGHT")}
+    assert set(os.listdir(shots)) == expected
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "--", "files/UI-Tool-Screenshots"],
+        cwd=REPO_ROOT, text=True).splitlines()
+    assert set(tracked) == {f"files/UI-Tool-Screenshots/{name}" for name in expected}
+    for name in expected:
+        committed = subprocess.check_output(
+            ["git", "show", f"HEAD:files/UI-Tool-Screenshots/{name}"], cwd=REPO_ROOT)
+        assert (shots / name).read_bytes() == committed
 
 
 def test_only_the_four_canonical_documents_keep_their_exact_names():

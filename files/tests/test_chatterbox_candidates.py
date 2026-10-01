@@ -30,11 +30,9 @@ candidate.
 Nothing here loads real weights, reads a real recording, or reaches the
 network: the engine is stubbed at the same seams
 ``test_chatterbox_evaluation.py`` already stubs, and every audio fixture is
-generated into ``tmp_path``. The real local recordings at
-files/Chatterbox-Voice-Uploads/Male-3.mp3 and Male-4.mp3 are verified by
-hand once per Phase 2 checkpoint (recorded in Handoff.md) — never by a
-tracked test, which must run identically on a machine that has never seen
-them.
+generated into ``tmp_path``. The later post-release bundling contract checks the
+six shipped WAV hashes and metadata mechanically in test_chatterbox_boundaries.
+Curated MP3 originals remain local-only and are not required by the suite.
 """
 from __future__ import annotations
 
@@ -191,25 +189,24 @@ def test_candidate_and_historical_outputs_use_different_subfolders():
 # C. Reference identity — hash-bound like every approved voice (P8)
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("voice_id,source_name,sha", [
-    ("chatterbox-male-3", "Male-3.mp3",
-     "0bb698d934515c690b97c85922dcfb61a0e2e07f07fd66b4e0b2e8ca13c292c4"),
-    ("chatterbox-male-4", "Male-4.mp3",
-     "1db9bb339748edede0b8d6a20171ea0672e59914516e49fd9b1b910cc6f028f5"),
+    ("chatterbox-male-3", "Male-3.wav",
+     "4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80"),
+    ("chatterbox-male-4", "Male-4.wav",
+     "47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad"),
 ])
-def test_the_final_hashes_match_exactly_what_was_verified_during_candidacy(
+def test_the_production_hashes_bind_the_approved_bundled_wavs(
     voice_id, source_name, sha,
 ):
-    """The hash bound at final approval must be byte-for-byte the same one
-    verified when the file was still a candidate — approval never
-    recomputes or re-trusts a new hash."""
+    """The later bundling ruling binds the curated leading-window WAV hashes;
+    voice IDs and labels retain the historical candidate approval."""
     voice = cbx.get_reference_voice(voice_id)
     assert voice.source_name == source_name
     assert voice.source_sha256 == sha
 
 
 def test_get_reference_voice_finds_both_via_the_primary_production_set():
-    assert cbx.get_reference_voice("chatterbox-male-3").source_name == "Male-3.mp3"
-    assert cbx.get_reference_voice("chatterbox-male-4").source_name == "Male-4.mp3"
+    assert cbx.get_reference_voice("chatterbox-male-3").source_name == "Male-3.wav"
+    assert cbx.get_reference_voice("chatterbox-male-4").source_name == "Male-4.wav"
     assert "chatterbox-male-3" in cbx.REFERENCE_VOICES
     assert "chatterbox-male-4" in cbx.REFERENCE_VOICES
 

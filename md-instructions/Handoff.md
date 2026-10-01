@@ -2,7 +2,96 @@
 
 ## Current Focus
 
-## CURRENT STATE — v0.6.6 PUBLISHED; DOCUMENTATION CLOSEOUT (2026-09-30)
+## CURRENT STATE - POST-RELEASE v0.6.6 BUNDLED-REFERENCE SOURCE CHECKPOINT (2026-09-30)
+
+This is the explicitly maintainer-authorized later master cleanup, starting from live
+`d2be236832eb5d5e5ce0cde5ed82b08edfa740de`. The six curated MP3s currently present are the
+approved sources, superseding older reference hashes for this task. They remain byte-identical,
+read-only, ignored and untracked. Exactly six same-stem WAVs (Female-1, Female-2, Male-1,
+Male-2, Male-3, Male-4) are now canonical production references. Each is exactly the leading
+15 seconds, PCM s16le, mono, 24 kHz. Only trim/channel/rate/sample-format conversion was used;
+no normalization, denoising, pitch/speed changes or silence padding. No LFS/dependency was added.
+
+Voice IDs/labels, leading-window conditioning, read-only handling and source-hash derivative/
+conditional identity remain intact. Runtime derivatives/caches stay in ignored runtime-data.
+`release.py` uses a closed six-path WAV allowlist, requires tracked/present assets, refuses
+uncommitted packaged-asset changes, and never walks `files/`. Tests prove exact names/hashes,
+PCM metadata, tracked/package scope, byte identity and exclusion of MP3s/extras/runtime state.
+README states that six references are bundled and no manual recording placement is needed.
+
+**Publication distinction:** historical tag `v0.6.6` remains at
+`7222083a732bbb0f1ef91e104725fc9a5cd2d141`. Original publication/archive facts below remain
+history. Application/config identity stays **0.6.6**. The authorized local v0.6.6 ZIP rebuild
+uses the later committed/pushed cleanup master containing this record, not the historical tag.
+GitHub Release metadata/assets are not changed; the maintainer will manually replace the two
+ZIPs after reviewing the local proof. No tag movement, force-push or history rewrite.
+
+After focused checks and one full verifier, commit/push this cleanup on master, create/push
+`feature/0.6.7-bundled-chatterbox-references` at exactly that SHA with no unique commit, leave
+that branch checked out, rebuild/prove both local `dist/` v0.6.6 ZIPs through real `release.py`,
+then STOP. This reserves a future branch; it does not start v0.6.7 feature work or publication.
+The approved v0.6.7 manual backlog and waivers remain deferred, never newly passed.
+
+### Approved audio provenance
+
+All six originals passed ffprobe inspection and full PCM decoding before conversion, each
+with more than 15 seconds of usable audio. The repository-pinned FFmpeg/ffprobe pair was used.
+Every WAV is PCM s16le / mono / 24,000 Hz / 16-bit / 360,000 frames / exactly 15.000000 seconds.
+
+| Original MP3 | Codec | Hz | Channels | ffprobe seconds | SHA-256 |
+|---|---|---:|---:|---:|---|
+| Female-1.mp3 | mp3 | 44100 | 2 | 51.639048 | `6648affeb66f076d2c66b140e32de19e0de29b0238f9ec260dcbbbd6dca2c1e7` |
+| Female-2.mp3 | mp3 | 44100 | 2 | 51.071406 | `a762c51604ed40e51d78071fd87b0a8a284e0f68ce3d78a8ec34f0dd4ef851d7` |
+| Male-1.mp3 | mp3 | 44100 | 1 | 44.486984 | `90e8980877d325953554fef8abbfc92a5389e591490e1b270f99fe0df5b78763` |
+| Male-2.mp3 | mp3 | 44100 | 2 | 44.524535 | `3a26cbaeeb5a6d8d47eafbaf810dce23d83121536768855ffb30cf233c20eae1` |
+| Male-3.mp3 | mp3 | 44100 | 1 | 45.213379 | `8fc9b810f486e014cb9b2ed53bc438a6e12b5473153f47cb057c30a29e55743f` |
+| Male-4.mp3 | mp3 | 44100 | 2 | 53.179297 | `b5f49cf91df5d6587b3a8871c851c56738c9ac0fc38daf1d71a54c1afdb8afc6` |
+
+| Canonical WAV | SHA-256 |
+|---|---|
+| Female-1.wav | `b740b9ed352e6a32d93f4e523b27c55a717d1818b137a3af7bc3585a838655e4` |
+| Female-2.wav | `428d3869b6bc7a26125063dfdaa8da05f8dab015427197f62e84a59f44bdb205` |
+| Male-1.wav | `45fbfba0815b76b88d00b47a3f0ac3e747c1269a17c5a2f7a75c1bbb8f9c0d58` |
+| Male-2.wav | `592139a28e82aaf5c8a2b584eddd41540acbf35db91bf053ed76a8a959f0b355` |
+| Male-3.wav | `4ab6bd671add539afb4e551683047a04cb4ce3a95b0e7584bd5c2801dd44ee80` |
+| Male-4.wav | `47eff938180617c015959cc56c3744fad8812f021c81930bec055ad324312cad` |
+
+### Source-checkpoint verification and authorized next steps
+
+Focused checks: **725 passed / 1 accounted skip / zero failures**, 33.95 seconds; the skip is
+the existing empty Plan-6 parametrization. Existing pydub audioop deprecation warning only.
+An earlier run used the Windows WSL stub and failed three Bash checks; the installed Git Bash
+rerun above passes without changing/skipping those tests.
+
+**Single full scripts/verify.py run:** initial RESULT: FAIL, **7,914 passed / 58 accounted
+skips / 4 failures**, 965.64 seconds. Deps/docs/docnames/config all PASS. Full log/XML are
+retained unchanged; the full verifier was not repeated. Warnings: existing pydub audioop and
+PerTh/pkg_resources deprecations. The four required failures are resolved:
+- The live kickoff master had replaced 22 old screenshots with 14 current upstream images;
+  the stale repository guard now verifies that exact set, tracked scope and committed bytes.
+  No screenshot was edited, staged or committed by this task.
+- Three Windows filesystem failures first passed unchanged in a shorter contained temp root.
+  A broader rerun reproduced only the first-run fixture's create-then-delete interpreter lock.
+  That fixture now starts with no venv, preserving its real launcher and first-time-setup
+  assertions. Production bootstrap and launcher bytes remain unchanged.
+- Final focused resolution across the complete hardening, venv recovery, Plan-3 repository,
+  release packaging, canonical repository and isolation modules: **380 passed / zero skips /
+  zero failures**, 19.38 seconds. All required failures are closed; no assertion was weakened.
+  Full-run skips retain their original platform/symlink/optional-media/empty-param scopes.
+
+
+This source-checkpoint record is included in the cleanup commit; Git supplies its exact SHA.
+It cannot self-embed its own commit hash. After pushing, both remote master and the future
+branch must equal that SHA (0 ahead / 0 behind). Then build/prove the two local ZIPs against
+it. Final source SHA/member hashes/archive sizes/digests/CRC/extraction/EOL/mode and preserved
+local-content evidence live in ignored `files/dev-work/v066-bundled-references/` and the final
+task report. No later evidence-only commit or unique v0.6.7 commit is authorized.
+
+At this source checkpoint branch publication/package rebuild remain the authorized next
+steps, not claimed completed checks. Historical publication/proof records below remain history.
+No fresh native macOS, clean-machine setup or listening acceptance is claimed.
+
+## HISTORICAL STATE - ORIGINAL v0.6.6 PUBLICATION AND DOCUMENTATION CLOSEOUT (2026-09-30)
 
 **v0.6.6 is the current published release (2026-09-30).**
 PR [#13](https://github.com/elmatthe/audiobook-creation-tool/pull/13) is merged into `master` as

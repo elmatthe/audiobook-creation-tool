@@ -374,11 +374,17 @@ def test_the_ordinary_chatterbox_branch_is_not_the_edge_branch():
 
 
 # --------------------------------------------------------------------------- #
-# Protected local assets are never tracked
+# Bundled references are the only tracked assets; originals stay local
 # --------------------------------------------------------------------------- #
-def test_the_protected_uploads_folder_is_ignored():
-    ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
-    assert "files/Chatterbox-Voice-Uploads/" in ignore
+@pytest.mark.parametrize("stem", ["Female-1", "Female-2", "Male-1", "Male-2", "Male-3", "Male-4"])
+def test_original_mp3_is_ignored_and_bundled_wav_is_not(stem):
+    import subprocess
+
+    for suffix, expected in [("mp3", 0), ("wav", 1)]:
+        ignored = subprocess.run(
+            ["git", "check-ignore", "--no-index", "-q", "--",
+             f"files/Chatterbox-Voice-Uploads/{stem}.{suffix}"], cwd=REPO_ROOT)
+        assert ignored.returncode == expected
 
 
 def test_the_runtime_data_tree_holding_derivatives_is_ignored():
@@ -386,11 +392,32 @@ def test_the_runtime_data_tree_holding_derivatives_is_ignored():
     assert "files/runtime-data/" in ignore
 
 
-def test_no_reference_audio_is_tracked_anywhere_in_the_repository():
+def test_exactly_six_canonical_wavs_and_no_runtime_data_are_tracked():
     import subprocess
+    from tts import chatterbox_synth as cbx
 
     tracked = subprocess.run(
         ["git", "ls-files", "files/Chatterbox-Voice-Uploads/", "files/runtime-data/"],
-        cwd=REPO_ROOT, capture_output=True, text=True,
+        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
     )
-    assert tracked.stdout.strip() == ""
+    expected = {f"files/Chatterbox-Voice-Uploads/{stem}.wav" for stem in
+                ["Female-1", "Female-2", "Male-1", "Male-2", "Male-3", "Male-4"]}
+    assert set(tracked.stdout.splitlines()) == expected
+    assert {f"files/Chatterbox-Voice-Uploads/{v.source_name}"
+            for v in cbx.REFERENCE_VOICES.values()} == expected
+
+
+def test_all_bundled_references_have_the_bound_hash_and_canonical_pcm_metadata():
+    import hashlib
+    import wave
+    from tts import chatterbox_synth as cbx
+
+    for voice in cbx.REFERENCE_VOICES.values():
+        path = cbx.reference_source_path(voice.voice_id)
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == voice.source_sha256
+        with wave.open(str(path), "rb") as audio:
+            assert audio.getcomptype() == "NONE"
+            assert audio.getsampwidth() == 2
+            assert audio.getnchannels() == 1
+            assert audio.getframerate() == 24000
+            assert audio.getnframes() == 360000

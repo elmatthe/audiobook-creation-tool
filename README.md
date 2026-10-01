@@ -45,7 +45,7 @@ TTS accepts **PDF and TXT only**. Save TXT files as **UTF-8**, with or without a
 
 - Windows 10/11 or macOS 12+, with space for the Python environment, outputs and any voice models.
 - Setup can acquire Python and FFmpeg when supported acquisition tools are available (winget on Windows, Homebrew on macOS), and provides guidance if automatic setup cannot complete. Python 3.11/3.12 is recommended; setup targets 3.12 for local voices. Kokoro requires Python below 3.13.
-- Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; Chatterbox also needs local reference recordings. Models need additional disk space.
+- Internet access for first-run downloads and **Edge TTS** narration. Optional local voice models run offline after download; The six Chatterbox reference voices are bundled; no manual reference-recording placement is needed. Models need additional disk space.
 
 ## More information
 
