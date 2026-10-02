@@ -15,7 +15,24 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-No changes recorded yet.
+### Fixed — MP3 embedded segment metadata (2026-10-01)
+
+- Write ID3 Tags now accepts byte-concatenated MP3 segments whose interior ID3
+  tags and non-audio Info/Xing frames caused strict FFmpeg decoding to fail with
+  `Header missing`. Only complete metadata at verified MPEG frame boundaries is
+  removed in a private input copy; every audio byte remains, originals remain
+  read-only, and full error-free decoding still governs duration and validation.
+- Write ID3, Combine and signed Time share the corrected input. Stale-header,
+  damaged-audio and atomic whole-Book publication safeguards remain in force.
+  Synthetic regressions reproduce the actual 24 kHz mono concatenation structure,
+  exercise processing/orchestration and refuse damaged metadata or audio.
+- macOS manual Write ID3 rerun **PASS**: MP3-Tool-5, one Book / 44 tracks,
+  44 completed and zero failed/skipped/not attempted; Chapters 3161–3202 and
+  whole-Book publication succeeded. Focused verification is green. Complete
+  verification remains **FAIL** (7,882 passed / 93 skipped / 16 failures): all
+  16 exact failure causes reproduce unchanged on clean base `62b0c095`.
+  The maintainer explicitly authorized this bounded checkpoint after comparison;
+  no unrelated UI/import failure or verification requirement was changed.
 
 ## [0.6.6] - 2026-09-30
 

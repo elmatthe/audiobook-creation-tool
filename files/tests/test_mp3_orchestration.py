@@ -55,6 +55,7 @@ from test_mp3_tool_ui import (  # noqa: E402,F401  (fixtures are collected by na
     windows_theme,
 )
 from test_mp3_write_id3 import junk_tag, sha, texts, tone  # noqa: E402
+from test_mp3_duration_authority import joined_source, sources  # noqa: E402,F401
 
 pytestmark = pytest.mark.skipif(
     not ffmpeg_utils.have_ffmpeg(), reason="ffmpeg/ffprobe not available in this environment")
@@ -864,3 +865,30 @@ def test_the_engine_seams_stay_tk_free_and_report_nothing_themselves():
                         if isinstance(node, ast.FunctionDef) and node.name == name)
         kwonly = {arg.arg for arg in function.args.kwonlyargs}
         assert {"checkpoint", "on_event", "on_book", "retry_items"} <= kwonly, name
+
+
+@pytest.mark.parametrize("operation", ["write_id3_tags", "combine_mp3s"])
+def test_joined_mp3_runs_through_the_controller_and_publishes_whole_book(
+        joined_source, make_panel, tmp_path, monkeypatch, operation):
+    source, _, _ = joined_source
+    intro = tone(source.path.parent / "01 Intro.mp3")
+    before = [sha(p) for p in (intro, source.path)]
+    panel = make_panel()
+    made = reservations_under(tmp_path, monkeypatch)
+    import_folder(panel, source.path.parent)
+    wait_for(panel, lambda: panel.workspace.count == 1)
+    assert getattr(panel, operation)() is True
+    settle(panel)
+    assert panel.last_result.state is JobState.SUCCEEDED
+    assert len(made) == 1
+    assert statuses(panel) == ["Completed"]
+    result = panel.last_plan.books[0]
+    assert result.published_dir.is_dir()
+    if operation == "write_id3_tags":
+        assert len(result.tracks) == 2
+        assert all(track.published.is_file() for track in result.tracks)
+    else:
+        assert result.combined_published.is_file()
+        assert result.timestamps_published.is_file()
+    assert not panel.last_plan.work_root.exists()
+    assert before == [sha(p) for p in (intro, source.path)]

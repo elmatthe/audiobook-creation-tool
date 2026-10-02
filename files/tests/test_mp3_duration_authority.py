@@ -192,10 +192,12 @@ def test_bad_staged_output_still_prevents_publication(
     (0, "out_time_us=0\nprogress=end\n", ""),
     (0, "out_time_us=-1\nprogress=end\n", ""),
 ])
-def test_duration_refuses_incomplete_or_failed_decode(monkeypatch, code, out, err):
+def test_duration_refuses_incomplete_or_failed_decode(monkeypatch, tmp_path, code, out, err):
     monkeypatch.setattr(ffmpeg_utils, "ffmpeg_cmd", lambda: "/proved/ffmpeg")
     monkeypatch.setattr(proc, "run_ff", lambda _: (code, out, err))
-    assert proc.ffprobe_duration_seconds(Path("unused.mp3")) is None
+    source = tmp_path / "unused.mp3"
+    source.write_bytes(b"not audio")
+    assert proc.ffprobe_duration_seconds(source) is None
 
 
 def test_trim_from_end_fails_safely_when_duration_is_unreadable(monkeypatch, tmp_path):
@@ -215,3 +217,144 @@ def test_trim_from_end_fails_safely_when_duration_is_unreadable(monkeypatch, tmp
     assert ok is False
     assert ran == [], "ffmpeg must never run against a fabricated zero-length duration"
     assert (log_dir / "ffmpeg_log.txt").exists()
+
+
+@pytest.fixture
+def joined_source(sources, tmp_path, monkeypatch):
+    """Actual failing shape: raw concatenation of tagged 24 kHz mono segments.
+
+    The independent oracle retains the first segment verbatim and starts each
+    later segment at its first *audio packet*, omitting ID3 and the Info frame.
+    No production parser or duration helper builds/measures that oracle.
+    """
+    from shared import paths
+    monkeypatch.setattr(paths, "RESOURCES_DIR", tmp_path / "runtime")
+    entry = imported(sources, "Book", "Joined.mp3", junk=False)
+    segments, playable = [], []
+    for index in range(3):
+        segment = tmp_path / f"segment-{index}.mp3"
+        sp.run([ffmpeg_utils.ffmpeg_cmd(), "-v", "error", "-y", "-f", "lavfi",
+                "-i", f"sine=frequency={440 + index * 220}:duration=1",
+                "-ar", "24000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "64k",
+                str(segment)], check=True)
+        data = segment.read_bytes()
+        first_packet = int(probe(segment, "-select_streams", "a:0", "-show_packets")
+                           ["packets"][0]["pos"])
+        assert data.startswith(b"ID3") and b"Info" in data[:first_packet]
+        segments.append(data)
+        playable.append(data if index == 0 else data[first_packet:])
+    entry.path.write_bytes(b"".join(segments))
+    oracle = tmp_path / "oracle.mp3"
+    oracle.write_bytes(b"".join(playable))
+    return entry, pcm_duration(oracle), segments
+
+
+@needs_ffmpeg
+def test_join_metadata_is_not_an_audio_decode_failure(joined_source, tmp_path):
+    source, actual, _ = joined_source
+    before = sha(source.path)
+    # Prove that the fixture exercises the real command's Header missing error.
+    assert proc._decode_duration_seconds(source.path) is None
+    assert proc.ffprobe_duration_seconds(source.path) == pytest.approx(actual, abs=0.00005)
+    with proc._prepared_mp3(source.path, tmp_path) as prepared:
+        assert prepared != source.path
+        assert proc._decode_duration_seconds(prepared) == pytest.approx(actual, abs=0.00005)
+    assert not prepared.exists()
+    assert sha(source.path) == before
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("delta", [0.0, 0.1, -0.1])
+def test_joined_source_write_id3_preserves_audio_and_signed_time(joined_source, reserve, delta):
+    source, actual, _ = joined_source
+    before = sha(source.path)
+    entry = book([source], time_delta=str(delta), album="Joined Book", auto_number=True)
+    made = plan(workspace(entry), observe(entry), reserve)
+    report = proc.write_id3_run(made)
+    track = made.books[0].tracks[0]
+    assert report.books[0].succeeded
+    assert pcm_duration(track.published) == pytest.approx(actual + delta, abs=0.002)
+    assert ID3(track.published)["TIT2"].text == [track.title]
+    assert sha(source.path) == before
+    assert not list(made.reservation.run_directory.rglob("mp3-input-*"))
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("safe", [False, True], ids=["FAST", "Safe"])
+def test_joined_source_combine_uses_the_same_audio_timeline(joined_source, reserve, monkeypatch, safe):
+    source, actual, _ = joined_source
+    before = sha(source.path)
+    # A second occurrence must carry its own identity.
+    from dataclasses import replace
+    second = replace(source, occurrence_id=source.occurrence_id + "-second")
+    entry = book([source, second], time_delta="-0.1", album="Joined Book")
+    made = combine_plan(workspace(entry), observe(entry), reserve)
+    if safe:
+        monkeypatch.setattr(proc, "fast_eligibility", lambda _: (False, "exercise Safe"))
+    report = proc.combine_run(made)
+    assert report.books[0].succeeded
+    result = made.books[0]
+    assert pcm_duration(result.combined_published) == pytest.approx(2 * (actual - 0.1), abs=0.08)
+    assert f"@ {proc.seconds_to_hms(actual - 0.1)} " in result.timestamps_published.read_text()
+    assert sha(source.path) == before
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("damage", ["bad-tag-size", "oversized-tag", "audio-header", "audio-payload"])
+def test_joined_source_damage_still_blocks_whole_book(joined_source, reserve, damage):
+    source, _, segments = joined_source
+    data = bytearray(source.path.read_bytes())
+    boundary = len(segments[0])
+    if damage == "bad-tag-size":
+        data[boundary + 9] |= 128  # invalid synchsafe length, never remove it
+    elif damage == "oversized-tag":
+        # A plausible but corrupt tag size must not swallow an entire segment.
+        claimed = len(segments[1]) + proc._id3_size(data[boundary:boundary + 10]) - 10
+        data[boundary + 6:boundary + 10] = bytes((claimed >> n) & 127 for n in (21, 14, 7, 0))
+    else:
+        first_audio = boundary + int(probe(source.path.parents[2] / "segment-1.mp3",
+                                          "-select_streams", "a:0", "-show_packets")
+                                     ["packets"][0]["pos"])
+        if damage == "audio-header":
+            data[first_audio:first_audio + 4] = b"BAD!"
+        else:
+            # Invalid Layer III side information while retaining a valid header.
+            data[first_audio + 4:first_audio + 13] = b"\xff" * 9
+    source.path.write_bytes(data)
+    before = sha(source.path)
+    good = imported(source.path.parent.parent, "Other", "Good.mp3", junk=False)
+    entry = book([good, source], album="Joined Book")
+    made = plan(workspace(entry), observe(entry), reserve)
+    report = proc.write_id3_run(made)
+    assert not report.books[0].succeeded
+    assert len(report.books[0].staged_ok) == 1
+    assert report.books[0].result.failures.records[0].stage == "probe"
+    assert not made.books[0].published_dir.exists()
+    assert sha(source.path) == before
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("delta", [0.1, -0.1])
+def test_joined_source_standalone_time_helpers(joined_source, tmp_path, delta):
+    source, actual, _ = joined_source
+    before = sha(source.path)
+    target = tmp_path / "adjusted.mp3"
+    if delta > 0:
+        assert proc.add_silence_to_mp3(source.path, delta, target, tmp_path)
+    else:
+        assert proc.trim_from_end_mp3(source.path, -delta, target, tmp_path)
+    assert pcm_duration(target) == pytest.approx(actual + delta, abs=0.002)
+    assert sha(source.path) == before
+    assert not list(tmp_path.glob("mp3-input-*"))
+
+
+@needs_ffmpeg
+def test_id3_signature_inside_audio_payload_is_never_removed(joined_source):
+    source, _, _ = joined_source
+    before = proc._embedded_metadata_ranges(source.path)
+    packet = probe(source.path, "-select_streams", "a:0", "-show_packets")["packets"][2]
+    data = bytearray(source.path.read_bytes())
+    offset = int(packet["pos"]) + 40
+    data[offset:offset + 10] = b"ID3\x04\x00\x00\x00\x00\x00#"
+    source.path.write_bytes(data)
+    assert proc._embedded_metadata_ranges(source.path) == before

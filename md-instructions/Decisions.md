@@ -2875,6 +2875,58 @@ required (investigation-only, no subjective judgment made), 2026-09-20
 
 ---
 
+## 2026-10-01 — Strip only recognised embedded MP3 join metadata before strict decoding
+
+**Confirmed defect and bounded decision.** The macOS MP3-Tool-3/-4 44-track Book
+accepted Intro and Synopsis but refused all 42 chapters. These chapters are raw
+concatenations of independently tagged 24 kHz mono MP3 segments. At each interior
+boundary, FFmpeg 9.0.1's parser presents the complete ID3 tag plus non-audio Info
+frame as an audio packet. Strict decoding exits 183 with `Header missing`; this
+is a container boundary problem, not corrupt MPEG audio. Intro/Synopsis contain
+no interior tags. Independently decoding Chapter 3161's ten segments is clean.
+
+Preserve the 2026-09-20 fully decoded duration contract: no header estimate,
+Mutagen/ffprobe fallback, relaxed tolerance, ignored decoder error or partial
+progress acceptance. Walk Layer III frame lengths and recognise only complete
+ID3 metadata with validated frame lengths/padding, followed by a matching
+Info/Xing frame with empty side information at a frame boundary. Never search/strip
+signatures inside audio payload. Unknown,
+truncated or damaged structure stays intact for strict decoding to reject.
+
+For this recognised structure only, construct a private temporary input with
+those metadata bytes removed, retaining every MPEG audio byte. Decode the entire
+result with the existing audio-only `-xerror`, sample-derived timestamps and
+exit/stderr/progress checks. Use that same corrected input for copy/append/trim,
+including Combine's constituent staging. Operation copies live in private
+staging; standalone duration scratch lives in ignored runtime-data/temp. Each
+owned temporary directory is removed on exit, including failure. Originals are
+never opened for writing. This narrowly updates the old no-temporary-audio
+implementation detail; its duration authority and publication contract stand.
+
+**Mechanical proof.** All 42 actual chapters become error-free strict decodes;
+PCM is byte-identical to the audio normal playback decodes from the originals.
+Repo-contained generated tones reproduce the exact concatenation structure and
+exercise signed Time, Write ID3, Combine FAST/Safe, the shared controller,
+source hashes, scratch cleanup and whole-Book refusal on damaged tag/header/
+side-information bytes. The original stale Info/Xing regressions remain intact.
+No dependency, UI, application version or unrelated v0.6.7 behavior is changed.
+
+**Checkpoint disposition (maintainer-authorized, 2026-10-01).** MP3-Tool-5's
+manual macOS rerun passed: one Book, 44 completed, zero failed/skipped/not
+attempted, all previously failing chapters processed and whole Book published.
+Complete verification remains FAIL (7,882 passed / 93 skipped / 16 failures).
+All 16 test IDs and complete XML failure elements (type/message/traceback) match
+exactly on the fix and untouched `62b0c095`; no normalization is required. The
+baseline worktree is clean, failing test blobs are unchanged, and failure stacks
+never enter the changed processing module. The maintainer authorized the bounded
+commit/push on that proof. This is not a full-gate PASS or an unrelated-failure
+waiver. Preserve the failures; do not expand this task into UI/layout/import work.
+
+**Authority:** maintainer's bounded regression-fix and disposition instructions,
+2026-10-01.
+
+---
+
 ## 2026-09-20 — MP3 Time calculations and validation use fully decoded audio duration
 
 **Decision (maintainer-authorized MP3 defect remediation on the v0.6.5 branch; no phase

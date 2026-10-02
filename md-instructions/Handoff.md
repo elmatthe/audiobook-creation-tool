@@ -2,6 +2,66 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 MP3 embedded-ID3 regression fix (2026-10-01, HOME-MacOS)
+
+Bounded fix on `feature/0.6.7-bundled-chatterbox-references`, based on `62b0c095`.
+The supplied application directory was an extracted copy without Git metadata;
+an actual checkout of the authorized branch lives under ignored
+`files/dev-work/mp3-embedded-id3-fix/checkout/`. Its starting source and permanent
+handoff match the extracted copy. Existing app/runtime/log/media state is preserved.
+
+MP3-Tool-3/-4's 44-track Book failed tracks 03–44 at embedded segment ID3/Info
+metadata, which FFmpeg 9.0.1 passed to the strict decoder as invalid audio packets.
+All audio is playable: recognised metadata removal in diagnostic copies yields
+strict PCM byte-identical to normal playback for every chapter. Intro/Synopsis
+lack those interior boundaries. The shared fix uses private corrected input,
+retains every audio byte and preserves full error-free decode duration, stale-header
+protection, corruption detection, source immutability and whole-Book publication.
+See the 2026-10-01 decision and synthetic regression tests.
+
+Fresh focused checkpoint: **183 passed / zero skips / zero failures** (50.52 s).
+A production-engine zero-Time Write ID3 run published all **44 actual tracks**;
+all original SHA-256 values remain unchanged. All 44 private corrected inputs
+match normal playback PCM byte-for-byte; all 42 repaired chapter outputs also
+match. Commands, exit/stderr/progress, structure, metadata ranges and PCM hashes
+are recorded under the checkout's ignored `files/dev-work/real-batch-evidence/`.
+An initial full verifier was stopped to tighten an independently reproduced
+oversized-ID3-length safety hole; its negative regression now passes.
+
+**Complete verification remains NON-GREEN:** `scripts/verify.py` returned FAIL,
+**7,882 passed / 93 skipped / 16 failed**, 670.41 s. Deps/docs/docnames/config
+passed. All 16 exact failing test IDs reproduce on the fix and on the clean,
+untouched detached base `62b0c09543fc5e2a8e6eca18262816e244ca1006` (34.46 s).
+The saved XML failure elements match byte-for-byte in exception type, message
+and complete traceback, without normalization. All failing test source blobs
+match the base; no failure stack enters `mp3_processing.py`. These are 15 macOS
+layout/appearance failures and the Cover import/cancel failure, unchanged by
+this fix. Exact comparison and both XML files remain in the checkout's ignored
+`files/dev-work/`. No assertion, skip, verification rule or unrelated UI/import
+code was changed. The full gate is not described as PASS and was not rerun.
+
+**macOS manual GUI gate PASSED — maintainer report, 2026-10-01.** MP3-Tool-5:
+one Book / 44 tracks, **44 completed / 0 failed / 0 skipped / 0 not attempted**.
+All previously failing Chapters 3161–3202 processed successfully and the whole
+Book published normally. Read-only inspection confirms 44 non-empty MP3s under
+`MP3-Tool-5/Shadow Slave, Volume 13/`, with no private `.work` left. The manual
+report and output listing are retained in ignored task evidence. This closes
+the requested macOS Write ID3 rerun; it does not waive unrelated suite failures.
+
+**Bounded checkpoint authorization (2026-10-01).** The maintainer explicitly
+authorized committing/pushing only this fix, its two regression modules and
+required Changelog/Decisions/Handoff updates after proving the exact baseline
+failures. The earlier green-gate-only publication condition is superseded for
+this bounded checkpoint. Review confirms only those six files changed, preserving
+2026-09-20 duration hardening, source immutability and atomic Book publication.
+A fresh focused checkpoint and final diff check are recorded before publication;
+Git supplies the resulting commit SHA. No unrelated failure is fixed or waived.
+The extracted application receives the same bounded files; local-only state is
+preserved. Application identity stays 0.6.6. No merge, tag, release, history
+rewrite, branch deletion, force-push or other v0.6.7 work is authorized.
+
+The earlier state below remains historical source-checkpoint context.
+
 ## CURRENT STATE - POST-RELEASE v0.6.6 BUNDLED-REFERENCE SOURCE CHECKPOINT (2026-09-30)
 
 This is the explicitly maintainer-authorized later master cleanup, starting from live

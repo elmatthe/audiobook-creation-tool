@@ -61,12 +61,14 @@ tag, timestamp or publication failure is the Book's own, item-less.
 from __future__ import annotations
 
 import shlex
+import tempfile
 from collections.abc import Callable, Collection, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from shared import ffmpeg_utils
+from shared import ffmpeg_utils, paths
 from shared import subprocess_utils as sp
 from shared.job_control import FailureLog, FailureRecord, JobState, RunResult
 from mp3_tools import mp3_artwork
@@ -178,7 +180,168 @@ def write_concat_listfile(paths: List[Path], listfile: Path):
             f.write(ffmpeg_escape_listfile_path(p) + "\n")
 
 
+def _mpeg_frame(header: bytes):
+    """Layer III frame size and Info/Xing offset; never a duration estimate."""
+    if len(header) != 4:
+        return None
+    bits = int.from_bytes(header, "big")
+    version, layer = (bits >> 19) & 3, (bits >> 17) & 3
+    bitrate, frequency = (bits >> 12) & 15, (bits >> 10) & 3
+    if (bits >> 21 != 0x7ff or version == 1 or layer != 1
+            or bitrate in (0, 15) or frequency == 3):
+        return None
+    rates = (44100, 48000, 32000)
+    rate = rates[frequency] // (1 if version == 3 else 2 if version == 2 else 4)
+    table = ((0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320)
+             if version == 3 else
+             (0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160))
+    size = (144 if version == 3 else 72) * table[bitrate] * 1000 // rate
+    size += (bits >> 9) & 1
+    mono = (bits >> 6) & 3 == 3
+    side = (17 if mono else 32) if version == 3 else (9 if mono else 17)
+    offset = 4 + (0 if bits & 0x10000 else 2) + side
+    return size, offset, (version, rate, mono)
+
+
+def _id3_size(header: bytes):
+    if (len(header) != 10 or header[:3] != b"ID3" or header[3] not in (2, 3, 4)
+            or header[4] == 255 or any(n & 128 for n in header[6:])):
+        return None
+    allowed = {2: 0xc0, 3: 0xe0, 4: 0xf0}[header[3]]
+    if header[5] & ~allowed:
+        return None
+    size = 10
+    size += sum(n << shift for n, shift in zip(header[6:], (21, 14, 7, 0)))
+    return size + (10 if header[3] == 4 and header[5] & 0x10 else 0)
+
+
+def _complete_id3_tag(source, header: bytes, end: int) -> bool:
+    """Validate frame boundaries/padding, not just the claimed tag length.
+
+    Only plain tags are repaired. Extended/unsynchronised/compressed/footer
+    forms stay intact: a corrupt size must never hide intervening audio.
+    """
+    if header[5]:
+        return False
+    width = 3 if header[3] == 2 else 4
+    header_size = 6 if width == 3 else 10
+    while source.tell() < end:
+        frame = source.read(min(header_size, end - source.tell()))
+        if not frame:
+            return False
+        if not any(frame):
+            while source.tell() < end:
+                padding = source.read(min(65536, end - source.tell()))
+                if not padding or any(padding):
+                    return False
+            return True
+        if len(frame) != header_size or not all(48 <= c <= 57 or 65 <= c <= 90
+                                               for c in frame[:width]):
+            return False
+        if any(frame[width * 2:]):
+            return False
+        size_bytes = frame[width:width * 2]
+        if header[3] == 4:
+            if any(n & 128 for n in size_bytes):
+                return False
+            size = sum(n << shift for n, shift in zip(size_bytes, (21, 14, 7, 0)))
+        else:
+            size = int.from_bytes(size_bytes, "big")
+        if size <= 0 or source.tell() + size > end:
+            return False
+        source.seek(size, 1)
+    return source.tell() == end
+
+
+def _embedded_metadata_ranges(path: Path):
+    """Recognise complete ID3 + non-audio Info/Xing frames at MPEG boundaries.
+
+    Byte-concatenated MP3 segments carry these between otherwise valid frames.
+    FFmpeg's MPEG parser includes the tag in the next packet, which the decoder
+    rejects. Walk frame lengths, never search payload for signatures. Unknown
+    structure is left intact for the strict decoder to reject, not repaired.
+    """
+    ranges = []
+    with path.open("rb") as source:
+        length = source.seek(0, 2)
+        source.seek(0)
+        first = source.read(10)
+        leading = _id3_size(first)
+        source.seek(leading if leading is not None else 0)
+        previous = None
+        while source.tell() < length:
+            start = source.tell()
+            header = source.read(4)
+            if header[:3] == b"TAG" and length - start == 128:
+                break  # ordinary trailing ID3v1 metadata
+            if header[:3] == b"ID3":
+                tag_header = header + source.read(6)
+                size = _id3_size(tag_header)
+                if size is None or previous is None or start + size > length:
+                    return ()
+                if not _complete_id3_tag(source, tag_header, start + size):
+                    return ()
+                source.seek(start + size)
+                header = source.read(4)
+                frame = _mpeg_frame(header)
+                if frame is None or frame[2] != previous:
+                    return ()
+                body = header + source.read(frame[0] - 4)
+                offset = frame[1]
+                side_start = 4 + (0 if header[1] & 1 else 2)
+                if (len(body) != frame[0] or body[offset:offset + 4] not in (b"Info", b"Xing")
+                        or any(body[side_start:offset])):
+                    return ()
+                ranges.append((start, source.tell()))
+                continue
+            frame = _mpeg_frame(header)
+            if frame is None or len(source.read(frame[0] - 4)) != frame[0] - 4:
+                return ()
+            previous = frame[2]
+    return tuple(ranges)
+
+
+@contextmanager
+def _prepared_mp3(path: Path, directory: Path | None = None):
+    """Read originals only; remove recognised join metadata in a private copy.
+
+    Every MPEG audio byte is retained. Full error-free decoding remains the
+    authority, including after this narrowly defined container correction.
+    """
+    ranges = _embedded_metadata_ranges(path)
+    if not ranges:
+        yield path
+        return
+    if directory is None:
+        directory = paths.RESOURCES_DIR / "temp"
+        directory.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="mp3-input-", dir=directory) as temporary:
+        clean = Path(temporary) / "audio.mp3"
+        with path.open("rb") as source, clean.open("wb") as output:
+            start = 0
+            for end, following in (*ranges, (path.stat().st_size, path.stat().st_size)):
+                source.seek(start)
+                remaining = end - start
+                while remaining:
+                    chunk = source.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        raise OSError("MP3 source changed while preparing audio")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+                start = following
+        yield clean
+
+
 def ffprobe_duration_seconds(path: Path) -> Optional[float]:
+    """Measure fully decoded audio, correcting only recognised join metadata."""
+    try:
+        with _prepared_mp3(path) as source:
+            return _decode_duration_seconds(source)
+    except OSError:
+        return None
+
+
+def _decode_duration_seconds(path: Path) -> Optional[float]:
     """Measure decodable audio, not the MPEG header's claimed duration.
 
     The historical helper name is retained for the panel's public re-export.
@@ -394,8 +557,13 @@ def _append_silence_args(in_mp3: Path, seconds: float, out_mp3: Path) -> List[st
 
 
 def add_silence_to_mp3(in_mp3: Path, seconds: float, out_mp3: Path, log_dir: Path) -> bool:
-    args = _append_silence_args(in_mp3, seconds, out_mp3)
-    code, _, err = run_ff(args)
+    try:
+        with _prepared_mp3(in_mp3, out_mp3.parent) as source:
+            args = _append_silence_args(source, seconds, out_mp3)
+            code, _, err = run_ff(args)
+    except OSError as exc:
+        save_error_log(log_dir, f"add_silence_to_mp3: {in_mp3.name}", [], str(exc))
+        return False
     if code != 0:
         save_error_log(log_dir, f"add_silence_to_mp3: {in_mp3.name}", args, err)
     return code == 0
@@ -445,8 +613,13 @@ def trim_from_end_mp3(in_mp3: Path, seconds_to_remove: float, out_mp3: Path, log
                        "no readable audio duration")
         return False
     new_dur = max(0.0, dur - seconds_to_remove)
-    args = _trim_args(in_mp3, new_dur, out_mp3)
-    code, _, err = run_ff(args)
+    try:
+        with _prepared_mp3(in_mp3, out_mp3.parent) as source:
+            args = _trim_args(source, new_dur, out_mp3)
+            code, _, err = run_ff(args)
+    except OSError as exc:
+        save_error_log(log_dir, f"trim_from_end_mp3: {in_mp3.name}", [], str(exc))
+        return False
     if code != 0:
         save_error_log(log_dir, f"trim_from_end_mp3: {in_mp3.name}", args, err)
     return code == 0
@@ -732,36 +905,41 @@ def _stage_clean_copy(book: mp3_plan.BookPlan, track: mp3_plan.TrackPlan) -> flo
     Returns the duration the copy is expected to have. The source is only ever
     an FFmpeg input; every output path is the plan's staged path.
     """
-    source_duration = ffprobe_duration_seconds(track.source)
-    if source_duration is None:
-        raise ProcessingError("the source has no readable audio duration", stage="probe",
-                              detail=str(track.source))
-    delta = float(book.time_delta)
-    if delta > 0:
-        args = _append_silence_args(track.source, delta, track.staged)
-        expected = source_duration + delta
-        stage = "append"
-    elif delta < 0:
-        remaining = source_duration - abs(delta)
-        if remaining < MIN_REMAINING_SECONDS:
-            raise ProcessingError(
-                f"trimming {abs(delta):g} s from the end would leave nothing of a "
-                f"{source_duration:.2f} s track", stage="trim",
-                detail=f"source={track.source} duration={source_duration:.3f} delta={delta}")
-        args = _trim_args(track.source, remaining, track.staged)
-        expected = remaining
-        stage = "trim"
-    else:
-        args = _clean_copy_args(track.source, track.staged)
-        expected = source_duration
-        stage = "copy"
-    code, _out, err = run_ff(args)
-    if code != 0:
-        _discard_staged(track.staged)
-        raise ProcessingError(
-            "FFmpeg could not create the track", stage=stage,
-            detail="CMD: " + " ".join(shlex.quote(a) for a in args) + "\n" + err.strip())
-    return expected
+    try:
+        with _prepared_mp3(track.source, track.staged.parent) as source:
+            source_duration = _decode_duration_seconds(source)
+            if source_duration is None:
+                raise ProcessingError("the source has no readable audio duration", stage="probe",
+                                      detail=str(track.source))
+            delta = float(book.time_delta)
+            if delta > 0:
+                args = _append_silence_args(source, delta, track.staged)
+                expected = source_duration + delta
+                stage = "append"
+            elif delta < 0:
+                remaining = source_duration - abs(delta)
+                if remaining < MIN_REMAINING_SECONDS:
+                    raise ProcessingError(
+                        f"trimming {abs(delta):g} s from the end would leave nothing of a "
+                        f"{source_duration:.2f} s track", stage="trim",
+                        detail=f"source={track.source} duration={source_duration:.3f} delta={delta}")
+                args = _trim_args(source, remaining, track.staged)
+                expected = remaining
+                stage = "trim"
+            else:
+                args = _clean_copy_args(source, track.staged)
+                expected = source_duration
+                stage = "copy"
+            code, _out, err = run_ff(args)
+            if code != 0:
+                _discard_staged(track.staged)
+                raise ProcessingError(
+                    "FFmpeg could not create the track", stage=stage,
+                    detail="CMD: " + " ".join(shlex.quote(a) for a in args) + "\n" + err.strip())
+            return expected
+    except OSError as exc:
+        raise ProcessingError("the source audio could not be prepared", stage="probe",
+                              detail=f"{track.source}: {exc}") from exc
 
 
 def _clean_copy_args(source: Path, staged: Path) -> List[str]:
