@@ -1,0 +1,7 @@
+prompt
+
+Read files/plans/ACT-v0.6.7-Plan-01-Qwen3-TTS-Evaluation-and-Conditional-Integration.md and follow the applicable local project instructions and AI-WORKSPACE.md.
+Use branch feature/0.6.7-bundled-chatterbox-references.
+Execute CP1 only: inspect the actual checkout, root environment, GPU compatibility, reference WAVs, existing transcripts, FFmpeg and model caches. Keep the investigation read-only apart from ignored preflight evidence.
+Do not install packages, download models, synthesize audio, modify application code or begin CP2.
+Report the branch/head SHA, confirmed local facts, blockers, estimated new downloads and the concrete CP2 dependency/model proposal. Distinguish verified facts from assumptions.
