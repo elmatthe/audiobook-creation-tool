@@ -4,6 +4,34 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-19 - Plan 01B working decisions; `scripts/` is the import root (checkpoints C0, A0, B1)
+
+**Decision (owner working decisions D1-D15, recorded in `files/plans/ACT-v0.6.7-Plan-01B-Text-Pipeline-and-Script-Layout.md` section 0).**
+- *Layout.* `scripts/Universal/{launcher.py,shared,tts,mp3_tools}` moved up to `scripts/`, which is now the import root; the `MacOS/` and
+  `Windows/` placeholders were removed. The package names did not change, so no import statement changed. The deep MP3/M4B package split is
+  deferred until after S5 (592 test references); navigation is by short README maps instead. A leftover `scripts/Universal` produces a
+  warning only: the app never deletes it, and no ignored or untracked file was deleted to make the folder disappear.
+- *Sequence.* C0, then A0 (characterization baselines of the five text routes, captured from the original code **before** anything moved),
+  then B1; A1-A5 and S5 follow only after the owner's manual Windows launch and Codex's independent review of B1.
+- *Baselines live under `files/tests/golden/speech/`.* `files/test-files/` is gitignored local-fixture space, so a tracked golden cannot live
+  there. They are text, chunk and seed baselines (no audio, no network) and any later pure refactor must leave them byte-identical.
+- *Test counts.* The pre-existing suite must show no regression and the new tests must pass; the two counts are recorded separately and the
+  total is allowed to rise.
+- *Chatterbox colon behaviour is temporary compatibility.* The structural-colon `punc_norm` patch and the 75 ms prose-colon pause stay
+  untouched through B1 and A1-A5; checkpoint A6 defines the criteria (including unexpanded and protected colons and URLs) for retiring them.
+- *A run freezes its speech-preparation settings by value* (an immutable run-scoped copy; a hash alone does not freeze anything), so Retry
+  Failed cannot see an edited glossary. Shared normalization is the end state for every engine; per-engine modes are rollout scaffolding,
+  and each exception needs evidence, a Decisions entry, a review checkpoint and independent review.
+- *One pinned test was re-pinned on purpose.* `test_plan6_boundaries.PHASE6_PROMOTION_HASHES` pins the content of `test_m4b_numbering.py`; its
+  single changed line is the path constant, so the digest was updated once with the old value recorded beside it.
+
+**Why.** The relocation removes an extra directory level and three confusing folder names without touching behaviour; characterising the text
+routes first lets the move and the later speech-pipeline work prove they changed no text path.
+
+-- Decided by the owner's working decisions; implemented by Claude Code
+
+---
+
 ## 2026-10-19 - CP6 build decisions: how the Qwen3 voices are installed, contained, locked and previewed
 
 **Decision (engineering, inside the owner's Q1-Q8 rulings; independent Codex review after every slice).**

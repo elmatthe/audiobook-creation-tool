@@ -15,6 +15,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — Application packages lifted from `scripts/Universal/` to `scripts/` (v0.6.7 Plan 01B checkpoint B1, 2026-10-19)
+
+- **Layout only; no behaviour change.** `launcher.py`, `shared/`, `tts/` and `mp3_tools/` now sit directly under `scripts/`, which is the
+  application's import root. The package names (`shared`, `tts`, `mp3_tools`) are unchanged, so no `import` statement changed. The empty
+  `scripts/MacOS/` and `scripts/Windows/` placeholders and the `Universal/` level are gone. Git history follows the files.
+- Depth-dependent root lookups were shortened by one level (paths, bootstrap, FFmpeg modules, cleanup, release packaging, the Qwen3 and
+  Chatterbox fallbacks), and the launchers, `config.toml`'s `entry_point`, `verify.py` and the dev tools follow the new location.
+- A leftover `scripts/Universal/` from extracting a new release over an old install is reported by a one-line warning at launch when it still
+  holds Python files. It is never deleted, moved or edited by the app; a folder holding only bytecode caches stays silent.
+- Short module maps: `scripts/README.md`, `scripts/shared/README.md`, `scripts/tts/README.md`, `scripts/mp3_tools/README.md`.
+- Development only: A0 characterization baselines for the five TTS text routes (`files/dev-tools/speech_characterization.py`,
+  `files/tests/golden/speech/`) were captured from the original code before the move and still match byte for byte; layout canaries
+  (`files/tests/test_layout_canary.py`) guard the new layout. Application identity stays 0.6.6; nothing is released.
+
 ### Added — Qwen3-TTS voices: eight optional local voices, Windows first (v0.6.7 CP6, 2026-10-19)
 
 - **Eight new voices** in a separate group of the TTS voice list: **Qwen3 - Aiden**, **Qwen3 - Ryan** (preset voices) and **Qwen3 -

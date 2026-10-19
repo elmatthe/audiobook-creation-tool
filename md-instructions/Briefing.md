@@ -86,7 +86,7 @@ flashing during use.
   `files/bin/ffmpeg/<version>/bin`. Whichever wins is **proved by execution and pinned where it
   lives** — never copied into `files/bin/` to centralise it.
 - **Platform:** cross-platform Windows + macOS from a **single code tree**
-  (`scripts/Universal/`); platform differences are `sys.platform` branches inside shared code.
+  (`scripts/`); platform differences are `sys.platform` branches inside shared code.
 
 ## Architecture
 
@@ -97,7 +97,7 @@ flashing during use.
   on an unsupported version still has the file. Healthy launches via `pythonw.exe` (Windows — no
   console) / detached (macOS); anything else hands control back for a **repair**, and the launcher
   itself knows nothing about Python versions, `ssl` or Tk. First run hands off to the bootstrap.
-- **`scripts/Universal/shared/bootstrap.py`** — single cross-platform setup + launch brain
+- **`scripts/shared/bootstrap.py`** — single cross-platform setup + launch brain
   (stdlib + Tk only; runs before the venv exists). Locates/installs Python 3.12, creates the
   repo-root `.venv`, pip-installs pinned requirements, ensures ffmpeg, optionally pre-downloads
   the Kokoro model (~300 MB), **self-heals a missing/broken Kokoro install on every launch**
@@ -112,7 +112,7 @@ flashing during use.
     30 s setup window failed a healthy first-run install.
   - Its repair reinstall is constrained by `-c requirements.txt`, so it can never drift the pins.
   - Proved by a real first-run install from the built Windows archive.
-- **`scripts/Universal/launcher.py`** — the unified Tk GUI. Sidebar of 6 tools; each tool
+- **`scripts/launcher.py`** — the unified Tk GUI. Sidebar of 6 tools; each tool
   exposes `build_ui(parent_frame)`, is lazy-imported and guarded (a missing dependency renders
   an in-panel error, never a crash), built once and shown/hidden on selection so in-progress
   state survives switching. Installs `install_no_window_guard()` first so even pydub/edge-tts
@@ -127,7 +127,7 @@ flashing during use.
   styled:** `self.content` and every tool container stay plain, unstyled `ttk.Frame`s in
   all three modes, which is the structural reason an unconverted panel inherits nothing
   from the shell.
-- **`scripts/Universal/shared/`** — `paths.py` (single source of truth for every project
+- **`scripts/shared/`** — `paths.py` (single source of truth for every project
   path — everything derives from `REPO_ROOT`), `subprocess_utils.py` (hidden-console subprocess
   wrapper + the global Popen no-window guard), `ffmpeg_utils.py` (**consumes only the proved,
   pinned pair** recorded by `ffmpeg_health.py` — there is no `PATH` fallback and no bare
@@ -418,7 +418,8 @@ flashing during use.
   command/style-inheritance tests, **not a native Mac visual PASS**. Successful Reset Preferences
   refreshes the live bundle and toggle to the default Light; a failed appearance save keeps the
   UI consistent with storage. No panel or active job is rebuilt by either refresh.
-- **Import convention:** `scripts/Universal/` is the single import root. Cross-module imports
+- **Import convention:** `scripts/` is the single import root (v0.6.7 checkpoint B1 lifted `launcher.py`, `shared/`, `tts/` and
+  `mp3_tools/` out of the former `scripts/Universal/`; the package names did not change). Cross-module imports
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
   only ever imported as `tts.epub2tts_edge`.
@@ -483,7 +484,7 @@ flashing during use.
     `bash -n` clean, `0o755` in the zip and `100755` in git.
 
 - **Shared importing and job-control foundation (v0.6.0 Drop 3).** Four modules under
-  `scripts/Universal/shared/`, built with **no production consumer at the time**. They exist so the
+  `scripts/shared/`, built with **no production consumer at the time**. They exist so the
   tool plans that follow can adopt one importer and one set of run controls instead of six
   divergent ones; adoption belongs to Plans 4–8 and is now under way — **TTS Audiobook and Cover
   Image Converter adopted them in v0.6.1 (Plan 4) and the M4B Converter in v0.6.2 (Plan 5)** — while
@@ -620,7 +621,7 @@ rulings and the build decisions are in `Decisions.md` (2026-10-19, two entries);
   `.venv-qwen3/` (CPython 3.12, 89 hash-pinned packages in `scripts/qwen3-requirements.txt`, torch/torchaudio from the cu128 index; gitignored,
   never packaged). The app process never imports torch or Qwen; each source file runs in its own `tts/qwen3_worker.py` subprocess
   (JSON-lines `@@EVENT` protocol). Root `.venv`, `scripts/requirements.txt` and Chatterbox are untouched.
-- **Modules** (all under `scripts/Universal/tts/`): `qwen3_runtime.py` (paths, status, manifest, transcripts, locks, hardware — stdlib
+- **Modules** (all under `scripts/tts/`): `qwen3_runtime.py` (paths, status, manifest, transcripts, locks, hardware — stdlib
   only), `qwen3_synth.py` (text prep, 600-character sentence planner, worker supervision, assembly, one atomic MP3 encode; entry
   `qwen3_file_to_mp3`), `qwen3_worker.py` (venv side), `qwen3_process.py` (Windows Job Object spawn/kill), `qwen3_setup.py`
   (install/verify/repair), `qwen3_install_ui.py` (the dialog), `qwen3_models.json` (pinned model manifest).
@@ -967,8 +968,8 @@ Audiobook-Creation-Tool/
 │   ├── verify.py               ← mechanical gate: pytest + pinned deps + de-templated docs
 │   │                             + exact canonical doc names (os.listdir, no alias)
 │   │                             + a valid committed config.toml (fails on any diagnostic)
-│   ├── Universal/              ← ALL program code (launcher.py, tts/, mp3_tools/, shared/)
-│   ├── Windows/  MacOS/        ← empty by design (.gitkeep) — only truly OS-specific code
+│   ├── launcher.py  shared/  tts/  mp3_tools/   ← ALL program code, directly under scripts/ (the import root);
+│   │                             module maps: scripts/README.md and one README per package
 └── files/                      ← dev-only + runtime (nothing here ships in release zips)
     ├── bin/                    ← portable ffmpeg fallback (gitignored)
     ├── runtime-data/           ← logs/, settings.json, models/huggingface/ (Kokoro ~300 MB;
