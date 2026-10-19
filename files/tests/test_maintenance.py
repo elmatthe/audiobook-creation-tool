@@ -52,7 +52,7 @@ def write(path: Path, payload: bytes) -> Path:
 def fake_root(tmp_path: Path, *, venv=True, binaries=True, models=True, logs=True) -> Path:
     """A disposable stand-in for the repository root, with known byte totals."""
     root = tmp_path / "fake-repo"
-    (root / "scripts" / "Universal" / "shared").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "shared").mkdir(parents=True, exist_ok=True)
     (root / "md-instructions").mkdir(parents=True, exist_ok=True)
     (root / "files" / "tests").mkdir(parents=True, exist_ok=True)
     (root / "files" / "runtime-data").mkdir(parents=True, exist_ok=True)

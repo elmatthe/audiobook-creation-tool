@@ -44,7 +44,7 @@ from mp3_tools import mp3_artwork
 from mp3_tools.m4b_artwork import ArtworkError, M4BCover
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "m4b_artwork.py"
 
 

@@ -71,7 +71,7 @@ from test_m4b_execution import _probe, _tags, media  # noqa: E402,F401
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal" / "mp3_tools"
+UNIVERSAL = REPO_ROOT / "scripts" / "mp3_tools"
 PANEL_SOURCE = UNIVERSAL / "m4b_converter.py"
 NUMBERING_SOURCE = UNIVERSAL / "m4b_numbering.py"
 PLAN_SOURCE = UNIVERSAL / "m4b_plan.py"

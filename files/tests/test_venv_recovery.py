@@ -565,7 +565,7 @@ def _sandbox(tmp_path: Path, *, exit_code: int | None, runnable: bool = True,
     exists. A first-run fixture never creates an environment just to delete it.
     """
     root = tmp_path / "tree"
-    (root / "scripts" / "Universal" / "shared").mkdir(parents=True)
+    (root / "scripts" / "shared").mkdir(parents=True)
     if venv_present:
         (root / ".venv" / "Scripts").mkdir(parents=True)
 
@@ -579,10 +579,10 @@ def _sandbox(tmp_path: Path, *, exit_code: int | None, runnable: bool = True,
     if venv_present and not pythonw.exists():
         pythonw.write_bytes(b"")
 
-    stub = root / "scripts" / "Universal" / "shared" / "bootstrap.py"
+    stub = root / "scripts" / "shared" / "bootstrap.py"
     stub.write_text(
         "import sys, pathlib\n"
-        "log = pathlib.Path(__file__).resolve().parents[3] / 'calls.log'\n"
+        "log = pathlib.Path(__file__).resolve().parents[2] / 'calls.log'\n"
         "with log.open('a', encoding='utf-8') as fh:\n"
         "    fh.write(' '.join(sys.argv[1:]) + '\\n')\n"
         f"sys.exit({exit_code if exit_code is not None else 0})\n",

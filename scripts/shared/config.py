@@ -117,7 +117,7 @@ _SCHEMA: dict[str, frozenset[str]] = {
 
 DEFAULT_PROJECT_NAME = "Audiobook Creation Tool"
 DEFAULT_PYTHON_MIN = "3.11"
-DEFAULT_ENTRY_POINT = "scripts/Universal/launcher.py"
+DEFAULT_ENTRY_POINT = "scripts/launcher.py"
 DEFAULT_PLATFORMS: tuple[str, ...] = ("Windows", "MacOS")
 DEFAULT_MAX_SESSIONS = 30
 DEFAULT_LARGE_RESULT_WARNING_THRESHOLD = 1000

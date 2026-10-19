@@ -26,13 +26,13 @@ from test_release_packaging import (  # noqa: F401
 )
 
 SHIPPED = (
-    "scripts/Universal/tts/qwen3_runtime.py",
-    "scripts/Universal/tts/qwen3_synth.py",
-    "scripts/Universal/tts/qwen3_worker.py",
-    "scripts/Universal/tts/qwen3_process.py",
-    "scripts/Universal/tts/qwen3_setup.py",
-    "scripts/Universal/tts/qwen3_install_ui.py",
-    "scripts/Universal/tts/qwen3_models.json",
+    "scripts/tts/qwen3_runtime.py",
+    "scripts/tts/qwen3_synth.py",
+    "scripts/tts/qwen3_worker.py",
+    "scripts/tts/qwen3_process.py",
+    "scripts/tts/qwen3_setup.py",
+    "scripts/tts/qwen3_install_ui.py",
+    "scripts/tts/qwen3_models.json",
     "scripts/qwen3-requirements.txt",
 )
 
@@ -92,7 +92,7 @@ def test_the_shipped_requirements_and_manifest_are_the_committed_bytes(archives,
     import zipfile
 
     with zipfile.ZipFile(archives[os_name]) as zf:
-        for path in ("scripts/qwen3-requirements.txt", "scripts/Universal/tts/qwen3_models.json"):
+        for path in ("scripts/qwen3-requirements.txt", "scripts/tts/qwen3_models.json"):
             assert zf.read(path) == (REPO_ROOT / path).read_bytes(), path
 
 

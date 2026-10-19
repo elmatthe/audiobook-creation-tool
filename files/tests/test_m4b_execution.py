@@ -97,7 +97,7 @@ from test_m4b_metadata import require_ffmpeg  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal" / "mp3_tools"
+UNIVERSAL = REPO_ROOT / "scripts" / "mp3_tools"
 PANEL_SOURCE = UNIVERSAL / "m4b_converter.py"
 EXECUTION_SOURCE = UNIVERSAL / "m4b_execution.py"
 
@@ -1391,7 +1391,7 @@ def test_the_default_is_the_non_accusing_wording():
 
 def test_the_execution_layer_reads_the_frozen_truth_and_never_guesses():
     """**Structural.** No re-probe, and no string sniffing for "xhe"."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools"
+    source = (REPO_ROOT / "scripts" / "mp3_tools"
               / "m4b_execution.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     body = next(node for node in ast.walk(tree)

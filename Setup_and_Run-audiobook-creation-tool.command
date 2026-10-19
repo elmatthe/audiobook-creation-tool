@@ -6,7 +6,7 @@
 #  everything (a private Python environment + audio libraries + ffmpeg) using a
 #  small setup window. EVERY time after that it just opens the app. All the real
 #  work lives in:
-#      scripts/Universal/shared/bootstrap.py
+#      scripts/shared/bootstrap.py
 # ============================================================================
 
 set -u
@@ -72,7 +72,7 @@ fi
 
 cd "$HERE" || { echo "Could not enter the app folder."; exit 1; }
 
-BOOTSTRAP="scripts/Universal/shared/bootstrap.py"
+BOOTSTRAP="scripts/shared/bootstrap.py"
 
 # ---------------------------------------------------------------------------
 # Fast path: environment already set up.
@@ -109,7 +109,7 @@ if [ -x ".venv/bin/python" ]; then
         # helper detached into its own session waits for this bash to exit, then
         # closes the window (matched by our tty) when nothing is running in it.
         launcher_tty="$(tty 2>/dev/null || true)"
-        nohup ".venv/bin/python" "scripts/Universal/shared/close_terminal.py" "$launcher_tty" \
+        nohup ".venv/bin/python" "scripts/shared/close_terminal.py" "$launcher_tty" \
             >/dev/null 2>&1 &
         disown 2>/dev/null || true
         exit 0

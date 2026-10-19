@@ -60,7 +60,7 @@ def make_config(threshold: int = 1000) -> config.EffectiveConfig:
             name="Audiobook Creation Tool",
             version="0.5.1",
             python_min="3.11",
-            entry_point="scripts/Universal/launcher.py",
+            entry_point="scripts/launcher.py",
             platforms=("Windows", "MacOS"),
         ),
         output=config.OutputConfig(base_directory=ROOT_PATH / "out", is_default=True),

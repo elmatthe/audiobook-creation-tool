@@ -32,8 +32,8 @@ import pytest
 from shared import logging_setup
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LAUNCHER = REPO_ROOT / "scripts" / "Universal" / "launcher.py"
-MODULE = REPO_ROOT / "scripts" / "Universal" / "shared" / "logging_setup.py"
+LAUNCHER = REPO_ROOT / "scripts" / "launcher.py"
+MODULE = REPO_ROOT / "scripts" / "shared" / "logging_setup.py"
 
 
 class FakeFaulthandler:
@@ -316,7 +316,7 @@ def test_the_diagnostic_touched_no_engine_module():
     modules contain no faulthandler wiring that could have crept in."""
     for name in ("tts/chatterbox_synth.py", "tts/kokoro_synth.py",
                  "tts/epub2tts_gui.py"):
-        source = (REPO_ROOT / "scripts" / "Universal" / name).read_text(
+        source = (REPO_ROOT / "scripts" / name).read_text(
             encoding="utf-8")
         assert "faulthandler" not in source
 

@@ -60,7 +60,7 @@ from test_import_coordination import RecordingThreads  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "cover_resizer.py"
 
 #: Every wait here is bounded so a deadlock fails rather than hangs.
 WAIT = 5.0
@@ -92,8 +92,8 @@ def output_base(tmp_path, monkeypatch):
     app_settings.use_path(tmp_path / "runtime-data" / "settings.json")
     base = tmp_path / "OutputBase"
     root = tmp_path / "fakerepo"
-    (root / "scripts" / "Universal").mkdir(parents=True, exist_ok=True)
-    (root / "scripts" / "Universal" / "launcher.py").write_text("#\n", encoding="utf-8")
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "launcher.py").write_text("#\n", encoding="utf-8")
     (root / "config.toml").write_text(
         "[project]\n"
         f'version = "{config.DEFAULTS["project.version"]}"\n'

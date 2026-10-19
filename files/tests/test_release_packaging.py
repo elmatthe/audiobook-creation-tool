@@ -31,7 +31,7 @@ import pytest
 from shared import release
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 
 OS_NAMES = ("Windows", "MacOS")
 LAUNCHERS = {
@@ -90,10 +90,10 @@ def top_level(archive: Path) -> set[str]:
 
 def fake_repo(root: Path) -> Path:
     """A miniature repository carrying every kind of file that must not ship."""
-    (root / "scripts" / "Universal" / "shared").mkdir(parents=True)
+    (root / "scripts" / "shared").mkdir(parents=True)
     (root / "scripts" / "requirements.txt").write_text("pydub==0.25.1\n", encoding="utf-8")
-    (root / "scripts" / "Universal" / "launcher.py").write_text("x = 1\n", encoding="utf-8")
-    (root / "scripts" / "Universal" / "shared" / "version.py").write_text(
+    (root / "scripts" / "launcher.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "scripts" / "shared" / "version.py").write_text(
         'VERSION = "9.9.9"\n', encoding="utf-8")
     (root / "README.md").write_text("readme\n", encoding="utf-8")
     (root / "config.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
@@ -112,9 +112,9 @@ def fake_repo(root: Path) -> Path:
     (root / "files/arbitrary.txt").write_text("excluded", encoding="utf-8")
 
     # Everything below is developer or runtime state and must stay behind.
-    (root / "scripts" / "Universal" / "__pycache__").mkdir()
-    (root / "scripts" / "Universal" / "__pycache__" / "launcher.cpython-312.pyc").write_bytes(b"\x00")
-    (root / "scripts" / "Universal" / "stale.pyc").write_bytes(b"\x00")
+    (root / "scripts" / "__pycache__").mkdir()
+    (root / "scripts" / "__pycache__" / "launcher.cpython-312.pyc").write_bytes(b"\x00")
+    (root / "scripts" / "stale.pyc").write_bytes(b"\x00")
     (root / ".venv" / "Scripts").mkdir(parents=True)
     (root / ".venv" / "Scripts" / "python.exe").write_bytes(b"\x00")
     # (.git/ itself is created for real by commit_everything below.)
@@ -148,8 +148,8 @@ def fake_repo(root: Path) -> Path:
     # guaranteed to be free of them at packaging time (v0.6.5 Phase 8: a real
     # Mac checkout that had simply been opened in Finder shipped
     # scripts/.DS_Store before this was caught).
-    (root / "scripts" / "Universal" / ".DS_Store").write_bytes(b"\x00")
-    (root / "scripts" / "Universal" / "Thumbs.db").write_bytes(b"\x00")
+    (root / "scripts" / ".DS_Store").write_bytes(b"\x00")
+    (root / "scripts" / "Thumbs.db").write_bytes(b"\x00")
     # Everything above is committed -- forced past any ignore rule -- so the
     # name/suffix exclusions are proved on tracked junk too, not only on files
     # the tracked-only rule would already have dropped.
@@ -354,7 +354,7 @@ def test_the_scripts_tree_is_complete(archives, os_name):
     packaged = {name for name in names(archives[os_name]) if name.startswith("scripts/")}
     assert packaged == expected
     assert "scripts/requirements.txt" in packaged
-    assert "scripts/Universal/launcher.py" in packaged
+    assert "scripts/launcher.py" in packaged
     assert "scripts/verify.py" in packaged
 
 
@@ -414,11 +414,11 @@ def test_an_untracked_file_under_scripts_never_ships(tmp_path, os_name):
     """
     root = fake_repo(tmp_path / "repo")
     (root / "scripts" / "local-helper.py").write_text("x = 2\n", encoding="utf-8")
-    (root / "scripts" / "Universal" / ".env").write_text("TOKEN=not-real\n", encoding="utf-8")
+    (root / "scripts" / ".env").write_text("TOKEN=not-real\n", encoding="utf-8")
     members = names(build(root, tmp_path / "dist", os_name))
     assert "scripts/local-helper.py" not in members
-    assert "scripts/Universal/.env" not in members
-    assert "scripts/Universal/launcher.py" in members
+    assert "scripts/.env" not in members
+    assert "scripts/launcher.py" in members
 
 
 def test_the_real_archives_carry_no_untracked_file(archives):
@@ -431,8 +431,8 @@ def test_the_real_archives_carry_no_untracked_file(archives):
 def test_packaging_outside_a_git_checkout_is_refused(tmp_path):
     """Fail closed: without git there is no way to tell committed from local."""
     root = tmp_path / "plain"
-    (root / "scripts" / "Universal").mkdir(parents=True)
-    (root / "scripts" / "Universal" / "launcher.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "launcher.py").write_text("x = 1\n", encoding="utf-8")
     for name in (*ROOT_MEMBERS, *LAUNCHERS.values()):
         (root / name).write_text("x\n", encoding="utf-8")
     with pytest.raises(release.ReleaseError):
@@ -450,7 +450,7 @@ def run_main(root: Path, dist: Path) -> int:
 
 
 @pytest.mark.parametrize("edited", [
-    "scripts/Universal/launcher.py", "README.md", "config.toml",
+    "scripts/launcher.py", "README.md", "config.toml",
     "Setup_and_Run-audiobook-creation-tool.bat",
     "Setup_and_Run-audiobook-creation-tool.command",
 ] + sorted(REFERENCE_MEMBERS))
@@ -464,8 +464,8 @@ def test_the_release_build_refuses_uncommitted_changes(tmp_path, edited):
 
 def test_a_staged_but_uncommitted_change_is_refused_too(tmp_path):
     root = fake_repo(tmp_path / "repo")
-    (root / "scripts" / "Universal" / "launcher.py").write_text("x = 3\n", encoding="utf-8")
-    git(root, "add", "scripts/Universal/launcher.py")
+    (root / "scripts" / "launcher.py").write_text("x = 3\n", encoding="utf-8")
+    git(root, "add", "scripts/launcher.py")
     assert run_main(root, tmp_path / "dist") != 0
 
 
@@ -626,7 +626,7 @@ def test_every_member_extracts_inside_the_extraction_root(tmp_path, archives, os
             assert destination == root or root in destination.parents, info.filename
         zf.extractall(target)
     assert (target / "config.toml").read_bytes() == (REPO_ROOT / "config.toml").read_bytes()
-    assert (target / "scripts" / "Universal" / "launcher.py").is_file()
+    assert (target / "scripts" / "launcher.py").is_file()
 
 
 # --------------------------------------------------------------------------- #

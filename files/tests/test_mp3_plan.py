@@ -52,7 +52,7 @@ from mp3_tools.mp3_plan import BookPlan, MP3Operation, PlanError, RunPlan, Track
 from test_importing import make_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "mp3_plan.py"
 
 _IDS = IdFactory("plan-")

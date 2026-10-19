@@ -48,7 +48,7 @@ from shared import subprocess_utils
 from test_m4b_metadata_workflow import _ff, require_ffmpeg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-METADATA_MODULE = REPO_ROOT / "scripts" / "Universal" / "shared" / "metadata.py"
+METADATA_MODULE = REPO_ROOT / "scripts" / "shared" / "metadata.py"
 
 #: The reproduced shape: a short opening, a chapter well past the ~487 s limit,
 #: a short closing. Seconds.

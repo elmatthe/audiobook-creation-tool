@@ -36,7 +36,7 @@ from shared.book_workspace import (  # noqa: E402
 from shared.book_workspace_ui import BookNavigator, BookWorkspaceUiError  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ADAPTER = REPO_ROOT / "scripts" / "Universal" / "shared" / "book_workspace_ui.py"
+ADAPTER = REPO_ROOT / "scripts" / "shared" / "book_workspace_ui.py"
 
 FIELDS = ("Title",)
 _IDS = IdFactory("na-")

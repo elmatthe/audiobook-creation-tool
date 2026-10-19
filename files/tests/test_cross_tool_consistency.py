@@ -81,7 +81,7 @@ FLEX_MIN_WIDTH = 40
 #: The Windows process-DPI APIs; none may be called (see the module docstring).
 DPI_APIS = frozenset({"SetProcessDpiAwareness", "SetProcessDPIAware",
                       "SetProcessDpiAwarenessContext", "SetThreadDpiAwarenessContext"})
-UNIVERSAL = Path(__file__).resolve().parents[2] / "scripts" / "Universal"
+UNIVERSAL = Path(__file__).resolve().parents[2] / "scripts"
 
 
 @pytest.fixture(scope="module")

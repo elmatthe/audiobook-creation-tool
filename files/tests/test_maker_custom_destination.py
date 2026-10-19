@@ -48,8 +48,8 @@ def output_base(tmp_path, monkeypatch):
     app_settings.use_path(tmp_path / "runtime-data" / "settings.json")
     base = tmp_path / "OutputBase"
     root = tmp_path / "fakerepo"
-    (root / "scripts" / "Universal").mkdir(parents=True, exist_ok=True)
-    (root / "scripts" / "Universal" / "launcher.py").write_text("#\n", encoding="utf-8")
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "launcher.py").write_text("#\n", encoding="utf-8")
     (root / "config.toml").write_text(
         "[project]\n"
         f'version = "{config.DEFAULTS["project.version"]}"\n'

@@ -77,7 +77,7 @@ except ImportError:  # pragma: no cover - bootstrap imports this file directly
 _THIS = Path(__file__).resolve()
 SHARED_DIR = _THIS.parent
 SCRIPTS_DIR = SHARED_DIR.parent
-REPO_ROOT = SCRIPTS_DIR.parent.parent
+REPO_ROOT = SCRIPTS_DIR.parent
 
 FILES_DIR = REPO_ROOT / "files"
 RESOURCES_DIR = FILES_DIR / "runtime-data"

@@ -36,7 +36,7 @@ ALL_TOOL_KEYS = ("tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b_
 def snapshot_with_base(tmp_path: Path, base: str = "") -> object:
     """An effective configuration snapshot pointing at a temporary base."""
     root = tmp_path / "fakerepo"
-    entry = root / "scripts" / "Universal" / "launcher.py"
+    entry = root / "scripts" / "launcher.py"
     entry.parent.mkdir(parents=True, exist_ok=True)
     entry.write_text("#\n", encoding="utf-8")
     body = f"""
@@ -44,7 +44,7 @@ def snapshot_with_base(tmp_path: Path, base: str = "") -> object:
 name = "Audiobook Creation Tool"
 version = "{config.DEFAULTS['project.version']}"
 python_min = "3.11"
-entry_point = "scripts/Universal/launcher.py"
+entry_point = "scripts/launcher.py"
 platforms = ["Windows", "MacOS"]
 
 [output]
@@ -1055,7 +1055,7 @@ def test_every_tool_panel_consumes_the_shared_service():
         "mp3_tools/mp3_tool.py", "tts/epub2tts_gui.py",
     ]
     for relative in tool_modules:
-        source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
+        source = (REPO_ROOT / "scripts" / relative).read_text(encoding="utf-8")
         assert "output_paths" in source, relative
         # Structural rather than a substring: the Converter's call now also
         # names the configuration its run was accepted with, so the exact call
@@ -1073,7 +1073,7 @@ def test_every_tool_panel_consumes_the_shared_service():
 
 def test_the_launcher_still_does_not_reserve_output():
     """The launcher hosts panels; it never claims an output directory."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "scripts" / "launcher.py").read_text(encoding="utf-8")
     assert "reserve_run_directory" not in source
 
 
@@ -1086,17 +1086,17 @@ def test_no_production_code_calls_the_legacy_output_helpers():
     batch planner are now the single authority for a destination.
     """
     callers = set()
-    for path in (REPO_ROOT / "scripts" / "Universal").rglob("*.py"):
+    for path in (REPO_ROOT / "scripts").rglob("*.py"):
         if path.name == "paths.py":
             continue
         source = path.read_text(encoding="utf-8")
         if "next_output_dir(" in source or "avoid_input_overwrite(" in source:
-            callers.add(path.relative_to(REPO_ROOT / "scripts" / "Universal").as_posix())
+            callers.add(path.relative_to(REPO_ROOT / "scripts").as_posix())
     assert callers == set(), f"legacy output helper still called by {sorted(callers)}"
 
 
 def test_the_legacy_helpers_survive_as_documented_dormant_api():
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared" / "paths.py").read_text(
+    source = (REPO_ROOT / "scripts" / "shared" / "paths.py").read_text(
         encoding="utf-8"
     )
     assert "def next_output_dir" in source
@@ -1108,7 +1108,7 @@ def test_no_cleanup_or_post_exit_behaviour_exists_anywhere():
     import ast
 
     for relative in ("shared/output_paths.py", "shared/preferences_ui.py", "launcher.py"):
-        source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
+        source = (REPO_ROOT / "scripts" / relative).read_text(encoding="utf-8")
         tree = ast.parse(source)
         called = {n.func.attr for n in ast.walk(tree)
                   if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
@@ -1137,10 +1137,10 @@ def test_the_cleanup_flow_still_deletes_nothing_from_the_gui():
 
 def test_the_two_approved_exceptions_exist_and_no_others():
     """Phase 5 added exactly the two destination exceptions Decision 10A allows."""
-    cover = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py").read_text(
+    cover = (REPO_ROOT / "scripts" / "mp3_tools" / "cover_resizer.py").read_text(
         encoding="utf-8"
     )
-    maker = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_maker.py").read_text(
+    maker = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_maker.py").read_text(
         encoding="utf-8"
     )
     assert "Save beside source images" in cover
@@ -1150,7 +1150,7 @@ def test_the_two_approved_exceptions_exist_and_no_others():
     # No third exception route arrived anywhere.
     for relative in ("mp3_tools/m4b_converter.py", "mp3_tools/mp3_tool.py",
                      "mp3_tools/m4b_metadata_editor.py", "tts/epub2tts_gui.py"):
-        source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
+        source = (REPO_ROOT / "scripts" / relative).read_text(encoding="utf-8")
         assert "Save beside source" not in source
         assert "custom destination" not in source.lower()
 

@@ -74,7 +74,7 @@ from test_m4b_conversion_plan import (  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
 
 #: Every wait here is bounded, so a deadlock fails rather than hangs.
 WAIT = 5.0

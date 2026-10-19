@@ -31,7 +31,7 @@ from mp3_tools import m4b_artwork_ui as art_ui  # noqa: E402
 from mp3_tools.m4b_artwork_ui import ArtworkControl  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "m4b_artwork_ui.py"
 
 

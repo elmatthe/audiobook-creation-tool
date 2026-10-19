@@ -45,7 +45,7 @@ from test_m4b_metadata_processing import container, png, sha  # noqa: E402,F401
 from test_mp3_tool_ui import make_panel as make_mp3, tagged, tracks  # noqa: E402,F401
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 LABEL = "Clear All Imports"
 
 

@@ -34,7 +34,7 @@ import pytest
 from shared import ffmpeg_health, ffmpeg_utils
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 EXE = ffmpeg_health.EXE
 
 

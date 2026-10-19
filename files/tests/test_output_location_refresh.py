@@ -28,7 +28,7 @@ from shared import settings as app_settings  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 
 TOOL_KEYS = ("tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b_metadata")
 

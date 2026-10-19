@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 SHARED = UNIVERSAL / "shared"
 TESTS = REPO_ROOT / "files" / "tests"
 
@@ -89,7 +89,7 @@ PANELS = (
 #: Plan 3 shipped the foundation adopted by nothing, and these guards proved it.
 #: Plan 4 adopts it, one panel at a time, so the guards are **narrowed** to the
 #: modules that have not adopted yet rather than deleted or weakened — every
-#: other panel and every other module in ``scripts/Universal/`` is still held to
+#: other panel and every other module in ``scripts/`` is still held to
 #: exactly the boundary Plan 3 approved.
 #:
 #: v0.6.1 Plan 4 Phase 2 added the Cover panel and Phase 6 added the TTS panel,

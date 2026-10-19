@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-TTS_DIR = REPO_ROOT / "scripts" / "Universal" / "tts"
+TTS_DIR = REPO_ROOT / "scripts" / "tts"
 
 from tts import chatterbox_synth as cbx  # noqa: E402
 from tts import generate_voice_samples as gvs  # noqa: E402

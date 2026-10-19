@@ -44,7 +44,7 @@ from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker.py"
 
 windows_only = pytest.mark.skipif(

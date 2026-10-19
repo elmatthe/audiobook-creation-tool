@@ -66,7 +66,7 @@ from test_m4b_metadata_processing import audio_md5, container, png  # noqa: E402
 from test_m4b_metadata_workflow import m4b  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 
 
 # --------------------------------------------------------------------------- #

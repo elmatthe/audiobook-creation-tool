@@ -316,6 +316,6 @@ def test_kokoro_chunking_behaviour_is_unchanged_for_long_prose():
 
 def test_the_remediation_did_not_edit_the_kokoro_engine():
     """`kokoro_synth.py` must not have grown a Chatterbox-shaped constant."""
-    src = (REPO_ROOT / "scripts" / "Universal" / "tts" / "kokoro_synth.py").read_text(
+    src = (REPO_ROOT / "scripts" / "tts" / "kokoro_synth.py").read_text(
         encoding="utf-8")
     assert "CHATTERBOX" not in src.upper()

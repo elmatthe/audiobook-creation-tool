@@ -142,12 +142,16 @@ PHASE0_ALLOCATOR_HASH = \
 #: (its obsolete standalone-module purity assertion, replaced by a stricter one);
 #: these values close that authorisation again behind it.
 PHASE6_PROMOTION_HASHES = {
-    "scripts/Universal/shared/numbering.py":
+    "scripts/shared/numbering.py":
         "a959b6d7892f4b79f404fad4cc2f0dd6cec19ade493eb3eb2002c9d7c907a59b",
-    "scripts/Universal/mp3_tools/m4b_numbering.py":
+    "scripts/mp3_tools/m4b_numbering.py":
         "628183f668cc0501a62a759659d11708ecc3933a4b433dacfe6a0f7cd088b7f9",
+    # Re-pinned once, deliberately, by v0.6.7 checkpoint B1 (Plan 01B): the only change is the one-line path constant
+    # ``UNIVERSAL = REPO_ROOT / "scripts" / "mp3_tools"`` after the application packages were lifted out of the former
+    # ``Universal`` subfolder of ``scripts/``.
+    # The previous digest was cf9f48a0d8d25e922921138e82ca0783c67eed74b0e47f266f80171f1c46069f.
     "files/tests/test_m4b_numbering.py":
-        "cf9f48a0d8d25e922921138e82ca0783c67eed74b0e47f266f80171f1c46069f",
+        "749d295a3a5ae8d376a6ed466184a415f398f2cc4cec20b81c78ec9ad32441f5",
 }
 
 #: Module names the data layer may never import, by the drop section that forbids
@@ -1494,7 +1498,7 @@ def test_the_converter_left_the_hash_gate_by_a_real_conversion():
 
 
 @pytest.mark.parametrize("relative", sorted(PHASE0_PANEL_HASHES) + [
-    path.removeprefix("scripts/Universal/") for path in PHASE0_PLAN5_HASHES])
+    path.removeprefix("scripts/") for path in PHASE0_PLAN5_HASHES])
 def test_the_phase_zero_pins_hold_on_lf_and_crlf_checkouts_and_only_there(relative, tmp_path):
     """The guard reads content, not the checkout convention (Phase 12, macOS).
 
@@ -1503,7 +1507,7 @@ def test_the_phase_zero_pins_hold_on_lf_and_crlf_checkouts_and_only_there(relati
     copies so the protected files themselves are never written.
     """
     pinned = {**PHASE0_PANEL_HASHES,
-              **{k.removeprefix("scripts/Universal/"): v for k, v in PHASE0_PLAN5_HASHES.items()}}
+              **{k.removeprefix("scripts/"): v for k, v in PHASE0_PLAN5_HASHES.items()}}
     content = (UNIVERSAL / relative).read_bytes().replace(CRLF, LF)
     assert CRLF not in content
     lf_copy = tmp_path / "lf.py"

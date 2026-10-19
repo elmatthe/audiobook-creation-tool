@@ -47,7 +47,7 @@ import pytest
 from shared import ffmpeg_utils
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SCRIPTS = REPO_ROOT / "scripts" / "Universal"
+SCRIPTS = REPO_ROOT / "scripts"
 
 needs_ffmpeg = pytest.mark.skipif(
     not ffmpeg_utils.have_ffmpeg(),

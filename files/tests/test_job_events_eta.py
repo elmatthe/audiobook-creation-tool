@@ -58,7 +58,7 @@ from shared.job_control import (
 
 from test_importing import make_config
 
-SHARED = Path(__file__).resolve().parent.parent.parent / "scripts" / "Universal" / "shared"
+SHARED = Path(__file__).resolve().parent.parent.parent / "scripts" / "shared"
 
 RUN = "run-1"
 OTHER_RUN = "run-2"

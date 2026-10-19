@@ -63,7 +63,7 @@ pytestmark = pytest.mark.skipif(
     not ffmpeg_utils.have_ffmpeg(), reason="ffmpeg/ffprobe not available in this environment")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 
 
 # --------------------------------------------------------------------------- #

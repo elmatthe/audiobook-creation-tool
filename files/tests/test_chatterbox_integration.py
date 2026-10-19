@@ -71,8 +71,8 @@ from test_tts_jobs import (  # noqa: E402,F401
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-TTS_DIR = REPO_ROOT / "scripts" / "Universal" / "tts"
-SHARED_DIR = REPO_ROOT / "scripts" / "Universal" / "shared"
+TTS_DIR = REPO_ROOT / "scripts" / "tts"
+SHARED_DIR = REPO_ROOT / "scripts" / "shared"
 
 
 # --------------------------------------------------------------------------- #

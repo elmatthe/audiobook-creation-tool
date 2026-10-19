@@ -47,7 +47,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent
-                       / "scripts" / "Universal"))
+                       / "scripts"))
 
 from tts import chatterbox_synth as cbx  # noqa: E402
 

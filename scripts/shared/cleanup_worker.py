@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Run as a script by an interpreter that knows nothing about this project: put
-# the application's import root (``scripts/Universal``) on the path first, the
+# the application's import root (``scripts``) on the path first, the
 # same root the launcher uses. Derived from this file's own location, never from
 # the current working directory.
 _THIS = Path(__file__).resolve()
@@ -62,11 +62,11 @@ class CoordinatorRefusal(Exception):
 def repository_root() -> Path:
     """The project folder this file lives in, proven by finding itself again.
 
-    ``<root>/scripts/Universal/shared/cleanup_worker.py``. The current working
+    ``<root>/scripts/shared/cleanup_worker.py``. The current working
     directory is never consulted, and no value from the request participates.
     """
-    root = _THIS.parent.parent.parent.parent
-    marker = root / "scripts" / "Universal" / "shared" / _THIS.name
+    root = _THIS.parent.parent.parent
+    marker = root / "scripts" / "shared" / _THIS.name
     if not marker.is_file():
         raise CoordinatorRefusal(
             "the cleanup helper could not confirm which project folder it belongs to"

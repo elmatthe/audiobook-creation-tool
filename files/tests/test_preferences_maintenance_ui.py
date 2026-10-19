@@ -801,7 +801,7 @@ def test_building_the_cleanup_dialogs_leaves_generic_styles_untouched(
 
 def test_the_three_unconverted_panels_still_carry_no_act_style():
     for relative in UNCONVERTED_PANELS:
-        source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(
+        source = (REPO_ROOT / "scripts" / relative).read_text(
             encoding="utf-8"
         )
         assert "ACT." not in source, relative
@@ -951,7 +951,7 @@ def test_the_dialog_never_closes_the_application():
 
 
 def test_the_launcher_still_carries_no_cleanup_behaviour():
-    source = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(
+    source = (REPO_ROOT / "scripts" / "launcher.py").read_text(
         encoding="utf-8"
     )
     tree = ast.parse(source)
@@ -964,7 +964,7 @@ def test_the_launcher_still_carries_no_cleanup_behaviour():
 
 
 def test_bootstrap_and_the_root_launchers_are_untouched_by_phase_six():
-    bootstrap = (REPO_ROOT / "scripts" / "Universal" / "shared" / "bootstrap.py").read_text(
+    bootstrap = (REPO_ROOT / "scripts" / "shared" / "bootstrap.py").read_text(
         encoding="utf-8"
     )
     for phase_seven in ("cleanup_request", "CleanupRequest", "maintenance",

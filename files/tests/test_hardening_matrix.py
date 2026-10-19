@@ -254,7 +254,7 @@ def test_the_health_module_derives_its_roots_from_its_own_file():
     assumes a well-behaved path.
     """
     assert ffmpeg_health.REPO_ROOT == Path(ffmpeg_health.__file__).resolve() \
-        .parent.parent.parent.parent
+        .parent.parent.parent
     assert ffmpeg_health.RESOURCES_DIR.is_absolute()
     assert ffmpeg_health.BIN_DIR.is_absolute()
 

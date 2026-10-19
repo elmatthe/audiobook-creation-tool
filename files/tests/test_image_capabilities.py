@@ -426,7 +426,7 @@ def test_the_cover_panel_no_longer_owns_a_bare_optional_import():
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parent.parent.parent
-    panel = repo_root / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py"
+    panel = repo_root / "scripts" / "mp3_tools" / "cover_resizer.py"
     source = panel.read_text(encoding="utf-8")
     tree = ast.parse(source)
 

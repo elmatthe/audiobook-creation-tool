@@ -8,10 +8,9 @@ Layout (repo root)::
     <repo_root>/
         scripts/
             requirements.txt
-            Universal/
-                shared/paths.py   <- this file
-                tts/
-                mp3_tools/
+            shared/paths.py       <- this file
+            tts/
+            mp3_tools/
         files/
             bin/                  <- portable ffmpeg, if bundled
             runtime-data/
@@ -24,12 +23,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# This file lives at <repo_root>/scripts/Universal/shared/paths.py
+# This file lives at <repo_root>/scripts/shared/paths.py
 _THIS = Path(__file__).resolve()
 
 SHARED_DIR: Path = _THIS.parent
-SCRIPTS_DIR: Path = SHARED_DIR.parent          # scripts/Universal — the import root
-REPO_ROOT: Path = SCRIPTS_DIR.parent.parent
+SCRIPTS_DIR: Path = SHARED_DIR.parent          # scripts — the import root
+REPO_ROOT: Path = SCRIPTS_DIR.parent
 
 TTS_DIR: Path = SCRIPTS_DIR / "tts"
 MP3_TOOLS_DIR: Path = SCRIPTS_DIR / "mp3_tools"
@@ -97,7 +96,7 @@ def next_output_dir(tool_name: str, *, create: bool = False) -> Path:
        New code must use ``shared.output_paths.reserve_run_directory()``, which
        reserves ``<base>/<Tool>-Outputs/<Tool>-N`` atomically at validated run
        start. ``files/tests/test_output_paths.py`` asserts that nothing under
-       ``scripts/Universal`` calls this function any more, so a regression
+       ``scripts`` calls this function any more, so a regression
        would fail the suite. It is kept only so an out-of-tree caller does not
        break; a later plan may delete it outright.
 

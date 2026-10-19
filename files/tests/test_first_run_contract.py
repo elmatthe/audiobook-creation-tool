@@ -119,8 +119,8 @@ def test_it_accepts_the_user_scope_install_without_waiting_for_path(bat_text):
 
 def test_the_located_interpreter_is_what_runs_the_bootstrap(bat_text):
     assert '"%PYCMD%" "%BOOTSTRAP%"' in bat_text
-    assert r"set \"BOOTSTRAP=scripts\Universal\shared\bootstrap.py\"".replace("\\\"", '"') \
-        in bat_text or "BOOTSTRAP=scripts\\Universal\\shared\\bootstrap.py" in bat_text
+    assert r"set \"BOOTSTRAP=scripts\shared\bootstrap.py\"".replace("\\\"", '"') \
+        in bat_text or "BOOTSTRAP=scripts\\shared\\bootstrap.py" in bat_text
 
 
 def test_failing_to_obtain_python_fails_truthfully_rather_than_obscurely(bat_text):
@@ -453,7 +453,7 @@ def test_a_later_launch_does_not_probe_the_blocked_installation_at_all(
 def test_nothing_in_the_setup_path_weakens_a_security_policy():
     """**Structural.** The one thing this must never buy readiness with."""
     for name in ("bootstrap.py", "ffmpeg_health.py", "ffmpeg_utils.py"):
-        source = (REPO_ROOT / "scripts" / "Universal" / "shared"
+        source = (REPO_ROOT / "scripts" / "shared"
                   / name).read_text(encoding="utf-8")
         lowered = source.lower()
         for banned in ("unblock-file", "zone.identifier", "set-mppreference",

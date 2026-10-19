@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SCRIPTS_ROOT = REPO_ROOT / "scripts" / "Universal"
+SCRIPTS_ROOT = REPO_ROOT / "scripts"
 
 from shared import ffmpeg_utils  # noqa: E402
 from shared.cancellation import ConversionCancelled  # noqa: E402

@@ -57,7 +57,7 @@ from mp3_tools.mp3_workflow import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "mp3_workflow.py"
 
 ROOT = Path(os.path.abspath(os.sep + "act-mp3-fixture-root"))

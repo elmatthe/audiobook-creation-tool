@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 TTS = UNIVERSAL / "tts"
 SHARED = UNIVERSAL / "shared"
 FILES = REPO_ROOT / "files"

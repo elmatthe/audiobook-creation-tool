@@ -81,8 +81,8 @@ from test_m4b_numbering import (  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py"
-PLAN_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_plan.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
+PLAN_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_plan.py"
 
 #: Every wait here is bounded, so a deadlock fails rather than hangs.
 WAIT = 5.0
@@ -1540,7 +1540,7 @@ def test_no_shared_production_module_knows_about_this_phase():
     a Converter attempt is. If a future change moved the merge into shared code,
     this is where that would have to be argued rather than slipped in.
     """
-    shared = REPO_ROOT / "scripts" / "Universal" / "shared"
+    shared = REPO_ROOT / "scripts" / "shared"
     for name in ("job_control.py", "job_ui.py", "output_paths.py", "importing.py",
                  "subprocess_utils.py", "metadata.py"):
         tree = ast.parse((shared / name).read_text(encoding="utf-8"))
@@ -1563,7 +1563,7 @@ def test_no_shared_production_module_knows_about_this_phase():
 def test_the_executor_and_the_allocator_know_nothing_about_retry():
     """Phase 11 and Phase 12 are untouched by Phase 13."""
     for name in ("m4b_execution.py", "m4b_numbering.py"):
-        text = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / name).read_text(
+        text = (REPO_ROOT / "scripts" / "mp3_tools" / name).read_text(
             encoding="utf-8")
         tree = ast.parse(text)
         defined = {node.name for node in ast.walk(tree)

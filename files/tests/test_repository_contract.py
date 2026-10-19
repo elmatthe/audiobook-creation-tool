@@ -256,7 +256,7 @@ def test_config_template_toml_is_not_the_projects_config():
     """
     verify = load_verify()
     assert verify.CONFIG_FILE.name == "config.toml"
-    maintenance_module = REPO_ROOT / "scripts" / "Universal" / "shared" / "maintenance.py"
+    maintenance_module = REPO_ROOT / "scripts" / "shared" / "maintenance.py"
     for path in (REPO_ROOT / "scripts").rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         if path == maintenance_module:
@@ -281,8 +281,8 @@ def test_the_config_gate_fails_an_invalid_committed_file(tmp_path):
     """The runtime tolerates a bad value; the repository gate must not."""
     verify = load_verify()
     root = tmp_path / "repo"
-    (root / "scripts" / "Universal").mkdir(parents=True)
-    (root / "scripts" / "Universal" / "launcher.py").write_text("#\n", encoding="utf-8")
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "launcher.py").write_text("#\n", encoding="utf-8")
     bad = root / "config.toml"
     bad.write_text(
         "[project]\n"
@@ -307,8 +307,8 @@ def test_the_config_gate_fails_a_missing_file(tmp_path):
 def test_the_config_gate_fails_on_project_version_drift(tmp_path):
     verify = load_verify()
     root = tmp_path / "repo"
-    (root / "scripts" / "Universal").mkdir(parents=True)
-    (root / "scripts" / "Universal" / "launcher.py").write_text("#\n", encoding="utf-8")
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "launcher.py").write_text("#\n", encoding="utf-8")
     drifted = root / "config.toml"
     drifted.write_text('[project]\nversion = "9.9.9"\n', encoding="utf-8")
     _name, ok, detail = verify.check_config(config_file=drifted, repo_root=root)
@@ -347,7 +347,7 @@ def test_the_launcher_carries_no_cleanup_behaviour():
     """
     import ast
 
-    source = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "scripts" / "launcher.py").read_text(encoding="utf-8")
     assert "Preferences" in source, "Phase 2 owns the Preferences entry point"
 
     tree = ast.parse(source)
@@ -371,7 +371,7 @@ def test_phase_one_added_no_output_run_reservation():
     """
     import ast
 
-    src = REPO_ROOT / "scripts" / "Universal" / "shared" / "config.py"
+    src = REPO_ROOT / "scripts" / "shared" / "config.py"
     tree = ast.parse(src.read_text(encoding="utf-8"))
     defined = {
         node.name for node in ast.walk(tree)

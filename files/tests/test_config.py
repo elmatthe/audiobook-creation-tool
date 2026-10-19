@@ -33,7 +33,7 @@ def write_config(directory: Path, body: str) -> Path:
 def fake_repo(tmp_path: Path) -> Path:
     """A minimal repository root containing only the real entry-point file."""
     root = tmp_path / "repo"
-    entry = root / "scripts" / "Universal" / "launcher.py"
+    entry = root / "scripts" / "launcher.py"
     entry.parent.mkdir(parents=True)
     entry.write_text("# stand-in for the launcher\n", encoding="utf-8")
     return root
@@ -44,7 +44,7 @@ VALID_BODY = """
 name = "Audiobook Creation Tool"
 version = "{version}"
 python_min = "3.11"
-entry_point = "scripts/Universal/launcher.py"
+entry_point = "scripts/launcher.py"
 platforms = ["Windows", "MacOS"]
 
 [output]
@@ -85,7 +85,7 @@ def test_the_committed_root_config_is_valid_with_no_diagnostics():
     assert effective.project.name == "Audiobook Creation Tool"
     assert effective.project.version == VERSION
     assert effective.project.python_min == "3.11"
-    assert effective.project.entry_point == "scripts/Universal/launcher.py"
+    assert effective.project.entry_point == "scripts/launcher.py"
     assert effective.project.platforms == ("Windows", "MacOS")
     assert effective.logging.max_sessions == 30
     assert effective.importing.large_result_warning_threshold == 1000
@@ -200,7 +200,7 @@ def test_an_invalid_python_min_falls_back(tmp_path, bad):
 @pytest.mark.parametrize(
     "bad",
     [
-        '"scripts/Universal/does_not_exist.py"',   # not a file
+        '"scripts/does_not_exist.py"',   # not a file
         '"../outside/launcher.py"',                # escapes the repository
         '"/etc/passwd"',                           # absolute
         '""',                                      # blank
@@ -209,7 +209,7 @@ def test_an_invalid_python_min_falls_back(tmp_path, bad):
 )
 def test_an_invalid_entry_point_falls_back(tmp_path, bad):
     body = VALID_BODY.format(version=VERSION).replace(
-        'entry_point = "scripts/Universal/launcher.py"', f"entry_point = {bad}"
+        'entry_point = "scripts/launcher.py"', f"entry_point = {bad}"
     )
     effective = load_body(tmp_path, body)
     assert effective.project.entry_point == config.DEFAULT_ENTRY_POINT
@@ -277,7 +277,7 @@ def test_the_large_result_threshold_is_validated_now(tmp_path):
 
 def test_the_large_result_threshold_is_only_validated_not_consumed():
     """Plan 3 owns the behaviour. Phase 1 must not have implemented scanning."""
-    text = (REPO_ROOT / "scripts" / "Universal" / "shared" / "config.py").read_text(
+    text = (REPO_ROOT / "scripts" / "shared" / "config.py").read_text(
         encoding="utf-8"
     )
     for plan3_word in ("def scan", "rglob", "Cancel Import", "recursive_scan"):
@@ -541,7 +541,7 @@ def test_get_effective_caches_and_reload_rebuilds(tmp_path):
 
 def test_loading_configuration_never_imports_tkinter():
     """The configuration core stays platform-neutral and headless."""
-    text = (REPO_ROOT / "scripts" / "Universal" / "shared" / "config.py").read_text(
+    text = (REPO_ROOT / "scripts" / "shared" / "config.py").read_text(
         encoding="utf-8"
     )
     assert "tkinter" not in text
@@ -556,7 +556,7 @@ def test_the_config_module_never_imports_logging_setup():
     """
     import ast
 
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared" / "config.py").read_text(
+    source = (REPO_ROOT / "scripts" / "shared" / "config.py").read_text(
         encoding="utf-8"
     )
     imported: set[str] = set()

@@ -107,11 +107,11 @@ class ActiveRequestError(StateError):
 def default_repo_root() -> Path:
     """The repository root implied by this file's own location.
 
-    ``<root>/scripts/Universal/shared/cleanup_state.py`` — derived from
+    ``<root>/scripts/shared/cleanup_state.py`` — derived from
     ``__file__`` so it never depends on the current working directory, and never
     on anything a request carries.
     """
-    return Path(__file__).resolve().parent.parent.parent.parent
+    return Path(__file__).resolve().parent.parent.parent
 
 
 def state_dir(repo_root) -> Path:

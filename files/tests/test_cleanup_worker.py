@@ -59,7 +59,7 @@ def fake_root(tmp_path: Path, *, name="fake-repo", venv=True, binaries=True,
               models=True, logs=True) -> Path:
     """A disposable stand-in for the repository root, with known byte totals."""
     root = tmp_path / name
-    (root / "scripts" / "Universal" / "shared").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "shared").mkdir(parents=True, exist_ok=True)
     (root / "md-instructions").mkdir(parents=True, exist_ok=True)
     (root / "files" / "tests").mkdir(parents=True, exist_ok=True)
     (root / "files" / "runtime-data").mkdir(parents=True, exist_ok=True)
@@ -712,8 +712,8 @@ def test_the_summary_carries_no_path():
 def disposable_copy(tmp_path: Path, *, name="disposable-repo") -> Path:
     """A fake root carrying its own copy of the coordinator's four modules."""
     root = fake_root(tmp_path, name=name)
-    source = REPO_ROOT / "scripts" / "Universal" / "shared"
-    destination = root / "scripts" / "Universal" / "shared"
+    source = REPO_ROOT / "scripts" / "shared"
+    destination = root / "scripts" / "shared"
     destination.mkdir(parents=True, exist_ok=True)
     for module in COORDINATOR_MODULES:
         shutil.copy2(source / module, destination / module)
@@ -731,12 +731,12 @@ def test_a_real_coordinator_process_runs_entirely_outside_the_venv(tmp_path):
     """Imported by a base interpreter, with no project packages available."""
     root = disposable_copy(tmp_path)
     python = base_python(root)
-    script = root / "scripts" / "Universal" / "shared" / "cleanup_worker.py"
+    script = root / "scripts" / "shared" / "cleanup_worker.py"
     finished = subprocess.run(
         [str(python), "-c",
          "import sys; sys.path.insert(0, r'%s'); "
          "from shared import cleanup_worker as w; "
-         "print(w.repository_root())" % (root / "scripts" / "Universal")],
+         "print(w.repository_root())" % (root / "scripts")],
         capture_output=True, text=True, timeout=120, cwd=str(tmp_path),
     )
     assert finished.returncode == 0, finished.stderr
@@ -749,7 +749,7 @@ def test_a_real_coordinator_process_deletes_only_the_disposable_copy(tmp_path):
     bystander = disposable_copy(tmp_path, name="bystander-repo")
     before = snapshot(bystander)
     python = base_python(root)
-    script = root / "scripts" / "Universal" / "shared" / "cleanup_worker.py"
+    script = root / "scripts" / "shared" / "cleanup_worker.py"
     request = scheduled(root, ("application_logs", "downloaded_models"),
                         pid=os.getpid())
 
@@ -780,7 +780,7 @@ def test_the_real_repository_is_never_the_coordinators_target(tmp_path):
          "import sys; sys.path.insert(0, r'%s'); "
          "from shared import cleanup_worker as w, maintenance as m; "
          "print(m.compiled_target('virtual_environment', w.repository_root()))"
-         % (root / "scripts" / "Universal")],
+         % (root / "scripts")],
         capture_output=True, text=True, timeout=120, cwd=str(REPO_ROOT),
     )
     assert finished.returncode == 0, finished.stderr
@@ -846,7 +846,7 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
     assertions below actually pin; being on this list is not permission to
     delete a catalog target.
     """
-    shared = REPO_ROOT / "scripts" / "Universal" / "shared"
+    shared = REPO_ROOT / "scripts" / "shared"
     allowed_rmtree = {"bootstrap.py", "metadata.py", "ffmpeg_portable.py"}
     for path in sorted(shared.glob("*.py")):
         source = path.read_text(encoding="utf-8")
@@ -860,7 +860,7 @@ def test_deletion_of_a_catalog_target_is_reachable_only_from_the_coordinator():
 
 def test_the_gui_contains_no_recursive_deletion():
     for relative in ("shared/preferences_ui.py", "launcher.py"):
-        source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(
+        source = (REPO_ROOT / "scripts" / relative).read_text(
             encoding="utf-8"
         )
         for destructive in ("rmtree", "os.remove", "os.unlink", "os.rmdir",

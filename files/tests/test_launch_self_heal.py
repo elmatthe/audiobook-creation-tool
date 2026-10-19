@@ -40,7 +40,7 @@ import pytest
 from shared import bootstrap, ffmpeg_health, ffmpeg_portable, ffmpeg_utils
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 BOOTSTRAP_SRC = (UNIVERSAL / "shared" / "bootstrap.py").read_text(encoding="utf-8")
 EXE = ffmpeg_health.EXE
 

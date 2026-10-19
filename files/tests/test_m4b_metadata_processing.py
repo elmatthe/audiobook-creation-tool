@@ -45,7 +45,7 @@ from test_m4b_chapter_remux_timescale import (
 from test_m4b_metadata_workflow import _META, _ff, m4b, require_ffmpeg, vendor_series
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_processing.py"
 
 _IDS = IdFactory("ex-")

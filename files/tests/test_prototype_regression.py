@@ -52,7 +52,7 @@ windows_only = pytest.mark.skipif(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 
 
 def _digest(root: Path) -> dict[str, str]:

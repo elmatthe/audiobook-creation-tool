@@ -31,7 +31,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import qwen_eval_core as core  # noqa: E402
 
-UNIVERSAL = core.REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = core.REPO_ROOT / "scripts"
 if str(UNIVERSAL) not in sys.path:
     sys.path.insert(0, str(UNIVERSAL))
 

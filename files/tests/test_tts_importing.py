@@ -83,7 +83,7 @@ from test_importing import make_config  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "Universal" / "tts" / "epub2tts_gui.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "tts" / "epub2tts_gui.py"
 
 #: Every wait here is bounded so a deadlock fails rather than hangs.
 WAIT = 5.0

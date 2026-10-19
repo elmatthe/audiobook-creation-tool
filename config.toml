@@ -32,7 +32,7 @@
 # Display name. Must not be blank.
 name = "Audiobook Creation Tool"
 
-# Must match scripts/Universal/shared/version.py exactly. The running
+# Must match scripts/shared/version.py exactly. The running
 # application always trusts the code; `python scripts/verify.py` fails if the
 # two ever drift apart, which is how a stale value here gets caught.
 version = "0.6.6"
@@ -43,7 +43,7 @@ version = "0.6.6"
 python_min = "3.11"
 
 # The GUI entry point, relative to this file. Must stay inside the repository.
-entry_point = "scripts/Universal/launcher.py"
+entry_point = "scripts/launcher.py"
 
 # Platforms this build supports. Recognised values: "Windows", "MacOS".
 platforms = ["Windows", "MacOS"]

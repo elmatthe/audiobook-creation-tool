@@ -100,7 +100,7 @@ def repo_root() -> Path:
     for parent in Path(__file__).resolve().parents:
         if (parent / "scripts").is_dir() and (parent / "files").is_dir():
             return parent
-    return Path(__file__).resolve().parents[3]
+    return Path(__file__).resolve().parents[2]
 
 
 def runtime_dir() -> Path:

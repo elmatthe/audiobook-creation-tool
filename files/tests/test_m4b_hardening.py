@@ -74,7 +74,7 @@ from test_m4b_retry import work  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
 
 
 # --------------------------------------------------------------------------- #
@@ -782,7 +782,7 @@ def test_the_pure_converter_modules_import_nothing_shared_and_no_tk(relative):
     These are the modules the Converter can test without a window, and that
     property is worth a guard rather than a habit.
     """
-    source = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / relative
+    source = REPO_ROOT / "scripts" / "mp3_tools" / relative
     tree = ast.parse(source.read_text(encoding="utf-8"))
     imported: set[str] = set()
     for node in ast.walk(tree):

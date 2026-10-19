@@ -2,14 +2,14 @@
 
 Run this by hand from a dev checkout to produce the distributable zips:
 
-    python scripts/Universal/shared/release.py
+    python scripts/shared/release.py
 
 It builds two archives under ``<repo-root>/dist/``:
 
     dist/AudiobookTool-Windows-vX.Y.Z.zip
     dist/AudiobookTool-MacOS-vX.Y.Z.zip
 
-Since v0.5.0 there is a single cross-platform code tree (``scripts/Universal``),
+Since v0.5.0 there is a single cross-platform code tree (``scripts``),
 so both archives contain the same ``scripts/`` folder; they differ only in which
 double-click launcher sits at the archive root (``.bat`` vs ``.command``), plus
 ``README.md`` and the committed ``config.toml``. All machine-specific /
@@ -44,10 +44,10 @@ import sys
 import zipfile
 from pathlib import Path
 
-# release.py lives at <repo>/scripts/Universal/shared/release.py
+# release.py lives at <repo>/scripts/shared/release.py
 _THIS = Path(__file__).resolve()
 SHARED_DIR = _THIS.parent
-SCRIPTS_DIR = SHARED_DIR.parent.parent      # <repo>/scripts
+SCRIPTS_DIR = SHARED_DIR.parent             # <repo>/scripts
 REPO_ROOT = SCRIPTS_DIR.parent
 DIST_DIR = REPO_ROOT / "dist"
 
@@ -203,9 +203,9 @@ def _package_os(os_name: str) -> Path:
             zf.write(REPO_ROOT / name, arcname=name)
             file_count += 1
 
-        # The whole scripts/ tree (Universal code + requirements.txt), archived
+        # The whole scripts/ tree (application code + requirements.txt), archived
         # under "scripts/..." beside the launcher — matching the launcher's
-        # <repo_root>/scripts/Universal/shared/bootstrap.py expectation.
+        # <repo_root>/scripts/shared/bootstrap.py expectation.
         for path in sorted(SCRIPTS_DIR.rglob("*")):
             if not path.is_file():
                 continue
@@ -234,7 +234,7 @@ def _print_checklist() -> None:
     steps = [
         "Required automated gates PASS; manual deferrals recorded (see Handoff).",
         f"Changelog.md records v{VERSION} publication/rebuild state truthfully.",
-        f"Application identity in scripts/Universal/shared/version.py = {VERSION}.",
+        f"Application identity in scripts/shared/version.py = {VERSION}.",
         "Everything committed (this script refuses uncommitted packaged paths).",
         "Build both zips (this script) -> dist/.",
         "STOP for maintainer integration/release/publication authorization.",

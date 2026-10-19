@@ -32,7 +32,7 @@ import pytest
 from shared import config as cfg  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 
 
 def _module_constants(tree: ast.Module) -> dict[str, str]:

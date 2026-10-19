@@ -84,7 +84,7 @@ def output_base(tmp_path, monkeypatch):
 
 def _snapshot(tmp_path: Path, base: Path):
     root = tmp_path / "fakerepo"
-    entry = root / "scripts" / "Universal" / "launcher.py"
+    entry = root / "scripts" / "launcher.py"
     entry.parent.mkdir(parents=True, exist_ok=True)
     entry.write_text("#\n", encoding="utf-8")
     (root / "config.toml").write_text(
@@ -272,7 +272,7 @@ def test_converter_module_reserves_only_at_start(output_base):
     reservation and nothing reserves while the panel is being constructed — is
     unchanged and is now asserted structurally rather than by substring.
     """
-    path = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_converter.py"
+    path = REPO_ROOT / "scripts" / "mp3_tools" / "m4b_converter.py"
     source = path.read_text(encoding="utf-8")
 
     tree = ast.parse(source)
@@ -301,7 +301,7 @@ def test_mp3_tool_reserves_exactly_one_run_per_operation(output_base):
     operation path — one run per operation, never one per Book, and never at
     build time.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_tool.py").read_text(
+    source = (REPO_ROOT / "scripts" / "mp3_tools" / "mp3_tool.py").read_text(
         encoding="utf-8"
     )
     tree = ast.parse(source)
@@ -346,7 +346,7 @@ def test_mp3_tool_keeps_the_signed_time_helpers_for_its_processing_phases():
     """
     from mp3_tools import mp3_processing, mp3_tool
 
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "mp3_processing.py"
+    source = (REPO_ROOT / "scripts" / "mp3_tools" / "mp3_processing.py"
               ).read_text(encoding="utf-8")
     tree = ast.parse(source)
     declared = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
@@ -392,7 +392,7 @@ def test_maker_staging_stays_inside_its_run(output_base):
 
 def test_maker_has_no_output_base_bypass():
     """Phase 5 added the custom destination; the base-bypassing browse stays gone."""
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_maker.py").read_text(
+    source = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_maker.py").read_text(
         encoding="utf-8"
     )
     assert "choose_outdir" not in source, "the old output-folder browse must stay removed"
@@ -572,7 +572,7 @@ def test_metadata_editor_reserves_per_action(output_base):
     through ``_reserve_run`` exactly once after validation)."""
     import ast
 
-    source = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_metadata_editor.py"
+    source = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_metadata_editor.py"
               ).read_text(encoding="utf-8")
     tree = ast.parse(source)
     functions = {node.name: node for node in ast.walk(tree)
@@ -622,9 +622,9 @@ def test_metadata_editor_plans_every_output_through_the_reservations_planner():
     """
     import ast
 
-    panel = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_metadata_editor.py"
+    panel = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_metadata_editor.py"
              ).read_text(encoding="utf-8")
-    plan = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "m4b_metadata_plan.py"
+    plan = (REPO_ROOT / "scripts" / "mp3_tools" / "m4b_metadata_plan.py"
             ).read_text(encoding="utf-8")
     assert "avoid_input_overwrite" not in panel and "avoid_input_overwrite" not in plan
     panel_calls = {ast.unparse(node.func) for node in ast.walk(ast.parse(panel))
@@ -642,7 +642,7 @@ def test_metadata_editor_plans_every_output_through_the_reservations_planner():
 
 
 def test_tts_reserves_only_after_input_validation():
-    source = (REPO_ROOT / "scripts" / "Universal" / "tts" / "epub2tts_gui.py").read_text(
+    source = (REPO_ROOT / "scripts" / "tts" / "epub2tts_gui.py").read_text(
         encoding="utf-8"
     )
     body = source.split("def run_job", 1)[1]
@@ -675,7 +675,7 @@ def test_tts_flat_single_file_lands_in_the_run_root(output_base, tmp_path):
 
 
 def test_tts_no_longer_offers_an_output_browse_control():
-    source = (REPO_ROOT / "scripts" / "Universal" / "tts" / "epub2tts_gui.py").read_text(
+    source = (REPO_ROOT / "scripts" / "tts" / "epub2tts_gui.py").read_text(
         encoding="utf-8"
     )
     assert "_browse_dir" not in source
@@ -751,7 +751,7 @@ def test_no_tool_reserves_output_outside_an_operation_start():
         return found
 
     for relative in TOOL_MODULES.values():
-        path = REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
+        path = REPO_ROOT / "scripts" / (relative.replace(".", "/") + ".py")
         tree_ = ast.parse(path.read_text(encoding="utf-8"))
         names = innermost_reservers(tree_)
         assert names, f"{relative} never reserves a run"
@@ -820,7 +820,7 @@ def test_no_cleanup_coordinator_or_post_exit_behaviour_exists():
     behavioural check below, which requires the fail-closed handler.
     """
     for relative in ("shared/output_paths.py", "launcher.py", "shared/bootstrap.py"):
-        source = (REPO_ROOT / "scripts" / "Universal" / relative).read_text(encoding="utf-8")
+        source = (REPO_ROOT / "scripts" / relative).read_text(encoding="utf-8")
         for phase_six_or_seven in ("cleanup_request", "CleanupRequest", "post_exit",
                                    "clear_downloaded_data", "maintenance"):
             assert phase_six_or_seven not in source, f"{relative}: {phase_six_or_seven}"
@@ -918,7 +918,7 @@ PLAN3_ADOPTERS = ("mp3_tools.cover_resizer", "tts.epub2tts_gui",
 
 
 def _tool_path(relative: str) -> Path:
-    return REPO_ROOT / "scripts" / "Universal" / (relative.replace(".", "/") + ".py")
+    return REPO_ROOT / "scripts" / (relative.replace(".", "/") + ".py")
 
 
 def test_no_unadopted_tool_reached_for_the_plan3_foundation():

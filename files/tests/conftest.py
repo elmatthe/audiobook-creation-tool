@@ -1,4 +1,4 @@
-"""Shared pytest setup: make scripts/Universal (the import root) importable.
+"""Shared pytest setup: make scripts (the import root) importable.
 
 These are behaviour-preservation smoke tests: fast, deterministic, no network
 (Edge TTS / Kokoro downloads are never touched). Fixtures that need real media
@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SCRIPTS_ROOT = REPO_ROOT / "scripts" / "Universal"
+SCRIPTS_ROOT = REPO_ROOT / "scripts"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 

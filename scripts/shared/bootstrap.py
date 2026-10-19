@@ -2,7 +2,7 @@
 
 Invoked by the root ``Setup_and_Run-audiobook-creation-tool.bat`` (Windows) /
 ``Setup_and_Run-audiobook-creation-tool.command`` (macOS). This is a **single
-cross-platform file** at ``scripts/Universal/shared/``; all platform differences
+cross-platform file** at ``scripts/shared/``; all platform differences
 are branches inside it. It is adapted from the legacy ``tts/setup_env.py``
 (Path-A install-on-first-run bootstrap) per the implementation plan.
 
@@ -46,15 +46,15 @@ from pathlib import Path
 from typing import Callable, Optional
 
 # --- Path resolution -------------------------------------------------------
-# This file lives at <repo_root>/scripts/Universal/shared/bootstrap.py. Resolve
+# This file lives at <repo_root>/scripts/shared/bootstrap.py. Resolve
 # the project layout from __file__ so the script is location-independent and
 # never relies on the current working directory. We avoid importing shared.paths
 # so bootstrap stays self-contained in the fragile pre-venv environment.
 # (Keep these in sync with shared/paths.py.)
 _THIS = Path(__file__).resolve()
 SHARED_DIR = _THIS.parent
-SCRIPTS_DIR = SHARED_DIR.parent                 # scripts/Universal — the import root
-REPO_ROOT = SCRIPTS_DIR.parent.parent
+SCRIPTS_DIR = SHARED_DIR.parent                 # scripts — the import root
+REPO_ROOT = SCRIPTS_DIR.parent
 
 FILES_DIR = REPO_ROOT / "files"
 RESOURCES_DIR = FILES_DIR / "runtime-data"

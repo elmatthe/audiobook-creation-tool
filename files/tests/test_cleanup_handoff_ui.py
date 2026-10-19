@@ -454,13 +454,13 @@ def test_the_report_is_logged_as_well_as_shown(fresh_root, tmp_path):
 
 
 def launcher_tree():
-    return ast.parse((REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(
+    return ast.parse((REPO_ROOT / "scripts" / "launcher.py").read_text(
         encoding="utf-8"
     ))
 
 
 def test_the_launcher_passes_a_way_to_close_the_application():
-    source = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(
+    source = (REPO_ROOT / "scripts" / "launcher.py").read_text(
         encoding="utf-8"
     )
     assert "close_application=self.close_for_downloaded_data" in source
@@ -468,7 +468,7 @@ def test_the_launcher_passes_a_way_to_close_the_application():
 
 
 def test_the_launcher_reports_the_previous_run_after_it_is_built():
-    source = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(
+    source = (REPO_ROOT / "scripts" / "launcher.py").read_text(
         encoding="utf-8"
     )
     assert "self.root.after(0, self.present_downloaded_data_report)" in source
@@ -514,7 +514,7 @@ def test_the_preferences_module_still_starts_nothing_itself():
 def test_the_preferences_module_never_imports_the_coordinator():
     source = Path(preferences_ui.__file__).read_text(encoding="utf-8")
     assert "cleanup_worker" not in source
-    launcher = (REPO_ROOT / "scripts" / "Universal" / "launcher.py").read_text(
+    launcher = (REPO_ROOT / "scripts" / "launcher.py").read_text(
         encoding="utf-8"
     )
     assert "cleanup_worker" not in launcher

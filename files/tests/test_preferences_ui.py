@@ -882,7 +882,7 @@ def test_escape_closes_the_dialog(fresh_root):
 def test_the_configuration_parser_still_imports_no_tk():
     import ast
 
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared" / "config.py").read_text(
+    source = (REPO_ROOT / "scripts" / "shared" / "config.py").read_text(
         encoding="utf-8"
     )
     imported: set[str] = set()

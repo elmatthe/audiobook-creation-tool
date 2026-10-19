@@ -46,7 +46,7 @@ import pytest
 from tts import voice_registry  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-TTS_DIR = REPO_ROOT / "scripts" / "Universal" / "tts"
+TTS_DIR = REPO_ROOT / "scripts" / "tts"
 
 
 def _tree(path: Path) -> ast.Module:

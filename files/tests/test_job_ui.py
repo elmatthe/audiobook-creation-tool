@@ -2410,7 +2410,7 @@ HARNESS = Path(__file__).resolve().parent / "manual_plan3_harness.py"
 def test_the_harness_exists_in_the_developer_tree_only():
     assert HARNESS.is_file()
     shipped = Path(__file__).resolve().parent.parent.parent / "scripts"
-    assert not (shipped / "Universal" / "manual_plan3_harness.py").exists()
+    assert not (shipped / "manual_plan3_harness.py").exists()
     assert not any(path.name == HARNESS.name for path in shipped.rglob("*.py"))
 
 
@@ -2477,7 +2477,7 @@ def test_the_harness_writes_only_inside_the_root_it_generated():
 
 
 def test_the_harness_is_reachable_from_no_production_entry_point():
-    universal = Path(__file__).resolve().parent.parent.parent / "scripts" / "Universal"
+    universal = Path(__file__).resolve().parent.parent.parent / "scripts"
     for path in universal.rglob("*.py"):
         assert "manual_plan3_harness" not in path.read_text(encoding="utf-8"), path
 

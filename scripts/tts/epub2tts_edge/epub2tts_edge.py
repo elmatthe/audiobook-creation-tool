@@ -21,8 +21,8 @@ from pathlib import Path as _Path
 
 
 def _ensure_shared_on_path() -> None:
-    """Put the import root (scripts/Universal) on sys.path so `shared.*` imports resolve."""
-    root = str(_Path(__file__).resolve().parents[2])  # scripts/Universal
+    """Put the import root (scripts) on sys.path so `shared.*` imports resolve."""
+    root = str(_Path(__file__).resolve().parents[2])  # scripts
     if root not in sys.path:
         sys.path.insert(0, root)
 

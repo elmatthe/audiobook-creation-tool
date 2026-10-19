@@ -206,7 +206,7 @@ def test_the_winget_build_directory_is_not_hard_coded():
     Pinning today's ``ffmpeg-9.0-full_build`` would break silently at the next
     upgrade, which is exactly the class of failure this module exists to stop.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
+    source = (REPO_ROOT / "scripts" / "shared"
               / "ffmpeg_health.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     # Structural, not prose: the comment explaining *why* the version must not
@@ -726,7 +726,7 @@ def test_drawing_a_status_line_executes_nothing(monkeypatch, tmp_path):
 
 def test_nothing_says_ffmpeg_detected_any_more():
     """**Structural.** The exact sentence that misled the maintainer."""
-    panel = (REPO_ROOT / "scripts" / "Universal" / "mp3_tools"
+    panel = (REPO_ROOT / "scripts" / "mp3_tools"
              / "m4b_converter.py").read_text(encoding="utf-8")
     tree = ast.parse(panel)
     # Structural: the comment recording that the sentence was removed contains
@@ -936,7 +936,7 @@ def test_bootstrap_and_the_runtime_share_one_implementation():
     while both looked correct, so this pins that they are literally the same
     module rather than merely equivalent files.
     """
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
+    source = (REPO_ROOT / "scripts" / "shared"
               / "bootstrap.py").read_text(encoding="utf-8")
     assert "from shared import ffmpeg_health" in source
     assert bootstrap.ffmpeg_health is ffmpeg_health
@@ -949,7 +949,7 @@ def test_the_health_module_stays_importable_before_the_venv_exists():
     one machine that has not run setup yet.
     """
     import ast
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared"
+    source = (REPO_ROOT / "scripts" / "shared"
               / "ffmpeg_health.py").read_text(encoding="utf-8")
     roots: set = set()
     for node in ast.walk(ast.parse(source)):

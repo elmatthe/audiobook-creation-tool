@@ -42,8 +42,8 @@ MD_DIR = REPO_ROOT / "md-instructions"
 CHANGELOG = MD_DIR / "Changelog.md"
 BRIEFING = MD_DIR / "Briefing.md"
 CONFIG_FILE = REPO_ROOT / "config.toml"
-# scripts/Universal is the application's import root.
-IMPORT_ROOT = SCRIPTS_DIR / "Universal"
+# scripts is the application's import root.
+IMPORT_ROOT = SCRIPTS_DIR
 
 # The four permanent documents. These names and this casing are a contract:
 # never rename, recase, duplicate or alias them. Compared against the real

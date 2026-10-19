@@ -35,7 +35,7 @@ from mp3_tools import m4b_maker_workflow as wf
 from mp3_tools.m4b_maker_workflow import MakerContractError, MakerValueError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "m4b_maker_workflow.py"
 
 ROOT = Path(os.path.abspath(os.sep + "act-maker-fixture-root"))

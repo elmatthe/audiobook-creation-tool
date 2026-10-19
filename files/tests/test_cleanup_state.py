@@ -44,7 +44,7 @@ def write(path: Path, payload: bytes) -> Path:
 def fake_root(tmp_path: Path) -> Path:
     """A disposable stand-in for the repository root."""
     root = tmp_path / "fake-repo"
-    (root / "scripts" / "Universal" / "shared").mkdir(parents=True, exist_ok=True)
+    (root / "scripts" / "shared").mkdir(parents=True, exist_ok=True)
     (root / "files" / "runtime-data").mkdir(parents=True, exist_ok=True)
     write(root / "config.toml", b"# fake\n")
     write(root / "files" / "runtime-data" / "settings.json", b"{}")
@@ -510,7 +510,7 @@ def test_the_command_carries_no_path_from_the_request():
 
 def test_spaces_unicode_and_apostrophes_survive_the_command(tmp_path, monkeypatch):
     awkward = tmp_path / "Réal's Audio Projects" / "Audiobook Tool"
-    script = awkward / "scripts" / "Universal" / "shared" / "cleanup_worker.py"
+    script = awkward / "scripts" / "shared" / "cleanup_worker.py"
     write(script, b"# stand-in\n")
     monkeypatch.setattr(state, "coordinator_script", lambda: script)
     command = state.build_coordinator_command(awkward / "py thon.exe", build())
@@ -763,7 +763,7 @@ def test_neither_root_launcher_gained_a_cleanup_route():
 
 
 def test_bootstrap_is_unchanged_by_this_phase():
-    source = (REPO_ROOT / "scripts" / "Universal" / "shared" / "bootstrap.py").read_text(
+    source = (REPO_ROOT / "scripts" / "shared" / "bootstrap.py").read_text(
         encoding="utf-8"
     )
     for word in ("cleanup_state", "cleanup_worker", "CleanupRequest", "maintenance",

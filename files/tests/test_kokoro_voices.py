@@ -38,11 +38,11 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-# --- Make scripts/Universal importable so `tts.*` / `shared.*` resolve regardless of cwd.
+# --- Make scripts importable so `tts.*` / `shared.*` resolve regardless of cwd.
 # This file lives at <repo_root>/files/tests/test_kokoro_voices.py.
 _THIS = Path(__file__).resolve()
 REPO_ROOT = _THIS.parent.parent.parent
-SCRIPTS_ROOT = REPO_ROOT / "scripts" / "Universal"   # the import root
+SCRIPTS_ROOT = REPO_ROOT / "scripts"   # the import root
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 

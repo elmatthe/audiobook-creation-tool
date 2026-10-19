@@ -25,12 +25,12 @@ import functools
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 
 
 @functools.lru_cache(maxsize=None)
 def module(relative: str) -> ast.Module:
-    """Parse a module under ``scripts/Universal`` once per session."""
+    """Parse a module under ``scripts`` once per session."""
     return ast.parse((UNIVERSAL / relative).read_text(encoding="utf-8"))
 
 

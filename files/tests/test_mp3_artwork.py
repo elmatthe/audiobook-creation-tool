@@ -28,7 +28,7 @@ from mp3_tools import mp3_plan as mp
 from mp3_tools.mp3_artwork import Artwork, ArtworkError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "mp3_artwork.py"
 
 

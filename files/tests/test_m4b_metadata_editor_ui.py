@@ -55,7 +55,7 @@ from test_m4b_metadata_processing import (  # noqa: E402,F401 - fixtures by impo
 from test_m4b_metadata_workflow import m4b, vendor_series  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 MODULE = UNIVERSAL / "mp3_tools" / "m4b_metadata_editor.py"
 FIXTURE_PATH = Path(__file__).with_name("manual_windows_ui_prototype.py")
 

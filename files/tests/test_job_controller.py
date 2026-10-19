@@ -43,7 +43,7 @@ from shared.job_control import (
 #: never used to *create* a race, only to refuse to wait forever for one.
 WAIT = 5.0
 
-SHARED = Path(__file__).resolve().parent.parent.parent / "scripts" / "Universal" / "shared"
+SHARED = Path(__file__).resolve().parent.parent.parent / "scripts" / "shared"
 
 
 # --------------------------------------------------------------------------- #

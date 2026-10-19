@@ -6,7 +6,7 @@ REM  Double-click this file. The FIRST time it runs it installs everything
 REM  (a private Python environment + audio libraries + ffmpeg) using a small
 REM  setup window. EVERY time after that it just opens the app instantly with
 REM  no console window. All the real work lives in:
-REM      scripts\Universal\shared\bootstrap.py
+REM      scripts\shared\bootstrap.py
 REM
 REM  This file deliberately knows nothing about Python versions, ssl or Tk.
 REM  Deciding whether the environment is healthy is bootstrap's job; all this
@@ -16,7 +16,7 @@ REM ============================================================================
 setlocal EnableExtensions
 cd /d "%~dp0"
 
-set "BOOTSTRAP=scripts\Universal\shared\bootstrap.py"
+set "BOOTSTRAP=scripts\shared\bootstrap.py"
 set "REPAIR="
 
 REM ---------------------------------------------------------------------------

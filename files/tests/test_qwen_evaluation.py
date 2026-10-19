@@ -849,7 +849,7 @@ def test_the_real_torch_version_reader_keeps_the_local_tag_without_importing_tor
     (fake / "version.py").write_text("__version__ = '9.9.9+fake'\n", encoding="utf-8")
     code = ("import sys; sys.path[:0] = [r'%s', r'%s', r'%s']; import qwen_eval_cli as c; "
             "print(c.torch_runtime_version(), 'torch' in sys.modules)") % (tmp_path / "site", TOOLS,
-                                                                            REPO_ROOT / "scripts" / "Universal")
+                                                                            REPO_ROOT / "scripts")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=120)
     assert out.returncode == 0, out.stderr
     assert out.stdout.split() == ["9.9.9+fake", "False"]  # tag kept (metadata would drop it); torch never imported
@@ -1643,7 +1643,7 @@ def test_dev_tooling_imports_without_qwen_or_torch():
             "qwen_eval_worker, qwen_eval_baseline_worker;"
             "from tts import generate_voice_samples;"
             "bad=[m for m in ('torch','qwen_tts','transformers','gradio','huggingface_hub','kokoro','chatterbox') if m in sys.modules];"
-            "print(bad)") % (TOOLS, REPO_ROOT / "scripts" / "Universal")
+            "print(bad)") % (TOOLS, REPO_ROOT / "scripts")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=120)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip().splitlines()[-1] == "[]"
@@ -1659,7 +1659,7 @@ def test_production_requirements_and_release_packaging_ignore_the_evaluation_too
     assert "torch" in names and "transformers" in names  # the production stack the evaluation must not disturb
     constraints = (TOOLS / "qwen_eval_constraints.txt").read_text(encoding="utf-8")
     assert "qwen-tts==0.1.1" in constraints and "torch==2.10.0+cu128" in constraints
-    assert not (REPO_ROOT / "scripts" / "Universal" / "tts" / "qwen_eval_core.py").exists()
+    assert not (REPO_ROOT / "scripts" / "tts" / "qwen_eval_core.py").exists()
 
 
 # --------------------------------------------------------------------------- #

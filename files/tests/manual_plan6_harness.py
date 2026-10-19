@@ -65,7 +65,7 @@ import tkinter as tk
 from pathlib import Path, PurePath
 from tkinter import ttk
 
-_UNIVERSAL = Path(__file__).resolve().parents[2] / "scripts" / "Universal"
+_UNIVERSAL = Path(__file__).resolve().parents[2] / "scripts"
 if str(_UNIVERSAL) not in sys.path:
     sys.path.insert(0, str(_UNIVERSAL))
 

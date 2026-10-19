@@ -52,7 +52,7 @@ from test_importing import make_config  # noqa: E402
 import tk_gate  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PANEL_SOURCE = REPO_ROOT / "scripts" / "Universal" / "mp3_tools" / "cover_resizer.py"
+PANEL_SOURCE = REPO_ROOT / "scripts" / "mp3_tools" / "cover_resizer.py"
 
 WAIT = 5.0
 

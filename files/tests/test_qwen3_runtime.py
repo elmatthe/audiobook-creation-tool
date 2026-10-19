@@ -114,7 +114,7 @@ def write_transcripts(path: Path, voice: rt.Qwen3Voice, **overrides) -> None:
 # The tracked manifest and the voice table
 # --------------------------------------------------------------------------- #
 def test_the_tracked_manifest_pins_two_models_by_immutable_revision_and_hash():
-    manifest = json.loads((REPO_ROOT / "scripts" / "Universal" / "tts" / "qwen3_models.json").read_text("utf-8"))
+    manifest = json.loads((REPO_ROOT / "scripts" / "tts" / "qwen3_models.json").read_text("utf-8"))
     assert set(manifest["models"]) == {"customvoice", "base"}
     for key, model in manifest["models"].items():
         assert re.fullmatch(r"[0-9a-f]{40}", model["revision"]), key  # a commit SHA, never a branch name
@@ -157,7 +157,7 @@ def test_clone_reference_hashes_agree_with_the_chatterbox_registry_without_impor
             continue
         twin = cs.REFERENCE_VOICES["chatterbox-" + voice.voice_id.removeprefix("qwen3-")]
         assert (voice.reference_name + ".wav", voice.reference_sha256) == (twin.source_name, twin.source_sha256)
-    source = (REPO_ROOT / "scripts" / "Universal" / "tts" / "qwen3_runtime.py").read_text("utf-8")
+    source = (REPO_ROOT / "scripts" / "tts" / "qwen3_runtime.py").read_text("utf-8")
     assert "chatterbox_synth" not in source.replace("``chatterbox_synth.REFERENCE_VOICES``", "")  # independent
 
 

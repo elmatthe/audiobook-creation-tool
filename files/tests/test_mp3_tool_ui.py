@@ -45,7 +45,7 @@ from test_import_traversal import touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-UNIVERSAL = REPO_ROOT / "scripts" / "Universal"
+UNIVERSAL = REPO_ROOT / "scripts"
 PANEL_SOURCE = UNIVERSAL / "mp3_tools" / "mp3_tool.py"
 
 AQUA_THEME = {
