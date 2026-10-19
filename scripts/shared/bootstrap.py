@@ -2974,6 +2974,42 @@ def _platform_sane() -> bool:
     return IS_WINDOWS or IS_MAC or sys.platform.startswith("linux")
 
 
+#: How many directory entries the leftover-layout check looks at before it stops. The folder it examines is normally
+#: absent and otherwise small; the bound only keeps a pathological leftover from slowing a launch.
+STALE_LAYOUT_SCAN_LIMIT = 4000
+
+
+def stale_layout_warning(repo_root: Optional[Path] = None, *,
+                         limit: int = STALE_LAYOUT_SCAN_LIMIT) -> Optional[str]:
+    """A one-line warning when the pre-v0.6.7 ``scripts/Universal`` folder still holds Python source, else ``None``.
+
+    Until v0.6.7 the application lived under ``scripts/Universal``. Extracting a release over an old copy leaves that
+    folder behind. Nothing imports from it, so it is harmless, but it can mislead a person reading the tree. This only
+    *reports*: it never deletes, moves or edits anything, and a folder that holds nothing but bytecode caches (what a
+    ``git pull`` across the move leaves) is not reported at all. The scan is bounded and never raises.
+    """
+    old = (Path(repo_root) if repo_root is not None else REPO_ROOT) / "scripts" / "Universal"
+    try:
+        if not old.is_dir():
+            return None
+        seen = found = 0
+        capped = False
+        for _directory, directories, files in os.walk(old):
+            directories[:] = [d for d in directories if d != "__pycache__"]
+            found += sum(1 for name in files if name.lower().endswith(".py"))
+            seen += len(files) + len(directories)
+            if seen >= limit:
+                capped = True
+                break
+    except OSError:
+        return None
+    if not found:
+        return None
+    count = f"at least {found}" if capped else str(found)
+    return (f"WARNING: the old folder {old} (used before v0.6.7) still contains {count} Python file(s). "
+            "This version does not use it. It is safe to delete by hand; the app never deletes it for you.")
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Audiobook Creation Tool bootstrap")
     parser.add_argument("--launch-only", action="store_true",
@@ -3007,6 +3043,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not _platform_sane():
         LOG.line(f"Unsupported platform: {sys.platform}")
         return 2
+
+    stale = stale_layout_warning()
+    if stale:
+        LOG.line(stale)
 
     # Keep the HuggingFace model cache inside the project tree for every path
     # (self-test, fast launch, and first-run setup all inherit it).
