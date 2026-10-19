@@ -70,13 +70,15 @@ def test_kokoro_rows_route_languages_like_the_engine_and_flag_candidates():
     assert [v for v, s in status.items() if s == "candidate"] == ["am_fenrir", "am_puck", "am_onyx", "bm_daniel"]
 
 
-def test_candidates_are_not_registered_and_existing_voices_are():
+def test_the_decision_b_kokoro_voices_are_registered_and_qwen_is_not_yet():
     from tts.voice_registry import VOICES
 
     kokoro = [v.voice_id for v in VOICES if v.backend == "kokoro"]
-    for candidate in ("am_fenrir", "am_puck", "am_onyx", "bm_daniel"):
-        assert candidate not in kokoro
-    assert "am_michael" in kokoro and "bm_george" in kokoro
+    # Evaluation candidates until the owner's 2026-10-19 Decision B, registered since; the existing five are untouched.
+    for voice_id in ("af_heart", "af_bella", "am_michael", "bf_emma", "bm_george",
+                     "am_fenrir", "am_puck", "am_onyx", "bm_daniel"):
+        assert voice_id in kokoro
+    assert len(kokoro) == 9
     chatterbox = [v.voice_id for v in VOICES if v.backend == "chatterbox"]
     assert chatterbox == [voice_id for _, voice_id in core.REFERENCE_VOICE_IDS]
     assert not any("qwen" in v.voice_id.lower() for v in VOICES)
@@ -84,7 +86,8 @@ def test_candidates_are_not_registered_and_existing_voices_are():
 
 def test_kokoro_inventory_reports_registry_status_without_loading_anything():
     inventory = cli.kokoro_inventory()
-    assert [v for v, i in inventory.items() if i["registered"]] == ["am_michael", "bm_george"]
+    assert set(inventory) == {"am_michael", "bm_george", "am_fenrir", "am_puck", "am_onyx", "bm_daniel"}
+    assert all(i["registered"] for i in inventory.values())  # all six evaluation voices are ACT voices now
     assert all(i["lang_code"] == ("b" if v.startswith("bm_") else "a") for v, i in inventory.items())
 
 
@@ -1261,18 +1264,124 @@ def test_frozen_text_cannot_silently_change(tmp_path):
         cli.freeze_corpus(run2, {**profile, "max_chars": 300})
 
 
-def test_long_stage_refuses_to_run_without_the_owners_selection(tmp_path):
+def test_the_roster_is_the_owners_decision_b_selection():
+    assert core.QWEN_ROSTER_PRESETS == ("Aiden", "Ryan")
+    assert core.QWEN_ROSTER_CLONES == ("Female-1", "Female-2", "Male-1", "Male-2", "Male-3", "Male-4")
+    assert len(core.QWEN_ROSTER_PRESETS) + len(core.QWEN_ROSTER_CLONES) == 8  # the Qwen3 share of the 28 voices
+    excluded = {n for n, _ in core.QWEN_PRESETS} - set(core.QWEN_ROSTER_PRESETS)
+    assert excluded == {"Dylan", "Eric", "Ono_Anna", "Serena", "Sohee", "Uncle_Fu", "Vivian"}
+
+
+def test_a_long_selection_may_only_name_roster_voices_once_each():
+    ok = core.validate_long_selection
+    assert ok(["Aiden", "Ryan"], list(core.QWEN_ROSTER_CLONES)) is None
+    assert ok(["Aiden"], []) is None and ok([], ["Male-2"]) is None
+    for rejected in ("Dylan", "Eric", "Ono_Anna", "Serena", "Sohee", "Uncle_Fu", "Vivian", "Nobody"):
+        assert "not in the owner's roster" in ok(["Aiden", rejected], [])
+    assert "not among the six roster clones" in ok(["Aiden"], ["Male-9"])
+    assert "twice" in ok(["Aiden", "Aiden"], []) and "twice" in ok([], ["Male-1", "Male-1"])
+    assert "names no voices" in ok([], [])
+    for malformed in (None, "Aiden", {"a": 1}):
+        assert "needs list fields" in ok(malformed, [])
+        assert "needs list fields" in ok([], malformed)
+    assert "needs list fields" in ok([1], [])
+
+
+def test_long_stage_refuses_to_run_without_a_valid_recorded_roster_selection(tmp_path):
     run = make_run(tmp_path)
-    assert cli.stage_long(run) == 2
-    (run.dir / "long-selection.json").write_text(json.dumps({"female_preset": "Aiden", "clone": "Male-1"}), encoding="utf-8")
-    assert cli.stage_long(run) == 2  # Aiden is already required; a female preset must be a different voice
-    (run.dir / "long-selection.json").write_text(json.dumps({"female_preset": "Serena", "clone": "Nobody"}), encoding="utf-8")
-    assert cli.stage_long(run) == 2
-    (run.dir / "long-selection.json").write_text(json.dumps({"female_preset": "Ryan", "clone": "Male-1"}), encoding="utf-8")
-    assert cli.stage_long(run) == 2  # Ryan is a male preset per the model card
-    (run.dir / "long-selection.json").write_text(json.dumps({"female_preset": "Serena", "clone": "Male-1"}), encoding="utf-8")
-    assert cli.stage_long(run) == 2  # valid names, but Male-1's transcript is not owner-approved
+    assert cli.stage_long(run) == 2  # no long-selection.json
+    path = run.dir / "long-selection.json"
+    for bad in ({"female_preset": "Serena", "clone": "Male-1"},  # the superseded format
+                {"presets": ["Aiden", "Dylan"], "clones": []},  # Dylan was rejected
+                {"presets": ["Serena"], "clones": []},
+                {"presets": ["Aiden"], "clones": ["Male-9"]},
+                {"presets": [], "clones": []}):
+        path.write_text(json.dumps(bad), encoding="utf-8")
+        assert cli.stage_long(run) == 2, bad
+    path.write_text(json.dumps({"presets": ["Aiden"], "clones": []}), encoding="utf-8")
+    assert cli.stage_long(run, "kokoro") == 2  # sustained recordings exist only for the Qwen groups
     assert not [r for r in run.manifest.rows.values() if r["suite"] == "long"]
+
+
+def test_a_dry_run_of_the_long_stage_declares_the_roster_rows_in_memory_only(tmp_path):
+    run = cli.Run("fresh", work_dir=tmp_path, dry_run=True)
+    selection = {"presets": ["Aiden", "Ryan"], "clones": list(core.QWEN_ROSTER_CLONES)}
+    path = tmp_path / "runs" / "fresh" / "long-selection.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(selection), encoding="utf-8")
+    assert cli.stage_long(run, "qwen-preset") == 0
+    assert sorted(r for r in run.manifest.rows if r.startswith("long-")) == sorted(
+        ["long-qwen-preset-aiden", "long-qwen-preset-ryan",
+         *[f"long-qwen-clone-{c.lower()}" for c in core.QWEN_ROSTER_CLONES]])
+    assert not (tmp_path / "runs" / "fresh" / "manifest.jsonl").exists()  # nothing persisted
+
+
+def test_a_long_clone_waits_for_its_approved_transcript_and_its_short_clone_recording(fake_env, monkeypatch):
+    run = fake_env
+    snapshot = cli.reference_snapshot()
+    started = []
+    monkeypatch.setattr(cli, "run_worker", lambda *a, **k: started.append(a) or 0)
+    row = core.long_row(core.GROUP_QWEN_CLONE, "Male-2")
+    run.manifest.declare([row, *[r for r in core.short_rows() if r["row_id"] == "qwen-clone-male-2"]])
+    args = dict(mode="clone", suite_text="long", profile=cli.load_profile(run), manifest=run.manifest,
+                snapshot=snapshot, label="t")
+    live = lambda: run.manifest.get(row["row_id"])  # noqa: E731
+
+    cli.run_qwen_group(run, [live()], **args)  # no approved transcript at all
+    assert live()["status"] == "blocked" and "transcript not verified" in live()["status_reason"]
+
+    (run.dir / "transcripts" / "verified.json").write_text(json.dumps({"Male-2": {
+        "text": "approved words", "approved": True, "wav_sha256": snapshot["Male-2"]["sha256"]}}), encoding="utf-8")
+    cli.run_qwen_group(run, [live()], **args)  # approved, but no short clone recording yet
+    assert live()["status"] == "blocked" and "short clone recording for Male-2 has not succeeded" in live()["status_reason"]
+    assert started == []
+
+    wav = run.dir / "qwen-clones" / "Male-2.wav"
+    wav.parent.mkdir(exist_ok=True)
+    wav.write_bytes(b"short clone")
+    monkeypatch.setattr(cli, "installed_packages", lambda py: {})
+    monkeypatch.setattr(cli, "qwen_runtime_problems", lambda *a, **k: [])
+    short_row = run.manifest.get("qwen-clone-male-2")
+    run.manifest.update("qwen-clone-male-2", status="succeeded", outputs={"wav": {
+        "path": "qwen-clones/Male-2.wav", "bytes": 11, "sha256": core.sha256_file(wav)}},
+        identity=cli.current_identity(run, short_row, cli.load_profile(run), snapshot))
+    cli.run_qwen_group(run, [live()], **args)  # both prerequisites met and current: the worker starts
+    assert len(started) == 1 and live()["status"] == "pending"
+
+
+def test_a_stale_or_drifted_short_clone_does_not_unlock_its_long_recording(fake_env, monkeypatch):
+    run = fake_env
+    snapshot = cli.reference_snapshot()
+    started = []
+    monkeypatch.setattr(cli, "run_worker", lambda *a, **k: started.append(a) or 0)
+    monkeypatch.setattr(cli, "installed_packages", lambda py: {})
+    verified = run.dir / "transcripts" / "verified.json"
+    sha = snapshot["Male-2"]["sha256"]
+    verified.write_text(json.dumps({"Male-2": {"text": "the words as first approved", "approved": True,
+                                               "wav_sha256": sha}}), encoding="utf-8")
+    long_row = core.long_row(core.GROUP_QWEN_CLONE, "Male-2")
+    run.manifest.declare([long_row, *[r for r in core.short_rows() if r["row_id"] == "qwen-clone-male-2"]])
+    wav = run.dir / "qwen-clones" / "Male-2.wav"
+    wav.parent.mkdir(exist_ok=True)
+    wav.write_bytes(b"short clone")
+    short = run.manifest.get("qwen-clone-male-2")
+    profile = cli.load_profile(run)
+    run.manifest.update("qwen-clone-male-2", status="succeeded", outputs={"wav": {
+        "path": "qwen-clones/Male-2.wav", "bytes": 11, "sha256": core.sha256_file(wav)}},
+        identity=cli.current_identity(run, short, profile, snapshot))
+    args = dict(mode="clone", suite_text="long", profile=profile, manifest=run.manifest, snapshot=snapshot, label="t")
+    live = lambda: run.manifest.get(long_row["row_id"])  # noqa: E731
+
+    monkeypatch.setattr(cli, "qwen_runtime_problems", lambda *a, **k: ["package torch 2.10 -> 2.11"])
+    cli.run_qwen_group(run, [live()], **args)  # the short recording's recorded runtime no longer matches
+    assert live()["status"] == "blocked" and "no longer matches its recorded runtime" in live()["status_reason"]
+    assert started == []
+
+    monkeypatch.setattr(cli, "qwen_runtime_problems", lambda *a, **k: [])
+    verified.write_text(json.dumps({"Male-2": {"text": "the words after a correction", "approved": True,
+                                               "wav_sha256": sha}}), encoding="utf-8")
+    cli.run_qwen_group(run, [live()], **args)  # the approved transcript changed, so the short clone is stale
+    assert live()["status"] == "blocked" and "is stale" in live()["status_reason"] and started == []
 
 
 def test_female_presets_come_from_the_model_card_wording():
@@ -1465,7 +1574,7 @@ def test_listening_index_lists_every_row_with_relative_links_and_honest_states()
                 timing={"audible_s": 61.2}, warnings=["audible duration 61.2s outside the 45-90s target"])
     text = cli.render_listening_index(rows, "run-x", None, {"Female-1": "draft awaiting your verification"})
     assert "[WAV](kokoro/am_fenrir.wav)" in text and "[MP3](kokoro/am_fenrir.mp3)" in text
-    assert "NEW candidate" in text and "existing (baseline)" in text
+    assert "NEW (retained by owner)" in text and "existing (baseline)" in text
     assert text.count("**blocked**") == 6 and "reference transcript not verified" in text
     for display in ("Aiden", "Ono_Anna", "Uncle_Fu", "Female-2", "Male-4", "bm_daniel"):
         assert display in text

@@ -152,8 +152,8 @@ def test_the_registry_holds_exactly_six_chatterbox_rows():
     assert len(chatterbox) == 6
 
 
-def test_the_registry_holds_exactly_sixteen_voices_total():
-    assert len(voice_registry.VOICES) == 16
+def test_the_registry_holds_exactly_twenty_voices_total():
+    assert len(voice_registry.VOICES) == 20
 
 
 # --------------------------------------------------------------------------- #

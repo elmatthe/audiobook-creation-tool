@@ -12,13 +12,13 @@ def test_voice_registry_shape_and_lookup():
     from tts import voice_registry as vr
 
     labels = vr.display_labels()
-    assert len(vr.VOICES) == 16, "5 Edge + 5 Kokoro + 6 Chatterbox voices"
-    assert len(labels) == len(set(labels)) == 16
+    assert len(vr.VOICES) == 20, "5 Edge + 9 Kokoro + 6 Chatterbox voices"
+    assert len(labels) == len(set(labels)) == 20
 
     edge = [v for v in vr.VOICES if v.backend == "edge"]
     kokoro = [v for v in vr.VOICES if v.backend == "kokoro"]
     chatterbox = [v for v in vr.VOICES if v.backend == "chatterbox"]
-    assert len(edge) == 5 and len(kokoro) == 5 and len(chatterbox) == 6
+    assert len(edge) == 5 and len(kokoro) == 9 and len(chatterbox) == 6
     assert {v.voice_id for v in edge} == {
         "en-US-SteffanNeural", "en-US-AndrewNeural", "en-US-AriaNeural",
         "en-US-AvaNeural", "en-US-JennyNeural",
@@ -30,6 +30,7 @@ def test_voice_registry_shape_and_lookup():
     }
     assert {v.voice_id for v in kokoro} == {
         "af_heart", "af_bella", "am_michael", "bf_emma", "bm_george",
+        "am_fenrir", "am_puck", "am_onyx", "bm_daniel",  # v0.6.7 Decision B additions
     }
 
     # Lookup round-trips and every voice carries a timing preset.

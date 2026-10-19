@@ -91,6 +91,11 @@ REFERENCE_VOICE_IDS: tuple[tuple[str, str], ...] = (
     ("Male-4", "chatterbox-male-4"),
 )
 
+#: Owner roster decision 2026-10-19 (Decision B): the Qwen3 voices that go into ACT. Sustained (long-form) recordings
+#: are made for exactly these; Dylan, Eric, Ono_Anna, Serena, Sohee, Uncle_Fu and Vivian are excluded from production.
+QWEN_ROSTER_PRESETS: tuple[str, ...] = ("Aiden", "Ryan")
+QWEN_ROSTER_CLONES: tuple[str, ...] = tuple(display for display, _ in REFERENCE_VOICE_IDS)
+
 # (voice id, ACT status, Kokoro pipeline lang_code). A closed set: not every upstream voice.
 KOKORO_VOICES: tuple[tuple[str, str, str], ...] = (
     ("am_michael", "existing", "a"),
@@ -143,6 +148,25 @@ def short_rows() -> list[dict]:
                          act_status=act_status, lang_code=lang, speed=1.0))
     assert len(rows) == 27 and len({r["row_id"] for r in rows}) == 27
     return rows
+
+
+def validate_long_selection(presets, clones) -> str | None:
+    """Why a recorded long-form selection is unacceptable, or None. Only the owner's roster may be made."""
+    if not isinstance(presets, list) or not isinstance(clones, list) or not all(
+            isinstance(x, str) for x in [*presets, *clones]):
+        return "long-selection.json needs list fields 'presets' and 'clones'"
+    if not presets and not clones:
+        return "the selection names no voices"
+    if len(set(presets)) != len(presets) or len(set(clones)) != len(clones):
+        return "the selection names a voice twice"
+    outside = [p for p in presets if p not in QWEN_ROSTER_PRESETS]
+    if outside:
+        return (f"{outside} are not in the owner's roster; sustained recordings are made only for "
+                f"{list(QWEN_ROSTER_PRESETS)} (the other CustomVoice presets were excluded on 2026-10-19)")
+    unknown = [c for c in clones if c not in QWEN_ROSTER_CLONES]
+    if unknown:
+        return f"{unknown} are not among the six roster clones {list(QWEN_ROSTER_CLONES)}"
+    return None
 
 
 def long_row(group: str, display: str) -> dict:

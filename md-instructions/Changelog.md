@@ -15,6 +15,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Four more Kokoro voices (v0.6.7 voice roster, 2026-10-19)
+
+- The voice list gains **Kokoro Male - Fenrir (en-US)**, **Kokoro Male - Puck (en-US)**, **Kokoro Male - Onyx (en-US)**
+  and **Kokoro Male - Daniel (en-UK)**, listed with the other Kokoro voices (nine in total). They use the existing local
+  Kokoro engine, the neutral 1.0 speed and the same pause defaults as the other Kokoro voices; each voice's small
+  (about 0.5 MB) file downloads on first use, like the existing voices. Existing voices, their labels, their order
+  relative to each other, saved settings and the default voice are unchanged.
+- The four voices were heard and approved by the maintainer in the v0.6.7 listening comparison before being added.
+
 ### Fixed — MP3 embedded segment metadata (2026-10-01)
 
 - Write ID3 Tags now accepts byte-concatenated MP3 segments whose interior ID3

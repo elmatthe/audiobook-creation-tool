@@ -233,7 +233,7 @@ def test_the_ordinary_selection_still_covers_every_registered_voice():
     approved both Male 3 and Male 4 (fourteen to sixteen). ``_select`` itself
     is unchanged and its contract is unchanged.
     """
-    assert len(gvs._select([])) == len(voice_registry.VOICES) == 16
+    assert len(gvs._select([])) == len(voice_registry.VOICES) == 20
 
 
 def test_the_ordinary_backend_filters_still_work():
@@ -648,7 +648,7 @@ def test_every_historical_evaluation_id_is_still_registered():
     registered_ids = {v.voice_id for v in voice_registry.VOICES if v.backend == "chatterbox"}
     assert set(gvs.CHATTERBOX_EVAL_VOICE_IDS) <= registered_ids
     assert len(registered_ids) == 6
-    assert len(voice_registry.VOICES) == 16
+    assert len(voice_registry.VOICES) == 20
 
 
 def test_running_the_evaluation_registers_nothing(engine):
@@ -688,9 +688,9 @@ def test_no_chatterbox_dispatch_reached_a_conversion_engine(filename):
         f"{filename} references Chatterbox — the engines stay untouched"
 
 
-def test_the_gui_voice_dropdown_offers_the_ten_plus_the_six_approved():
+def test_the_gui_voice_dropdown_offers_the_fourteen_plus_the_six_approved():
     labels = voice_registry.display_labels()
-    assert len(labels) == 16 == len(set(labels))
+    assert len(labels) == 20 == len(set(labels))
 
 
 def test_the_generator_is_the_only_production_file_phase_nine_widened():
@@ -754,7 +754,9 @@ ORDINARY_EDGE_IDS = (
     "en-US-AvaNeural",
     "en-US-JennyNeural",
 )
-ORDINARY_KOKORO_IDS = ("af_heart", "af_bella", "am_michael", "bf_emma", "bm_george")
+# v0.6.7 Decision B added am_fenrir, am_puck, am_onyx and bm_daniel inside the Kokoro block (registry order).
+ORDINARY_KOKORO_IDS = ("af_heart", "af_bella", "am_michael", "am_fenrir", "am_puck", "am_onyx", "bf_emma",
+                       "bm_george", "bm_daniel")
 
 
 class _SampleSeams:
@@ -836,12 +838,12 @@ def test_no_chatterbox_voice_is_ever_handed_to_edge_tts(sample_seams, monkeypatc
         assert voice_id not in sample_seams.voices("edge")
 
 
-def test_an_ordinary_run_covers_all_sixteen_rows_split_by_backend(sample_seams,
+def test_an_ordinary_run_covers_all_twenty_rows_split_by_backend(sample_seams,
                                                                  monkeypatch):
     _main(monkeypatch)
-    assert len(sample_seams.calls) == 16
+    assert len(sample_seams.calls) == 20
     assert len(sample_seams.voices("edge")) == 5
-    assert len(sample_seams.voices("kokoro")) == 5
+    assert len(sample_seams.voices("kokoro")) == 9
     assert len(sample_seams.voices("chatterbox")) == 6
 
 
@@ -903,7 +905,7 @@ def test_ordinary_mode_never_calls_the_phase_nine_evaluation(sample_seams, monke
                         lambda *a, **k: called.append("ran") or [])
     _main(monkeypatch)
     assert called == []
-    assert len(sample_seams.calls) == 16
+    assert len(sample_seams.calls) == 20
 
 
 def test_the_evaluation_flag_never_enters_ordinary_dispatch(sample_seams, monkeypatch):
@@ -934,7 +936,7 @@ def test_a_fully_successful_ordinary_run_reports_success(sample_seams, monkeypat
                                                          capsys):
     code = _main(monkeypatch)
     assert code == 0
-    assert "16 ok, 0 failed" in capsys.readouterr().out
+    assert "20 ok, 0 failed" in capsys.readouterr().out
 
 
 def test_edge_and_kokoro_sample_naming_is_unchanged(sample_seams, monkeypatch,

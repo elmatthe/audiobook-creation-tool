@@ -671,6 +671,27 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
     chunks = core.plan_chunks(passage.text, profile["max_chars"])
     record = assets.load_record().get(key)
 
+    short_state: dict = {}
+
+    def short_clone_problem(display: str) -> str | None:
+        """A long clone needs a CURRENT successful short clone: intact files, the identity it would get today (so a
+        changed transcript, profile or tooling makes it stale) and runtime evidence that still matches."""
+        short = run.manifest.rows.get(core.clone_row_id(display))
+        if not (short and short["status"] == "succeeded" and core.outputs_intact(short, run.dir)):
+            return f"the short clone recording for {display} has not succeeded yet; a long clone waits for it"
+        if not core.can_resume(short, current_identity(run, short, profile, snapshot), run.dir):
+            return (f"the short clone recording for {display} is stale (its identity no longer matches the approved "
+                    "transcript, profile or tooling); regenerate it first")
+        if "freeze" not in short_state:
+            short_state["freeze"] = installed_packages(py) if py.is_file() else {}
+        drift = qwen_runtime_problems(
+            run, short, profile=profile, key=key, mode="clone", snapshot=snapshot, freeze=short_state["freeze"],
+            plan_sha=core.plan_hash(core.plan_chunks(corpus.EVAL_SHORT.text, profile["max_chars"])))
+        if drift:
+            return (f"the short clone recording for {display} no longer matches its recorded runtime: "
+                    + "; ".join(drift[:3]))
+        return None
+
     @functools.lru_cache(maxsize=1)
     def snapshot_check() -> tuple:
         """Every file of the pinned model snapshot, sizes AND SHA-256, verified once per group."""
@@ -691,6 +712,8 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
             text, why = approved_for(run, row, snapshot)
             if text is None:
                 return f"reference transcript not verified: {why}"
+            if row["suite"] == "long":
+                return short_clone_problem(ref_name(row))
         return None
 
     def extra(row: dict) -> dict:
@@ -901,14 +924,15 @@ def render_listening_index(rows: list[dict], run_id: str, frozen: dict | None, t
              "omissions, repetitions or odd joins.", "",
              "Read-along text (identical for every voice): [short passage](corpus/short.txt), "
              "[long passage](corpus/long.txt). Reference-transcript review: [review sheet](transcripts/review-sheet.md).", "",
-             "## Decisions needed from you", "",
-             "1. **Reference transcripts** - verify or correct the six Whisper drafts in the "
-             "[review sheet](transcripts/review-sheet.md); no clone is made from an unverified transcript.",
-             "2. **Long-form comparison** - Aiden and Dylan are already fixed. Name **one female CustomVoice preset** "
-             "(" + ", ".join(n for n, _ in core.QWEN_PRESETS if core.is_female_preset(n)) +
-             ") and **one verified clone** (a reference whose transcript you approved).",
-             "3. **Kokoro candidates** - for each of `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel`: retain, reject or "
-             "defer (listening feedback alone changes no ACT code or voice list).", "",
+             "## Your 2026-10-19 roster decision (Decision B) and what is still needed", "",
+             "- **Qwen3 voices in ACT:** " + ", ".join(core.QWEN_ROSTER_PRESETS) + " and the six clones "
+             "(" + ", ".join(core.QWEN_ROSTER_CLONES) + "). The other seven CustomVoice presets are excluded from "
+             "production; their recordings stay here as evidence.",
+             "- **Kokoro:** `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel` are retained and are being registered in ACT.",
+             "- **Sustained (long) recordings:** Aiden and Ryan now; each clone after its transcript is approved and its "
+             "short recording exists. A decoded recording is not a listening approval.",
+             "- **Still needed from you:** verify or correct the six Whisper drafts in the "
+             "[review sheet](transcripts/review-sheet.md); no clone is made from an unverified transcript.", "",
              "## Inventory (short suite, 27 expected rows)", "",
              "| Group | Expected | Succeeded | Failed | Blocked | Pending / running |", "|---|---|---|---|---|---|"]
     names = {core.GROUP_QWEN_PRESET: "Qwen3-TTS CustomVoice presets", core.GROUP_QWEN_CLONE: "Qwen3-TTS Base clones",
@@ -924,12 +948,13 @@ def render_listening_index(rows: list[dict], run_id: str, frozen: dict | None, t
 
     lines += ["", "## 1. Qwen3-TTS CustomVoice presets (English, no style instruction)", "",
               "Upstream recommends each voice's native language; these are all English tests by design.", "",
-              "| Voice | Model-card description | Native language | WAV | MP3 | Audible | State |",
-              "|---|---|---|---|---|---|---|"]
+              "| Voice | In ACT | Model-card description | Native language | WAV | MP3 | Audible | State |",
+              "|---|---|---|---|---|---|---|---|"]
     for r in short:
         if r["group"] == core.GROUP_QWEN_PRESET:
             o = r.get("outputs")
-            lines.append(f"| {r['display']} | {core.QWEN_PRESET_DESCRIPTIONS.get(r['display'], '')} | "
+            roster = "**yes**" if r["display"] in core.QWEN_ROSTER_PRESETS else "excluded (evidence kept)"
+            lines.append(f"| {r['display']} | {roster} | {core.QWEN_PRESET_DESCRIPTIONS.get(r['display'], '')} | "
                          f"{r.get('native_language', '')} | {_link('WAV', o, 'wav')} | "
                          f"{_link('MP3', o, 'mp3')} | {_dur(r)} | {_state(r)} |")
 
@@ -947,13 +972,13 @@ def render_listening_index(rows: list[dict], run_id: str, frozen: dict | None, t
                      f"{_link('MP3', base.get('outputs'), 'mp3')} | {_state(clone)} | {_state(base)} |")
 
     lines += ["", "## 3. Kokoro: existing ACT voices vs new candidates", "",
-              "Evaluation only: none of the candidates is registered in ACT. Existing voices are the comparison "
-              "baseline; each candidate needs your separate retain / reject / defer decision.", "",
+              "The four candidates were retained by your 2026-10-19 roster decision (their ACT registration is a "
+              "separate step). The existing voices are the comparison baseline.", "",
               "| Voice | ACT status | Pipeline | WAV | MP3 | Audible | State |", "|---|---|---|---|---|---|---|"]
     for r in short:
         if r["group"] == core.GROUP_KOKORO:
             o = r.get("outputs")
-            status = "existing (baseline)" if r.get("act_status") == "existing" else "NEW candidate"
+            status = "existing (baseline)" if r.get("act_status") == "existing" else "NEW (retained by owner)"
             lines.append(f"| `{r['display']}` | {status} | {'American (a)' if r.get('lang_code') == 'a' else 'British (b)'} | "
                          f"{_link('WAV', o, 'wav')} | {_link('MP3', o, 'mp3')} | {_dur(r)} | {_state(r)} |")
 
@@ -1062,28 +1087,31 @@ def stage_short(run: Run, selector: str) -> int:
     return 1 if problems else 0
 
 
-def stage_long(run: Run) -> int:
+def stage_long(run: Run, selector: str = "all") -> int:
+    """Sustained recordings for the owner's recorded roster (Aiden, Ryan and the six clones, 2026-10-19).
+
+    ``long-selection.json`` records that decision: ``{"presets": [...], "clones": [...], "owner_statement": ...}``.
+    A clone's row is blocked, not failed, until its transcript is owner-approved and its short clone recording exists.
+    """
     path = run.dir / "long-selection.json"
     if not path.is_file():
-        say("long-selection.json is missing: the owner's two Qwen selections are required before any long recording")
+        say("long-selection.json is missing: record the owner's roster decision before any long recording")
         return 2
     sel = json.loads(path.read_text(encoding="utf-8"))
-    female, clone = sel.get("female_preset"), sel.get("clone")
-    if not core.is_female_preset(female or "") or clone not in dict(core.REFERENCE_VOICE_IDS):
-        say(f"invalid long-selection.json (female_preset={female!r}, clone={clone!r}): the female preset must be one of "
-            f"{[n for n, _ in core.QWEN_PRESETS if core.is_female_preset(n)]} and the clone one of the six references")
+    problem = core.validate_long_selection(sel.get("presets"), sel.get("clones"))
+    if problem:
+        say(f"invalid long-selection.json: {problem}")
         return 2
-    approved, why = approved_transcript(run, clone)
-    if approved is None:
-        say(f"the selected clone {clone!r} has no owner-approved transcript ({why}); a long clone cannot be made")
+    groups = [g for g in selected_groups(selector) if g in (core.GROUP_QWEN_PRESET, core.GROUP_QWEN_CLONE)]
+    if not groups:
+        say("sustained recordings exist only for the qwen-preset and qwen-clone groups")
         return 2
     profile = load_profile(run)
     freeze_corpus(run, profile, write=not run.dry_run)
-    rows = [core.long_row(core.GROUP_QWEN_PRESET, n) for n in ("Aiden", "Dylan", female)] + \
-           [core.long_row(core.GROUP_QWEN_CLONE, clone)]
+    rows = [core.long_row(core.GROUP_QWEN_PRESET, n) for n in sel["presets"]] + \
+           [core.long_row(core.GROUP_QWEN_CLONE, c) for c in sel["clones"]]
     run.manifest.declare(rows, save=not run.dry_run)
-    problems = run_groups(run, rows, [core.GROUP_QWEN_PRESET, core.GROUP_QWEN_CLONE], suite_text="long",
-                          profile=profile, label="long")
+    problems = run_groups(run, rows, groups, suite_text="long", profile=profile, label="long")
     if not run.dry_run:
         stage_report(run)
     return 1 if problems else 0
@@ -1338,7 +1366,7 @@ def run(stage: str, run_id: str = core.DEFAULT_RUN_ID, group: str = "all", dry_r
     if stage == "short":
         return stage_short(session, group)
     if stage == "long":
-        return stage_long(session)
+        return stage_long(session, group)
     if stage == "asr-check":
         return stage_asr_check(session)
     if stage == "report":

@@ -140,14 +140,49 @@ EXPECTED_VOICES = [
 ]
 
 
-def test_the_ten_pre_existing_rows_are_still_the_first_ten():
-    """Phase 10 appended; it did not insert, re-order or replace. Phase 2 of
-    v0.6.5 removed two multilingual Edge rows (twelve became ten) and later
-    appended two more Chatterbox rows (Male 3 and Male 4, both approved), so
-    the registry total is sixteen even though these first ten are unaffected."""
-    assert len(voice_registry.VOICES) == 16
-    assert len([v for v in voice_registry.VOICES[:10]
-                if v.backend in ("edge", "kokoro")]) == 10
+#: The four Kokoro voices the owner added in Decision B (2026-10-19), as (voice id, label, group). Each sits inside the
+#: Kokoro block next to its language siblings; none is tuned (all take the shared neutral preset unmodified).
+DECISION_B_KOKORO = [
+    ("am_fenrir", "Kokoro Male - Fenrir (en-US)", "Kokoro Local AI — American English"),
+    ("am_puck", "Kokoro Male - Puck (en-US)", "Kokoro Local AI — American English"),
+    ("am_onyx", "Kokoro Male - Onyx (en-US)", "Kokoro Local AI — American English"),
+    ("bm_daniel", "Kokoro Male - Daniel (en-UK)", "Kokoro Local AI — British English"),
+]
+
+#: The complete registry order after Decision B: five Edge, nine Kokoro, six Chatterbox.
+REGISTRY_ORDER = [
+    "en-US-SteffanNeural", "en-US-AndrewNeural", "en-US-AriaNeural", "en-US-AvaNeural", "en-US-JennyNeural",
+    "af_heart", "af_bella", "am_michael", "am_fenrir", "am_puck", "am_onyx", "bf_emma", "bm_george", "bm_daniel",
+    "chatterbox-female-1", "chatterbox-female-2", "chatterbox-male-1", "chatterbox-male-2",
+    "chatterbox-male-3", "chatterbox-male-4",
+]
+
+
+def _by_id(voice_id):
+    return next(v for v in voice_registry.VOICES if v.voice_id == voice_id)
+
+
+def test_the_ten_pre_existing_rows_are_all_still_present_in_their_original_relative_order():
+    """Phase 10 appended; v0.6.5 Phase 2 removed two multilingual Edge rows and appended Male 3 and Male 4;
+    v0.6.7 Decision B then added four Kokoro rows INSIDE the Kokoro block. None of that displaced, re-ordered or
+    replaced an original row: the ten are identified by voice id, still in their original order."""
+    assert len(voice_registry.VOICES) == 20
+    original = [expected[1] for expected in EXPECTED_VOICES]
+    assert [v.voice_id for v in voice_registry.VOICES if v.voice_id in original] == original
+
+
+def test_decision_b_adds_exactly_four_kokoro_rows_inside_the_kokoro_block():
+    ids = [v.voice_id for v in voice_registry.VOICES]
+    assert ids == REGISTRY_ORDER
+    kokoro = [v for v in voice_registry.VOICES if v.backend == "kokoro"]
+    assert len(kokoro) == 9
+    assert [v.voice_id for v in voice_registry.VOICES[5:14]] == [v.voice_id for v in kokoro]  # one contiguous block
+    for (voice_id, label, group), entry in zip(DECISION_B_KOKORO, [_by_id(i) for i, *_ in DECISION_B_KOKORO]):
+        assert (entry.backend, entry.voice_id, entry.display_label, entry.group_label) == ("kokoro", voice_id, label, group)
+        assert entry.timing_preset == voice_registry._kokoro_preset(speed=1.0)  # neutral, unmodified, untuned
+        assert entry.timing_preset["kokoro_speed"] == "1.0"
+    for _voice_id, label, _group in DECISION_B_KOKORO:
+        assert label.startswith("Kokoro Male - ") and label.endswith(("(en-US)", "(en-UK)"))
 
 
 @pytest.mark.parametrize("index,expected", list(enumerate(EXPECTED_VOICES)))
@@ -161,7 +196,7 @@ def test_each_existing_voice_row_keeps_its_engine_identity_and_timing(index, exp
     asserted here value for value.
     """
     backend, voice_id, display, group, preset = expected
-    entry = voice_registry.VOICES[index]
+    entry = _by_id(voice_id)
     assert entry.backend == backend
     assert entry.voice_id == voice_id
     assert entry.display_label == display
@@ -174,16 +209,19 @@ def test_the_default_voice_is_still_steffan():
     assert voice_registry.DEFAULT_VOICE_LABEL == voice_registry.VOICES[0].display_label
 
 
-def test_the_dropdown_still_opens_with_the_same_ten_labels_in_order():
-    assert voice_registry.display_labels()[:10] == [v[2] for v in EXPECTED_VOICES]
+def test_the_dropdown_still_opens_with_the_same_edge_labels_and_keeps_the_ten_in_order():
+    labels = voice_registry.display_labels()
+    assert labels[:5] == [v[2] for v in EXPECTED_VOICES[:5]]
+    original = [v[2] for v in EXPECTED_VOICES]
+    assert [label for label in labels if label in original] == original
 
 
-def test_exactly_six_chatterbox_rows_exist_and_all_sit_after_the_ten():
+def test_exactly_six_chatterbox_rows_exist_and_all_sit_after_the_edge_and_kokoro_rows():
     """Closed at four by drop §5.7, then six after Male 3 and Male 4's final
-    Phase 2 approval; none of them displaced a row."""
+    Phase 2 approval; none of them displaced a row, and Decision B left all six untouched."""
     chatterbox = [v for v in voice_registry.VOICES if v.backend == "chatterbox"]
     assert len(chatterbox) == 6
-    assert voice_registry.VOICES[10:] == chatterbox
+    assert voice_registry.VOICES[14:] == chatterbox
 
 
 def test_the_em_dash_labels_this_drop_proposed_are_not_what_was_registered():
@@ -198,11 +236,12 @@ def test_the_registry_source_declares_exactly_the_rows_it_should():
     tree = _tree(TTS_DIR / "voice_registry.py")
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 16
+    assert len(rows) == 20
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
-    assert backends[:10] == ["edge"] * 5 + ["kokoro"] * 5
-    assert backends[10:] == ["chatterbox"] * 6
+    assert backends[:5] == ["edge"] * 5
+    assert backends[5:14] == ["kokoro"] * 9
+    assert backends[14:] == ["chatterbox"] * 6
 
 
 # --------------------------------------------------------------------------- #

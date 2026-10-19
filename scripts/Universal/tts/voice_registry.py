@@ -42,6 +42,14 @@ not retyped. Nothing persists a voice by label (no ``settings.set`` writes one a
 no key for it exists in ``shared.config.USER_STATE_SETTINGS``), so the rename needs
 no migration and none was invented.
 
+**v0.6.7 Decision B (owner roster decision, 2026-10-19) added four Kokoro rows**, ``am_fenrir``,
+``am_puck`` and ``am_onyx`` (American) and ``bm_daniel`` (British), each registered **inside the existing Kokoro
+block** next to its language siblings and taking the shared neutral Kokoro preset unmodified (speed 1.0, no per-voice
+tuning). Every pre-existing row keeps its backend, voice id, label, group, timing and its *relative* order; Steffan is
+still row 0 and the default. They were heard first in the evaluation harness, which called the production Kokoro
+engine directly with these ids (``tts.kokoro_synth`` routes ``am_``/``bm_`` to the American/British pipelines). A
+new Kokoro voice file is fetched on first use, exactly like the existing five.
+
 **Registered is not the same as available.** A row here says a voice is part of the
 supported configuration. Whether it can actually run on *this* machine is a separate
 question, owned by ``tts/chatterbox_synth.py`` — the Chatterbox voices are backed by
@@ -151,8 +159,9 @@ def _chatterbox_preset(
 #: dropdown separator only and never part of a voice's name.
 CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 
-# Sixteen rows: five Edge, five Kokoro, then six approved Chatterbox voices
-# (the original four plus Male 3 and Male 4, both approved 2026-09-20).
+# Twenty rows: five Edge, nine Kokoro (the original five plus the four Decision B additions of
+# 2026-10-19), then six approved Chatterbox voices (the original four plus Male 3 and Male 4,
+# both approved 2026-09-20).
 # v0.6.5 Phase 2 also removed the two multilingual Edge rows
 # (en-US-AndrewMultilingualNeural, en-US-AvaMultilingualNeural) per the
 # plan's final voice inventory (Section 3) — ordinary Andrew and Ava are
@@ -221,6 +230,29 @@ VOICES: list[VoiceEntry] = [
         group_label="Kokoro Local AI — American English",
         timing_preset=_kokoro_preset(speed=1.0, sentence=580),
     ),
+    # ---- v0.6.7 Decision B: three American Kokoro voices added by the owner's roster decision
+    # of 2026-10-19, placed with their American siblings. Shared neutral preset, unmodified.
+    VoiceEntry(
+        backend="kokoro",
+        voice_id="am_fenrir",
+        display_label="Kokoro Male - Fenrir (en-US)",
+        group_label="Kokoro Local AI — American English",
+        timing_preset=_kokoro_preset(speed=1.0),
+    ),
+    VoiceEntry(
+        backend="kokoro",
+        voice_id="am_puck",
+        display_label="Kokoro Male - Puck (en-US)",
+        group_label="Kokoro Local AI — American English",
+        timing_preset=_kokoro_preset(speed=1.0),
+    ),
+    VoiceEntry(
+        backend="kokoro",
+        voice_id="am_onyx",
+        display_label="Kokoro Male - Onyx (en-US)",
+        group_label="Kokoro Local AI — American English",
+        timing_preset=_kokoro_preset(speed=1.0),
+    ),
     VoiceEntry(
         backend="kokoro",
         voice_id="bf_emma",
@@ -234,6 +266,14 @@ VOICES: list[VoiceEntry] = [
         display_label="Kokoro Male - George (en-UK)",
         group_label="Kokoro Local AI — British English",
         timing_preset=_kokoro_preset(speed=1.0, sentence=600),
+    ),
+    # ---- v0.6.7 Decision B: the British addition, with its British siblings.
+    VoiceEntry(
+        backend="kokoro",
+        voice_id="bm_daniel",
+        display_label="Kokoro Male - Daniel (en-UK)",
+        group_label="Kokoro Local AI — British English",
+        timing_preset=_kokoro_preset(speed=1.0),
     ),
     # ---- v0.6.1 Plan 4 Phase 10: the four approved Chatterbox voices ---- #
     # The display labels are the maintainer's own, written exactly as approved on

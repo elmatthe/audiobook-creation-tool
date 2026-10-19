@@ -210,12 +210,13 @@ def module_source(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_registry_now_holds_sixteen_voices():
+def test_the_registry_now_holds_twenty_voices():
     """Sixteen at Phase 10; v0.6.5 Phase 2 then removed the two multilingual
     Edge rows entirely (fourteen), then approved the original Male 3 candidate
     and Male 4 (sixteen) — the maintainer's final ruling rejected only the
-    bounded pitch-retry variant of Male 3, not the voice itself."""
-    assert len(vr.VOICES) == 16
+    bounded pitch-retry variant of Male 3, not the voice itself. Decision B (2026-10-19)
+    then added four Kokoro rows inside the Kokoro block (twenty)."""
+    assert len(vr.VOICES) == 20
 
 
 def test_the_ten_existing_rows_keep_their_engine_values_and_order():
@@ -229,9 +230,11 @@ def test_the_ten_existing_rows_keep_their_engine_values_and_order():
     from test_chatterbox_boundaries import EXPECTED_VOICES
 
     assert len(EXPECTED_VOICES) == 10
-    for index, expected in enumerate(EXPECTED_VOICES):
+    original = [expected[1] for expected in EXPECTED_VOICES]
+    assert [v.voice_id for v in vr.VOICES if v.voice_id in original] == original  # relative order preserved
+    for expected in EXPECTED_VOICES:
         backend, voice_id, display, group, preset = expected
-        entry = vr.VOICES[index]
+        entry = next(v for v in vr.VOICES if v.voice_id == voice_id)
         assert entry.backend == backend
         assert entry.voice_id == voice_id
         assert entry.display_label == display
@@ -242,14 +245,14 @@ def test_the_ten_existing_rows_keep_their_engine_values_and_order():
 def test_the_four_approved_rows_are_appended_in_the_approved_order():
     """The historical four (Phase 10), immediately followed by Male 3 and Male 4
     (v0.6.5 Phase 2) — appended, not interleaved or reordered."""
-    tail = vr.VOICES[10:]
+    tail = vr.VOICES[14:]
     assert [(e.voice_id, e.display_label) for e in tail] == list(APPROVED) + [
         ("chatterbox-male-3", "Chatterbox - Male 3"),
         ("chatterbox-male-4", "Chatterbox - Male 4")]
 
 
 def test_every_appended_row_declares_the_chatterbox_backend():
-    for entry in vr.VOICES[10:]:
+    for entry in vr.VOICES[14:]:
         assert entry.backend == "chatterbox"
 
 
@@ -270,7 +273,7 @@ def test_the_superseded_em_dash_labels_are_not_registered(superseded):
 
 
 def test_the_four_share_one_group_label_and_it_names_the_engine_truthfully():
-    groups = {entry.group_label for entry in vr.VOICES[10:]}
+    groups = {entry.group_label for entry in vr.VOICES[14:]}
     assert len(groups) == 1, "one cosmetic group, not four"
     group = groups.pop()
     assert "Chatterbox" in group
@@ -280,12 +283,12 @@ def test_the_four_share_one_group_label_and_it_names_the_engine_truthfully():
 def test_no_voice_was_tuned_differently_from_another():
     """Phase 9 approved all four under one parameter set; §6 forbids per-voice tuning."""
     reference = vr._chatterbox_preset()
-    for entry in vr.VOICES[10:]:
+    for entry in vr.VOICES[14:]:
         assert entry.timing_preset == reference
 
 
 def test_the_chatterbox_rows_carry_the_kokoro_shaped_timing_fields():
-    for entry in vr.VOICES[10:]:
+    for entry in vr.VOICES[14:]:
         assert set(entry.timing_preset) == set(vr._kokoro_preset())
         assert entry.timing_preset["trim_edge_chunks"] is False
         assert entry.timing_preset["rate"] == "+0%"
@@ -297,23 +300,23 @@ def test_the_default_voice_is_still_steffan():
     assert vr.DEFAULT_VOICE_LABEL == vr.VOICES[0].display_label
 
 
-def test_the_dropdown_offers_the_ten_then_the_six():
+def test_the_dropdown_offers_the_fourteen_then_the_six():
     labels = vr.display_labels()
-    assert len(labels) == 16 == len(set(labels))
-    assert labels[10:] == [label for _voice_id, label in APPROVED] + [
+    assert len(labels) == 20 == len(set(labels))
+    assert labels[14:] == [label for _voice_id, label in APPROVED] + [
         "Chatterbox - Male 3", "Chatterbox - Male 4"]
 
 
-def test_the_registry_source_declares_exactly_sixteen_rows():
+def test_the_registry_source_declares_exactly_twenty_rows():
     """An AST count, so a commented-out or duplicated row cannot creep in."""
     tree = ast.parse(module_source(TTS_DIR / "voice_registry.py"))
     rows = [n for n in ast.walk(tree)
             if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "VoiceEntry"]
-    assert len(rows) == 16
+    assert len(rows) == 20
     backends = [next(k.value.value for k in row.keywords if k.arg == "backend")
                 for row in rows]
-    assert backends[:10] == ["edge"] * 5 + ["kokoro"] * 5
-    assert backends[10:] == ["chatterbox"] * 6
+    assert backends[:14] == ["edge"] * 5 + ["kokoro"] * 9
+    assert backends[14:] == ["chatterbox"] * 6
 
 
 def test_the_registry_imports_no_engine_module():
@@ -1264,12 +1267,13 @@ def test_the_five_edge_rows_survive_by_value():
                 entry.group_label, entry.timing_preset) == expected
 
 
-def test_the_five_kokoro_rows_survive_by_value():
+def test_the_five_original_kokoro_rows_survive_by_value_beside_the_four_additions():
     from test_chatterbox_boundaries import EXPECTED_VOICES
 
     kokoro = [v for v in vr.VOICES if v.backend == "kokoro"]
-    assert len(kokoro) == 5
-    for entry, expected in zip(kokoro, EXPECTED_VOICES[5:10]):
+    assert len(kokoro) == 9  # the original five plus Decision B's four
+    for expected in EXPECTED_VOICES[5:10]:
+        entry = next(v for v in kokoro if v.voice_id == expected[1])
         assert (entry.backend, entry.voice_id, entry.display_label,
                 entry.group_label, entry.timing_preset) == expected
 

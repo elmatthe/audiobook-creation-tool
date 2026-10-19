@@ -44,8 +44,12 @@ MAINTAINER_LABELS = [
     "Kokoro Female (Default) - Heart (en-US)",
     "Kokoro Female - Bella (en-US)",
     "Kokoro Male - Michael (en-US)",
+    "Kokoro Male - Fenrir (en-US)",
+    "Kokoro Male - Puck (en-US)",
+    "Kokoro Male - Onyx (en-US)",
     "Kokoro Female - Emma (en-UK)",
     "Kokoro Male - George (en-UK)",
+    "Kokoro Male - Daniel (en-UK)",
     "Chatterbox - Female 1",
     "Chatterbox - Female 2",
     "Chatterbox - Male 1",
@@ -81,15 +85,15 @@ VOICE_IDS = [
     "en-US-SteffanNeural", "en-US-AndrewNeural",
     "en-US-AriaNeural", "en-US-AvaNeural",
     "en-US-JennyNeural",
-    "af_heart", "af_bella", "am_michael", "bf_emma", "bm_george",
+    "af_heart", "af_bella", "am_michael", "am_fenrir", "am_puck", "am_onyx", "bf_emma", "bm_george", "bm_daniel",
     "chatterbox-female-1", "chatterbox-female-2",
     "chatterbox-male-1", "chatterbox-male-2",
     "chatterbox-male-3", "chatterbox-male-4",
 ]
 
-BACKENDS = ["edge"] * 5 + ["kokoro"] * 5 + ["chatterbox"] * 6
+BACKENDS = ["edge"] * 5 + ["kokoro"] * 9 + ["chatterbox"] * 6
 
-CHATTERBOX_LABELS = MAINTAINER_LABELS[10:]
+CHATTERBOX_LABELS = MAINTAINER_LABELS[14:]
 
 
 # --------------------------------------------------------------------------- #
@@ -97,7 +101,7 @@ CHATTERBOX_LABELS = MAINTAINER_LABELS[10:]
 # --------------------------------------------------------------------------- #
 
 
-def test_the_dropdown_offers_exactly_the_maintainers_sixteen_strings_in_order():
+def test_the_dropdown_offers_exactly_the_maintainers_twenty_strings_in_order():
     assert vr.display_labels() == MAINTAINER_LABELS
 
 
@@ -109,7 +113,7 @@ def test_every_label_uses_the_ascii_hyphen_and_no_em_dash():
 
 def test_the_labels_are_unique_so_one_never_shadows_another():
     labels = vr.display_labels()
-    assert len(labels) == len(set(labels)) == 16
+    assert len(labels) == len(set(labels)) == 20
 
 
 @pytest.mark.parametrize("label", MAINTAINER_LABELS)
@@ -147,19 +151,21 @@ def test_the_timing_presets_are_still_the_approved_values():
     """
     from test_chatterbox_boundaries import EXPECTED_VOICES
 
-    ten = [entry.timing_preset for entry in vr.VOICES[:10]]
-    assert ten == [preset for *_head, preset in EXPECTED_VOICES]
-    # All six approved rows take the shared preset unmodified (drop §6).
-    assert [entry.timing_preset for entry in vr.VOICES[10:]] == [
-        vr._chatterbox_preset()] * 6
+    by_id = {entry.voice_id: entry for entry in vr.VOICES}
+    assert [by_id[expected[1]].timing_preset for expected in EXPECTED_VOICES] == [
+        preset for *_head, preset in EXPECTED_VOICES]
+    # The four Decision B Kokoro rows and all six Chatterbox rows take their shared preset unmodified.
+    for voice_id in ("am_fenrir", "am_puck", "am_onyx", "bm_daniel"):
+        assert by_id[voice_id].timing_preset == vr._kokoro_preset(speed=1.0)
+    assert [entry.timing_preset for entry in vr.VOICES[14:]] == [vr._chatterbox_preset()] * 6
 
 
 def test_the_group_labels_are_unchanged_and_are_never_the_voice_name():
     groups = [entry.group_label for entry in vr.VOICES]
     assert groups[:5] == ["Microsoft Edge TTS — English (US)"] * 5
-    assert groups[5:8] == ["Kokoro Local AI — American English"] * 3
-    assert groups[8:10] == ["Kokoro Local AI — British English"] * 2
-    assert groups[10:] == [vr.CHATTERBOX_GROUP_LABEL] * 6
+    assert groups[5:11] == ["Kokoro Local AI — American English"] * 6
+    assert groups[11:14] == ["Kokoro Local AI — British English"] * 3
+    assert groups[14:] == [vr.CHATTERBOX_GROUP_LABEL] * 6
     assert not set(groups) & set(vr.display_labels())
 
 
@@ -179,7 +185,7 @@ def test_the_six_chatterbox_labels_were_already_right_and_did_not_change():
     """Four pre-existing (Phase 13A.3, untouched) plus Male 3 and Male 4
     (both new, Phase 2 — Male 3 is the original candidate, not the rejected
     pitch-retry variant)."""
-    assert [entry.display_label for entry in vr.VOICES[10:]] == CHATTERBOX_LABELS
+    assert [entry.display_label for entry in vr.VOICES[14:]] == CHATTERBOX_LABELS
     assert CHATTERBOX_LABELS == [
         "Chatterbox - Female 1", "Chatterbox - Female 2",
         "Chatterbox - Male 1", "Chatterbox - Male 2",
