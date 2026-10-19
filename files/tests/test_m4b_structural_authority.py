@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from source_probe import application_python_files  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UNIVERSAL = REPO_ROOT / "scripts"
 
 PRODUCTION = sorted(
-    path for path in UNIVERSAL.rglob("*.py")
-    if "__pycache__" not in path.parts and "epub2tts_edge" not in path.parts)
+    path for path in application_python_files(UNIVERSAL)
+    if "epub2tts_edge" not in path.parts)
 
 
 def relative(path: Path) -> str:

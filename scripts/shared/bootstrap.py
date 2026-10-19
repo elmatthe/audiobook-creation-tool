@@ -2210,6 +2210,17 @@ def launch_gui(log: SetupLog) -> bool:
 
     # Make a bundled portable ffmpeg discoverable to the launched app.
     env = os.environ.copy()
+    # A leftover scripts/Universal is reported where a person can see it: one status-bar line in the window being
+    # started (this process has no console on Windows). Only a real GUI launch sets it, so --venv-check and
+    # --launch-only cannot report it twice, and nothing here may stop the launch.
+    env.pop(STARTUP_NOTICE_ENV, None)
+    try:
+        notice = stale_layout_notice()
+        if notice:
+            env[STARTUP_NOTICE_ENV] = notice
+            log.line(stale_layout_warning() or notice)
+    except Exception:  # noqa: BLE001 - a notice is never worth a failed launch
+        pass
     if _ffmpeg_in_bin():
         env["PATH"] = str(BIN_DIR) + os.pathsep + env.get("PATH", "")
 
@@ -2978,36 +2989,75 @@ def _platform_sane() -> bool:
 #: absent and otherwise small; the bound only keeps a pathological leftover from slowing a launch.
 STALE_LAYOUT_SCAN_LIMIT = 4000
 
+#: The environment variable through which a launch hands a one-line notice to the launcher window it starts. The
+#: launcher shows it once in its status bar and removes it; ``--venv-check`` and ``--launch-only`` therefore cannot
+#: show it twice, because only an actual GUI launch sets it. (Keep the name in step with ``scripts/launcher.py``.)
+STARTUP_NOTICE_ENV = "ACT_STARTUP_NOTICE"
 
-def stale_layout_warning(repo_root: Optional[Path] = None, *,
-                         limit: int = STALE_LAYOUT_SCAN_LIMIT) -> Optional[str]:
-    """A one-line warning when the pre-v0.6.7 ``scripts/Universal`` folder still holds Python source, else ``None``.
+#: File types that mark a leftover ``scripts/Universal`` as the old application tree rather than debris.
+_STALE_SUFFIXES = {".py": "Python", ".json": "JSON"}
 
-    Until v0.6.7 the application lived under ``scripts/Universal``. Extracting a release over an old copy leaves that
-    folder behind. Nothing imports from it, so it is harmless, but it can mislead a person reading the tree. This only
-    *reports*: it never deletes, moves or edits anything, and a folder that holds nothing but bytecode caches (what a
-    ``git pull`` across the move leaves) is not reported at all. The scan is bounded and never raises.
+
+def _scan_stale_layout(repo_root: Optional[Path] = None, *,
+                       limit: int = STALE_LAYOUT_SCAN_LIMIT) -> Optional[tuple[Path, dict, bool]]:
+    """``(folder, {kind: count}, capped)`` for a leftover ``scripts/Universal`` holding Python or JSON files, else ``None``.
+
+    Bytecode caches (``__pycache__``) are ignored, so what a ``git pull`` across the move leaves behind stays silent. The
+    scan is bounded by ``limit`` directory entries, only reads names, and never raises.
     """
     old = (Path(repo_root) if repo_root is not None else REPO_ROOT) / "scripts" / "Universal"
     try:
         if not old.is_dir():
             return None
-        seen = found = 0
+        counts: dict[str, int] = {}
+        seen = 0
         capped = False
         for _directory, directories, files in os.walk(old):
             directories[:] = [d for d in directories if d != "__pycache__"]
-            found += sum(1 for name in files if name.lower().endswith(".py"))
+            for name in files:
+                kind = _STALE_SUFFIXES.get(os.path.splitext(name)[1].lower())
+                if kind:
+                    counts[kind] = counts.get(kind, 0) + 1
             seen += len(files) + len(directories)
             if seen >= limit:
                 capped = True
                 break
     except OSError:
         return None
-    if not found:
+    return (old, counts, capped) if counts else None
+
+
+def _describe_stale(counts: dict, capped: bool) -> str:
+    parts = [f"{counts[kind]} {kind}" for kind in ("Python", "JSON") if kind in counts]
+    text = " and ".join(parts)
+    return f"at least {text}" if capped else text
+
+
+def stale_layout_warning(repo_root: Optional[Path] = None, *,
+                         limit: int = STALE_LAYOUT_SCAN_LIMIT) -> Optional[str]:
+    """A one-line warning when the pre-v0.6.7 ``scripts/Universal`` folder still holds Python or JSON files, else ``None``.
+
+    Until v0.6.7 the application lived under ``scripts/Universal``. Extracting a release over an old copy leaves that
+    folder behind. Nothing imports from it, so it is harmless, but it can mislead a person reading the tree. This only
+    *reports*: it never deletes, moves or edits anything.
+    """
+    scan = _scan_stale_layout(repo_root, limit=limit)
+    if scan is None:
         return None
-    count = f"at least {found}" if capped else str(found)
-    return (f"WARNING: the old folder {old} (used before v0.6.7) still contains {count} Python file(s). "
-            "This version does not use it. It is safe to delete by hand; the app never deletes it for you.")
+    old, counts, capped = scan
+    return (f"WARNING: the old folder {old} (used before v0.6.7) still contains {_describe_stale(counts, capped)} "
+            "file(s). This version does not use it. It is safe to delete by hand; the app never deletes it for you.")
+
+
+def stale_layout_notice(repo_root: Optional[Path] = None, *,
+                        limit: int = STALE_LAYOUT_SCAN_LIMIT) -> Optional[str]:
+    """The same finding as a short sentence for the launcher window's status bar, else ``None``."""
+    scan = _scan_stale_layout(repo_root, limit=limit)
+    if scan is None:
+        return None
+    _old, counts, capped = scan
+    return (f"Old folder scripts\\Universal is no longer used (it still holds {_describe_stale(counts, capped)} file(s)). "
+            "Delete it by hand if you like; the app never deletes it.")
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -3043,10 +3093,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not _platform_sane():
         LOG.line(f"Unsupported platform: {sys.platform}")
         return 2
-
-    stale = stale_layout_warning()
-    if stale:
-        LOG.line(stale)
 
     # Keep the HuggingFace model cache inside the project tree for every path
     # (self-test, fast launch, and first-run setup all inherit it).

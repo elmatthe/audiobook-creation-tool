@@ -32,14 +32,29 @@ UNIVERSAL = REPO_ROOT / "scripts"
 APPLICATION_PACKAGES = ("shared", "tts", "mp3_tools")
 
 
-def application_python_files(root: Path = UNIVERSAL) -> list[Path]:
-    """``launcher.py`` plus every ``*.py`` under the application packages, sorted, without bytecode caches.
+def application_packages(root: Path = UNIVERSAL) -> list[str]:
+    """The three known packages plus any other top-level folder of ``root`` that is a Python package.
 
-    Exactly the tree the whole-tree scans covered before the packages were lifted one level up (checkpoint B1): it excludes
-    ``scripts/verify.py`` and any untracked local script, so a parametrization over it is the same on every machine.
+    A future top-level package (it must carry an ``__init__.py``) is therefore covered by every production guard without
+    anyone remembering to extend a list; a layout canary fails if a tracked top-level folder is neither.
+    """
+    found = list(APPLICATION_PACKAGES)
+    for child in sorted(root.iterdir()) if root.is_dir() else []:
+        if child.is_dir() and child.name not in found and child.name != "__pycache__" and (child / "__init__.py").is_file():
+            found.append(child.name)
+    return found
+
+
+def application_python_files(root: Path = UNIVERSAL) -> list[Path]:
+    """``launcher.py`` plus every ``*.py`` under the application packages (nested packages included), sorted.
+
+    Exactly the tree the whole-tree production guards covered before the packages were lifted one level up (checkpoint B1):
+    it excludes ``scripts/verify.py``, an untracked machine-local script and any stray top-level file, so a guard over it
+    gives the same answer on every machine. Application modules stay fully covered: a syntax error or a forbidden call in
+    ``launcher.py`` or anywhere under a package still reaches the guard.
     """
     files = [root / "launcher.py"]
-    for package in APPLICATION_PACKAGES:
+    for package in application_packages(root):
         files.extend(root.joinpath(package).rglob("*.py"))
     return sorted(p for p in files if p.is_file() and "__pycache__" not in p.parts)
 

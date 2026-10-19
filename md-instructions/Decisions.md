@@ -4,6 +4,24 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-19 - Plan 01B corrective checkpoint: where a startup notice is shown, and what "application source" means to a guard
+
+**Decision (Codex findings on B1).**
+- *A notice travels with the launch, not with the check.* The only reliable GUI-visible place on a Windows launch is the launcher window, so `bootstrap.launch_gui`
+  sets `ACT_STARTUP_NOTICE` in the child's environment and the launcher shows it once in its status bar and removes it. `main()` does not evaluate it, which keeps
+  `--venv-check` and `--launch-only` from losing or duplicating it. It is a one-line status, never a modal; detection and presentation failures are swallowed.
+- *Detection covers `.py` and `.json`.* A leftover application folder can hold data files only; `__pycache__` is ignored; counts are named per type.
+- *Guards over production modules call `source_probe.application_python_files`.* That is `launcher.py` plus every `.py` under the application packages (any top-level
+  folder with an `__init__.py` is a package), not `scripts/**/*.py`. Whole-tree scans that must be broad (layout, packaging, "this file exists nowhere") stay raw and are
+  listed in `test_application_source_boundary.py`; adding a new raw walk fails that test until it is justified.
+
+**Why.** After the lift to `scripts/`, a glob over `scripts/` also reads `verify.py` and untracked local helpers, so a guard's verdict depended on the machine. The old
+notice also could not be seen on the launch path the owner actually uses.
+
+-- Decided by the owner's instruction; implemented by Claude Code
+
+---
+
 ## 2026-10-19 - Plan 01B working decisions; `scripts/` is the import root (checkpoints C0, A0, B1)
 
 **Decision (owner working decisions D1-D15, recorded in `files/plans/ACT-v0.6.7-Plan-01B-Text-Pipeline-and-Script-Layout.md` section 0).**

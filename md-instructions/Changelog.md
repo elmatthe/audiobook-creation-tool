@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — Leftover-folder notice and production-guard scope (v0.6.7 Plan 01B corrective checkpoint after B1, 2026-10-19)
+
+- The notice about a leftover `scripts/Universal/` is now shown where a person can see it: one line in the launcher window's status bar, once per launch, never a dialog.
+  It was previously only a log line, which a Windows launch (no console) never displays. It now also covers folders that hold only `.json` files; bytecode-only leftovers
+  stay silent, and the folder is never touched.
+- Development only: the production-module guards read the application source through one shared helper, so an untracked local script under `scripts/` can no longer fail
+  an architecture or security guard on one machine; every application module (nested packages included) is still scanned, and a bounded test pins that.
+
 ### Changed — Application packages lifted from `scripts/Universal/` to `scripts/` (v0.6.7 Plan 01B checkpoint B1, 2026-10-19)
 
 - **Layout only; no behaviour change.** `launcher.py`, `shared/`, `tts/` and `mp3_tools/` now sit directly under `scripts/`, which is the
@@ -23,7 +31,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Depth-dependent root lookups were shortened by one level (paths, bootstrap, FFmpeg modules, cleanup, release packaging, the Qwen3 and
   Chatterbox fallbacks), and the launchers, `config.toml`'s `entry_point`, `verify.py` and the dev tools follow the new location.
 - A leftover `scripts/Universal/` from extracting a new release over an old install is reported by a one-line warning at launch when it still
-  holds Python files. It is never deleted, moved or edited by the app; a folder holding only bytecode caches stays silent.
+  holds Python or JSON files (since the corrective checkpoint it is shown once in the launcher's status bar). It is never deleted, moved or edited by the app; a folder holding only bytecode caches stays silent.
 - Short module maps: `scripts/README.md`, `scripts/shared/README.md`, `scripts/tts/README.md`, `scripts/mp3_tools/README.md`.
 - Development only: A0 characterization baselines for the five TTS text routes (`files/dev-tools/speech_characterization.py`,
   `files/tests/golden/speech/`) were captured from the original code before the move and still match byte for byte; layout canaries

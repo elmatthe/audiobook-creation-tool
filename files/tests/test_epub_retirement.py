@@ -30,6 +30,7 @@ import re
 from pathlib import Path
 
 import pytest
+from source_probe import application_python_files  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
@@ -628,7 +629,7 @@ def test_no_production_module_puts_the_archive_on_sys_path():
     naming compatibility boundary and cites the manifest, which is prose, not a
     path the interpreter ever resolves.
     """
-    for path in sorted(UNIVERSAL.rglob("*.py")):
+    for path in application_python_files(UNIVERSAL):
         if "__pycache__" in path.parts:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -729,7 +730,7 @@ def test_a_removed_dependency_is_no_longer_pinned(package):
 
 @pytest.mark.parametrize("import_name", REMOVED_IMPORT_NAMES)
 def test_a_removed_dependency_has_no_active_production_consumer(import_name):
-    for path in sorted(UNIVERSAL.rglob("*.py")):
+    for path in application_python_files(UNIVERSAL):
         if "__pycache__" in path.parts:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

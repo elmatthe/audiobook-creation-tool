@@ -1789,7 +1789,7 @@ def test_the_manual_harness_lives_in_the_developer_tree_only():
 def test_the_manual_harness_is_registered_nowhere():
     """No launcher entry, no seventh tool, and no production import."""
     harness_name = "manual_plan3_harness"
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         assert harness_name not in path.read_text(encoding="utf-8"), path
     launcher = (UNIVERSAL / "launcher.py").read_text(encoding="utf-8")
     assert "job_ui" not in launcher and harness_name not in launcher

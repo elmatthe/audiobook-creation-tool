@@ -51,6 +51,7 @@ import tk_gate
 # sandbox in ``conftest.py`` redirects only modules already imported, and the
 # real launcher built below logs through it.
 from shared import appearance, paths, ui_theme  # noqa: F401
+from source_probe import application_python_files  # noqa: E402
 
 TOOLS = ("tts", "m4b_converter", "mp3_tool", "m4b_maker", "cover", "m4b_metadata")
 GUIDED = ("tts", "m4b_converter", "cover")  # Family A: Activity on the right
@@ -592,7 +593,7 @@ def test_no_code_opts_the_process_into_dpi_awareness():
         "root.tk.call('tk', 'scaling', 1.25)\n"))) == ["SetProcessDpiAwareness",
                                                       "tk scaling"]
     offenders = {}
-    files = sorted(UNIVERSAL.rglob("*.py"))
+    files = application_python_files(UNIVERSAL)
     assert len(files) > 50
     for path in files:
         found = _dpi_opt_ins(ast.parse(path.read_text(encoding="utf-8")))

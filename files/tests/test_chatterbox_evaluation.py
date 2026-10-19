@@ -35,6 +35,7 @@ TTS_DIR = REPO_ROOT / "scripts" / "tts"
 from tts import chatterbox_synth as cbx  # noqa: E402
 from tts import generate_voice_samples as gvs  # noqa: E402
 from tts import voice_registry  # noqa: E402
+from source_probe import application_python_files  # noqa: E402
 
 #: The sentence the maintainer approved, byte for byte. Written out here rather
 #: than imported, so the test fails if the production constant ever drifts.
@@ -696,7 +697,7 @@ def test_the_gui_voice_dropdown_offers_the_fourteen_plus_the_six_approved_plus_t
 def test_the_generator_is_the_only_production_file_phase_nine_widened():
     """The evaluation is a dev-only path: nothing the app runs may import it."""
     offenders = []
-    for path in (REPO_ROOT / "scripts").rglob("*.py"):
+    for path in application_python_files(REPO_ROOT / "scripts"):
         if path.name == "generate_voice_samples.py":
             continue
         if "generate_voice_samples" in path.read_text(encoding="utf-8"):

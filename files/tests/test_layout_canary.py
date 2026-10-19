@@ -257,15 +257,121 @@ def test_the_notice_never_raises(bootstrap_module, tmp_path, monkeypatch):
     assert bootstrap_module.stale_layout_warning(tmp_path / "file-repo") is None
 
 
-def test_main_logs_the_notice_before_doing_anything_else(bootstrap_module, monkeypatch):
-    events = []
-    monkeypatch.setattr(bootstrap_module, "stale_layout_warning", lambda *a, **k: "WARNING: leftover folder")
-    monkeypatch.setattr(bootstrap_module.LOG, "line", lambda text: events.append(("log", text)))
+@pytest.mark.parametrize("files, expected", [
+    ({"scripts/Universal/a.py": b"#"}, "1 Python file"),
+    ({"scripts/Universal/a.json": b"{}"}, "1 JSON file"),
+    ({"scripts/Universal/a.py": b"#", "scripts/Universal/b.py": b"#", "scripts/Universal/c.json": b"{}"}, "2 Python and 1 JSON file"),
+    ({"scripts/Universal/tts/qwen3_models.json": b"{}", "scripts/Universal/__pycache__/x.cpython-312.pyc": b"x"}, "1 JSON file"),
+])
+def test_python_json_and_mixed_leftovers_each_raise_an_accurate_notice(bootstrap_module, tmp_path, files, expected):
+    root = make_tree(tmp_path, files)
+    before = snapshot(root)
+    warning = bootstrap_module.stale_layout_warning(root)
+    notice = bootstrap_module.stale_layout_notice(root)
+    assert warning and expected in warning and notice and expected in notice
+    assert "never deletes" in warning and "never deletes" in notice
+    assert snapshot(root) == before  # byte-for-byte: nothing moved, deleted or rewritten
+
+
+@pytest.mark.parametrize("files", [
+    {"scripts/Universal/__pycache__/a.cpython-312.pyc": b"x"},
+    {"scripts/Universal/__pycache__/data.json": b"{}", "scripts/Universal/tests/__pycache__/b.py": b"#"},
+    {"scripts/Universal/notes.txt": b"hello", "scripts/Universal/image.png": b"x"},
+])
+def test_bytecode_only_and_irrelevant_leftovers_stay_silent(bootstrap_module, tmp_path, files):
+    root = make_tree(tmp_path, files)
+    assert bootstrap_module.stale_layout_warning(root) is None and bootstrap_module.stale_layout_notice(root) is None
+
+
+def test_the_short_notice_fits_a_status_bar_and_uses_no_absolute_path(bootstrap_module, tmp_path):
+    notice = bootstrap_module.stale_layout_notice(make_tree(tmp_path, {"scripts/Universal/a.py": b"#"}))
+    assert len(notice) < 160 and str(tmp_path) not in notice and "scripts\\Universal" in notice
+
+
+def test_main_no_longer_looks_for_the_leftover_so_check_and_launch_only_cannot_report_it(bootstrap_module, monkeypatch):
+    """A notice raised in --venv-check (no output) or --launch-only could only be lost or shown twice."""
+    def forbidden(*args, **kwargs):
+        raise AssertionError("main() must not evaluate the leftover-folder notice")
+
+    monkeypatch.setattr(bootstrap_module, "stale_layout_warning", forbidden)
+    monkeypatch.setattr(bootstrap_module, "stale_layout_notice", forbidden)
     monkeypatch.setattr(bootstrap_module, "_platform_sane", lambda: True)
-    monkeypatch.setattr(bootstrap_module, "_configure_hf_cache", lambda: events.append(("cache", None)))
-    monkeypatch.setattr(bootstrap_module, "_self_test", lambda: events.append(("self-test", None)) or 0)
+    monkeypatch.setattr(bootstrap_module, "_configure_hf_cache", lambda: None)
+    monkeypatch.setattr(bootstrap_module, "_self_test", lambda: 0)
     assert bootstrap_module.main(["--self-test"]) == 0
-    assert events[0] == ("log", "WARNING: leftover folder") and ("self-test", None) in events
+
+
+# ----- the notice reaches the window the launch starts
+class FakeProcess:
+    def poll(self):
+        return None
+
+
+@pytest.fixture()
+def launch(bootstrap_module, monkeypatch, tmp_path):
+    """``launch_gui`` with a stub interpreter and a recording ``Popen``; returns (call, spawned, log)."""
+    interpreter = tmp_path / "python.exe"
+    interpreter.write_bytes(b"")
+    target = tmp_path / "launcher.py"
+    target.write_text("#", encoding="utf-8")
+    spawned = []
+    log_lines = []
+
+    class Log:
+        def line(self, text):
+            log_lines.append(text)
+
+    monkeypatch.setattr(bootstrap_module, "venv_python", lambda windowed=False: interpreter)
+    monkeypatch.setattr(bootstrap_module, "_launch_target", lambda: target)
+    monkeypatch.setattr(bootstrap_module, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(bootstrap_module, "_LAUNCH_GRACE_SECONDS", 0)
+    monkeypatch.setattr(bootstrap_module, "_ffmpeg_in_bin", lambda: None)
+    monkeypatch.setattr(bootstrap_module.subprocess, "Popen",
+                        lambda argv, **kwargs: spawned.append((argv, kwargs)) or FakeProcess())
+    return (lambda: bootstrap_module.launch_gui(Log())), spawned, log_lines
+
+
+def test_a_real_launch_hands_the_notice_to_the_window_it_starts(bootstrap_module, monkeypatch, launch):
+    call, spawned, log_lines = launch
+    monkeypatch.setattr(bootstrap_module, "stale_layout_notice", lambda *a, **k: "Old folder X is no longer used.")
+    monkeypatch.setattr(bootstrap_module, "stale_layout_warning", lambda *a, **k: "WARNING: long form")
+    assert call() is True
+    env = spawned[0][1]["env"]
+    assert env[bootstrap_module.STARTUP_NOTICE_ENV] == "Old folder X is no longer used."
+    assert "WARNING: long form" in log_lines  # the console/log copy is kept too
+
+
+def test_a_clean_launch_sets_no_notice_and_drops_an_inherited_one(bootstrap_module, monkeypatch, launch):
+    call, spawned, log_lines = launch
+    monkeypatch.setenv(bootstrap_module.STARTUP_NOTICE_ENV, "stale text from an outer process")
+    monkeypatch.setattr(bootstrap_module, "stale_layout_notice", lambda *a, **k: None)
+    assert call() is True
+    assert bootstrap_module.STARTUP_NOTICE_ENV not in spawned[0][1]["env"]
+    assert not any("WARNING" in line for line in log_lines)
+
+
+def test_a_failing_detection_never_prevents_the_launch(bootstrap_module, monkeypatch, launch):
+    call, spawned, _ = launch
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("detection exploded")
+
+    monkeypatch.setattr(bootstrap_module, "stale_layout_notice", boom)
+    assert call() is True and len(spawned) == 1
+    assert bootstrap_module.STARTUP_NOTICE_ENV not in spawned[0][1]["env"]
+
+
+def test_the_real_tree_launch_environment_is_silent_when_only_bytecode_remains(bootstrap_module, launch):
+    call, spawned, _ = launch
+    assert call() is True
+    assert bootstrap_module.STARTUP_NOTICE_ENV not in spawned[0][1]["env"]
+
+
+def test_the_notice_variable_name_is_the_same_in_bootstrap_and_the_launcher():
+    import launcher
+    from shared import bootstrap
+
+    assert launcher.STARTUP_NOTICE_ENV == bootstrap.STARTUP_NOTICE_ENV == "ACT_STARTUP_NOTICE"
 
 
 def test_a_healthy_tree_produces_no_notice(bootstrap_module):

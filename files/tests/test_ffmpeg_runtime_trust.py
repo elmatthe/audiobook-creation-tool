@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 
 from shared import ffmpeg_health, ffmpeg_utils
+from source_probe import application_python_files  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
@@ -381,7 +382,7 @@ def test_the_mp3_tool_gate_asks_for_verification():
 def test_no_production_consumer_still_gates_on_have_ffmpeg():
     """``have`` and ``verified`` now mean the same thing, but say what you mean."""
     offenders = []
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         if path.name in ("ffmpeg_utils.py", "ffmpeg_health.py"):
             continue
         if "have_ffmpeg(" in path.read_text(encoding="utf-8"):
@@ -401,7 +402,7 @@ def test_no_production_module_spawns_a_bare_ffmpeg_name():
     route, so it is refused here rather than discovered later.
     """
     offenders: list[str] = []
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         if path.name in ("ffmpeg_utils.py", "ffmpeg_health.py",
                          "ffmpeg_portable.py"):
             continue      # the authority itself, and the acquirer it feeds
@@ -431,7 +432,7 @@ def test_every_ffmpeg_execution_resolves_through_the_shared_helpers():
         "tts/epub2tts_edge/epub2tts_edge.py",
     }
     found = set()
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         text = path.read_text(encoding="utf-8")
         if "ffmpeg_cmd()" in text or "ffprobe_cmd()" in text:
             found.add(path.relative_to(UNIVERSAL).as_posix())
@@ -441,7 +442,7 @@ def test_every_ffmpeg_execution_resolves_through_the_shared_helpers():
 def test_the_command_helpers_are_the_only_path_resolution():
     """No consumer resolves a binary for itself."""
     offenders = []
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         # The setup layer legitimately *looks* for FFmpeg on PATH to decide
         # whether to install one. What it must never do is hand that answer to
         # a runtime execution, and it does not: it feeds ffmpeg_health.
@@ -507,7 +508,7 @@ def test_refresh_clears_every_cached_answer(monkeypatch, tmp_path):
 def test_no_consumer_can_provision_ffmpeg():
     """Phase 4 refuses; Phase 5 is what makes repair automatic."""
     offenders = []
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         if path.name in ("bootstrap.py", "ffmpeg_portable.py"):
             continue
         text = path.read_text(encoding="utf-8")

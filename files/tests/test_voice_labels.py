@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 
 from tts import voice_registry as vr
+from source_probe import application_python_files  # noqa: E402
 
 #: The maintainer's exact strings, in the maintainer's exact order. ASCII
 #: hyphen-minus throughout — no em dash anywhere in a voice name any more.
@@ -239,7 +240,7 @@ def test_no_persisted_setting_stores_a_voice_by_label():
 
     scripts = Path(vr.__file__).resolve().parents[1]
     setters: list[str] = []
-    for path in scripts.rglob("*.py"):
+    for path in application_python_files(scripts):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):

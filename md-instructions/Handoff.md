@@ -2,6 +2,28 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: B1 corrective checkpoint (Codex findings) done; A1 still NOT started (2026-10-19, HOME-PC)
+
+The owner's manual HOME-PC launch of B1 passed; Codex's review of `3667bc6` was PASS WITH FINDINGS. This checkpoint fixed exactly those three findings and nothing else.
+Not started: A1-A5, A6, S5. No synthesis, model, transcript, dependency or setting change; no merge, tag or release; identity stays 0.6.6.
+
+- **P2 - production guards no longer read machine-local scripts.** `files/tests/source_probe.application_python_files()` is the one definition of "application Python source":
+  `launcher.py` plus every `.py` under `shared/`, `tts/`, `mp3_tools/` (nested packages and any future top-level package with an `__init__.py` included), excluding
+  `verify.py`, untracked helpers such as `scripts/project-status.py`, and bytecode. Thirteen test modules were moved onto it; four scans stay raw on purpose (listed in
+  `test_application_source_boundary.py`, which fails if a new raw `scripts/**/*.py` walk appears). Adversarial tests drive the REAL ffmpeg and removed-dependency guards
+  against a synthetic tree: a local helper with invalid syntax or a bare `ffmpeg` call is ignored, the same code in any application module fails.
+- **P2 - the leftover-folder notice is now visible.** `bootstrap.launch_gui` computes a short notice and hands it to the window it starts through the environment variable
+  `ACT_STARTUP_NOTICE`; `LauncherApp.present_startup_notice` shows it once in the existing status bar (no dialog), logs it, and removes the variable. `main()` no longer
+  evaluates it, so `--venv-check` (output suppressed) and `--launch-only` cannot lose or duplicate it. Detection failure cannot block the launch. The long warning with the full
+  path still goes to the launch log.
+- **P3 - JSON-only leftovers count.** `stale_layout_warning` / `stale_layout_notice` now trigger on `.py` or `.json` (mixed counts are named accurately); `__pycache__` is ignored;
+  the scan is still bounded, never raises and only reads names.
+- **Verification.** Focused regression set (every changed test module plus the bootstrap, startup, first-run, self-heal, venv-recovery, layout, boundary, launcher, packaging and hardening modules): **1,627 passed, 2 skipped** in 1 min 57 s. Ten mutants of the new notice code (JSON suffix dropped, `__pycache__` not ignored, notice not handed over, inherited notice kept, `main()` evaluating the notice, status bar never set, variable never popped, callback never scheduled, errors escaping, variable name drifting) were each killed. A0 `check` prints OK. No full `verify.py` run: the diff is two application modules plus tests, and no voice registry, audio setting, TTS engine, Qwen3 environment or normalization file changed.
+- **Pre-existing hazard noted, not fixed:** run alone, `test_launcher_smoke.py` trips the session guard "mutated real production state: setup log directory" (the redirect only
+  covers modules already imported at session start); it passes when run together with other modules and in the full gate.
+- **Next.** Codex read-only re-review of the corrective commit; then A1 only on the owner's go-ahead. A second manual Windows launch is worthwhile but not required: it is only
+  needed to SEE the new status-bar line, which appears only if a `scripts/Universal` holding `.py`/`.json` files exists (the HOME-PC copy holds bytecode only, so it stays silent).
+
 ## CURRENT STATE — v0.6.7 Plan 01B: C0, A0 and B1 done; A1 waits for the manual Windows launch and Codex review (2026-10-19, HOME-PC)
 
 Branch `feature/0.6.7-speech-pipeline-and-layout`, cut from `df0dbc28` (the CP6 branch `feature/0.6.7-bundled-chatterbox-references` is left as it was).

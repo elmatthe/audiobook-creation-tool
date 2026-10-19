@@ -29,4 +29,4 @@ Artwork handling is shared by the MP3 Tool, the M4B Maker and the M4B Metadata E
 
 ## About the folder layout
 
-Until v0.6.7 these packages lived one level deeper, under `scripts/Universal/`. That folder, and the empty `scripts/MacOS/` and `scripts/Windows/`, no longer exist in a fresh copy. If you updated by extracting a new release over an old install and still see `scripts/Universal/`, it is a leftover: nothing uses it, and you can delete it yourself. The app only warns about it; it never deletes it for you.
+Until v0.6.7 these packages lived one level deeper, under `scripts/Universal/`. That folder, and the empty `scripts/MacOS/` and `scripts/Windows/`, no longer exist in a fresh copy. If you updated by extracting a new release over an old install and still see `scripts/Universal/`, it is a leftover: nothing uses it, and you can delete it yourself. The app only warns about it (once, as a line in the launcher's status bar, when the folder still holds Python or JSON files; bytecode caches alone stay silent); it never deletes it for you.

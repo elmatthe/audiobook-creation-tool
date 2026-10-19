@@ -450,3 +450,55 @@ def test_narrowed_nav_rail_still_fits_every_tool_name(fresh_root, fake_settings)
         f"a nav row needs {widest}px but the rail interior is {interior}px"
     )
     assert len(app.buttons) == len(EXPECTED_TOOLS)
+
+
+# --------------------------------------------------------------------------- #
+# Corrective checkpoint after B1: a one-line startup notice reaches the window, once, without a dialog
+# --------------------------------------------------------------------------- #
+NOTICE = "Old folder X is no longer used (it still holds 3 Python file(s)). Delete it by hand if you like."
+
+
+def toplevels(root):
+    return [w for w in root.winfo_children() if w.winfo_class() == "Toplevel"]
+
+
+def test_a_startup_notice_appears_in_the_status_bar_once_and_never_as_a_dialog(fresh_root, fake_settings, monkeypatch):
+    import launcher
+
+    # Earlier tests leave ``after(0)`` callbacks queued on the shared root; let them run first so a stale launcher
+    # cannot consume the variable this test sets for ITS launcher.
+    fresh_root.update()
+    monkeypatch.setenv(launcher.STARTUP_NOTICE_ENV, NOTICE)
+    before = len(toplevels(fresh_root))
+    app = launcher.LauncherApp(fresh_root)
+    fresh_root.update()
+    assert app.status_var.get() == NOTICE            # visible in the window's own status bar
+    assert len(toplevels(fresh_root)) == before      # no dialog, so nothing blocks the launch
+    assert launcher.STARTUP_NOTICE_ENV not in __import__("os").environ  # consumed: tools started later do not inherit it
+    assert app.present_startup_notice() is None      # once
+
+
+def test_without_a_notice_the_status_bar_is_the_ordinary_ready_line(fresh_root, fake_settings, monkeypatch):
+    import launcher
+
+    monkeypatch.delenv(launcher.STARTUP_NOTICE_ENV, raising=False)
+    app = launcher.LauncherApp(fresh_root)
+    fresh_root.update()
+    assert app.status_var.get().lower().endswith("ready.") and "Old folder" not in app.status_var.get()
+
+
+def test_a_notice_failure_cannot_break_the_launcher(fresh_root, fake_settings, monkeypatch):
+    import launcher
+
+    monkeypatch.delenv(launcher.STARTUP_NOTICE_ENV, raising=False)
+    app = launcher.LauncherApp(fresh_root)
+    fresh_root.update()
+    monkeypatch.setenv(launcher.STARTUP_NOTICE_ENV, NOTICE)
+
+    def broken(msg):
+        raise RuntimeError("status bar exploded")
+
+    monkeypatch.setattr(app, "_set_status", broken)
+    assert app.present_startup_notice() is None      # swallowed and logged, never raised into Tk's callback
+    assert launcher.STARTUP_NOTICE_ENV not in __import__("os").environ
+    assert app.root.winfo_exists()

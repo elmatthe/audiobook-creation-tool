@@ -562,3 +562,20 @@ Content changes inside moved files (12 of 82; the other 70 are byte-identical re
   `scripts/shared/close_terminal.py`, is LF, has a shebang and mode 0755. A probe run against each EXTRACTED tree (isolated interpreter, other working directory) confirmed
   every root lookup equals the extracted root, `config.load` finds `scripts/launcher.py`, no stale-layout warning, 28 voices; `compileall` passed on both.
 * **Full gate:** `scripts/verify.py` RESULT: PASS on the final tree: **8,557 passed, 60 skipped** (18 min 14 s). Recorded separately: the pre-existing suite is 8,517 passed / 60 skipped at `df0dbc2` and the same 8,517 / 60 now (no regression, nothing newly skipped); the new tests are 18 (A0) + 22 (layout canaries) = 40, all passing. Focused passes ran first (every test file touched by the update, then the remaining files) and found and fixed 4 failures and 1 hidden depth assumption before the gate.
+
+### B.4 Corrective checkpoint after Codex's review of B1 (2026-10-19)
+
+Codex returned PASS WITH FINDINGS on `3667bc6`; the owner's manual Windows launch had passed. Three findings, fixed in one corrective commit (the commit SHA is in the Handoff
+and the final report; it cannot be named inside the commit it describes):
+
+1. **P2, guards.** The B1 narrowing (B.2 item 4) fixed two parametrized scans only; the other whole-tree scans still read `verify.py` and any untracked local helper. All
+   production-module guards (13 modules) now use `source_probe.application_python_files`; coverage is `launcher.py` + every `.py` under every application package, nested
+   packages and future top-level packages included. **This supersedes B.2 item 4.** `test_application_source_boundary.py` (10 tests) proves coverage on the real tree, drives the
+   real guards against a synthetic tree (a local helper with invalid syntax or a bare FFmpeg call is ignored; the same code in `launcher.py`, `shared/`, `tts/`, nested
+   `tts/speech/` or `mp3_tools/` fails, as does invalid syntax there), and inventories the remaining raw `rglob("*.py")` walks (four, each deliberately broad).
+2. **P2, visibility.** The warning was a log line only. It is now handed to the window through `ACT_STARTUP_NOTICE` and shown once in the status bar (see Handoff). Tests prove the
+   launch sets it only when a notice exists and drops an inherited value, `main()` never evaluates it, the launcher shows it in its status bar with no dialog, consumes it, and
+   survives a status-bar failure; the variable name is pinned equal in bootstrap and launcher.
+3. **P3, JSON.** `.json`-only and mixed leftovers are detected and described accurately; `__pycache__` ignored; bounded; byte-for-byte preserving (snapshot test).
+
+Tests: `test_layout_canary.py` 22 to 35, `test_launcher_smoke.py` 11 to 14, new `test_application_source_boundary.py` 10. Focused regression set (every changed test module plus the bootstrap, startup, first-run, self-heal, venv-recovery, layout, boundary, launcher, packaging and hardening modules): **1,627 passed, 2 skipped** in 1 min 57 s. Ten mutants of the new notice code (JSON suffix dropped, `__pycache__` not ignored, notice not handed over, inherited notice kept, `main()` evaluating the notice, status bar never set, variable never popped, callback never scheduled, errors escaping, variable name drifting) were each killed. A0 `check` prints OK. No full `verify.py` run: the diff is two application modules plus tests, and no voice registry, audio setting, TTS engine, Qwen3 environment or normalization file changed.

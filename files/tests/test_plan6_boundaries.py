@@ -41,6 +41,7 @@ from test_plan3_boundaries import (
     parse,
     referenced_names,
 )
+from source_probe import application_python_files  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # What Plan 6 owns so far
@@ -1085,7 +1086,7 @@ def test_the_manual_harness_exists_and_is_directly_runnable():
 
 def test_nothing_under_scripts_imports_the_manual_harness():
     stem = HARNESS.removesuffix(".py")
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         modules = imported_names(parse(path))
         assert not any(entry.split(".")[-1] == stem for entry in modules), path
 

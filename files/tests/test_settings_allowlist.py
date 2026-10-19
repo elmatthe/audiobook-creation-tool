@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from shared import config as cfg  # noqa: E402
+from source_probe import application_python_files  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
@@ -50,9 +51,7 @@ def _module_constants(tree: ast.Module) -> dict[str, str]:
 def _settings_writes() -> list[tuple[str, str, int]]:
     """Every ``settings.set(<key>, …)`` in production: (module, key, line)."""
     found: list[tuple[str, str, int]] = []
-    for path in sorted(UNIVERSAL.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
+    for path in application_python_files(UNIVERSAL):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         constants = _module_constants(tree)
         for node in ast.walk(tree):

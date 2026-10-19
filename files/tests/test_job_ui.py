@@ -92,6 +92,7 @@ from test_import_coordination import (  # noqa: E402
 from test_import_traversal import snapshot_tree, touch  # noqa: E402
 from test_importing import make_config  # noqa: E402
 import tk_gate  # noqa: E402
+from source_probe import application_python_files  # noqa: E402
 
 #: Every wait in this file is bounded so a deadlock fails rather than hangs. It is
 #: never used to *create* a race.
@@ -2478,7 +2479,7 @@ def test_the_harness_writes_only_inside_the_root_it_generated():
 
 def test_the_harness_is_reachable_from_no_production_entry_point():
     universal = Path(__file__).resolve().parent.parent.parent / "scripts"
-    for path in universal.rglob("*.py"):
+    for path in application_python_files(universal):
         assert "manual_plan3_harness" not in path.read_text(encoding="utf-8"), path
 
 

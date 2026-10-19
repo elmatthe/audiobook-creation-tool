@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import sys
 import traceback
 from dataclasses import dataclass
@@ -73,6 +74,10 @@ from shared import settings as app_settings
 from shared import subprocess_utils as sp
 
 APP_TITLE = "Audiobook Creation Tool"
+
+#: Environment variable through which ``shared.bootstrap`` hands this window a one-line startup notice (kept in step with
+#: ``bootstrap.STARTUP_NOTICE_ENV`` by a test; the launcher cannot import bootstrap, which is pre-venv setup code).
+STARTUP_NOTICE_ENV = "ACT_STARTUP_NOTICE"
 
 #: Label of the cross-platform Preferences & Data entry point in the status bar.
 PREFERENCES_LABEL = preferences_ui.MENU_LABEL
@@ -190,6 +195,10 @@ class LauncherApp:
         # Second in the queue so the two reports cannot argue over focus, and
         # after the launcher is safely built either way.
         self.root.after(0, self.present_downloaded_data_report)
+
+        # Last, and quietest: a one-line status-bar notice handed over by the launch (a leftover pre-v0.6.7 application folder).
+        # Never a dialog, shown once, and a failure here cannot affect the window.
+        self.root.after(0, self.present_startup_notice)
 
     # ----- which tools actually exist (Metadata Editor lands in Phase 6) -----
     def _available_tools(self) -> list[ToolSpec]:
@@ -577,6 +586,19 @@ class LauncherApp:
             )
         except Exception:
             self.logger.exception("Could not present the downloaded-data report")
+            return None
+
+    def present_startup_notice(self):
+        """Show the launch's one-line notice (if it handed one over) in the status bar, once. Never fatal, never modal."""
+        try:
+            notice = os.environ.pop(STARTUP_NOTICE_ENV, "").strip()
+            if not notice:
+                return None
+            self.logger.warning(notice)
+            self._set_status(notice)
+            return notice
+        except Exception:
+            self.logger.exception("Could not present the startup notice")
             return None
 
     def present_configuration_warnings(self):

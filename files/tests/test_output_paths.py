@@ -22,6 +22,7 @@ import pytest
 
 from shared import config, output_paths as op
 from shared import paths as shared_paths
+from source_probe import application_python_files  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -1086,7 +1087,7 @@ def test_no_production_code_calls_the_legacy_output_helpers():
     batch planner are now the single authority for a destination.
     """
     callers = set()
-    for path in (REPO_ROOT / "scripts").rglob("*.py"):
+    for path in application_python_files(REPO_ROOT / "scripts"):
         if path.name == "paths.py":
             continue
         source = path.read_text(encoding="utf-8")

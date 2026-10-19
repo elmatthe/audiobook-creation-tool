@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+from source_probe import application_python_files  # noqa: E402
 MD_DIR = REPO_ROOT / "md-instructions"
 
 CANONICAL_DOCS = ("Briefing.md", "Changelog.md", "Decisions.md", "Handoff.md")
@@ -257,7 +258,7 @@ def test_config_template_toml_is_not_the_projects_config():
     verify = load_verify()
     assert verify.CONFIG_FILE.name == "config.toml"
     maintenance_module = REPO_ROOT / "scripts" / "shared" / "maintenance.py"
-    for path in (REPO_ROOT / "scripts").rglob("*.py"):
+    for path in application_python_files(REPO_ROOT / "scripts"):
         text = path.read_text(encoding="utf-8")
         if path == maintenance_module:
             continue

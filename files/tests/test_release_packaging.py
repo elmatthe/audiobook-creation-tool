@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from shared import release
+from source_probe import application_python_files  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
@@ -648,7 +649,7 @@ def test_two_builds_produce_the_same_manifest(tmp_path, os_name):
 def test_the_packager_is_never_imported_by_the_application():
     """Nothing the launcher can reach may pull in the build helper."""
     offenders = []
-    for path in UNIVERSAL.rglob("*.py"):
+    for path in application_python_files(UNIVERSAL):
         if path.name == "release.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
