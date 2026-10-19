@@ -46,7 +46,8 @@ only because `qwen-tts` declares it; no server is run.
   starting a worker. A temporarily missing prerequisite never demotes a complete result. Retired attempts have their
   files moved to `attempts/<row>/attempt-NN/`, and `Manifest.restore_attempt` can bring them back; every worker call keeps
   its own timestamped job file and log. Archive folders are numbered from the folders that exist, never from the list
-  length, and a move that fails part-way is rolled back. A row that is retired while blocked or failed keeps its
+  length. Retiring or restoring an attempt is ONE transaction (the file moves and the manifest save succeed or fail
+  together; a restore is fully preflighted first; a rollback that cannot complete says which files it could not return). A row that is retired while blocked or failed keeps its
   diagnostics archived, and a recording that was received but failed to encode stays tracked. (Learned the hard way on 2026-10-18: the first version of the runtime check
   compared `torch` package metadata `2.6.0` with the runtime `2.6.0+cpu`, so one stage run retired and began regenerating
   12 good recordings. They were restored byte-identically and the spurious takes stay archived; the stale-guard and
@@ -55,10 +56,12 @@ only because `qwen-tts` declares it; no server is run.
   for a different recording is not used.
 - *Run ids* are one plain filename component and are checked to resolve inside `files/dev-work/qwen3-eval/runs/`.
 - *ASR read-back* (`--qwen-eval asr-check`) is advisory: it can flag gross omissions, never approve or overrule listening.
-- *Codex independent review* ran twice on 2026-10-18 (after one usage-limit delay): 10 major + 1 minor findings against
-  `2ad8272`, then 8 major + 2 minor against the fixes (`a80825e`). Every finding was verified against the code before
-  fixing, all were real, and all were fixed with regression tests; the second round's fixes await a further
-  confirmation pass. A Claude self-review is never labelled independent.
+- *Codex independent review* ran three times on 2026-10-18 (after one usage-limit delay): 10 major + 1 minor findings
+  against `2ad8272`, 8 major + 2 minor against `a80825e`, and 5 major + 3 minor against `842a524`. Every finding was
+  verified against the code before fixing, all were real, and all were fixed with regression tests. The later rounds
+  are failure-injection scenarios (a save that fails after files moved, a restore whose archived file vanished), which is
+  why retire/restore became a transaction. A further confirmation pass is the closeout review's job; a Claude
+  self-review is never labelled independent.
 
 Nothing here selects a voice or authorises integration: the owner's listening decisions (CP4/CP6) are separate gates.
 

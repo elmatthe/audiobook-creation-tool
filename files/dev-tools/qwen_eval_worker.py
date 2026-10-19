@@ -226,6 +226,7 @@ def run_synth(job: dict) -> int:
                 return 130
             continue
 
+        final = None
         try:
             full, report = core.assemble(audio, sample_rate, [c.boundary for c in chunks],
                                          profile["gap_ms"], profile["end_silence_ms"])
@@ -241,8 +242,11 @@ def run_synth(job: dict) -> int:
             if capped:
                 warnings.append(f"chunks {capped} used >=90% of the generation cap (possible cap hit)")
         except Exception as exc:  # noqa: BLE001 - one row's assembly/output failure must not abandon the others
-            core.emit({"event": "row_failed", "row_id": row_id, "chunk_results": results,
-                       "reason": f"assembly or output writing failed: {type(exc).__name__}: {exc}"})
+            failure = {"event": "row_failed", "row_id": row_id, "chunk_results": results,
+                       "reason": f"assembly or output writing failed: {type(exc).__name__}: {exc}"}
+            if final is not None:  # the WAV exists: report it so a retry archives it instead of overwriting it
+                failure["outputs"] = {"wav": final}
+            core.emit(failure)
             continue
         core.emit({
             "event": "row_done", "row_id": row_id, "wav": final, "measurements": measurements,

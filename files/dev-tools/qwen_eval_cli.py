@@ -24,6 +24,7 @@ import copy
 import functools
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -71,16 +72,17 @@ def say(message: str) -> None:
 # Run layout, profile and frozen corpus
 # --------------------------------------------------------------------------- #
 class Run:
-    def __init__(self, run_id: str, work_dir: Path = core.WORK_DIR):
+    def __init__(self, run_id: str, work_dir: Path = core.WORK_DIR, dry_run: bool = False):
         self.id, self.work = core.validate_run_id(run_id), Path(work_dir)
-        self.dry_run = False  # report reuse/block/run decisions without starting a worker or changing a result
+        self.dry_run = dry_run  # report reuse/block/run decisions without starting a worker or changing a result
         self.rerun_stale = False  # regenerate complete-but-stale recordings (their old files are archived)
         runs = self.work / "runs"
         self.dir = runs / run_id
         if not self.dir.resolve().is_relative_to(runs.resolve()):
             raise ValueError(f"evaluation run {run_id!r} would resolve outside {runs}")
-        for sub in SUBDIRS:
-            (self.dir / sub).mkdir(parents=True, exist_ok=True)
+        if not dry_run:  # a preview creates nothing
+            for sub in SUBDIRS:
+                (self.dir / sub).mkdir(parents=True, exist_ok=True)
         self.manifest = core.Manifest(self.dir / "manifest.jsonl")
 
     def rel(self, path: Path | str) -> str:
@@ -396,18 +398,15 @@ def record_success(tracker: Tracker, ev: dict, *, outputs: dict, provenance: dic
     fields = dict(outputs=outputs, final_checks={**measured, **derived, "problems": problems},
                   warnings=warnings + [f"final-artifact: {p}" for p in problems], provenance=provenance,
                   timing=timing, finished=core.now_iso(), **extras)
+    row.pop("diagnostic_outputs", None)  # in memory, so the one save below is the whole commit
     if not measured["decode_ok"]:
         tracker.manifest.update(row_id, status="failed", human_review="not-applicable",
                                 status_reason=f"final MP3 failed its strict decode: {measured['decode_errors'][:200]}",
                                 **fields)
-        row.pop("diagnostic_outputs", None)
-        tracker.manifest.save()
         say(f"{row_id}: FAILED strict decode")
         return
     tracker.manifest.update(row_id, status="succeeded", status_reason="", human_review="needs-listening",
                             identity=row["identity"], **fields)
-    row.pop("diagnostic_outputs", None)
-    tracker.manifest.save()
     say(f"{row_id}: succeeded ({timing.get('audible_s')}s audible, {len(fields['warnings'])} warning(s))")
 
 
@@ -643,9 +642,14 @@ def root_runtime_problems(row: dict, *, engine: str, snapshot: dict, hf_home: Pa
     elif engine == "chatterbox" and info.get("device") == "cpu" and not torch_version.endswith("+cpu"):
         problems.append("torch build changed (rows recorded before torch was captured: a CUDA-capable build "
                         "could now select the GPU)")
+    if info.get("python") is not None and info["python"] != platform.python_version():
+        problems.append(f"interpreter {info['python']} -> {platform.python_version()}")
     if engine == "chatterbox":
-        if info.get("package") != f"chatterbox-tts=={installed_version('chatterbox-tts')}":
-            problems.append("chatterbox-tts version changed")
+        if info.get("chatterbox_tts") is not None:
+            if info["chatterbox_tts"] != installed_version("chatterbox-tts"):
+                problems.append(f"chatterbox-tts {info['chatterbox_tts']} -> {installed_version('chatterbox-tts')}")
+        elif info.get("package") != f"chatterbox-tts=={installed_version('chatterbox-tts')}":  # rows made before the
+            problems.append("chatterbox-tts version changed")                                  # version was recorded
         if (prov.get("reference") or {}).get("sha256") != snapshot[ref_name(row)]["sha256"]:
             problems.append("reference recording changed")
     else:
@@ -1323,8 +1327,8 @@ def run(stage: str, run_id: str = core.DEFAULT_RUN_ID, group: str = "all", dry_r
     """Entry point used by ``generate_voice_samples.py --qwen-eval``."""
     if stage not in STAGES:
         raise ValueError(f"unknown stage {stage!r}")
-    session = Run(run_id)
-    session.dry_run, session.rerun_stale = dry_run, rerun_stale
+    session = Run(run_id, dry_run=dry_run)
+    session.rerun_stale = rerun_stale
     if stage == "preflight":
         return stage_preflight(session)
     if stage == "prepare":

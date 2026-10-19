@@ -30,9 +30,9 @@ read-back covers 21/21 recordings at 0.86-0.94 with silence-aligned segmentation
 which proved to be Whisper window-edge dropouts, not missing narration). The clone code path was smoke-tested offline with a
 synthetic reference, not the owner's recordings.
 
-**Verification.** 107 focused tests pass and about 40 mutations of the guarded behaviours were each caught (two needed
-source-level mutation because their tests stub the mutated function); with the 298 existing tests that import the
-sample generator and the 41 repository-contract tests, over 440 pass together. Full
+**Verification.** 116 focused tests pass and about 45 mutations of the guarded behaviours were each caught (several
+needed source-level mutation because their tests stub the mutated function); with the 298 existing tests that import
+the sample generator and the 41 repository-contract tests, 455 pass together. Full
 `scripts/verify.py` has NOT been run (reserved for the evaluation closeout). **Codex independent review ran** on
 `2ad8272`: 10 major and 1 minor findings (a silently dropped Chatterbox colon segment, reruns overwriting retired
 audio, resume identity missing real runtime state, a rebase that could legitimise a changed profile, baseline workers
@@ -42,7 +42,11 @@ verified real and fixed with tests. A second Codex pass over those fixes found 8
 reusable after a restore, chunk paths not remapped on archive, blocked rows skipping retirement, an unregistered WAV on
 encode failure, one bad chunk able to abort a worker, incomplete runtime and cache evidence, a fail-open instrumentation
 hook, dry runs that wrote files, Windows device names as run ids); all were verified real and fixed with tests, and
-those fixes await one more confirmation pass. One of my own fixes briefly caused a rerun of 12 good recordings (a
+those were fixed too. A third pass then found 5 major + 3 minor failure-injection cases (a manifest save failing after
+files moved, a restore whose archived file vanished, a late failure after the WAV was written, the recorded Chatterbox
+package version ignored, overlapping file/folder moves, `TORCH_EXTENSIONS_DIR`, a dry run creating folders); fixed by
+making retire/restore one transaction with a full preflight and by the smaller changes, all with tests. The closeout
+review is the next confirmation. One of my own fixes briefly caused a rerun of 12 good recordings (a
 torch-version comparison bug); they were restored byte-identically and the spurious takes are archived (see Decisions).
 Known limit: Chatterbox rows made before torch was recorded can only be checked by build suffix, not exact version.
 

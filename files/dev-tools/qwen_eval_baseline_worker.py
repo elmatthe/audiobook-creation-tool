@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import platform
 import sys
 import time
 import traceback
@@ -96,6 +97,7 @@ def run_chatterbox(job: dict) -> int:
 
     core.emit({"event": "engine", "engine": "chatterbox", "device": device, "package": cs.PACKAGE_REQUIREMENT,
                "torch": torch.__version__, "chatterbox_tts": md.version("chatterbox-tts"),
+               "python": platform.python_version(),
                "model": _snapshot_identity(cs.MODEL_REPO_ID), "temperature": cs.GENERATION_TEMPERATURE,
                "max_chunk_chars": cs.CHATTERBOX_MAX_CHUNK_CHARS, "expected_chunks": expected_chunks,
                "generation_params": cs.generation_params()})
@@ -123,7 +125,8 @@ def run_kokoro(job: dict) -> int:
     import importlib.metadata as md
 
     core.emit({"event": "engine", "engine": "kokoro", "device": "cuda" if torch.cuda.is_available() else "cpu",
-               "torch": torch.__version__, "kokoro": md.version("kokoro"), "misaki": md.version("misaki"), "model": _snapshot_identity("hexgrad/Kokoro-82M"),
+               "torch": torch.__version__, "kokoro": md.version("kokoro"), "misaki": md.version("misaki"),
+               "python": platform.python_version(), "model": _snapshot_identity("hexgrad/Kokoro-82M"),
                "expected_chunks": expected_chunks, "speed": 1.0})
     cancel = _cancel_check(job)
     for row in job["rows"]:
@@ -192,6 +195,7 @@ def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks:
     original_chunk = getattr(module, "_synthesize_chunk", None) if chunk_wrapper else None
     original_generate = getattr(module, "_generate_checked", None) if chunk_wrapper else None
     segments: list[dict] = []
+    outputs = None
     if chunk_wrapper and not (callable(original_chunk) and callable(original_generate)):
         # Fail closed: without both hooks a silently dropped segment could not be seen at all.
         core.emit({"event": "row_failed", "row_id": row_id,
@@ -264,8 +268,11 @@ def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks:
                    "completed_chunks": len(chunk_info)})
         return True
     except Exception as exc:  # noqa: BLE001 - one voice failing must not end the run
-        core.emit({"event": "row_failed", "row_id": row_id, "reason": f"{type(exc).__name__}: {exc}",
-                   "trace": traceback.format_exc()[-1500:]})
+        failure = {"event": "row_failed", "row_id": row_id, "reason": f"{type(exc).__name__}: {exc}",
+                   "trace": traceback.format_exc()[-1500:]}
+        if outputs is not None:  # already written: keep it tracked so a retry archives it
+            failure.update(outputs=outputs, diagnostic=True)
+        core.emit(failure)
     return False
 
 

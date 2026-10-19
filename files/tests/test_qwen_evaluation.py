@@ -1072,7 +1072,8 @@ def test_runtime_evidence_also_covers_gpu_interpreter_and_recorded_engine_versio
 
 def test_child_env_clears_every_known_library_cache_override(tmp_path):
     names = ["HF_MODULES_CACHE", "HF_XET_CACHE", "HUGGINGFACE_ASSETS_CACHE", "PYTORCH_TRANSFORMERS_CACHE",
-             "PYTORCH_PRETRAINED_BERT_CACHE", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "CUDA_CACHE_PATH"]
+             "PYTORCH_PRETRAINED_BERT_CACHE", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "CUDA_CACHE_PATH",
+             "TORCH_EXTENSIONS_DIR"]
     base = {name: "C:/outside/" + name for name in names}
     for kind in ("qwen", "root"):
         env = core.child_env(kind, base, tmp_path, hf_home=tmp_path / "hf" if kind == "root" else None)
@@ -1106,13 +1107,140 @@ def test_the_qwen_worker_isolates_one_rows_assembly_and_output_failure():
     assert len(calls) >= 4 and all(guarded(c) for c in calls)  # one bad row cannot end the worker for the rest
 
 
-def test_a_dry_run_on_a_fresh_run_writes_nothing(tmp_path):
-    run = make_run(tmp_path)
-    run.dry_run = True
+def test_a_dry_run_on_a_fresh_run_creates_no_files_and_no_directories(tmp_path):
+    run = cli.Run("fresh", work_dir=tmp_path, dry_run=True)
     cli.stage_short(run, "all")
-    assert not (run.dir / "corpus" / "frozen.json").exists() and not (run.dir / "corpus" / "short.txt").exists()
-    assert not (run.dir / "manifest.jsonl").exists() and not (run.dir / "README-listen-first.md").exists()
-    assert not (run.dir / "references" / "integrity.json").exists() and not list((run.dir / "jobs").glob("*"))
+    assert list(tmp_path.rglob("*")) == []  # not even the run folder
+
+
+def test_run_construction_creates_the_folders_only_when_not_a_dry_run(tmp_path):
+    assert not list(cli.Run("a", work_dir=tmp_path / "x", dry_run=True).dir.parents[1].glob("*"))
+    assert (cli.Run("b", work_dir=tmp_path / "y").dir / "kokoro").is_dir()
+
+
+def test_a_failed_restore_changes_nothing_not_even_the_present_result(tmp_path):
+    manifest, row_id, wav = _tracked_row(tmp_path)
+    manifest.retire_attempt(row_id, "first", tmp_path)
+    wav.write_bytes(b"current take")
+    manifest.update(row_id, status="succeeded", outputs={"wav": {"path": "presets/Aiden.wav", "bytes": 12,
+                                                                 "sha256": core.sha256_file(wav)}})
+    archived = tmp_path / manifest.get(row_id)["attempts"][0]["outputs"]["wav"]["path"]
+    archived.unlink()  # the archived take has gone missing
+    before = (tmp_path / "m.jsonl").read_bytes()
+    with pytest.raises(FileNotFoundError, match="nothing was changed"):
+        manifest.restore_attempt(row_id, 0, tmp_path, "undo")
+    row = manifest.get(row_id)
+    assert row["status"] == "succeeded" and wav.read_bytes() == b"current take" and len(row["attempts"]) == 1
+    assert (tmp_path / "m.jsonl").read_bytes() == before and core.outputs_intact(row, tmp_path)
+
+
+def test_a_failing_manifest_save_puts_the_moved_files_back(tmp_path, monkeypatch):
+    manifest, row_id, wav = _tracked_row(tmp_path)
+    monkeypatch.setattr(manifest, "save", lambda: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(OSError, match="disk full"):
+        manifest.retire_attempt(row_id, "retire", tmp_path)
+    assert wav.read_bytes() == b"wav Aiden" and (tmp_path / "chunks" / row_id / "chunk-001.wav").is_file()
+    row = manifest.get(row_id)
+    assert row["status"] == "succeeded" and row["attempts"] == [] and core.outputs_intact(row, tmp_path)
+    assert not any((tmp_path / "attempts" / row_id).glob("*/presets/*"))  # nothing stranded in the archive
+
+
+def test_an_incomplete_rollback_is_reported_with_the_files_it_could_not_return(tmp_path, monkeypatch):
+    first, second = tmp_path / "a.txt", tmp_path / "b.txt"
+    first.write_text("a", encoding="utf-8")
+    second.write_text("b", encoding="utf-8")
+    real, calls = core.os.replace, {"n": 0}
+
+    def flaky(src, dest):
+        calls["n"] += 1
+        if calls["n"] in (2, 3):  # the second forward move fails, and so does putting the first one back
+            raise PermissionError("locked")
+        return real(src, dest)
+
+    monkeypatch.setattr(core.os, "replace", flaky)
+    with pytest.raises(RuntimeError, match="rollback was incomplete") as caught:
+        core._move_all([(first, tmp_path / "moved" / "a.txt"), (second, tmp_path / "moved" / "b.txt")])
+    assert "a.txt" in str(caught.value) and isinstance(caught.value.__cause__, PermissionError)
+
+
+def test_a_file_inside_a_chunk_folder_moves_with_its_folder_not_separately(tmp_path):
+    manifest, row_id, _ = _tracked_row(tmp_path)
+    inside = tmp_path / "chunks" / row_id / "chunk-001.wav"
+    manifest.update(row_id, diagnostic_outputs={"chunk": {"path": f"chunks/{row_id}/chunk-001.wav",
+                                                          "bytes": 5, "sha256": core.sha256_file(inside)}})
+    manifest.retire_attempt(row_id, "overlap", tmp_path)  # used to try to move the file and then its parent
+    attempt = manifest.get(row_id)["attempts"][0]
+    assert attempt["diagnostic_outputs"]["chunk"]["path"].startswith(attempt["archive"] + "/chunks/")
+    assert (tmp_path / attempt["diagnostic_outputs"]["chunk"]["path"]).read_bytes() == b"chunk"
+    assert not (tmp_path / "chunks" / row_id).exists()
+
+
+def test_a_successful_row_is_committed_with_a_single_save(tmp_path, monkeypatch):
+    run = make_run(tmp_path)
+    run.manifest.declare(core.short_rows())
+    mp3 = run.dir / "presets" / "Aiden.mp3"
+    mp3.parent.mkdir(exist_ok=True)
+    mp3.write_bytes(b"mp3")
+    row = run.manifest.get("qwen-preset-aiden")
+    row.update(identity="id", text={"chars": 10})
+    row["diagnostic_outputs"] = {"wav": {"path": "presets/Aiden.wav"}}
+    monkeypatch.setattr(cli, "final_checks", lambda path, chars: ({"decode_ok": True, "decode_errors": ""}, [], {}))
+    saves = []
+    real_save = run.manifest.save
+    monkeypatch.setattr(run.manifest, "save", lambda: saves.append(1) or real_save())
+    tracker = cli.Tracker(run, run.manifest, {"qwen-preset-aiden": row}, lambda t, e: None)
+    cli.record_success(tracker, {"row_id": "qwen-preset-aiden"}, outputs={"mp3": {"path": "presets/Aiden.mp3"}},
+                       provenance={}, timing={}, warnings=[], extras={})
+    assert len(saves) == 1 and run.manifest.get("qwen-preset-aiden")["status"] == "succeeded"
+    assert "diagnostic_outputs" not in run.manifest.get("qwen-preset-aiden")  # cleared before that one save
+
+
+def test_a_late_baseline_failure_still_reports_the_recording_it_already_wrote(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(baseline.core, "measure_samples", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    source = tmp_path / "text.txt"
+    source.write_text("one", encoding="utf-8")
+    module = fake_engine([tone(1.0)])
+    row = {"row_id": "chatterbox-female-1", "voice_id": "chatterbox-female-1", "out_dir": "out", "stem": "Female-1"}
+    baseline._run_one(row, tmp_path, source, module, 1, lambda log, mp3: module.chatterbox_file_to_mp3(
+        str(source), str(mp3), voice_id="v", log=log), chunk_wrapper=True)
+    events = [e for e in (core.parse_event(ln) for ln in capsys.readouterr().out.splitlines()) if e]
+    failed = next(e for e in events if e["event"] == "row_failed")
+    assert failed["outputs"]["wav"]["path"].endswith("Female-1.wav") and failed["diagnostic"]
+    assert (tmp_path / failed["outputs"]["wav"]["path"]).is_file()
+
+
+def test_the_qwen_worker_reports_the_wav_it_already_wrote_when_a_later_step_fails():
+    import ast
+
+    tree = ast.parse((TOOLS / "qwen_eval_worker.py").read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "run_synth")
+    handlers = [h for t in ast.walk(fn) if isinstance(t, ast.Try) for h in t.handlers
+                if any(isinstance(c, ast.Constant) and "assembly or output writing failed" in str(c.value)
+                       for c in ast.walk(h))]
+    assert handlers, "assembly failure handler not found"
+    keys = {c.value for h in handlers for c in ast.walk(h) if isinstance(c, ast.Constant)}
+    assert "outputs" in keys  # the failure event carries the already-written WAV so a retry archives it
+
+
+def test_chatterbox_runtime_evidence_uses_the_recorded_version_and_interpreter(monkeypatch):
+    monkeypatch.setattr(cli, "torch_runtime_version", lambda: "2.6.0+cpu")
+    monkeypatch.setattr(cli, "hub_main_revision", lambda repo, hf_home=None: "rev")
+    monkeypatch.setattr(cli, "installed_version", lambda name: "0.1.7" if name == "chatterbox-tts" else None)
+    monkeypatch.setattr(cli.platform, "python_version", lambda: "3.12.10")
+    info = {"model": {"revision": "rev"}, "package": "chatterbox-tts==0.1.7", "chatterbox_tts": "0.1.7",
+            "torch": "2.6.0+cpu", "device": "cpu", "python": "3.12.10"}
+    row = {"voice_id": "chatterbox-male-1", "display": "Male-1", "provenance": {
+        "worker_engine_info": info, "reference": {"sha256": "r"}}}
+    snapshot = {"Male-1": {"sha256": "r"}}
+    assert cli.root_runtime_problems(row, engine="chatterbox", snapshot=snapshot) == []
+    info["chatterbox_tts"] = "0.1.8"  # the requirement string alone ("==0.1.7") used to hide this
+    assert any("chatterbox-tts 0.1.8 -> 0.1.7" in p for p in cli.root_runtime_problems(row, engine="chatterbox",
+                                                                                       snapshot=snapshot))
+    info["chatterbox_tts"], info["python"] = "0.1.7", "3.11.9"
+    assert any("interpreter 3.11.9 -> 3.12.10" in p for p in cli.root_runtime_problems(row, engine="chatterbox",
+                                                                                       snapshot=snapshot))
+    del info["chatterbox_tts"], info["python"]  # a row from before these were recorded still uses the requirement
+    assert cli.root_runtime_problems(row, engine="chatterbox", snapshot=snapshot) == []
 
 
 def test_frozen_text_cannot_silently_change(tmp_path):

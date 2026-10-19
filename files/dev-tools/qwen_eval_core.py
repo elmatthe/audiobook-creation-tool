@@ -689,63 +689,87 @@ class Manifest:
             return True
         return base is not None and (Path(base) / "chunks" / row_id).is_dir()
 
-    def retire_attempt(self, row_id: str, reason: str, base: Path | None = None) -> None:
-        """Move the current result into ``attempts`` so a rerun never overwrites its evidence.
-
-        With ``base`` (the run folder) the files themselves move to ``attempts/<row>/attempt-NN/<original path>``
-        and every recorded path follows them, so the retired audio, raw chunks and joins stay playable after the
-        row is regenerated. The attempt number is never reused, and a move that fails part-way is rolled back.
-        """
-        row = self.rows[row_id]
-        if row["status"] == "pending" and not self.has_artifacts(row_id, base):
-            return
-        keep = copy.deepcopy({k: row[k] for k in ("status", "status_reason", "text", *RESULT_FIELDS) if k in row})
-        keep["retired_because"] = reason
-        if base is not None:
-            keep["archive"] = self._archive_files(row_id, keep, Path(base))
-        row["attempts"].append(keep)
-        for key in RESULT_FIELDS:
-            row.pop(key, None)
-        row["status"], row["status_reason"] = "pending", ""
-        self.save()
-
     def _next_attempt_number(self, row_id: str, base: Path) -> int:
         root = base / "attempts" / row_id
         used = [int(m.group(1)) for d in (root.glob("attempt-*") if root.is_dir() else [])
                 if (m := re.fullmatch(r"attempt-(\d+)", d.name))]
         return max([*used, len(self.rows[row_id]["attempts"])]) + 1
 
-    def _archive_files(self, row_id: str, keep: dict, base: Path) -> str | None:
-        """Move this attempt's recordings and raw chunks under a fresh ``attempts/<row>/attempt-NN`` folder."""
+    def _plan_archive(self, row_id: str, record: dict, base: Path | None):
+        """Plan (touching nothing) how to archive a result record: (archive, moves, path mapper), or Nones."""
+        if base is None:
+            return None, [], None
         archive = Path("attempts") / row_id / f"attempt-{self._next_attempt_number(row_id, base):02d}"
         if (base / archive).exists():
             raise FileExistsError(f"{row_id}: {archive} already exists; refusing to reuse an archive number")
-        chunk_prefix = f"chunks/{row_id}/"
+        chunk_dir, chunk_prefix = base / "chunks" / row_id, f"chunks/{row_id}/"
         moves, seen = [], set()
-        for group in (keep.get("outputs"), keep.get("diagnostic_outputs")):
+        for group in (record.get("outputs"), record.get("diagnostic_outputs")):
             for info in (group or {}).values():
                 src = base / info["path"]
-                if src.is_file() and src not in seen:
-                    seen.add(src)
+                if src.is_file() and src not in seen and chunk_dir not in src.parents:  # a chunk-folder file moves
+                    seen.add(src)                                                         # together with its folder
                     moves.append((src, base / archive / info["path"]))
-        chunk_dir = base / "chunks" / row_id
         if chunk_dir.is_dir():
             moves.append((chunk_dir, base / archive / "chunks" / row_id))
         if not moves:
-            return None
-        moved_paths = {src.relative_to(base).as_posix() for src, _ in moves}
+            return None, [], None
+        moved = {src.relative_to(base).as_posix() for src, _ in moves}
+        return archive.as_posix(), moves, (lambda path: (archive / path).as_posix()
+                                           if path in moved or path.startswith(chunk_prefix) else path)
+
+    def _commit(self, row_id: str, moves: list, mutate) -> None:
+        """Perform the file moves AND the manifest change as one unit: if any part fails, everything is put back."""
+        row = self.rows[row_id]
+        before = copy.deepcopy(row)
         _move_all(moves)
-        _remap_paths(keep, lambda path: (archive / path).as_posix()
-                     if path in moved_paths or path.startswith(chunk_prefix) else path)
-        return archive.as_posix()
+        try:
+            mutate()
+            self.save()
+        except BaseException:
+            row.clear()
+            row.update(before)
+            _move_all([(dest, src) for src, dest in reversed(moves)])
+            raise
+
+    def retire_attempt(self, row_id: str, reason: str, base: Path | None = None) -> None:
+        """Move the current result into ``attempts`` so a rerun never overwrites its evidence.
+
+        With ``base`` (the run folder) the files themselves move to ``attempts/<row>/attempt-NN/<original path>``
+        and every recorded path follows them, so retired audio, raw chunks and joins stay playable after the row
+        is regenerated. The attempt number is never reused; the moves and the manifest change succeed or fail
+        together.
+        """
+        row = self.rows[row_id]
+        if row["status"] == "pending" and not self.has_artifacts(row_id, base):
+            return
+        keep = copy.deepcopy({k: row[k] for k in ("status", "status_reason", "text", *RESULT_FIELDS) if k in row})
+        keep["retired_because"] = reason
+        archive, moves, mapper = self._plan_archive(row_id, keep, Path(base) if base is not None else None)
+
+        def mutate() -> None:
+            self._apply_retirement(row, keep, archive, mapper)
+
+        self._commit(row_id, moves, mutate)
+
+    @staticmethod
+    def _apply_retirement(row: dict, keep: dict, archive: str | None, mapper) -> None:
+        if mapper is not None:
+            _remap_paths(keep, mapper)
+            keep["archive"] = archive
+        row["attempts"].append(keep)
+        for key in RESULT_FIELDS:
+            row.pop(key, None)
+        row["status"], row["status_reason"] = "pending", ""
 
     def restore_attempt(self, row_id: str, index: int, base: Path, reason: str) -> None:
         """Make a retired attempt the current result again.
 
-        The present result is retired (and archived) first, so nothing is lost either way. Refuses to overwrite
-        an existing file, rolls back a partial move, and records the restoration on the row.
+        The whole operation (retiring the present result, if any, and bringing the old files back) is planned and
+        checked first, then committed as one unit: a missing archived file, an occupied destination or a failing
+        move leaves the row and every file exactly as they were.
         """
-        row = self.rows[row_id]
+        base, row = Path(base), self.rows[row_id]
         target = row["attempts"][index]
         archive = target.get("archive")
         if not archive:
@@ -755,48 +779,62 @@ class Manifest:
         def original(path: str) -> str:
             return path[len(prefix):] if path.startswith(prefix) else path
 
-        if row["status"] != "pending" or self.has_artifacts(row_id, base):
-            self.retire_attempt(row_id, reason, base)
-        moves, seen = [], set()
+        present = row["status"] != "pending" or self.has_artifacts(row_id, base)
+        keep = copy.deepcopy({k: row[k] for k in ("status", "status_reason", "text", *RESULT_FIELDS) if k in row})
+        keep["retired_because"] = reason
+        r_archive, r_moves, r_mapper = self._plan_archive(row_id, keep, base) if present else (None, [], None)
+        freed = {src for src, _ in r_moves}
+        moves, seen = list(r_moves), set()
         for group_name in ("outputs", "diagnostic_outputs"):
             for info in (target.get(group_name) or {}).values():
                 src, dest = base / info["path"], base / original(info["path"])
                 if src in seen:
                     continue
                 seen.add(src)
-                if dest.exists():
+                if not src.is_file():
+                    raise FileNotFoundError(f"{row_id}: archived file {src} is missing; nothing was changed")
+                if dest.exists() and dest not in freed:
                     raise FileExistsError(f"{row_id}: {dest} exists; refusing to overwrite it")
                 moves.append((src, dest))
         chunk_src, chunk_dest = base / archive / "chunks" / row_id, base / "chunks" / row_id
         if chunk_src.is_dir():
-            if chunk_dest.exists():
+            if chunk_dest.exists() and chunk_dest not in freed:
                 raise FileExistsError(f"{row_id}: {chunk_dest} exists; refusing to overwrite it")
             moves.append((chunk_src, chunk_dest))
-        _move_all(moves)
-        restored = copy.deepcopy({k: v for k, v in target.items() if k not in ("retired_because", "archive")})
-        _remap_paths(restored, original)
-        for key in RESULT_FIELDS:
-            row.pop(key, None)
-        row.update(restored)
-        row["attempts"].remove(target)
-        row.setdefault("restorations", []).append({"reason": reason, "when": now_iso(), "archive": archive})
-        self.save()
+
+        def mutate() -> None:
+            if present:
+                self._apply_retirement(row, keep, r_archive, r_mapper)
+            restored = copy.deepcopy({k: v for k, v in target.items() if k not in ("retired_because", "archive")})
+            _remap_paths(restored, original)
+            for key in RESULT_FIELDS:
+                row.pop(key, None)
+            row.update(restored)
+            row["attempts"] = [a for a in row["attempts"] if a is not target]
+            row.setdefault("restorations", []).append({"reason": reason, "when": now_iso(), "archive": archive})
+
+        self._commit(row_id, moves, mutate)
 
 
 def _move_all(moves: list[tuple[Path, Path]]) -> None:
-    """Move every (source, destination) pair or none: a failure part-way puts the moved ones back."""
+    """Move every (source, destination) pair or none. A failure part-way puts the moved ones back; if even that
+    fails, the error says exactly which files are where (it is never swallowed)."""
     done: list[tuple[Path, Path]] = []
     try:
         for src, dest in moves:
             dest.parent.mkdir(parents=True, exist_ok=True)
             os.replace(src, dest)
             done.append((src, dest))
-    except Exception:
+    except Exception as exc:
+        stuck = []
         for src, dest in reversed(done):
             try:
                 os.replace(dest, src)
-            except OSError:
-                pass
+            except OSError as undo:
+                stuck.append(f"{dest} -> {src}: {undo}")
+        if stuck:
+            raise RuntimeError("a file move failed and the rollback was incomplete; files left at their new "
+                               "location: " + "; ".join(stuck)) from exc
         raise
 
 
@@ -882,7 +920,8 @@ def child_env(kind: str, base: dict | None = None, work_dir: Path = WORK_DIR, of
                XDG_CACHE_HOME=str(cache / "xdg"), XDG_CONFIG_HOME=str(cache / "xdg"),
                XDG_DATA_HOME=str(cache / "xdg"), HF_MODULES_CACHE=str(cache / "hf-modules"),
                HF_XET_CACHE=str(cache / "xet"), TORCHINDUCTOR_CACHE_DIR=str(cache / "inductor"),
-               TRITON_CACHE_DIR=str(cache / "triton"), CUDA_CACHE_PATH=str(cache / "cuda"))
+               TRITON_CACHE_DIR=str(cache / "triton"), CUDA_CACHE_PATH=str(cache / "cuda"),
+               TORCH_EXTENSIONS_DIR=str(cache / "torch-extensions"))
     for stale in ("HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "HF_ASSETS_CACHE",
                   "HUGGINGFACE_ASSETS_CACHE", "PYTORCH_TRANSFORMERS_CACHE", "PYTORCH_PRETRAINED_BERT_CACHE"):
         env.pop(stale, None)
