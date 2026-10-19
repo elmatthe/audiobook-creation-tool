@@ -24,6 +24,14 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORK_DIR = REPO_ROOT / "files" / "dev-work" / "qwen3-eval"
 DEFAULT_RUN_ID = "qwen3-initial"
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def validate_run_id(run_id: str) -> str:
+    """A run id is one plain filename component: no separators, no drive, no traversal."""
+    if not isinstance(run_id, str) or not RUN_ID_PATTERN.match(run_id) or ".." in run_id:
+        raise ValueError(f"invalid evaluation run id {run_id!r}: use letters, digits, '.', '_' or '-' (max 64)")
+    return run_id
 
 # --------------------------------------------------------------------------- #
 # Identities: the closed inventory the plan requires (27 short rows, 4 long rows)
@@ -405,6 +413,22 @@ def assemble(chunk_audio: list[np.ndarray], sample_rate: int, boundaries: list[s
     return out, report
 
 
+def validate_chunk_audio(audio, sample_rate: int, expected_rate: int | None) -> np.ndarray:
+    """One generated chunk as mono float32, or an error: nothing is flattened, resampled or guessed.
+
+    ``expected_rate`` is the rate of the first chunk of the recording (``None`` for that first chunk); a
+    different rate would silently corrupt duration and pitch once the chunks are concatenated.
+    """
+    arr = np.asarray(audio)
+    if arr.ndim != 1:
+        raise AssemblyError(f"model returned audio of shape {arr.shape}; a mono 1-D waveform is required")
+    if not isinstance(sample_rate, (int, np.integer)) or int(sample_rate) <= 0:
+        raise AssemblyError(f"model returned an invalid sample rate {sample_rate!r}")
+    if expected_rate is not None and int(sample_rate) != int(expected_rate):
+        raise AssemblyError(f"sample rate changed within a recording ({expected_rate} -> {sample_rate})")
+    return arr.astype("float32", copy=False)
+
+
 def verify_assembly(report: dict, chunk_lengths: list[int]) -> None:
     expected = sum(chunk_lengths) + report["gap_samples"] * len(chunk_lengths) + report["end_silence_samples"]
     if expected != report["total_samples"]:
@@ -608,6 +632,12 @@ def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
 
+#: Everything a finished attempt records; cleared when the row is retired so a pending row never shows stale results.
+RESULT_FIELDS = ("outputs", "diagnostic_outputs", "warnings", "identity", "started", "finished", "wall_s",
+                 "measurements", "joins", "chunk_results", "timing", "provenance", "chunk_plan", "final_checks",
+                 "asr_check", "engine_retries", "progress")
+
+
 class Manifest:
     """``manifest.jsonl``: one JSON row per line, rewritten atomically after every change."""
 
@@ -642,20 +672,99 @@ class Manifest:
         self.save()
         return row
 
-    def retire_attempt(self, row_id: str, reason: str) -> None:
-        """Move the current result into ``attempts`` so a rerun never overwrites its evidence."""
+    def retire_attempt(self, row_id: str, reason: str, base: Path | None = None) -> None:
+        """Move the current result into ``attempts`` so a rerun never overwrites its evidence.
+
+        With ``base`` (the run folder) the files themselves are moved to
+        ``attempts/<row>/attempt-NN/<original relative path>`` and the recorded paths follow them, so the
+        retired audio, raw chunks and joins stay playable after the row is regenerated.
+        """
         row = self.rows[row_id]
         if row["status"] == "pending":
             return
-        keep = {k: row.get(k) for k in ("status", "status_reason", "identity", "outputs", "warnings",
-                                        "started", "finished", "wall_s") if k in row}
+        keep = {k: row[k] for k in ("status", "status_reason", "text", *RESULT_FIELDS) if k in row}
         keep["retired_because"] = reason
+        if base is not None:
+            keep["archive"] = self._archive_files(row_id, row, keep, Path(base), len(row["attempts"]) + 1)
         row["attempts"].append(keep)
-        for key in ("outputs", "warnings", "identity", "started", "finished", "wall_s", "measurements",
-                    "joins", "chunk_results"):
+        for key in RESULT_FIELDS:
             row.pop(key, None)
         row["status"], row["status_reason"] = "pending", ""
         self.save()
+
+    def restore_attempt(self, row_id: str, index: int, base: Path, reason: str) -> None:
+        """Make a retired attempt the current result again.
+
+        The present result is retired (and archived) first, so nothing is lost either way. Refuses to overwrite
+        an existing file. Every restoration is recorded on the row.
+        """
+        row = self.rows[row_id]
+        target = row["attempts"][index]
+        archive = target.get("archive")
+        if not archive:
+            raise ValueError(f"{row_id}: attempt {index} has no archived files to restore")
+        prefix = archive + "/"
+
+        def original(path: str) -> str:
+            return path[len(prefix):] if path.startswith(prefix) else path
+
+        if row["status"] != "pending":
+            self.retire_attempt(row_id, reason, base)
+        moves = []
+        for group_name in ("outputs", "diagnostic_outputs"):
+            for info in (target.get(group_name) or {}).values():
+                src, dest = base / info["path"], base / original(info["path"])
+                if dest.exists():
+                    raise FileExistsError(f"{row_id}: {dest} exists; refusing to overwrite it")
+                moves.append((src, dest))
+        chunk_src, chunk_dest = base / archive / "chunks" / row_id, base / "chunks" / row_id
+        if chunk_src.is_dir() and chunk_dest.exists():
+            raise FileExistsError(f"{row_id}: {chunk_dest} exists; refusing to overwrite it")
+        for src, dest in moves:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src, dest)
+        if chunk_src.is_dir():
+            chunk_dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(chunk_src, chunk_dest)
+        restored = {k: v for k, v in target.items() if k not in ("retired_because", "archive")}
+        for group_name in ("outputs", "diagnostic_outputs"):
+            for info in (restored.get(group_name) or {}).values():
+                info["path"] = original(info["path"])
+        for key in RESULT_FIELDS:
+            row.pop(key, None)
+        row.update(restored)
+        row["attempts"].remove(target)
+        row.setdefault("restorations", []).append({"reason": reason, "when": now_iso(), "archive": archive})
+        self.save()
+
+    @staticmethod
+    def _archive_files(row_id: str, row: dict, keep: dict, base: Path, number: int) -> str | None:
+        """Move this attempt's recordings and raw chunks under the run's ``attempts`` folder."""
+        archive = Path("attempts") / row_id / f"attempt-{number:02d}"
+        moved = False
+        sources = []
+        for group in (row.get("outputs"), row.get("diagnostic_outputs")):
+            for info in (group or {}).values():
+                sources.append(info)
+        for info in sources:
+            src = base / info["path"]
+            if src.is_file():
+                dest = base / archive / info["path"]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(src, dest)
+                moved = True
+        chunk_dir = base / "chunks" / row_id
+        if chunk_dir.is_dir():
+            dest = base / archive / "chunks" / row_id
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(chunk_dir, dest)
+            moved = True
+        if not moved:
+            return None
+        for group_name in ("outputs", "diagnostic_outputs"):
+            for info in (keep.get(group_name) or {}).values():
+                info["path"] = (archive / info["path"]).as_posix()
+        return archive.as_posix()
 
 
 def outputs_intact(row: dict, base: Path) -> bool:
@@ -708,27 +817,32 @@ def root_python(repo_root: Path = REPO_ROOT) -> Path:
     return scripts / ("python.exe" if os.name == "nt" else "python")
 
 
-def child_env(kind: str, base: dict | None = None, work_dir: Path = WORK_DIR, offline: bool = False) -> dict:
+def child_env(kind: str, base: dict | None = None, work_dir: Path = WORK_DIR, offline: bool = False,
+              hf_home: Path | None = None) -> dict:
     """Environment for a worker subprocess: every cache and temp path inside the repository.
 
-    ``kind`` is ``"qwen"`` (isolated venv: caches under the evaluation work area) or ``"root"``
-    (Chatterbox/Kokoro: the existing in-tree model cache is kept, only temp/analytics change).
-    The user's global environment is never modified.
+    ``kind`` is ``"qwen"`` (isolated venv: Hugging Face cache under the evaluation work area) or ``"root"``
+    (Chatterbox/Kokoro: the existing in-tree model cache, passed as ``hf_home``). For both kinds every other
+    cache, config and temp location is redirected into the work area and every inherited Hugging Face cache
+    override is removed, so nothing can land in a home-directory cache. The user's global environment is never
+    modified.
     """
+    if kind not in ("qwen", "root"):
+        raise ValueError(f"unknown child kind {kind!r}")
     env = dict(os.environ if base is None else base)
-    temp = str(work_dir / "temp")
+    temp, cache = str(work_dir / "temp"), work_dir / "cache"
     env.update(TEMP=temp, TMP=temp, TMPDIR=temp, PYTHONNOUSERSITE="1", PYTHONIOENCODING="utf-8",
                GRADIO_ANALYTICS_ENABLED="False", HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1",
-               PYTHONUNBUFFERED="1")
+               PYTHONUNBUFFERED="1", TORCH_HOME=str(cache / "torch"), NUMBA_CACHE_DIR=str(cache / "numba"),
+               XDG_CACHE_HOME=str(cache / "xdg"), XDG_CONFIG_HOME=str(cache / "xdg"),
+               XDG_DATA_HOME=str(cache / "xdg"))
+    for stale in ("HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "HF_ASSETS_CACHE"):
+        env.pop(stale, None)
     if kind == "qwen":
-        cache = work_dir / "cache"
-        env.update(HF_HOME=str(cache / "hf"), TORCH_HOME=str(cache / "torch"),
-                   NUMBA_CACHE_DIR=str(cache / "numba"), XDG_CACHE_HOME=str(cache / "xdg"),
-                   XDG_CONFIG_HOME=str(cache / "xdg"))
-        for stale in ("HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE", "TRANSFORMERS_CACHE"):
-            env.pop(stale, None)
-    elif kind != "root":
-        raise ValueError(f"unknown child kind {kind!r}")
+        env["HF_HOME"] = str(cache / "hf")
+    elif hf_home is not None:
+        env["HF_HOME"] = str(hf_home)
+        env["HUGGINGFACE_HUB_CACHE"] = str(Path(hf_home) / "hub")
     if offline:
         env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
     return env

@@ -36,13 +36,26 @@ only because `qwen-tts` declares it; no server is run.
   (a literal boolean); Whisper drafts never count, `x_vector_only_mode` is never used, and the transcript hash is part of
   the resume identity, so editing an approved transcript invalidates the clone.
 - *Seeds* are `sha256(base|row|chunk|attempt)` per chunk; Chatterbox and Kokoro stay unseeded because that is production.
-- *Resume identity* hashes the text, plan, profile, model revision, package pins, reference/transcript hashes and a
-  deliberate `PIPELINE_REVISION` (bump it when chunking, seeding, generation or assembly changes), not whole source
-  files, so reporting/ASR edits never invalidate finished recordings; `rebase_identities` keeps the old identity in
-  `identity_history`.
+- *Resume* needs BOTH the identity (text, plan, profile, model revision, package pins, reference/transcript hashes and a
+  deliberate `PIPELINE_REVISION`, not whole source files, so reporting/ASR edits never invalidate finished work) AND a
+  match between what the row recorded about how it was made (installed package versions, model revision, Kokoro voice-asset
+  hash, device build, reference and transcript hashes) and the present state. There is deliberately no "rebase"
+  operation: it could legitimise audio made under a different profile.
+- *Nothing complete is touched by accident.* A complete recording whose evidence no longer matches is reported STALE and
+  kept; `--eval-rerun-stale` regenerates it, and `--eval-dry-run` shows every row's reuse/block/run decision without
+  starting a worker. A temporarily missing prerequisite never demotes a complete result. Retired attempts have their
+  files moved to `attempts/<row>/attempt-NN/`, and `Manifest.restore_attempt` can bring them back; every worker call keeps
+  its own timestamped job file and log. (Learned the hard way on 2026-10-18: the first version of the runtime check
+  compared `torch` package metadata `2.6.0` with the runtime `2.6.0+cpu`, so one stage run retired and began regenerating
+  12 good recordings. They were restored byte-identically and the spurious takes stay archived; the stale-guard and
+  dry-run exist so that cannot recur silently.)
+- *Transcript approval is bound to the reference recording's SHA-256* (`wav_sha256` in `verified.json`); an approval made
+  for a different recording is not used.
+- *Run ids* are one plain filename component and are checked to resolve inside `files/dev-work/qwen3-eval/runs/`.
 - *ASR read-back* (`--qwen-eval asr-check`) is advisory: it can flag gross omissions, never approve or overrule listening.
-- *Codex independent review* is recorded as pending whenever it cannot run (usage limit hit on 2026-10-18); a Claude
-  self-review is never labelled independent.
+- *Codex independent review* ran on 2026-10-18 against `2ad8272` (after one usage-limit delay) and reported 10 major and
+  1 minor findings; each was verified against the code, all were real, and all were fixed with regression tests. A
+  re-review of those fixes is separate. A Claude self-review is never labelled independent.
 
 Nothing here selects a voice or authorises integration: the owner's listening decisions (CP4/CP6) are separate gates.
 

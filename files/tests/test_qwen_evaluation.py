@@ -522,9 +522,11 @@ def test_unapproved_transcripts_block_clone_rows_and_no_worker_is_started(fake_e
 
 def test_only_approved_clones_run_and_they_get_the_exact_approved_text(fake_env, monkeypatch):
     run = fake_env
+    snapshot = cli.reference_snapshot()
     (run.dir / "transcripts" / "verified.json").write_text(json.dumps({
-        "Female-1": {"text": "The approved words.", "approved": True},
-        "Female-2": {"text": "Draft only.", "approved": False}}), encoding="utf-8")
+        "Female-1": {"text": "The approved words.", "approved": True, "wav_sha256": snapshot["Female-1"]["sha256"]},
+        "Female-2": {"text": "Draft only.", "approved": False, "wav_sha256": snapshot["Female-2"]["sha256"]}}),
+        encoding="utf-8")
     monkeypatch.setattr(cli, "encode_mp3", lambda *a, **k: [])
     seen = []
     real = cli.Tracker.__call__
@@ -537,8 +539,7 @@ def test_only_approved_clones_run_and_they_get_the_exact_approved_text(fake_env,
     rows = [r for r in core.short_rows() if r["group"] == core.GROUP_QWEN_CLONE][:2]
     run.manifest.declare(rows)
     cli.run_qwen_group(run, [run.manifest.get(r["row_id"]) for r in rows], mode="clone", suite_text="short",
-                       profile=cli.load_profile(run), manifest=run.manifest, snapshot=cli.reference_snapshot(),
-                       label="t-clone")
+                       profile=cli.load_profile(run), manifest=run.manifest, snapshot=snapshot, label="t-clone")
     job = json.loads((run.dir / "seen-job.json").read_text(encoding="utf-8"))
     assert [r["row_id"] for r in job["rows"]] == ["qwen-clone-female-1"]
     assert job["mode"] == "clone" and job["rows"][0]["reference_text"] == "The approved words."
@@ -601,6 +602,8 @@ def test_a_completed_identical_row_is_reused_and_a_changed_one_is_retired(fake_e
     run.manifest.declare(rows)
     calls = []
     monkeypatch.setattr(cli, "run_worker", lambda *a, **k: calls.append(1) or 0)
+    monkeypatch.setattr(cli, "installed_packages", lambda py: {})
+    monkeypatch.setattr(cli, "qwen_runtime_problems", lambda *a, **k: [])
     kw = dict(mode="custom_voice", suite_text="short", manifest=run.manifest, snapshot={}, label="t")
     cli.run_qwen_group(run, [run.manifest.get(rows[0]["row_id"])], profile=cli.load_profile(run), **kw)
     row = run.manifest.get(rows[0]["row_id"])
@@ -612,39 +615,306 @@ def test_a_completed_identical_row_is_reused_and_a_changed_one_is_retired(fake_e
     run.manifest.save()
     cli.run_qwen_group(run, [row], profile=cli.load_profile(run), **kw)
     assert calls == [1]  # identical identity and intact files: reused, worker not started
-    cli.run_qwen_group(run, [row], profile={**cli.load_profile(run), "max_chars": 300}, **kw)
+    changed = {**cli.load_profile(run), "max_chars": 300}
+    cli.run_qwen_group(run, [row], profile=changed, **kw)
+    assert calls == [1]  # stale but complete: kept, not regenerated, unless explicitly asked
+    assert run.manifest.get(rows[0]["row_id"])["status"] == "succeeded" and wav.read_bytes() == b"w"
+    run.dry_run = True
+    cli.run_qwen_group(run, [row], profile=changed, **kw)
+    assert calls == [1] and run.manifest.get(rows[0]["row_id"])["status"] == "succeeded"  # a dry run changes nothing
+    run.dry_run, run.rerun_stale = False, True
+    cli.run_qwen_group(run, [row], profile=changed, **kw)
     assert calls == [1, 1] and run.manifest.get(rows[0]["row_id"])["attempts"][0]["status"] == "succeeded"
+    assert (run.dir / run.manifest.get(rows[0]["row_id"])["attempts"][0]["outputs"]["wav"]["path"]).read_bytes() == b"w"
 
 
-def test_identity_follows_the_pipeline_revision_not_unrelated_source_edits(tmp_path, monkeypatch):
+def test_identity_follows_the_pipeline_revision_and_ignores_reporting_code(tmp_path, monkeypatch):
     run = make_run(tmp_path)
     row = next(r for r in core.short_rows() if r["row_id"] == "kokoro-am_michael")
     profile = cli.load_profile(run)
     before = cli.current_identity(run, row, profile, {})
     assert before == cli.current_identity(run, row, profile, {})
+    monkeypatch.setattr(cli, "render_listening_index", lambda *a, **k: "edited reporting code")
+    monkeypatch.setattr(core, "asr_compare", lambda *a, **k: {"edited": True})
+    assert cli.current_identity(run, row, profile, {}) == before  # reporting/ASR edits cannot make rows stale
     monkeypatch.setattr(core, "PIPELINE_REVISION", core.PIPELINE_REVISION + 1)
-    assert cli.current_identity(run, row, profile, {}) != before  # an output-affecting revision makes rows stale
+    assert cli.current_identity(run, row, profile, {}) != before  # an output-affecting revision does
 
 
-def test_rebase_only_touches_succeeded_intact_rows_and_keeps_the_old_identity(tmp_path):
-    run = make_run(tmp_path)
+def test_a_good_result_is_never_demoted_because_a_prerequisite_is_temporarily_missing(tmp_path):
+    run = make_run(tmp_path)  # no isolated environment here, so Qwen rows are "blocked" for everything else
     run.manifest.declare(core.short_rows())
-    wav = run.dir / "kokoro" / "am_michael.wav"
+    wav = run.dir / "presets" / "Aiden.wav"
     wav.parent.mkdir(exist_ok=True)
-    wav.write_bytes(b"x")
-    run.manifest.update("kokoro-am_michael", status="succeeded", identity="old", outputs={
-        "wav": {"path": "kokoro/am_michael.wav", "bytes": 1, "sha256": core.sha256_file(wav)}})
-    run.manifest.update("kokoro-bm_george", status="succeeded", identity="old2", outputs={
-        "wav": {"path": "kokoro/missing.wav", "bytes": 1, "sha256": "0" * 64}})
-    run.manifest.update("kokoro-am_fenrir", status="failed", identity="old3")
-    profile = cli.load_profile(run)
-    assert cli.rebase_identities(run, profile, {}, "output-neutral edit") == ["kokoro-am_michael"]
-    row = run.manifest.get("kokoro-am_michael")
-    assert row["identity"] != "old" and row["identity_history"][0]["identity"] == "old"
-    assert row["identity_history"][0]["reason"] == "output-neutral edit"
-    assert core.can_resume(row, cli.current_identity(run, row, profile, {}), run.dir)
-    assert run.manifest.get("kokoro-bm_george")["identity"] == "old2"  # files missing: never rebased
-    assert run.manifest.get("kokoro-am_fenrir")["identity"] == "old3"  # failed: never rebased
+    wav.write_bytes(b"audio")
+    run.manifest.update("qwen-preset-aiden", status="succeeded", identity="keep-me", outputs={
+        "wav": {"path": "presets/Aiden.wav", "bytes": 5, "sha256": core.sha256_file(wav)}})
+    row = run.manifest.get("qwen-preset-aiden")
+    cli.run_qwen_group(run, [row], mode="custom_voice", suite_text="short", profile=cli.load_profile(run),
+                       manifest=run.manifest, snapshot={}, label="t")
+    kept = run.manifest.get("qwen-preset-aiden")
+    assert kept["status"] == "succeeded" and kept["identity"] == "keep-me" and not kept["attempts"]
+    assert wav.read_bytes() == b"audio"
+
+
+def test_runtime_evidence_drift_makes_a_finished_qwen_row_stale():
+    profile = {"dtype": "bfloat16", "attn": "sdpa", "device": "cuda:0", "language": "English", "max_chars": 600,
+               "gap_ms": 50, "end_silence_ms": 3000, "seed_base": 1}
+    key = "qwen-customvoice"
+    want = cli.model_identity(key)
+    row = {"row_id": "r", "display": "Aiden", "provenance": {
+        "packages": {"python": "3.12.10", "torch": "2.10.0+cu128", "qwen-tts": "0.1.1"},
+        "model": {"revision": want["revision"], "generation_config_sha256": want["generation_config_sha256"]},
+        "profile": profile}, "chunk_plan": {"plan_sha256": "plan"}}
+    freeze = {"torch": "2.10.0+cu128", "qwen-tts": "0.1.1"}
+
+    def check(**override):
+        args = dict(profile=profile, key=key, mode="custom_voice", snapshot={}, freeze=freeze, plan_sha="plan")
+        args.update(override)
+        return cli.qwen_runtime_problems(None, row, **args)
+
+    assert check() == []
+    assert any("torch" in p for p in check(freeze={**freeze, "torch": "2.11.0"}))  # a package was upgraded
+    assert any("gap_ms" in p for p in check(profile={**profile, "gap_ms": 99}))  # the join profile changed
+    assert any("chunk plan" in p for p in check(plan_sha="other"))
+    assert any("revision" in p for p in check(key="qwen-base"))  # a different model
+    assert cli.qwen_runtime_problems(None, {"row_id": "x"}, profile=profile, key=key, mode="custom_voice",
+                                     snapshot={}, freeze=freeze, plan_sha="plan") == ["no recorded provenance"]
+
+
+def test_runtime_evidence_for_baselines_covers_model_revision_assets_and_device(tmp_path, monkeypatch):
+    hub = tmp_path / "hub" / "models--hexgrad--Kokoro-82M"
+    (hub / "refs").mkdir(parents=True)
+    (hub / "refs" / "main").write_text("rev1", encoding="utf-8")
+    voice = hub / "snapshots" / "rev1" / "voices" / "am_michael.pt"
+    voice.parent.mkdir(parents=True)
+    voice.write_bytes(b"voice")
+    row = {"voice_id": "am_michael", "provenance": {
+        "worker_engine_info": {"model": {"revision": "rev1"}, "torch": cli.torch_runtime_version()},
+        "asset": {"sha256": core.sha256_file(voice)}}}
+    assert cli.root_runtime_problems(row, engine="kokoro", snapshot={}, hf_home=tmp_path) == []
+    voice.write_bytes(b"changed voice")
+    assert any("voice asset" in p for p in cli.root_runtime_problems(row, engine="kokoro", snapshot={}, hf_home=tmp_path))
+    (hub / "refs" / "main").write_text("rev2", encoding="utf-8")
+    assert any("model revision" in p for p in cli.root_runtime_problems(row, engine="kokoro", snapshot={}, hf_home=tmp_path))
+    assert cli.kokoro_voice_path("am_michael", tmp_path) is None  # refs/main now points at a snapshot without it
+    assert cli.root_runtime_problems({"voice_id": "x"}, engine="kokoro", snapshot={}, hf_home=tmp_path) == \
+        ["no recorded engine information"]
+
+
+def test_retiring_an_attempt_moves_its_files_so_a_rerun_cannot_overwrite_them(tmp_path):
+    manifest = core.Manifest(tmp_path / "m.jsonl")
+    manifest.declare(core.short_rows())
+    (tmp_path / "presets").mkdir()
+    (tmp_path / "chunks" / "qwen-preset-aiden").mkdir(parents=True)
+    wav, chunk = tmp_path / "presets" / "Aiden.wav", tmp_path / "chunks" / "qwen-preset-aiden" / "chunk-001.wav"
+    wav.write_bytes(b"first take")
+    chunk.write_bytes(b"first chunk")
+    manifest.update("qwen-preset-aiden", status="succeeded", identity="old", timing={"audible_s": 70},
+                    outputs={"wav": {"path": "presets/Aiden.wav", "bytes": 10, "sha256": core.sha256_file(wav)}})
+    manifest.retire_attempt("qwen-preset-aiden", "profile changed", tmp_path)
+    row = manifest.get("qwen-preset-aiden")
+    attempt = row["attempts"][0]
+    assert row["status"] == "pending" and "outputs" not in row and "timing" not in row  # no stale numbers
+    assert not wav.exists() and not chunk.exists()  # the rerun's target paths are free
+    archived = tmp_path / attempt["outputs"]["wav"]["path"]
+    assert archived.read_bytes() == b"first take" and attempt["archive"].startswith("attempts/qwen-preset-aiden/")
+    assert (tmp_path / attempt["archive"] / "chunks" / "qwen-preset-aiden" / "chunk-001.wav").read_bytes() == b"first chunk"
+    wav.write_bytes(b"second take")  # the rerun writes a new file; the first take is untouched
+    assert archived.read_bytes() == b"first take"
+    manifest.update("qwen-preset-aiden", status="succeeded", outputs={
+        "wav": {"path": "presets/Aiden.wav", "bytes": 11, "sha256": core.sha256_file(wav)}})
+    manifest.retire_attempt("qwen-preset-aiden", "again", tmp_path)
+    second = manifest.get("qwen-preset-aiden")["attempts"][1]
+    assert second["archive"].endswith("attempt-02")
+    assert (tmp_path / second["outputs"]["wav"]["path"]).read_bytes() == b"second take"
+    assert archived.read_bytes() == b"first take"  # the first attempt's evidence is still intact
+
+
+def test_evaluation_run_ids_cannot_escape_the_work_area(tmp_path):
+    for bad in ("../outside", "..", "a/b", "a\\b", "C:\\temp\\x", "/etc", "", ".hidden", "x" * 80, "a..b"):
+        with pytest.raises(ValueError):
+            core.validate_run_id(bad)
+        with pytest.raises(ValueError):
+            cli.Run(bad, work_dir=tmp_path)
+    assert not (tmp_path / "outside").exists() and not list(tmp_path.glob("*"))  # nothing was created
+    assert cli.Run("qwen3-initial.v2", work_dir=tmp_path).dir == tmp_path / "runs" / "qwen3-initial.v2"
+
+
+def test_generated_audio_must_be_mono_with_one_consistent_sample_rate():
+    good = core.validate_chunk_audio(np.zeros(100, "float64"), 24000, None)
+    assert good.dtype == np.float32 and good.shape == (100,)
+    assert core.validate_chunk_audio(good, 24000, 24000) is not None
+    with pytest.raises(core.AssemblyError, match="shape"):
+        core.validate_chunk_audio(np.zeros((2, 100), "float32"), 24000, None)  # never flattened
+    with pytest.raises(core.AssemblyError, match="shape"):
+        core.validate_chunk_audio(np.zeros((1, 100), "float32"), 24000, None)
+    with pytest.raises(core.AssemblyError, match="changed"):
+        core.validate_chunk_audio(np.zeros(100, "float32"), 48000, 24000)
+    for bad in (0, -1, None, 2.5):
+        with pytest.raises(core.AssemblyError, match="invalid sample rate"):
+            core.validate_chunk_audio(np.zeros(10, "float32"), bad, None)
+
+
+def test_a_transcript_approval_is_bound_to_the_recording_it_was_made_for(tmp_path):
+    run = make_run(tmp_path)
+    path = run.dir / "transcripts" / "verified.json"
+    path.write_text(json.dumps({"Male-1": {"text": "words", "approved": True, "wav_sha256": "AAA"}}), encoding="utf-8")
+    assert cli.approved_transcript(run, "Male-1", "AAA") == ("words", "ok")
+    text, why = cli.approved_transcript(run, "Male-1", "BBB")  # the reference recording was replaced
+    assert text is None and "not bound to the current reference recording" in why
+    path.write_text(json.dumps({"Male-1": {"text": "words", "approved": True}}), encoding="utf-8")
+    assert cli.approved_transcript(run, "Male-1", "AAA")[0] is None  # an unbound approval is not used
+    states = cli.transcript_states(run, {"Male-1": {"sha256": "AAA"}})
+    assert states["Male-1"] == "approval does not match the current recording"
+
+
+def test_clone_rows_use_the_hash_bound_approval(fake_env):
+    run = fake_env
+    snapshot = cli.reference_snapshot()
+    (run.dir / "transcripts" / "verified.json").write_text(json.dumps({
+        "Female-1": {"text": "approved for some other recording", "approved": True, "wav_sha256": "0" * 64}}),
+        encoding="utf-8")
+    row = next(r for r in core.short_rows() if r["row_id"] == "qwen-clone-female-1")
+    run.manifest.declare([row])
+    cli.run_qwen_group(run, [run.manifest.get(row["row_id"])], mode="clone", suite_text="short",
+                       profile=cli.load_profile(run), manifest=run.manifest, snapshot=snapshot, label="t")
+    assert run.manifest.get(row["row_id"])["status"] == "blocked"
+    assert "not bound" in run.manifest.get(row["row_id"])["status_reason"]
+
+
+def test_every_worker_invocation_keeps_its_own_job_and_log(fake_env):
+    run = fake_env
+    for _ in range(2):
+        job = {"script": "fail", "run_dir": str(run.dir), "rows": []}
+        cli.run_worker(run, Path(sys.executable), cli.WORKER, job, "same-label", core.child_env("root", work_dir=run.work),
+                       lambda ev: None)
+    assert len(list((run.dir / "jobs").glob("same-label-*.json"))) == 2
+    assert len(list((run.dir / "logs").glob("same-label-*.log"))) == 2
+
+
+def test_root_children_get_the_existing_model_cache_and_no_inherited_overrides(tmp_path):
+    base = {"HF_HOME": "C:/elsewhere", "HF_HUB_CACHE": "C:/x", "HUGGINGFACE_HUB_CACHE": "C:/y",
+            "TRANSFORMERS_CACHE": "C:/z", "TORCH_HOME": "C:/t", "XDG_CACHE_HOME": "C:/xdg", "NUMBA_CACHE_DIR": "C:/n"}
+    cache = tmp_path / "models" / "huggingface"
+    for kind in ("root", "qwen"):
+        env = core.child_env(kind, base, tmp_path, hf_home=cache if kind == "root" else None)
+        assert "HF_HUB_CACHE" not in env and "TRANSFORMERS_CACHE" not in env
+        for key in ("TORCH_HOME", "XDG_CACHE_HOME", "NUMBA_CACHE_DIR", "XDG_CONFIG_HOME", "TEMP"):
+            assert Path(env[key]).is_relative_to(tmp_path), (kind, key)
+    root_env = core.child_env("root", base, tmp_path, hf_home=cache)
+    assert Path(root_env["HF_HOME"]) == cache and Path(root_env["HUGGINGFACE_HUB_CACHE"]) == cache / "hub"
+
+
+def test_torch_local_version_tags_are_kept_so_cpu_builds_are_not_called_changed(tmp_path, monkeypatch):
+    version_py = tmp_path / "version.py"
+    version_py.write_text("__version__ = '2.6.0+cpu'\ngit_version = 'abc'\n", encoding="utf-8")
+    assert cli.read_version_file(version_py) == "2.6.0+cpu"
+    assert cli.read_version_file(tmp_path / "missing.py") is None
+    version_py.write_text("nothing here\n", encoding="utf-8")
+    assert cli.read_version_file(version_py) is None
+    # The real defect: package metadata says "2.6.0" while the worker recorded the runtime "2.6.0+cpu".
+    monkeypatch.setattr(cli, "installed_version", lambda name: "2.6.0")
+    monkeypatch.setattr(cli, "torch_runtime_version", lambda: "2.6.0+cpu")
+    monkeypatch.setattr(cli, "hub_main_revision", lambda repo, hf_home=None: "rev")
+    kokoro = {"voice_id": "am_michael", "provenance": {"worker_engine_info": {
+        "model": {"revision": "rev"}, "torch": "2.6.0+cpu"}, "asset": {"sha256": None}}}
+    monkeypatch.setattr(cli, "kokoro_voice_path", lambda voice, hf_home=None: None)
+    assert cli.root_runtime_problems(kokoro, engine="kokoro", snapshot={}) == []
+    chatterbox = {"voice_id": "chatterbox-female-1", "display": "Female-1", "provenance": {
+        "worker_engine_info": {"model": {"revision": "rev"}, "package": "chatterbox-tts==0.1.7", "device": "cpu"},
+        "reference": {"sha256": "r"}}}
+    monkeypatch.setattr(cli, "installed_version", lambda name: "0.1.7" if name == "chatterbox-tts" else "2.6.0")
+    assert cli.root_runtime_problems(chatterbox, engine="chatterbox", snapshot={"Female-1": {"sha256": "r"}}) == []
+    monkeypatch.setattr(cli, "torch_runtime_version", lambda: "2.10.0+cu128")  # a CUDA build could now pick the GPU
+    assert any("torch build" in p for p in
+               cli.root_runtime_problems(chatterbox, engine="chatterbox", snapshot={"Female-1": {"sha256": "r"}}))
+
+
+def test_the_real_torch_version_reader_keeps_the_local_tag_without_importing_torch(tmp_path):
+    fake = tmp_path / "site" / "torch"
+    fake.mkdir(parents=True)
+    (fake / "__init__.py").write_text("raise ImportError('must never be imported')\n", encoding="utf-8")
+    (fake / "version.py").write_text("__version__ = '9.9.9+fake'\n", encoding="utf-8")
+    code = ("import sys; sys.path[:0] = [r'%s', r'%s', r'%s']; import qwen_eval_cli as c; "
+            "print(c.torch_runtime_version(), 'torch' in sys.modules)") % (tmp_path / "site", TOOLS,
+                                                                            REPO_ROOT / "scripts" / "Universal")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(REPO_ROOT), timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.split() == ["9.9.9+fake", "False"]  # tag kept (metadata would drop it); torch never imported
+
+
+def test_a_dry_run_reports_decisions_and_changes_nothing(fake_env, monkeypatch):
+    run = fake_env
+    started = []
+    monkeypatch.setattr(cli, "run_worker", lambda *a, **k: started.append(a) or 0)
+    rows = [r for r in core.short_rows() if r["group"] == core.GROUP_QWEN_PRESET][:2]
+    run.manifest.declare(rows)
+    before = (run.dir / "manifest.jsonl").read_bytes()
+    run.dry_run = True
+    cli.run_qwen_group(run, [run.manifest.get(r["row_id"]) for r in rows], mode="custom_voice", suite_text="short",
+                       profile=cli.load_profile(run), manifest=run.manifest, snapshot={}, label="t")
+    assert started == [] and (run.dir / "manifest.jsonl").read_bytes() == before
+    run.dry_run = False
+    cli.run_qwen_group(run, [run.manifest.get(r["row_id"]) for r in rows], mode="custom_voice", suite_text="short",
+                       profile=cli.load_profile(run), manifest=run.manifest, snapshot={}, label="t")
+    assert len(started) == 1  # the same call without --eval-dry-run does start the worker
+
+
+def test_the_cli_flags_reach_the_stage_entry_point(monkeypatch):
+    from tts import generate_voice_samples as gvs
+
+    seen = {}
+    monkeypatch.setattr(cli, "run", lambda stage, **kw: seen.update(stage=stage, **kw) or 0)
+    monkeypatch.setattr(sys, "argv", ["generate_voice_samples.py", "--qwen-eval", "short", "--eval-dry-run",
+                                      "--eval-rerun-stale", "--eval-group", "kokoro"])
+    assert gvs.main() == 0
+    assert seen == {"stage": "short", "run_id": "qwen3-initial", "group": "kokoro", "dry_run": True, "rerun_stale": True}
+    default = gvs._build_parser().parse_args(["--qwen-eval", "short"])
+    assert default.eval_dry_run is False and default.eval_rerun_stale is False
+
+
+def test_restoring_a_retired_attempt_brings_back_the_original_files_and_keeps_the_replacement(tmp_path):
+    manifest = core.Manifest(tmp_path / "m.jsonl")
+    manifest.declare(core.short_rows())
+    (tmp_path / "kokoro").mkdir()
+    wav = tmp_path / "kokoro" / "am_michael.wav"
+    wav.write_bytes(b"original")
+    sha = core.sha256_file(wav)
+    manifest.update("kokoro-am_michael", status="succeeded", identity="i", timing={"audible_s": 63.7},
+                    outputs={"wav": {"path": "kokoro/am_michael.wav", "bytes": 8, "sha256": sha}})
+    manifest.retire_attempt("kokoro-am_michael", "spurious rerun", tmp_path)
+    wav.write_bytes(b"replacement take")  # what a regeneration would have written
+    manifest.update("kokoro-am_michael", status="succeeded", identity="i2",
+                    outputs={"wav": {"path": "kokoro/am_michael.wav", "bytes": 16,
+                                     "sha256": core.sha256_file(wav)}})
+    manifest.restore_attempt("kokoro-am_michael", 0, tmp_path, "undo the spurious rerun")
+    row = manifest.get("kokoro-am_michael")
+    assert wav.read_bytes() == b"original" and row["identity"] == "i" and row["timing"] == {"audible_s": 63.7}
+    assert core.outputs_intact(row, tmp_path) and row["status"] == "succeeded"
+    assert len(row["attempts"]) == 1 and row["restorations"][0]["reason"] == "undo the spurious rerun"
+    kept = row["attempts"][0]
+    assert (tmp_path / kept["outputs"]["wav"]["path"]).read_bytes() == b"replacement take"  # nothing was lost
+    with pytest.raises(ValueError):  # an attempt with no archived files cannot be restored
+        row["attempts"].append({"status": "failed"})
+        manifest.restore_attempt("kokoro-am_michael", 1, tmp_path, "x")
+
+
+def test_restore_refuses_to_overwrite_an_existing_file(tmp_path):
+    manifest = core.Manifest(tmp_path / "m.jsonl")
+    manifest.declare(core.short_rows())
+    (tmp_path / "kokoro").mkdir()
+    wav = tmp_path / "kokoro" / "am_michael.wav"
+    wav.write_bytes(b"first")
+    manifest.update("kokoro-am_michael", status="succeeded", outputs={
+        "wav": {"path": "kokoro/am_michael.wav", "bytes": 5, "sha256": core.sha256_file(wav)}})
+    manifest.retire_attempt("kokoro-am_michael", "r", tmp_path)
+    wav.write_bytes(b"someone else's file")
+    row = manifest.get("kokoro-am_michael")
+    with pytest.raises(FileExistsError):
+        manifest.restore_attempt("kokoro-am_michael", 0, tmp_path, "undo")
+    assert wav.read_bytes() == b"someone else's file"
+    assert (tmp_path / row["attempts"][0]["outputs"]["wav"]["path"]).read_bytes() == b"first"
 
 
 def test_frozen_text_cannot_silently_change(tmp_path):
@@ -716,6 +986,117 @@ def test_pcm_capture_keeps_a_copy_calls_the_original_and_always_restores():
         with baseline.PcmCapture(FakeEngine):
             raise RuntimeError("engine failed")
     assert FakeEngine._export_mp3 is original  # restored even on failure
+
+
+# --------------------------------------------------------------------------- #
+# Baseline worker against a fake production engine
+# --------------------------------------------------------------------------- #
+PARA = "\n\n"
+
+
+def fake_engine(scripts):
+    """A stand-in for chatterbox_synth with production's quirks: an empty colon segment is dropped silently."""
+    import types
+
+    from shared.cancellation import ConversionCancelled
+
+    mod = types.ModuleType("fake_chatterbox")
+    state = {"i": 0}
+
+    def _generate_checked(model, text, log=print):
+        arr = scripts[state["i"]]
+        state["i"] += 1
+        return arr
+
+    def _synthesize_chunk(model, chunk, cancel_check=None, log=print):
+        pieces = [mod._generate_checked(model, seg, log) for seg in chunk.split(": ")]
+        pieces = [x for x in pieces if x.size]  # production: `if piece.size == 0: continue`, no log line
+        return np.concatenate(pieces) if pieces else np.zeros(0, "float32")
+
+    def _export_mp3(arr, sample_rate, output_path, bitrate=None):
+        Path(output_path).write_bytes(b"mp3-bytes")
+
+    def chatterbox_file_to_mp3(source_path, output_mp3_path, voice_id, end_silence_ms=3000, chunk_pause_ms=50,
+                               log=print, cancel_check=None, device=None, bitrate=None):
+        rendered = []
+        for chunk in Path(source_path).read_text(encoding="utf-8").split(PARA):
+            if cancel_check is not None and cancel_check():
+                raise ConversionCancelled("canceled")
+            arr = mod._synthesize_chunk(None, chunk, cancel_check, log=log)
+            if arr.size == 0:
+                log("  Warning: chunk produced no audio, skipping.")
+                continue
+            rendered.append(arr)
+        gap = np.zeros(int(24000 * chunk_pause_ms / 1000), 'float32')
+        pieces = [x for r in rendered for x in (r, gap)]  # production: a pause after every chunk
+        pieces.append(np.zeros(int(24000 * end_silence_ms / 1000), 'float32'))
+        mod._export_mp3(np.concatenate(pieces), 24000, output_mp3_path)
+
+    for fn in (_generate_checked, _synthesize_chunk, _export_mp3, chatterbox_file_to_mp3):
+        setattr(mod, fn.__name__, fn)
+    return mod
+
+
+def run_fake_baseline(tmp_path, capsys, text, scripts, cancel=None):
+    module = fake_engine(scripts)
+    source = tmp_path / "text.txt"
+    source.write_text(text, encoding="utf-8")
+    row = {"row_id": "chatterbox-female-1", "voice_id": "chatterbox-female-1", "out_dir": "out", "stem": "Female-1"}
+    original = (module._generate_checked, module._synthesize_chunk, module._export_mp3)
+    chunks = len(text.split(PARA))
+    canceled = baseline._run_one(
+        row, tmp_path, source, module, chunks,
+        lambda log, mp3: module.chatterbox_file_to_mp3(str(source), str(mp3), voice_id="v", log=log, cancel_check=cancel),
+        chunk_wrapper=True)
+    assert (module._generate_checked, module._synthesize_chunk, module._export_mp3) == original  # always restored
+    events = [e for e in (core.parse_event(ln) for ln in capsys.readouterr().out.splitlines()) if e]
+    return canceled, [e for e in events if e["event"] != "log"]
+
+
+def test_baseline_row_succeeds_only_when_every_planned_chunk_rendered(tmp_path, capsys):
+    canceled, events = run_fake_baseline(tmp_path, capsys, "one" + PARA + "two", [tone(2.0), tone(3.0)])
+    done = next(e for e in events if e["event"] == "row_done")
+    assert canceled is False and done["expected_chunks"] == 2 and len(done["chunk_results"]) == 2
+    assert done["audible_s"] == pytest.approx(5.0, abs=0.01)  # engine pauses (2 x 50 ms + 3 s) are excluded
+    assert (tmp_path / "out" / "Female-1.wav").is_file() and (tmp_path / "out" / "Female-1.mp3").is_file()
+
+
+def test_a_silently_dropped_colon_segment_fails_the_row_instead_of_publishing_partial_audio(tmp_path, capsys):
+    empty = np.zeros(0, "float32")
+    _, events = run_fake_baseline(tmp_path, capsys, "intro: the rest of it", [empty, tone(2.0)])
+    assert not any(e["event"] == "row_done" for e in events)
+    failed = next(e for e in events if e["event"] == "row_failed")
+    assert "silently dropped" in failed["reason"] and failed["diagnostic"] and failed["outputs"]["wav"]["path"]
+
+
+def test_a_skipped_chunk_fails_the_row_and_keeps_the_partial_audio_as_diagnostics(tmp_path, capsys):
+    _, events = run_fake_baseline(tmp_path, capsys, "one" + PARA + "two", [tone(2.0), np.zeros(0, "float32")])
+    assert not any(e["event"] == "row_done" for e in events)
+    failed = next(e for e in events if e["event"] == "row_failed")
+    assert "produced no audio" in failed["reason"] and failed["diagnostic"]
+
+
+def test_cancellation_stops_a_baseline_row_between_chunks(tmp_path, capsys):
+    seen = {"n": 0}
+
+    def cancel():
+        seen["n"] += 1
+        return seen["n"] > 1  # let the first chunk render, stop before the second
+
+    canceled, events = run_fake_baseline(tmp_path, capsys, PARA.join(["one", "two", "three"]), [tone(1.0)] * 3,
+                                         cancel=cancel)
+    assert canceled is True
+    assert [e["event"] for e in events] == ["row_start", "row_canceled"]
+    assert not (tmp_path / "out" / "Female-1.mp3").exists()  # a canceled row publishes nothing
+
+
+def test_the_cancel_flag_is_the_job_file_and_defaults_to_not_canceled(tmp_path):
+    flag = tmp_path / "x.cancel"
+    check = baseline._cancel_check({"cancel_file": str(flag)})
+    assert check() is False
+    flag.write_text("cancel", encoding="utf-8")
+    assert check() is True
+    assert baseline._cancel_check({})() is False
 
 
 # --------------------------------------------------------------------------- #

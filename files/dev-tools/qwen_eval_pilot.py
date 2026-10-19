@@ -44,7 +44,8 @@ def stage_pilot(run: "cli.Run", selector: str = "all", max_chars: int | None = N
         profile = dict(profile, max_chars=max_chars)
     cli.save_profile(run, profile, {"note": "pilot profile; final common profile recorded after calibration"})
     snapshot = cli.reference_snapshot()
-    approved = [n for n, _ in core.REFERENCE_VOICE_IDS if cli.approved_transcript(run, n)[0]]
+    approved = [n for n, _ in core.REFERENCE_VOICE_IDS
+                if cli.approved_transcript(run, n, snapshot[n]["sha256"])[0]]
     rows = pilot_rows(approved[0] if approved else core.REFERENCE_VOICE_IDS[0][0])
     manifest = core.Manifest(run.dir / "pilot" / "manifest.jsonl")
     manifest.declare(rows)

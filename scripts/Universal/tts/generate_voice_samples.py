@@ -1232,7 +1232,8 @@ def _run_qwen_eval(args: argparse.Namespace) -> int:
         sys.path.insert(0, str(tools))
     import qwen_eval_cli
 
-    return qwen_eval_cli.run(args.qwen_eval, run_id=args.eval_run, group=args.eval_group, dry_run=args.eval_dry_run)
+    return qwen_eval_cli.run(args.qwen_eval, run_id=args.eval_run, group=args.eval_group, dry_run=args.eval_dry_run,
+                             rerun_stale=args.eval_rerun_stale)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1295,7 +1296,11 @@ def _build_parser() -> argparse.ArgumentParser:
                     choices=("all", "qwen", "qwen-preset", "qwen-clone", "chatterbox", "kokoro"),
                     help="limit the short stage to one comparison group; unattempted groups stay pending")
     ap.add_argument("--eval-dry-run", dest="eval_dry_run", action="store_true",
-                    help="with --qwen-eval prepare: list what would be done without installing or downloading")
+                    help="with --qwen-eval prepare: list what would be done without installing or downloading; with "
+                         "short/long/pilot: report each row's reuse/block/run decision without starting any worker")
+    ap.add_argument("--eval-rerun-stale", dest="eval_rerun_stale", action="store_true",
+                    help="regenerate complete recordings whose identity or runtime evidence changed (the old files "
+                         "are archived under the run's attempts/ folder); without it they are kept and reported")
     return ap
 
 

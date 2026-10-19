@@ -60,6 +60,12 @@ class PcmCapture:
         return False
 
 
+def _cancel_check(job: dict):
+    """True once the orchestrator has created the job's cancel file (checked between chunks and rows)."""
+    flag = job.get("cancel_file")
+    return lambda: bool(flag) and Path(flag).exists()
+
+
 def _snapshot_identity(repo_id: str) -> dict:
     """Revision and file list of the locally cached snapshot, read without any network call."""
     import os
@@ -88,11 +94,15 @@ def run_chatterbox(job: dict) -> int:
                "model": _snapshot_identity(cs.MODEL_REPO_ID), "temperature": cs.GENERATION_TEMPERATURE,
                "max_chunk_chars": cs.CHATTERBOX_MAX_CHUNK_CHARS, "expected_chunks": expected_chunks,
                "generation_params": cs.generation_params()})
+    cancel = _cancel_check(job)
     for row in job["rows"]:
-        _run_one(row, run_dir, text_file, cs, expected_chunks,
-                 lambda log, mp3, cs=cs, row=row: cs.chatterbox_file_to_mp3(
-                     str(text_file), str(mp3), voice_id=row["voice_id"], log=log),
-                 chunk_wrapper=True)
+        if cancel():
+            break
+        if _run_one(row, run_dir, text_file, cs, expected_chunks,
+                    lambda log, mp3, cs=cs, row=row: cs.chatterbox_file_to_mp3(
+                        str(text_file), str(mp3), voice_id=row["voice_id"], log=log, cancel_check=cancel),
+                    chunk_wrapper=True):
+            return 130
     core.emit({"event": "worker_done"})
     return 0
 
@@ -108,7 +118,10 @@ def run_kokoro(job: dict) -> int:
     core.emit({"event": "engine", "engine": "kokoro", "device": "cuda" if torch.cuda.is_available() else "cpu",
                "torch": torch.__version__, "model": _snapshot_identity("hexgrad/Kokoro-82M"),
                "expected_chunks": expected_chunks, "speed": 1.0})
+    cancel = _cancel_check(job)
     for row in job["rows"]:
+        if cancel():
+            break
         voice_id = row["voice_id"]
         lang = ks._lang_code_for_voice(voice_id)
         if lang != row["lang_code"]:
@@ -122,23 +135,26 @@ def run_kokoro(job: dict) -> int:
                                  "(run the prepare stage; offline mode forbids an implicit download)"})
             continue
         row["asset"] = asset
-        _run_one(row, run_dir, text_file, ks, expected_chunks,
-                 lambda log, mp3, ks=ks, row=row: ks.kokoro_file_to_mp3(
-                     str(text_file), str(mp3), voice_id=row["voice_id"], speed=1.0, log=log),
-                 chunk_wrapper=False)
+        if _run_one(row, run_dir, text_file, ks, expected_chunks,
+                    lambda log, mp3, ks=ks, row=row: ks.kokoro_file_to_mp3(
+                        str(text_file), str(mp3), voice_id=row["voice_id"], speed=1.0, log=log, cancel_check=cancel),
+                    chunk_wrapper=False):
+            return 130
     core.emit({"event": "worker_done"})
     return 0
 
 
 def _kokoro_voice_asset(voice_id: str) -> dict | None:
-    import os
+    """The exact file Kokoro's own loader will open: ``hf_hub_download`` resolves ``refs/main`` of the local
+    cache (offline), so the recorded hash is of the voice that is synthesised, never of an older snapshot."""
+    from huggingface_hub import hf_hub_download
 
-    root = Path(os.environ["HF_HOME"]) / "hub" / "models--hexgrad--Kokoro-82M" / "snapshots"
-    for snap in sorted(root.glob("*")) if root.is_dir() else []:
-        path = snap / "voices" / f"{voice_id}.pt"
-        if path.is_file():
-            return {"snapshot": snap.name, "bytes": path.stat().st_size, "sha256": core.sha256_file(path)}
-    return None
+    try:
+        path = Path(hf_hub_download(repo_id="hexgrad/Kokoro-82M", filename=f"voices/{voice_id}.pt",
+                                    local_files_only=True))
+    except Exception:  # noqa: BLE001 - absent asset is reported by the caller as a blocked row
+        return None
+    return {"snapshot": path.parent.parent.name, "bytes": path.stat().st_size, "sha256": core.sha256_file(path)}
 
 
 def _inserted_silence_s(fn, expected_chunks: int) -> float:
@@ -150,7 +166,10 @@ def _inserted_silence_s(fn, expected_chunks: int) -> float:
     return params["chunk_pause_ms"].default * expected_chunks / 1000.0 + params["end_silence_ms"].default / 1000.0
 
 
-def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks: int, call, chunk_wrapper: bool) -> None:
+def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks: int, call, chunk_wrapper: bool) -> bool:
+    """Run one voice through the production file path. Returns True when the run was canceled."""
+    from shared.cancellation import ConversionCancelled
+
     row_id = row["row_id"]
     log_lines: list[str] = []
     chunk_info: list[dict] = []
@@ -164,6 +183,8 @@ def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks:
         core.emit({"event": "log", "row_id": row_id, "line": str(message)[:300]})
 
     original_chunk = getattr(module, "_synthesize_chunk", None) if chunk_wrapper else None
+    original_generate = getattr(module, "_generate_checked", None) if chunk_wrapper else None
+    segments: list[dict] = []
     try:
         with PcmCapture(module) as capture:
             if original_chunk is not None:
@@ -174,28 +195,48 @@ def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks:
                                        "gen_s": round(time.perf_counter() - t0, 3)})
                     return arr
 
+                def tracked_generate(model, text, log=print):
+                    # Production silently drops an empty colon segment of a chunk (no log line); record every
+                    # underlying generation so a partial chunk can never pass as complete.
+                    arr = original_generate(model, text, log)
+                    segments.append({"chars": len(text), "samples": int(arr.size)})
+                    return arr
+
                 module._synthesize_chunk = timed_chunk
+                module._generate_checked = tracked_generate
             try:
                 call(log, mp3_path)
             finally:
                 if original_chunk is not None:
                     module._synthesize_chunk = original_chunk
+                    module._generate_checked = original_generate
         wall_s = round(time.perf_counter() - started, 2)
         if len(capture.arrays) != 1:
             raise RuntimeError(f"expected exactly one PCM hand-off to the exporter, saw {len(capture.arrays)}")
         pcm, rate = capture.arrays[0]
         skipped = [ln for ln in log_lines if any(m in ln for m in SKIP_MARKERS)]
+        empty_segments = [s for s in segments if s["samples"] == 0]
         outputs = _write_outputs(row, run_dir, pcm, rate, mp3_path)
+        if skipped and any("no audio, skipping" in ln for ln in skipped):
+            core.emit({"event": "row_failed", "row_id": row_id, "outputs": outputs, "diagnostic": True,
+                       "reason": f"{sum('no audio, skipping' in ln for ln in skipped)} chunk(s) produced no audio and "
+                                 "were skipped; the partial audio is retained for diagnostics only"})
+            return False
+        if empty_segments:
+            core.emit({"event": "row_failed", "row_id": row_id, "outputs": outputs, "diagnostic": True,
+                       "reason": f"{len(empty_segments)} generated segment(s) were empty and silently dropped by the "
+                                 "engine; the partial audio is retained for diagnostics only"})
+            return False
+        if chunk_wrapper and len(chunk_info) != expected_chunks:
+            core.emit({"event": "row_failed", "row_id": row_id, "outputs": outputs, "diagnostic": True,
+                       "reason": f"{len(chunk_info)} of {expected_chunks} planned chunks were rendered; the partial "
+                                 "audio is retained for diagnostics only"})
+            return False
         retries = [ln.strip() for ln in log_lines if "retrying this segment" in ln]
         measurements = core.measure_samples(pcm, rate)
         file_fn = getattr(module, "chatterbox_file_to_mp3", None) or getattr(module, "kokoro_file_to_mp3")
         audible = round(max(0.0, measurements["duration_s"] - _inserted_silence_s(file_fn, expected_chunks)), 3)
         warnings = [f"engine log: {ln.strip()}" for ln in skipped if "retrying" not in ln]
-        if skipped and any("no audio, skipping" in ln for ln in skipped):
-            core.emit({"event": "row_failed", "row_id": row_id, "outputs": outputs, "diagnostic": True,
-                       "reason": f"{sum('no audio, skipping' in ln for ln in skipped)} chunk(s) produced no audio and "
-                                 "were skipped; the partial audio is retained for diagnostics only"})
-            return
         extra = {}
         if chunk_info:
             extra["chunk_results"] = chunk_info
@@ -203,10 +244,15 @@ def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks:
         core.emit({"event": "row_done", "row_id": row_id, "outputs": outputs, "measurements": measurements,
                    "warnings": warnings, "wall_s": wall_s, "audible_s": audible,
                    "sample_rate": rate, "expected_chunks": expected_chunks, "asset": row.get("asset"),
-                   "log_lines": len(log_lines), **extra})
+                   "log_lines": len(log_lines), "segments_generated": len(segments), **extra})
+    except ConversionCancelled:
+        core.emit({"event": "row_canceled", "row_id": row_id, "reason": "canceled between chunks",
+                   "completed_chunks": len(chunk_info)})
+        return True
     except Exception as exc:  # noqa: BLE001 - one voice failing must not end the run
         core.emit({"event": "row_failed", "row_id": row_id, "reason": f"{type(exc).__name__}: {exc}",
                    "trace": traceback.format_exc()[-1500:]})
+    return False
 
 
 def run_kokoro_assets(job: dict) -> int:
@@ -215,7 +261,9 @@ def run_kokoro_assets(job: dict) -> int:
 
     for voice_id in job["voices"]:
         try:
-            path = Path(hf_hub_download(repo_id=job["repo"], filename=f"voices/{voice_id}.pt"))
+            # Pinned to the revision of the already-cached model, never to whatever upstream main is today.
+            path = Path(hf_hub_download(repo_id=job["repo"], filename=f"voices/{voice_id}.pt",
+                                        revision=job["revision"]))
             core.emit({"event": "asset", "voice_id": voice_id, "snapshot": path.parent.parent.name,
                        "bytes": path.stat().st_size, "sha256": core.sha256_file(path)})
         except Exception as exc:  # noqa: BLE001 - reported per voice; the others still run

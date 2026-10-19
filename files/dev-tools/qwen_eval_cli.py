@@ -70,8 +70,13 @@ def say(message: str) -> None:
 # --------------------------------------------------------------------------- #
 class Run:
     def __init__(self, run_id: str, work_dir: Path = core.WORK_DIR):
-        self.id, self.work = run_id, Path(work_dir)
-        self.dir = self.work / "runs" / run_id
+        self.id, self.work = core.validate_run_id(run_id), Path(work_dir)
+        self.dry_run = False  # report reuse/block/run decisions without starting a worker or changing a result
+        self.rerun_stale = False  # regenerate complete-but-stale recordings (their old files are archived)
+        runs = self.work / "runs"
+        self.dir = runs / run_id
+        if not self.dir.resolve().is_relative_to(runs.resolve()):
+            raise ValueError(f"evaluation run {run_id!r} would resolve outside {runs}")
         for sub in SUBDIRS:
             (self.dir / sub).mkdir(parents=True, exist_ok=True)
         self.manifest = core.Manifest(self.dir / "manifest.jsonl")
@@ -169,8 +174,12 @@ def transcripts_dir(run: Run) -> Path:
     return run.dir / "transcripts"
 
 
-def approved_transcript(run: Run, display: str) -> tuple[str | None, str]:
-    """The owner-approved transcript for one reference, or ``(None, why not)``. Never auto-approves."""
+def approved_transcript(run: Run, display: str, wav_sha256: str | None = None) -> tuple[str | None, str]:
+    """The owner-approved transcript for one reference, or ``(None, why not)``. Never auto-approves.
+
+    When ``wav_sha256`` (the reference recording's current hash) is given, the approval must have been recorded
+    against exactly that recording: a replaced reference needs a fresh verification, never a stale one.
+    """
     path = transcripts_dir(run) / "verified.json"
     if not path.is_file():
         return None, "no transcript review package yet (run the transcribe stage)"
@@ -179,8 +188,16 @@ def approved_transcript(run: Run, display: str) -> tuple[str | None, str]:
         return None, "no transcript entry"
     if entry.get("approved") is not True:
         return None, "transcript is a Whisper draft awaiting owner verification"
+    if wav_sha256 is not None and entry.get("wav_sha256") != wav_sha256:
+        return None, "approval is not bound to the current reference recording (re-run transcribe and re-verify)"
     text = (entry.get("text") or "").strip()
     return (text, "ok") if text else (None, "approved transcript is empty")
+
+
+def approved_for(run: Run, row: dict, snapshot: dict) -> tuple[str | None, str]:
+    """The approved transcript for a clone row, bound to that reference's current recording hash."""
+    name = ref_name(row)
+    return approved_transcript(run, name, (snapshot.get(name) or {}).get("sha256"))
 
 
 # --------------------------------------------------------------------------- #
@@ -200,6 +217,11 @@ def run_worker(run: Run, python: Path, script: Path, job: dict, label: str, env:
     """Run one worker to completion, feeding its ``@@EVENT`` lines to ``on_event``."""
     if not Path(python).is_file():
         raise FileNotFoundError(f"interpreter not found: {python}")
+    stamp, number = f"{label}-{time.strftime('%Y%m%d-%H%M%S')}", 1
+    label = stamp
+    while (run.dir / "jobs" / f"{label}.json").exists():  # every invocation keeps its own job file and log
+        number += 1
+        label = f"{stamp}-{number}"
     cancel = run.dir / "jobs" / f"{label}.cancel"
     cancel.unlink(missing_ok=True)
     job = dict(job, cancel_file=str(cancel))
@@ -379,8 +401,12 @@ def record_success(tracker: Tracker, ev: dict, *, outputs: dict, provenance: dic
 # Group execution
 # --------------------------------------------------------------------------- #
 def prepare_rows(run: Run, manifest: core.Manifest, rows: list[dict], *, text_name: str, plan_sha: str,
-                 profile: dict, identity_extra, block_reason) -> list[dict]:
-    """Decide for each row: reuse, block, or run. Returns the rows to hand to a worker."""
+                 profile: dict, identity_extra, block_reason, runtime_problems=lambda row: []) -> list[dict]:
+    """Decide for each row: reuse, block, or run. Returns the rows to hand to a worker.
+
+    A completed, intact recording is never demoted because a prerequisite is temporarily unavailable, and it is
+    reused only when both its identity and the recorded runtime/asset evidence match the present state.
+    """
     todo = []
     info = text_info(text_name)
     for row in rows:
@@ -388,16 +414,36 @@ def prepare_rows(run: Run, manifest: core.Manifest, rows: list[dict], *, text_na
         live.setdefault("text", info)
         reason = block_reason(live)
         if reason:
+            if live["status"] == "succeeded" and core.outputs_intact(live, run.dir):
+                say(f"{row['row_id']}: prerequisite unavailable ({reason}); the existing intact result is kept "
+                    "and not re-run")
+                continue
+            if run.dry_run:
+                say(f"DRY RUN {row['row_id']}: would be blocked - {reason}")
+                continue
             manifest.update(row["row_id"], status="blocked", status_reason=reason, text=info)
             say(f"{row['row_id']}: blocked - {reason}")
             continue
         extra = identity_extra(live)
         identity = row_identity(live, text=info, plan_sha=plan_sha, profile=profile, extra=extra)
+        why = "identity changed or prior attempt incomplete"
         if core.can_resume(live, identity, run.dir):
-            say(f"{row['row_id']}: reusing identical completed result")
+            drift = runtime_problems(live)
+            if not drift:
+                say(f"{row['row_id']}: reusing identical completed result")
+                continue
+            why = "recorded runtime/asset evidence no longer matches: " + "; ".join(drift[:4])
+        if live["status"] == "succeeded" and not run.rerun_stale:
+            say(f"{row['row_id']}: STALE ({why}); the complete recording is kept. Pass --eval-rerun-stale to "
+                "regenerate it (the old files are archived, never deleted)")
             continue
-        if live["status"] != "pending":
-            manifest.retire_attempt(row["row_id"], "rerun requested; identity changed or prior attempt incomplete")
+        if run.dry_run:
+            say(f"DRY RUN {row['row_id']}: would run ({why})")
+            continue
+        if live["status"] not in ("pending", "blocked"):
+            manifest.retire_attempt(row["row_id"], "rerun requested; " + why, run.dir)
+        elif live["status"] == "blocked":
+            manifest.update(row["row_id"], status="pending", status_reason="")
         manifest.update(row["row_id"], identity=identity, text=info, status="pending", status_reason="",
                         attempt=len(manifest.get(row["row_id"])["attempts"]) + 1)
         todo.append(manifest.get(row["row_id"]))
@@ -423,7 +469,7 @@ def qwen_identity_extra(run: Run, row: dict, mode: str, key: str, snapshot: dict
             "packages": core.identity_hash(parse_constraints())}
     if mode == "clone":
         ref = snapshot[ref_name(row)]
-        transcript, _ = approved_transcript(run, ref_name(row))
+        transcript, _ = approved_for(run, row, snapshot)
         data.update(reference_sha256=ref["sha256"], transcript_sha256=core.identity_hash({"t": transcript}))
     return data
 
@@ -450,23 +496,116 @@ def current_identity(run: Run, row: dict, profile: dict, snapshot: dict) -> str:
     return row_identity(row, text=text_info(name), plan_sha=plan_sha, profile=used, extra=extra)
 
 
-def rebase_identities(run: Run, profile: dict, snapshot: dict, reason: str) -> list[str]:
-    """Recompute stored identities after a deliberate, output-neutral tooling change.
+def installed_version(name: str) -> str | None:
+    import importlib.metadata as md
 
-    Only rows that are succeeded AND whose files are intact are rebased, and the old identity is kept in
-    ``identity_history`` with the reason, so a stale result can never be passed off as a fresh one.
+    try:
+        return md.version(name)
+    except md.PackageNotFoundError:
+        return None
+
+
+def torch_runtime_version() -> str | None:
+    """``torch.__version__`` (including a ``+cpu`` / ``+cu128`` local tag) without importing torch.
+
+    The distribution metadata drops the local tag, whereas workers record the runtime string, so comparing the
+    two would call every CPU-build recording "changed".
     """
-    changed = []
-    for row in run.manifest.rows.values():
-        if row["status"] != "succeeded" or row["suite"] not in SUITE_TEXT or not core.outputs_intact(row, run.dir):
-            continue
-        new = current_identity(run, row, profile, snapshot)
-        if new != row.get("identity"):
-            history = list(row.get("identity_history") or []) + [
-                {"identity": row.get("identity"), "rebased": core.now_iso(), "reason": reason}]
-            run.manifest.update(row["row_id"], identity=new, identity_history=history)
-            changed.append(row["row_id"])
-    return changed
+    import importlib.util
+
+    spec = importlib.util.find_spec("torch")
+    if spec and spec.submodule_search_locations:
+        found = read_version_file(Path(list(spec.submodule_search_locations)[0]) / "version.py")
+        if found:
+            return found
+    return installed_version("torch")
+
+
+def read_version_file(path: Path) -> str | None:
+    """The ``__version__`` string assigned in a ``version.py`` (local tag included), or None."""
+    import re
+
+    if not path.is_file():
+        return None
+    found = re.search(r"__version__\s*=\s*['\"]([^'\"]+)['\"]", path.read_text(encoding="utf-8"))
+    return found.group(1) if found else None
+
+
+def hf_home_dir() -> Path:
+    """The existing in-tree Hugging Face cache that Chatterbox and Kokoro already use."""
+    return core.REPO_ROOT / "files" / "runtime-data" / "models" / "huggingface"
+
+
+def hub_main_revision(repo: str, hf_home: Path | None = None) -> str | None:
+    """The cached ``refs/main`` revision of a repo, exactly what ``hf_hub_download`` resolves offline."""
+    ref = (hf_home or hf_home_dir()) / "hub" / ("models--" + repo.replace("/", "--")) / "refs" / "main"
+    return ref.read_text(encoding="utf-8").strip() if ref.is_file() else None
+
+
+def kokoro_voice_path(voice_id: str, hf_home: Path | None = None) -> Path | None:
+    """The voice file Kokoro's loader opens (active ``refs/main`` snapshot), or None when it is not cached."""
+    revision = hub_main_revision(KOKORO_REPO, hf_home)
+    if not revision:
+        return None
+    path = ((hf_home or hf_home_dir()) / "hub" / "models--hexgrad--Kokoro-82M" / "snapshots" / revision
+            / "voices" / f"{voice_id}.pt")
+    return path if path.is_file() else None
+
+
+def qwen_runtime_problems(run: Run, row: dict, *, profile: dict, key: str, mode: str, snapshot: dict, freeze: dict,
+                          plan_sha: str) -> list[str]:
+    """Compare what a finished Qwen row recorded about how it was made with the present state."""
+    prov = row.get("provenance") or {}
+    if not prov:
+        return ["no recorded provenance"]
+    problems = []
+    for pkg, version in (prov.get("packages") or {}).items():
+        if pkg != "python" and version is not None and freeze.get(pkg.lower().replace("_", "-")) != version:
+            problems.append(f"package {pkg} {version} -> {freeze.get(pkg.lower().replace('_', '-'))}")
+    model, want = prov.get("model") or {}, model_identity(key)
+    for field in ("revision", "generation_config_sha256"):
+        if model.get(field) != want[field]:
+            problems.append(f"model {field} changed")
+    for field, value in (prov.get("profile") or {}).items():
+        if profile.get(field) != value:
+            problems.append(f"profile {field} {value!r} -> {profile.get(field)!r}")
+    if (row.get("chunk_plan") or {}).get("plan_sha256") != plan_sha:
+        problems.append("chunk plan changed")
+    if mode == "clone":
+        ref, transcript = snapshot[ref_name(row)], approved_for(run, row, snapshot)[0]
+        recorded = prov.get("reference") or {}
+        if recorded.get("sha256") != ref["sha256"]:
+            problems.append("reference recording changed")
+        if recorded.get("transcript_sha256") != core.identity_hash({"t": transcript}):
+            problems.append("approved transcript changed")
+    return problems
+
+
+def root_runtime_problems(row: dict, *, engine: str, snapshot: dict, hf_home: Path | None = None) -> list[str]:
+    """The same comparison for a finished Chatterbox/Kokoro row (model revision, packages, device, assets)."""
+    prov = row.get("provenance") or {}
+    info = prov.get("worker_engine_info") or {}
+    if not info:
+        return ["no recorded engine information"]
+    problems = []
+    repo = "ResembleAI/chatterbox-turbo" if engine == "chatterbox" else KOKORO_REPO
+    if (info.get("model") or {}).get("revision") != hub_main_revision(repo, hf_home):
+        problems.append("cached model revision changed")
+    torch_version = torch_runtime_version() or ""
+    if engine == "chatterbox":
+        if info.get("package") != f"chatterbox-tts=={installed_version('chatterbox-tts')}":
+            problems.append("chatterbox-tts version changed")
+        if info.get("device") == "cpu" and not torch_version.endswith("+cpu"):
+            problems.append("torch build changed (a CUDA-capable build could now select the GPU)")
+        if (prov.get("reference") or {}).get("sha256") != snapshot[ref_name(row)]["sha256"]:
+            problems.append("reference recording changed")
+    else:
+        if info.get("torch") != torch_version:
+            problems.append("torch version changed")
+        path = kokoro_voice_path(row["voice_id"], hf_home)
+        if (prov.get("asset") or {}).get("sha256") != (core.sha256_file(path) if path else None):
+            problems.append("official voice asset changed")
+    return problems
 
 
 def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, profile: dict, manifest: core.Manifest,
@@ -490,7 +629,7 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
             refs = reference_blocker(snapshot)(row)
             if refs:
                 return refs
-            text, why = approved_transcript(run, ref_name(row))
+            text, why = approved_for(run, row, snapshot)
             if text is None:
                 return f"reference transcript not verified: {why}"
         return None
@@ -498,8 +637,15 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
     def extra(row: dict) -> dict:
         return qwen_identity_extra(run, row, mode, key, snapshot)
 
-    todo = prepare_rows(run, manifest, rows, text_name=frozen_name, plan_sha=core.plan_hash(chunks),
-                        profile=profile, identity_extra=extra, block_reason=blocker)
+    plan_sha = core.plan_hash(chunks)
+    freeze = installed_packages(py) if py.is_file() and any(r["status"] == "succeeded" for r in rows) else {}
+
+    def drift(row: dict) -> list[str]:
+        return qwen_runtime_problems(run, row, profile=profile, key=key, mode=mode, snapshot=snapshot,
+                                     freeze=freeze, plan_sha=plan_sha)
+
+    todo = prepare_rows(run, manifest, rows, text_name=frozen_name, plan_sha=plan_sha, profile=profile,
+                        identity_extra=extra, block_reason=blocker, runtime_problems=drift)
     if not todo:
         return
     job_rows, by_id = [], {r["row_id"]: r for r in todo}
@@ -513,7 +659,7 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
         else:
             ref = snapshot[ref_name(row)]
             entry["reference_wav"] = str(core.REPO_ROOT / ref["path"])
-            entry["reference_text"], _ = approved_transcript(run, ref_name(row))
+            entry["reference_text"], _ = approved_for(run, row, snapshot)
         job_rows.append(entry)
 
     def finalize(tracker: Tracker, ev: dict) -> None:
@@ -536,7 +682,7 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
         }
         if mode == "clone":
             ref = snapshot[ref_name(row)]
-            text, _ = approved_transcript(run, ref_name(row))
+            text, _ = approved_for(run, row, snapshot)
             provenance["reference"] = {"path": ref["path"], "sha256": ref["sha256"],
                                        "transcript_sha256": core.identity_hash({"t": text}),
                                        "transcript_state": "owner-approved"}
@@ -550,7 +696,8 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
                        extras={"chunk_plan": {"count": len(chunks), "plan_sha256": core.plan_hash(chunks),
                                               "max_chars": profile["max_chars"], "join_file": ev["join_file"]},
                                "joins": join_stats, "chunk_results": ev["chunk_results"],
-                               "measurements": ev["measurements"]})
+                               "measurements": ev["measurements"],
+                               "progress": {"chunks_done": len(chunks), "chunks": len(chunks)}})
 
     tracker = Tracker(run, manifest, by_id, finalize)
     env = core.child_env("qwen", work_dir=run.work, offline=offline)
@@ -567,7 +714,7 @@ def run_root_group(run: Run, rows: list[dict], *, engine: str, suite_text: str, 
     passage = corpus.PASSAGES[frozen_name]
     # Each engine uses its own production chunker; the expected chunk count is recorded by the worker.
     py = core.root_python()
-    hf_home = str(core.REPO_ROOT / "files" / "runtime-data" / "models" / "huggingface")
+    hf_home = hf_home_dir()
     text_path = run.dir / "corpus" / TEXT_FILES[frozen_name] if suite_text in ("short", "long") else \
         run.dir / "pilot" / TEXT_FILES[frozen_name]
     text_path.write_bytes(passage.text.encode("utf-8"))
@@ -580,16 +727,18 @@ def run_root_group(run: Run, rows: list[dict], *, engine: str, suite_text: str, 
 
             ok, why = cs.engine_status(row["voice_id"])
             return None if ok else why
-        asset = Path(hf_home) / "hub" / "models--hexgrad--Kokoro-82M" / "snapshots"
-        if not any((s / "voices" / f"{row['voice_id']}.pt").is_file() for s in asset.glob("*")):
+        if kokoro_voice_path(row["voice_id"], hf_home) is None:
             return f"official voice asset voices/{row['voice_id']}.pt is not cached (run the prepare stage)"
         return None
 
     def extra(row: dict) -> dict:
         return root_identity_extra(row, engine, snapshot)
 
+    def drift(row: dict) -> list[str]:
+        return root_runtime_problems(row, engine=engine, snapshot=snapshot, hf_home=hf_home)
+
     todo = prepare_rows(run, manifest, rows, text_name=frozen_name, plan_sha="engine-production-chunker",
-                        profile={"root": engine}, identity_extra=extra, block_reason=blocker)
+                        profile={"root": engine}, identity_extra=extra, block_reason=blocker, runtime_problems=drift)
     if not todo:
         return
     job_rows = []
@@ -622,12 +771,12 @@ def run_root_group(run: Run, rows: list[dict], *, engine: str, suite_text: str, 
         record_success(tracker, ev, outputs=outputs, provenance=provenance, timing=timing, warnings=warnings,
                        extras={"chunk_plan": {"engine_expected_chunks": ev.get("expected_chunks")},
                                "measurements": ev["measurements"], "chunk_results": ev.get("chunk_results"),
-                               "engine_retries": ev.get("engine_retries")})
+                               "engine_retries": ev.get("engine_retries"),
+                               "progress": {"chunks_done": ev.get("expected_chunks"),
+                                            "chunks": ev.get("expected_chunks")}})
 
     tracker = Tracker(run, manifest, {r["row_id"]: r for r in todo}, finalize)
-    env = core.child_env("root", work_dir=run.work, offline=True)
-    env["HF_HOME"] = hf_home
-    env["HUGGINGFACE_HUB_CACHE"] = str(Path(hf_home) / "hub")
+    env = core.child_env("root", work_dir=run.work, offline=True, hf_home=hf_home)
     job = {"engine": engine, "run_dir": str(run.dir), "text_file": str(text_path), "rows": job_rows}
     say(f"starting {engine} worker (root interpreter) for {len(job_rows)} row(s)")
     code = run_worker(run, py, BASELINE_WORKER, job, label, env, tracker)
@@ -777,14 +926,18 @@ def render_manifest_digest(rows: list[dict], run_id: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def transcript_states(run: Run) -> dict[str, str]:
+def transcript_states(run: Run, snapshot: dict | None = None) -> dict[str, str]:
     path = transcripts_dir(run) / "verified.json"
     data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     states = {}
     for display, _ in core.REFERENCE_VOICE_IDS:
         entry = data.get(display)
-        states[display] = ("approved" if isinstance(entry, dict) and entry.get("approved") is True
-                           else "draft awaiting your verification" if entry else "not drafted")
+        if isinstance(entry, dict) and entry.get("approved") is True:
+            sha = (snapshot or {}).get(display, {}).get("sha256")
+            bound = snapshot is None or entry.get("wav_sha256") == sha
+            states[display] = "approved" if bound else "approval does not match the current recording"
+        else:
+            states[display] = "draft awaiting your verification" if entry else "not drafted"
     return states
 
 
@@ -793,7 +946,7 @@ def stage_report(run: Run) -> None:
     frozen = json.loads(frozen_path.read_text(encoding="utf-8")) if frozen_path.is_file() else None
     rows = list(run.manifest.rows.values())
     core.atomic_write_text(run.dir / "README-listen-first.md",
-                           render_listening_index(rows, run.id, frozen, transcript_states(run)))
+                           render_listening_index(rows, run.id, frozen, transcript_states(run, reference_snapshot())))
     core.atomic_write_text(run.dir / "manifest.md", render_manifest_digest(rows, run.id))
     say(f"report written: {run.dir / 'README-listen-first.md'}")
 
@@ -914,7 +1067,15 @@ def stage_transcribe(run: Run) -> int:
     verified = out / "verified.json"
     existing = json.loads(verified.read_text(encoding="utf-8")) if verified.is_file() else {}
     for name, d in drafts.items():
-        existing.setdefault(name, {"text": d["text"], "approved": False, "approved_by": None, "note": ""})
+        entry = existing.setdefault(name, {"text": d["text"], "approved": False, "approved_by": None, "note": "",
+                                           "wav_sha256": d["wav_sha256"]})
+        if entry.get("wav_sha256") != d["wav_sha256"]:
+            if entry.get("approved") is True:
+                entry["note"] = ("WARNING: this approval was recorded against a different recording and is not "
+                                 "used; verify the new draft and re-approve")
+            else:
+                entry.update(text=d["text"], wav_sha256=d["wav_sha256"],
+                             note="recording identified by wav_sha256; draft (re)generated for it")
     existing["_instructions"] = (
         "Listen to each reference WAV, correct the draft text so it matches EXACTLY what is spoken (names, missing "
         "or extra words, clipped endings), then set approved to true. Only approved transcripts condition a clone.")
@@ -1007,10 +1168,9 @@ def kokoro_inventory() -> dict:
     from tts.voice_registry import VOICES
 
     registered = {v.voice_id for v in VOICES if v.backend == "kokoro"}
-    root = core.REPO_ROOT / "files" / "runtime-data" / "models" / "huggingface" / "hub" / "models--hexgrad--Kokoro-82M" / "snapshots"
     inv = {}
     for voice_id, act_status, lang in core.KOKORO_VOICES:
-        cached = any((s / "voices" / f"{voice_id}.pt").is_file() for s in root.glob("*")) if root.is_dir() else False
+        cached = kokoro_voice_path(voice_id) is not None
         inv[voice_id] = {"registered": voice_id in registered, "expected_act_status": act_status,
                          "lang_code": lang, "cached": cached}
     return inv
@@ -1081,22 +1241,26 @@ def installed_packages(py: Path) -> dict[str, str]:
 
 
 def fetch_kokoro_assets(run: Run, voice_ids: list[str]) -> int:
-    job = {"engine": "kokoro-assets", "voices": voice_ids, "repo": KOKORO_REPO}
+    revision = hub_main_revision(KOKORO_REPO)
+    if not revision:
+        say("the Kokoro model snapshot is not cached, so its voice files cannot be pinned to its revision")
+        return 1
+    job = {"engine": "kokoro-assets", "voices": voice_ids, "repo": KOKORO_REPO, "revision": revision}
     seen: list[dict] = []
-    env = core.child_env("root", work_dir=run.work)
-    hf_home = core.REPO_ROOT / "files" / "runtime-data" / "models" / "huggingface"
-    env["HF_HOME"], env["HUGGINGFACE_HUB_CACHE"] = str(hf_home), str(hf_home / "hub")
+    env = core.child_env("root", work_dir=run.work, hf_home=hf_home_dir())
     code = run_worker(run, core.root_python(), BASELINE_WORKER, job, "kokoro-assets", env,
                       lambda ev: seen.append(ev) if ev["event"] in ("asset", "asset_failed") else None)
     core.atomic_write_text(run.work / "environment" / "kokoro-assets.json", json.dumps(seen, indent=2))
     return 0 if code == 0 and all(e["event"] == "asset" for e in seen) and len(seen) == len(voice_ids) else 1
 
 
-def run(stage: str, run_id: str = core.DEFAULT_RUN_ID, group: str = "all", dry_run: bool = False) -> int:
+def run(stage: str, run_id: str = core.DEFAULT_RUN_ID, group: str = "all", dry_run: bool = False,
+        rerun_stale: bool = False) -> int:
     """Entry point used by ``generate_voice_samples.py --qwen-eval``."""
     if stage not in STAGES:
         raise ValueError(f"unknown stage {stage!r}")
     session = Run(run_id)
+    session.dry_run, session.rerun_stale = dry_run, rerun_stale
     if stage == "preflight":
         return stage_preflight(session)
     if stage == "prepare":

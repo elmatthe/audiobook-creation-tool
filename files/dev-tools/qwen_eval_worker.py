@@ -157,6 +157,7 @@ def run_synth(job: dict) -> int:
         audio: list[np.ndarray] = []
         results: list[dict] = []
         failed: str | None = None
+        sample_rate = None  # per recording: every chunk of one recording must share one rate
         try:
             if job["mode"] == "custom_voice":
                 if row["speaker"].lower() not in {s.lower() for s in (speakers or [])}:
@@ -187,6 +188,9 @@ def run_synth(job: dict) -> int:
                         wavs, rate = model.generate_voice_clone(
                             text=chunk.text, language=language, voice_clone_prompt=clone_prompts[row_id])
                     _sync(torch)
+                    # Mono and one consistent rate, or this chunk fails: nothing is flattened or reinterpreted.
+                    wav = core.validate_chunk_audio(wavs[0], rate, sample_rate)
+                    sample_rate = int(rate)
                 except Exception as exc:  # noqa: BLE001 - retain the failed chunk as diagnostics
                     results.append({"index": chunk.index, "seed": seed, "error": f"{type(exc).__name__}: {exc}"})
                     failed = f"chunk {chunk.index} failed: {type(exc).__name__}: {exc}"
@@ -194,8 +198,6 @@ def run_synth(job: dict) -> int:
                         torch.cuda.empty_cache()
                     break
                 gen_s = time.perf_counter() - t0
-                wav = np.asarray(wavs[0], dtype="float32").reshape(-1)
-                sample_rate = int(rate)
                 saved = core.write_wav(chunk_dir / f"chunk-{chunk.index + 1:03d}.wav", wav, sample_rate,
                                        float_chunk=True, base=run_dir)
                 seconds = wav.size / sample_rate

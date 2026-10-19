@@ -30,10 +30,16 @@ read-back covers 21/21 recordings at 0.86-0.94 with silence-aligned segmentation
 which proved to be Whisper window-edge dropouts, not missing narration). The clone code path was smoke-tested offline with a
 synthetic reference, not the owner's recordings.
 
-**Verification.** 75 focused tests pass; 14 runtime mutations of the guarded behaviours were each caught; the 298 existing
-tests that import the sample generator and the 41 repository-contract tests pass. Full `scripts/verify.py` has NOT been run
-(reserved for the evaluation closeout). Codex independent review: PENDING (the CLI hit its usage limit; retry after the
-reset). No self-review is counted as independent.
+**Verification.** 95 focused tests pass and 27 runtime mutations of the guarded behaviours were each caught; with the
+298 existing tests that import the sample generator and the 41 repository-contract tests, 434 pass together. Full
+`scripts/verify.py` has NOT been run (reserved for the evaluation closeout). **Codex independent review ran** on
+`2ad8272`: 10 major and 1 minor findings (a silently dropped Chatterbox colon segment, reruns overwriting retired
+audio, resume identity missing real runtime state, a rebase that could legitimise a changed profile, baseline workers
+ignoring cancellation, unchecked Qwen shape/rate, uncontained root caches, unpinned Kokoro assets, a blocked prerequisite
+demoting a good result, transcript approval not bound to the WAV hash, run ids able to escape the work area). All were
+verified real and fixed with tests; a re-review of the fixes is pending. One of my own fixes briefly caused a rerun of 12
+good recordings (a torch-version comparison bug); they were restored byte-identically and the spurious takes are archived
+(see Decisions).
 
 **Open gates and next exact action.** (1) Owner verifies the six reference transcripts, then clone pilot and the six clone
 rows run. (2) Owner listens to the 27 and names one female CustomVoice preset plus one verified clone for the long tests
