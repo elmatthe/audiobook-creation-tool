@@ -38,6 +38,7 @@ from pathlib import Path
 import pytest
 
 from shared import bootstrap, ffmpeg_health, ffmpeg_portable, ffmpeg_utils
+from source_probe import application_python_files
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
@@ -934,8 +935,7 @@ def test_no_production_install_asks_for_machine_scope():
 # =========================================================================== #
 # I. No "run it again" loop left in active user-facing text
 # =========================================================================== #
-_ACTIVE_SOURCES = sorted(
-    p for p in UNIVERSAL.rglob("*.py") if "__pycache__" not in p.parts)
+_ACTIVE_SOURCES = application_python_files(UNIVERSAL)
 
 
 @pytest.mark.parametrize("path", _ACTIVE_SOURCES, ids=lambda p: p.name)

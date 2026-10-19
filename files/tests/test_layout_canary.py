@@ -126,6 +126,18 @@ def test_the_bundled_reference_recordings_are_where_they_were_and_bit_identical(
     assert found == expected and len(found) == 6
 
 
+def test_whole_tree_parametrizations_see_exactly_the_application_source():
+    """``scripts/`` also holds verify.py and machine-local files; those are not application source."""
+    import source_probe
+
+    files = source_probe.application_python_files()
+    relative = {p.relative_to(SCRIPTS).as_posix() for p in files}
+    assert "launcher.py" in relative and "shared/paths.py" in relative and "tts/qwen3_worker.py" in relative
+    assert "verify.py" not in relative and "project-status.py" not in relative
+    assert all(r == "launcher.py" or r.split("/")[0] in PACKAGES for r in relative)
+    assert not any("__pycache__" in r for r in relative)
+
+
 # --------------------------------------------------------------------------- #
 # Entry point and launchers
 # --------------------------------------------------------------------------- #

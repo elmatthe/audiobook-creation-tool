@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from source_probe import application_python_files
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
 SHARED = UNIVERSAL / "shared"
@@ -69,8 +71,8 @@ PURE_VOCABULARY_MODULES = ("importing.py",)
 #: because composing the foundation is the one thing it is *for*; that it is still
 #: adopted by nothing is proved separately, from the launcher and panel side.
 PRODUCTION_SOURCES = tuple(
-    path for path in sorted(UNIVERSAL.rglob("*.py"))
-    if path.name not in ALL_PLAN3_MODULES and "__pycache__" not in path.parts
+    path for path in application_python_files(UNIVERSAL)
+    if path.name not in ALL_PLAN3_MODULES
 )
 
 PANELS = (

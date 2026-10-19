@@ -27,6 +27,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
 
+#: The application's packages. ``scripts/`` also holds the verification gate and developer-local files, which are not
+#: application source (before v0.6.7 checkpoint B1 they sat one level above the application tree, outside every scan).
+APPLICATION_PACKAGES = ("shared", "tts", "mp3_tools")
+
+
+def application_python_files(root: Path = UNIVERSAL) -> list[Path]:
+    """``launcher.py`` plus every ``*.py`` under the application packages, sorted, without bytecode caches.
+
+    Exactly the tree the whole-tree scans covered before the packages were lifted one level up (checkpoint B1): it excludes
+    ``scripts/verify.py`` and any untracked local script, so a parametrization over it is the same on every machine.
+    """
+    files = [root / "launcher.py"]
+    for package in APPLICATION_PACKAGES:
+        files.extend(root.joinpath(package).rglob("*.py"))
+    return sorted(p for p in files if p.is_file() and "__pycache__" not in p.parts)
+
 
 @functools.lru_cache(maxsize=None)
 def module(relative: str) -> ast.Module:
