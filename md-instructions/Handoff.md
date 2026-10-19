@@ -2,6 +2,45 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01 voice evaluation: CP2 runtime + CP3 tooling + 21 of 27 short recordings (2026-10-18, HOME-PC)
+
+Branch `feature/0.6.7-bundled-chatterbox-references`, fast-forwarded to `origin` `d2274e96` (the MP3-fix line) before this
+checkpoint. This commit adds only dev-only evaluation tooling (`files/dev-tools/`), its tests
+(`files/tests/test_qwen_evaluation.py`), the opt-in `--qwen-eval` flags in `generate_voice_samples.py`, the plan's recorded
+owner decisions plus the new 10-second voice-preview deliverable, one Decisions entry and this record. App identity stays
+0.6.6; no registry, GUI, `scripts/requirements.txt` or root-venv change; nothing merged, tagged or released. The MP3 fix
+record below stays accurate.
+
+**Runtime (CP2).** Isolated CPython 3.12.10 venv at `files/dev-work/qwen3-eval/.venv/` with 89 exact pins in
+`files/dev-tools/qwen_eval_constraints.txt` (`qwen-tts==0.1.1`, `transformers==4.57.3`, `torch`/`torchaudio`
+`2.10.0+cu128`); `pip check` clean; root pip freeze unchanged. `torch 2.10.0+cu128` executes on the RTX 5070 (sm_120):
+bf16 matmul and SDPA finite. Models are pinned to immutable revisions in `qwen_eval_assets.py`, Hub-hash verified, and
+loaded from local snapshots with HF offline on: Qwen3-TTS CustomVoice and Base 1.7B, `whisper-small.en`. Downloads: about
+13.1 GB of the 20 GB allowance (3.07 GB wheels, 10.03 GB models) plus four 0.5 MB Kokoro voice files. The desktop shell
+holds about 6 GB of the 12 GB VRAM; Qwen needs about 5.4 GB reserved, so a GPU-heavy foreground app can cause an OOM.
+
+**Pilot and profile.** SDPA, bf16, batch 1, 600-character chunks, 50 ms after every chunk plus 3 s end silence (the local
+engines' own pattern). Peak 4.7 GB VRAM, generation-cap headroom at most 6%, RTF about 1.5-1.9. The passages were revised
+once, globally, after pilot timing and are frozen byte-exact per run (short 154 words, long 1,528 words).
+
+**Short suite.** 21 of 27 generated: Kokoro 6/6 (existing Michael and George, candidates Fenrir, Puck, Onyx, Daniel), Chatterbox
+6/6 (Male-1 needed two production anti-silence retries), Qwen presets 9/9 (all 45-90 s of speech; Vivian longest at 87.8 s).
+Qwen clones 0/6: BLOCKED on owner transcript approval; Whisper drafts and a review sheet are ready locally. Advisory ASR
+read-back covers 21/21 recordings at 0.86-0.94 with silence-aligned segmentation (a first fixed-window pass flagged five rows,
+which proved to be Whisper window-edge dropouts, not missing narration). The clone code path was smoke-tested offline with a
+synthetic reference, not the owner's recordings.
+
+**Verification.** 72 focused tests pass; 14 runtime mutations of the guarded behaviours were each caught; the 298 existing
+tests that import the sample generator and the 41 repository-contract tests pass. Full `scripts/verify.py` has NOT been run
+(reserved for the evaluation closeout). Codex independent review: PENDING (the CLI hit its usage limit; retry after the
+reset). No self-review is counted as independent.
+
+**Open gates and next exact action.** (1) Owner verifies the six reference transcripts, then clone pilot and the six clone
+rows run. (2) Owner listens to the 27 and names one female CustomVoice preset plus one verified clone for the long tests
+(Aiden and Dylan are fixed), and a retain/reject/defer for each of `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel`.
+(3) Then CP5: four long recordings, Codex review, one full verify, decision package. Local evidence index:
+`files/dev-work/qwen3-eval/runs/qwen3-initial/README-listen-first.md` (git-ignored).
+
 ## CURRENT STATE — v0.6.7 MP3 embedded-ID3 regression fix (2026-10-01, HOME-MacOS)
 
 Bounded fix on `feature/0.6.7-bundled-chatterbox-references`, based on `62b0c095`.

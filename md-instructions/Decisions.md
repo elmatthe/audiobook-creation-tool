@@ -4,6 +4,48 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-18 - Plan 01 evaluation: isolated Qwen3-TTS runtime and dev-only tooling
+
+**Decision.** The Qwen3-TTS / Kokoro / Chatterbox voice evaluation runs from `files/dev-tools/` (never shipped) and an
+ignored isolated venv at `files/dev-work/qwen3-eval/.venv/`. Production `scripts/requirements.txt`, the root `.venv`,
+the voice registry, the GUI and `scripts/Universal/shared/release.py` are untouched; the only tracked production edit is
+the opt-in `--qwen-eval` flag group in `generate_voice_samples.py`. The evaluation stack is pinned in
+`files/dev-tools/qwen_eval_constraints.txt` (89 exact pins: `qwen-tts==0.1.1`, `transformers==4.57.3`,
+`accelerate==1.12.0`, `torch`/`torchaudio` `2.10.0+cu128`), models are pinned to immutable Hugging Face revisions in
+`files/dev-tools/qwen_eval_assets.py`, and synthesis loads complete local snapshot directories with Hugging Face offline
+mode on.
+
+**Why.** Qwen needs a Transformers pin that conflicts with the production one, and the root torch is a CPU build that
+cannot use the RTX 5070. An isolated interpreter keeps the working product intact while giving Qwen a real GPU
+(`torch 2.10.0+cu128` was proven on sm_120 with bf16 matmul and SDPA before any model was downloaded). Gradio is installed
+only because `qwen-tts` declares it; no server is run.
+
+**Choices a future agent might undo, and why they stand.**
+
+- *Join profile.* 50 ms of silence after **every** chunk plus 3,000 ms at the end, exactly as `chatterbox_file_to_mp3`
+  and `kokoro_file_to_mp3` do, so Qwen files are comparable with the baselines. The plan's wording ("between chunks")
+  differs from the engines by one trailing 50 ms; the engines were followed and the manifest records every inserted sample.
+- *Audible duration* excludes inserted silence (engine-configured pauses are read from the engine's own signature).
+  The 45-90 s / 8-12 min targets apply to this figure.
+- *Evaluation passages* live in `qwen_eval_corpus.py`, not in `quality_corpus.py`, so the production corpus identity
+  (`407fa95d7c524c64`) is unchanged and a test pins it. They were revised once, globally, after pilot timing (short
+  172 -> 154 words, long 1,428 -> 1,528 words) and are frozen byte-exact per run; a changed passage requires a new run.
+- *Chunk ceiling 600 characters* for Qwen only (pilot: peak VRAM 4.7 GB, generation-cap headroom <= 6%); Chatterbox keeps
+  its 300-character ceiling and Kokoro its own chunker.
+- *Transcript gate.* A reference transcript conditions a clone only when `verified.json` holds `"approved": true` for it
+  (a literal boolean); Whisper drafts never count, `x_vector_only_mode` is never used, and the transcript hash is part of
+  the resume identity, so editing an approved transcript invalidates the clone.
+- *Seeds* are `sha256(base|row|chunk|attempt)` per chunk; Chatterbox and Kokoro stay unseeded because that is production.
+- *ASR read-back* (`--qwen-eval asr-check`) is advisory: it can flag gross omissions, never approve or overrule listening.
+- *Codex independent review* is recorded as pending whenever it cannot run (usage limit hit on 2026-10-18); a Claude
+  self-review is never labelled independent.
+
+Nothing here selects a voice or authorises integration: the owner's listening decisions (CP4/CP6) are separate gates.
+
+-- Decided by maintainer (Plan 01 and its 2026-10-18 CP1 rulings), implemented by Claude Code
+
+---
+
 ## 2026-09-30 - Post-release v0.6.6 bundled-reference ruling
 
 This is the explicitly maintainer-authorized later master cleanup, starting from live

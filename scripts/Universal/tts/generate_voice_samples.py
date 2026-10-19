@@ -13,6 +13,7 @@ Usage:
     python generate_voice_samples.py Jenny Michelle  # any voice matching either
     python generate_voice_samples.py --chatterbox-eval   # the four eval WAVs
     python generate_voice_samples.py --final-acceptance  # v0.6.5 Phase 8 evidence
+    python generate_voice_samples.py --qwen-eval preflight --eval-run qwen3-initial   # v0.6.7 Plan 01
 
 Filters are case-insensitive substrings matched against the voice_id and the
 display label — handy after adding a voice, so one new sample can be produced
@@ -1217,6 +1218,23 @@ def _report_final_acceptance(rows: list[FinalArtifact], reference_problems: list
     return 0 if ok == len(rows) and not reference_problems else 1
 
 
+def _run_qwen_eval(args: argparse.Namespace) -> int:
+    """v0.6.7 Plan 01: hand off to the dev-only evaluation tooling, loaded only on this explicit flag.
+
+    The tooling lives in ``files/dev-tools/`` (not shipped); Qwen is never imported here. Each stage
+    is one explicit command, so no listening decision can be skipped by an "all" mode.
+    """
+    tools = paths.REPO_ROOT / "files" / "dev-tools"
+    if not (tools / "qwen_eval_cli.py").is_file():
+        print("The Qwen evaluation tooling (files/dev-tools/) is not present in this checkout.")
+        return 2
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    import qwen_eval_cli
+
+    return qwen_eval_cli.run(args.qwen_eval, run_id=args.eval_run, group=args.eval_group, dry_run=args.eval_dry_run)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
@@ -1263,11 +1281,29 @@ def _build_parser() -> argparse.ArgumentParser:
              "Steffan, Heart and Male 1), mechanically validated. Writes to "
              "files/dev-work/v0.6.5-phase8-final-acceptance/ (gitignored).",
     )
+    ap.add_argument(
+        "--qwen-eval",
+        dest="qwen_eval",
+        choices=("preflight", "prepare", "transcribe", "pilot", "short", "long", "asr-check", "report"),
+        default=None,
+        help="v0.6.7 Plan 01 voice evaluation, one explicit stage per command (dev-only; "
+             "evidence under files/dev-work/qwen3-eval/, gitignored). Never registers a voice.",
+    )
+    ap.add_argument("--eval-run", dest="eval_run", default="qwen3-initial",
+                    help="evaluation run id (default: qwen3-initial)")
+    ap.add_argument("--eval-group", dest="eval_group", default="all",
+                    choices=("all", "qwen", "qwen-preset", "qwen-clone", "chatterbox", "kokoro"),
+                    help="limit the short stage to one comparison group; unattempted groups stay pending")
+    ap.add_argument("--eval-dry-run", dest="eval_dry_run", action="store_true",
+                    help="with --qwen-eval prepare: list what would be done without installing or downloading")
     return ap
 
 
 def main() -> int:
     args = _build_parser().parse_args()
+
+    if args.qwen_eval:
+        return _run_qwen_eval(args)
 
     if args.chatterbox_eval:
         ffmpeg_utils.configure_pydub()

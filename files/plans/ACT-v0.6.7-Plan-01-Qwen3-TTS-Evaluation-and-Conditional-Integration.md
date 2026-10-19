@@ -40,6 +40,19 @@ Out of scope during evaluation: GUI/voice-registry integration, production boots
 
 Do not alter source recordings, manufacture a successful result, silently substitute a model or voice, tune individual speakers, or repeatedly regenerate until a voice happens to sound good. Report failures and all retained attempts. A technically successful generation is not listening approval.
 
+### Owner decisions recorded 2026-10-18 (CP1 reviewed; CP2-CP5 authorized in one session)
+
+CP1 completed read-only; evidence is local and ignored under `files/dev-work/qwen3-eval/runs/qwen3-initial/preflight/`. The owner then recorded:
+
+- **A.** Fast-forward the feature branch to its remote tip (done without reset or rebase).
+- **B.** Remove the redundant untracked copy of this plan from `md-instructions/` after proving it equivalent to this tracked file; the four-file `md-instructions/` contract is preserved.
+- **C.** `qwen-tts==0.1.1` may resolve and install Gradio and its required dependencies inside the isolated evaluation environment only. No server is run, the root `.venv` is untouched, and `--no-deps` is not a workaround.
+- **D.** The CUDA 12.8 torch/torchaudio 2.10.0 candidate proceeds, subject to real resolution, GPU tensor execution and SDPA proof.
+- **E.** The scoped Qwen, Whisper and missing Kokoro assets may be downloaded within the 20 GB allowance, at pinned revisions.
+- **F.** Independently executable work continues while transcript approval or another voice group is blocked.
+
+CP2-CP5 may run continuously. Transcript verification, the two long-test selections, Kokoro retain/reject/defer decisions and the CP6 engine decision remain owner gates; none is waived by this authorization.
+
 ## 3. Confirmed baseline and extension points
 
 Facts below were checked read-only against the named remote branch. They do not prove the state of the desktop checkout, installed environment, or available model caches.
@@ -251,9 +264,25 @@ If B/C/D calls for product work, the addendum must define: registry labels/order
 
 For separately selected Kokoro candidates, create a small owner-approved integration slice for the exact chosen IDs only: registry labels/groups/order and neutral defaults, existing-engine dispatch, model/voice asset availability and supported-platform smoke tests, settings/default preservation, accurate user documentation and focused registry/UI regression tests. Reuse the existing Kokoro backend; do not introduce another backend or Qwen dependency. Preserve Michael, George and other existing entries unless the owner explicitly chooses a different change. Apply this slice even if Qwen decision A is selected; conversely, approval to integrate Qwen does not implicitly approve all four Kokoro candidates.
 
+### Mandatory post-selection deliverable - permanent 10-second voice previews
+
+Added 2026-10-18. This is part of the approved CP6 integration work and is **not** produced during CP2-CP5. Do not create or push permanent preview WAVs until the owner has approved the final voice roster and integration scope.
+
+Purpose: let GitHub visitors hear a short preview of every voice included in the final ACT product.
+
+- **Location:** `files/voice-previews/` (tracked), with a `README.md` and one clearly labeled `.wav` per retained voice.
+- **Scope:** only voices actually retained or integrated after the owner's decision. Never publish rejected or experimental candidates merely because evaluation audio exists.
+- **Audio:** about 10 seconds of representative narration per voice, using one consistent short passage where technically possible and the approved production engine and configuration. Prefer a naturally timed complete passage over truncation, time stretching or destructive editing. Validate decoding, duration and audible content.
+- **README:** voice name and engine, relative clickable WAV link, a short voice description where the engine supports one, download and listening instructions, and the relevant license and provenance disclosures. Document engine, voice ID, provenance and limitations.
+- **Links:** add suitable relative links from the repository's public documentation, following its existing documentation structure.
+- **Rights and privacy:** check redistribution rights first. Never publish private clone-source content or externally generated recordings without confirmed authorization. If a retained voice relies on an external provider or has uncertain redistribution permission, document the limitation and request an owner decision instead of publishing it.
+- **Distribution limit:** tracked files on the approved feature branch and repository or documentation links only. Previews are not bundled into release archives, not uploaded to the ACT website, and imply no release, tag, merge or push to the default branch.
+
+Plan 01 cannot close until this deliverable is confirmed complete for the approved roster (or the owner records that no voices were added or changed).
+
 For an authorized Chatterbox retirement, verify the existing local `files/archived-code-folder` location and its EPUB archive before designing any move. It is not verified on GitHub. If absent/different, ask rather than inventing/recreating an archive. Preserve code, dependency restoration instructions, source/conditional provenance and existing unrelated contents; do not publish private archives. Removal needs a tested restoration plan and explicit owner approval.
 
-**Plan 01 closes only when the owner's chosen Qwen/Chatterbox outcome and separate Kokoro candidate decisions are implemented to their approved scope, reviewed, accurately documented and committed/pushed to this feature branch.** If all additions are deferred/rejected, it can close without GUI work. Any requested Qwen or Kokoro integration cannot be called complete at the sampling gate. Then refresh the actual branch and refine Plan 02 from that state; do not execute the old bootstrap skeleton unchanged.
+**Plan 01 closes only when the owner's chosen Qwen/Chatterbox outcome and separate Kokoro candidate decisions are implemented to their approved scope, the permanent voice-preview deliverable above is complete, and all of it is reviewed, accurately documented and committed/pushed to this feature branch.** If all additions are deferred/rejected, it can close without GUI work. Any requested Qwen or Kokoro integration cannot be called complete at the sampling gate. Then refresh the actual branch and refine Plan 02 from that state; do not execute the old bootstrap skeleton unchanged.
 
 ## 7. Local artifacts and evidence contract
 
@@ -329,6 +358,7 @@ Every checkpoint report states repository/branch/pushed SHA (or why not pushed),
 - Four owner-selected long comparisons expose complete planned text/chunks and joins, and the owner has heard the evidence needed for the final engine decision.
 - Codex reviews and relevant automated/manual checks are complete, confirmed findings are resolved, and any required failure/manual limitation is explicit.
 - The Qwen/Chatterbox decision and separate per-candidate Kokoro decisions are recorded; any chosen production integration/removal is separately approved, implemented and verified before calling that outcome finished. Four Kokoro candidates remain evaluation-only until selected; Michael/George remain existing ACT voices.
+- Permanent 10-second previews of every retained ACT voice exist under `files/voice-previews/` with a README, public-documentation links and confirmed redistribution rights, or the owner has recorded that no voices were added or changed.
 - Useful tooling/tests/constraints and lasting decisions are in the repository, the concise Handoff points to the next task, and verified checkpoints are committed/pushed on the exact feature branch. The temporary plan may be retired only after lasting facts are preserved and the owner's chosen outcome is closed; do not delete it prematurely at the first listening gate.
 - Plan 02 is still an independent later planning task based on the final committed Plan 01 branch state. No release or merge is implied.
 
