@@ -42,13 +42,14 @@ def stage_pilot(run: "cli.Run", selector: str = "all", max_chars: int | None = N
     profile = cli.load_profile(run)
     if max_chars:
         profile = dict(profile, max_chars=max_chars)
-    cli.save_profile(run, profile, {"note": "pilot profile; final common profile recorded after calibration"})
+    if not run.dry_run:
+        cli.save_profile(run, profile, {"note": "pilot profile; final common profile recorded after calibration"})
     snapshot = cli.reference_snapshot()
     approved = [n for n, _ in core.REFERENCE_VOICE_IDS
                 if cli.approved_transcript(run, n, snapshot[n]["sha256"])[0]]
     rows = pilot_rows(approved[0] if approved else core.REFERENCE_VOICE_IDS[0][0])
     manifest = core.Manifest(run.dir / "pilot" / "manifest.jsonl")
-    manifest.declare(rows)
+    manifest.declare(rows, save=not run.dry_run)
     wanted = set(cli.selected_groups(selector))
     plan = {
         "short": [r for r in rows if r["row_id"].endswith("-short") and r["group"] == core.GROUP_QWEN_PRESET],
@@ -76,6 +77,7 @@ def stage_pilot(run: "cli.Run", selector: str = "all", max_chars: int | None = N
         lines.append(f"| {row['row_id']} | {row['status']}{': ' + row['status_reason'][:80] if row['status_reason'] else ''} | "
                      f"{timing.get('audible_s', '-')} | {timing.get('gen_s', '-')} | {timing.get('rtf', '-')} | "
                      f"{timing.get('peak_alloc_mib', '-')} | {headroom} | {len(row.get('warnings') or [])} |")
-    core.atomic_write_text(run.dir / "pilot" / "PILOT-SUMMARY.md", "\n".join(lines) + "\n")
-    cli.say(f"pilot summary: {run.dir / 'pilot' / 'PILOT-SUMMARY.md'}")
+    if not run.dry_run:
+        core.atomic_write_text(run.dir / "pilot" / "PILOT-SUMMARY.md", "\n".join(lines) + "\n")
+        cli.say(f"pilot summary: {run.dir / 'pilot' / 'PILOT-SUMMARY.md'}")
     return 0

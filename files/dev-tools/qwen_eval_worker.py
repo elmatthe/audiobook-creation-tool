@@ -226,19 +226,24 @@ def run_synth(job: dict) -> int:
                 return 130
             continue
 
-        full, report = core.assemble(audio, sample_rate, [c.boundary for c in chunks],
-                                     profile["gap_ms"], profile["end_silence_ms"])
-        final = core.write_wav(out_dir / row["file_name"], full, sample_rate, base=run_dir)
-        join_path = run_dir / "chunks" / row_id / "joins.json"
-        join_path.write_text(json.dumps({"joins": report["joins"], "chunks": [c.to_dict() for c in chunks]},
-                                        indent=1), encoding="utf-8")
-        measurements = core.measure_samples(full, sample_rate)
-        warnings = core.mechanical_warnings(chunks, audio, sample_rate, tuple(row["target_seconds"]) if
-                                            row.get("target_seconds") else None)
-        peak_alloc = max((r.get("peak_alloc_mib", 0) for r in results), default=None)
-        capped = [r["index"] for r in results if (r.get("cap_headroom") or 0) >= 0.9]
-        if capped:
-            warnings.append(f"chunks {capped} used >=90% of the generation cap (possible cap hit)")
+        try:
+            full, report = core.assemble(audio, sample_rate, [c.boundary for c in chunks],
+                                         profile["gap_ms"], profile["end_silence_ms"])
+            final = core.write_wav(out_dir / row["file_name"], full, sample_rate, base=run_dir)
+            join_path = run_dir / "chunks" / row_id / "joins.json"
+            join_path.write_text(json.dumps({"joins": report["joins"], "chunks": [c.to_dict() for c in chunks]},
+                                            indent=1), encoding="utf-8")
+            measurements = core.measure_samples(full, sample_rate)
+            warnings = core.mechanical_warnings(chunks, audio, sample_rate, tuple(row["target_seconds"]) if
+                                                row.get("target_seconds") else None)
+            peak_alloc = max((r.get("peak_alloc_mib", 0) for r in results), default=None)
+            capped = [r["index"] for r in results if (r.get("cap_headroom") or 0) >= 0.9]
+            if capped:
+                warnings.append(f"chunks {capped} used >=90% of the generation cap (possible cap hit)")
+        except Exception as exc:  # noqa: BLE001 - one row's assembly/output failure must not abandon the others
+            core.emit({"event": "row_failed", "row_id": row_id, "chunk_results": results,
+                       "reason": f"assembly or output writing failed: {type(exc).__name__}: {exc}"})
+            continue
         core.emit({
             "event": "row_done", "row_id": row_id, "wav": final, "measurements": measurements,
             "warnings": warnings, "joins": {k: v for k, v in report.items() if k != "joins"},

@@ -90,7 +90,12 @@ def run_chatterbox(job: dict) -> int:
     text = text_file.read_text(encoding="utf-8")
     expected_chunks = len(cs.split_for_chatterbox(text))
     device = cs.select_device()
+    import importlib.metadata as md
+
+    import torch
+
     core.emit({"event": "engine", "engine": "chatterbox", "device": device, "package": cs.PACKAGE_REQUIREMENT,
+               "torch": torch.__version__, "chatterbox_tts": md.version("chatterbox-tts"),
                "model": _snapshot_identity(cs.MODEL_REPO_ID), "temperature": cs.GENERATION_TEMPERATURE,
                "max_chunk_chars": cs.CHATTERBOX_MAX_CHUNK_CHARS, "expected_chunks": expected_chunks,
                "generation_params": cs.generation_params()})
@@ -115,8 +120,10 @@ def run_kokoro(job: dict) -> int:
     expected_chunks = len(ks.split_into_chunks(text))
     import torch
 
+    import importlib.metadata as md
+
     core.emit({"event": "engine", "engine": "kokoro", "device": "cuda" if torch.cuda.is_available() else "cpu",
-               "torch": torch.__version__, "model": _snapshot_identity("hexgrad/Kokoro-82M"),
+               "torch": torch.__version__, "kokoro": md.version("kokoro"), "misaki": md.version("misaki"), "model": _snapshot_identity("hexgrad/Kokoro-82M"),
                "expected_chunks": expected_chunks, "speed": 1.0})
     cancel = _cancel_check(job)
     for row in job["rows"]:
@@ -185,6 +192,12 @@ def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks:
     original_chunk = getattr(module, "_synthesize_chunk", None) if chunk_wrapper else None
     original_generate = getattr(module, "_generate_checked", None) if chunk_wrapper else None
     segments: list[dict] = []
+    if chunk_wrapper and not (callable(original_chunk) and callable(original_generate)):
+        # Fail closed: without both hooks a silently dropped segment could not be seen at all.
+        core.emit({"event": "row_failed", "row_id": row_id,
+                   "reason": "the harness instrumentation contract changed: production no longer exposes "
+                             "_synthesize_chunk and _generate_checked, so omissions cannot be detected"})
+        return False
     try:
         with PcmCapture(module) as capture:
             if original_chunk is not None:
@@ -227,10 +240,11 @@ def _run_one(row: dict, run_dir: Path, text_file: Path, module, expected_chunks:
                        "reason": f"{len(empty_segments)} generated segment(s) were empty and silently dropped by the "
                                  "engine; the partial audio is retained for diagnostics only"})
             return False
-        if chunk_wrapper and len(chunk_info) != expected_chunks:
+        if chunk_wrapper and (len(chunk_info) != expected_chunks or len(segments) < expected_chunks):
             core.emit({"event": "row_failed", "row_id": row_id, "outputs": outputs, "diagnostic": True,
-                       "reason": f"{len(chunk_info)} of {expected_chunks} planned chunks were rendered; the partial "
-                                 "audio is retained for diagnostics only"})
+                       "reason": f"{len(chunk_info)} of {expected_chunks} planned chunks were rendered and "
+                                 f"{len(segments)} generations were observed; the audio is retained for diagnostics "
+                                 "only (a short count means chunks were lost or the instrumentation missed them)"})
             return False
         retries = [ln.strip() for ln in log_lines if "retrying this segment" in ln]
         measurements = core.measure_samples(pcm, rate)

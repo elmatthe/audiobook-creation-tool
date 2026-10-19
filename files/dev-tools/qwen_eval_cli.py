@@ -20,6 +20,8 @@ leaves a truthful manifest row; it never erases other rows. Statuses are mechani
 """
 from __future__ import annotations
 
+import copy
+import functools
 import json
 import os
 import shutil
@@ -98,8 +100,11 @@ def save_profile(run: Run, profile: dict, calibration: dict | None = None) -> No
         {"profile": profile, "calibration": calibration or {}, "recorded": core.now_iso()}, indent=2))
 
 
-def freeze_corpus(run: Run, profile: dict) -> dict:
-    """Write the canonical texts once, byte-exact, and refuse to continue if they ever change."""
+def freeze_corpus(run: Run, profile: dict, write: bool = True) -> dict | None:
+    """Write the canonical texts once, byte-exact, and refuse to continue if they ever change.
+
+    With ``write=False`` (a dry run) nothing is created: an existing freeze is verified, otherwise None.
+    """
     frozen_path = run.dir / "corpus" / "frozen.json"
     current = corpus.corpus_manifest()
     if frozen_path.is_file():
@@ -111,6 +116,8 @@ def freeze_corpus(run: Run, profile: dict) -> dict:
         if frozen["max_chars"] != profile["max_chars"]:
             raise RuntimeError("frozen chunk ceiling differs from the active profile; start a new run")
         return frozen
+    if not write:
+        return None
     plans = {}
     for name, passage in corpus.PASSAGES.items():
         (run.dir / "corpus" / TEXT_FILES[name]).write_bytes(passage.text.encode("utf-8"))
@@ -314,6 +321,9 @@ class Tracker:
                 say(f"{ev['row_id']}: chunk {ev['chunk'] + 1}/{ev['of']} ({ev['audio_s']}s audio in {ev['gen_s']}s)")
         elif kind == "row_done" and ev["row_id"] in self.rows:
             self.open.discard(ev["row_id"])
+            received = ev.get("outputs") or ({"wav": ev["wav"]} if ev.get("wav") else None)
+            if received:  # so a failure while encoding/checking still leaves the recording tracked, never orphaned
+                self.manifest.update(ev["row_id"], diagnostic_outputs=copy.deepcopy(received))
             try:
                 self.finalize(self, ev)
             except Exception as exc:  # noqa: BLE001 - a finalisation error is a row failure, not a crash
@@ -390,10 +400,14 @@ def record_success(tracker: Tracker, ev: dict, *, outputs: dict, provenance: dic
         tracker.manifest.update(row_id, status="failed", human_review="not-applicable",
                                 status_reason=f"final MP3 failed its strict decode: {measured['decode_errors'][:200]}",
                                 **fields)
+        row.pop("diagnostic_outputs", None)
+        tracker.manifest.save()
         say(f"{row_id}: FAILED strict decode")
         return
     tracker.manifest.update(row_id, status="succeeded", status_reason="", human_review="needs-listening",
                             identity=row["identity"], **fields)
+    row.pop("diagnostic_outputs", None)
+    tracker.manifest.save()
     say(f"{row_id}: succeeded ({timing.get('audible_s')}s audible, {len(fields['warnings'])} warning(s))")
 
 
@@ -440,10 +454,11 @@ def prepare_rows(run: Run, manifest: core.Manifest, rows: list[dict], *, text_na
         if run.dry_run:
             say(f"DRY RUN {row['row_id']}: would run ({why})")
             continue
-        if live["status"] not in ("pending", "blocked"):
-            manifest.retire_attempt(row["row_id"], "rerun requested; " + why, run.dir)
-        elif live["status"] == "blocked":
+        has_files = manifest.has_artifacts(row["row_id"], run.dir)
+        if live["status"] == "blocked" and not has_files:
             manifest.update(row["row_id"], status="pending", status_reason="")
+        elif live["status"] != "pending" or has_files:
+            manifest.retire_attempt(row["row_id"], "rerun requested; " + why, run.dir)
         manifest.update(row["row_id"], identity=identity, text=info, status="pending", status_reason="",
                         attempt=len(manifest.get(row["row_id"])["attempts"]) + 1)
         todo.append(manifest.get(row["row_id"]))
@@ -552,6 +567,29 @@ def kokoro_voice_path(voice_id: str, hf_home: Path | None = None) -> Path | None
     return path if path.is_file() else None
 
 
+@functools.lru_cache(maxsize=1)
+def current_gpu() -> tuple[str, str] | None:
+    """(name, compute capability) of the first NVIDIA GPU via nvidia-smi, or None when it cannot be asked."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.strip().splitlines()[0] if out.returncode == 0 and out.stdout.strip() else ""
+    name, _, capability = (part.strip() for part in line.partition(","))
+    return (name, capability) if name else None
+
+
+def venv_python_version(work_dir: Path) -> str | None:
+    cfg = Path(work_dir) / ".venv" / "pyvenv.cfg"
+    if cfg.is_file():
+        for line in cfg.read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() in ("version", "version_info"):
+                return value.strip()
+    return None
+
+
 def qwen_runtime_problems(run: Run, row: dict, *, profile: dict, key: str, mode: str, snapshot: dict, freeze: dict,
                           plan_sha: str) -> list[str]:
     """Compare what a finished Qwen row recorded about how it was made with the present state."""
@@ -562,6 +600,13 @@ def qwen_runtime_problems(run: Run, row: dict, *, profile: dict, key: str, mode:
     for pkg, version in (prov.get("packages") or {}).items():
         if pkg != "python" and version is not None and freeze.get(pkg.lower().replace("_", "-")) != version:
             problems.append(f"package {pkg} {version} -> {freeze.get(pkg.lower().replace('_', '-'))}")
+    recorded_python = (prov.get("packages") or {}).get("python")
+    now_python = venv_python_version(run.work) if run is not None else None
+    if recorded_python and now_python not in (None, recorded_python):
+        problems.append(f"interpreter {recorded_python} -> {now_python}")
+    recorded_gpu, now_gpu = (prov.get("gpu") or {}), current_gpu()
+    if now_gpu and recorded_gpu.get("device") and recorded_gpu["device"] != now_gpu[0]:
+        problems.append(f"GPU {recorded_gpu['device']} -> {now_gpu[0]}")
     model, want = prov.get("model") or {}, model_identity(key)
     for field in ("revision", "generation_config_sha256"):
         if model.get(field) != want[field]:
@@ -592,16 +637,21 @@ def root_runtime_problems(row: dict, *, engine: str, snapshot: dict, hf_home: Pa
     if (info.get("model") or {}).get("revision") != hub_main_revision(repo, hf_home):
         problems.append("cached model revision changed")
     torch_version = torch_runtime_version() or ""
+    if info.get("torch") is not None:
+        if info["torch"] != torch_version:
+            problems.append(f"torch {info['torch']} -> {torch_version}")
+    elif engine == "chatterbox" and info.get("device") == "cpu" and not torch_version.endswith("+cpu"):
+        problems.append("torch build changed (rows recorded before torch was captured: a CUDA-capable build "
+                        "could now select the GPU)")
     if engine == "chatterbox":
         if info.get("package") != f"chatterbox-tts=={installed_version('chatterbox-tts')}":
             problems.append("chatterbox-tts version changed")
-        if info.get("device") == "cpu" and not torch_version.endswith("+cpu"):
-            problems.append("torch build changed (a CUDA-capable build could now select the GPU)")
         if (prov.get("reference") or {}).get("sha256") != snapshot[ref_name(row)]["sha256"]:
             problems.append("reference recording changed")
     else:
-        if info.get("torch") != torch_version:
-            problems.append("torch version changed")
+        for package in ("kokoro", "misaki"):
+            if info.get(package) is not None and info[package] != installed_version(package):
+                problems.append(f"{package} {info[package]} -> {installed_version(package)}")
         path = kokoro_voice_path(row["voice_id"], hf_home)
         if (prov.get("asset") or {}).get("sha256") != (core.sha256_file(path) if path else None):
             problems.append("official voice asset changed")
@@ -617,14 +667,19 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
     chunks = core.plan_chunks(passage.text, profile["max_chars"])
     record = assets.load_record().get(key)
 
+    @functools.lru_cache(maxsize=1)
+    def snapshot_check() -> tuple:
+        """Every file of the pinned model snapshot, sizes AND SHA-256, verified once per group."""
+        return tuple(assets.snapshot_problems(key, record["files"], verify_hash=True))
+
     def blocker(row: dict) -> str | None:
         if not py.is_file():
             return "isolated evaluation environment is missing (run the prepare stage)"
         if not record:
             return f"model {key} was never acquired (run the prepare stage)"
-        problems = assets.snapshot_problems(key, record["files"], verify_hash=False)
+        problems = snapshot_check()
         if problems:
-            return "model snapshot is incomplete: " + "; ".join(problems[:3])
+            return "model snapshot is incomplete or altered: " + "; ".join(problems[:3])
         if mode == "clone":
             refs = reference_blocker(snapshot)(row)
             if refs:
@@ -715,9 +770,15 @@ def run_root_group(run: Run, rows: list[dict], *, engine: str, suite_text: str, 
     # Each engine uses its own production chunker; the expected chunk count is recorded by the worker.
     py = core.root_python()
     hf_home = hf_home_dir()
-    text_path = run.dir / "corpus" / TEXT_FILES[frozen_name] if suite_text in ("short", "long") else \
+    frozen_text = suite_text in ("short", "long")
+    text_path = run.dir / "corpus" / TEXT_FILES[frozen_name] if frozen_text else \
         run.dir / "pilot" / TEXT_FILES[frozen_name]
-    text_path.write_bytes(passage.text.encode("utf-8"))
+    text_bytes = passage.text.encode("utf-8")
+    if frozen_text and text_path.exists():
+        if text_path.read_bytes() != text_bytes:
+            raise RuntimeError(f"{text_path.name} differs from the corpus passage; frozen text is never rewritten")
+    elif not run.dry_run:
+        text_path.write_bytes(text_bytes)
 
     def blocker(row: dict) -> str | None:
         if not py.is_file():
@@ -978,18 +1039,20 @@ def run_groups(run: Run, rows: list[dict], groups: list[str], *, suite_text: str
             run_root_group(run, subset, engine=group, suite_text=suite_text, profile=profile,
                            manifest=run.manifest, snapshot=snapshot_before, label=stamp)
     problems = compare_references(snapshot_before, reference_snapshot())
-    core.atomic_write_text(run.dir / "references" / "integrity.json", json.dumps(
-        {"checked": core.now_iso(), "before": snapshot_before, "problems": problems}, indent=2))
+    if not run.dry_run:
+        core.atomic_write_text(run.dir / "references" / "integrity.json", json.dumps(
+            {"checked": core.now_iso(), "before": snapshot_before, "problems": problems}, indent=2))
     return problems
 
 
 def stage_short(run: Run, selector: str) -> int:
     profile = load_profile(run)
-    freeze_corpus(run, profile)
-    run.manifest.declare(core.short_rows())
+    freeze_corpus(run, profile, write=not run.dry_run)
+    run.manifest.declare(core.short_rows(), save=not run.dry_run)
     problems = run_groups(run, core.short_rows(), selected_groups(selector), suite_text="short", profile=profile,
                           label="short")
-    stage_report(run)
+    if not run.dry_run:
+        stage_report(run)
     for p in problems:
         say(f"REFERENCE INTEGRITY: {p}")
     return 1 if problems else 0
@@ -1011,13 +1074,14 @@ def stage_long(run: Run) -> int:
         say(f"the selected clone {clone!r} has no owner-approved transcript ({why}); a long clone cannot be made")
         return 2
     profile = load_profile(run)
-    freeze_corpus(run, profile)
+    freeze_corpus(run, profile, write=not run.dry_run)
     rows = [core.long_row(core.GROUP_QWEN_PRESET, n) for n in ("Aiden", "Dylan", female)] + \
            [core.long_row(core.GROUP_QWEN_CLONE, clone)]
-    run.manifest.declare(rows)
+    run.manifest.declare(rows, save=not run.dry_run)
     problems = run_groups(run, rows, [core.GROUP_QWEN_PRESET, core.GROUP_QWEN_CLONE], suite_text="long",
                           profile=profile, label="long")
-    stage_report(run)
+    if not run.dry_run:
+        stage_report(run)
     return 1 if problems else 0
 
 

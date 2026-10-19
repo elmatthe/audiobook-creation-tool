@@ -30,16 +30,21 @@ read-back covers 21/21 recordings at 0.86-0.94 with silence-aligned segmentation
 which proved to be Whisper window-edge dropouts, not missing narration). The clone code path was smoke-tested offline with a
 synthetic reference, not the owner's recordings.
 
-**Verification.** 95 focused tests pass and 27 runtime mutations of the guarded behaviours were each caught; with the
-298 existing tests that import the sample generator and the 41 repository-contract tests, 434 pass together. Full
+**Verification.** 107 focused tests pass and about 40 mutations of the guarded behaviours were each caught (two needed
+source-level mutation because their tests stub the mutated function); with the 298 existing tests that import the
+sample generator and the 41 repository-contract tests, over 440 pass together. Full
 `scripts/verify.py` has NOT been run (reserved for the evaluation closeout). **Codex independent review ran** on
 `2ad8272`: 10 major and 1 minor findings (a silently dropped Chatterbox colon segment, reruns overwriting retired
 audio, resume identity missing real runtime state, a rebase that could legitimise a changed profile, baseline workers
 ignoring cancellation, unchecked Qwen shape/rate, uncontained root caches, unpinned Kokoro assets, a blocked prerequisite
 demoting a good result, transcript approval not bound to the WAV hash, run ids able to escape the work area). All were
-verified real and fixed with tests; a re-review of the fixes is pending. One of my own fixes briefly caused a rerun of 12
-good recordings (a torch-version comparison bug); they were restored byte-identically and the spurious takes are archived
-(see Decisions).
+verified real and fixed with tests. A second Codex pass over those fixes found 8 major + 2 minor more (archive numbers
+reusable after a restore, chunk paths not remapped on archive, blocked rows skipping retirement, an unregistered WAV on
+encode failure, one bad chunk able to abort a worker, incomplete runtime and cache evidence, a fail-open instrumentation
+hook, dry runs that wrote files, Windows device names as run ids); all were verified real and fixed with tests, and
+those fixes await one more confirmation pass. One of my own fixes briefly caused a rerun of 12 good recordings (a
+torch-version comparison bug); they were restored byte-identically and the spurious takes are archived (see Decisions).
+Known limit: Chatterbox rows made before torch was recorded can only be checked by build suffix, not exact version.
 
 **Open gates and next exact action.** (1) Owner verifies the six reference transcripts, then clone pilot and the six clone
 rows run. (2) Owner listens to the 27 and names one female CustomVoice preset plus one verified clone for the long tests

@@ -9,6 +9,7 @@ is the only authority, and a technically clean recording is never "approved".
 """
 from __future__ import annotations
 
+import copy
 import difflib
 import hashlib
 import json
@@ -24,13 +25,16 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORK_DIR = REPO_ROOT / "files" / "dev-work" / "qwen3-eval"
 DEFAULT_RUN_ID = "qwen3-initial"
-RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+_WINDOWS_RESERVED = re.compile(r"(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?", re.IGNORECASE)
 
 
 def validate_run_id(run_id: str) -> str:
-    """A run id is one plain filename component: no separators, no drive, no traversal."""
-    if not isinstance(run_id, str) or not RUN_ID_PATTERN.match(run_id) or ".." in run_id:
-        raise ValueError(f"invalid evaluation run id {run_id!r}: use letters, digits, '.', '_' or '-' (max 64)")
+    """A run id is one plain filename component: no separators, drive, traversal, trailing dot or device name."""
+    if (not isinstance(run_id, str) or not RUN_ID_PATTERN.fullmatch(run_id) or ".." in run_id
+            or run_id.endswith(".") or _WINDOWS_RESERVED.fullmatch(run_id)):
+        raise ValueError(f"invalid evaluation run id {run_id!r}: use letters, digits, '.', '_' or '-' (max 64), "
+                         "no trailing dot and no Windows device name")
     return run_id
 
 # --------------------------------------------------------------------------- #
@@ -422,6 +426,10 @@ def validate_chunk_audio(audio, sample_rate: int, expected_rate: int | None) -> 
     arr = np.asarray(audio)
     if arr.ndim != 1:
         raise AssemblyError(f"model returned audio of shape {arr.shape}; a mono 1-D waveform is required")
+    if arr.size == 0:
+        raise AssemblyError("model returned an empty waveform")
+    if not np.isfinite(arr).all():
+        raise AssemblyError("model returned non-finite samples")
     if not isinstance(sample_rate, (int, np.integer)) or int(sample_rate) <= 0:
         raise AssemblyError(f"model returned an invalid sample rate {sample_rate!r}")
     if expected_rate is not None and int(sample_rate) != int(expected_rate):
@@ -654,11 +662,12 @@ class Manifest:
         atomic_write_text(self.path, "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n"
                                              for r in self.rows.values()))
 
-    def declare(self, rows: list[dict]) -> None:
+    def declare(self, rows: list[dict], save: bool = True) -> None:
         """Add predeclared rows without disturbing any row that already has recorded state."""
         for row in rows:
             self.rows.setdefault(row["row_id"], row)
-        self.save()
+        if save:
+            self.save()
 
     def get(self, row_id: str) -> dict:
         return self.rows[row_id]
@@ -672,31 +681,69 @@ class Manifest:
         self.save()
         return row
 
+    # ---- retirement, archive and restoration: files are only ever moved, never overwritten or deleted ----------
+    def has_artifacts(self, row_id: str, base: Path | None = None) -> bool:
+        """True when the row still points at recordings (final or diagnostic) or has a raw-chunk folder."""
+        row = self.rows[row_id]
+        if row.get("outputs") or row.get("diagnostic_outputs"):
+            return True
+        return base is not None and (Path(base) / "chunks" / row_id).is_dir()
+
     def retire_attempt(self, row_id: str, reason: str, base: Path | None = None) -> None:
         """Move the current result into ``attempts`` so a rerun never overwrites its evidence.
 
-        With ``base`` (the run folder) the files themselves are moved to
-        ``attempts/<row>/attempt-NN/<original relative path>`` and the recorded paths follow them, so the
-        retired audio, raw chunks and joins stay playable after the row is regenerated.
+        With ``base`` (the run folder) the files themselves move to ``attempts/<row>/attempt-NN/<original path>``
+        and every recorded path follows them, so the retired audio, raw chunks and joins stay playable after the
+        row is regenerated. The attempt number is never reused, and a move that fails part-way is rolled back.
         """
         row = self.rows[row_id]
-        if row["status"] == "pending":
+        if row["status"] == "pending" and not self.has_artifacts(row_id, base):
             return
-        keep = {k: row[k] for k in ("status", "status_reason", "text", *RESULT_FIELDS) if k in row}
+        keep = copy.deepcopy({k: row[k] for k in ("status", "status_reason", "text", *RESULT_FIELDS) if k in row})
         keep["retired_because"] = reason
         if base is not None:
-            keep["archive"] = self._archive_files(row_id, row, keep, Path(base), len(row["attempts"]) + 1)
+            keep["archive"] = self._archive_files(row_id, keep, Path(base))
         row["attempts"].append(keep)
         for key in RESULT_FIELDS:
             row.pop(key, None)
         row["status"], row["status_reason"] = "pending", ""
         self.save()
 
+    def _next_attempt_number(self, row_id: str, base: Path) -> int:
+        root = base / "attempts" / row_id
+        used = [int(m.group(1)) for d in (root.glob("attempt-*") if root.is_dir() else [])
+                if (m := re.fullmatch(r"attempt-(\d+)", d.name))]
+        return max([*used, len(self.rows[row_id]["attempts"])]) + 1
+
+    def _archive_files(self, row_id: str, keep: dict, base: Path) -> str | None:
+        """Move this attempt's recordings and raw chunks under a fresh ``attempts/<row>/attempt-NN`` folder."""
+        archive = Path("attempts") / row_id / f"attempt-{self._next_attempt_number(row_id, base):02d}"
+        if (base / archive).exists():
+            raise FileExistsError(f"{row_id}: {archive} already exists; refusing to reuse an archive number")
+        chunk_prefix = f"chunks/{row_id}/"
+        moves, seen = [], set()
+        for group in (keep.get("outputs"), keep.get("diagnostic_outputs")):
+            for info in (group or {}).values():
+                src = base / info["path"]
+                if src.is_file() and src not in seen:
+                    seen.add(src)
+                    moves.append((src, base / archive / info["path"]))
+        chunk_dir = base / "chunks" / row_id
+        if chunk_dir.is_dir():
+            moves.append((chunk_dir, base / archive / "chunks" / row_id))
+        if not moves:
+            return None
+        moved_paths = {src.relative_to(base).as_posix() for src, _ in moves}
+        _move_all(moves)
+        _remap_paths(keep, lambda path: (archive / path).as_posix()
+                     if path in moved_paths or path.startswith(chunk_prefix) else path)
+        return archive.as_posix()
+
     def restore_attempt(self, row_id: str, index: int, base: Path, reason: str) -> None:
         """Make a retired attempt the current result again.
 
         The present result is retired (and archived) first, so nothing is lost either way. Refuses to overwrite
-        an existing file. Every restoration is recorded on the row.
+        an existing file, rolls back a partial move, and records the restoration on the row.
         """
         row = self.rows[row_id]
         target = row["attempts"][index]
@@ -708,28 +755,26 @@ class Manifest:
         def original(path: str) -> str:
             return path[len(prefix):] if path.startswith(prefix) else path
 
-        if row["status"] != "pending":
+        if row["status"] != "pending" or self.has_artifacts(row_id, base):
             self.retire_attempt(row_id, reason, base)
-        moves = []
+        moves, seen = [], set()
         for group_name in ("outputs", "diagnostic_outputs"):
             for info in (target.get(group_name) or {}).values():
                 src, dest = base / info["path"], base / original(info["path"])
+                if src in seen:
+                    continue
+                seen.add(src)
                 if dest.exists():
                     raise FileExistsError(f"{row_id}: {dest} exists; refusing to overwrite it")
                 moves.append((src, dest))
         chunk_src, chunk_dest = base / archive / "chunks" / row_id, base / "chunks" / row_id
-        if chunk_src.is_dir() and chunk_dest.exists():
-            raise FileExistsError(f"{row_id}: {chunk_dest} exists; refusing to overwrite it")
-        for src, dest in moves:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(src, dest)
         if chunk_src.is_dir():
-            chunk_dest.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(chunk_src, chunk_dest)
-        restored = {k: v for k, v in target.items() if k not in ("retired_because", "archive")}
-        for group_name in ("outputs", "diagnostic_outputs"):
-            for info in (restored.get(group_name) or {}).values():
-                info["path"] = original(info["path"])
+            if chunk_dest.exists():
+                raise FileExistsError(f"{row_id}: {chunk_dest} exists; refusing to overwrite it")
+            moves.append((chunk_src, chunk_dest))
+        _move_all(moves)
+        restored = copy.deepcopy({k: v for k, v in target.items() if k not in ("retired_because", "archive")})
+        _remap_paths(restored, original)
         for key in RESULT_FIELDS:
             row.pop(key, None)
         row.update(restored)
@@ -737,35 +782,35 @@ class Manifest:
         row.setdefault("restorations", []).append({"reason": reason, "when": now_iso(), "archive": archive})
         self.save()
 
-    @staticmethod
-    def _archive_files(row_id: str, row: dict, keep: dict, base: Path, number: int) -> str | None:
-        """Move this attempt's recordings and raw chunks under the run's ``attempts`` folder."""
-        archive = Path("attempts") / row_id / f"attempt-{number:02d}"
-        moved = False
-        sources = []
-        for group in (row.get("outputs"), row.get("diagnostic_outputs")):
-            for info in (group or {}).values():
-                sources.append(info)
-        for info in sources:
-            src = base / info["path"]
-            if src.is_file():
-                dest = base / archive / info["path"]
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(src, dest)
-                moved = True
-        chunk_dir = base / "chunks" / row_id
-        if chunk_dir.is_dir():
-            dest = base / archive / "chunks" / row_id
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(chunk_dir, dest)
-            moved = True
-        if not moved:
-            return None
-        for group_name in ("outputs", "diagnostic_outputs"):
-            for info in (keep.get(group_name) or {}).values():
-                info["path"] = (archive / info["path"]).as_posix()
-        return archive.as_posix()
 
+def _move_all(moves: list[tuple[Path, Path]]) -> None:
+    """Move every (source, destination) pair or none: a failure part-way puts the moved ones back."""
+    done: list[tuple[Path, Path]] = []
+    try:
+        for src, dest in moves:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src, dest)
+            done.append((src, dest))
+    except Exception:
+        for src, dest in reversed(done):
+            try:
+                os.replace(dest, src)
+            except OSError:
+                pass
+        raise
+
+
+def _remap_paths(record: dict, fn) -> None:
+    """Apply ``fn`` to every stored artifact path of a result record (recordings, raw chunks, joins)."""
+    for group_name in ("outputs", "diagnostic_outputs"):
+        for info in (record.get(group_name) or {}).values():
+            info["path"] = fn(info["path"])
+    for chunk in record.get("chunk_results") or []:
+        if isinstance(chunk.get("wav"), dict) and "path" in chunk["wav"]:
+            chunk["wav"]["path"] = fn(chunk["wav"]["path"])
+    plan = record.get("chunk_plan")
+    if isinstance(plan, dict) and plan.get("join_file"):
+        plan["join_file"] = fn(plan["join_file"])
 
 def outputs_intact(row: dict, base: Path) -> bool:
     """True when every recorded output still exists with its recorded size and hash."""
@@ -835,8 +880,11 @@ def child_env(kind: str, base: dict | None = None, work_dir: Path = WORK_DIR, of
                GRADIO_ANALYTICS_ENABLED="False", HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1",
                PYTHONUNBUFFERED="1", TORCH_HOME=str(cache / "torch"), NUMBA_CACHE_DIR=str(cache / "numba"),
                XDG_CACHE_HOME=str(cache / "xdg"), XDG_CONFIG_HOME=str(cache / "xdg"),
-               XDG_DATA_HOME=str(cache / "xdg"))
-    for stale in ("HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "HF_ASSETS_CACHE"):
+               XDG_DATA_HOME=str(cache / "xdg"), HF_MODULES_CACHE=str(cache / "hf-modules"),
+               HF_XET_CACHE=str(cache / "xet"), TORCHINDUCTOR_CACHE_DIR=str(cache / "inductor"),
+               TRITON_CACHE_DIR=str(cache / "triton"), CUDA_CACHE_PATH=str(cache / "cuda"))
+    for stale in ("HUGGINGFACE_HUB_CACHE", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "HF_ASSETS_CACHE",
+                  "HUGGINGFACE_ASSETS_CACHE", "PYTORCH_TRANSFORMERS_CACHE", "PYTORCH_PRETRAINED_BERT_CACHE"):
         env.pop(stale, None)
     if kind == "qwen":
         env["HF_HOME"] = str(cache / "hf")
