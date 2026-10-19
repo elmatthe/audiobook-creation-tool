@@ -4,6 +4,14 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-19 - Application source is an explicit registry, not discovery
+
+**Decision.** `source_probe.APPLICATION_PACKAGES = ("shared", "tts", "mp3_tools")` is the only definition of production packages for guards; folders are never discovered from disk. A new production top-level folder requires a deliberate registry edit, enforced by a tracked-tree canary. **Why.** Discovery by `__init__.py` pulled untracked developer packages into FFmpeg, architecture and syntax guards. This supersedes the discovery clause in the entry below.
+
+-- Decided by the owner's instruction; implemented by Claude Code
+
+---
+
 ## 2026-10-19 - Plan 01B corrective checkpoint: where a startup notice is shown, and what "application source" means to a guard
 
 **Decision (Codex findings on B1).**

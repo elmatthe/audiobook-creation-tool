@@ -2,6 +2,10 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: final B1 source-inventory correction done; A1 still NOT started (2026-10-19, HOME-PC)
+
+The last open Codex P2 is closed: the production-source helper uses the explicit registry `APPLICATION_PACKAGES` only, so untracked developer packages (e.g. `scripts/dev_helpers/`) and local scripts are excluded, and a new tracked production folder fails the canary until registered. Plan 01B Appendix B.5 has the proof. Focused set (source-inventory, FFmpeg, M4B structural-authority, application-boundary, layout canary and the other 9 modules that use the helper): 1,182 passed, 2 skipped; A0 `check` prints OK; no full verify run. All three original Codex findings are resolved. Next: independent Codex review and owner approval before A1.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: B1 corrective checkpoint (Codex findings) done; A1 still NOT started (2026-10-19, HOME-PC)
 
 The owner's manual HOME-PC launch of B1 passed; Codex's review of `3667bc6` was PASS WITH FINDINGS. This checkpoint fixed exactly those three findings and nothing else.

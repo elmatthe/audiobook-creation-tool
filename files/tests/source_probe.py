@@ -27,29 +27,23 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 UNIVERSAL = REPO_ROOT / "scripts"
 
-#: The application's packages. ``scripts/`` also holds the verification gate and developer-local files, which are not
-#: application source (before v0.6.7 checkpoint B1 they sat one level above the application tree, outside every scan).
+#: The application's packages: an explicit, authoritative registry. ``scripts/`` also holds the verification gate and
+#: developer-local files (untracked helper packages included), which are not application source, so nothing is discovered
+#: on disk. A new production top-level package must be added here on purpose; ``test_application_source_boundary`` fails
+#: while a tracked top-level folder of ``scripts/`` is missing from this tuple.
 APPLICATION_PACKAGES = ("shared", "tts", "mp3_tools")
 
 
 def application_packages(root: Path = UNIVERSAL) -> list[str]:
-    """The three known packages plus any other top-level folder of ``root`` that is a Python package.
-
-    A future top-level package (it must carry an ``__init__.py``) is therefore covered by every production guard without
-    anyone remembering to extend a list; a layout canary fails if a tracked top-level folder is neither.
-    """
-    found = list(APPLICATION_PACKAGES)
-    for child in sorted(root.iterdir()) if root.is_dir() else []:
-        if child.is_dir() and child.name not in found and child.name != "__pycache__" and (child / "__init__.py").is_file():
-            found.append(child.name)
-    return found
+    """The registered application packages (``root`` is accepted for call compatibility; nothing is read from disk)."""
+    return list(APPLICATION_PACKAGES)
 
 
 def application_python_files(root: Path = UNIVERSAL) -> list[Path]:
     """``launcher.py`` plus every ``*.py`` under the application packages (nested packages included), sorted.
 
     Exactly the tree the whole-tree production guards covered before the packages were lifted one level up (checkpoint B1):
-    it excludes ``scripts/verify.py``, an untracked machine-local script and any stray top-level file, so a guard over it
+    it excludes ``scripts/verify.py``, untracked machine-local scripts and packages and any stray top-level file, so a guard over it
     gives the same answer on every machine. Application modules stay fully covered: a syntax error or a forbidden call in
     ``launcher.py`` or anywhere under a package still reaches the guard.
     """
