@@ -1,0 +1,2870 @@
+{
+ "data": {
+  "constants": {
+   "chapter_pause_ms": 2000,
+   "comma_pause_ms": 300,
+   "ellipsis_pause_ms": 600,
+   "em_dash_pause_ms": 400,
+   "end_of_book_pause_ms": 3000,
+   "paragraph_pause_ms": 850,
+   "sentence_pause_ms": 800,
+   "title_pause_ms": 1200
+  },
+  "inputs": {
+   "oversized": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 1.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 2.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 3.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 4.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 5.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 6.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 7.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 8.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 9.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 10.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 11.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 12.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 13.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 14.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 15.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 16.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 17.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 18.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 19.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 20.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 21.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 22.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 23.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 24.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 25.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 26.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 27.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 28.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 29.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 30.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 31.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 32.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 33.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 34.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 35.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 36.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 37.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 38.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 39.",
+        "The keeper climbed the spiral stairs and counted every single step aloud, number 40.",
+        "a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: It ends here.",
+        "Short closing paragraph."
+       ],
+       "n": 42
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "bb1d318dfe02e0eb337cfcc06f0763c60c604e25b8e7bc6b4d5ae6bc99fc1e9a",
+     "items": [
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 1.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 2.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 3.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 4.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 5.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 6.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 7.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 8.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 9.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 10.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 11.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 12.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 13.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 14.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 15.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 16.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 17.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 18.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 19.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 20.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 21.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 22.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 23.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 24.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 25.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 26.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 27.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 28.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 29.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 30.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 31.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 32.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 33.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 34.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 35.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 36.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 37.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 38.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 39.",
+        0
+       ]
+      ],
+      [
+       [
+        "The keeper climbed the spiral stairs and counted every single step aloud,",
+        300
+       ],
+       [
+        "number 40.",
+        0
+       ]
+      ],
+      [
+       [
+        "a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: a long clause that keeps going,",
+        300
+       ],
+       [
+        "and going; and then,",
+        300
+       ],
+       [
+        "once more: It ends here.",
+        0
+       ]
+      ],
+      [
+       [
+        "Short closing paragraph.",
+        0
+       ]
+      ]
+     ],
+     "n": 42
+    },
+    "read_book": {
+     "exports": [
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs1.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs2.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs3.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs4.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs5.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs6.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs7.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs8.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs9.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs10.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs11.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs12.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs13.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs14.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs15.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs16.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs17.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs18.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs19.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs20.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs21.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs22.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs23.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs24.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs25.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs26.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs27.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs28.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs29.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs30.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs31.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs32.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs33.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs34.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs35.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs36.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs37.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs38.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs39.flac",
+       "format": "flac",
+       "ms": 1350
+      },
+      {
+       "file": "pgraphs40.flac",
+       "format": "flac",
+       "ms": 10547
+      },
+      {
+       "file": "pgraphs41.flac",
+       "format": "flac",
+       "ms": 950
+      },
+      {
+       "file": "pgraphs41.flac",
+       "format": "flac",
+       "ms": 2950
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 67497
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 70497
+      }
+     ],
+     "files": [
+      "part1.flac"
+     ],
+     "spoken": {
+      "items": [
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 1.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 2.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 3.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 4.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 5.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 6.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 7.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 8.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 9.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 10.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 11.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 12.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 13.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 14.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 15.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 16.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 17.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 18.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 19.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 20.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 21.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 22.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 23.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 24.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 25.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 26.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 27.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 28.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 29.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 30.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 31.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 32.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 33.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 34.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 35.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 36.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 37.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 38.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 39.",
+       "sntnc1_sub0.mp3|The keeper climbed the spiral stairs and counted every single step aloud,",
+       "sntnc1_sub1.mp3|number 40.",
+       "sntnc1_sub0.mp3|a long clause that keeps going,",
+       "sntnc1_sub1.mp3|and going; and then,",
+       "sntnc1_sub2.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub3.mp3|and going; and then,",
+       "sntnc1_sub4.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub5.mp3|and going; and then,",
+       "sntnc1_sub6.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub7.mp3|and going; and then,",
+       "sntnc1_sub8.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub9.mp3|and going; and then,",
+       "sntnc1_sub10.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub11.mp3|and going; and then,",
+       "sntnc1_sub12.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub13.mp3|and going; and then,",
+       "sntnc1_sub14.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub15.mp3|and going; and then,",
+       "sntnc1_sub16.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub17.mp3|and going; and then,",
+       "sntnc1_sub18.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub19.mp3|and going; and then,",
+       "sntnc1_sub20.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub21.mp3|and going; and then,",
+       "sntnc1_sub22.mp3|once more: a long clause that keeps going,",
+       "sntnc1_sub23.mp3|and going; and then,",
+       "sntnc1_sub24.mp3|once more: It ends here.",
+       "sntnc1_sub0.mp3|Short closing paragraph."
+      ],
+      "n": 106
+     }
+    },
+    "sentences": {
+     "items": [
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 1.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 2.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 3.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 4.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 5.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 6.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 7.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 8.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 9.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 10.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 11.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 12.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 13.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 14.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 15.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 16.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 17.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 18.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 19.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 20.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 21.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 22.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 23.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 24.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 25.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 26.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 27.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 28.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 29.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 30.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 31.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 32.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 33.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 34.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 35.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 36.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 37.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 38.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 39.",
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 40.",
+      "a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: It ends here.",
+      "Short closing paragraph."
+     ],
+     "n": 42
+    },
+    "title": "<source file path>"
+   },
+   "punctuation": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "“I still don’t believe it,” she said... “Are you coming up, or not?” Dr. Marsh checked the log (found beneath the door) again!! Really?? Yes.",
+        "The ratio was 3:1 at 6:45 and 7:15, i.e. late; e.g. very late. See https://example.com/lighthouse-log for details. Note: the beam slowed by 2.5 degrees. It cost $12.50, or 1,250 pennies, up 15% since March 5, 2024. J. R. Alvarez vs. Prof. Whitfield: no.",
+        "Em—dash and double--hyphen and en–dash. ‘Single’ quotes, an ellipsis… and 10 km with a non-breaking space. Is 12:30 p.m. late? Version 1.2.3 shipped; the 2nd of May; page 12-15."
+       ],
+       "n": 3
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "11759d5978ec7b5744b32be21e73ace118cdd2d66700ca7d71efff0df1493776",
+     "items": [
+      [
+       [
+        "“I still don’t believe it,” she said...",
+        600
+       ],
+       [
+        "“Are you coming up,",
+        300
+       ],
+       [
+        "or not?” Dr. Marsh checked the log (found beneath the door) again!!",
+        0
+       ]
+      ],
+      [
+       [
+        "Really??",
+        0
+       ]
+      ],
+      [
+       [
+        "Yes.",
+        0
+       ]
+      ],
+      [
+       [
+        "The ratio was 3:1 at 6:45 and 7:15,",
+        300
+       ],
+       [
+        "i.e. late; e.g. very late.",
+        0
+       ]
+      ],
+      [
+       [
+        "See https://example.com/lighthouse-log for details.",
+        0
+       ]
+      ],
+      [
+       [
+        "Note: the beam slowed by 2.5 degrees.",
+        0
+       ]
+      ],
+      [
+       [
+        "It cost $12.50,",
+        300
+       ],
+       [
+        "or 1,250 pennies,",
+        300
+       ],
+       [
+        "up 15% since March 5,",
+        300
+       ],
+       [
+        "2024.",
+        0
+       ]
+      ],
+      [
+       [
+        "J. R. Alvarez vs. Prof. Whitfield: no.",
+        0
+       ]
+      ],
+      [
+       [
+        "Em—",
+        400
+       ],
+       [
+        "dash and double--",
+        400
+       ],
+       [
+        "hyphen and en–dash.",
+        0
+       ]
+      ],
+      [
+       [
+        "‘Single’ quotes,",
+        300
+       ],
+       [
+        "an ellipsis… and 10 km with a non-breaking space.",
+        0
+       ]
+      ],
+      [
+       [
+        "Is 12:30 p.m. late?",
+        0
+       ]
+      ],
+      [
+       [
+        "Version 1.2.3 shipped; the 2nd of May; page 12-15.",
+        0
+       ]
+      ]
+     ],
+     "n": 12
+    },
+    "read_book": {
+     "exports": [
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 3850
+      },
+      {
+       "file": "pgraphs1.flac",
+       "format": "flac",
+       "ms": 6149
+      },
+      {
+       "file": "pgraphs2.flac",
+       "format": "flac",
+       "ms": 5049
+      },
+      {
+       "file": "pgraphs2.flac",
+       "format": "flac",
+       "ms": 7049
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 17048
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 20048
+      }
+     ],
+     "files": [
+      "part1.flac"
+     ],
+     "spoken": {
+      "items": [
+       "sntnc1_sub0.mp3|“I still don’t believe it,” she said...",
+       "sntnc1_sub1.mp3|“Are you coming up,",
+       "sntnc1_sub2.mp3|or not?” Dr. Marsh checked the log (found beneath the door) again!",
+       "sntnc2_sub0.mp3|Really?",
+       "sntnc3_sub0.mp3|Yes.",
+       "sntnc1_sub0.mp3|The ratio was 3:1 at 6:45 and 7:15,",
+       "sntnc1_sub1.mp3|i.e. late; e.g. very late.",
+       "sntnc2_sub0.mp3|See https://example.com/lighthouse-log for details.",
+       "sntnc3_sub0.mp3|Note: the beam slowed by 2.5 degrees.",
+       "sntnc4_sub0.mp3|It cost $12.50,",
+       "sntnc4_sub1.mp3|or 1,250 pennies,",
+       "sntnc4_sub2.mp3|up 15% since March 5,",
+       "sntnc4_sub3.mp3|2024.",
+       "sntnc5_sub0.mp3|J. R. Alvarez vs. Prof. Whitfield: no.",
+       "sntnc1_sub0.mp3|Em—",
+       "sntnc1_sub1.mp3|dash and double--",
+       "sntnc1_sub2.mp3|hyphen and en–dash.",
+       "sntnc2_sub0.mp3|‘Single’ quotes,",
+       "sntnc2_sub1.mp3|an ellipsis… and 10 km with a non-breaking space.",
+       "sntnc3_sub0.mp3|Is 12:30 p.m. late?",
+       "sntnc4_sub0.mp3|Version 1.2.3 shipped; the 2nd of May; page 12-15."
+      ],
+      "n": 21
+     }
+    },
+    "sentences": {
+     "items": [
+      "“I still don’t believe it,” she said... “Are you coming up, or not?” Dr. Marsh checked the log (found beneath the door) again!!",
+      "Really??",
+      "Yes.",
+      "The ratio was 3:1 at 6:45 and 7:15, i.e. late; e.g. very late.",
+      "See https://example.com/lighthouse-log for details.",
+      "Note: the beam slowed by 2.5 degrees.",
+      "It cost $12.50, or 1,250 pennies, up 15% since March 5, 2024.",
+      "J. R. Alvarez vs. Prof. Whitfield: no.",
+      "Em—dash and double--hyphen and en–dash.",
+      "‘Single’ quotes, an ellipsis… and 10 km with a non-breaking space.",
+      "Is 12:30 p.m. late?",
+      "Version 1.2.3 shipped; the 2nd of May; page 12-15."
+     ],
+     "n": 12
+    },
+    "title": "<source file path>"
+   },
+   "qc_difficult_short": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "Dr. Elena Marsh checked the logbook one last time. It was 6:45 when J. R. Alvarez, the harbor master, radioed that the ferry would not arrive before 7:15. \"I still don't believe it,\" she murmured, unfolding the note (found wedged beneath the lamp-room door) one more time. The ratio of questions to answers in it felt close to 3:1, and the beam's rotation had slowed by 2.5 degrees per second, a change no one could explain. Mr. Okafor and Mrs. Yates both blamed the storm; Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back to her, e.g. it had simply gone unwatched, vs. gone out entirely. She had read the full report at https://example.com/lighthouse-log before setting it aside... the light flickered once, then steadied. \"Are you coming up, or not?\" Mrs. Yates called from the stairs below."
+       ],
+       "n": 1
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "27039ce4b5282cfad8545a7522435faed91a3d499901a6db962d134275c5ed0a",
+     "items": [
+      [
+       [
+        "Dr. Elena Marsh checked the logbook one last time.",
+        0
+       ]
+      ],
+      [
+       [
+        "It was 6:45 when J. R. Alvarez,",
+        300
+       ],
+       [
+        "the harbor master,",
+        300
+       ],
+       [
+        "radioed that the ferry would not arrive before 7:15.",
+        0
+       ]
+      ],
+      [
+       [
+        "\"I still don't believe it,\" she murmured,",
+        300
+       ],
+       [
+        "unfolding the note (found wedged beneath the lamp-room door) one more time.",
+        0
+       ]
+      ],
+      [
+       [
+        "The ratio of questions to answers in it felt close to 3:1,",
+        300
+       ],
+       [
+        "and the beam's rotation had slowed by 2.5 degrees per second,",
+        300
+       ],
+       [
+        "a change no one could explain.",
+        0
+       ]
+      ],
+      [
+       [
+        "Mr. Okafor and Mrs. Yates both blamed the storm; Prof. Whitfield's theory,",
+        300
+       ],
+       [
+        "i.e. that the light had never truly gone dark,",
+        300
+       ],
+       [
+        "kept circling back to her,",
+        300
+       ],
+       [
+        "e.g. it had simply gone unwatched,",
+        300
+       ],
+       [
+        "vs. gone out entirely.",
+        0
+       ]
+      ],
+      [
+       [
+        "She had read the full report at https://example.com/lighthouse-log before setting it aside...",
+        600
+       ],
+       [
+        "the light flickered once,",
+        300
+       ],
+       [
+        "then steadied.",
+        0
+       ]
+      ],
+      [
+       [
+        "\"Are you coming up,",
+        300
+       ],
+       [
+        "or not?\"",
+        0
+       ]
+      ],
+      [
+       [
+        "Mrs. Yates called from the stairs below.",
+        0
+       ]
+      ]
+     ],
+     "n": 8
+    },
+    "read_book": {
+     "exports": [
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 12348
+      },
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 14348
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 14348
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 17348
+      }
+     ],
+     "files": [
+      "part1.flac"
+     ],
+     "spoken": {
+      "items": [
+       "sntnc1_sub0.mp3|Dr. Elena Marsh checked the logbook one last time.",
+       "sntnc2_sub0.mp3|It was 6:45 when J. R. Alvarez,",
+       "sntnc2_sub1.mp3|the harbor master,",
+       "sntnc2_sub2.mp3|radioed that the ferry would not arrive before 7:15.",
+       "sntnc3_sub0.mp3|\"I still don't believe it,\" she murmured,",
+       "sntnc3_sub1.mp3|unfolding the note (found wedged beneath the lamp-room door) one more time.",
+       "sntnc4_sub0.mp3|The ratio of questions to answers in it felt close to 3:1,",
+       "sntnc4_sub1.mp3|and the beam's rotation had slowed by 2.5 degrees per second,",
+       "sntnc4_sub2.mp3|a change no one could explain.",
+       "sntnc5_sub0.mp3|Mr. Okafor and Mrs. Yates both blamed the storm; Prof. Whitfield's theory,",
+       "sntnc5_sub1.mp3|i.e. that the light had never truly gone dark,",
+       "sntnc5_sub2.mp3|kept circling back to her,",
+       "sntnc5_sub3.mp3|e.g. it had simply gone unwatched,",
+       "sntnc5_sub4.mp3|vs. gone out entirely.",
+       "sntnc6_sub0.mp3|She had read the full report at https://example.com/lighthouse-log before setting it aside...",
+       "sntnc6_sub1.mp3|the light flickered once,",
+       "sntnc6_sub2.mp3|then steadied.",
+       "sntnc7_sub0.mp3|\"Are you coming up,",
+       "sntnc7_sub1.mp3|or not?\"",
+       "sntnc8_sub0.mp3|Mrs. Yates called from the stairs below."
+      ],
+      "n": 20
+     }
+    },
+    "sentences": {
+     "items": [
+      "Dr. Elena Marsh checked the logbook one last time.",
+      "It was 6:45 when J. R. Alvarez, the harbor master, radioed that the ferry would not arrive before 7:15.",
+      "\"I still don't believe it,\" she murmured, unfolding the note (found wedged beneath the lamp-room door) one more time.",
+      "The ratio of questions to answers in it felt close to 3:1, and the beam's rotation had slowed by 2.5 degrees per second, a change no one could explain.",
+      "Mr. Okafor and Mrs. Yates both blamed the storm; Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back to her, e.g. it had simply gone unwatched, vs. gone out entirely.",
+      "She had read the full report at https://example.com/lighthouse-log before setting it aside... the light flickered once, then steadied.",
+      "\"Are you coming up, or not?\"",
+      "Mrs. Yates called from the stairs below."
+     ],
+     "n": 8
+    },
+    "title": "<source file path>"
+   },
+   "qc_longer_stress": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "chars": 10783,
+       "first": "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it. She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.",
+       "last": "Winter came in hard after that, the way it always did on Gannet Rock, and the ordinary business of keeping a light through storms and fog and the long stretches of nothing in between left little room for wondering about smugglers who were almost certainly dead now, or coves that had not seen unlawful traffic in longer than anyone alive could verify. Elena kept her log the way she always had, faithfully and a little more than the job strictly required, and if she still paused sometimes at three in the morning to listen for an engine that never came back, she told herself that was simply what eleven, now twelve, years on this rock had taught her to do.",
+       "lens": [
+        677,
+        662,
+        628,
+        630,
+        627,
+        581,
+        587,
+        644,
+        628,
+        724,
+        576,
+        722,
+        581,
+        582,
+        686,
+        590,
+        658
+       ],
+       "n": 17,
+       "sha256": [
+        "611c4a866811fbaedf7293df5c92d06eacca8695ee6b950fbbee6d769eb76922",
+        "b888d9e8ef3ed8bafcb562c02c4ab9a715bf8dae2414f6a033e4af1faf0f846f",
+        "1c6b180546b6130c7753c42016db32aa98d266f85bf372c1b68aae623923f6f9",
+        "d2b05b2792cbc07094ebf05145acbee1224075872cc9ed0320736cea4c58a52b",
+        "84fb88f08f3abcbf5a8122aa118f81c9630a4d0def5caf9d159c004c10a4a083",
+        "b7ad64c3f20943b53f635374edf60b348e8efa464a67b05f8f1553c2afc01f0c",
+        "8346cf1d589d09047dc1551754075aa28fe45e1d5da9809da79c7357834afa04",
+        "d35145113245b696a101928587d13f92b6401b558a2915b257fdf3ee71df7a39",
+        "20b3369649a3d2403745b13d9658226cac61849a2a77483845fe9ac2809e6bf3",
+        "0f10f483c427039263a57a2ae4276af291af6338f7c252aaba7b345fb3b4fae0",
+        "b12c214ca5b3f4a62bf724f32e51125e79fc9084ed5b5ea29a85f6e1c55b468b",
+        "013863eb53d9feb4e8d6428628521179903312e5b6045e97a1287ef4a2bd07f7",
+        "f86fab3a513d129a9942c3078ee4b4f240ebaab4f961f1a9adda334ccb8d087f",
+        "1f1814ae6f3344ff8534394c7f610b3b4a7922043174456acc78a6111728b2ff",
+        "14c2442621781d312ad29f2c32dadd9cf393d821a72379eb65abcfc90c2e0e8c",
+        "6ba28438a73f069fef89bdd2621ca73dff190fdf63cc07fe58c6248b9400bc90",
+        "0dc49b6d65682721b83d29c820ea8c273dff1abf8c62378ca7d86de5102cfe24"
+       ]
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "ffef28ac351bf150cc91b36555c322dcd214148a6dc67eb44ab9bb1fd71e18ee",
+     "items": null,
+     "n": 56
+    },
+    "sentences": {
+     "chars": 10744,
+     "first": "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure.",
+     "last": "Elena kept her log the way she always had, faithfully and a little more than the job strictly required, and if she still paused sometimes at three in the morning to listen for an engine that never came back, she told herself that was simply what eleven, now twelve, years on this rock had taught her to do.",
+     "lens": [
+      177,
+      234,
+      264,
+      96,
+      49,
+      232,
+      282,
+      74,
+      131,
+      119,
+      98,
+      202,
+      160,
+      133,
+      160,
+      174,
+      52,
+      184,
+      183,
+      205,
+      42,
+      8,
+      281,
+      247,
+      124,
+      302,
+      40,
+      118,
+      260,
+      34,
+      152,
+      195,
+      138,
+      232,
+      256,
+      186,
+      295,
+      241,
+      177,
+      398,
+      141,
+      160,
+      170,
+      248,
+      261,
+      319,
+      256,
+      150,
+      174,
+      297,
+      199,
+      188,
+      303,
+      286,
+      351,
+      306
+     ],
+     "n": 56,
+     "sha256": [
+      "c8e04aa8ee72e327a4b33eb2c4b16c4b9a600d578a56fc82b02fc81a36c6f3ae",
+      "7377bc8f77837a9b133e34c462aca3dcf5734c33546ffc164cf397b9e663e984",
+      "6e485e09458d018321414209e9f6f48f3158c4a33bcf7fcf107b75a95a83954f",
+      "5d6109b4674e89d10550da20be4e55afce8b981e27d72cdaee8ce8fe1570873e",
+      "e3d1f46f9ba5d76462d0cdfaf6ff87d3609b4658835bb2cc17079d758b5c9894",
+      "40358e3c5aff9ebc1326150e1d05ac4fe7b30b8c6a9391550967e0286fb55b2a",
+      "dcde55c27add2a0fbd79e6fb06a6a6a1e9658f94faade1a8cfe7ac43b3d2207f",
+      "b951276afa6daaba1a7b3a9d46d3b07f918af8d24cd59c856b46fefab9c1ad6f",
+      "a56a6d4d006aa5f3d5fd9bb67a8a50f66bfe645688915f62b036885cfeb4f575",
+      "de05818cde67ccf388d5c5391643d014cde0a88d906be584a1ac337ec9e34cdc",
+      "80693bcc6eae4d12b3914ae79d6235b2b243f7a2230687c6cabe32a5a82f6b5a",
+      "e910be90a9d603eb16bfb02eb393885cf869eb139d494d956db4e8b1d270fe19",
+      "0a924018f923b9a851f932a7a27fe56780930364747a9d26b00f4cf63c175e01",
+      "11e6f85ff06ab9b79b52932a07e8ae1e98a8bb93215ba3a9cd62b124e395575f",
+      "7e8507b3f546f4e31e220721c4c15ed997b9e31108d0d2ad5fed7a7b2b8b5c88",
+      "980acd68960853573986f833a9db46cbc8f8c17760b37f81d61a3f2e17dcd4dd",
+      "7bd5f4ade4a1e0f2f1439c2e1cd67d9aebe13f602c98a9fb1e4132aba38af745",
+      "f9250af4df703ae20a1b55336d78f4b39fddc6bfaa44634b58b4d68a7b9343f6",
+      "b68c0ed689fc7e9f83f5b14326493ad784b41ddc59428ccbbd16781646b99eec",
+      "23cc3729190fb40b9d1146412b59c4e2dc903d2001d5fae57de931034674f91e",
+      "eda5507240e46b7d43eb13c7bcb22991fd40c4051b3180ff2c7e8db09f996f51",
+      "46438371960f0974b3c15f54488a09d835f9c48094ef97ad65355a1765ae921f",
+      "0524b7ef7cb76b71c004729fe28c4dc2968de50e7e342b2ffeebbbc50f7b6c78",
+      "5186c5fafebd787cfe28ad17960977b826b11e1940ace9ea4c28069bb1209f86",
+      "b17b099e1b7fb86044c2dcde6975efa84c8d854107b9dfc0ce3ee0857ef6ba3b",
+      "7a77dfa4b94f793e9236b6042ae2b814e009b2675bc917caddc04a2d873bd8f3",
+      "f5fc92ac4ee51138f2b8561b47178c1e2ba8d91788a5dcf767921ff9bd57fff2",
+      "ef9a180f918a3c61b788f4c74ed251972d60abbfb6d9918a6e1908e2111f7f94",
+      "bf32d1e1101187e6de9a2fb39f0d4e9c4482befc6536b077790abfd075ae3ae6",
+      "312b864cc627405ecd2df4295025fad69a6c850ba55348b05fe8c333fc616f3e",
+      "b7348128bfd6d8eaaec28c8dd60b4978351839b538d3bbb3a90929b5907f600f",
+      "311d9a79a8531baecf4e5b397013a4e801d67aa88b26c06768a7e4558247f958",
+      "3e41e78522221a0a33b2b779f6d226b2eee4a73669b8125fb86c11bd77c4c883",
+      "b6f09674883ad89ff6a2880168b972a84b17bb161ab0c38a34fd97001ee79c64",
+      "52f4acbd7f39d45bb7dc9f6b3498dea42d81cc9fe917c70138ff10557540517f",
+      "ee0da2b69eac95d5a414e73d98ec4ee47c5271bf35029e4a16f735d811b05a83",
+      "93171b58bffe7e1ec8082a17669931f11cc6a48e90a09b6ac55d4d460c668d42",
+      "ff293beccc6632c62be18d0ce4c8bc02c0912f807f1a8a55f49bd351d9278910",
+      "58704ad37978d93bc05afbf29cb9e96225aa9a822fe25d86587d2af33d1465ca",
+      "047685fb9600b63d9580026c50b52f938b6dcadb536ef0e11dedb244d1416576",
+      "e5355ab37aef4c8a22cf4aea76bf15872ce246bc76733cb48714fe2ac212a091",
+      "9c211d5a3525e88a7023716f3e39b6d33cc583d473c14e41c570a2b76250813a",
+      "2678931542bd1b360d253d3a259ec301d1ee7bef2bc89c8aed204af88aafc52f",
+      "c294d5f1cbc862c57965127a855ec38e9eb79740b0d9eeef1376a00145eec4be",
+      "1ea31279aad25319122226a3808aa5a97052d3f36d4a46c5bfa9e6cf34814ece",
+      "afce00dd63ad3ed8bc4ba0fdf573db735e774d6a5bc645646dd663274f47c1dc",
+      "d2f5b1fd9d9e44075ee781e1801000c98e07913ae1e11ed88c5113f406816d44",
+      "c10677d20ffd65bd7d6efae1ce314577c431ccb2485b5eabf675f7112ed71f9c",
+      "dbd239c76aac2610a29664a20deb94202c8b2d48762f7a299b52fcbda500b924",
+      "07bf632c774d3c9cb7dd787ce409bf5e4633e4380ae4ec81f5a53371597ffcdc",
+      "d02129aaa79880221f8cc8cb991d36ec278b392d9893973baf61ee835db1b6c1",
+      "6e87c51900600852c1e78b8b2a4b7b05f530bdd451c7832888a0b7712fe7a33a",
+      "ff4cde2106ae9f43b55e0f586bd02940306c82075ef5cfaae046506b17fc4c31",
+      "5f413bdd31d66b9d724532b5fa7661d33833bbbf9cea7e39b580b8fb1897758f",
+      "4c38a7eefb4c04107666fdf59d11209f13842de07b1e7e9dcfa365eeb97e9cc3",
+      "1c2bfcba565686b4781b1c36b506e046dc3ee56c2eaca276e34eb090fe48d68a"
+     ]
+    },
+    "title": "<source file path>"
+   },
+   "qc_structural_stress_chatterbox": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "The wind came in off the strait before dawn, rattling the shutters twice, then three times, before the keeper finally rose to check the lamp. She climbed the spiral stairs without a lantern, trusting the count of steps she had learned as a girl, and at the top she found the glass fogged over from the cold snap that had settled in overnight. Below, the harbor lights blinked on one by one, small and steady, as the first boats pushed out past the breakwater into water still dark as slate."
+       ],
+       "n": 1
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "bbec2eeca12cd0101f1eaf5bf9cdd5118ddc36da1d868fc9ed1db2136d79d868",
+     "items": [
+      [
+       [
+        "The wind came in off the strait before dawn,",
+        300
+       ],
+       [
+        "rattling the shutters twice,",
+        300
+       ],
+       [
+        "then three times,",
+        300
+       ],
+       [
+        "before the keeper finally rose to check the lamp.",
+        0
+       ]
+      ],
+      [
+       [
+        "She climbed the spiral stairs without a lantern,",
+        300
+       ],
+       [
+        "trusting the count of steps she had learned as a girl,",
+        300
+       ],
+       [
+        "and at the top she found the glass fogged over from the cold snap that had settled in overnight.",
+        0
+       ]
+      ],
+      [
+       [
+        "Below,",
+        300
+       ],
+       [
+        "the harbor lights blinked on one by one,",
+        300
+       ],
+       [
+        "small and steady,",
+        300
+       ],
+       [
+        "as the first boats pushed out past the breakwater into water still dark as slate.",
+        0
+       ]
+      ]
+     ],
+     "n": 3
+    },
+    "read_book": {
+     "exports": [
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 5949
+      },
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 7949
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 7949
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 10949
+      }
+     ],
+     "files": [
+      "part1.flac"
+     ],
+     "spoken": {
+      "items": [
+       "sntnc1_sub0.mp3|The wind came in off the strait before dawn,",
+       "sntnc1_sub1.mp3|rattling the shutters twice,",
+       "sntnc1_sub2.mp3|then three times,",
+       "sntnc1_sub3.mp3|before the keeper finally rose to check the lamp.",
+       "sntnc2_sub0.mp3|She climbed the spiral stairs without a lantern,",
+       "sntnc2_sub1.mp3|trusting the count of steps she had learned as a girl,",
+       "sntnc2_sub2.mp3|and at the top she found the glass fogged over from the cold snap that had settled in overnight.",
+       "sntnc3_sub0.mp3|Below,",
+       "sntnc3_sub1.mp3|the harbor lights blinked on one by one,",
+       "sntnc3_sub2.mp3|small and steady,",
+       "sntnc3_sub3.mp3|as the first boats pushed out past the breakwater into water still dark as slate."
+      ],
+      "n": 11
+     }
+    },
+    "sentences": {
+     "items": [
+      "The wind came in off the strait before dawn, rattling the shutters twice, then three times, before the keeper finally rose to check the lamp.",
+      "She climbed the spiral stairs without a lantern, trusting the count of steps she had learned as a girl, and at the top she found the glass fogged over from the cold snap that had settled in overnight.",
+      "Below, the harbor lights blinked on one by one, small and steady, as the first boats pushed out past the breakwater into water still dark as slate."
+     ],
+     "n": 3
+    },
+    "title": "<source file path>"
+   },
+   "qc_structural_stress_kokoro_edge": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "The keeper's log for that stretch of coast went back four generations, and every entry before this one agreed on the same plain fact: the light turned, and it did not stop turning. Elena had read most of the older volumes twice, first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced. Neither reading had prepared her for a night when the beam simply slowed, as though something heavy had settled onto the mechanism and no one had noticed the extra weight.",
+        "She traced the drive shaft down from the lamp room to the clockwork room below, running a bare hand along the housing the way her predecessor had taught her, feeling for heat, for grit, for anything that did not belong. The gears turned true under her fingers. The mercury bath beneath them sat level and undisturbed. Whatever had reached into the rotation, it had left no mark anyone could touch, and that bothered her more than a broken part ever could have, because a broken part could at least be replaced.",
+        "Outside, the fog had thickened enough to swallow the breakwater entirely, and twice she thought she heard an engine idling somewhere past the rocks, closer than any boat had business being on a night like this. She told herself it was the wind finding a gap in the old stone, the same trick it played every autumn, and she almost believed it. The log open on the desk behind her still waited for an entry, and for the first time in eleven years on this rock, she did not know what honest sentence to write in it.",
+        "By the time the sun came up gray and thin over the water, the beam had returned to its ordinary, indifferent rhythm, as if nothing at all had happened, and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading, unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had.",
+        "She telephoned no one that morning, though the harbor master's office kept regular hours and would gladly have taken her call. Instead she sat with the log open in front of her and read back through the last decade of entries, page by careful page, looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down. She found nothing conclusive, only a handful of oddly terse nights scattered across the years, each one otherwise unremarkable, each one ending its entry a little sooner than the surrounding pages did, as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand.",
+        "She spent the rest of that morning doing the ordinary work a keeper does after a strange night: refilling the log, checking the weather line for anything worth flagging, and resisting the urge to call the harbor master's office before she had a single fact worth reporting. A half-remembered engine and a beam that occasionally hesitated were not, on their own, the kind of thing that justified pulling anyone else out to a rock in heavy fog, and she had learned the hard way, early in her first winter, that a keeper who cried wolf even once earned a reputation that outlasted every later correction.",
+        "So she watched, and she waited, and she kept the kind of careful, unglamorous notes that never made it into any story anyone told about lighthouse keepers, and that was exactly how, three nights later, she finally caught the fault behaving long enough to trace it to its source."
+       ],
+       "n": 7
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "c80dd5d550a2e74a6f947b4a0a4c014cac5d24f39dde3651ca5c132f0c16d479",
+     "items": [
+      [
+       [
+        "The keeper's log for that stretch of coast went back four generations,",
+        300
+       ],
+       [
+        "and every entry before this one agreed on the same plain fact: the light turned,",
+        300
+       ],
+       [
+        "and it did not stop turning.",
+        0
+       ]
+      ],
+      [
+       [
+        "Elena had read most of the older volumes twice,",
+        300
+       ],
+       [
+        "first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced.",
+        0
+       ]
+      ],
+      [
+       [
+        "Neither reading had prepared her for a night when the beam simply slowed,",
+        300
+       ],
+       [
+        "as though something heavy had settled onto the mechanism and no one had noticed the extra weight.",
+        0
+       ]
+      ],
+      [
+       [
+        "She traced the drive shaft down from the lamp room to the clockwork room below,",
+        300
+       ],
+       [
+        "running a bare hand along the housing the way her predecessor had taught her,",
+        300
+       ],
+       [
+        "feeling for heat,",
+        300
+       ],
+       [
+        "for grit,",
+        300
+       ],
+       [
+        "for anything that did not belong.",
+        0
+       ]
+      ],
+      [
+       [
+        "The gears turned true under her fingers.",
+        0
+       ]
+      ],
+      [
+       [
+        "The mercury bath beneath them sat level and undisturbed.",
+        0
+       ]
+      ],
+      [
+       [
+        "Whatever had reached into the rotation,",
+        300
+       ],
+       [
+        "it had left no mark anyone could touch,",
+        300
+       ],
+       [
+        "and that bothered her more than a broken part ever could have,",
+        300
+       ],
+       [
+        "because a broken part could at least be replaced.",
+        0
+       ]
+      ],
+      [
+       [
+        "Outside,",
+        300
+       ],
+       [
+        "the fog had thickened enough to swallow the breakwater entirely,",
+        300
+       ],
+       [
+        "and twice she thought she heard an engine idling somewhere past the rocks,",
+        300
+       ],
+       [
+        "closer than any boat had business being on a night like this.",
+        0
+       ]
+      ],
+      [
+       [
+        "She told herself it was the wind finding a gap in the old stone,",
+        300
+       ],
+       [
+        "the same trick it played every autumn,",
+        300
+       ],
+       [
+        "and she almost believed it.",
+        0
+       ]
+      ],
+      [
+       [
+        "The log open on the desk behind her still waited for an entry,",
+        300
+       ],
+       [
+        "and for the first time in eleven years on this rock,",
+        300
+       ],
+       [
+        "she did not know what honest sentence to write in it.",
+        0
+       ]
+      ],
+      [
+       [
+        "By the time the sun came up gray and thin over the water,",
+        300
+       ],
+       [
+        "the beam had returned to its ordinary,",
+        300
+       ],
+       [
+        "indifferent rhythm,",
+        300
+       ],
+       [
+        "as if nothing at all had happened,",
+        300
+       ],
+       [
+        "and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading,",
+        300
+       ],
+       [
+        "unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had.",
+        0
+       ]
+      ],
+      [
+       [
+        "She telephoned no one that morning,",
+        300
+       ],
+       [
+        "though the harbor master's office kept regular hours and would gladly have taken her call.",
+        0
+       ]
+      ],
+      [
+       [
+        "Instead she sat with the log open in front of her and read back through the last decade of entries,",
+        300
+       ],
+       [
+        "page by careful page,",
+        300
+       ],
+       [
+        "looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down.",
+        0
+       ]
+      ],
+      [
+       [
+        "She found nothing conclusive,",
+        300
+       ],
+       [
+        "only a handful of oddly terse nights scattered across the years,",
+        300
+       ],
+       [
+        "each one otherwise unremarkable,",
+        300
+       ],
+       [
+        "each one ending its entry a little sooner than the surrounding pages did,",
+        300
+       ],
+       [
+        "as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand.",
+        0
+       ]
+      ],
+      [
+       [
+        "She spent the rest of that morning doing the ordinary work a keeper does after a strange night: refilling the log,",
+        300
+       ],
+       [
+        "checking the weather line for anything worth flagging,",
+        300
+       ],
+       [
+        "and resisting the urge to call the harbor master's office before she had a single fact worth reporting.",
+        0
+       ]
+      ],
+      [
+       [
+        "A half-remembered engine and a beam that occasionally hesitated were not,",
+        300
+       ],
+       [
+        "on their own,",
+        300
+       ],
+       [
+        "the kind of thing that justified pulling anyone else out to a rock in heavy fog,",
+        300
+       ],
+       [
+        "and she had learned the hard way,",
+        300
+       ],
+       [
+        "early in her first winter,",
+        300
+       ],
+       [
+        "that a keeper who cried wolf even once earned a reputation that outlasted every later correction.",
+        0
+       ]
+      ],
+      [
+       [
+        "So she watched,",
+        300
+       ],
+       [
+        "and she waited,",
+        300
+       ],
+       [
+        "and she kept the kind of careful,",
+        300
+       ],
+       [
+        "unglamorous notes that never made it into any story anyone told about lighthouse keepers,",
+        300
+       ],
+       [
+        "and that was exactly how,",
+        300
+       ],
+       [
+        "three nights later,",
+        300
+       ],
+       [
+        "she finally caught the fault behaving long enough to trace it to its source.",
+        0
+       ]
+      ]
+     ],
+     "n": 17
+    },
+    "read_book": {
+     "exports": [
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 4349
+      },
+      {
+       "file": "pgraphs1.flac",
+       "format": "flac",
+       "ms": 6449
+      },
+      {
+       "file": "pgraphs2.flac",
+       "format": "flac",
+       "ms": 5549
+      },
+      {
+       "file": "pgraphs3.flac",
+       "format": "flac",
+       "ms": 2949
+      },
+      {
+       "file": "pgraphs4.flac",
+       "format": "flac",
+       "ms": 5549
+      },
+      {
+       "file": "pgraphs5.flac",
+       "format": "flac",
+       "ms": 4649
+      },
+      {
+       "file": "pgraphs6.flac",
+       "format": "flac",
+       "ms": 3349
+      },
+      {
+       "file": "pgraphs6.flac",
+       "format": "flac",
+       "ms": 5349
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 34843
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 37843
+      }
+     ],
+     "files": [
+      "part1.flac"
+     ],
+     "spoken": {
+      "items": [
+       "sntnc1_sub0.mp3|The keeper's log for that stretch of coast went back four generations,",
+       "sntnc1_sub1.mp3|and every entry before this one agreed on the same plain fact: the light turned,",
+       "sntnc1_sub2.mp3|and it did not stop turning.",
+       "sntnc2_sub0.mp3|Elena had read most of the older volumes twice,",
+       "sntnc2_sub1.mp3|first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced.",
+       "sntnc3_sub0.mp3|Neither reading had prepared her for a night when the beam simply slowed,",
+       "sntnc3_sub1.mp3|as though something heavy had settled onto the mechanism and no one had noticed the extra weight.",
+       "sntnc1_sub0.mp3|She traced the drive shaft down from the lamp room to the clockwork room below,",
+       "sntnc1_sub1.mp3|running a bare hand along the housing the way her predecessor had taught her,",
+       "sntnc1_sub2.mp3|feeling for heat,",
+       "sntnc1_sub3.mp3|for grit,",
+       "sntnc1_sub4.mp3|for anything that did not belong.",
+       "sntnc2_sub0.mp3|The gears turned true under her fingers.",
+       "sntnc3_sub0.mp3|The mercury bath beneath them sat level and undisturbed.",
+       "sntnc4_sub0.mp3|Whatever had reached into the rotation,",
+       "sntnc4_sub1.mp3|it had left no mark anyone could touch,",
+       "sntnc4_sub2.mp3|and that bothered her more than a broken part ever could have,",
+       "sntnc4_sub3.mp3|because a broken part could at least be replaced.",
+       "sntnc1_sub0.mp3|Outside,",
+       "sntnc1_sub1.mp3|the fog had thickened enough to swallow the breakwater entirely,",
+       "sntnc1_sub2.mp3|and twice she thought she heard an engine idling somewhere past the rocks,",
+       "sntnc1_sub3.mp3|closer than any boat had business being on a night like this.",
+       "sntnc2_sub0.mp3|She told herself it was the wind finding a gap in the old stone,",
+       "sntnc2_sub1.mp3|the same trick it played every autumn,",
+       "sntnc2_sub2.mp3|and she almost believed it.",
+       "sntnc3_sub0.mp3|The log open on the desk behind her still waited for an entry,",
+       "sntnc3_sub1.mp3|and for the first time in eleven years on this rock,",
+       "sntnc3_sub2.mp3|she did not know what honest sentence to write in it.",
+       "sntnc1_sub0.mp3|By the time the sun came up gray and thin over the water,",
+       "sntnc1_sub1.mp3|the beam had returned to its ordinary,",
+       "sntnc1_sub2.mp3|indifferent rhythm,",
+       "sntnc1_sub3.mp3|as if nothing at all had happened,",
+       "sntnc1_sub4.mp3|and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading,",
+       "sntnc1_sub5.mp3|unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had.",
+       "sntnc1_sub0.mp3|She telephoned no one that morning,",
+       "sntnc1_sub1.mp3|though the harbor master's office kept regular hours and would gladly have taken her call.",
+       "sntnc2_sub0.mp3|Instead she sat with the log open in front of her and read back through the last decade of entries,",
+       "sntnc2_sub1.mp3|page by careful page,",
+       "sntnc2_sub2.mp3|looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down.",
+       "sntnc3_sub0.mp3|She found nothing conclusive,",
+       "sntnc3_sub1.mp3|only a handful of oddly terse nights scattered across the years,",
+       "sntnc3_sub2.mp3|each one otherwise unremarkable,",
+       "sntnc3_sub3.mp3|each one ending its entry a little sooner than the surrounding pages did,",
+       "sntnc3_sub4.mp3|as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand.",
+       "sntnc1_sub0.mp3|She spent the rest of that morning doing the ordinary work a keeper does after a strange night: refilling the log,",
+       "sntnc1_sub1.mp3|checking the weather line for anything worth flagging,",
+       "sntnc1_sub2.mp3|and resisting the urge to call the harbor master's office before she had a single fact worth reporting.",
+       "sntnc2_sub0.mp3|A half-remembered engine and a beam that occasionally hesitated were not,",
+       "sntnc2_sub1.mp3|on their own,",
+       "sntnc2_sub2.mp3|the kind of thing that justified pulling anyone else out to a rock in heavy fog,",
+       "sntnc2_sub3.mp3|and she had learned the hard way,",
+       "sntnc2_sub4.mp3|early in her first winter,",
+       "sntnc2_sub5.mp3|that a keeper who cried wolf even once earned a reputation that outlasted every later correction.",
+       "sntnc1_sub0.mp3|So she watched,",
+       "sntnc1_sub1.mp3|and she waited,",
+       "sntnc1_sub2.mp3|and she kept the kind of careful,",
+       "sntnc1_sub3.mp3|unglamorous notes that never made it into any story anyone told about lighthouse keepers,",
+       "sntnc1_sub4.mp3|and that was exactly how,",
+       "sntnc1_sub5.mp3|three nights later,",
+       "sntnc1_sub6.mp3|she finally caught the fault behaving long enough to trace it to its source."
+      ],
+      "n": 60
+     }
+    },
+    "sentences": {
+     "items": [
+      "The keeper's log for that stretch of coast went back four generations, and every entry before this one agreed on the same plain fact: the light turned, and it did not stop turning.",
+      "Elena had read most of the older volumes twice, first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced.",
+      "Neither reading had prepared her for a night when the beam simply slowed, as though something heavy had settled onto the mechanism and no one had noticed the extra weight.",
+      "She traced the drive shaft down from the lamp room to the clockwork room below, running a bare hand along the housing the way her predecessor had taught her, feeling for heat, for grit, for anything that did not belong.",
+      "The gears turned true under her fingers.",
+      "The mercury bath beneath them sat level and undisturbed.",
+      "Whatever had reached into the rotation, it had left no mark anyone could touch, and that bothered her more than a broken part ever could have, because a broken part could at least be replaced.",
+      "Outside, the fog had thickened enough to swallow the breakwater entirely, and twice she thought she heard an engine idling somewhere past the rocks, closer than any boat had business being on a night like this.",
+      "She told herself it was the wind finding a gap in the old stone, the same trick it played every autumn, and she almost believed it.",
+      "The log open on the desk behind her still waited for an entry, and for the first time in eleven years on this rock, she did not know what honest sentence to write in it.",
+      "By the time the sun came up gray and thin over the water, the beam had returned to its ordinary, indifferent rhythm, as if nothing at all had happened, and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading, unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had.",
+      "She telephoned no one that morning, though the harbor master's office kept regular hours and would gladly have taken her call.",
+      "Instead she sat with the log open in front of her and read back through the last decade of entries, page by careful page, looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down.",
+      "She found nothing conclusive, only a handful of oddly terse nights scattered across the years, each one otherwise unremarkable, each one ending its entry a little sooner than the surrounding pages did, as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand.",
+      "She spent the rest of that morning doing the ordinary work a keeper does after a strange night: refilling the log, checking the weather line for anything worth flagging, and resisting the urge to call the harbor master's office before she had a single fact worth reporting.",
+      "A half-remembered engine and a beam that occasionally hesitated were not, on their own, the kind of thing that justified pulling anyone else out to a rock in heavy fog, and she had learned the hard way, early in her first winter, that a keeper who cried wolf even once earned a reputation that outlasted every later correction.",
+      "So she watched, and she waited, and she kept the kind of careful, unglamorous notes that never made it into any story anyone told about lighthouse keepers, and that was exactly how, three nights later, she finally caught the fault behaving long enough to trace it to its source."
+     ],
+     "n": 17
+    },
+    "title": "<source file path>"
+   },
+   "qc_sustained_narration": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it. She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.",
+        "That was why the change in the beam's rhythm troubled her so much more than the storms ever had. A storm was loud and honest about what it wanted. This was quiet, a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log, and so consistent that Elena was certain it was not an accident of weather or wear. Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand, and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.",
+        "She began, as her training insisted she should, with the mechanism itself. The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years. She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory. Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself. If the fault lived in the machine, it was hiding somewhere she had not yet learned to look, and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.",
+        "The second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail. The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath. She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now. Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed.",
+        "It was on the third night that she heard the engine. Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust. This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation. Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull, and heard nothing further before the beam resumed its ordinary pace.",
+        "She did not mention the engine in her log. Not yet. A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol, and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation. She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter.",
+        "The fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight. When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it: not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all. It was not the mechanism slowing itself. Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched.",
+        "She traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room. It was not in Halloran's diagrams. It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside. It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested."
+       ],
+       "n": 8
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "0660b9f0e439cd8f1353cdeb1c2f6b93179504f437bd663a448ffa739a834d09",
+     "items": [
+      [
+       [
+        "Elena Marsh had kept the light on Gannet Rock for eleven years,",
+        300
+       ],
+       [
+        "and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure.",
+        0
+       ]
+      ],
+      [
+       [
+        "The lighthouse itself was older than the town it served,",
+        300
+       ],
+       [
+        "older than the harbor master's office,",
+        300
+       ],
+       [
+        "older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it.",
+        0
+       ]
+      ],
+      [
+       [
+        "She had inherited the post from a keeper named Halloran,",
+        300
+       ],
+       [
+        "who had inherited it from someone whose name nobody quite remembered,",
+        300
+       ],
+       [
+        "and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.",
+        0
+       ]
+      ],
+      [
+       [
+        "That was why the change in the beam's rhythm troubled her so much more than the storms ever had.",
+        0
+       ]
+      ],
+      [
+       [
+        "A storm was loud and honest about what it wanted.",
+        0
+       ]
+      ],
+      [
+       [
+        "This was quiet,",
+        300
+       ],
+       [
+        "a fraction of a second added to each rotation,",
+        300
+       ],
+       [
+        "so small that the harbor master's office had not even flagged it in their weekly log,",
+        300
+       ],
+       [
+        "and so consistent that Elena was certain it was not an accident of weather or wear.",
+        0
+       ]
+      ],
+      [
+       [
+        "Something was slowing the light on purpose,",
+        300
+       ],
+       [
+        "or something was slowing it by a process she did not yet understand,",
+        300
+       ],
+       [
+        "and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.",
+        0
+       ]
+      ],
+      [
+       [
+        "She began,",
+        300
+       ],
+       [
+        "as her training insisted she should,",
+        300
+       ],
+       [
+        "with the mechanism itself.",
+        0
+       ]
+      ],
+      [
+       [
+        "The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed,",
+        300
+       ],
+       [
+        "by her own hand,",
+        300
+       ],
+       [
+        "in three years.",
+        0
+       ]
+      ],
+      [
+       [
+        "She checked the weights,",
+        300
+       ],
+       [
+        "the cables,",
+        300
+       ],
+       [
+        "the small brass regulator that had needed replacing exactly once in living memory.",
+        0
+       ]
+      ],
+      [
+       [
+        "Everything moved as it always had,",
+        300
+       ],
+       [
+        "smooth and cool and entirely uninterested in explaining itself.",
+        0
+       ]
+      ],
+      [
+       [
+        "If the fault lived in the machine,",
+        300
+       ],
+       [
+        "it was hiding somewhere she had not yet learned to look,",
+        300
+       ],
+       [
+        "and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.",
+        0
+       ]
+      ],
+      [
+       [
+        "The second night she watched from the gallery instead of the clockwork room,",
+        300
+       ],
+       [
+        "timing each rotation against the harbor clock with a notebook balanced on the rail.",
+        0
+       ]
+      ],
+      [
+       [
+        "The pattern held: two full turns at the ordinary pace,",
+        300
+       ],
+       [
+        "then one turn stretched by perhaps half a second,",
+        300
+       ],
+       [
+        "as regular as a held breath.",
+        0
+       ]
+      ],
+      [
+       [
+        "She noted the wind direction,",
+        300
+       ],
+       [
+        "the tide,",
+        300
+       ],
+       [
+        "the temperature of the glass under her palm,",
+        300
+       ],
+       [
+        "anything that might later prove to matter even if it seemed irrelevant now.",
+        0
+       ]
+      ],
+      [
+       [
+        "Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter,",
+        300
+       ],
+       [
+        "so that the ten percent that did would not slip past unnoticed.",
+        0
+       ]
+      ],
+      [
+       [
+        "It was on the third night that she heard the engine.",
+        0
+       ]
+      ],
+      [
+       [
+        "Not the ferry,",
+        300
+       ],
+       [
+        "which she knew by the particular unevenness of its idle,",
+        300
+       ],
+       [
+        "and not the harbor patrol boat,",
+        300
+       ],
+       [
+        "which announced itself from a mile off with a distinctive rattle in its exhaust.",
+        0
+       ]
+      ],
+      [
+       [
+        "This was smaller,",
+        300
+       ],
+       [
+        "closer to the rocks than any sensible pilot would bring a boat in fog this thick,",
+        300
+       ],
+       [
+        "and it cut out entirely within a minute or two of the light's next slowed rotation.",
+        0
+       ]
+      ],
+      [
+       [
+        "Elena stood very still at the gallery rail,",
+        300
+       ],
+       [
+        "straining to separate the sound of waves against granite from anything that might be a hull,",
+        300
+       ],
+       [
+        "and heard nothing further before the beam resumed its ordinary pace.",
+        0
+       ]
+      ],
+      [
+       [
+        "She did not mention the engine in her log.",
+        0
+       ]
+      ],
+      [
+       [
+        "Not yet.",
+        0
+       ]
+      ],
+      [
+       [
+        "A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol,",
+        300
+       ],
+       [
+        "and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation.",
+        0
+       ]
+      ],
+      [
+       [
+        "She was aware,",
+        300
+       ],
+       [
+        "distantly,",
+        300
+       ],
+       [
+        "that this was not strictly the by-the-book response,",
+        300
+       ],
+       [
+        "and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter.",
+        0
+       ]
+      ],
+      [
+       [
+        "The fourth night,",
+        300
+       ],
+       [
+        "she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight.",
+        0
+       ]
+      ],
+      [
+       [
+        "When the rhythm caught again,",
+        300
+       ],
+       [
+        "faint and half a second long,",
+        300
+       ],
+       [
+        "she was already kneeling beside the drive shaft with her palm flat against the housing,",
+        300
+       ],
+       [
+        "and this time she felt it: not heat,",
+        300
+       ],
+       [
+        "not grit,",
+        300
+       ],
+       [
+        "but the faintest additional resistance,",
+        300
+       ],
+       [
+        "gone again almost before she was sure she had felt anything at all.",
+        0
+       ]
+      ],
+      [
+       [
+        "It was not the mechanism slowing itself.",
+        0
+       ]
+      ],
+      [
+       [
+        "Something was,",
+        300
+       ],
+       [
+        "very briefly,",
+        300
+       ],
+       [
+        "touching it from outside the housing,",
+        300
+       ],
+       [
+        "in a place the housing was not built to be touched.",
+        0
+       ]
+      ],
+      [
+       [
+        "She traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel,",
+        300
+       ],
+       [
+        "painted over so many times it had become invisible,",
+        300
+       ],
+       [
+        "low on the seaward side of the clockwork room.",
+        0
+       ]
+      ],
+      [
+       [
+        "It was not in Halloran's diagrams.",
+        0
+       ]
+      ],
+      [
+       [
+        "It was not in the harbor authority's original blueprints,",
+        300
+       ],
+       [
+        "which she had read more than once out of simple curiosity about the building she lived inside.",
+        0
+       ]
+      ],
+      [
+       [
+        "It was,",
+        300
+       ],
+       [
+        "as far as she could tell from the layers of paint sealing its edges,",
+        300
+       ],
+       [
+        "older than either document,",
+        300
+       ],
+       [
+        "and it had clearly been opened,",
+        300
+       ],
+       [
+        "however carefully,",
+        300
+       ],
+       [
+        "more recently than the paint suggested.",
+        0
+       ]
+      ]
+     ],
+     "n": 32
+    },
+    "sentences": {
+     "items": [
+      "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure.",
+      "The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it.",
+      "She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.",
+      "That was why the change in the beam's rhythm troubled her so much more than the storms ever had.",
+      "A storm was loud and honest about what it wanted.",
+      "This was quiet, a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log, and so consistent that Elena was certain it was not an accident of weather or wear.",
+      "Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand, and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.",
+      "She began, as her training insisted she should, with the mechanism itself.",
+      "The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years.",
+      "She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory.",
+      "Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself.",
+      "If the fault lived in the machine, it was hiding somewhere she had not yet learned to look, and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.",
+      "The second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail.",
+      "The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath.",
+      "She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now.",
+      "Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed.",
+      "It was on the third night that she heard the engine.",
+      "Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust.",
+      "This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation.",
+      "Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull, and heard nothing further before the beam resumed its ordinary pace.",
+      "She did not mention the engine in her log.",
+      "Not yet.",
+      "A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol, and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation.",
+      "She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter.",
+      "The fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight.",
+      "When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it: not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all.",
+      "It was not the mechanism slowing itself.",
+      "Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched.",
+      "She traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room.",
+      "It was not in Halloran's diagrams.",
+      "It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside.",
+      "It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested."
+     ],
+     "n": 32
+    },
+    "title": "<source file path>"
+   },
+   "structure": {
+    "author": "A. Writer",
+    "chapter_titles": [
+     "Chapter One",
+     "blank",
+     "Chapter Two: The Return"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "It was 6:45 when the ferry arrived. Mr. Okafor waved.",
+        "Second paragraph here; it has a semicolon, a comma, and a dash — like this.",
+        "Title: this line is not a header once the body has started",
+        "Author: neither is this one"
+       ],
+       "n": 4
+      },
+      "title": "Chapter One"
+     },
+     {
+      "paragraphs": {
+       "items": [
+        "Indented paragraph with trailing spaces.",
+        "Final line without terminal punctuation"
+       ],
+       "n": 2
+      },
+      "title": "Chapter Two: The Return"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "def0d671878fd7e8de675288bd977ef8c1d42e4149a8dcdbb9c28950f38c9220",
+     "items": [
+      [
+       [
+        "It was 6:45 when the ferry arrived.",
+        0
+       ]
+      ],
+      [
+       [
+        "Mr. Okafor waved.",
+        0
+       ]
+      ],
+      [
+       [
+        "Second paragraph here; it has a semicolon,",
+        300
+       ],
+       [
+        "a comma,",
+        300
+       ],
+       [
+        "and a dash —",
+        400
+       ],
+       [
+        "like this.",
+        0
+       ]
+      ],
+      [
+       [
+        "Title: this line is not a header once the body has started",
+        0
+       ]
+      ],
+      [
+       [
+        "Author: neither is this one",
+        0
+       ]
+      ],
+      [
+       [
+        "Indented paragraph with trailing spaces.",
+        0
+       ]
+      ],
+      [
+       [
+        "Final line without terminal punctuation",
+        0
+       ]
+      ]
+     ],
+     "n": 7
+    },
+    "read_book": {
+     "exports": [
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 3150
+      },
+      {
+       "file": "pgraphs1.flac",
+       "format": "flac",
+       "ms": 2250
+      },
+      {
+       "file": "pgraphs2.flac",
+       "format": "flac",
+       "ms": 950
+      },
+      {
+       "file": "pgraphs3.flac",
+       "format": "flac",
+       "ms": 950
+      },
+      {
+       "file": "pgraphs3.flac",
+       "format": "flac",
+       "ms": 2950
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 9300
+      },
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 2250
+      },
+      {
+       "file": "pgraphs1.flac",
+       "format": "flac",
+       "ms": 950
+      },
+      {
+       "file": "pgraphs1.flac",
+       "format": "flac",
+       "ms": 2950
+      },
+      {
+       "file": "part2.flac",
+       "format": "flac",
+       "ms": 5200
+      },
+      {
+       "file": "part2.flac",
+       "format": "flac",
+       "ms": 8200
+      }
+     ],
+     "files": [
+      "part1.flac",
+      "part2.flac"
+     ],
+     "spoken": {
+      "items": [
+       "sntnc0.mp3|Chapter One",
+       "sntnc1_sub0.mp3|It was 6:45 when the ferry arrived.",
+       "sntnc2_sub0.mp3|Mr. Okafor waved.",
+       "sntnc1_sub0.mp3|Second paragraph here; it has a semicolon,",
+       "sntnc1_sub1.mp3|a comma,",
+       "sntnc1_sub2.mp3|and a dash —",
+       "sntnc1_sub3.mp3|like this.",
+       "sntnc1_sub0.mp3|Title: this line is not a header once the body has started",
+       "sntnc1_sub0.mp3|Author: neither is this one",
+       "sntnc0.mp3|Chapter Two: The Return",
+       "sntnc1_sub0.mp3|Indented paragraph with trailing spaces.",
+       "sntnc1_sub0.mp3|Final line without terminal punctuation"
+      ],
+      "n": 12
+     }
+    },
+    "sentences": {
+     "items": [
+      "It was 6:45 when the ferry arrived.",
+      "Mr. Okafor waved.",
+      "Second paragraph here; it has a semicolon, a comma, and a dash — like this.",
+      "Title: this line is not a header once the body has started",
+      "Author: neither is this one",
+      "Indented paragraph with trailing spaces.",
+      "Final line without terminal punctuation"
+     ],
+     "n": 7
+    },
+    "title": "The Lighthouse Log"
+   },
+   "unbroken_token": {
+    "author": "Unknown",
+    "chapter_titles": [
+     "blank"
+    ],
+    "chapters": [
+     {
+      "paragraphs": {
+       "items": [
+        "Before xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx after."
+       ],
+       "n": 1
+      },
+      "title": "blank"
+     }
+    ],
+    "intra_sentence_chunks": {
+     "digest": "47516682423829fc06a6e7ce54720208a1ec9a26dd88e4bd2bc6e30972e564a7",
+     "items": [
+      [
+       [
+        "Before xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx after.",
+        0
+       ]
+      ]
+     ],
+     "n": 1
+    },
+    "read_book": {
+     "exports": [
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 950
+      },
+      {
+       "file": "pgraphs0.flac",
+       "format": "flac",
+       "ms": 2950
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 2950
+      },
+      {
+       "file": "part1.flac",
+       "format": "flac",
+       "ms": 5950
+      }
+     ],
+     "files": [
+      "part1.flac"
+     ],
+     "spoken": {
+      "items": [
+       "sntnc1_sub0.mp3|Before xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx after."
+      ],
+      "n": 1
+     }
+    },
+    "sentences": {
+     "items": [
+      "Before xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx after."
+     ],
+     "n": 1
+    },
+    "title": "<source file path>"
+   }
+  }
+ },
+ "route": "edge_direct",
+ "schema": 1
+}

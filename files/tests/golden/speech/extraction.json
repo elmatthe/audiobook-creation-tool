@@ -1,0 +1,14 @@
+{
+ "data": {
+  "clean_page_text": "Chapter 3\n\nThe harbour was quiet that morning, and the lamp-room door stood open. 12\n\nShe counted the steps again and wrote them down.\n\nA second block that does not end a sentence\n\nand continues after a page gap.",
+  "dehyphenate": "Chapter 3\n\nThe harbour was quiet that morning, and the lamp-room door stood\nopen. 12\n\nIV\n\nShe counted the steps again\nand wrote them down.\n\nA second block that does not end a sentence\n\nand continues after a page gap.\n",
+  "ensure_chapter_heading_empty": "Title: Unknown\nAuthor: Unknown\n# Document\n\n",
+  "ensure_chapter_heading_has_heading": "# Existing Heading\n\nBody text.\n",
+  "ensure_chapter_heading_no_heading": "Title: Unknown\nAuthor: Unknown\n# Opening Title Line\n\nThe first paragraph is here.\n\nAnother follows.\n",
+  "merge_blocks_across_page_gaps": "Chapter 3\n\nThe harbour was quiet that morn-\ning, and the lamp-room door stood\nopen. 12\n\nIV\n\nShe counted the steps again\nand wrote them down.\n\nA second block that does not end a sentence and continues after a page gap.",
+  "rejoin_soft_wrapped": "Chapter 3\n\nThe harbour was quiet that morn- ing, and the lamp-room door stood open. 12\n\nIV\n\nShe counted the steps again and wrote them down.\n\nA second block that does not end a sentence\n\nand continues after a page gap.\n",
+  "strip_noise_lines": "Chapter 3\n\nThe harbour was quiet that morn-\ning, and the lamp-room door stood\nopen. 12\n\nShe counted the steps again\nand wrote them down.\n\nA second block that does not end a sentence\n\nand continues after a page gap.\n"
+ },
+ "route": "extraction",
+ "schema": 1
+}

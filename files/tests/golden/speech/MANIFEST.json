@@ -1,0 +1,59 @@
+{
+ "inputs": {
+  "oversized": {
+   "bom_on_disk": false,
+   "chars": 4199,
+   "sha256": "5f6ad9a2609079fa1a648e1a50fbaaf455abb3dd97c758a945be2540395442eb"
+  },
+  "punctuation": {
+   "bom_on_disk": false,
+   "chars": 575,
+   "sha256": "5231418066362331d91429f031f771134350d12cc69edc9b5620e20eabfa1a45"
+  },
+  "qc_difficult_short": {
+   "bom_on_disk": false,
+   "chars": 836,
+   "sha256": "90399ead19f21a10ed2dc7c58ae051c91986e8fc34f7ffbfaeed617cde6d8409"
+  },
+  "qc_longer_stress": {
+   "bom_on_disk": false,
+   "chars": 10815,
+   "sha256": "e4b2948c6a0c028a1edd85438df381d3784901c4da35a2eb7fbb69d9394b5081"
+  },
+  "qc_structural_stress_chatterbox": {
+   "bom_on_disk": false,
+   "chars": 490,
+   "sha256": "bc0bc00d2736f2587418639b2c887e447dcb13bb79969591911d309e12aacf92"
+  },
+  "qc_structural_stress_kokoro_edge": {
+   "bom_on_disk": false,
+   "chars": 3569,
+   "sha256": "1032b21a6c93c6512dc06d1f34c7826179bcefb68f44f245a06670da09b8806d"
+  },
+  "qc_sustained_narration": {
+   "bom_on_disk": false,
+   "chars": 5050,
+   "sha256": "44a55ac9f6790938abc12ac455c1d242639bf8aded279a3e90b6a41c9752b1b4"
+  },
+  "structure": {
+   "bom_on_disk": true,
+   "chars": 405,
+   "sha256": "be9d9f39e634c8593873c330b4e058a6ceb359f0699d0467f684c22987faa3e4"
+  },
+  "unbroken_token": {
+   "bom_on_disk": false,
+   "chars": 714,
+   "sha256": "64ac469f874f99d0a603bf4266bedc81edb34f779eab907de6013864520131d5"
+  }
+ },
+ "note": "Text/chunk/seed baselines captured from the original implementation; no audio, no synthesis, no network.",
+ "routes": [
+  "extraction",
+  "edge_direct",
+  "edge_folder",
+  "kokoro",
+  "chatterbox",
+  "qwen3"
+ ],
+ "schema": 1
+}

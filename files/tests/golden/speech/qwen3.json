@@ -1,0 +1,2850 @@
+{
+ "data": {
+  "assembly_policy": {
+   "report": {
+    "chunks": 2,
+    "end_silence_samples": 72000,
+    "gap_samples": 1200,
+    "sample_rate": 24000,
+    "speech_samples": 350,
+    "total_samples": 74750
+   },
+   "total_samples": 74750
+  },
+  "constants": {
+   "max_chunk_chars": 600,
+   "pipeline_revision": 1,
+   "seed_base": 20261019
+  },
+  "inputs": {
+   "oversized": {
+    "chunks": [
+     {
+      "boundary": "sentence",
+      "end": 587,
+      "index": 0,
+      "paragraph": 0,
+      "start": 0,
+      "text": "The keeper climbed the spiral stairs and counted every single step aloud, number 1. The keeper climbed the spiral stairs and counted every single step aloud, number 2. The keeper climbed the spiral stairs and counted every single step aloud, number 3. The keeper climbed the spiral stairs and counted every single step aloud, number 4. The keeper climbed the spiral stairs and counted every single step aloud, number 5. The keeper climbed the spiral stairs and counted every single step aloud, number 6. The keeper climbed the spiral stairs and counted every single step aloud, number 7."
+     },
+     {
+      "boundary": "sentence",
+      "end": 1180,
+      "index": 1,
+      "paragraph": 0,
+      "start": 588,
+      "text": "The keeper climbed the spiral stairs and counted every single step aloud, number 8. The keeper climbed the spiral stairs and counted every single step aloud, number 9. The keeper climbed the spiral stairs and counted every single step aloud, number 10. The keeper climbed the spiral stairs and counted every single step aloud, number 11. The keeper climbed the spiral stairs and counted every single step aloud, number 12. The keeper climbed the spiral stairs and counted every single step aloud, number 13. The keeper climbed the spiral stairs and counted every single step aloud, number 14."
+     },
+     {
+      "boundary": "sentence",
+      "end": 1775,
+      "index": 2,
+      "paragraph": 0,
+      "start": 1181,
+      "text": "The keeper climbed the spiral stairs and counted every single step aloud, number 15. The keeper climbed the spiral stairs and counted every single step aloud, number 16. The keeper climbed the spiral stairs and counted every single step aloud, number 17. The keeper climbed the spiral stairs and counted every single step aloud, number 18. The keeper climbed the spiral stairs and counted every single step aloud, number 19. The keeper climbed the spiral stairs and counted every single step aloud, number 20. The keeper climbed the spiral stairs and counted every single step aloud, number 21."
+     },
+     {
+      "boundary": "sentence",
+      "end": 2370,
+      "index": 3,
+      "paragraph": 0,
+      "start": 1776,
+      "text": "The keeper climbed the spiral stairs and counted every single step aloud, number 22. The keeper climbed the spiral stairs and counted every single step aloud, number 23. The keeper climbed the spiral stairs and counted every single step aloud, number 24. The keeper climbed the spiral stairs and counted every single step aloud, number 25. The keeper climbed the spiral stairs and counted every single step aloud, number 26. The keeper climbed the spiral stairs and counted every single step aloud, number 27. The keeper climbed the spiral stairs and counted every single step aloud, number 28."
+     },
+     {
+      "boundary": "sentence",
+      "end": 2965,
+      "index": 4,
+      "paragraph": 0,
+      "start": 2371,
+      "text": "The keeper climbed the spiral stairs and counted every single step aloud, number 29. The keeper climbed the spiral stairs and counted every single step aloud, number 30. The keeper climbed the spiral stairs and counted every single step aloud, number 31. The keeper climbed the spiral stairs and counted every single step aloud, number 32. The keeper climbed the spiral stairs and counted every single step aloud, number 33. The keeper climbed the spiral stairs and counted every single step aloud, number 34. The keeper climbed the spiral stairs and counted every single step aloud, number 35."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 3390,
+      "index": 5,
+      "paragraph": 0,
+      "start": 2966,
+      "text": "The keeper climbed the spiral stairs and counted every single step aloud, number 36. The keeper climbed the spiral stairs and counted every single step aloud, number 37. The keeper climbed the spiral stairs and counted every single step aloud, number 38. The keeper climbed the spiral stairs and counted every single step aloud, number 39. The keeper climbed the spiral stairs and counted every single step aloud, number 40."
+     },
+     {
+      "boundary": "clause",
+      "end": 3946,
+      "index": 6,
+      "paragraph": 1,
+      "start": 3392,
+      "text": "a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going;"
+     },
+     {
+      "boundary": "paragraph",
+      "end": 4173,
+      "index": 7,
+      "paragraph": 1,
+      "start": 3947,
+      "text": "and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: It ends here."
+     },
+     {
+      "boundary": "end",
+      "end": 4199,
+      "index": 8,
+      "paragraph": 2,
+      "start": 4175,
+      "text": "Short closing paragraph."
+     }
+    ],
+    "plan_200": {
+     "boundaries": [
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "paragraph",
+      "clause",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "end"
+     ],
+     "n": 26,
+     "paragraphs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      2
+     ],
+     "spans": [
+      [
+       0,
+       167
+      ],
+      [
+       168,
+       335
+      ],
+      [
+       336,
+       503
+      ],
+      [
+       504,
+       671
+      ],
+      [
+       672,
+       840
+      ],
+      [
+       841,
+       1010
+      ],
+      [
+       1011,
+       1180
+      ],
+      [
+       1181,
+       1350
+      ],
+      [
+       1351,
+       1520
+      ],
+      [
+       1521,
+       1690
+      ],
+      [
+       1691,
+       1860
+      ],
+      [
+       1861,
+       2030
+      ],
+      [
+       2031,
+       2200
+      ],
+      [
+       2201,
+       2370
+      ],
+      [
+       2371,
+       2540
+      ],
+      [
+       2541,
+       2710
+      ],
+      [
+       2711,
+       2880
+      ],
+      [
+       2881,
+       3050
+      ],
+      [
+       3051,
+       3220
+      ],
+      [
+       3221,
+       3390
+      ],
+      [
+       3392,
+       3562
+      ],
+      [
+       3563,
+       3754
+      ],
+      [
+       3755,
+       3946
+      ],
+      [
+       3947,
+       4138
+      ],
+      [
+       4139,
+       4173
+      ],
+      [
+       4175,
+       4199
+      ]
+     ],
+     "texts": {
+      "items": [
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 1. The keeper climbed the spiral stairs and counted every single step aloud, number 2.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 3. The keeper climbed the spiral stairs and counted every single step aloud, number 4.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 5. The keeper climbed the spiral stairs and counted every single step aloud, number 6.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 7. The keeper climbed the spiral stairs and counted every single step aloud, number 8.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 9. The keeper climbed the spiral stairs and counted every single step aloud, number 10.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 11. The keeper climbed the spiral stairs and counted every single step aloud, number 12.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 13. The keeper climbed the spiral stairs and counted every single step aloud, number 14.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 15. The keeper climbed the spiral stairs and counted every single step aloud, number 16.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 17. The keeper climbed the spiral stairs and counted every single step aloud, number 18.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 19. The keeper climbed the spiral stairs and counted every single step aloud, number 20.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 21. The keeper climbed the spiral stairs and counted every single step aloud, number 22.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 23. The keeper climbed the spiral stairs and counted every single step aloud, number 24.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 25. The keeper climbed the spiral stairs and counted every single step aloud, number 26.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 27. The keeper climbed the spiral stairs and counted every single step aloud, number 28.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 29. The keeper climbed the spiral stairs and counted every single step aloud, number 30.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 31. The keeper climbed the spiral stairs and counted every single step aloud, number 32.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 33. The keeper climbed the spiral stairs and counted every single step aloud, number 34.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 35. The keeper climbed the spiral stairs and counted every single step aloud, number 36.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 37. The keeper climbed the spiral stairs and counted every single step aloud, number 38.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 39. The keeper climbed the spiral stairs and counted every single step aloud, number 40.",
+       "a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going;",
+       "and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going;",
+       "and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going;",
+       "and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going;",
+       "and then, once more: It ends here.",
+       "Short closing paragraph."
+      ],
+      "n": 26
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "sentence",
+      "paragraph",
+      "clause",
+      "paragraph",
+      "end"
+     ],
+     "n": 9,
+     "paragraphs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      2
+     ],
+     "spans": [
+      [
+       0,
+       587
+      ],
+      [
+       588,
+       1180
+      ],
+      [
+       1181,
+       1775
+      ],
+      [
+       1776,
+       2370
+      ],
+      [
+       2371,
+       2965
+      ],
+      [
+       2966,
+       3390
+      ],
+      [
+       3392,
+       3946
+      ],
+      [
+       3947,
+       4173
+      ],
+      [
+       4175,
+       4199
+      ]
+     ],
+     "texts": {
+      "items": [
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 1. The keeper climbed the spiral stairs and counted every single step aloud, number 2. The keeper climbed the spiral stairs and counted every single step aloud, number 3. The keeper climbed the spiral stairs and counted every single step aloud, number 4. The keeper climbed the spiral stairs and counted every single step aloud, number 5. The keeper climbed the spiral stairs and counted every single step aloud, number 6. The keeper climbed the spiral stairs and counted every single step aloud, number 7.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 8. The keeper climbed the spiral stairs and counted every single step aloud, number 9. The keeper climbed the spiral stairs and counted every single step aloud, number 10. The keeper climbed the spiral stairs and counted every single step aloud, number 11. The keeper climbed the spiral stairs and counted every single step aloud, number 12. The keeper climbed the spiral stairs and counted every single step aloud, number 13. The keeper climbed the spiral stairs and counted every single step aloud, number 14.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 15. The keeper climbed the spiral stairs and counted every single step aloud, number 16. The keeper climbed the spiral stairs and counted every single step aloud, number 17. The keeper climbed the spiral stairs and counted every single step aloud, number 18. The keeper climbed the spiral stairs and counted every single step aloud, number 19. The keeper climbed the spiral stairs and counted every single step aloud, number 20. The keeper climbed the spiral stairs and counted every single step aloud, number 21.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 22. The keeper climbed the spiral stairs and counted every single step aloud, number 23. The keeper climbed the spiral stairs and counted every single step aloud, number 24. The keeper climbed the spiral stairs and counted every single step aloud, number 25. The keeper climbed the spiral stairs and counted every single step aloud, number 26. The keeper climbed the spiral stairs and counted every single step aloud, number 27. The keeper climbed the spiral stairs and counted every single step aloud, number 28.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 29. The keeper climbed the spiral stairs and counted every single step aloud, number 30. The keeper climbed the spiral stairs and counted every single step aloud, number 31. The keeper climbed the spiral stairs and counted every single step aloud, number 32. The keeper climbed the spiral stairs and counted every single step aloud, number 33. The keeper climbed the spiral stairs and counted every single step aloud, number 34. The keeper climbed the spiral stairs and counted every single step aloud, number 35.",
+       "The keeper climbed the spiral stairs and counted every single step aloud, number 36. The keeper climbed the spiral stairs and counted every single step aloud, number 37. The keeper climbed the spiral stairs and counted every single step aloud, number 38. The keeper climbed the spiral stairs and counted every single step aloud, number 39. The keeper climbed the spiral stairs and counted every single step aloud, number 40.",
+       "a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going;",
+       "and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: It ends here.",
+       "Short closing paragraph."
+      ],
+      "n": 9
+     }
+    },
+    "prepared": {
+     "items": [
+      "The keeper climbed the spiral stairs and counted every single step aloud, number 1.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 2.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 3.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 4.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 5.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 6.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 7.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 8.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 9.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 10.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 11.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 12.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 13.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 14.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 15.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 16.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 17.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 18.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 19.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 20.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 21.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 22.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 23.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 24.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 25.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 26.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 27.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 28.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 29.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 30.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 31.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 32.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 33.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 34.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 35.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 36.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 37.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 38.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 39.\nThe keeper climbed the spiral stairs and counted every single step aloud, number 40.\n\na long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: a long clause that keeps going, and going; and then, once more: It ends here.\n\nShort closing paragraph."
+     ],
+     "n": 1
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      1546792482,
+      2080653003,
+      782925901,
+      1356735797,
+      876476232,
+      1933740089,
+      1142832516,
+      1353828271,
+      1610335651
+     ],
+     "qwen3-female-1": [
+      463342687,
+      831191102,
+      317188951,
+      1137390092,
+      1423142765,
+      197967320,
+      2124627884,
+      125717798,
+      533831812
+     ],
+     "qwen3-ryan": [
+      1455428367,
+      343997072,
+      86791715,
+      1012444713,
+      77480767,
+      252230861,
+      1413049637,
+      2104335925,
+      1421697882
+     ]
+    }
+   },
+   "punctuation": {
+    "chunks": [
+     {
+      "boundary": "paragraph",
+      "end": 141,
+      "index": 0,
+      "paragraph": 0,
+      "start": 0,
+      "text": "“I still don’t believe it,” she said... “Are you coming up, or not?” Dr. Marsh checked the log (found beneath the door) again!! Really?? Yes."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 396,
+      "index": 1,
+      "paragraph": 1,
+      "start": 143,
+      "text": "The ratio was 3:1 at 6:45 and 7:15, i.e. late; e.g. very late. See https://example.com/lighthouse-log for details. Note: the beam slowed by 2.5 degrees. It cost $12.50, or 1,250 pennies, up 15% since March 5, 2024. J. R. Alvarez vs. Prof. Whitfield: no."
+     },
+     {
+      "boundary": "end",
+      "end": 575,
+      "index": 2,
+      "paragraph": 2,
+      "start": 398,
+      "text": "Em—dash and double--hyphen and en–dash. ‘Single’ quotes, an ellipsis… and 10 km with a non-breaking space. Is 12:30 p.m. late? Version 1.2.3 shipped; the 2nd of May; page 12-15."
+     }
+    ],
+    "plan_200": {
+     "boundaries": [
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "end"
+     ],
+     "n": 4,
+     "paragraphs": [
+      0,
+      1,
+      1,
+      2
+     ],
+     "spans": [
+      [
+       0,
+       141
+      ],
+      [
+       143,
+       295
+      ],
+      [
+       296,
+       396
+      ],
+      [
+       398,
+       575
+      ]
+     ],
+     "texts": {
+      "items": [
+       "“I still don’t believe it,” she said... “Are you coming up, or not?” Dr. Marsh checked the log (found beneath the door) again!! Really?? Yes.",
+       "The ratio was 3:1 at 6:45 and 7:15, i.e. late; e.g. very late. See https://example.com/lighthouse-log for details. Note: the beam slowed by 2.5 degrees.",
+       "It cost $12.50, or 1,250 pennies, up 15% since March 5, 2024. J. R. Alvarez vs. Prof. Whitfield: no.",
+       "Em—dash and double--hyphen and en–dash. ‘Single’ quotes, an ellipsis… and 10 km with a non-breaking space. Is 12:30 p.m. late? Version 1.2.3 shipped; the 2nd of May; page 12-15."
+      ],
+      "n": 4
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "paragraph",
+      "paragraph",
+      "end"
+     ],
+     "n": 3,
+     "paragraphs": [
+      0,
+      1,
+      2
+     ],
+     "spans": [
+      [
+       0,
+       141
+      ],
+      [
+       143,
+       396
+      ],
+      [
+       398,
+       575
+      ]
+     ],
+     "texts": {
+      "items": [
+       "“I still don’t believe it,” she said... “Are you coming up, or not?” Dr. Marsh checked the log (found beneath the door) again!! Really?? Yes.",
+       "The ratio was 3:1 at 6:45 and 7:15, i.e. late; e.g. very late. See https://example.com/lighthouse-log for details. Note: the beam slowed by 2.5 degrees. It cost $12.50, or 1,250 pennies, up 15% since March 5, 2024. J. R. Alvarez vs. Prof. Whitfield: no.",
+       "Em—dash and double--hyphen and en–dash. ‘Single’ quotes, an ellipsis… and 10 km with a non-breaking space. Is 12:30 p.m. late? Version 1.2.3 shipped; the 2nd of May; page 12-15."
+      ],
+      "n": 3
+     }
+    },
+    "prepared": {
+     "items": [
+      "“I still don’t believe it,” she said... “Are you coming up, or not?” Dr. Marsh checked the log (found beneath the door) again!! Really?? Yes.\n\nThe ratio was 3:1 at 6:45 and 7:15, i.e. late; e.g. very late. See https://example.com/lighthouse-log for details. Note: the beam slowed by 2.5 degrees. It cost $12.50, or 1,250 pennies, up 15% since March 5, 2024. J. R. Alvarez vs. Prof. Whitfield: no.\n\nEm—dash and double--hyphen and en–dash. ‘Single’ quotes, an ellipsis… and 10 km with a non-breaking space. Is 12:30 p.m. late? Version 1.2.3 shipped; the 2nd of May; page 12-15."
+     ],
+     "n": 1
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      689034566,
+      1623409932,
+      400746411
+     ],
+     "qwen3-female-1": [
+      641099513,
+      672298718,
+      1725769133
+     ],
+     "qwen3-ryan": [
+      667056725,
+      1674199260,
+      350257494
+     ]
+    }
+   },
+   "qc_difficult_short": {
+    "chunks": [
+     {
+      "boundary": "sentence",
+      "end": 424,
+      "index": 0,
+      "paragraph": 0,
+      "start": 0,
+      "text": "Dr. Elena Marsh checked the logbook one last time. It was 6:45 when J. R. Alvarez, the harbor master, radioed that the ferry would not arrive before 7:15. \"I still don't believe it,\" she murmured, unfolding the note (found wedged beneath the lamp-room door) one more time. The ratio of questions to answers in it felt close to 3:1, and the beam's rotation had slowed by 2.5 degrees per second, a change no one could explain."
+     },
+     {
+      "boundary": "end",
+      "end": 836,
+      "index": 1,
+      "paragraph": 0,
+      "start": 425,
+      "text": "Mr. Okafor and Mrs. Yates both blamed the storm; Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back to her, e.g. it had simply gone unwatched, vs. gone out entirely. She had read the full report at https://example.com/lighthouse-log before setting it aside... the light flickered once, then steadied. \"Are you coming up, or not?\" Mrs. Yates called from the stairs below."
+     }
+    ],
+    "plan_200": {
+     "boundaries": [
+      "sentence",
+      "sentence",
+      "clause",
+      "sentence",
+      "sentence",
+      "end"
+     ],
+     "n": 6,
+     "paragraphs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "spans": [
+      [
+       0,
+       154
+      ],
+      [
+       155,
+       272
+      ],
+      [
+       273,
+       473
+      ],
+      [
+       474,
+       631
+      ],
+      [
+       632,
+       795
+      ],
+      [
+       796,
+       836
+      ]
+     ],
+     "texts": {
+      "items": [
+       "Dr. Elena Marsh checked the logbook one last time. It was 6:45 when J. R. Alvarez, the harbor master, radioed that the ferry would not arrive before 7:15.",
+       "\"I still don't believe it,\" she murmured, unfolding the note (found wedged beneath the lamp-room door) one more time.",
+       "The ratio of questions to answers in it felt close to 3:1, and the beam's rotation had slowed by 2.5 degrees per second, a change no one could explain. Mr. Okafor and Mrs. Yates both blamed the storm;",
+       "Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back to her, e.g. it had simply gone unwatched, vs. gone out entirely.",
+       "She had read the full report at https://example.com/lighthouse-log before setting it aside... the light flickered once, then steadied. \"Are you coming up, or not?\"",
+       "Mrs. Yates called from the stairs below."
+      ],
+      "n": 6
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "sentence",
+      "end"
+     ],
+     "n": 2,
+     "paragraphs": [
+      0,
+      0
+     ],
+     "spans": [
+      [
+       0,
+       424
+      ],
+      [
+       425,
+       836
+      ]
+     ],
+     "texts": {
+      "items": [
+       "Dr. Elena Marsh checked the logbook one last time. It was 6:45 when J. R. Alvarez, the harbor master, radioed that the ferry would not arrive before 7:15. \"I still don't believe it,\" she murmured, unfolding the note (found wedged beneath the lamp-room door) one more time. The ratio of questions to answers in it felt close to 3:1, and the beam's rotation had slowed by 2.5 degrees per second, a change no one could explain.",
+       "Mr. Okafor and Mrs. Yates both blamed the storm; Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back to her, e.g. it had simply gone unwatched, vs. gone out entirely. She had read the full report at https://example.com/lighthouse-log before setting it aside... the light flickered once, then steadied. \"Are you coming up, or not?\" Mrs. Yates called from the stairs below."
+      ],
+      "n": 2
+     }
+    },
+    "prepared": {
+     "items": [
+      "Dr. Elena Marsh checked the logbook one last time. It was 6:45 when J. R. Alvarez, the harbor master, radioed that the ferry would not arrive before 7:15. \"I still don't believe it,\" she murmured, unfolding the note (found wedged beneath the lamp-room door) one more time. The ratio of questions to answers in it felt close to 3:1, and the beam's rotation had slowed by 2.5 degrees per second, a change no one could explain. Mr. Okafor and Mrs. Yates both blamed the storm; Prof. Whitfield's theory, i.e. that the light had never truly gone dark, kept circling back to her, e.g. it had simply gone unwatched, vs. gone out entirely. She had read the full report at https://example.com/lighthouse-log before setting it aside... the light flickered once, then steadied. \"Are you coming up, or not?\" Mrs. Yates called from the stairs below."
+     ],
+     "n": 1
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      1632652519,
+      403084940
+     ],
+     "qwen3-female-1": [
+      1006125728,
+      914107001
+     ],
+     "qwen3-ryan": [
+      579833175,
+      1773512157
+     ]
+    }
+   },
+   "qc_longer_stress": {
+    "plan_200": {
+     "boundaries": [
+      "sentence",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "sentence",
+      "sentence",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "sentence",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "sentence",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "clause",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "clause",
+      "sentence",
+      "paragraph",
+      "clause",
+      "sentence",
+      "sentence",
+      "paragraph",
+      "clause",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "clause",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "clause",
+      "clause",
+      "paragraph",
+      "sentence",
+      "sentence",
+      "clause",
+      "clause",
+      "paragraph",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "clause",
+      "sentence",
+      "sentence",
+      "paragraph",
+      "clause",
+      "sentence",
+      "sentence",
+      "paragraph",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "clause",
+      "clause",
+      "clause",
+      "clause",
+      "end"
+     ],
+     "n": 75,
+     "paragraphs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      2,
+      2,
+      2,
+      2,
+      2,
+      3,
+      3,
+      3,
+      3,
+      4,
+      4,
+      4,
+      4,
+      4,
+      5,
+      5,
+      5,
+      5,
+      5,
+      6,
+      6,
+      6,
+      6,
+      7,
+      7,
+      7,
+      7,
+      8,
+      8,
+      8,
+      8,
+      9,
+      9,
+      9,
+      9,
+      9,
+      10,
+      10,
+      10,
+      10,
+      11,
+      11,
+      11,
+      11,
+      11,
+      12,
+      12,
+      12,
+      12,
+      13,
+      13,
+      13,
+      13,
+      14,
+      14,
+      14,
+      14,
+      15,
+      15,
+      15,
+      15,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "spans": [
+      [
+       0,
+       177
+      ],
+      [
+       178,
+       273
+      ],
+      [
+       274,
+       469
+      ],
+      [
+       470,
+       539
+      ],
+      [
+       540,
+       677
+      ],
+      [
+       679,
+       841
+      ],
+      [
+       842,
+       974
+      ],
+      [
+       975,
+       1171
+      ],
+      [
+       1172,
+       1341
+      ],
+      [
+       1343,
+       1417
+      ],
+      [
+       1418,
+       1549
+      ],
+      [
+       1550,
+       1669
+      ],
+      [
+       1670,
+       1860
+      ],
+      [
+       1861,
+       1971
+      ],
+      [
+       1973,
+       2133
+      ],
+      [
+       2134,
+       2267
+      ],
+      [
+       2268,
+       2428
+      ],
+      [
+       2429,
+       2603
+      ],
+      [
+       2605,
+       2657
+      ],
+      [
+       2658,
+       2842
+      ],
+      [
+       2843,
+       3026
+      ],
+      [
+       3027,
+       3163
+      ],
+      [
+       3164,
+       3232
+      ],
+      [
+       3234,
+       3285
+      ],
+      [
+       3286,
+       3442
+      ],
+      [
+       3443,
+       3567
+      ],
+      [
+       3568,
+       3744
+      ],
+      [
+       3745,
+       3815
+      ],
+      [
+       3817,
+       3941
+      ],
+      [
+       3942,
+       4116
+      ],
+      [
+       4117,
+       4285
+      ],
+      [
+       4286,
+       4404
+      ],
+      [
+       4406,
+       4543
+      ],
+      [
+       4544,
+       4701
+      ],
+      [
+       4702,
+       4854
+      ],
+      [
+       4855,
+       5050
+      ],
+      [
+       5052,
+       5224
+      ],
+      [
+       5225,
+       5423
+      ],
+      [
+       5424,
+       5556
+      ],
+      [
+       5557,
+       5680
+      ],
+      [
+       5682,
+       5868
+      ],
+      [
+       5869,
+       5974
+      ],
+      [
+       5975,
+       6164
+      ],
+      [
+       6165,
+       6324
+      ],
+      [
+       6325,
+       6406
+      ],
+      [
+       6408,
+       6585
+      ],
+      [
+       6586,
+       6736
+      ],
+      [
+       6737,
+       6833
+      ],
+      [
+       6834,
+       6984
+      ],
+      [
+       6986,
+       7127
+      ],
+      [
+       7128,
+       7288
+      ],
+      [
+       7289,
+       7482
+      ],
+      [
+       7483,
+       7576
+      ],
+      [
+       7577,
+       7708
+      ],
+      [
+       7710,
+       7835
+      ],
+      [
+       7836,
+       8024
+      ],
+      [
+       8025,
+       8192
+      ],
+      [
+       8193,
+       8291
+      ],
+      [
+       8293,
+       8474
+      ],
+      [
+       8475,
+       8549
+      ],
+      [
+       8550,
+       8700
+      ],
+      [
+       8701,
+       8875
+      ],
+      [
+       8877,
+       9049
+      ],
+      [
+       9050,
+       9174
+      ],
+      [
+       9175,
+       9374
+      ],
+      [
+       9375,
+       9563
+      ],
+      [
+       9565,
+       9739
+      ],
+      [
+       9740,
+       9885
+      ],
+      [
+       9886,
+       9986
+      ],
+      [
+       9987,
+       10155
+      ],
+      [
+       10157,
+       10226
+      ],
+      [
+       10227,
+       10422
+      ],
+      [
+       10423,
+       10612
+      ],
+      [
+       10613,
+       10774
+      ],
+      [
+       10775,
+       10815
+      ]
+     ],
+     "texts": {
+      "chars": 10725,
+      "first": "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure.",
+      "last": "years on this rock had taught her to do.",
+      "lens": [
+       177,
+       95,
+       195,
+       69,
+       137,
+       162,
+       132,
+       196,
+       169,
+       74,
+       131,
+       119,
+       190,
+       110,
+       160,
+       133,
+       160,
+       174,
+       52,
+       184,
+       183,
+       136,
+       68,
+       51,
+       156,
+       124,
+       176,
+       70,
+       124,
+       174,
+       168,
+       118,
+       137,
+       157,
+       152,
+       195,
+       172,
+       198,
+       132,
+       123,
+       186,
+       105,
+       189,
+       159,
+       81,
+       177,
+       150,
+       96,
+       150,
+       141,
+       160,
+       193,
+       93,
+       131,
+       125,
+       188,
+       167,
+       98,
+       181,
+       74,
+       150,
+       174,
+       172,
+       124,
+       199,
+       188,
+       174,
+       145,
+       100,
+       168,
+       69,
+       195,
+       189,
+       161,
+       40
+      ],
+      "n": 75,
+      "sha256": [
+       "c8e04aa8ee72e327a4b33eb2c4b16c4b9a600d578a56fc82b02fc81a36c6f3ae",
+       "b8faf21bec51714318d1798d01f1e1dcd67d6e3cd7674aa48151bca5f67bf484",
+       "5f3f31255861ea0e0ee2fe3c4ca85521569251dc53d56162cd9a9e37335f3457",
+       "b4e1d3a014baf023b183725b960f9a3362b04f2f659d3a1d6a571461022696bb",
+       "5c01a9862b3e6e15a879a0779fd2b014a38ff190acf6055ebb58824b6990f043",
+       "97bfe48315a929a1c93eaaeadb6c0580cd38a2ff937073e4d6f962671504537d",
+       "f07821d84e3b12655c34d7295cd026d3782297052095143f11b5cd9623bc47b3",
+       "3faa93ceaeb4d788d53984f3266e336c2192acfb6ca5a997db78d556c2ba27b6",
+       "cc6413ddb3224f08c6d3e87112776e94a9fee8b26f65886a5a20621b2cf5c044",
+       "b951276afa6daaba1a7b3a9d46d3b07f918af8d24cd59c856b46fefab9c1ad6f",
+       "a56a6d4d006aa5f3d5fd9bb67a8a50f66bfe645688915f62b036885cfeb4f575",
+       "de05818cde67ccf388d5c5391643d014cde0a88d906be584a1ac337ec9e34cdc",
+       "dccdcf47326faf33402717cc933cba6f81bddbeedd18a2e40e51dc797e6590dd",
+       "0de22a4888d3b9d074e22a106437b7692c0002c8f6b86a6cbb85290657f4d7ed",
+       "0a924018f923b9a851f932a7a27fe56780930364747a9d26b00f4cf63c175e01",
+       "11e6f85ff06ab9b79b52932a07e8ae1e98a8bb93215ba3a9cd62b124e395575f",
+       "7e8507b3f546f4e31e220721c4c15ed997b9e31108d0d2ad5fed7a7b2b8b5c88",
+       "980acd68960853573986f833a9db46cbc8f8c17760b37f81d61a3f2e17dcd4dd",
+       "7bd5f4ade4a1e0f2f1439c2e1cd67d9aebe13f602c98a9fb1e4132aba38af745",
+       "f9250af4df703ae20a1b55336d78f4b39fddc6bfaa44634b58b4d68a7b9343f6",
+       "b68c0ed689fc7e9f83f5b14326493ad784b41ddc59428ccbbd16781646b99eec",
+       "ac070538dfb19fa41c0265a3361e176353f5f06e5ac1a36f18622ed81e7c8dde",
+       "59489d53c2b78119b71d8e24bd0e2c8c0e9fde6c4b3bf5310e85c911fe2db371",
+       "0998f645e8334d57d785ae1ed4fe660f7bd90df2e790d0edb6a3068c394bb1ec",
+       "b969cf26bbcb38346a28670525cef66894a7100bafc6da4a64aab64b8858c698",
+       "b2bb4fe1c86fc1ba21e0b668e819806fbf1632968db9aa7580e76e741bb655bb",
+       "733acff612418987db179b50310eeb0942c5db067611c3be7ffcb75a9e71a443",
+       "0a77956c99f1ddc36f7fdd2b1498b692d7b7b6d0e450cd37eaf32e0f853c70c0",
+       "b17b099e1b7fb86044c2dcde6975efa84c8d854107b9dfc0ce3ee0857ef6ba3b",
+       "3682c312b6c04fcc331624634bcda9d2a32fbf0bd159f2c3c9677345483a3091",
+       "a45129da4d60b9b9fbe4038520595598c01858b060f05f37fe7c0374649c0568",
+       "ef9a180f918a3c61b788f4c74ed251972d60abbfb6d9918a6e1908e2111f7f94",
+       "886aebedcffa18daa56f32f6e9df4911faced18986681fd04f1b7ec2eca687d9",
+       "7431287582e2f4a749b0a1a149985c817763e569d041555273d3e3df16c63b90",
+       "b7348128bfd6d8eaaec28c8dd60b4978351839b538d3bbb3a90929b5907f600f",
+       "311d9a79a8531baecf4e5b397013a4e801d67aa88b26c06768a7e4558247f958",
+       "8cf8f3044771b2dea1da57ec529f5ad1b83c9eabeb390f1ad460e6525f867ed8",
+       "23859e6b23db9c7e37190329e6aa75af8456b5499732cb613e92f7126a047581",
+       "8960de8086db10c35f31eb9f765216f4e625b0d7fdda8d0a4acce547c2d037c5",
+       "bce046b93c474a136e5a9f9b896fa927d1150f20e6e1805140a08e53556c8cb2",
+       "ee0da2b69eac95d5a414e73d98ec4ee47c5271bf35029e4a16f735d811b05a83",
+       "8adaed1c31c9e0693335f0dbcc76bffef93241f3caa17fab7291110beb1a0b69",
+       "c6ca29866ca92ef49413e877985fbb7f0d4b5c3f279d7a73c3f919c0e44ac852",
+       "d206340c8326a40790b7e5c6bbb61b13b99969f8e2ae952bb6260cb680fdbb60",
+       "4eeb3e0a5da3904cea49c26b1793c32eacd17def809578edb28e7db4fb5629d2",
+       "58704ad37978d93bc05afbf29cb9e96225aa9a822fe25d86587d2af33d1465ca",
+       "aeace9bc020fe693e17fccc58dc9a3f455f26ea25ecc59dba903207449fb0cab",
+       "5c32ee94e6ba5560cbde8a45f606c7fac6a137faa0aa823eae7e9aada0f1e422",
+       "5048014caea954e59ec68143973b6307b0d3aa74c5b31ca4db480a502cbc5599",
+       "e5355ab37aef4c8a22cf4aea76bf15872ce246bc76733cb48714fe2ac212a091",
+       "9c211d5a3525e88a7023716f3e39b6d33cc583d473c14e41c570a2b76250813a",
+       "adc45de54543a02a3c281d5dfb290500feaef116c5b03fa87a4751b5a6b162b4",
+       "084d3501c3b13267f23d02eadad2373e8e3eeef05a3ce2d79ae2948ecf638670",
+       "e4664fa9740f498fcbbf2d38427dc1a091f71698816c3df60205184e630495f5",
+       "e923814104e706f4f8ede643496cf0d2fec1ece346544472429d734743d451df",
+       "6655231162f380b476f869b784bcd72d376a295d58099ca531722787a07d7a39",
+       "969793e81e1b58d147e2e458db9b26cfea591a196b700c849d19f4bd3e35f8ee",
+       "5455d76ae67ca05f5f1921f3222a8b60c91516a09ceae5b15d6bcb0ab418739c",
+       "6705041afbc37b11e642092011757e92ae074fdac1e2f5a07df01dccaa33c224",
+       "9892ebdedbd70cb8b19c32b6004faf706b3cfabfb45f6c81055e59f4c80316f3",
+       "c10677d20ffd65bd7d6efae1ce314577c431ccb2485b5eabf675f7112ed71f9c",
+       "dbd239c76aac2610a29664a20deb94202c8b2d48762f7a299b52fcbda500b924",
+       "dc343190cac6ef178586118ced7691adcb4c2cee2db7488b5a53406def7017fd",
+       "d2f59501a404ac9cf8d245430c7371cce282b2a7427a335a1ed824c0be20fd1b",
+       "d02129aaa79880221f8cc8cb991d36ec278b392d9893973baf61ee835db1b6c1",
+       "6e87c51900600852c1e78b8b2a4b7b05f530bdd451c7832888a0b7712fe7a33a",
+       "5aac8e6799d93e23a7d029d5cc4c8fb592f48035535c2c239240a3ae0b6d1bb8",
+       "692af59f06d9589e6bf2cb0e32447a546cb36a419fde7aa8549ac9dedaf7c88b",
+       "9be65394aae6b9deeb455c67191a6180a5cf4d564c8e8b872fd8209bb6a98ab4",
+       "7041b2eac8a0646a89bc10740064ad44d44d71e1220148093770a5c8099decf3",
+       "698412f20f14be066ed6b945744a9a5909901c40c1a7ab1c3b368c2dec88cbe0",
+       "2003df5923987c698a57ccc8d89474965a00ce87bb5d9f715100bdc4ffdfb83f",
+       "470c5f67857656116836351e467db973b97bb68a11013f2c70b21f6cf80d924f",
+       "574fe622bba16aefc72ed2ff1f23a20fdd11eb87a2298929c7e8bc923c3e1491",
+       "e648777fea3f87a82d31f5c0db6d0c2e4e880e623aebf02db2676e85045f5f3d"
+      ]
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "paragraph",
+      "sentence",
+      "end"
+     ],
+     "n": 28,
+     "paragraphs": [
+      0,
+      0,
+      1,
+      1,
+      2,
+      2,
+      3,
+      3,
+      4,
+      4,
+      5,
+      6,
+      7,
+      7,
+      8,
+      8,
+      9,
+      9,
+      10,
+      11,
+      11,
+      12,
+      13,
+      14,
+      14,
+      15,
+      16,
+      16
+     ],
+     "spans": [
+      [
+       0,
+       412
+      ],
+      [
+       413,
+       677
+      ],
+      [
+       679,
+       1058
+      ],
+      [
+       1059,
+       1341
+      ],
+      [
+       1343,
+       1768
+      ],
+      [
+       1769,
+       1971
+      ],
+      [
+       1973,
+       2428
+      ],
+      [
+       2429,
+       2603
+      ],
+      [
+       2605,
+       3026
+      ],
+      [
+       3027,
+       3232
+      ],
+      [
+       3234,
+       3815
+      ],
+      [
+       3817,
+       4404
+      ],
+      [
+       4406,
+       4854
+      ],
+      [
+       4855,
+       5050
+      ],
+      [
+       5052,
+       5423
+      ],
+      [
+       5424,
+       5680
+      ],
+      [
+       5682,
+       6164
+      ],
+      [
+       6165,
+       6406
+      ],
+      [
+       6408,
+       6984
+      ],
+      [
+       6986,
+       7459
+      ],
+      [
+       7460,
+       7708
+      ],
+      [
+       7710,
+       8291
+      ],
+      [
+       8293,
+       8875
+      ],
+      [
+       8877,
+       9374
+      ],
+      [
+       9375,
+       9563
+      ],
+      [
+       9565,
+       10155
+      ],
+      [
+       10157,
+       10508
+      ],
+      [
+       10509,
+       10815
+      ]
+     ],
+     "texts": {
+      "chars": 10772,
+      "first": "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it.",
+      "last": "Elena kept her log the way she always had, faithfully and a little more than the job strictly required, and if she still paused sometimes at three in the morning to listen for an engine that never came back, she told herself that was simply what eleven, now twelve, years on this rock had taught her to do.",
+      "lens": [
+       412,
+       264,
+       379,
+       282,
+       425,
+       202,
+       455,
+       174,
+       421,
+       205,
+       581,
+       587,
+       448,
+       195,
+       371,
+       256,
+       482,
+       241,
+       576,
+       473,
+       248,
+       581,
+       582,
+       497,
+       188,
+       590,
+       351,
+       306
+      ],
+      "n": 28,
+      "sha256": [
+       "11ae073106a0e5e85f7d6fffcb5a8d281dc7781424b210b25f8416f17bb25a8f",
+       "6e485e09458d018321414209e9f6f48f3158c4a33bcf7fcf107b75a95a83954f",
+       "31e5ae277331e0b7311894e497bbf240f8b23ca87bfe68bbbd81de342d1d81d6",
+       "dcde55c27add2a0fbd79e6fb06a6a6a1e9658f94faade1a8cfe7ac43b3d2207f",
+       "7d33faed602f69e7c57d8bdc321ab6d2e5dd1a61d5dcd5185f4bddb00ff2da01",
+       "e910be90a9d603eb16bfb02eb393885cf869eb139d494d956db4e8b1d270fe19",
+       "a71c6009338eb5d2ac17ccdc21b13f7cbd19e3278608e2682b8e29987add35fb",
+       "980acd68960853573986f833a9db46cbc8f8c17760b37f81d61a3f2e17dcd4dd",
+       "a79d8e82352b9d7572b894a83faaafe2c343aaee8f2dbb586eff2ff99b27446f",
+       "23cc3729190fb40b9d1146412b59c4e2dc903d2001d5fae57de931034674f91e",
+       "b7ad64c3f20943b53f635374edf60b348e8efa464a67b05f8f1553c2afc01f0c",
+       "8346cf1d589d09047dc1551754075aa28fe45e1d5da9809da79c7357834afa04",
+       "0b92b457fc3511452f7b6232ad896ef9955b2df344bcc42a10fd08595c556059",
+       "311d9a79a8531baecf4e5b397013a4e801d67aa88b26c06768a7e4558247f958",
+       "48a061630689304c560cab403e0177e556f08967dffc9b3ff88b2a39ae66e694",
+       "52f4acbd7f39d45bb7dc9f6b3498dea42d81cc9fe917c70138ff10557540517f",
+       "f3c68e528f0a8411444d6b505221b8762a35c3eecf48b4ce0fe5dd2964562cd7",
+       "ff293beccc6632c62be18d0ce4c8bc02c0912f807f1a8a55f49bd351d9278910",
+       "b12c214ca5b3f4a62bf724f32e51125e79fc9084ed5b5ea29a85f6e1c55b468b",
+       "cbf75a0c6a95a7b881d5ab8225a57cb47b661b1d256adec494f0b2df80e52fa2",
+       "c294d5f1cbc862c57965127a855ec38e9eb79740b0d9eeef1376a00145eec4be",
+       "f86fab3a513d129a9942c3078ee4b4f240ebaab4f961f1a9adda334ccb8d087f",
+       "1f1814ae6f3344ff8534394c7f610b3b4a7922043174456acc78a6111728b2ff",
+       "e26ddd48ad9958c4cdbdd53f7da3e83f02e68cfb251955b8f2cc0b5d2f6a184a",
+       "6e87c51900600852c1e78b8b2a4b7b05f530bdd451c7832888a0b7712fe7a33a",
+       "6ba28438a73f069fef89bdd2621ca73dff190fdf63cc07fe58c6248b9400bc90",
+       "4c38a7eefb4c04107666fdf59d11209f13842de07b1e7e9dcfa365eeb97e9cc3",
+       "1c2bfcba565686b4781b1c36b506e046dc3ee56c2eaca276e34eb090fe48d68a"
+      ]
+     }
+    },
+    "prepared": {
+     "chars": 10815,
+     "first": "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it. She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.\n\nThat was why the change in the beam's rhythm troubled her so much more than the storms ever had. A storm was loud and honest about what it wanted. This was quiet, a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log, and so consistent that Elena was certain it was not an accident of weather or wear. Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand, and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.\n\nShe began, as her training insisted she should, with the mechanism itself. The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years. She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory. Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself. If the fault lived in the machine, it was hiding somewhere she had not yet learned to look, and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.\n\nThe second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail. The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath. She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now. Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed.\n\nIt was on the third night that she heard the engine. Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust. This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation. Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull, and heard nothing further before the beam resumed its ordinary pace.\n\nShe did not mention the engine in her log. Not yet. A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol, and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation. She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter.\n\nThe fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight. When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it: not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all. It was not the mechanism slowing itself. Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched.\n\nShe traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room. It was not in Halloran's diagrams. It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside. It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested.\n\nBehind the panel she found a second, smaller mechanism, hand-built and unmistakably added after the original clockwork had been installed. It was not sabotage, not exactly; it was closer to a splice, a deliberate tap into the rotation that drew off a fraction of the drive's motion into a second, much smaller light she could not immediately locate from inside the tower. Someone, at some point in the lighthouse's long and only partially documented history, had built a second signal into the first one, and had done it well enough that eleven years of careful keepers had never noticed the theft of half a second per rotation.\n\nIt took her the better part of a week, and one deliberately vague conversation with the harbor master's oldest surviving clerk, to piece together what the second light had once been for. During a period the official records preferred not to dwell on, the rock had apparently done double duty: one beam for the shipping lanes, exactly as intended, and one considerably dimmer pulse timed to the tap in the clockwork, aimed low across the water toward a cove no chart bothered naming. Whether it had guided smugglers, fishermen avoiding a wartime curfew, or something else the clerk declined to specify, no one now living could say for certain, and the honest answer no longer seemed to matter as much as the mechanism itself.\n\nWhat did matter was that the splice had not been abandoned so much as forgotten, and forgotten mechanisms on a rock this exposed to salt and weather did not stay silent forever. Somewhere in the intervening decades, corrosion or settling stone had loosened a linkage just enough that the old secondary light occasionally caught, drawing its fraction of a second from the primary beam whether anyone still wanted it to or not, and sending an equally forgotten pulse out toward a cove that had not seen whatever traffic it once served in longer than anyone alive could remember.\n\nElena spent the better part of a gray, wind-scoured morning deciding what to do about a hundred-year-old secret she had not asked to inherit. She could seal the panel again, as generations before her evidently had, and let the fraction of a second remain someone else's problem for another few decades. She could report it exactly as she had found it, and let the harbor authority decide whether a piece of the coast's history belonged in a museum, a repair order, or both. What she could not do, she decided, was leave the mystery unrecorded the way every keeper before her apparently had, because the next person to notice half a second missing from the rotation deserved a better answer than a week of sleepless nights.\n\nIn the end she wrote it up plainly: the timing anomaly, the panel, the splice, the clerk's careful non-answer about the cove, and her own best guess at a repair that would stop the drift without erasing whatever the mechanism had once meant to whoever built it. She left the entry unsealed in the front of the log, where the next keeper would find it long before they found any reason to go looking on their own, because Halloran had been right about one thing above all the others: a keeper's real job was making sure the next person up the stairs never had to start from nothing.\n\nThe following week, with the linkage quietly reset and the panel resealed under fresh paint of her own, the beam turned exactly as it always had, two steady rotations after another, with nothing left to count against a harbor clock at three in the morning. Elena told herself she did not miss the half second, and mostly, on the nights the fog stayed thin enough to see the mainland lights, she believed it. On the thicker nights, she still found herself listening for an engine that never returned, and writing one more line in the log to say, honestly, that the light had behaved.\n\nThe harbor master's clerk, true to his careful non-answers, never did confirm what the cove had once been used for, though he did mention, on her next supply run into town, that his own grandmother had kept house for a keeper on Gannet Rock during the years the official records preferred to skip. He offered nothing further, and Elena did not press him, because she had already decided that some parts of a hundred-year-old secret were more useful left exactly as uncertain as she had found them. A lighthouse, she had come to think, was allowed to keep a few of its own answers, provided the light itself kept doing the one job that actually mattered to anyone still out on the water.\n\nShe did add one line to the log that she suspected no keeper before her had ever thought necessary: a short note, dated and initialed, describing exactly where the panel sat, exactly how the linkage had been reset, and exactly what a slowed rotation might mean if it ever began again after she was gone. It was not much, measured against a hundred years of silence on the subject, but it was more than she had been given, and she had spent enough sleepless nights on this rock to know precisely how much that kind of small, deliberate honesty was worth to whoever climbed these stairs next.\n\nWinter came in hard after that, the way it always did on Gannet Rock, and the ordinary business of keeping a light through storms and fog and the long stretches of nothing in between left little room for wondering about smugglers who were almost certainly dead now, or coves that had not seen unlawful traffic in longer than anyone alive could verify. Elena kept her log the way she always had, faithfully and a little more than the job strictly required, and if she still paused sometimes at three in the morning to listen for an engine that never came back, she told herself that was simply what eleven, now twelve, years on this rock had taught her to do.",
+     "last": "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it. She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.\n\nThat was why the change in the beam's rhythm troubled her so much more than the storms ever had. A storm was loud and honest about what it wanted. This was quiet, a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log, and so consistent that Elena was certain it was not an accident of weather or wear. Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand, and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.\n\nShe began, as her training insisted she should, with the mechanism itself. The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years. She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory. Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself. If the fault lived in the machine, it was hiding somewhere she had not yet learned to look, and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.\n\nThe second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail. The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath. She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now. Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed.\n\nIt was on the third night that she heard the engine. Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust. This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation. Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull, and heard nothing further before the beam resumed its ordinary pace.\n\nShe did not mention the engine in her log. Not yet. A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol, and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation. She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter.\n\nThe fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight. When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it: not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all. It was not the mechanism slowing itself. Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched.\n\nShe traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room. It was not in Halloran's diagrams. It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside. It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested.\n\nBehind the panel she found a second, smaller mechanism, hand-built and unmistakably added after the original clockwork had been installed. It was not sabotage, not exactly; it was closer to a splice, a deliberate tap into the rotation that drew off a fraction of the drive's motion into a second, much smaller light she could not immediately locate from inside the tower. Someone, at some point in the lighthouse's long and only partially documented history, had built a second signal into the first one, and had done it well enough that eleven years of careful keepers had never noticed the theft of half a second per rotation.\n\nIt took her the better part of a week, and one deliberately vague conversation with the harbor master's oldest surviving clerk, to piece together what the second light had once been for. During a period the official records preferred not to dwell on, the rock had apparently done double duty: one beam for the shipping lanes, exactly as intended, and one considerably dimmer pulse timed to the tap in the clockwork, aimed low across the water toward a cove no chart bothered naming. Whether it had guided smugglers, fishermen avoiding a wartime curfew, or something else the clerk declined to specify, no one now living could say for certain, and the honest answer no longer seemed to matter as much as the mechanism itself.\n\nWhat did matter was that the splice had not been abandoned so much as forgotten, and forgotten mechanisms on a rock this exposed to salt and weather did not stay silent forever. Somewhere in the intervening decades, corrosion or settling stone had loosened a linkage just enough that the old secondary light occasionally caught, drawing its fraction of a second from the primary beam whether anyone still wanted it to or not, and sending an equally forgotten pulse out toward a cove that had not seen whatever traffic it once served in longer than anyone alive could remember.\n\nElena spent the better part of a gray, wind-scoured morning deciding what to do about a hundred-year-old secret she had not asked to inherit. She could seal the panel again, as generations before her evidently had, and let the fraction of a second remain someone else's problem for another few decades. She could report it exactly as she had found it, and let the harbor authority decide whether a piece of the coast's history belonged in a museum, a repair order, or both. What she could not do, she decided, was leave the mystery unrecorded the way every keeper before her apparently had, because the next person to notice half a second missing from the rotation deserved a better answer than a week of sleepless nights.\n\nIn the end she wrote it up plainly: the timing anomaly, the panel, the splice, the clerk's careful non-answer about the cove, and her own best guess at a repair that would stop the drift without erasing whatever the mechanism had once meant to whoever built it. She left the entry unsealed in the front of the log, where the next keeper would find it long before they found any reason to go looking on their own, because Halloran had been right about one thing above all the others: a keeper's real job was making sure the next person up the stairs never had to start from nothing.\n\nThe following week, with the linkage quietly reset and the panel resealed under fresh paint of her own, the beam turned exactly as it always had, two steady rotations after another, with nothing left to count against a harbor clock at three in the morning. Elena told herself she did not miss the half second, and mostly, on the nights the fog stayed thin enough to see the mainland lights, she believed it. On the thicker nights, she still found herself listening for an engine that never returned, and writing one more line in the log to say, honestly, that the light had behaved.\n\nThe harbor master's clerk, true to his careful non-answers, never did confirm what the cove had once been used for, though he did mention, on her next supply run into town, that his own grandmother had kept house for a keeper on Gannet Rock during the years the official records preferred to skip. He offered nothing further, and Elena did not press him, because she had already decided that some parts of a hundred-year-old secret were more useful left exactly as uncertain as she had found them. A lighthouse, she had come to think, was allowed to keep a few of its own answers, provided the light itself kept doing the one job that actually mattered to anyone still out on the water.\n\nShe did add one line to the log that she suspected no keeper before her had ever thought necessary: a short note, dated and initialed, describing exactly where the panel sat, exactly how the linkage had been reset, and exactly what a slowed rotation might mean if it ever began again after she was gone. It was not much, measured against a hundred years of silence on the subject, but it was more than she had been given, and she had spent enough sleepless nights on this rock to know precisely how much that kind of small, deliberate honesty was worth to whoever climbed these stairs next.\n\nWinter came in hard after that, the way it always did on Gannet Rock, and the ordinary business of keeping a light through storms and fog and the long stretches of nothing in between left little room for wondering about smugglers who were almost certainly dead now, or coves that had not seen unlawful traffic in longer than anyone alive could verify. Elena kept her log the way she always had, faithfully and a little more than the job strictly required, and if she still paused sometimes at three in the morning to listen for an engine that never came back, she told herself that was simply what eleven, now twelve, years on this rock had taught her to do.",
+     "lens": [
+      10815
+     ],
+     "n": 1,
+     "sha256": [
+      "e4b2948c6a0c028a1edd85438df381d3784901c4da35a2eb7fbb69d9394b5081"
+     ]
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      522262357,
+      1054227712,
+      576530565,
+      1107597906,
+      1630215604,
+      292069396,
+      416157863,
+      1501282866,
+      172041862,
+      1072071747,
+      1301238659,
+      1728623604,
+      1567489881,
+      1316619585,
+      717874998,
+      1977470892,
+      332145483,
+      848515467,
+      1549462101,
+      1528567711,
+      649549217,
+      418464629,
+      575357579,
+      407687408,
+      1647033291,
+      2046432214,
+      864129553,
+      275345464
+     ],
+     "qwen3-female-1": [
+      401786422,
+      1930314026,
+      674442146,
+      1067653400,
+      2108963929,
+      1370398855,
+      961213544,
+      1652492388,
+      586992768,
+      1594114446,
+      1887254395,
+      1525578442,
+      1165158724,
+      656417115,
+      483604979,
+      494641896,
+      1019184476,
+      1579882852,
+      1010083546,
+      1770451812,
+      1711801629,
+      537609130,
+      458630155,
+      1154385409,
+      1154245793,
+      1870186662,
+      1539411562,
+      416705822
+     ],
+     "qwen3-ryan": [
+      2034180862,
+      506300402,
+      411724969,
+      1315661745,
+      1970962382,
+      536385833,
+      1464627738,
+      1681037036,
+      105873364,
+      264472674,
+      81870856,
+      105315141,
+      1328509403,
+      65425503,
+      2131423514,
+      1617153106,
+      1332913091,
+      404045405,
+      879073182,
+      21940411,
+      2082954833,
+      2134380760,
+      1217046587,
+      260403658,
+      1728365713,
+      531057152,
+      633185946,
+      1566269067
+     ]
+    }
+   },
+   "qc_structural_stress_chatterbox": {
+    "chunks": [
+     {
+      "boundary": "end",
+      "end": 490,
+      "index": 0,
+      "paragraph": 0,
+      "start": 0,
+      "text": "The wind came in off the strait before dawn, rattling the shutters twice, then three times, before the keeper finally rose to check the lamp. She climbed the spiral stairs without a lantern, trusting the count of steps she had learned as a girl, and at the top she found the glass fogged over from the cold snap that had settled in overnight. Below, the harbor lights blinked on one by one, small and steady, as the first boats pushed out past the breakwater into water still dark as slate."
+     }
+    ],
+    "plan_200": {
+     "boundaries": [
+      "sentence",
+      "sentence",
+      "end"
+     ],
+     "n": 3,
+     "paragraphs": [
+      0,
+      0,
+      0
+     ],
+     "spans": [
+      [
+       0,
+       141
+      ],
+      [
+       142,
+       342
+      ],
+      [
+       343,
+       490
+      ]
+     ],
+     "texts": {
+      "items": [
+       "The wind came in off the strait before dawn, rattling the shutters twice, then three times, before the keeper finally rose to check the lamp.",
+       "She climbed the spiral stairs without a lantern, trusting the count of steps she had learned as a girl, and at the top she found the glass fogged over from the cold snap that had settled in overnight.",
+       "Below, the harbor lights blinked on one by one, small and steady, as the first boats pushed out past the breakwater into water still dark as slate."
+      ],
+      "n": 3
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "end"
+     ],
+     "n": 1,
+     "paragraphs": [
+      0
+     ],
+     "spans": [
+      [
+       0,
+       490
+      ]
+     ],
+     "texts": {
+      "items": [
+       "The wind came in off the strait before dawn, rattling the shutters twice, then three times, before the keeper finally rose to check the lamp. She climbed the spiral stairs without a lantern, trusting the count of steps she had learned as a girl, and at the top she found the glass fogged over from the cold snap that had settled in overnight. Below, the harbor lights blinked on one by one, small and steady, as the first boats pushed out past the breakwater into water still dark as slate."
+      ],
+      "n": 1
+     }
+    },
+    "prepared": {
+     "items": [
+      "The wind came in off the strait before dawn, rattling the shutters twice, then three times, before the keeper finally rose to check the lamp. She climbed the spiral stairs without a lantern, trusting the count of steps she had learned as a girl, and at the top she found the glass fogged over from the cold snap that had settled in overnight. Below, the harbor lights blinked on one by one, small and steady, as the first boats pushed out past the breakwater into water still dark as slate."
+     ],
+     "n": 1
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      1401809004
+     ],
+     "qwen3-female-1": [
+      659330113
+     ],
+     "qwen3-ryan": [
+      1383284511
+     ]
+    }
+   },
+   "qc_structural_stress_kokoro_edge": {
+    "chunks": [
+     {
+      "boundary": "paragraph",
+      "end": 532,
+      "index": 0,
+      "paragraph": 0,
+      "start": 0,
+      "text": "The keeper's log for that stretch of coast went back four generations, and every entry before this one agreed on the same plain fact: the light turned, and it did not stop turning. Elena had read most of the older volumes twice, first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced. Neither reading had prepared her for a night when the beam simply slowed, as though something heavy had settled onto the mechanism and no one had noticed the extra weight."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 1044,
+      "index": 1,
+      "paragraph": 1,
+      "start": 534,
+      "text": "She traced the drive shaft down from the lamp room to the clockwork room below, running a bare hand along the housing the way her predecessor had taught her, feeling for heat, for grit, for anything that did not belong. The gears turned true under her fingers. The mercury bath beneath them sat level and undisturbed. Whatever had reached into the rotation, it had left no mark anyone could touch, and that bothered her more than a broken part ever could have, because a broken part could at least be replaced."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 1558,
+      "index": 2,
+      "paragraph": 2,
+      "start": 1046,
+      "text": "Outside, the fog had thickened enough to swallow the breakwater entirely, and twice she thought she heard an engine idling somewhere past the rocks, closer than any boat had business being on a night like this. She told herself it was the wind finding a gap in the old stone, the same trick it played every autumn, and she almost believed it. The log open on the desk behind her still waited for an entry, and for the first time in eleven years on this rock, she did not know what honest sentence to write in it."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 1943,
+      "index": 3,
+      "paragraph": 3,
+      "start": 1560,
+      "text": "By the time the sun came up gray and thin over the water, the beam had returned to its ordinary, indifferent rhythm, as if nothing at all had happened, and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading, unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had."
+     },
+     {
+      "boundary": "sentence",
+      "end": 2316,
+      "index": 4,
+      "paragraph": 4,
+      "start": 1945,
+      "text": "She telephoned no one that morning, though the harbor master's office kept regular hours and would gladly have taken her call. Instead she sat with the log open in front of her and read back through the last decade of entries, page by careful page, looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 2686,
+      "index": 5,
+      "paragraph": 4,
+      "start": 2317,
+      "text": "She found nothing conclusive, only a handful of oddly terse nights scattered across the years, each one otherwise unremarkable, each one ending its entry a little sooner than the surrounding pages did, as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand."
+     },
+     {
+      "boundary": "sentence",
+      "end": 2961,
+      "index": 6,
+      "paragraph": 5,
+      "start": 2688,
+      "text": "She spent the rest of that morning doing the ordinary work a keeper does after a strange night: refilling the log, checking the weather line for anything worth flagging, and resisting the urge to call the harbor master's office before she had a single fact worth reporting."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 3289,
+      "index": 7,
+      "paragraph": 5,
+      "start": 2962,
+      "text": "A half-remembered engine and a beam that occasionally hesitated were not, on their own, the kind of thing that justified pulling anyone else out to a rock in heavy fog, and she had learned the hard way, early in her first winter, that a keeper who cried wolf even once earned a reputation that outlasted every later correction."
+     },
+     {
+      "boundary": "end",
+      "end": 3569,
+      "index": 8,
+      "paragraph": 6,
+      "start": 3291,
+      "text": "So she watched, and she waited, and she kept the kind of careful, unglamorous notes that never made it into any story anyone told about lighthouse keepers, and that was exactly how, three nights later, she finally caught the fault behaving long enough to trace it to its source."
+     }
+    ],
+    "plan_200": {
+     "boundaries": [
+      "sentence",
+      "sentence",
+      "paragraph",
+      "clause",
+      "sentence",
+      "paragraph",
+      "clause",
+      "sentence",
+      "paragraph",
+      "clause",
+      "clause",
+      "paragraph",
+      "sentence",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "clause",
+      "sentence",
+      "clause",
+      "paragraph",
+      "clause",
+      "end"
+     ],
+     "n": 23,
+     "paragraphs": [
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      2,
+      2,
+      2,
+      3,
+      3,
+      3,
+      4,
+      4,
+      4,
+      4,
+      4,
+      5,
+      5,
+      5,
+      5,
+      6,
+      6
+     ],
+     "spans": [
+      [
+       0,
+       180
+      ],
+      [
+       181,
+       360
+      ],
+      [
+       361,
+       532
+      ],
+      [
+       534,
+       719
+      ],
+      [
+       720,
+       851
+      ],
+      [
+       852,
+       1044
+      ],
+      [
+       1046,
+       1194
+      ],
+      [
+       1195,
+       1388
+      ],
+      [
+       1389,
+       1558
+      ],
+      [
+       1560,
+       1711
+      ],
+      [
+       1712,
+       1822
+      ],
+      [
+       1823,
+       1943
+      ],
+      [
+       1945,
+       2071
+      ],
+      [
+       2072,
+       2193
+      ],
+      [
+       2194,
+       2346
+      ],
+      [
+       2347,
+       2518
+      ],
+      [
+       2519,
+       2686
+      ],
+      [
+       2688,
+       2783
+      ],
+      [
+       2784,
+       2961
+      ],
+      [
+       2962,
+       3130
+      ],
+      [
+       3131,
+       3289
+      ],
+      [
+       3291,
+       3472
+      ],
+      [
+       3473,
+       3569
+      ]
+     ],
+     "texts": {
+      "items": [
+       "The keeper's log for that stretch of coast went back four generations, and every entry before this one agreed on the same plain fact: the light turned, and it did not stop turning.",
+       "Elena had read most of the older volumes twice, first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced.",
+       "Neither reading had prepared her for a night when the beam simply slowed, as though something heavy had settled onto the mechanism and no one had noticed the extra weight.",
+       "She traced the drive shaft down from the lamp room to the clockwork room below, running a bare hand along the housing the way her predecessor had taught her, feeling for heat, for grit,",
+       "for anything that did not belong. The gears turned true under her fingers. The mercury bath beneath them sat level and undisturbed.",
+       "Whatever had reached into the rotation, it had left no mark anyone could touch, and that bothered her more than a broken part ever could have, because a broken part could at least be replaced.",
+       "Outside, the fog had thickened enough to swallow the breakwater entirely, and twice she thought she heard an engine idling somewhere past the rocks,",
+       "closer than any boat had business being on a night like this. She told herself it was the wind finding a gap in the old stone, the same trick it played every autumn, and she almost believed it.",
+       "The log open on the desk behind her still waited for an entry, and for the first time in eleven years on this rock, she did not know what honest sentence to write in it.",
+       "By the time the sun came up gray and thin over the water, the beam had returned to its ordinary, indifferent rhythm, as if nothing at all had happened,",
+       "and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading,",
+       "unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had.",
+       "She telephoned no one that morning, though the harbor master's office kept regular hours and would gladly have taken her call.",
+       "Instead she sat with the log open in front of her and read back through the last decade of entries, page by careful page,",
+       "looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down. She found nothing conclusive,",
+       "only a handful of oddly terse nights scattered across the years, each one otherwise unremarkable, each one ending its entry a little sooner than the surrounding pages did,",
+       "as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand.",
+       "She spent the rest of that morning doing the ordinary work a keeper does after a strange night:",
+       "refilling the log, checking the weather line for anything worth flagging, and resisting the urge to call the harbor master's office before she had a single fact worth reporting.",
+       "A half-remembered engine and a beam that occasionally hesitated were not, on their own, the kind of thing that justified pulling anyone else out to a rock in heavy fog,",
+       "and she had learned the hard way, early in her first winter, that a keeper who cried wolf even once earned a reputation that outlasted every later correction.",
+       "So she watched, and she waited, and she kept the kind of careful, unglamorous notes that never made it into any story anyone told about lighthouse keepers, and that was exactly how,",
+       "three nights later, she finally caught the fault behaving long enough to trace it to its source."
+      ],
+      "n": 23
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "end"
+     ],
+     "n": 9,
+     "paragraphs": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      4,
+      5,
+      5,
+      6
+     ],
+     "spans": [
+      [
+       0,
+       532
+      ],
+      [
+       534,
+       1044
+      ],
+      [
+       1046,
+       1558
+      ],
+      [
+       1560,
+       1943
+      ],
+      [
+       1945,
+       2316
+      ],
+      [
+       2317,
+       2686
+      ],
+      [
+       2688,
+       2961
+      ],
+      [
+       2962,
+       3289
+      ],
+      [
+       3291,
+       3569
+      ]
+     ],
+     "texts": {
+      "items": [
+       "The keeper's log for that stretch of coast went back four generations, and every entry before this one agreed on the same plain fact: the light turned, and it did not stop turning. Elena had read most of the older volumes twice, first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced. Neither reading had prepared her for a night when the beam simply slowed, as though something heavy had settled onto the mechanism and no one had noticed the extra weight.",
+       "She traced the drive shaft down from the lamp room to the clockwork room below, running a bare hand along the housing the way her predecessor had taught her, feeling for heat, for grit, for anything that did not belong. The gears turned true under her fingers. The mercury bath beneath them sat level and undisturbed. Whatever had reached into the rotation, it had left no mark anyone could touch, and that bothered her more than a broken part ever could have, because a broken part could at least be replaced.",
+       "Outside, the fog had thickened enough to swallow the breakwater entirely, and twice she thought she heard an engine idling somewhere past the rocks, closer than any boat had business being on a night like this. She told herself it was the wind finding a gap in the old stone, the same trick it played every autumn, and she almost believed it. The log open on the desk behind her still waited for an entry, and for the first time in eleven years on this rock, she did not know what honest sentence to write in it.",
+       "By the time the sun came up gray and thin over the water, the beam had returned to its ordinary, indifferent rhythm, as if nothing at all had happened, and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading, unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had.",
+       "She telephoned no one that morning, though the harbor master's office kept regular hours and would gladly have taken her call. Instead she sat with the log open in front of her and read back through the last decade of entries, page by careful page, looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down.",
+       "She found nothing conclusive, only a handful of oddly terse nights scattered across the years, each one otherwise unremarkable, each one ending its entry a little sooner than the surrounding pages did, as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand.",
+       "She spent the rest of that morning doing the ordinary work a keeper does after a strange night: refilling the log, checking the weather line for anything worth flagging, and resisting the urge to call the harbor master's office before she had a single fact worth reporting.",
+       "A half-remembered engine and a beam that occasionally hesitated were not, on their own, the kind of thing that justified pulling anyone else out to a rock in heavy fog, and she had learned the hard way, early in her first winter, that a keeper who cried wolf even once earned a reputation that outlasted every later correction.",
+       "So she watched, and she waited, and she kept the kind of careful, unglamorous notes that never made it into any story anyone told about lighthouse keepers, and that was exactly how, three nights later, she finally caught the fault behaving long enough to trace it to its source."
+      ],
+      "n": 9
+     }
+    },
+    "prepared": {
+     "items": [
+      "The keeper's log for that stretch of coast went back four generations, and every entry before this one agreed on the same plain fact: the light turned, and it did not stop turning. Elena had read most of the older volumes twice, first as a child bored on a rainy afternoon and later as an apprentice looking for anything that resembled the fault she now faced. Neither reading had prepared her for a night when the beam simply slowed, as though something heavy had settled onto the mechanism and no one had noticed the extra weight.\n\nShe traced the drive shaft down from the lamp room to the clockwork room below, running a bare hand along the housing the way her predecessor had taught her, feeling for heat, for grit, for anything that did not belong. The gears turned true under her fingers. The mercury bath beneath them sat level and undisturbed. Whatever had reached into the rotation, it had left no mark anyone could touch, and that bothered her more than a broken part ever could have, because a broken part could at least be replaced.\n\nOutside, the fog had thickened enough to swallow the breakwater entirely, and twice she thought she heard an engine idling somewhere past the rocks, closer than any boat had business being on a night like this. She told herself it was the wind finding a gap in the old stone, the same trick it played every autumn, and she almost believed it. The log open on the desk behind her still waited for an entry, and for the first time in eleven years on this rock, she did not know what honest sentence to write in it.\n\nBy the time the sun came up gray and thin over the water, the beam had returned to its ordinary, indifferent rhythm, as if nothing at all had happened, and the only evidence that anything had was the half page of careful notes in Elena's own hand and the fading, unreasonable certainty that something out past the breakwater had been watching the light exactly as closely as she had.\n\nShe telephoned no one that morning, though the harbor master's office kept regular hours and would gladly have taken her call. Instead she sat with the log open in front of her and read back through the last decade of entries, page by careful page, looking for any earlier keeper who might have noticed the same half second and simply never thought it worth writing down. She found nothing conclusive, only a handful of oddly terse nights scattered across the years, each one otherwise unremarkable, each one ending its entry a little sooner than the surrounding pages did, as though whoever wrote it had decided partway through that some things were better left for the next keeper to rediscover on their own rather than inherit secondhand.\n\nShe spent the rest of that morning doing the ordinary work a keeper does after a strange night: refilling the log, checking the weather line for anything worth flagging, and resisting the urge to call the harbor master's office before she had a single fact worth reporting. A half-remembered engine and a beam that occasionally hesitated were not, on their own, the kind of thing that justified pulling anyone else out to a rock in heavy fog, and she had learned the hard way, early in her first winter, that a keeper who cried wolf even once earned a reputation that outlasted every later correction.\n\nSo she watched, and she waited, and she kept the kind of careful, unglamorous notes that never made it into any story anyone told about lighthouse keepers, and that was exactly how, three nights later, she finally caught the fault behaving long enough to trace it to its source."
+     ],
+     "n": 1
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      1349630197,
+      602514526,
+      2081699056,
+      1272986899,
+      2050338074,
+      1422398391,
+      1163015868,
+      1154537390,
+      9756106
+     ],
+     "qwen3-female-1": [
+      879976472,
+      1712916991,
+      920433789,
+      846053184,
+      1121545509,
+      314319292,
+      1467129111,
+      511483185,
+      2099804761
+     ],
+     "qwen3-ryan": [
+      515888143,
+      165735049,
+      1282618358,
+      2044626919,
+      576282233,
+      2087056589,
+      1665716363,
+      324502345,
+      1057467087
+     ]
+    }
+   },
+   "qc_sustained_narration": {
+    "chunks": [
+     {
+      "boundary": "sentence",
+      "end": 412,
+      "index": 0,
+      "paragraph": 0,
+      "start": 0,
+      "text": "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 677,
+      "index": 1,
+      "paragraph": 0,
+      "start": 413,
+      "text": "She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began."
+     },
+     {
+      "boundary": "sentence",
+      "end": 1058,
+      "index": 2,
+      "paragraph": 1,
+      "start": 679,
+      "text": "That was why the change in the beam's rhythm troubled her so much more than the storms ever had. A storm was loud and honest about what it wanted. This was quiet, a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log, and so consistent that Elena was certain it was not an accident of weather or wear."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 1341,
+      "index": 3,
+      "paragraph": 1,
+      "start": 1059,
+      "text": "Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand, and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish."
+     },
+     {
+      "boundary": "sentence",
+      "end": 1768,
+      "index": 4,
+      "paragraph": 2,
+      "start": 1343,
+      "text": "She began, as her training insisted she should, with the mechanism itself. The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years. She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory. Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 1971,
+      "index": 5,
+      "paragraph": 2,
+      "start": 1769,
+      "text": "If the fault lived in the machine, it was hiding somewhere she had not yet learned to look, and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find."
+     },
+     {
+      "boundary": "sentence",
+      "end": 2428,
+      "index": 6,
+      "paragraph": 3,
+      "start": 1973,
+      "text": "The second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail. The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath. She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 2603,
+      "index": 7,
+      "paragraph": 3,
+      "start": 2429,
+      "text": "Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed."
+     },
+     {
+      "boundary": "sentence",
+      "end": 3026,
+      "index": 8,
+      "paragraph": 4,
+      "start": 2605,
+      "text": "It was on the third night that she heard the engine. Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust. This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 3232,
+      "index": 9,
+      "paragraph": 4,
+      "start": 3027,
+      "text": "Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull, and heard nothing further before the beam resumed its ordinary pace."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 3815,
+      "index": 10,
+      "paragraph": 5,
+      "start": 3234,
+      "text": "She did not mention the engine in her log. Not yet. A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol, and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation. She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 4404,
+      "index": 11,
+      "paragraph": 6,
+      "start": 3817,
+      "text": "The fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight. When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it: not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all. It was not the mechanism slowing itself. Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched."
+     },
+     {
+      "boundary": "sentence",
+      "end": 4854,
+      "index": 12,
+      "paragraph": 7,
+      "start": 4406,
+      "text": "She traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room. It was not in Halloran's diagrams. It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside."
+     },
+     {
+      "boundary": "end",
+      "end": 5050,
+      "index": 13,
+      "paragraph": 7,
+      "start": 4855,
+      "text": "It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested."
+     }
+    ],
+    "plan_200": {
+     "boundaries": [
+      "sentence",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "clause",
+      "clause",
+      "clause",
+      "paragraph",
+      "sentence",
+      "sentence",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "sentence",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "sentence",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "clause",
+      "sentence",
+      "clause",
+      "paragraph",
+      "sentence",
+      "clause",
+      "sentence",
+      "paragraph",
+      "clause",
+      "sentence",
+      "sentence",
+      "end"
+     ],
+     "n": 36,
+     "paragraphs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      2,
+      2,
+      2,
+      2,
+      2,
+      3,
+      3,
+      3,
+      3,
+      4,
+      4,
+      4,
+      4,
+      4,
+      5,
+      5,
+      5,
+      5,
+      5,
+      6,
+      6,
+      6,
+      6,
+      7,
+      7,
+      7,
+      7
+     ],
+     "spans": [
+      [
+       0,
+       177
+      ],
+      [
+       178,
+       273
+      ],
+      [
+       274,
+       469
+      ],
+      [
+       470,
+       539
+      ],
+      [
+       540,
+       677
+      ],
+      [
+       679,
+       841
+      ],
+      [
+       842,
+       974
+      ],
+      [
+       975,
+       1171
+      ],
+      [
+       1172,
+       1341
+      ],
+      [
+       1343,
+       1417
+      ],
+      [
+       1418,
+       1549
+      ],
+      [
+       1550,
+       1669
+      ],
+      [
+       1670,
+       1860
+      ],
+      [
+       1861,
+       1971
+      ],
+      [
+       1973,
+       2133
+      ],
+      [
+       2134,
+       2267
+      ],
+      [
+       2268,
+       2428
+      ],
+      [
+       2429,
+       2603
+      ],
+      [
+       2605,
+       2657
+      ],
+      [
+       2658,
+       2842
+      ],
+      [
+       2843,
+       3026
+      ],
+      [
+       3027,
+       3163
+      ],
+      [
+       3164,
+       3232
+      ],
+      [
+       3234,
+       3285
+      ],
+      [
+       3286,
+       3442
+      ],
+      [
+       3443,
+       3567
+      ],
+      [
+       3568,
+       3744
+      ],
+      [
+       3745,
+       3815
+      ],
+      [
+       3817,
+       3941
+      ],
+      [
+       3942,
+       4116
+      ],
+      [
+       4117,
+       4285
+      ],
+      [
+       4286,
+       4404
+      ],
+      [
+       4406,
+       4543
+      ],
+      [
+       4544,
+       4701
+      ],
+      [
+       4702,
+       4854
+      ],
+      [
+       4855,
+       5050
+      ]
+     ],
+     "texts": {
+      "items": [
+       "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure.",
+       "The lighthouse itself was older than the town it served, older than the harbor master's office,",
+       "older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it. She had inherited the post from a keeper named Halloran,",
+       "who had inherited it from someone whose name nobody quite remembered,",
+       "and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.",
+       "That was why the change in the beam's rhythm troubled her so much more than the storms ever had. A storm was loud and honest about what it wanted. This was quiet,",
+       "a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log,",
+       "and so consistent that Elena was certain it was not an accident of weather or wear. Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand,",
+       "and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.",
+       "She began, as her training insisted she should, with the mechanism itself.",
+       "The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years.",
+       "She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory.",
+       "Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself. If the fault lived in the machine, it was hiding somewhere she had not yet learned to look,",
+       "and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.",
+       "The second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail.",
+       "The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath.",
+       "She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now.",
+       "Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed.",
+       "It was on the third night that she heard the engine.",
+       "Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust.",
+       "This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation.",
+       "Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull,",
+       "and heard nothing further before the beam resumed its ordinary pace.",
+       "She did not mention the engine in her log. Not yet.",
+       "A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol,",
+       "and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation.",
+       "She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock:",
+       "by trusting eleven years of noticing things that turned out to matter.",
+       "The fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight.",
+       "When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it:",
+       "not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all. It was not the mechanism slowing itself.",
+       "Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched.",
+       "She traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for:",
+       "a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room. It was not in Halloran's diagrams.",
+       "It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside.",
+       "It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested."
+      ],
+      "n": 36
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "sentence",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "sentence",
+      "end"
+     ],
+     "n": 14,
+     "paragraphs": [
+      0,
+      0,
+      1,
+      1,
+      2,
+      2,
+      3,
+      3,
+      4,
+      4,
+      5,
+      6,
+      7,
+      7
+     ],
+     "spans": [
+      [
+       0,
+       412
+      ],
+      [
+       413,
+       677
+      ],
+      [
+       679,
+       1058
+      ],
+      [
+       1059,
+       1341
+      ],
+      [
+       1343,
+       1768
+      ],
+      [
+       1769,
+       1971
+      ],
+      [
+       1973,
+       2428
+      ],
+      [
+       2429,
+       2603
+      ],
+      [
+       2605,
+       3026
+      ],
+      [
+       3027,
+       3232
+      ],
+      [
+       3234,
+       3815
+      ],
+      [
+       3817,
+       4404
+      ],
+      [
+       4406,
+       4854
+      ],
+      [
+       4855,
+       5050
+      ]
+     ],
+     "texts": {
+      "items": [
+       "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it.",
+       "She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.",
+       "That was why the change in the beam's rhythm troubled her so much more than the storms ever had. A storm was loud and honest about what it wanted. This was quiet, a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log, and so consistent that Elena was certain it was not an accident of weather or wear.",
+       "Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand, and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.",
+       "She began, as her training insisted she should, with the mechanism itself. The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years. She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory. Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself.",
+       "If the fault lived in the machine, it was hiding somewhere she had not yet learned to look, and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.",
+       "The second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail. The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath. She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now.",
+       "Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed.",
+       "It was on the third night that she heard the engine. Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust. This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation.",
+       "Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull, and heard nothing further before the beam resumed its ordinary pace.",
+       "She did not mention the engine in her log. Not yet. A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol, and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation. She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter.",
+       "The fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight. When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it: not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all. It was not the mechanism slowing itself. Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched.",
+       "She traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room. It was not in Halloran's diagrams. It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside.",
+       "It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested."
+      ],
+      "n": 14
+     }
+    },
+    "prepared": {
+     "items": [
+      "Elena Marsh had kept the light on Gannet Rock for eleven years, and in that time she had learned that the sea rewarded patience and punished assumption in roughly equal measure. The lighthouse itself was older than the town it served, older than the harbor master's office, older than any living memory of who had first decided that this particular outcropping of granite needed a warning fixed to the top of it. She had inherited the post from a keeper named Halloran, who had inherited it from someone whose name nobody quite remembered, and she had spent her first winter alone learning every creak the tower made so that a new one would announce itself the moment it began.\n\nThat was why the change in the beam's rhythm troubled her so much more than the storms ever had. A storm was loud and honest about what it wanted. This was quiet, a fraction of a second added to each rotation, so small that the harbor master's office had not even flagged it in their weekly log, and so consistent that Elena was certain it was not an accident of weather or wear. Something was slowing the light on purpose, or something was slowing it by a process she did not yet understand, and either possibility kept her awake long after the practical parts of her mind insisted she had already done everything useful that a sleepless night could accomplish.\n\nShe began, as her training insisted she should, with the mechanism itself. The clockwork drive beneath the lamp room turned on a bath of mercury that had not been disturbed, by her own hand, in three years. She checked the weights, the cables, the small brass regulator that had needed replacing exactly once in living memory. Everything moved as it always had, smooth and cool and entirely uninterested in explaining itself. If the fault lived in the machine, it was hiding somewhere she had not yet learned to look, and Gannet Rock did not reward the assumption that a problem must be small simply because it was hard to find.\n\nThe second night she watched from the gallery instead of the clockwork room, timing each rotation against the harbor clock with a notebook balanced on the rail. The pattern held: two full turns at the ordinary pace, then one turn stretched by perhaps half a second, as regular as a held breath. She noted the wind direction, the tide, the temperature of the glass under her palm, anything that might later prove to matter even if it seemed irrelevant now. Halloran had always said that a keeper's job was ninety percent noticing things that turned out not to matter, so that the ten percent that did would not slip past unnoticed.\n\nIt was on the third night that she heard the engine. Not the ferry, which she knew by the particular unevenness of its idle, and not the harbor patrol boat, which announced itself from a mile off with a distinctive rattle in its exhaust. This was smaller, closer to the rocks than any sensible pilot would bring a boat in fog this thick, and it cut out entirely within a minute or two of the light's next slowed rotation. Elena stood very still at the gallery rail, straining to separate the sound of waves against granite from anything that might be a hull, and heard nothing further before the beam resumed its ordinary pace.\n\nShe did not mention the engine in her log. Not yet. A keeper who reported unverified engine noise near a hazardous shoal in heavy fog would draw a well-meaning but time-consuming visit from the harbor patrol, and Elena wanted one more night of her own observations before she invited anyone else's assumptions into the investigation. She was aware, distantly, that this was not strictly the by-the-book response, and she made her peace with that the same way she made her peace with most decisions on the rock: by trusting eleven years of noticing things that turned out to matter.\n\nThe fourth night, she moved her notebook to the clockwork room and left the gallery door propped for sound instead of sight. When the rhythm caught again, faint and half a second long, she was already kneeling beside the drive shaft with her palm flat against the housing, and this time she felt it: not heat, not grit, but the faintest additional resistance, gone again almost before she was sure she had felt anything at all. It was not the mechanism slowing itself. Something was, very briefly, touching it from outside the housing, in a place the housing was not built to be touched.\n\nShe traced the seam of the casing with a flashlight and found what eleven years of maintenance checks had never required her to look for: a narrow service panel, painted over so many times it had become invisible, low on the seaward side of the clockwork room. It was not in Halloran's diagrams. It was not in the harbor authority's original blueprints, which she had read more than once out of simple curiosity about the building she lived inside. It was, as far as she could tell from the layers of paint sealing its edges, older than either document, and it had clearly been opened, however carefully, more recently than the paint suggested."
+     ],
+     "n": 1
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      522262357,
+      1054227712,
+      576530565,
+      1107597906,
+      1630215604,
+      292069396,
+      416157863,
+      1501282866,
+      172041862,
+      1072071747,
+      1301238659,
+      1728623604,
+      1567489881,
+      1316619585
+     ],
+     "qwen3-female-1": [
+      401786422,
+      1930314026,
+      674442146,
+      1067653400,
+      2108963929,
+      1370398855,
+      961213544,
+      1652492388,
+      586992768,
+      1594114446,
+      1887254395,
+      1525578442,
+      1165158724,
+      656417115
+     ],
+     "qwen3-ryan": [
+      2034180862,
+      506300402,
+      411724969,
+      1315661745,
+      1970962382,
+      536385833,
+      1464627738,
+      1681037036,
+      105873364,
+      264472674,
+      81870856,
+      105315141,
+      1328509403,
+      65425503
+     ]
+    }
+   },
+   "structure": {
+    "chunks": [
+     {
+      "boundary": "paragraph",
+      "end": 11,
+      "index": 0,
+      "paragraph": 0,
+      "start": 0,
+      "text": "Chapter One"
+     },
+     {
+      "boundary": "paragraph",
+      "end": 67,
+      "index": 1,
+      "paragraph": 1,
+      "start": 14,
+      "text": "It was 6:45 when the ferry arrived. Mr. Okafor waved."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 144,
+      "index": 2,
+      "paragraph": 2,
+      "start": 69,
+      "text": "Second paragraph here; it has a semicolon, a comma, and a dash — like this."
+     },
+     {
+      "boundary": "paragraph",
+      "end": 171,
+      "index": 3,
+      "paragraph": 3,
+      "start": 148,
+      "text": "Chapter Two: The Return"
+     },
+     {
+      "boundary": "paragraph",
+      "end": 217,
+      "index": 4,
+      "paragraph": 4,
+      "start": 177,
+      "text": "Indented paragraph with trailing spaces."
+     },
+     {
+      "boundary": "end",
+      "end": 269,
+      "index": 5,
+      "paragraph": 5,
+      "start": 222,
+      "text": "... --- Final line without terminal punctuation"
+     }
+    ],
+    "plan_200": {
+     "boundaries": [
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "end"
+     ],
+     "n": 6,
+     "paragraphs": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "spans": [
+      [
+       0,
+       11
+      ],
+      [
+       14,
+       67
+      ],
+      [
+       69,
+       144
+      ],
+      [
+       148,
+       171
+      ],
+      [
+       177,
+       217
+      ],
+      [
+       222,
+       269
+      ]
+     ],
+     "texts": {
+      "items": [
+       "Chapter One",
+       "It was 6:45 when the ferry arrived. Mr. Okafor waved.",
+       "Second paragraph here; it has a semicolon, a comma, and a dash — like this.",
+       "Chapter Two: The Return",
+       "Indented paragraph with trailing spaces.",
+       "... --- Final line without terminal punctuation"
+      ],
+      "n": 6
+     }
+    },
+    "plan_default": {
+     "boundaries": [
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "end"
+     ],
+     "n": 6,
+     "paragraphs": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "spans": [
+      [
+       0,
+       11
+      ],
+      [
+       14,
+       67
+      ],
+      [
+       69,
+       144
+      ],
+      [
+       148,
+       171
+      ],
+      [
+       177,
+       217
+      ],
+      [
+       222,
+       269
+      ]
+     ],
+     "texts": {
+      "items": [
+       "Chapter One",
+       "It was 6:45 when the ferry arrived. Mr. Okafor waved.",
+       "Second paragraph here; it has a semicolon, a comma, and a dash — like this.",
+       "Chapter Two: The Return",
+       "Indented paragraph with trailing spaces.",
+       "... --- Final line without terminal punctuation"
+      ],
+      "n": 6
+     }
+    },
+    "prepared": {
+     "items": [
+      "Chapter One\n\n\nIt was 6:45 when the ferry arrived. Mr. Okafor waved.\n\nSecond paragraph here; it has a semicolon, a comma, and a dash — like this.\n\n\n\nChapter Two: The Return\n\n\n   Indented paragraph with trailing spaces.   \n\n...\n---\nFinal line without terminal punctuation"
+     ],
+     "n": 1
+    },
+    "seeds": {
+     "qwen3-aiden": [
+      88012353,
+      1491248261,
+      1440836376,
+      1840193633,
+      1906970645,
+      1226510976
+     ],
+     "qwen3-female-1": [
+      780383950,
+      1351931583,
+      1805120268,
+      187958594,
+      1451145325,
+      1052180001
+     ],
+     "qwen3-ryan": [
+      1090037311,
+      1154267674,
+      633620924,
+      941784153,
+      1465913309,
+      528084588
+     ]
+    }
+   },
+   "unbroken_token": {
+    "plan_200": {
+     "error": "ChunkPlanError",
+     "message": "a single word of 700 characters exceeds the 200-character ceiling"
+    },
+    "plan_default": {
+     "error": "ChunkPlanError",
+     "message": "a single word of 700 characters exceeds the 600-character ceiling"
+    },
+    "prepared": {
+     "items": [
+      "Before xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx after."
+     ],
+     "n": 1
+    }
+   }
+  }
+ },
+ "route": "qwen3",
+ "schema": 1
+}
