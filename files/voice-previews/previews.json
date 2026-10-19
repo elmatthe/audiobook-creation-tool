@@ -1,0 +1,530 @@
+{
+  "schema": 1,
+  "sample_text": "Welcome. This is a short sample of my voice, reading a calm passage at an even pace, so that you can decide whether it suits the story you want to hear, today or tomorrow.",
+  "voices": [
+    {
+      "voice_id": "en-US-SteffanNeural",
+      "label": "Edge Male - Steffan (en-US)",
+      "backend": "edge",
+      "rights": {
+        "status": "unresolved",
+        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "en-US-AndrewNeural",
+      "label": "Edge Male - Andrew (en-US)",
+      "backend": "edge",
+      "rights": {
+        "status": "unresolved",
+        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "en-US-AriaNeural",
+      "label": "Edge Female - Aria (en-US)",
+      "backend": "edge",
+      "rights": {
+        "status": "unresolved",
+        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "en-US-AvaNeural",
+      "label": "Edge Female - Ava (en-US)",
+      "backend": "edge",
+      "rights": {
+        "status": "unresolved",
+        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "en-US-JennyNeural",
+      "label": "Edge Female - Jenny (en-US)",
+      "backend": "edge",
+      "rights": {
+        "status": "unresolved",
+        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "af_heart",
+      "label": "Kokoro Female (Default) - Heart (en-US)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "af_heart.wav",
+        "sha256": "0dbbce50f9128ffe2645496d7e59c061bbf447931412b5ccdb58c62e1cf9fae7",
+        "duration_s": 10.22,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "af_bella",
+      "label": "Kokoro Female - Bella (en-US)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "af_bella.wav",
+        "sha256": "10fa3e725455dbd3f7e50055d17c2f7d8f18b851a1c33787ed9d7190a8c498fc",
+        "duration_s": 10.61,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "am_michael",
+      "label": "Kokoro Male - Michael (en-US)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "am_michael.wav",
+        "sha256": "a9aa7bb60467194a8f96c174dd8717d1b2b8ac0e522bd16d15720931b06892fc",
+        "duration_s": 11.42,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "am_fenrir",
+      "label": "Kokoro Male - Fenrir (en-US)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "am_fenrir.wav",
+        "sha256": "f23fac62fedd7c7c7bb5ce41b690d802b49bf4fd8c82d33587e725223f3bf082",
+        "duration_s": 9.97,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "am_puck",
+      "label": "Kokoro Male - Puck (en-US)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "am_puck.wav",
+        "sha256": "cbb43dfc6c39adacd66f74e5bd9c150467817f631e4c730ccf3fef03dc80082a",
+        "duration_s": 9.54,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "am_onyx",
+      "label": "Kokoro Male - Onyx (en-US)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "am_onyx.wav",
+        "sha256": "8086dc2fe4d7ed5d5fb8277aeed6c13c0e816439dd4eb762ea773917c86819b0",
+        "duration_s": 8.9,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "bf_emma",
+      "label": "Kokoro Female - Emma (en-UK)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "bf_emma.wav",
+        "sha256": "55a9f80ebade7373ad180c7a4fa30a387670d08fbd9da567ae4eba04ed252a9b",
+        "duration_s": 9.23,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "bm_george",
+      "label": "Kokoro Male - George (en-UK)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "bm_george.wav",
+        "sha256": "4d81d99b867d477be4b6f4f2216a093ab40667ac58f9af87418ebbbe15712dea",
+        "duration_s": 10.69,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "bm_daniel",
+      "label": "Kokoro Male - Daniel (en-UK)",
+      "backend": "kokoro",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Kokoro-82M engine. The pinned model card declares license: apache-2.0 for the weights and says the model was trained on permissive / non-copyrighted audio (audio licensed Apache or MIT, synthetic audio from closed TTS models of large providers, and CC BY audio it credits); that provenance is the model author's claim, not something this project has audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Kokoro-82M model card at the pinned revision (front matter: license: apache-2.0; Training Details)",
+            "url": "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md",
+            "sha256": "91dcabced89db6f109b8786642f50402d3ee87450e8189589b6f85520e7f4d78"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "bm_daniel.wav",
+        "sha256": "30bfd5dea8d4dfff8c93ce7ac5676c8c85873ea5e3ab7fd0528411f2b6e001a4",
+        "duration_s": 9.2,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "chatterbox-female-1",
+      "label": "Chatterbox - Female 1",
+      "backend": "chatterbox",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "chatterbox-female-2",
+      "label": "Chatterbox - Female 2",
+      "backend": "chatterbox",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "chatterbox-male-1",
+      "label": "Chatterbox - Male 1",
+      "backend": "chatterbox",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "chatterbox-male-2",
+      "label": "Chatterbox - Male 2",
+      "backend": "chatterbox",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "chatterbox-male-3",
+      "label": "Chatterbox - Male 3",
+      "backend": "chatterbox",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "chatterbox-male-4",
+      "label": "Chatterbox - Male 4",
+      "backend": "chatterbox",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "qwen3-aiden",
+      "label": "Qwen3 - Aiden",
+      "backend": "qwen3",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Qwen3-TTS CustomVoice preset speaker, one of the model's own built-in speakers. The pinned model card declares license: apache-2.0; it does not document the provenance of the training audio, which this project has not audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Qwen3-TTS-12Hz-1.7B-CustomVoice model card at the pinned revision (front matter: license: apache-2.0)",
+            "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice/resolve/0c0e3051f131929182e2c023b9537f8b1c68adfe/README.md",
+            "sha256": "64f65e809b51cc0c35f393fbbfcc2d735c0cb3fdbbc6f3fdc4a5e6ce55e9d088"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "qwen3-aiden.wav",
+        "sha256": "71e7f9773e5296542c5092653c26e3d1344f8fff6e0d81d22ec722004b4db90a",
+        "duration_s": 12.56,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "qwen3-ryan",
+      "label": "Qwen3 - Ryan",
+      "backend": "qwen3",
+      "rights": {
+        "status": "confirmed",
+        "basis": "Local Qwen3-TTS CustomVoice preset speaker, one of the model's own built-in speakers. The pinned model card declares license: apache-2.0; it does not document the provenance of the training audio, which this project has not audited. ACT supplies no reference recording to a preset voice, and the Apache-2.0 license places no restriction on the audio the weights produce.",
+        "evidence": [
+          {
+            "what": "Qwen3-TTS-12Hz-1.7B-CustomVoice model card at the pinned revision (front matter: license: apache-2.0)",
+            "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice/resolve/0c0e3051f131929182e2c023b9537f8b1c68adfe/README.md",
+            "sha256": "64f65e809b51cc0c35f393fbbfcc2d735c0cb3fdbbc6f3fdc4a5e6ce55e9d088"
+          }
+        ],
+        "confirmed_on": "2026-10-19",
+        "confirmed_by": "license review (Claude Code); the owner may withdraw it"
+      },
+      "preview": {
+        "status": "generated",
+        "file": "qwen3-ryan.wav",
+        "sha256": "8273092234c33f8dfad675fb23f2ec8cd6ccdfa8b7dafc00085ee12641460030",
+        "duration_s": 11.04,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-19"
+      }
+    },
+    {
+      "voice_id": "qwen3-female-1",
+      "label": "Qwen3 - Female 1",
+      "backend": "qwen3",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "qwen3-female-2",
+      "label": "Qwen3 - Female 2",
+      "backend": "qwen3",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "qwen3-male-1",
+      "label": "Qwen3 - Male 1",
+      "backend": "qwen3",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "qwen3-male-2",
+      "label": "Qwen3 - Male 2",
+      "backend": "qwen3",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "qwen3-male-3",
+      "label": "Qwen3 - Male 3",
+      "backend": "qwen3",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    },
+    {
+      "voice_id": "qwen3-male-4",
+      "label": "Qwen3 - Male 4",
+      "backend": "qwen3",
+      "rights": {
+        "status": "unresolved",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
+        "evidence": []
+      },
+      "preview": {
+        "status": "blocked",
+        "file": null
+      }
+    }
+  ]
+}
