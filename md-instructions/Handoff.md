@@ -2,6 +2,22 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01: Decision B voice roster recorded (2026-10-19, HOME-PC)
+
+The owner chose **Decision B** (retain Chatterbox, add Qwen3): Edge 5, Kokoro 9 (+ `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel`), Chatterbox 6 unchanged,
+Qwen3 8 (Aiden, Ryan, six clones) = **28 voices**; Dylan, Eric, Ono_Anna, Serena, Sohee, Uncle_Fu, Vivian are excluded from production (evidence kept).
+Recorded in the plan (superseding the CP5 matrix), in Decisions, and here. Sustained Qwen target is now eight recordings (Aiden, Ryan, six clones). The six
+clones and their long recordings still wait on the owner's transcript approval (`verified.json` is all `approved: false`). Chatterbox retirement is NOT
+authorized; Plan 02 is not started. Status at the end of this session:
+
+- **Kokoro slice done.** The registry is 20 rows (Edge 5, Kokoro 9, Chatterbox 6). `am_fenrir`, `am_puck`, `am_onyx` and `bm_daniel` sit inside the Kokoro block at neutral speed 1.0; every original row, the relative order and the default voice (Steffan) are unchanged. The registry-pinning tests now identify rows by id and still pin the original 16. Changelog and Briefing updated.
+- **Harness.** The long stage is roster-aware: `long-selection.json` (`{"presets": [...], "clones": [...]}`, checked by `validate_long_selection`) may name only roster voices, once each. A long clone runs only when its transcript is approved AND a current successful short clone exists (intact files, identity equal to today's, recorded runtime matching); a changed transcript makes the short clone stale and blocks the long one. A real-data `--eval-dry-run` of `short` and `long` reported 21 short and 2 long results reused and 12 clone rows blocked on transcripts, and left the run tree unchanged (345 files, identical fingerprint and manifest hash).
+- **Sustained recordings.** `long-qwen-preset-aiden` (567.0 s audible, 25 chunks, 1.358x real time, advisory ASR coverage 94.9%) and `long-qwen-preset-ryan` (614.6 s, 25 chunks, 1.355x, 95.7%) exist with hashes intact. Nobody has listened to them yet; that is the owner's gate. The six clone long recordings stay blocked.
+- **CPU fallback.** Measured once (Ryzen 7 9800X3D, bf16): 2.15x real time and about 5.7 GB of memory; the GPU did about 1.5x on the same chunks. Other CPUs are unmeasured.
+- **Addendum.** `files/plans/ACT-v0.6.7-Plan-01-CP6-Qwen3-Integration-Addendum.md` holds the design (D1-D10), slices S1-S5 and the owner questions Q1-Q8. No Qwen3 production code exists and none of it is approved.
+- **Verification.** `scripts/verify.py` RESULT: PASS (8,059 passed, 58 skipped). Codex round 5 found no blockers and one major (a stale short clone could unlock its long recording), fixed and mutation-checked; its confirmation round found no blocker or major, and two number fixes in the addendum were applied after it.
+- **Next owner actions.** (1) Approve or correct the six clone transcripts in `transcripts/verified.json`; then the six short clones run and the long clones follow. (2) Answer addendum Q1-Q8 before any Qwen3 production work. (3) Listen to Aiden and Ryan.
+
 ## CURRENT STATE — v0.6.7 Plan 01 voice evaluation: CP2 runtime + CP3 tooling + 21 of 27 short recordings (2026-10-18, HOME-PC)
 
 Branch `feature/0.6.7-bundled-chatterbox-references`, fast-forwarded to `origin` `d2274e96` (the MP3-fix line) before this
@@ -20,7 +36,7 @@ loaded from local snapshots with HF offline on: Qwen3-TTS CustomVoice and Base 1
 holds about 6 GB of the 12 GB VRAM; Qwen needs about 5.4 GB reserved, so a GPU-heavy foreground app can cause an OOM.
 
 **Pilot and profile.** SDPA, bf16, batch 1, 600-character chunks, 50 ms after every chunk plus 3 s end silence (the local
-engines' own pattern). Peak 4.7 GB VRAM, generation-cap headroom at most 6%, RTF about 1.5-1.9. The passages were revised
+engines' own pattern). Peak 4.7 GB VRAM, the longest chunk used at most 6% of the generation cap, RTF about 1.5-1.9 on the short suite. The passages were revised
 once, globally, after pilot timing and are frozen byte-exact per run (short 154 words, long 1,528 words).
 
 **Short suite.** 21 of 27 generated: Kokoro 6/6 (existing Michael and George, candidates Fenrir, Puck, Onyx, Daniel), Chatterbox

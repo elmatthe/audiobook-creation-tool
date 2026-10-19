@@ -4,6 +4,27 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-19 - Final ACT voice roster: Decision B (28 voices)
+
+**Decision (owner, explicit).** Retain Chatterbox and add selected Qwen3 voices. Final target inventory: Edge 5 (unchanged), Kokoro 9
+(the five existing plus `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel`), Chatterbox 6 (unchanged: no removal, rename, archival or
+replacement), Qwen3-TTS 8 (CustomVoice Aiden and Ryan; the six Base clones Female 1, Female 2, Male 1, Male 2, Male 3, Male 4) = **28**.
+Excluded from production: Dylan, Eric, Ono_Anna, Serena, Sohee, Uncle_Fu, Vivian (their evaluation evidence stays).
+
+**Labels and identity.** `Qwen3 - Aiden`, `Qwen3 - Ryan`, `Qwen3 - Female 1` ... `Qwen3 - Male 4`; a separate Qwen3 GUI group; distinct internal ids and
+backend dispatch (never keyed on display labels); a Qwen clone is independent of its Chatterbox counterpart; the default voice, existing identities, saved
+settings and ordering are preserved.
+
+**Why / consequences.** The sustained Qwen evaluation target changes from four recordings (Aiden, Dylan, a female preset, a clone) to eight
+(Aiden, Ryan and the six clones) on the existing frozen long corpus; the earlier selection matrix is superseded in the plan. This approves the
+roster only: transcript approval, audio validation, regression gates and the bounded Qwen3 production addendum (new runtime, bootstrap and
+platform decisions need the owner's approval) all still apply, and no Chatterbox retirement is authorized. Permanent 10-second previews cover the
+final 28 voices only, subject to a per-voice redistribution check.
+
+-- Decided by maintainer, recorded by Claude Code
+
+---
+
 ## 2026-10-18 - Plan 01 evaluation: isolated Qwen3-TTS runtime and dev-only tooling
 
 **Decision.** The Qwen3-TTS / Kokoro / Chatterbox voice evaluation runs from `files/dev-tools/` (never shipped) and an
@@ -30,7 +51,7 @@ only because `qwen-tts` declares it; no server is run.
 - *Evaluation passages* live in `qwen_eval_corpus.py`, not in `quality_corpus.py`, so the production corpus identity
   (`407fa95d7c524c64`) is unchanged and a test pins it. They were revised once, globally, after pilot timing (short
   172 -> 154 words, long 1,428 -> 1,528 words) and are frozen byte-exact per run; a changed passage requires a new run.
-- *Chunk ceiling 600 characters* for Qwen only (pilot: peak VRAM 4.7 GB, generation-cap headroom <= 6%); Chatterbox keeps
+- *Chunk ceiling 600 characters* for Qwen only (pilot: peak VRAM 4.7 GB, the longest chunk used <= 6% of the generation cap); Chatterbox keeps
   its 300-character ceiling and Kokoro its own chunker.
 - *Transcript gate.* A reference transcript conditions a clone only when `verified.json` holds `"approved": true` for it
   (a literal boolean); Whisper drafts never count, `x_vector_only_mode` is never used, and the transcript hash is part of

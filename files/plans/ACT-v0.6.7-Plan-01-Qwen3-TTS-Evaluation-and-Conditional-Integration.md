@@ -10,7 +10,7 @@
 
 ## 1. Goal and execution boundary
 
-Give the owner trustworthy, play-ready comparisons of all nine official Qwen3-TTS presets, clones of the six existing Chatterbox references, six current Chatterbox baselines, and the six specified Kokoro voices, followed by four Qwen sustained narration tests. Preserve the working ACT application while the owner decides whether to integrate Qwen and, independently, which new Kokoro candidates to add.
+Give the owner trustworthy, play-ready comparisons of all nine official Qwen3-TTS presets, clones of the six existing Chatterbox references, six current Chatterbox baselines, and the six specified Kokoro voices, followed by sustained Qwen narration tests (four as first planned; eight after the 2026-10-19 roster decision). Preserve the working ACT application while the owner decides whether to integrate Qwen and, independently, which new Kokoro candidates to add.
 
 Claude Code implements approved checkpoints locally on HOME-PC. Codex CLI independently reviews the changed implementation and evidence at the checkpoints below; it does not build a competing implementation. The owner verifies reference transcripts, selects two Qwen long-test voices after hearing the short samples, makes the final Qwen/Chatterbox decision, and separately approves or rejects each new Kokoro candidate.
 
@@ -25,7 +25,7 @@ Follow current owner instructions, this active plan, actual project authority, t
 | Short comparisons | 27 expected recordings: nine Qwen CustomVoice presets, six Qwen Base clones, six current Chatterbox baselines, and six specified Kokoro voices; every requested row must exist even when generation fails. |
 | Short length | Approximately one minute; 45–90 seconds is the listening target. Use the identical canonical passage for all voices. |
 | Kokoro slice | Existing `am_michael` and `bm_george`, plus new candidates `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel`; existing engine/root environment, neutral speed 1.0, no production registry/GUI changes during evaluation. |
-| Sustained comparisons | Four Qwen recordings: Aiden, Dylan, one female preset and one clone chosen by the owner after short listening. Kokoro has no mandatory long test in this addition; extra long trials require a separate owner selection. |
+| Sustained comparisons | **Superseded 2026-10-19 (see "Owner voice-roster decision"):** eight Qwen recordings: Aiden, Ryan and the six Qwen clones. Originally: Aiden, Dylan, one female preset and one clone chosen by the owner after short listening. Kokoro has no mandatory long test in this addition; extra long trials require a separate owner selection. |
 | Sustained length | Approximately ten minutes; 8–12 minutes is the target, using one identical complete passage for all four. |
 | Formats | Native-rate lossless WAV evidence and convenient MP3 listening copies, with an index and machine-readable manifests. |
 | First machine | HOME-PC, Windows, reported RTX 5070 12 GB. Confirm hardware, driver and usable memory live. Windows 10/11 clean-install qualification belongs to Plan 02. |
@@ -52,6 +52,26 @@ CP1 completed read-only; evidence is local and ignored under `files/dev-work/qwe
 - **F.** Independently executable work continues while transcript approval or another voice group is blocked.
 
 CP2-CP5 may run continuously. Transcript verification, the two long-test selections, Kokoro retain/reject/defer decisions and the CP6 engine decision remain owner gates; none is waived by this authorization.
+
+### Owner voice-roster decision recorded 2026-10-19 (Decision B; supersedes the CP5 selection matrix)
+
+After reviewing the available comparisons the owner selected **Decision B: retain Chatterbox and add selected Qwen3 voices**. These are explicit roster decisions, not permission to bypass technical compatibility, transcript approval, audio validation or release gates.
+
+| Engine | Retained / added | Count |
+|---|---|---|
+| Microsoft Edge | the five existing voices, unchanged | 5 |
+| Kokoro | the five existing voices unchanged, plus **add** `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel` | 9 |
+| Chatterbox | the six existing voices unchanged; nothing removed, renamed, archived or replaced | 6 |
+| Qwen3-TTS | CustomVoice **Aiden** and **Ryan**; all six Base clones (Female-1, Female-2, Male-1, Male-2, Male-3, Male-4) | 8 |
+| **Total** | | **28** |
+
+- **Excluded from production:** Dylan, Eric, Ono_Anna, Serena, Sohee, Uncle_Fu, Vivian. Their completed evaluation recordings, manifests and test evidence are kept.
+- **Exact GUI labels:** `Qwen3 - Aiden`, `Qwen3 - Ryan`, `Qwen3 - Female 1`, `Qwen3 - Female 2`, `Qwen3 - Male 1`, `Qwen3 - Male 2`, `Qwen3 - Male 3`, `Qwen3 - Male 4`. A Qwen clone is independent of its Chatterbox counterpart (`Chatterbox - Male 1` is unchanged; `Qwen3 - Male 1` is a separate voice). Internal IDs and backend dispatch are distinct and never derived from display labels. Qwen3 is a separate, clearly identified GUI group, not merged with Chatterbox. The default voice, existing identities, saved settings and ordering are preserved. Kokoro additions follow the existing registry naming conventions, American/British groups and neutral speed defaults.
+- **Superseded:** the CP4 step-4 selection (one female preset plus one clone) and the four-recording CP5. The sustained Qwen target is now **eight roughly ten-minute recordings: Aiden, Ryan and the six clones**, using the existing frozen long corpus and the established evaluation configuration (no new passage, no alternative model). Aiden and Ryan may run as soon as their prerequisite checks pass; each clone's long recording waits for its owner-approved transcript and a successful short clone output. A decoded recording is never listening approval.
+- **Unchanged gates:** reference-hash/transcript approval (no Whisper auto-approval, no transcript-free cloning, no change to the reference WAVs); the 21 successful short recordings are never archived or regenerated because the roster changed; a dry run precedes any resume operation.
+- **Integration:** this decision approves the roster only. The four Kokoro additions may be implemented as a focused registry/UI slice on the existing Kokoro backend once their evaluation evidence is valid and the registry/platform regression gates pass. Qwen3 production integration is described in a bounded addendum (`files/plans/ACT-v0.6.7-Plan-01-CP6-Qwen3-Integration-Addendum.md`) and needs the owner's approval for any new runtime/bootstrap/platform decision before material architecture changes. No Chatterbox retirement is authorized.
+- **Voice previews:** the post-integration `files/voice-previews/` deliverable applies to the final 28-voice roster only (never to rejected presets). Redistribution rights must be confirmed per voice, especially the cloned voices and any externally provided engine; where rights cannot be confirmed the specific blocker is reported instead of committing that audio. Previews are not bundled into release archives or uploaded to the website without separate approval.
+- Plan 02 is not started.
 
 ## 3. Confirmed baseline and extension points
 
@@ -233,14 +253,14 @@ Each checkpoint is a bounded unit. During implementation, run focused checks; co
 1. Generate all nine English Qwen presets, all six verified-transcript clones, all six current Chatterbox baselines and all six specified Kokoro voices with the frozen passage/profiles. Use sequential worker execution and retain per-row failures without losing the rest of the run. Kokoro uses the existing root engine and its own production chunking, not the Qwen worker runtime.
 2. Persist the result after each chunk/recording as appropriate; retain technical retry attempts, reasons and seeds. Resume only identity-matching work. Do not overwrite previous evidence or cherry-pick a preferred random take.
 3. Finish the listening index, paired clone/Chatterbox links, a labeled six-voice Kokoro section, duration/decode/peak/silence warnings and transcript/parameter provenance. Verify all 27 requested identities are accounted for and references/root environment are unchanged.
-4. Ask the owner to listen and choose **one female preset and one clone** for the long tests, alongside Aiden and Dylan. Do not choose “best” automatically. Record the owner's exact selection in local `long-selection.json` and a concise sanitized Handoff decision.
+4. Ask the owner to listen and choose the long-test voices. **Superseded 2026-10-19:** the owner rejected Dylan and every female CustomVoice preset and selected Aiden, Ryan and all six Qwen clones for the sustained tests (see "Owner voice-roster decision"); the original instruction was: choose **one female preset and one clone** alongside Aiden and Dylan. Do not choose “best” automatically. Record the owner's exact selection in local `long-selection.json` and a concise sanitized Handoff decision.
    Separately collect retain/reject/defer feedback for each of the four new Kokoro candidates, using Michael/George as existing-voice comparisons. Record exact IDs in local listening decisions; listening feedback alone does not authorize GUI edits or require replacing either existing voice.
 
-**Acceptance:** 27 truthful rows (nine Qwen presets + six Qwen clones + six Chatterbox baselines + six Kokoro voices); successful rows have play-ready artifacts, failures have precise reasons and retained diagnostics. Short listening may reject a voice despite clean measurements. **STOP Qwen long generation until the two selections arrive.** If no clone is usable, report the block and seek a bounded fallback/trial decision rather than substituting another preset. Kokoro registration remains unchanged until separate integration approval.
+**Acceptance:** 27 truthful rows (nine Qwen presets + six Qwen clones + six Chatterbox baselines + six Kokoro voices); successful rows have play-ready artifacts, failures have precise reasons and retained diagnostics. Short listening may reject a voice despite clean measurements. **STOP Qwen long generation until the selections arrive** (satisfied on 2026-10-19 for Aiden and Ryan; each clone's long recording additionally waits for its owner-approved transcript and a successful short clone output). If no clone is usable, report the block and seek a bounded fallback/trial decision rather than substituting another preset. Kokoro registration remains unchanged until separate integration approval.
 
-### CP5 — Four sustained recordings and independent closeout review
+### CP5 — Eight sustained recordings and independent closeout review (was four; superseded 2026-10-19)
 
-1. Generate the same frozen long passage for exactly the four approved voices. Keep reusable clone conditioning stable, record every chunk/span/join, and preserve complete native and encoded outputs.
+1. Generate the same frozen long passage for exactly the eight approved voices (Aiden, Ryan and the six Qwen clones; a clone only after its transcript is owner-approved and its short clone output exists). Keep reusable clone conditioning stable, record every chunk/span/join, and preserve complete native and encoded outputs.
 2. Check text-plan coverage, chunk accounting, sample-count assembly, decoding, corruption, empty or skipped outputs, obvious silence/clipping and implausible duration. Provide join cue times and expose every warning; do not declare spoken word accuracy from a hash or duration alone.
 3. The owner listens to sustained stability, start/end completeness, repeated names, paragraph/dialogue transitions, join artifacts and fatigue. Use the rubric below and timestamp defects. Optional local ASR can flag suspect omissions, but it cannot prove exact narration or overrule listening.
 4. Codex independently reviews final changed code/tests and representative actual evidence, including a reference hash check and failed/interrupted-run behavior. Claude resolves confirmed defects and reruns only affected tests/artifacts, retaining old attempts.
@@ -355,7 +375,7 @@ Every checkpoint report states repository/branch/pushed SHA (or why not pushed),
 
 - The actual local environment is proven compatible and isolated; existing ACT requirements, reference bytes, GUI and retained engines remain intact during evaluation.
 - All 27 short attempts are accounted for: nine Qwen presets, six Qwen clones, six current Chatterbox baselines and the exact six Kokoro voices. Statuses are honest and successful rows have play-ready files; material missing outputs are owner-dispositioned rather than concealed.
-- Four owner-selected long comparisons expose complete planned text/chunks and joins, and the owner has heard the evidence needed for the final engine decision.
+- Eight owner-selected long comparisons (Aiden, Ryan and the six clones) expose complete planned text/chunks and joins, and the owner has heard the evidence needed for the final engine decision.
 - Codex reviews and relevant automated/manual checks are complete, confirmed findings are resolved, and any required failure/manual limitation is explicit.
 - The Qwen/Chatterbox decision and separate per-candidate Kokoro decisions are recorded; any chosen production integration/removal is separately approved, implemented and verified before calling that outcome finished. Four Kokoro candidates remain evaluation-only until selected; Michael/George remain existing ACT voices.
 - Permanent 10-second previews of every retained ACT voice exist under `files/voice-previews/` with a README, public-documentation links and confirmed redistribution rights, or the owner has recorded that no voices were added or changed.
