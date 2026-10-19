@@ -298,6 +298,10 @@ TIMING_MESSAGE = "timing"
 EDGE_BACKEND_SAFE_WORKERS = 32
 KOKORO_BACKEND_SAFE_WORKERS = 1
 CHATTERBOX_BACKEND_SAFE_WORKERS = 1
+#: Qwen3-TTS (v0.6.7 CP6): each file runs in its own worker process holding a multi-gigabyte model on the GPU (about
+#: 5.4 GB of VRAM) or the CPU (about 6 GB of memory). A second concurrent file would double that on a machine that
+#: has no room for it, and gains nothing on a GPU that is already the bottleneck, so it is one file at a time.
+QWEN3_BACKEND_SAFE_WORKERS = 1
 
 
 def _cpu_count() -> int | None:
@@ -323,7 +327,7 @@ def _device_safe_workers(backend: str) -> int:
     constraint (see the module docstring above), not a capacity guess, so it
     is always 1 regardless of the machine.
     """
-    if backend == "chatterbox":
+    if backend in ("chatterbox", "qwen3"):
         return 1
     cpu = _cpu_count() or 4
     if backend == "kokoro":
@@ -357,6 +361,7 @@ def resolve_effective_workers(requested: int, queued_files: int, backend: str, *
         "edge": EDGE_BACKEND_SAFE_WORKERS,
         "kokoro": KOKORO_BACKEND_SAFE_WORKERS,
         "chatterbox": CHATTERBOX_BACKEND_SAFE_WORKERS,
+        "qwen3": QWEN3_BACKEND_SAFE_WORKERS,
     }.get(backend, 1)
     device_safe = _device_safe_workers(backend)
     cap = min(int(requested), int(queued_files), backend_safe, device_safe)
@@ -409,6 +414,75 @@ def _default_chatterbox_status(voice_id: str) -> tuple[bool, str]:
     resolves the name at call time instead.
     """
     return chatterbox_status(voice_id)
+
+
+#: What the engine line says when a Qwen3-TTS voice is selected (the preset and cloned voices share one engine).
+QWEN3_ENGINE_LABEL = "Qwen3-TTS (Local AI)"
+
+
+def qwen3_status(voice_id: str) -> tuple[bool, str]:
+    """The panel's one question to the Qwen3 engine: can this voice run right now?
+
+    Everything that makes the answer true or false -- the platform, the isolated environment, the model files, and for
+    a clone its reference recording and approved transcript -- belongs to ``tts/qwen3_runtime.py``. The panel gets a
+    boolean and a sentence fit for a non-technical user. The import is lazy and both failure modes are answered rather
+    than raised, so a machine with nothing installed still builds this panel and still converts with every other
+    engine.
+    """
+    try:
+        from tts.qwen3_runtime import voice_availability
+    except Exception as exc:  # noqa: BLE001 - a missing engine is a status, not a crash
+        return False, (
+            f"The Qwen3 voice engine is not available on this computer ({exc}). "
+            "Every other voice is unaffected."
+        )
+    try:
+        return voice_availability(voice_id)
+    except Exception as exc:  # noqa: BLE001 - likewise: report it, never crash a panel
+        return False, (
+            f"This voice could not be checked on this computer ({exc}). "
+            "Every other voice is unaffected."
+        )
+
+
+def _default_qwen3_status(voice_id: str) -> tuple[bool, str]:
+    """The panel's default seam -- one hop, so the module function stays patchable (see ``_default_chatterbox_status``)."""
+    return qwen3_status(voice_id)
+
+
+def qwen3_hardware_note() -> str:
+    """Where Qwen3 will run and how fast to expect it: honest, machine-dependent, never a promise."""
+    try:
+        from tts.qwen3_runtime import hardware_summary
+        return hardware_summary()
+    except Exception:  # noqa: BLE001 - a disclosure must never be the thing that breaks voice selection
+        return "Qwen3 voices run locally and are slower than real time; speed depends on your computer."
+
+
+def _default_qwen3_hardware() -> str:
+    return qwen3_hardware_note()
+
+
+def qwen3_setup_offered() -> bool:
+    """Whether an "Install / repair Qwen3 voices" action makes sense here (Windows only, for now)."""
+    try:
+        from tts.qwen3_runtime import platform_supported
+        return bool(platform_supported())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _default_qwen3_setup_offered() -> bool:
+    """One hop, so the module function stays patchable (see _default_chatterbox_status)."""
+    return qwen3_setup_offered()
+
+
+def _default_qwen3_setup_dialog(panel) -> None:
+    """Open the install/repair dialog modally. The import is lazy: nothing of it loads until it is asked for."""
+    from tts import qwen3_install_ui
+
+    qwen3_install_ui.run_dialog(panel, theme=panel.appearance_bundle, confirm=job_ui.ask_confirm,
+                                style_name=job_ui.style_name, on_change=panel._on_qwen3_setup_changed)
 
 
 @dataclass(frozen=True)
@@ -798,6 +872,10 @@ class TtsPanel(ttk.Frame):
         confirm_broad_root=None,
         confirm_large_result=None,
         chatterbox_status=None,
+        qwen3_status=None,
+        qwen3_hardware=None,
+        qwen3_setup_offered=None,
+        qwen3_setup_dialog=None,
         appearance_bundle: dict | None = None,
     ):
         # v0.6.6 Phase 3: the whole interior is built from the shared compact
@@ -853,6 +931,18 @@ class TtsPanel(ttk.Frame):
         # registered whatever this says.
         self._chatterbox_status = (chatterbox_status if chatterbox_status is not None
                                    else _default_chatterbox_status)
+        # The same shape for the Qwen3 voices (v0.6.7 CP6): one seam that answers, one boolean, one sentence, plus the
+        # hardware/speed disclosure shown beside a selected Qwen3 voice.
+        self._qwen3_status = (qwen3_status if qwen3_status is not None
+                              else _default_qwen3_status)
+        self._qwen3_hardware = (qwen3_hardware if qwen3_hardware is not None
+                                else _default_qwen3_hardware)
+        # The in-app install/repair route (the only way the Qwen3 voices are ever acquired): whether to offer it, and
+        # how to open it. Both are seams so the suite never opens a real dialog or touches the real installer.
+        self._qwen3_setup_offered = (qwen3_setup_offered if qwen3_setup_offered is not None
+                                     else _default_qwen3_setup_offered)
+        self._qwen3_setup_dialog = (qwen3_setup_dialog if qwen3_setup_dialog is not None
+                                    else _default_qwen3_setup_dialog)
         self._voice_available = True
 
         # ---- Tk state ---------------------------------------------------- #
@@ -1053,9 +1143,16 @@ class TtsPanel(ttk.Frame):
         self.voice_status_lbl.grid_remove()
         self._wrap(self.voice_status_lbl, voice)
 
+        # The one in-app way to install or repair the Qwen3 voices (the same action for a first-time user and an
+        # existing one). Shown only while a Qwen3 voice is selected and the platform offers it.
+        self.qwen3_setup_btn = ttk.Button(
+            voice, text="Install / repair Qwen3 voices...", command=self.open_qwen3_setup, style=st("button"))
+        self.qwen3_setup_btn.grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.qwen3_setup_btn.grid_remove()
+
         self.voice_separator = ttk.Separator(voice, orient=tk.HORIZONTAL,
                                              style=st("separator"))
-        self.voice_separator.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 6))
+        self.voice_separator.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 6))
 
         # Audio (§10): MP3 bitrate and requested file workers side by side,
         # then the one rate control the selected backend actually supports
@@ -1063,7 +1160,7 @@ class TtsPanel(ttk.Frame):
         # control). Bitrate and workers apply to every queued item regardless
         # of provenance (Phase 6 unified direct/folder dispatch).
         self.audio_group = ttk.Frame(voice, style=st("surface"))
-        self.audio_group.grid(row=5, column=0, columnspan=2, sticky="ew")
+        self.audio_group.grid(row=6, column=0, columnspan=2, sticky="ew")
         audio = self.audio_group
         # A wrapped caption spans the controls' columns; without a weighted
         # filler column grid would share its extra width among those columns
@@ -1358,6 +1455,10 @@ class TtsPanel(ttk.Frame):
             return
 
         self.voice_var.set(entry.voice_id)
+        if entry.backend == "qwen3" and self._qwen3_setup_offered():
+            self.qwen3_setup_btn.grid()
+        else:
+            self.qwen3_setup_btn.grid_remove()
 
         # Only the two retained, user-editable controls (Band 3) take a default
         # from the preset now; the pause/trim fields Phase 7 removed are read
@@ -1380,6 +1481,22 @@ class TtsPanel(ttk.Frame):
             self.kokoro_speed_frm.grid_remove()
             self.edge_rate_frm.grid_remove()
             self.kokoro_notice_lbl.grid_remove()
+            self._refresh_voice_status(entry)
+        elif entry.backend == "qwen3":
+            # No speed/rate control: the Qwen3 API exposes none, so showing Kokoro's (or Edge's) would misstate what
+            # it does. The notice line carries the hardware and speed disclosure the owner required (Q3/Q7).
+            self.backend_label_var.set(
+                f"Engine: {QWEN3_ENGINE_LABEL}  |  Voice: {entry.voice_id}  "
+                f"|  Group: {entry.group_label}"
+            )
+            self.kokoro_speed_frm.grid_remove()
+            self.edge_rate_frm.grid_remove()
+            note = self._qwen3_hardware()
+            self.kokoro_notice_var.set(note)
+            if note:
+                self.kokoro_notice_lbl.grid()
+            else:  # e.g. a platform where the voices are not yet available: the status line says so, nothing else does
+                self.kokoro_notice_lbl.grid_remove()
             self._refresh_voice_status(entry)
         elif entry.backend == "kokoro":
             self.backend_label_var.set(
@@ -1414,6 +1531,26 @@ class TtsPanel(ttk.Frame):
         # arrangement) are re-derived from the widgets as they now are.
         self._content_changed()
 
+    def open_qwen3_setup(self) -> None:
+        """Open the install/repair dialog. Main thread only.
+
+        Refused while a conversion is running: the dialog may replace the very files a running Qwen3 worker is reading.
+        When the dialog closes, the selected voice's availability is asked again, so installing makes the voice usable
+        without reselecting it.
+        """
+        if self._busy.is_set():
+            messagebox.showinfo(
+                "Conversion in progress",
+                "Install or repair the Qwen3 voices when the current conversion has finished, or cancel it first.")
+            return
+        self._qwen3_setup_dialog(self)
+        self._on_qwen3_setup_changed()
+
+    def _on_qwen3_setup_changed(self) -> None:
+        entry = get_voice(self.selected_voice_label.get())
+        self._refresh_voice_status(entry)
+        self._content_changed()
+
     def _refresh_voice_status(self, entry) -> tuple[bool, str]:
         """Project the selected voice's real availability onto this panel.
 
@@ -1428,16 +1565,18 @@ class TtsPanel(ttk.Frame):
         picking a voice and pressing Start must stop the run, not fail inside it.
 
         Edge and Kokoro are never asked. Nothing local has to be present for them,
-        so they are unconditionally available and the local cloning engine is never
-        loaded, probed or imported on their account.
+        so they are unconditionally available and neither local engine is ever
+        loaded, probed or imported on their account. A Qwen3 voice asks the Qwen3
+        seam, never the Chatterbox one, and the reverse.
         """
-        if entry is None or entry.backend != "chatterbox":
+        if entry is None or entry.backend not in ("chatterbox", "qwen3"):
             self._voice_available = True
             self.voice_status_var.set("")
             self.voice_status_lbl.grid_remove()
             return True, ""
 
-        ok, reason = self._chatterbox_status(entry.voice_id)
+        seam = self._qwen3_status if entry.backend == "qwen3" else self._chatterbox_status
+        ok, reason = seam(entry.voice_id)
         self._voice_available = bool(ok)
         if self._voice_available:
             self.voice_status_var.set("")
@@ -1558,7 +1697,7 @@ class TtsPanel(ttk.Frame):
         already running when a conversion started can still be stopped, and that stop
         reaches the coordinator only, never this run's controller.
         """
-        for widget in (self.go_btn, self.spin_workers, self.chk_overwrite):
+        for widget in (self.go_btn, self.spin_workers, self.chk_overwrite, self.qwen3_setup_btn):
             widget.configure(state=tk.DISABLED if locked else tk.NORMAL)
         # The two dropdowns are pick-one lists, never typeable: unlocking them
         # returns them to "readonly", not to "normal".
@@ -2730,6 +2869,9 @@ class _RunContext:
                 elif backend == "chatterbox":
                     convert_with_chatterbox(item, params, self.log_q, self.log,
                                             self.cancel_check)
+                elif backend == "qwen3":
+                    convert_with_qwen3(item, params, self.log_q, self.log,
+                                       self.cancel_check)
                 elif item["direct"]:
                     convert_with_edge_engine(item, params, self.log_q,
                                              self.cancel_check)
@@ -3000,6 +3142,58 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
     from tts.pdf_extractor import pdf_to_txt
 
     with tempfile.TemporaryDirectory(prefix=f"cb_{source.stem}_") as work:
+        text_path = str(Path(work) / f"{source.stem}.txt")
+        pdf_to_txt(str(source), text_path)
+        synthesize(text_path)
+
+
+def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
+    """One file through ``qwen3_file_to_mp3``, the Qwen3 engine's own entry point.
+
+    The same shape as :func:`convert_with_chatterbox` -- both are local engines that want plain text and write one MP3
+    -- so a PDF takes the **same** extractor the other local engines take (one PDF-to-text seam in this tool) and a TXT
+    is handed over as it stands. The import stays inside the function so a machine without Qwen3 never loads it to open
+    this panel.
+
+    Pauses come from the run's frozen voice preset exactly as for Kokoro and Chatterbox: the paragraph pause after every
+    chunk and the end pause once at the end (owner ruling Q6).
+
+    Progress: the bar still counts completed *source files* -- one progress model per run -- but a Qwen3 file takes
+    minutes to hours, so each finished chunk also refreshes the current-item message ("... chunk 3/25"). That reuses the
+    publisher's existing CURRENT_ITEM event and adds no second bar. The engine runs the model in a separate worker
+    process; cancellation reaches it through the controller's own predicate and stops it within a few seconds.
+    """
+    from tts.qwen3_synth import qwen3_file_to_mp3
+
+    source = item["source"]
+    destination = item["destination"]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    publisher = params.get("publisher")
+
+    def progress(done: int, total: int) -> None:
+        if publisher is not None:
+            publisher.current_item(item["item_id"], f"Converting {source.name} — chunk {done}/{total}")
+
+    def synthesize(text_path: str) -> None:
+        qwen3_file_to_mp3(
+            text_path,
+            str(destination),
+            voice_id=params["voice_id"],
+            end_silence_ms=params["end_pause"],
+            chunk_pause_ms=params["paragraph_pause"],
+            log=log,
+            cancel_check=cancel_check,
+            progress_callback=progress,
+            bitrate=params["bitrate"],
+        )
+
+    if source.suffix.lower() == ".txt":
+        synthesize(str(source))
+        return
+
+    from tts.pdf_extractor import pdf_to_txt
+
+    with tempfile.TemporaryDirectory(prefix=f"qw_{source.stem}_") as work:
         text_path = str(Path(work) / f"{source.stem}.txt")
         pdf_to_txt(str(source), text_path)
         synthesize(text_path)

@@ -66,6 +66,24 @@ _GUARDED_PATHS = {
     "the real FFmpeg staging tree": (REPO_ROOT / "files" / "runtime-data"
                                      / "ffmpeg-staging"),
     "the real setup log directory": REPO_ROOT / "files" / "runtime-data" / "logs",
+    # v0.6.7 CP6: the Qwen3 voices keep an isolated environment, verified model snapshots, an install record and
+    # per-run job folders. A test that writes any of them would fake an installation (or leak a job's text) on the
+    # developer's machine, so each is fingerprinted. The environment is guarded through its one small marker file,
+    # not its ~25,000-file tree, and the model folder holds only a couple of dozen files.
+    "the real Qwen3 environment marker": REPO_ROOT / ".venv-qwen3" / "pyvenv.cfg",
+    # pip writes a launcher into Scripts for most packages it installs, so this ~40-entry folder notices a package
+    # change that the marker file alone cannot.
+    "the real Qwen3 environment launchers": REPO_ROOT / ".venv-qwen3" / "Scripts",
+    "the real Qwen3 install record": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
+                                      / "state.json"),
+    "the real Qwen3 local transcripts": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
+                                         / "transcripts.json"),
+    "the real Qwen3 model folder": (REPO_ROOT / "files" / "runtime-data" / "models"
+                                    / "qwen3-tts"),
+    "the real Qwen3 job folder": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
+                                  / "jobs"),
+    "the real Qwen3 failure record": (REPO_ROOT / "files" / "runtime-data" / "qwen3"
+                                      / "last-failure.txt"),
 }
 #  Everything except the log directory is checked around every test, so a
 #  violation names the test that caused it. That is affordable because each is
@@ -77,7 +95,11 @@ _GUARDED_PATHS = {
 #  wait in test_job_ui.py.
 _PER_TEST_GUARDED = ("the real requirements stamp", "the real import proof",
                      "the real FFmpeg pin", "the real installed FFmpeg build",
-                     "the real FFmpeg staging tree")
+                     "the real FFmpeg staging tree",
+                     "the real Qwen3 environment marker", "the real Qwen3 environment launchers",
+                     "the real Qwen3 install record",
+                     "the real Qwen3 local transcripts", "the real Qwen3 model folder",
+                     "the real Qwen3 job folder", "the real Qwen3 failure record")
 
 
 # Captured at import, before any test can monkeypatch them. The guard has to
@@ -379,6 +401,28 @@ def _no_real_provisioning(monkeypatch):
     monkeypatch.setattr(bootstrap, "_run", _guarded_run)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_qwen3_install(monkeypatch):
+    """No test may run the real Qwen3 installer's commands (venv creation, pip, the worker probe).
+
+    ``tts.qwen3_setup`` resolves its command runner at call time, so replacing ``run_command`` here closes the door for
+    every caller that does not inject its own. A test that exercises the installer passes a fake ``runner=``; one that
+    reaches the real one gets a clear failure naming the command instead of a multi-gigabyte pip install.
+    """
+    # Imported here rather than looked up: a test that first imports the installer inside its own body would otherwise
+    # keep the real runner. (Unlike shared.bootstrap, importing it has no side effects: it is standard-library only.)
+    import importlib
+
+    setup = importlib.import_module("tts.qwen3_setup")
+
+    def _refuse(cmd, **kwargs):
+        raise AssertionError(
+            f"a test tried to run a real Qwen3 install command: {list(cmd)[:4]!r}. Pass a fake runner= to the "
+            "installer (see test_qwen3_setup.py).")
+
+    monkeypatch.setattr(setup, "run_command", _refuse)
+
+
 @pytest.fixture(scope="session")
 def _sandbox_logs_dir(tmp_path_factory):
     """One throwaway logs directory for the whole session."""
@@ -497,8 +541,9 @@ def _violations(before: dict) -> list[str]:
 _ADVICE = ("\nRedirect the writer to tmp_path before it runs — "
            "bootstrap.VENV_DIR / bootstrap.LOGS_DIR for setup state, "
            "ffmpeg_health.RESOURCES_DIR / ffmpeg_health.BIN_DIR for the FFmpeg "
-           "pin, installed build and staging tree — instead of writing the "
-           "developer's real environment.")
+           "pin, installed build and staging tree, and qwen3_runtime.repo_root for the "
+           "Qwen3 environment, models, install record and jobs — instead of "
+           "writing the developer's real environment.")
 
 
 @pytest.fixture(autouse=True)

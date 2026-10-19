@@ -58,6 +58,20 @@ MAINTAINER_LABELS = [
     "Chatterbox - Male 4",
 ]
 
+#: v0.6.7 CP6: the eight Qwen3-TTS rows, appended after the twenty above, labels exactly as the owner specified them
+#: on 2026-10-19. The twenty above are the strings every earlier phase pinned and they are still pinned verbatim.
+QWEN3_LABELS = [
+    "Qwen3 - Aiden",
+    "Qwen3 - Ryan",
+    "Qwen3 - Female 1",
+    "Qwen3 - Female 2",
+    "Qwen3 - Male 1",
+    "Qwen3 - Male 2",
+    "Qwen3 - Male 3",
+    "Qwen3 - Male 4",
+]
+ALL_LABELS = MAINTAINER_LABELS + QWEN3_LABELS
+
 #: The wording each row used before this rename. None of these may survive as a
 #: selectable label, and — because nothing persists a label — none of them needs
 #: to resolve to anything either. The two multilingual formers are kept even
@@ -90,6 +104,8 @@ VOICE_IDS = [
     "chatterbox-male-1", "chatterbox-male-2",
     "chatterbox-male-3", "chatterbox-male-4",
 ]
+QWEN3_IDS = ["qwen3-aiden", "qwen3-ryan", "qwen3-female-1", "qwen3-female-2",
+             "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4"]
 
 BACKENDS = ["edge"] * 5 + ["kokoro"] * 9 + ["chatterbox"] * 6
 
@@ -101,8 +117,10 @@ CHATTERBOX_LABELS = MAINTAINER_LABELS[14:]
 # --------------------------------------------------------------------------- #
 
 
-def test_the_dropdown_offers_exactly_the_maintainers_twenty_strings_in_order():
-    assert vr.display_labels() == MAINTAINER_LABELS
+def test_the_dropdown_offers_the_maintainers_twenty_strings_in_order_then_the_eight_qwen3_strings():
+    assert vr.display_labels()[:20] == MAINTAINER_LABELS  # nothing earlier moved, was renamed or was reordered
+    assert vr.display_labels()[20:] == QWEN3_LABELS
+    assert vr.display_labels() == ALL_LABELS and len(ALL_LABELS) == 28
 
 
 def test_every_label_uses_the_ascii_hyphen_and_no_em_dash():
@@ -113,10 +131,10 @@ def test_every_label_uses_the_ascii_hyphen_and_no_em_dash():
 
 def test_the_labels_are_unique_so_one_never_shadows_another():
     labels = vr.display_labels()
-    assert len(labels) == len(set(labels)) == 20
+    assert len(labels) == len(set(labels)) == 28
 
 
-@pytest.mark.parametrize("label", MAINTAINER_LABELS)
+@pytest.mark.parametrize("label", ALL_LABELS)
 def test_each_label_resolves_to_its_own_row(label):
     entry = vr.get_voice(label)
     assert entry is not None, f"{label!r} is not selectable"
@@ -135,11 +153,14 @@ def test_no_former_label_is_offered_any_more(former):
 
 
 def test_the_backends_are_unchanged():
-    assert [entry.backend for entry in vr.VOICES] == BACKENDS
+    assert [entry.backend for entry in vr.VOICES[:20]] == BACKENDS
+    assert [entry.backend for entry in vr.VOICES[20:]] == ["qwen3"] * 8
 
 
 def test_the_voice_ids_are_unchanged_and_still_in_the_same_order():
-    assert [entry.voice_id for entry in vr.VOICES] == VOICE_IDS
+    assert [entry.voice_id for entry in vr.VOICES[:20]] == VOICE_IDS
+    assert [entry.voice_id for entry in vr.VOICES[20:]] == QWEN3_IDS
+    assert not {i for i in QWEN3_IDS} & {i for i in VOICE_IDS}  # a Qwen3 id never collides with a Chatterbox id
 
 
 def test_the_timing_presets_are_still_the_approved_values():
@@ -157,7 +178,11 @@ def test_the_timing_presets_are_still_the_approved_values():
     # The four Decision B Kokoro rows and all six Chatterbox rows take their shared preset unmodified.
     for voice_id in ("am_fenrir", "am_puck", "am_onyx", "bm_daniel"):
         assert by_id[voice_id].timing_preset == vr._kokoro_preset(speed=1.0)
-    assert [entry.timing_preset for entry in vr.VOICES[14:]] == [vr._chatterbox_preset()] * 6
+    assert [entry.timing_preset for entry in vr.VOICES[14:20]] == [vr._chatterbox_preset()] * 6
+    # The eight Qwen3 rows take the shared local-engine preset unmodified (CP6 Q6: existing narration policy).
+    assert [entry.timing_preset for entry in vr.VOICES[20:]] == [vr._qwen3_preset()] * 8
+    assert vr._qwen3_preset() == vr._chatterbox_preset() == vr._kokoro_preset(speed=1.0)
+    assert vr._qwen3_preset()["paragraphpause"] == "700" and vr._qwen3_preset()["end_pause"] == "3000"
 
 
 def test_the_group_labels_are_unchanged_and_are_never_the_voice_name():
@@ -165,7 +190,9 @@ def test_the_group_labels_are_unchanged_and_are_never_the_voice_name():
     assert groups[:5] == ["Microsoft Edge TTS — English (US)"] * 5
     assert groups[5:11] == ["Kokoro Local AI — American English"] * 6
     assert groups[11:14] == ["Kokoro Local AI — British English"] * 3
-    assert groups[14:] == [vr.CHATTERBOX_GROUP_LABEL] * 6
+    assert groups[14:20] == [vr.CHATTERBOX_GROUP_LABEL] * 6
+    assert groups[20:] == [vr.QWEN3_GROUP_LABEL] * 8
+    assert vr.QWEN3_GROUP_LABEL != vr.CHATTERBOX_GROUP_LABEL and "Qwen3" in vr.QWEN3_GROUP_LABEL
     assert not set(groups) & set(vr.display_labels())
 
 
@@ -185,7 +212,7 @@ def test_the_six_chatterbox_labels_were_already_right_and_did_not_change():
     """Four pre-existing (Phase 13A.3, untouched) plus Male 3 and Male 4
     (both new, Phase 2 — Male 3 is the original candidate, not the rejected
     pitch-retry variant)."""
-    assert [entry.display_label for entry in vr.VOICES[14:]] == CHATTERBOX_LABELS
+    assert [entry.display_label for entry in vr.VOICES[14:20]] == CHATTERBOX_LABELS
     assert CHATTERBOX_LABELS == [
         "Chatterbox - Female 1", "Chatterbox - Female 2",
         "Chatterbox - Male 1", "Chatterbox - Male 2",

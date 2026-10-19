@@ -2,7 +2,7 @@
 voice_registry.py — Central registry of all supported TTS voices for epub2tts-edge v1.1.
 
 Each entry defines:
-  - backend:        "edge" | "kokoro" | "chatterbox"
+  - backend:        "edge" | "kokoro" | "chatterbox" | "qwen3"
   - voice_id:       The voice identifier passed to the TTS engine
   - display_label:  Short human-readable name shown in the GUI dropdown
   - group_label:    Category header shown in the dropdown (cosmetic only)
@@ -50,6 +50,15 @@ still row 0 and the default. They were heard first in the evaluation harness, wh
 engine directly with these ids (``tts.kokoro_synth`` routes ``am_``/``bm_`` to the American/British pipelines). A
 new Kokoro voice file is fetched on first use, exactly like the existing five.
 
+**v0.6.7 CP6 registered the eight Qwen3-TTS voices** (owner roster decision B, 2026-10-19; architecture
+approved the same day): CustomVoice presets ``Qwen3 - Aiden`` and ``Qwen3 - Ryan`` and the six cloned voices
+``Qwen3 - Female 1``/``Female 2``/``Male 1``/``Male 2``/``Male 3``/``Male 4``. They are appended after the
+Chatterbox block, so every earlier row keeps its backend, id, label, group, timing and position, and Steffan is
+still row 0 and the default. A Qwen3 clone shares only the *reference recording* with its Chatterbox namesake; it has
+its own backend (``"qwen3"``), its own internal id and its own engine, and dispatch reads the backend, never the label.
+Availability is owned by ``tts/qwen3_runtime.py`` (platform, isolated environment, model files, and for clones the
+reference recording and an approved transcript).
+
 **Registered is not the same as available.** A row here says a voice is part of the
 supported configuration. Whether it can actually run on *this* machine is a separate
 question, owned by ``tts/chatterbox_synth.py`` — the Chatterbox voices are backed by
@@ -63,7 +72,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-BACKEND = Literal["edge", "kokoro", "chatterbox"]
+BACKEND = Literal["edge", "kokoro", "chatterbox", "qwen3"]
 
 
 @dataclass(frozen=True)
@@ -154,14 +163,48 @@ def _chatterbox_preset(
     }
 
 
+def _qwen3_preset(
+    sentence: int = 600,
+    paragraph: int = 700,
+    title: int = 1000,
+    chapter: int = 1800,
+    end: int = 3000,
+) -> dict:
+    """Timing defaults for the local Qwen3-TTS engine.
+
+    The same *shape* and the same *values* as ``_chatterbox_preset`` and ``_kokoro_preset``: all three are local
+    engines whose chunk boundaries are clean, and the owner ruled (CP6, Q6) that Qwen3 follows ACT's existing
+    narration policy rather than the evaluation's fixed pauses. The panel hands ``paragraphpause`` to the engine as
+    the pause after every chunk and ``end_pause`` as the closing silence, exactly as it does for the other local
+    engines. There is no rate/speed control (the Qwen3 API exposes none), so ``rate`` and ``kokoro_speed`` are carried
+    at their neutral values, and ``trim_edge_chunks`` stays off. No per-voice tuning: Aiden is not timed differently
+    from Male 4.
+    """
+    return {
+        "sentencepause": str(sentence),
+        "paragraphpause": str(paragraph),
+        "title_ms": str(title),
+        "chapter_ms": str(chapter),
+        "end_pause": str(end),
+        "trim_dbfs": "-58",
+        "trim_edge_chunks": False,
+        "rate": "+0%",
+        "kokoro_speed": "1.0",
+    }
+
+
 #: The one cosmetic heading the four Chatterbox rows share, in the same
 #: "<engine> — <category>" shape the Edge and Kokoro groups already use. It is a
 #: dropdown separator only and never part of a voice's name.
 CHATTERBOX_GROUP_LABEL = "Chatterbox Turbo Local AI — Cloned Voices"
 
-# Twenty rows: five Edge, nine Kokoro (the original five plus the four Decision B additions of
-# 2026-10-19), then six approved Chatterbox voices (the original four plus Male 3 and Male 4,
-# both approved 2026-09-20).
+#: The heading the eight Qwen3 rows share. A separate, clearly identified group (owner ruling): it never reuses the
+#: Chatterbox heading even though six of the voices share a reference recording with a Chatterbox voice.
+QWEN3_GROUP_LABEL = "Qwen3-TTS Local AI — Preset and Cloned Voices"
+
+# Twenty-eight rows: five Edge, nine Kokoro (the original five plus the four Decision B additions of
+# 2026-10-19), six approved Chatterbox voices (the original four plus Male 3 and Male 4,
+# both approved 2026-09-20), then the eight Qwen3 voices (v0.6.7 CP6).
 # v0.6.5 Phase 2 also removed the two multilingual Edge rows
 # (en-US-AndrewMultilingualNeural, en-US-AvaMultilingualNeural) per the
 # plan's final voice inventory (Section 3) — ordinary Andrew and Ava are
@@ -331,6 +374,66 @@ VOICES: list[VoiceEntry] = [
         display_label="Chatterbox - Male 4",
         group_label=CHATTERBOX_GROUP_LABEL,
         timing_preset=_chatterbox_preset(),
+    ),
+    # ---- v0.6.7 CP6: the eight Qwen3-TTS voices, labels exactly as the owner specified on 2026-10-19 ---- #
+    # Internal ids are distinct from every Chatterbox id and dispatch reads ``backend``, never the label. The
+    # presets need only the CustomVoice model; the six clones need the Base model, their bundled reference
+    # recording and an approved transcript (see tts/qwen3_runtime.py).
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-aiden",
+        display_label="Qwen3 - Aiden",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
+    ),
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-ryan",
+        display_label="Qwen3 - Ryan",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
+    ),
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-female-1",
+        display_label="Qwen3 - Female 1",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
+    ),
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-female-2",
+        display_label="Qwen3 - Female 2",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
+    ),
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-male-1",
+        display_label="Qwen3 - Male 1",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
+    ),
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-male-2",
+        display_label="Qwen3 - Male 2",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
+    ),
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-male-3",
+        display_label="Qwen3 - Male 3",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
+    ),
+    VoiceEntry(
+        backend="qwen3",
+        voice_id="qwen3-male-4",
+        display_label="Qwen3 - Male 4",
+        group_label=QWEN3_GROUP_LABEL,
+        timing_preset=_qwen3_preset(),
     ),
 ]
 

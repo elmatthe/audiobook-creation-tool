@@ -70,7 +70,7 @@ def test_kokoro_rows_route_languages_like_the_engine_and_flag_candidates():
     assert [v for v, s in status.items() if s == "candidate"] == ["am_fenrir", "am_puck", "am_onyx", "bm_daniel"]
 
 
-def test_the_decision_b_kokoro_voices_are_registered_and_qwen_is_not_yet():
+def test_the_decision_b_kokoro_voices_are_registered_and_the_qwen3_rows_follow_the_chatterbox_block():
     from tts.voice_registry import VOICES
 
     kokoro = [v.voice_id for v in VOICES if v.backend == "kokoro"]
@@ -81,7 +81,14 @@ def test_the_decision_b_kokoro_voices_are_registered_and_qwen_is_not_yet():
     assert len(kokoro) == 9
     chatterbox = [v.voice_id for v in VOICES if v.backend == "chatterbox"]
     assert chatterbox == [voice_id for _, voice_id in core.REFERENCE_VOICE_IDS]
-    assert not any("qwen" in v.voice_id.lower() for v in VOICES)
+    # v0.6.7 CP6 registered the eight production Qwen3 voices (their own backend). The evaluation-only presets the
+    # owner excluded (Dylan, Eric, Ono_Anna, Serena, Sohee, Uncle_Fu, Vivian) are still not voices of the app.
+    qwen3 = [v for v in VOICES if v.backend == "qwen3"]
+    assert [v.voice_id for v in qwen3] == ["qwen3-aiden", "qwen3-ryan", "qwen3-female-1", "qwen3-female-2",
+                                           "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4"]
+    assert VOICES[-8:] == qwen3
+    assert not any(excluded in v.voice_id.lower() for v in VOICES for excluded in (
+        "dylan", "eric", "ono", "serena", "sohee", "uncle", "vivian"))
 
 
 def test_kokoro_inventory_reports_registry_status_without_loading_anything():

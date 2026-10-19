@@ -124,10 +124,15 @@ CATALOG: tuple[AssetDefinition, ...] = (
         asset_id="downloaded_models",
         display_name="Downloaded voice models",
         relative_target="files/runtime-data/models",
-        consequence="Kokoro/Hugging Face data downloads again when needed.",
+        consequence=(
+            "Kokoro/Hugging Face data downloads again when needed. Qwen3 voice models "
+            "are not downloaded automatically: install them again with Install / "
+            "repair Qwen3 voices."
+        ),
         effect_line=(
             "Downloaded voice models: Kokoro/Hugging Face data will download again "
-            "when needed."
+            "when needed. Qwen3 voice models must be installed again with Install / "
+            "repair Qwen3 voices."
         ),
         requires_post_exit=False,
         removes_target_itself=False,

@@ -5,6 +5,8 @@
 
 # Virtual environment (repo root; rebuilt fresh by Setup_and_Run on each machine)
 .venv/
+# Isolated Qwen3-TTS environment (created by the in-app "Install / repair Qwen3 voices" action; never committed or packaged)
+.venv-qwen3/
 .python_runtime/
 
 # Python bytecode / caches

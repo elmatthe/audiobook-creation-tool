@@ -81,7 +81,10 @@ REFERENCE_ASSETS = (
 )
 
 # Directory names that are excluded wherever they appear in the tree.
-EXCLUDED_DIR_NAMES = {".venv", "__pycache__", ".pytest_cache"}
+# ``.venv-qwen3`` is the optional Qwen3-TTS environment (v0.6.7 CP6): it lives at the repository root, outside the
+# ``scripts/`` tree the packager walks, so it cannot be reached in the first place; it is named here too so that a
+# future widening of the walk can never package a multi-gigabyte environment by accident.
+EXCLUDED_DIR_NAMES = {".venv", ".venv-qwen3", "__pycache__", ".pytest_cache"}
 # File suffixes that are always excluded.
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 # Exact file names that are always excluded, wherever they appear in the tree.

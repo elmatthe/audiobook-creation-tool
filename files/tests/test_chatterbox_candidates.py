@@ -152,8 +152,10 @@ def test_the_registry_holds_exactly_six_chatterbox_rows():
     assert len(chatterbox) == 6
 
 
-def test_the_registry_holds_exactly_twenty_voices_total():
-    assert len(voice_registry.VOICES) == 20
+def test_the_registry_holds_exactly_twenty_eight_voices_total():
+    """Twenty before v0.6.7 CP6, then the eight Qwen3 rows; the candidate pool never registered anything."""
+    assert len(voice_registry.VOICES) == 28
+    assert len([v for v in voice_registry.VOICES if v.backend != "qwen3"]) == 20
 
 
 # --------------------------------------------------------------------------- #

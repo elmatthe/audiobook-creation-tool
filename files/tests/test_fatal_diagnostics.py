@@ -308,7 +308,7 @@ def test_the_four_approved_voices_are_still_registered():
     registry = importlib.import_module("tts.voice_registry")
     chatterbox = [v for v in registry.VOICES if v.backend == "chatterbox"]
     assert len(chatterbox) == 6
-    assert len(registry.VOICES) == 20
+    assert len(registry.VOICES) == 28  # the eight Qwen3 rows (v0.6.7 CP6) sit after these
 
 
 def test_the_diagnostic_touched_no_engine_module():

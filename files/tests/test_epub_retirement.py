@@ -60,6 +60,14 @@ PRODUCTION_TTS_SOURCES = (
     # Added by v0.6.5 Phase 1. The QA corpus text consumed by --quality-suite;
     # same reasoning as chatterbox_synth.py above.
     "tts/quality_corpus.py",
+    # Added by v0.6.7 CP6: the Qwen3-TTS engine (runtime facts, synthesis, the venv-side worker, process supervision).
+    # Same reasoning as chatterbox_synth.py above: a new production TTS module must not be a place EPUB can return.
+    "tts/qwen3_runtime.py",
+    "tts/qwen3_synth.py",
+    "tts/qwen3_worker.py",
+    "tts/qwen3_process.py",
+    "tts/qwen3_setup.py",
+    "tts/qwen3_install_ui.py",
 )
 
 #: The EPUB-exclusive functions Phase 5 removed from production. Every one of them
@@ -545,11 +553,12 @@ def test_the_edge_and_kokoro_voices_and_the_default_label_are_unchanged():
     """
     from tts import voice_registry as vr
 
-    assert len(vr.VOICES) == 20
+    assert len(vr.VOICES) == 28
     assert vr.DEFAULT_VOICE_LABEL == vr.display_labels()[0]
     assert len([v for v in vr.VOICES if v.backend == "edge"]) == 5
     assert len([v for v in vr.VOICES if v.backend == "kokoro"]) == 9
     assert len([v for v in vr.VOICES if v.backend == "chatterbox"]) == 6
+    assert len([v for v in vr.VOICES if v.backend == "qwen3"]) == 8
     for voice in vr.VOICES:
         assert isinstance(voice.timing_preset, dict) and voice.timing_preset
 

@@ -145,6 +145,23 @@ def _synthesize_for_voice(v, text: str, dest: Path, log: Callable[[str], None] =
             )
 
             chatterbox_text_to_mp3(text, str(dest), voice_id=v.voice_id, log=log)
+    elif v.backend == "qwen3":
+        # v0.6.7 CP6: the production Qwen3 path (isolated worker, one MP3). It needs the same text-file input the
+        # conversion path gives it; an uninstalled voice raises Qwen3Unavailable and is reported as that voice's
+        # failure while the rest of the run continues, like any other unavailable local voice.
+        import tempfile
+
+        from tts.qwen3_synth import qwen3_file_to_mp3
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8",
+        ) as tmp:
+            tmp.write(text)
+            tmp_path = tmp.name
+        try:
+            qwen3_file_to_mp3(tmp_path, str(dest), voice_id=v.voice_id, log=log)
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
     elif v.backend == "edge":
         import asyncio
 
