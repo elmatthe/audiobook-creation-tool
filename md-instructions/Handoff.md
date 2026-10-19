@@ -2,6 +2,29 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: C0, A0 and B1 done; A1 waits for the manual Windows launch and Codex review (2026-10-19, HOME-PC)
+
+Branch `feature/0.6.7-speech-pipeline-and-layout`, cut from `df0dbc28` (the CP6 branch `feature/0.6.7-bundled-chatterbox-references` is left as it was).
+Authorised and done: **C0, A0 and B1 only.** Not started: A1-A5, A6, S5. No synthesis or audio, no model, transcript, dependency or setting change, no
+merge, tag or release; application identity stays 0.6.6. The execution record (path map, deviations, proofs) is Plan 01B Appendix B.
+
+- **C0.** `files/plans/ACT-v0.6.7-Plan-01B-Text-Pipeline-and-Script-Layout.md` section 0 records D1-D15 as decided and eight review corrections: the Chatterbox
+  colon patch and 75 ms pause are temporary (criteria for retiring them are checkpoint A6); a run freezes its speech-preparation settings by value; mappings
+  start from the decoded/extracted source text; shared normalization is the end state and the per-engine mode table is rollout scaffolding; the audio gate lists
+  every change to approved behaviour; old and new test counts are recorded separately; overlay upgrades get a bounded risk review.
+- **A0.** Text/chunk/seed baselines of the five TTS routes (Edge direct, Edge folder, Kokoro, Chatterbox, Qwen3) were captured from the ORIGINAL code before any
+  file moved: `files/dev-tools/speech_characterization.py` writes `files/tests/golden/speech/*.json`, `files/tests/test_speech_characterization.py` checks them.
+  No audio, no model load, no network. After the move they are byte-identical (`python files/dev-tools/speech_characterization.py check` prints OK).
+- **B1.** `launcher.py`, `shared/`, `tts/`, `mp3_tools/` moved from `scripts/Universal/` to `scripts/` (82 files; 70 pure renames); `scripts/` is the import root;
+  package names and every `import` statement are unchanged; `scripts/MacOS` and `scripts/Windows` placeholders removed. Layout canaries
+  (`files/tests/test_layout_canary.py`), README module maps (`scripts/README.md` and one per package) and a warning-only notice about a leftover
+  `scripts/Universal` (never deletes) were added.
+- **Verification.** `scripts/verify.py` RESULT: PASS on the final tree: **8,557 passed, 60 skipped** (18 min 14 s). Recorded separately: the pre-existing suite is 8,517 passed / 60 skipped at `df0dbc2` and the same 8,517 / 60 now (no regression, nothing newly skipped); the new tests are 18 (A0) + 22 (layout canaries) = 40, all passing. Focused passes ran first (every test file touched by the update, then the remaining files) and found and fixed 4 failures and 1 hidden depth assumption before the gate.
+- **Open items for the next session.** (1) The owner's manual Windows launch below. (2) Codex independent review of B1. (3) Only then A1 (shared structure loader).
+  The six Qwen3 clone transcripts are still unapproved; nothing here changes that.
+- **Manual Windows launch (HOME-PC).** Close the app, switch to the branch, double-click `Setup_and_Run-audiobook-creation-tool.bat`; expect the normal fast launch
+  (no package install, no `.venv` rebuild), the six-tool launcher and the 28-voice TTS list, and no "old folder" warning. Report anything else.
+
 ## CURRENT STATE — v0.6.7 Plan 01 CP6: Qwen3-TTS production integration, slices S1-S4 built (2026-10-19, HOME-PC)
 
 The owner approved the CP6 architecture (Q1-Q8, addendum section 0). Slices S1-S4 are implemented and verified on Windows. The six cloned

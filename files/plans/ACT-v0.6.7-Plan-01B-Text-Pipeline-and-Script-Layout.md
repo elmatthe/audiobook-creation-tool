@@ -509,3 +509,56 @@ Still outstanding for S5, **not** decided here: the six clone transcripts (`veri
 **Authorised work.** C0 (this revision and the branch), A0 (characterization goldens from the original code), B1 (mechanical relocation with canaries, README maps and a warning-only stale-folder notice). Nothing else; A1 begins only after the owner's manual Windows launch and Codex's independent review of B1.
 
 **Open for S5 regardless:** six clone transcripts remain unapproved (`approved: false`); no clone recording exists.
+
+---
+
+## Appendix B — Execution record for C0, A0 and B1 (2026-10-19)
+
+**Commits** on `feature/0.6.7-speech-pipeline-and-layout`, in order: C0 plan closure; A0 baselines; B1 relocation; B1 canaries, READMEs and notice; live-document
+updates; a test-only narrowing of two parametrizations; this record. Nothing was pushed or merged by the plan itself.
+
+### B.1 Before/after path map [V]
+
+| Before | After |
+|---|---|
+| `scripts/Universal/launcher.py` | `scripts/launcher.py` |
+| `scripts/Universal/shared/` (31 files) | `scripts/shared/` |
+| `scripts/Universal/tts/` (19 files) | `scripts/tts/` |
+| `scripts/Universal/mp3_tools/` (31 files) | `scripts/mp3_tools/` |
+| `scripts/MacOS/.gitkeep`, `scripts/Windows/.gitkeep` | removed (tracked placeholders only) |
+| `scripts/Universal/__pycache__/`, `scripts/Universal/tests/__pycache__/` (ignored bytecode only) | **left in place, untouched** |
+| — | new: `scripts/README.md`, `scripts/{shared,tts,mp3_tools}/README.md` |
+| — | new, development only: `files/dev-tools/speech_characterization.py`, `files/tests/golden/speech/*.json` (7), `files/tests/test_speech_characterization.py`, `files/tests/test_layout_canary.py` |
+
+Content changes inside moved files (12 of 82; the other 70 are byte-identical renames): `shared/{paths,bootstrap,ffmpeg_health,ffmpeg_portable}.py` and
+`shared/{cleanup_state,cleanup_worker,release}.py` (one `.parent` fewer, comments and the cleanup marker path), `shared/config.py` (`DEFAULT_ENTRY_POINT`),
+`shared/version.py` (docstring), `tts/chatterbox_synth.py` and `tts/qwen3_runtime.py` (fallback root `parents[2]`), `tts/epub2tts_edge/epub2tts_edge.py`
+(comment). Outside `scripts/`: both launchers, `config.toml`, `scripts/verify.py`, three dev tools, 88 test files, and the live Briefing/Changelog/Decisions text.
+
+### B.2 Deviations and corrections found while executing [V]
+
+1. **Golden location.** Plan text said `files/test-files/speech/...`; `files/test-files/` is gitignored local-fixture space, so the baselines live in `files/tests/golden/speech/`.
+   The local, unpushed A0 commit was amended once to include them.
+2. **One deliberate re-pin.** `test_plan6_boundaries.PHASE6_PROMOTION_HASHES` pins the content of `test_m4b_numbering.py`; its only change is the path constant, so the
+   digest was updated (the previous value is recorded beside it).
+3. **Depth assumptions hidden in tests** (no "Universal" string): the stub bootstrap in `test_venv_recovery` (`parents[3]` to `parents[2]`) and an FFmpeg root assertion in
+   `test_hardening_matrix` (four `.parent` to three). Found by the focused passes.
+4. **Whole-tree scans.** `scripts/**/*.py` now also contains `scripts/verify.py` and any machine-local script. Two scans that parametrize over it (4 extra, machine-dependent
+   ids) were narrowed to the application source by `source_probe.application_python_files`; the other whole-tree scans loop, still read `verify.py`, and pass.
+5. **Gate runs.** The full gate was run three times, not once: the first failed one test that was an artefact of my own mutation harness (a same-size edit within one second
+   left a stale `.pyc` that executed the mutant; deleted, not a code defect), the second passed, the third confirms the final tree after item 4.
+6. **`scripts/Universal/` still exists on HOME-PC**, holding only ignored bytecode caches (left alone by instruction); the warning stays silent for it.
+7. `files/run-temp/` is not gitignored; the disposable archive-proof folder there was deleted before committing.
+
+### B.3 Proofs [V]
+
+* **A0:** `speech_characterization.py check` printed OK after the move (all six route baselines byte-identical); the 18 A0 tests pass.
+* **Canaries:** 22 tests; 17 targeted mutants (a root lookup shifted a level, a stale entry point or launcher path, a tracked legacy reference, a README naming a missing file, a
+  notice that deletes / fires on bytecode / is unbounded / is never logged) were each killed; the two fallback-root mutants initially survived and a test was added.
+* **Archive layout (disposable scratch folder, nothing published):** both archives built from the committed tree and extracted. Windows and macOS: 98 members each, 89 under
+  `scripts/`, equal to `git ls-files scripts`; `scripts/` top level = `README.md`, `launcher.py`, `mp3_tools/`, `qwen3-requirements.txt`, `requirements.txt`, `shared/`, `tts/`,
+  `verify.py`; no `Universal`/`MacOS`/`Windows` folder, no bytecode, no `.venv*`, no runtime data, no `project-status`; the other OS's launcher absent; the six reference
+  WAVs present with the registry's SHA-256 values; the Windows launcher names `scripts\shared\bootstrap.py`; the macOS launcher names `scripts/shared/bootstrap.py` and
+  `scripts/shared/close_terminal.py`, is LF, has a shebang and mode 0755. A probe run against each EXTRACTED tree (isolated interpreter, other working directory) confirmed
+  every root lookup equals the extracted root, `config.load` finds `scripts/launcher.py`, no stale-layout warning, 28 voices; `compileall` passed on both.
+* **Full gate:** `scripts/verify.py` RESULT: PASS on the final tree: **8,557 passed, 60 skipped** (18 min 14 s). Recorded separately: the pre-existing suite is 8,517 passed / 60 skipped at `df0dbc2` and the same 8,517 / 60 now (no regression, nothing newly skipped); the new tests are 18 (A0) + 22 (layout canaries) = 40, all passing. Focused passes ran first (every test file touched by the update, then the remaining files) and found and fixed 4 failures and 1 hidden depth assumption before the gate.
