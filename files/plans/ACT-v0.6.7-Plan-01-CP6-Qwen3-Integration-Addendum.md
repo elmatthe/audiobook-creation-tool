@@ -1,8 +1,27 @@
 # ACT v0.6.7 — Plan 01 CP6 Addendum: Qwen3-TTS Production Integration
 
-**Status:** DRAFT FOR OWNER APPROVAL. No Qwen3 production code exists yet, and none will be written until the decisions in section 5 are answered. The independent Kokoro slice is already implemented (section 1).
+**Status:** ARCHITECTURE APPROVED by the owner on 2026-10-19 with the rulings in section 0 (Q1-Q8). Slices S1-S4 are implemented on this branch (section 8); S5 qualification and the owner's rights decisions remain. The independent Kokoro slice is already implemented (section 1).
 **Authority:** `files/plans/ACT-v0.6.7-Plan-01-Qwen3-TTS-Evaluation-and-Conditional-Integration.md` (CP6, "Owner voice-roster decision recorded 2026-10-19"), `AI-WORKSPACE.md`, the latest `md-instructions/Handoff.md`.
 **Branch:** `feature/0.6.7-bundled-chatterbox-references`. No merge, tag, release or Plan 02 work is implied.
+
+## 0. Owner rulings, 2026-10-19 (these supersede the draft text below wherever they differ)
+
+| Q | Ruling | What it means for the build |
+|---|---|---|
+| Q1 | **Approved.** Second isolated `.venv-qwen3` and one Qwen worker subprocess per source file. | Root `.venv`, production dependencies and Chatterbox stay unchanged. Cancellation, failure recovery, output preservation and progress are verified with fake-worker tests and then against the real worker. |
+| Q2 | **Approved with modification.** CustomVoice and Base install independently, plus an "Install Both" choice, in **one shared environment**. | CustomVoice enables Aiden and Ryan; Base enables the six clones. Sizes are shown before anything is acquired, valid cached files are reused (including the speech tokenizer the two models share), nothing downloads on ordinary launch. |
+| Q3 | **Approved.** CPU fallback on Windows without an NVIDIA GPU. | Hardware and expected speed are stated in the voice's status text. The 2.15x figure applies only to the tested Ryzen 7 9800X3D. Validated under the production worker, with supported configurations and limits recorded. No silent downgrade, quantization or alternate model. |
+| Q4 | **Approved.** Windows first. | macOS keeps every existing engine working and shows the eight Qwen3 voices as "not yet available". No macOS Qwen3 support is claimed until it is tested on a Mac. |
+| Q5 | **Not approved for public redistribution.** | The six verified transcripts, new cloned-voice previews and (pending a rights audit) the original reference recordings are **not committed**. The transcript data interface is built and tested with synthetic fixtures and accepts development-only local transcript files. Real clone synthesis still needs the owner's `verified.json` approval; there is no transcript-free cloning. Clone assets stay blocked for public-release qualification instead of silently dropping the safeguard. |
+| Q6 | **Approved.** | Qwen follows ACT's existing local-engine narration policy (the voice preset's paragraph pause between chunks and its end pause), not the evaluation's fixed values. Source text, chunk and paragraph boundaries are preserved and there is one final MP3 encode. Timing and assembly have regression tests. |
+| Q7 | **Approved.** About 1.4-1.9x real time is acceptable for the first integration. | The UI discloses speed as machine-dependent and promises no fixed performance. Progress, cancellation and error recovery are meaningful. |
+| Q8 | **Conditionally approved.** | The generator, documentation, metadata and validation for the permanent 10-second previews are prepared. A preview is generated or published only for a voice whose output rights and source permissions are confirmed. A per-voice rights/status manifest is kept. Edge and cloned-voice previews stay unpublished while rights are unresolved, and the 28-preview deliverable is never declared complete while any preview is blocked. |
+
+**Build decisions taken under these rulings** (recorded in `Decisions.md`):
+
+- Install and repair happen **in the app only**, through one "Install / repair Qwen3 voices" dialog that serves first-time and existing users. `bootstrap.py` is not changed, which removes the D8 bootstrap slice and its risk. The every-launch fast path never touches Qwen3.
+- The clone transcripts are read from a **local, untracked** file (`files/runtime-data/qwen3/transcripts.json`, or the path in `ACT_QWEN3_TRANSCRIPTS`), in the same shape as the evaluation's `verified.json`. A tracked transcript file must not exist; a test enforces that.
+- One tested wheel set (the cu128 build) is used on every Windows machine. A smaller CPU-only wheel is a later optimisation, not part of this build, because CPU speed was measured with the cu128 build.
 
 ## 1. Scope
 
@@ -59,7 +78,7 @@ Supported and qualified first: Windows 10/11 x64 with an NVIDIA GPU (the measure
 ### D7. Registry, GUI and dispatch
 New backend literal `"qwen3"` in `voice_registry.py`; eight rows with the owner's exact labels, in a separate group labelled for Qwen3 (distinct from the Chatterbox group), placed after the Chatterbox block so existing order and the default voice (Steffan) are unchanged. Internal ids `qwen3-aiden`, `qwen3-ryan`, `qwen3-female-1` ... `qwen3-male-4`; dispatch reads `VoiceEntry.backend`, never the label. `convert_with_qwen3` is a sibling of `convert_with_chatterbox`; its availability seam is `qwen3_status(voice_id)` (venv, models, transcript, GPU) and its worker cap is 1. No speed control; the engine line states "Qwen3-TTS (local AI, NVIDIA GPU)". Existing registry pins in about a dozen test files move from 20 rows to 28 deliberately, as they did for the Kokoro slice.
 
-### D8. Setup and repair (needs approval: new bootstrap behaviour)
+### D8. Setup and repair (revised by the rulings in section 0: in-app only, `bootstrap.py` unchanged)
 An optional setup step "Qwen3-TTS voices" (checkbox with the size and GPU disclosure) that creates `.venv-qwen3`, installs the pins, downloads and verifies the models, and runs a one-off load probe; a matching repair path; nothing runs on the every-launch fast path. Because setup is bypassed when the existing environment is healthy (`bootstrap.py` launches straight into the app), a first-run checkbox alone would be unreachable for existing installs and for users who first declined it, so the design also needs an **in-app "Install / repair Qwen3 voices" action** reachable from the voice's status line, tested for upgrade, declined, partial-install and retry paths. `bootstrap.py` is about 3,100 lines with contract tests, so the change is made as a minimal, separately reviewed slice.
 
 ### D9. Packaging and fresh install
@@ -74,7 +93,7 @@ Same 24 kHz mono PCM, same single MP3 encode and bitrate option, same timing-pre
 |---|---|---|
 | S1 | `qwen3_synth.py` (plan, protocol, status, export) + `qwen3_worker.py` + `qwen3-requirements.txt` + transcript data, with fake-worker tests (protocol, cancel, progress, availability states, no GUI-process import of torch/qwen, root requirements unchanged) | focused tests, Codex review |
 | S2 | Registry rows, dispatch, GUI status line and availability, registry-pin test updates | focused + registry/UI suites |
-| S3 | Bootstrap opt-in install, repair and probe; requirements-state for the second venv | bootstrap contract tests, a real fresh-venv run |
+| S3 | In-app "Install / repair Qwen3 voices" dialog and installer (venv, pinned requirements, per-model download with cache reuse, verify, repair, cancel); no bootstrap change | installer tests with fake pip/HTTP, a real fresh-venv run, dialog layout tests |
 | S4 | Packaging checks, README/help/Changelog | release-packaging tests |
 | S5 | Qualification: fresh-clone install on Windows with an NVIDIA GPU, a real conversion with each engine path, cancellation mid-file, then one full `scripts/verify.py` | owner manual gate; baseline failures reported as such |
 
@@ -109,3 +128,30 @@ Same 24 kHz mono PCM, same single MP3 encode and bitrate option, same timing-pre
 | Qwen3 clones (6) | Same six reference recordings as Chatterbox | **Unconfirmed**, same reason as Chatterbox |
 
 Rejected presets (Dylan, Eric, Ono_Anna, Serena, Sohee, Uncle_Fu, Vivian) are never published. Previews are not added to release archives or the website without separate approval.
+
+## 8. Implementation record (2026-10-19, slices S1-S4)
+
+Built on this branch under the rulings in section 0; the build decisions are in `Decisions.md` (2026-10-19, two entries). What was built, and
+where it differs from the draft text above:
+
+- **D1/D2 as approved.** `.venv-qwen3` (CPython 3.12, 89 packages, each pinned by SHA-256 in `scripts/qwen3-requirements.txt`, torch/torchaudio
+  from the cu128 index), one worker subprocess per source file (`tts/qwen3_worker.py`), `@@EVENT` JSON lines, Windows Job Object containment
+  (`tts/qwen3_process.py`; a command that cannot be contained is not run). Machine-wide OS file locks (`setup.lock`, `inference.lock`).
+- **D3 (Q6).** The voice preset's paragraph pause after every chunk and its end pause once; 600-character sentence planner with source spans;
+  one final MP3 encode via the existing `mp3_export_options`; atomic publish; the job folder (which holds the user's text) is always removed.
+- **D4/D8 (Q2).** `qwen3_models.json` pins both models at immutable revisions (11 files each, size and SHA-256); CustomVoice, Base and "Install
+  Both" install independently, shared files are downloaded once, intact files are reused, sizes are shown before anything downloads, and nothing
+  downloads on launch. One in-app dialog serves first-time and existing users; `bootstrap.py` is unchanged.
+- **D5 (Q5).** Clone availability needs the reference recording and a locally supplied, approved transcript; no transcript is tracked and a test
+  enforces that.
+- **D6 (Q3, Q4).** Windows only; the cu128 build is used for GPU and CPU alike; the status line states the detected hardware. macOS lists the eight
+  voices as not yet available.
+- **D7.** Registry rows 21-28, the `convert_with_qwen3` dispatch, the GUI status line and the install button; the registry-pin tests identify rows
+  by id.
+- **D9/D10.** The new modules, the model manifest and the requirements ship; `.venv-qwen3`, models, the install record, job folders and any
+  transcript never do (tests build real and planted archives). Output format, folders and timing fields are those of the other local engines.
+- **Q8.** Section 7's matrix is implemented in `files/voice-previews/previews.json` (per-voice rights record) with a rights-gated generator.
+
+Reviews and checks: three Codex slice reviews (S1-S3), a Codex review of the S3 fixes plus S4, and two confirmation rounds; every finding was fixed
+and has a regression test. Real-machine evidence is summarised in `Handoff.md`. **Not done (S5):** fresh-clone install on a second machine,
+weaker-CPU timing, long-form clone speed, macOS, the real clones, and the owner rights decisions.

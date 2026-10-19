@@ -608,6 +608,41 @@ require no manual recording placement. Curated MP3 originals remain local-only a
 derivatives/conditionals remain ignored under runtime-data. Missing or altered bundled WAVs
 still report truthful setup-required status without voice substitution.
 
+### The fourth TTS engine — Qwen3-TTS (v0.6.7 CP6)
+
+Eight optional local voices (`Qwen3 - Aiden`/`Ryan`: CustomVoice presets; `Qwen3 - Female 1/2`, `Male 1-4`: voice clones from the
+six bundled reference recordings), registered with `backend="qwen3"` after the Chatterbox rows (registry now 28 rows; every earlier
+row, the order and the default voice are unchanged). A Qwen3 clone shares only the *recording* with its Chatterbox namesake. Owner
+rulings and the build decisions are in `Decisions.md` (2026-10-19, two entries); the design record is
+`files/plans/ACT-v0.6.7-Plan-01-CP6-Qwen3-Integration-Addendum.md`.
+
+- **Isolation.** `qwen-tts` hard-pins `transformers==4.57.3`, the app pins 5.2.0, so the engine lives in a second environment,
+  `.venv-qwen3/` (CPython 3.12, 89 hash-pinned packages in `scripts/qwen3-requirements.txt`, torch/torchaudio from the cu128 index; gitignored,
+  never packaged). The app process never imports torch or Qwen; each source file runs in its own `tts/qwen3_worker.py` subprocess
+  (JSON-lines `@@EVENT` protocol). Root `.venv`, `scripts/requirements.txt` and Chatterbox are untouched.
+- **Modules** (all under `scripts/Universal/tts/`): `qwen3_runtime.py` (paths, status, manifest, transcripts, locks, hardware — stdlib
+  only), `qwen3_synth.py` (text prep, 600-character sentence planner, worker supervision, assembly, one atomic MP3 encode; entry
+  `qwen3_file_to_mp3`), `qwen3_worker.py` (venv side), `qwen3_process.py` (Windows Job Object spawn/kill), `qwen3_setup.py`
+  (install/verify/repair), `qwen3_install_ui.py` (the dialog), `qwen3_models.json` (pinned model manifest).
+- **Models** live under `files/runtime-data/models/qwen3-tts/<Model>-<rev8>/`, loaded offline from the pinned snapshot; CustomVoice and
+  Base install independently, the nine shared files are linked, and a `ACT-VERIFIED.json` marker is written only after every file is
+  verified by size and SHA-256. Status checks only stat files; full hashing is for install and repair.
+- **Availability** is one question (`qwen3_runtime.voice_availability`): platform (Windows), environment, model, and for a clone the
+  reference recording and an approved transcript. The transcript is read from `files/runtime-data/qwen3/transcripts.json` (or
+  `ACT_QWEN3_TRANSCRIPTS`), accepted only with `"approved": true` and the exact reference SHA-256; no transcript is ever committed.
+- **Conversion** mirrors the other local engines: the voice preset's paragraph pause after every chunk, the end pause once, one final
+  encode (ffmpeg run directly so every scratch file stays in the job folder). Progress is per source file, with the current-item
+  message refreshed per chunk. Cancellation: a flag file, then after a 3-second grace the whole process tree is killed; the job folder
+  (which holds the user's text) is always removed; an existing output is never replaced by a partial file.
+- **Safety.** Worker and pip run inside a Job Object (not run at all if containment fails); `setup.lock`/`inference.lock` OS file locks keep
+  install/repair and conversions apart machine-wide; manifest names are validated and nothing beneath a model folder may be a link;
+  `.venv-qwen3` must be a real folder in the repo; pip runs `--isolated --require-virtualenv --require-hashes`.
+- **Measured (HOME-PC, Windows 11):** GPU RTX 5070 about 1.37x real time (peak +5.6 GB VRAM); CPU (CUDA hidden) about 2.2x, 5.6 GB RAM on a
+  Ryzen 7 9800X3D (one machine only); install about 7 minutes with a fast link. macOS is untested and not claimed.
+- **Known limits.** English only; clones blocked until transcripts exist locally (rights not cleared, see Q5); no new bootstrap step;
+  `.venv-qwen3` is not covered by the data-cleanup tool; a fresh-clone install on a second machine, a weaker CPU and long-form clone
+  speed are not yet measured (S5).
+
 ### The M4B Converter (v0.6.2 Plan 5)
 
 The Converter is the first tool rebuilt on the Drop-3 foundation, and the shape of that adoption is
@@ -791,12 +826,13 @@ Shared authorities both consume unchanged: `shared/book_workspace(_ui)` (with th
 ## Features
 
 - **TTS Audiobook** (`tts/epub2tts_gui.py`) — **PDF/TXT → MP3** (v0.6.1: EPUB retired, see
-  below); **20 voices** (5 Edge network + 9 Kokoro local AI + 6 Chatterbox local AI — v0.6.5
+  below); **28 voices** (5 Edge network + 9 Kokoro local AI + 6 Chatterbox local AI + 8 Qwen3-TTS local AI — v0.6.5
   Phase 2 removed the two multilingual Edge voices and approved a fifth and sixth Chatterbox
   voice, Male 3 and Male 4; Male 3 is the original candidate sample, not the bounded
   pitch-retry variant that was tried and rejected; v0.6.7 Decision B added four Kokoro voices,
-  Fenrir, Puck, Onyx and Daniel. The owner's target roster is 28 voices once eight Qwen3-TTS
-  voices are integrated; that integration is not approved or implemented yet); **one
+  Fenrir, Puck, Onyx and Daniel; v0.6.7 CP6 added the eight optional Qwen3-TTS voices, Windows only,
+  installed from inside the app — see "The fourth TTS engine"; the six Qwen3 clones stay unavailable until their
+  reference transcripts are provided); **one
   unified queue** in which direct files and whole folders coexist in a single run — folder-derived
   items are mirrored into the output so same-named files in different books never collide, direct
   files are placed flat, and occurrence identity, deliberate duplicates, provenance and natural

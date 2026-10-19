@@ -2,6 +2,44 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01 CP6: Qwen3-TTS production integration, slices S1-S4 built (2026-10-19, HOME-PC)
+
+The owner approved the CP6 architecture (Q1-Q8, addendum section 0). Slices S1-S4 are implemented and verified on Windows. The six cloned
+voices cannot run until the owner approves their reference transcripts. Nothing is merged, tagged or released; Plan 02 is not started.
+
+- **What exists.** Eight optional Qwen3 voices (28 in total; the earlier 20 rows, their labels, order and the default voice are unchanged):
+  `Qwen3 - Aiden` and `Qwen3 - Ryan` (CustomVoice presets) and `Qwen3 - Female 1`, `Female 2`, `Male 1`-`Male 4` (Base clones of the six bundled
+  reference recordings). Code under `scripts/Universal/tts/`: `qwen3_runtime.py` (paths, manifest, status, locks, hardware; stdlib only),
+  `qwen3_synth.py` (sentence planner, worker supervision, assembly, one atomic MP3 encode), `qwen3_worker.py` (runs in `.venv-qwen3`),
+  `qwen3_process.py` (Windows Job Object spawn/kill), `qwen3_setup.py` (install/verify/repair), `qwen3_install_ui.py` (the dialog), plus the pinned
+  `qwen3_models.json` and the 89 hash-pinned packages in `scripts/qwen3-requirements.txt`. Root `.venv`, `scripts/requirements.txt`, `bootstrap.py`
+  and Chatterbox are untouched; the app process never imports torch or qwen-tts (the worker speaks `@@EVENT` JSON lines).
+- **GUI as shipped.** Choosing a Qwen3 voice shows its status line (installed / setup required / not available on this platform, with the detected
+  GPU or the CPU fallback and a machine-dependent speed note) and an `Install / repair Qwen3 voices...` button. The dialog installs CustomVoice,
+  Base or both with the sizes shown before anything downloads, and offers Check and repair (a full check, a plan stating what would be downloaded,
+  a confirmation, then only the damaged parts). Nothing downloads on launch. On macOS the voices show "not yet available".
+- **Hardware (HOME-PC, Windows 11, one machine only).** RTX 5070: about 1.37x real time, peak +5.6 GB VRAM. CPU fallback (Ryzen 7 9800X3D, CUDA
+  hidden): about 2.18x, 5.6 GB RAM. A fresh install through the production installer took 419 s; the hash-pinned rebuild by Check and repair took
+  408 s. A real Cancel kills the worker tree within seconds and removes the job folder; the synthetic-clone path ran end to end under the production
+  worker. Other CPUs and GPUs are unmeasured; no fixed speed is promised.
+- **Clones.** Blocked by design (ruling Q5). The transcript interface reads a local, untracked `files/runtime-data/qwen3/transcripts.json` (or
+  `ACT_QWEN3_TRANSCRIPTS`), accepted only with `"approved": true` and the reference recording's SHA-256. The six real short and long clone runs
+  wait for the owner's approval of `files/dev-work/qwen3-eval/runs/qwen3-initial/transcripts/verified.json` (review sheet beside it:
+  `review-sheet.md`). No transcript and no cloned-voice preview is committed.
+- **Previews.** `files/voice-previews/` holds a 28-row rights/status manifest and 11 generated previews (nine Kokoro voices, Aiden, Ryan; ASR
+  read-back WER 0.0). 17 are blocked: Edge 5, Chatterbox 6, Qwen3 clones 6. The set is never called complete while any row is blocked. Dev tool:
+  `python files/dev-tools/voice_previews.py status | check | sync | generate | readme`.
+- **Verification.** `scripts/verify.py` RESULT: PASS (8,517 passed, 60 skipped, 17 min 54 s; the baseline before CP6 was 8,059 / 58). Mutation checks of the guarded behaviours: every mutant killed except two redundant guards (a leading check in
+  `check_relative_name` that the segment rules duplicate, and the folder validation in `write_model_marker` that `atomic_write_json` duplicates).
+  Codex reviews, all findings fixed with regression tests: S1 6 major + 3 minor; S2 1 + 2; S3 8 + 4; S4 5 + 2; S4 confirmation 3 + 2; two narrow follow-up confirmations found 4 major + 1 minor (runtime-folder links, rollback retention) and then no production defect. The last rounds guard accidental or content-driven redirection, not an attacker who can edit the scripts.
+- **Remaining before S5 / a release.** A fresh-clone install on a second Windows machine and on a weaker CPU; long-form clone speed; macOS (untested,
+  no claim); the six real clones after transcript approval; the data-cleanup tool does not cover `.venv-qwen3` (about 5 GB; the dialog says so);
+  owner rights decisions (reference recordings, transcripts, Edge and cloned previews); a manual pass on a real desktop.
+- **Next owner actions.** (1) Review and approve the six transcripts, then the six short and six sustained clone runs execute with the existing
+  harness; (2) listen to the Aiden and Ryan sustained recordings (`files/dev-work/qwen3-eval/runs/qwen3-initial/long-form/Aiden-preset.mp3`,
+  `Ryan-preset.mp3`); (3) decide the preview and recording rights questions; (4) say whether the cleanup tool should offer `.venv-qwen3`;
+  (5) authorise S5.
+
 ## CURRENT STATE — v0.6.7 Plan 01: Decision B voice roster recorded (2026-10-19, HOME-PC)
 
 The owner chose **Decision B** (retain Chatterbox, add Qwen3): Edge 5, Kokoro 9 (+ `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel`), Chatterbox 6 unchanged,

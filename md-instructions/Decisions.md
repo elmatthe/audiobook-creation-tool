@@ -4,6 +4,87 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-19 - CP6 build decisions: how the Qwen3 voices are installed, contained, locked and previewed
+
+**Decision (engineering, inside the owner's Q1-Q8 rulings; independent Codex review after every slice).**
+- *Install and repair are in-app only.* One dialog ("Install / repair Qwen3 voices...", shown beside a Qwen3 voice) serves first-time
+  and existing users; `bootstrap.py` is unchanged and nothing downloads on launch. The sizes are on the buttons and again in a
+  confirmation before anything is acquired. CustomVoice and Base install independently (or together); files already present and
+  intact are reused, and the nine files the two models share are downloaded once.
+- *Downloads are verified, bounded and contained.* The tracked manifest lists, per model, the 11 files the loader needs with size and
+  SHA-256 at an immutable commit. File names are validated (no traversal, absolute paths, device names or aliases) and nothing beneath a
+  model folder may be a link. A response is checked against the manifest (status, `Content-Range`, `Content-Length`, no content
+  encoding), never written past the manifest size, and accepted only after its SHA-256 matches; an interrupted file resumes from its
+  `.part`. The models root itself may be a link so the models can live on another drive. A leftover `.part` or temporary file that is a
+  link, or that shares its bytes with another file, is removed and never written through, and a Cancel during a retry wait is honoured
+  within half a second.
+- *The environment is isolated and pinned to artifacts.* pip runs `--isolated --require-virtualenv --require-hashes --no-deps` against a
+  requirements file whose 89 lines each pin one exact wheel by SHA-256 (taken from the evaluation's install report), with ambient `PIP_*`
+  settings removed and TEMP/caches inside the repository tree. `.venv-qwen3` must be a real folder inside the repository: a link or
+  junction is refused and never deleted through. CPython 3.12 only (the tested wheels are cp312).
+- *Nothing can outlive a Cancel.* The worker and pip start suspended inside a Windows Job Object that kills every member (including the
+  venv launcher's child) and, if that containment cannot be established, they are not run. After a kill there is a final deadline, so
+  the conversion thread can never wait forever. A worker's `done` is believed only if it also exits with status 0.
+- *Setup and conversion exclude each other machine-wide* with operating-system file locks (`setup.lock`, `inference.lock`): an install
+  or repair needs both, a conversion holds `inference.lock`. A crash cannot leave a stale lock. One Qwen3 conversion per machine at a
+  time, which also suits a GPU that holds a multi-gigabyte model.
+- *Repair checks first.* "Check and repair" starts the engine (a repaired-away DLL leaves every record valid), hashes every installed file,
+  shows what it found and what fixing it would download, and acts only on a yes, re-hashing nothing it has just proved good. The check
+  itself holds both install locks (it starts the engine and reads every model file, so it may not overlap an install or a conversion), and
+  a model whose files are all intact but whose verified record is missing, unreadable or for another version (what a cancel between the
+  record's removal and its rewrite leaves) is found and marked again with nothing to download.
+- *Previews.* `files/voice-previews/previews.json` is the per-voice rights/status record. Eleven previews exist (nine Kokoro, Qwen3 Aiden
+  and Ryan) because their licenses are documented and no third-party voice is involved; seventeen (Edge, Chatterbox, the six Qwen3
+  clones) are blocked pending the owner's rights decisions. The set is never reported complete while any row is blocked. A preview
+  tool refuses to generate for a voice whose rights are not `confirmed`; availability, the counts and the README are derived from rights
+  and preview status together (a manifest that contradicts the rule is refused, never rendered); a new take is validated and its hash
+  computed before it replaces the published file, and a published preview, its record and the README change together or are all rolled
+  back. The recorded basis states only what the pinned model cards say (Apache-2.0 for the weights) and that the training-data provenance
+  is the model author's claim.
+- *Trust boundary for link guards.* Anything that can write into the repository folder can already replace the scripts, so the
+  link/junction/hard-link guards defend against accidental or content-driven redirection of the app's own state, locks, job text, caches,
+  scratch files and downloaded model files, not against an attacker who can edit code. `files/runtime-data` and the models folder may
+  themselves be links (moving data to another drive is legitimate); the Qwen3 runtime folder, everything the app creates beneath it,
+  `.venv-qwen3` and anything inside a model folder may not. Four Codex follow-up rounds each found the same class one folder deeper; it
+  is now closed by class (`ensure_runtime_dir`, `remove_entry`, exclusive temp-file + `os.replace`), not by path.
+- *The install dialog imports none of the Plan 3 job foundation.* `test_plan3_boundaries` pins the adopters at exactly twenty modules, so
+  `tts/qwen3_install_ui.py` receives its confirmation and style functions from the adopting TTS panel instead of importing `shared.job_ui`.
+- *Left deliberately unchanged:* the data-cleanup tool keeps its four assets (only the wording of "Downloaded voice models" now says the
+  Qwen3 models must be installed again); the Qwen3 environment is not a fifth asset, so freeing its ~5 GB is a manual folder delete
+  (stated in the dialog). Adding it would be an owner decision.
+
+**Why.** The owner asked for verified cancellation, failure recovery and output preservation, honest hardware disclosure, and no
+automatic downloads, and Codex's reviews of S1-S3 found real gaps in each area (path traversal, ambient pip configuration, stale locks,
+repair without confirmation, an uncontained fallback, unbounded downloads); each is fixed and has a regression test that was
+mutation-checked.
+
+-- Decided by maintainer's rulings, implemented by Claude Code
+
+---
+
+## 2026-10-19 - CP6: Qwen3-TTS production architecture approved (owner rulings Q1-Q8)
+
+**Decision (owner, explicit).**
+- **Q1** A second isolated `.venv-qwen3` and one Qwen worker subprocess per source file. The root `.venv`, production dependencies and Chatterbox are unchanged.
+- **Q2** CustomVoice (Aiden, Ryan) and Base (the six clones) install independently, with an "Install Both" choice, in one shared environment. Download/install sizes are shown first, valid cached assets are reused, and nothing downloads on ordinary launch.
+- **Q3** CPU fallback on Windows without an NVIDIA GPU, with hardware and speed stated plainly. The measured 2.15x real time applies only to the tested Ryzen 7 9800X3D. No silent downgrade, quantization or alternate model.
+- **Q4** Windows first. On macOS the existing engines keep working and the Qwen3 voices read "not yet available"; no macOS Qwen3 claim without a Mac test.
+- **Q5** NOT approved for public redistribution: the six verified transcripts, new cloned-voice previews and (pending a rights audit) the original reference recordings are not committed. The transcript interface is built with synthetic fixtures and accepts development-only local files; real clone synthesis still needs the owner's `verified.json` approval; there is no transcript-free cloning; the clones stay blocked for public-release qualification.
+- **Q6** Qwen follows ACT's existing local-engine narration policy (the voice preset's paragraph pause between chunks, its end pause), not the evaluation's fixed pauses; source text and chunk/paragraph boundaries are preserved; one final MP3 encode.
+- **Q7** About 1.4-1.9x real time is acceptable for the first integration; speed is disclosed as machine-dependent and no fixed performance is promised.
+- **Q8** The permanent 10-second previews stay in scope but are generated or published only per voice with confirmed output rights and source permissions. Edge and cloned-voice previews are not published while rights are unresolved, a per-voice rights/status manifest is kept, and the 28-preview deliverable is not declared complete while any preview is blocked.
+
+**Build choices made under these rulings.**
+- *In-app install/repair only; `bootstrap.py` is not changed.* One "Install / repair Qwen3 voices" dialog serves first-time and existing users. This drops the draft's bootstrap slice (D8), so no new setup behaviour needs separate approval and the every-launch fast path never touches Qwen3.
+- *Transcripts are read from a local, untracked file* (`files/runtime-data/qwen3/transcripts.json`, or the path in `ACT_QWEN3_TRANSCRIPTS`) in the same shape as the evaluation's `verified.json`, and are accepted only when `approved` is the literal `true` and the entry is bound to the reference recording's SHA-256. A tracked transcript file must not exist (a test enforces it).
+- *One tested wheel set* (the cu128 build the evaluation and the CPU measurement used) is installed on every Windows machine. A smaller CPU-only wheel is a later optimisation because the CPU speed was measured with the cu128 build.
+- *No automatic device fallback after a failure.* The worker uses the GPU when torch reports one and the CPU otherwise; a GPU that is present but fails (for example out of memory) fails that file with a clear message instead of silently re-running on the CPU.
+- *Cancellation is bounded:* a flag file asked for between chunks, then the whole process tree is killed after a short grace period (the Windows venv `python.exe` is a launcher that starts the real interpreter as a child, so killing only the launcher would leave inference running).
+
+-- Decided by maintainer, recorded by Claude Code
+
+---
+
 ## 2026-10-19 - Final ACT voice roster: Decision B (28 voices)
 
 **Decision (owner, explicit).** Retain Chatterbox and add selected Qwen3 voices. Final target inventory: Edge 5 (unchanged), Kokoro 9

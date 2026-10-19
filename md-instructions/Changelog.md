@@ -15,6 +15,32 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Qwen3-TTS voices: eight optional local voices, Windows first (v0.6.7 CP6, 2026-10-19)
+
+- **Eight new voices** in a separate group of the TTS voice list: **Qwen3 - Aiden**, **Qwen3 - Ryan** (preset voices) and **Qwen3 -
+  Female 1**, **Female 2**, **Male 1**, **Male 2**, **Male 3**, **Male 4** (cloned from the six bundled reference recordings). The list is
+  now 28 voices. Nothing earlier changes: every existing voice keeps its label, order, settings and the default voice.
+- **Optional install, never automatic.** Choosing a Qwen3 voice shows **Install / repair Qwen3 voices...**. CustomVoice (Aiden, Ryan; about
+  4.5 GB) and Base (the six cloned voices; about 4.5 GB) install independently or together (about 8.4 GB, the files they share downloaded
+  once), after a confirmation that states the sizes. The first install also builds a separate Python environment for the voice engine
+  (about 3.1 GB to download, 5.3 GB on disk) so the app's own libraries are untouched. Everything is stored inside the app folder; the same
+  dialog checks every file and the engine, shows what a repair would download, and repairs only what is wrong. Nothing downloads on launch.
+- **Runs on an NVIDIA GPU when one is found, otherwise on the CPU,** and says which. Measured on the development machine: the RTX 5070 about
+  1.4 times as long as the audio (5.6 GB of video memory), a Ryzen 7 9800X3D CPU about 2.2 times (5.6 GB of memory). Other computers will
+  differ. One Qwen3 file at a time; Cancel stops the worker within seconds and leaves no process, partial file or damaged output behind.
+- **Existing pause settings apply** (the voice's paragraph pause between chunks, its end pause once, one final MP3 encode).
+- **Cloned voices need an approved reference transcript** that is read from a local file and is not part of the app; until one is provided
+  they show "Setup required". They are unavailable in public builds until the maintainer confirms redistribution rights.
+- **Windows only for now:** on macOS the eight voices are listed as not yet available and every other voice works as before.
+- **Voice previews:** a permanent preview set (about 10 seconds each) with a per-voice rights record; 11 of 28 are available (the nine Kokoro
+  voices, Qwen3 Aiden and Ryan) and 17 are blocked pending rights decisions (see `files/voice-previews/`).
+
+### Changed — Qwen3 follow-ups (v0.6.7 CP6)
+
+- Preferences & Data: the "Downloaded voice models" description now says the Qwen3 models must be installed again from the TTS panel.
+- Release packaging names the Qwen3 environment folder among its exclusions; the new modules, the pinned model list and the hash-pinned
+  requirements ship, the environment, models, install record and any transcript never do.
+
 ### Added — Four more Kokoro voices (v0.6.7 voice roster, 2026-10-19)
 
 - The voice list gains **Kokoro Male - Fenrir (en-US)**, **Kokoro Male - Puck (en-US)**, **Kokoro Male - Onyx (en-US)**
