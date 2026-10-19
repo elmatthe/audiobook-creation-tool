@@ -30,7 +30,7 @@ read-back covers 21/21 recordings at 0.86-0.94 with silence-aligned segmentation
 which proved to be Whisper window-edge dropouts, not missing narration). The clone code path was smoke-tested offline with a
 synthetic reference, not the owner's recordings.
 
-**Verification.** 72 focused tests pass; 14 runtime mutations of the guarded behaviours were each caught; the 298 existing
+**Verification.** 75 focused tests pass; 14 runtime mutations of the guarded behaviours were each caught; the 298 existing
 tests that import the sample generator and the 41 repository-contract tests pass. Full `scripts/verify.py` has NOT been run
 (reserved for the evaluation closeout). Codex independent review: PENDING (the CLI hit its usage limit; retry after the
 reset). No self-review is counted as independent.

@@ -417,6 +417,58 @@ def reference_blocker(snapshot: dict):
     return check
 
 
+def qwen_identity_extra(run: Run, row: dict, mode: str, key: str, snapshot: dict) -> dict:
+    """Everything beyond text/plan/profile that must match for a Qwen result to be reusable."""
+    data = {"model": model_identity(key), "pipeline": core.PIPELINE_REVISION,
+            "packages": core.identity_hash(parse_constraints())}
+    if mode == "clone":
+        ref = snapshot[ref_name(row)]
+        transcript, _ = approved_transcript(run, ref_name(row))
+        data.update(reference_sha256=ref["sha256"], transcript_sha256=core.identity_hash({"t": transcript}))
+    return data
+
+
+def root_identity_extra(row: dict, engine: str, snapshot: dict) -> dict:
+    """The same for Chatterbox/Kokoro: the production engine source and the reference recording."""
+    data = {"engine_label": engine, "engine_source": file_sha(f"{engine}_synth.py"), "pipeline": core.PIPELINE_REVISION}
+    if engine == "chatterbox":
+        data["reference_sha256"] = snapshot[ref_name(row)]["sha256"]
+    return data
+
+
+def current_identity(run: Run, row: dict, profile: dict, snapshot: dict) -> str:
+    """The identity a main-suite row would get if it were run now (used to rebase after output-neutral edits)."""
+    name = SUITE_TEXT[row["suite"]]
+    if row["group"] in (core.GROUP_QWEN_PRESET, core.GROUP_QWEN_CLONE):
+        preset = row["group"] == core.GROUP_QWEN_PRESET
+        mode, key = ("custom_voice", "qwen-customvoice") if preset else ("clone", "qwen-base")
+        plan_sha = core.plan_hash(core.plan_chunks(corpus.PASSAGES[name].text, profile["max_chars"]))
+        extra, used = qwen_identity_extra(run, row, mode, key, snapshot), profile
+    else:
+        plan_sha, extra, used = "engine-production-chunker", root_identity_extra(row, row["group"], snapshot), \
+            {"root": row["group"]}
+    return row_identity(row, text=text_info(name), plan_sha=plan_sha, profile=used, extra=extra)
+
+
+def rebase_identities(run: Run, profile: dict, snapshot: dict, reason: str) -> list[str]:
+    """Recompute stored identities after a deliberate, output-neutral tooling change.
+
+    Only rows that are succeeded AND whose files are intact are rebased, and the old identity is kept in
+    ``identity_history`` with the reason, so a stale result can never be passed off as a fresh one.
+    """
+    changed = []
+    for row in run.manifest.rows.values():
+        if row["status"] != "succeeded" or row["suite"] not in SUITE_TEXT or not core.outputs_intact(row, run.dir):
+            continue
+        new = current_identity(run, row, profile, snapshot)
+        if new != row.get("identity"):
+            history = list(row.get("identity_history") or []) + [
+                {"identity": row.get("identity"), "rebased": core.now_iso(), "reason": reason}]
+            run.manifest.update(row["row_id"], identity=new, identity_history=history)
+            changed.append(row["row_id"])
+    return changed
+
+
 def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, profile: dict, manifest: core.Manifest,
                    snapshot: dict, label: str, offline: bool = True) -> None:
     key = "qwen-customvoice" if mode == "custom_voice" else "qwen-base"
@@ -444,13 +496,7 @@ def run_qwen_group(run: Run, rows: list[dict], *, mode: str, suite_text: str, pr
         return None
 
     def extra(row: dict) -> dict:
-        data = {"model": model_identity(key), "tooling": file_sha("qwen_eval_worker.py", "qwen_eval_core.py"),
-                "packages": core.identity_hash(parse_constraints())}
-        if mode == "clone":
-            ref = snapshot[ref_name(row)]
-            transcript, _ = approved_transcript(run, ref_name(row))
-            data.update(reference_sha256=ref["sha256"], transcript_sha256=core.identity_hash({"t": transcript}))
-        return data
+        return qwen_identity_extra(run, row, mode, key, snapshot)
 
     todo = prepare_rows(run, manifest, rows, text_name=frozen_name, plan_sha=core.plan_hash(chunks),
                         profile=profile, identity_extra=extra, block_reason=blocker)
@@ -540,11 +586,7 @@ def run_root_group(run: Run, rows: list[dict], *, engine: str, suite_text: str, 
         return None
 
     def extra(row: dict) -> dict:
-        data = {"engine_label": engine, "engine_source": file_sha(f"{engine}_synth.py"),
-                "tooling": file_sha("qwen_eval_baseline_worker.py", "qwen_eval_core.py")}
-        if engine == "chatterbox":
-            data["reference_sha256"] = snapshot[ref_name(row)]["sha256"]
-        return data
+        return root_identity_extra(row, engine, snapshot)
 
     todo = prepare_rows(run, manifest, rows, text_name=frozen_name, plan_sha="engine-production-chunker",
                         profile={"root": engine}, identity_extra=extra, block_reason=blocker)
@@ -645,6 +687,14 @@ def render_listening_index(rows: list[dict], run_id: str, frozen: dict | None, t
              "omissions, repetitions or odd joins.", "",
              "Read-along text (identical for every voice): [short passage](corpus/short.txt), "
              "[long passage](corpus/long.txt). Reference-transcript review: [review sheet](transcripts/review-sheet.md).", "",
+             "## Decisions needed from you", "",
+             "1. **Reference transcripts** - verify or correct the six Whisper drafts in the "
+             "[review sheet](transcripts/review-sheet.md); no clone is made from an unverified transcript.",
+             "2. **Long-form comparison** - Aiden and Dylan are already fixed. Name **one female CustomVoice preset** "
+             "(" + ", ".join(n for n, _ in core.QWEN_PRESETS if core.is_female_preset(n)) +
+             ") and **one verified clone** (a reference whose transcript you approved).",
+             "3. **Kokoro candidates** - for each of `am_fenrir`, `am_puck`, `am_onyx`, `bm_daniel`: retain, reject or "
+             "defer (listening feedback alone changes no ACT code or voice list).", "",
              "## Inventory (short suite, 27 expected rows)", "",
              "| Group | Expected | Succeeded | Failed | Blocked | Pending / running |", "|---|---|---|---|---|---|"]
     names = {core.GROUP_QWEN_PRESET: "Qwen3-TTS CustomVoice presets", core.GROUP_QWEN_CLONE: "Qwen3-TTS Base clones",
@@ -660,11 +710,13 @@ def render_listening_index(rows: list[dict], run_id: str, frozen: dict | None, t
 
     lines += ["", "## 1. Qwen3-TTS CustomVoice presets (English, no style instruction)", "",
               "Upstream recommends each voice's native language; these are all English tests by design.", "",
-              "| Voice | Native language | WAV | MP3 | Audible | State |", "|---|---|---|---|---|---|"]
+              "| Voice | Model-card description | Native language | WAV | MP3 | Audible | State |",
+              "|---|---|---|---|---|---|---|"]
     for r in short:
         if r["group"] == core.GROUP_QWEN_PRESET:
             o = r.get("outputs")
-            lines.append(f"| {r['display']} | {r.get('native_language', '')} | {_link('WAV', o, 'wav')} | "
+            lines.append(f"| {r['display']} | {core.QWEN_PRESET_DESCRIPTIONS.get(r['display'], '')} | "
+                         f"{r.get('native_language', '')} | {_link('WAV', o, 'wav')} | "
                          f"{_link('MP3', o, 'mp3')} | {_dur(r)} | {_state(r)} |")
 
     lines += ["", "## 2. Qwen3-TTS clones paired with the current Chatterbox baselines", "",
@@ -797,9 +849,13 @@ def stage_long(run: Run) -> int:
         return 2
     sel = json.loads(path.read_text(encoding="utf-8"))
     female, clone = sel.get("female_preset"), sel.get("clone")
-    presets = dict(core.QWEN_PRESETS)
-    if female not in presets or female in ("Aiden", "Dylan") or clone not in dict(core.REFERENCE_VOICE_IDS):
-        say(f"invalid long-selection.json (female_preset={female!r}, clone={clone!r})")
+    if not core.is_female_preset(female or "") or clone not in dict(core.REFERENCE_VOICE_IDS):
+        say(f"invalid long-selection.json (female_preset={female!r}, clone={clone!r}): the female preset must be one of "
+            f"{[n for n, _ in core.QWEN_PRESETS if core.is_female_preset(n)]} and the clone one of the six references")
+        return 2
+    approved, why = approved_transcript(run, clone)
+    if approved is None:
+        say(f"the selected clone {clone!r} has no owner-approved transcript ({why}); a long clone cannot be made")
         return 2
     profile = load_profile(run)
     freeze_corpus(run, profile)

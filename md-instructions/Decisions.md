@@ -36,6 +36,10 @@ only because `qwen-tts` declares it; no server is run.
   (a literal boolean); Whisper drafts never count, `x_vector_only_mode` is never used, and the transcript hash is part of
   the resume identity, so editing an approved transcript invalidates the clone.
 - *Seeds* are `sha256(base|row|chunk|attempt)` per chunk; Chatterbox and Kokoro stay unseeded because that is production.
+- *Resume identity* hashes the text, plan, profile, model revision, package pins, reference/transcript hashes and a
+  deliberate `PIPELINE_REVISION` (bump it when chunking, seeding, generation or assembly changes), not whole source
+  files, so reporting/ASR edits never invalidate finished recordings; `rebase_identities` keeps the old identity in
+  `identity_history`.
 - *ASR read-back* (`--qwen-eval asr-check`) is advisory: it can flag gross omissions, never approve or overrule listening.
 - *Codex independent review* is recorded as pending whenever it cannot run (usage limit hit on 2026-10-18); a Claude
   self-review is never labelled independent.

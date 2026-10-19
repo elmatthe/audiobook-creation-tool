@@ -616,6 +616,37 @@ def test_a_completed_identical_row_is_reused_and_a_changed_one_is_retired(fake_e
     assert calls == [1, 1] and run.manifest.get(rows[0]["row_id"])["attempts"][0]["status"] == "succeeded"
 
 
+def test_identity_follows_the_pipeline_revision_not_unrelated_source_edits(tmp_path, monkeypatch):
+    run = make_run(tmp_path)
+    row = next(r for r in core.short_rows() if r["row_id"] == "kokoro-am_michael")
+    profile = cli.load_profile(run)
+    before = cli.current_identity(run, row, profile, {})
+    assert before == cli.current_identity(run, row, profile, {})
+    monkeypatch.setattr(core, "PIPELINE_REVISION", core.PIPELINE_REVISION + 1)
+    assert cli.current_identity(run, row, profile, {}) != before  # an output-affecting revision makes rows stale
+
+
+def test_rebase_only_touches_succeeded_intact_rows_and_keeps_the_old_identity(tmp_path):
+    run = make_run(tmp_path)
+    run.manifest.declare(core.short_rows())
+    wav = run.dir / "kokoro" / "am_michael.wav"
+    wav.parent.mkdir(exist_ok=True)
+    wav.write_bytes(b"x")
+    run.manifest.update("kokoro-am_michael", status="succeeded", identity="old", outputs={
+        "wav": {"path": "kokoro/am_michael.wav", "bytes": 1, "sha256": core.sha256_file(wav)}})
+    run.manifest.update("kokoro-bm_george", status="succeeded", identity="old2", outputs={
+        "wav": {"path": "kokoro/missing.wav", "bytes": 1, "sha256": "0" * 64}})
+    run.manifest.update("kokoro-am_fenrir", status="failed", identity="old3")
+    profile = cli.load_profile(run)
+    assert cli.rebase_identities(run, profile, {}, "output-neutral edit") == ["kokoro-am_michael"]
+    row = run.manifest.get("kokoro-am_michael")
+    assert row["identity"] != "old" and row["identity_history"][0]["identity"] == "old"
+    assert row["identity_history"][0]["reason"] == "output-neutral edit"
+    assert core.can_resume(row, cli.current_identity(run, row, profile, {}), run.dir)
+    assert run.manifest.get("kokoro-bm_george")["identity"] == "old2"  # files missing: never rebased
+    assert run.manifest.get("kokoro-am_fenrir")["identity"] == "old3"  # failed: never rebased
+
+
 def test_frozen_text_cannot_silently_change(tmp_path):
     run = make_run(tmp_path)
     profile = cli.load_profile(run)
@@ -641,7 +672,17 @@ def test_long_stage_refuses_to_run_without_the_owners_selection(tmp_path):
     assert cli.stage_long(run) == 2  # Aiden is already required; a female preset must be a different voice
     (run.dir / "long-selection.json").write_text(json.dumps({"female_preset": "Serena", "clone": "Nobody"}), encoding="utf-8")
     assert cli.stage_long(run) == 2
+    (run.dir / "long-selection.json").write_text(json.dumps({"female_preset": "Ryan", "clone": "Male-1"}), encoding="utf-8")
+    assert cli.stage_long(run) == 2  # Ryan is a male preset per the model card
+    (run.dir / "long-selection.json").write_text(json.dumps({"female_preset": "Serena", "clone": "Male-1"}), encoding="utf-8")
+    assert cli.stage_long(run) == 2  # valid names, but Male-1's transcript is not owner-approved
     assert not [r for r in run.manifest.rows.values() if r["suite"] == "long"]
+
+
+def test_female_presets_come_from_the_model_card_wording():
+    assert [n for n, _ in core.QWEN_PRESETS if core.is_female_preset(n)] == ["Ono_Anna", "Serena", "Sohee", "Vivian"]
+    assert not any(core.is_female_preset(n) for n in ("Aiden", "Dylan", "Eric", "Ryan", "Uncle_Fu", "nobody"))
+    assert set(core.QWEN_PRESET_DESCRIPTIONS) == {n for n, _ in core.QWEN_PRESETS}
 
 
 def test_group_selector_never_widens_beyond_the_requested_group():
@@ -695,7 +736,9 @@ def test_listening_index_lists_every_row_with_relative_links_and_honest_states()
     for display in ("Aiden", "Ono_Anna", "Uncle_Fu", "Female-2", "Male-4", "bm_daniel"):
         assert display in text
     assert "Mechanical warnings" in text and "Listening rubric" in text
-    assert "approved" not in text.lower().replace("not an approval", "")  # nothing is claimed approved
+    states = [ln.rsplit("|", 2)[-2].strip().lower() for ln in text.splitlines()
+             if ln.startswith("| ") and ("[WAV]" in ln or "**blocked**" in ln or "**pending**" in ln)]
+    assert states and all("approved" not in st and "pass" not in st for st in states)  # no recording is called approved
     assert "C:\\" not in text and "/Users/" not in text  # relative paths only
 
 

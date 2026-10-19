@@ -47,6 +47,27 @@ QWEN_PRESETS: tuple[tuple[str, str], ...] = (
     ("Vivian", "Chinese"),
 )
 
+# Verbatim from the pinned CustomVoice model card (Apache-2.0), shown only to help the listener choose.
+# "female"/"male" below is the card's own wording, not a judgement made here.
+QWEN_PRESET_DESCRIPTIONS: dict[str, str] = {
+    "Vivian": "Bright, slightly edgy young female voice.",
+    "Serena": "Warm, gentle young female voice.",
+    "Uncle_Fu": "Seasoned male voice with a low, mellow timbre.",
+    "Dylan": "Youthful Beijing male voice with a clear, natural timbre.",
+    "Eric": "Lively Chengdu male voice with a slightly husky brightness.",
+    "Ryan": "Dynamic male voice with strong rhythmic drive.",
+    "Aiden": "Sunny American male voice with a clear midrange.",
+    "Ono_Anna": "Playful Japanese female voice with a light, nimble timbre.",
+    "Sohee": "Warm Korean female voice with rich emotion.",
+}
+assert {n for n, _ in QWEN_PRESETS} == set(QWEN_PRESET_DESCRIPTIONS)
+
+
+def is_female_preset(display: str) -> bool:
+    """Per the model card's own description of the preset."""
+    return " female " in f" {QWEN_PRESET_DESCRIPTIONS.get(display, '').lower()} "
+
+
 # (display name, production Chatterbox voice_id, source file). The reference path and SHA-256
 # are read from chatterbox_synth.REFERENCE_VOICES at run time, never duplicated here.
 REFERENCE_VOICE_IDS: tuple[tuple[str, str], ...] = (
@@ -133,6 +154,11 @@ def long_row(group: str, display: str) -> dict:
 # Seeds and identity hashes
 # --------------------------------------------------------------------------- #
 SEED_BASE = 20261018
+
+#: Bump deliberately whenever a change can alter generated audio (chunking, seeding, generation calls, assembly,
+#: joins). It is part of every result's identity, so a bump makes finished rows stale; edits to reporting, the ASR
+#: check or the index deliberately do not.
+PIPELINE_REVISION = 1
 
 
 def derive_seed(row_id: str, chunk_index: int, attempt: int = 1, base: int = SEED_BASE) -> int:
