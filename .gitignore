@@ -96,3 +96,6 @@ files/dev-work/
 
 # Maintainer archives: local-only, never tracked, packaged or published.
 files/Archives/
+
+# Setup downloads (stage 0 keeps the verified Python installer here until Python is proven).
+files/temp/

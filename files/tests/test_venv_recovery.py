@@ -700,7 +700,9 @@ def test_python_is_installed_at_user_scope():
     assert "--scope" in literals and "user" in literals
 
     text = BAT.read_text(encoding="utf-8", errors="replace")
-    assert "--scope user" in text
+    assert "bootstrap_host.ps1" in text  # the launcher hands Python acquisition to stage 0, which stays per-user
+    stage0 = (BAT.parent / "scripts" / "shared" / "bootstrap_host.ps1").read_text(encoding="ascii")
+    assert "--scope user" in stage0 and "'InstallAllUsers=0'" in stage0
 
 
 def test_the_ffmpeg_winget_command_is_left_alone():

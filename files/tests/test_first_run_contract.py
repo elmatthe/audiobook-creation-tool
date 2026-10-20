@@ -98,10 +98,18 @@ def test_it_looks_for_both_py_and_python_before_installing(bat_text):
     assert "where python " in bat_text or "where python >" in bat_text
 
 
-def test_it_installs_python_312_through_winget_when_none_is_found(bat_text):
-    assert "winget install --id Python.Python.3.12" in bat_text
-    assert "--accept-source-agreements" in bat_text
-    assert "--accept-package-agreements" in bat_text
+def _stage0() -> str:
+    """Python acquisition moved from the launcher into Windows stage 0 (v0.6.7); the launcher hands off to it."""
+    return (Path(__file__).resolve().parents[2] / "scripts" / "shared" / "bootstrap_host.ps1").read_text(encoding="ascii")
+
+
+def test_it_installs_python_312_when_none_is_found(bat_text):
+    """Stage 0 installs the pinned python.org 3.12 directly, with winget (agreements accepted) only as a fallback."""
+    stage0 = _stage0()
+    assert "bootstrap_host.ps1" in bat_text
+    assert "python-$PyVersion-amd64.exe" in stage0 and "$PyVersion = '3.12.10'" in stage0
+    assert "winget.exe install --id Python.Python.3.12" in stage0
+    assert "--accept-source-agreements" in stage0 and "--accept-package-agreements" in stage0
 
 
 def test_it_accepts_the_user_scope_install_without_waiting_for_path(bat_text):
@@ -111,10 +119,13 @@ def test_it_accepts_the_user_scope_install_without_waiting_for_path(bat_text):
     just succeeded, which is the same defect Phase 15 removed from the FFmpeg
     branch. The ``.bat`` checks the known location directly.
     """
-    assert r"%LOCALAPPDATA%\Programs\Python\Python312\python.exe" in bat_text
-    install_at = bat_text.index("winget install --id Python.Python.3.12")
-    direct_at = bat_text.index(r"%LOCALAPPDATA%\Programs\Python\Python312\python.exe")
+    stage0 = _stage0()
+    assert "$TargetDir = Join-Path $env:LOCALAPPDATA 'Programs\\Python\\Python312'" in stage0
+    install_at = stage0.index("$process = Start-Process -FilePath $Installer")
+    direct_at = stage0.index("return Test-Candidate @((Join-Path $TargetDir 'python.exe'))")
     assert install_at < direct_at, "the direct check must come after the install"
+    winget_at = stage0.index("& winget.exe install")
+    assert winget_at < stage0.index("return Find-Python", winget_at)  # and after a winget install it is re-discovered
 
 
 def test_the_located_interpreter_is_what_runs_the_bootstrap(bat_text):
@@ -125,8 +136,8 @@ def test_the_located_interpreter_is_what_runs_the_bootstrap(bat_text):
 
 def test_failing_to_obtain_python_fails_truthfully_rather_than_obscurely(bat_text):
     """The worst outcome is running ``"" bootstrap.py`` and showing a shell error."""
-    tail = bat_text[bat_text.index("if not defined PYCMD", bat_text.index("winget install")):]
-    assert "Could not find or install Python automatically" in tail
+    tail = bat_text[bat_text.index("if not defined PYCMD (", bat_text.index("bootstrap_host.ps1")):]
+    assert "Python could not be set up automatically" in tail
     assert "python.org/downloads" in tail
     assert "exit /b 1" in tail
     # And it must stop rather than fall through into the bootstrap call.

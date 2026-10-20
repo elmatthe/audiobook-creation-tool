@@ -65,38 +65,44 @@ echo ============================================================
 echo.
 
 REM ---------------------------------------------------------------------------
-REM  First run, or an environment repair: we need *some* Python outside the venv.
-REM  The setup script itself locates or installs the correct Python 3.12.
+REM  First run, or an environment repair: we need a proven Python outside the venv.
+REM  Stage 0 (scripts\shared\bootstrap_host.ps1) finds one by RUNNING it (3.11 or
+REM  3.12 with ssl, venv and Tk), or - only after asking - installs the pinned,
+REM  verified python.org 3.12.10 for this user: no administrator rights, no PATH
+REM  change, winget only as a fallback. It writes the interpreter's full path to
+REM  a file; exit 2 means the user said No, 3 means it could not be done.
 REM ---------------------------------------------------------------------------
 :findpython
-echo Looking for Python...
-
+echo Looking for a compatible Python (3.11 or 3.12)...
 set "PYCMD="
-where py >nul 2>nul && set "PYCMD=py"
-if not defined PYCMD (
-    where python >nul 2>nul && set "PYCMD=python"
+set "PYFILE=files\temp\bootstrap\selected-python.txt"
+if not exist "files\temp\bootstrap" mkdir "files\temp\bootstrap"
+if exist "%PYFILE%" del /q "%PYFILE%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\shared\bootstrap_host.ps1" -OutFile "%PYFILE%"
+set "HOSTRC=%errorlevel%"
+if "%HOSTRC%"=="2" (
+    echo.
+    echo Setup cancelled. Python was not installed and nothing was changed.
+    echo Run this file again whenever you are ready to set the app up.
+    echo.
+    pause
+    exit /b 0
 )
+if "%HOSTRC%"=="0" if exist "%PYFILE%" for /f "usebackq delims=" %%P in ("%PYFILE%") do set "PYCMD=%%P"
 
-REM No Python at all - try to install it with winget, then look again.
-REM --scope user on purpose: this can now be reached by an ordinary repair on a
-REM machine whose owner has no administrator rights.
-if not defined PYCMD (
-    echo Python was not found. Attempting to install Python 3.12 via winget...
-    where winget >nul 2>nul && winget install --id Python.Python.3.12 -e --scope user --silent --accept-source-agreements --accept-package-agreements
-    REM winget installs per-user here; PATH may not refresh this session, so
-    REM check the known install location directly.
-    if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYCMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-    if not defined PYCMD (
-        where py >nul 2>nul && set "PYCMD=py"
-    )
+REM PowerShell itself could not run (for example, scripts are blocked by an IT
+REM policy): fall back to a Python that is already on this computer, if any.
+REM bootstrap.py still checks it and refuses one it cannot build from.
+if not defined PYCMD if not "%HOSTRC%"=="3" (
+    where py >nul 2>nul && set "PYCMD=py"
+    if not defined PYCMD where python >nul 2>nul && set "PYCMD=python"
 )
 
 if not defined PYCMD (
     echo.
-    echo Could not find or install Python automatically.
-    echo Opening the Python download page in your browser.
-    echo Install Python 3.12 ^(check "Add Python to PATH"^), then run this file again.
-    start "" "https://www.python.org/downloads/release/python-3120/"
+    echo Python could not be set up automatically ^(see the messages above^).
+    echo You can install Python 3.12 yourself from https://www.python.org/downloads/
+    echo ^(the "Windows installer (64-bit)"^), then run this file again.
     echo.
     pause
     exit /b 1

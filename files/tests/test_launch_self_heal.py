@@ -913,14 +913,15 @@ def test_every_production_winget_install_names_a_scope():
 
 
 def test_the_windows_launcher_python_fallback_is_user_scope():
-    """The root ``.bat``'s own winget call, verified rather than assumed."""
-    bat = (REPO_ROOT / "Setup_and_Run-audiobook-creation-tool.bat").read_text(
-        encoding="utf-8", errors="replace")
-    lines = [ln for ln in bat.splitlines()
-             if "winget install" in ln and not ln.strip().startswith("REM")]
-    assert lines, "the launcher no longer installs Python"
+    """Every winget call that can install Python (now in Windows stage 0), verified rather than assumed."""
+    sources = [(REPO_ROOT / name).read_text(encoding="utf-8", errors="replace")
+               for name in ("Setup_and_Run-audiobook-creation-tool.bat", "scripts/shared/bootstrap_host.ps1")]
+    lines = [ln for text in sources for ln in text.splitlines()
+             if "winget" in ln and "install --id" in ln and not ln.strip().startswith(("REM", "#"))]
+    assert lines, "nothing installs Python any more"
     for line in lines:
         assert "--scope user" in line, line
+    assert "InstallAllUsers=0" in sources[1]  # and the direct python.org route is per-user too
 
 
 def test_no_production_install_asks_for_machine_scope():
