@@ -177,7 +177,13 @@ def test_production_qwen3_code_has_no_link_to_the_experiment(name):
 
 
 def test_production_forwards_only_the_two_temperatures_never_top_p_top_k_or_the_penalty():
-    text = (REPO_ROOT / "scripts" / "tts" / "qwen3_worker.py").read_text(encoding="utf-8")
+    """The synthesis path (``run_synth``) passes no other sampling control; the speech recognizer's own decode limit in
+    ``run_transcribe`` is not a TTS sampling setting."""
+    import inspect
+
+    from tts import qwen3_worker
+
+    text = inspect.getsource(qwen3_worker.run_synth) + inspect.getsource(qwen3_worker.clone_generation)
     for needle in ("top_p", "top_k", "repetition_penalty", "max_new_tokens", "do_sample"):
         assert needle not in text, needle  # those stay the Base model's own values
 
@@ -315,6 +321,7 @@ def test_a_clone_without_an_approved_transcript_is_refused_for_the_apps_own_reas
     path = tmp_path / "t.json"
     voice = rt.get_voice("qwen3-female-1")
     monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(path))
+    monkeypatch.setattr(rt, "local_transcripts_path", lambda: tmp_path / "no-local-store.json")  # never the machine's own
     with pytest.raises(exp.ExperimentError, match="no approved reference transcript"):
         exp.check_ready("qwen3-female-1")  # no file at all
     for entry, reason in (({"text": "draft", "approved": False, "wav_sha256": voice.reference_sha256}, "not been approved"),
