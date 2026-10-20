@@ -4,6 +4,48 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Owner publication decision: preview audio for all 28 voices may be published (supersedes the Q5/Q8 preview restriction)
+
+**Decision.** The owner explicitly authorized publishing short generated preview audio for **all 28 registered ACT voices** in `files/voice-previews/`. The earlier rule that kept
+the Edge, Chatterbox and Qwen3-clone previews unpublished (CP6 rulings Q5 and Q8, 2026-10-19, and the Q8 rights gate built from them) is superseded **for preview audio**. It was
+a mistake as a blanket block, and it must not be used to stop these samples being generated or uploaded. The 2026-10-19 entries stay as written; they are history.
+
+- *What this is, and is not.* It is an **owner publication decision**. No third-party legal opinion was obtained and no external license or service terms (Microsoft's Edge Read
+  Aloud service, the Chatterbox reference recordings' owners, the Qwen3 clones) were independently verified by this project; the manifest and README say exactly that and claim
+  nothing more. For Kokoro and the two Qwen3 presets the earlier license-review evidence (Apache-2.0 model cards, hashed) is unchanged.
+- *Scope.* Short generated preview audio only. **Not covered:** the private reference transcripts, the reference recordings (Q5 still applies to both: neither is committed), any
+  untracked or private asset, the rejected Qwen3 presets, or any voice outside the 28 registered ones. Previews stay out of the release archives, as before.
+- *Four things kept apart, because they are different facts.*
+  1. **Publication permission: APPROVED** for 28 of 28.
+  2. **Audio generated and verified: 22 YES, 6 NO.** Nine Kokoro, Qwen3 Aiden and Ryan (already published, untouched), and now five Edge and six Chatterbox. The six Qwen3 clones are
+     NOT generated.
+  3. **Qwen3 clone transcript validation is independently required.** A clone is only made from an owner-approved transcript bound to the reference recording's SHA-256
+     (`qwen3_runtime.load_transcript`); the only transcripts on HOME-PC are the Whisper drafts in `files/dev-work/qwen3-eval/runs/qwen3-initial/transcripts/verified.json`, all six
+     `"approved": false`. Nothing was approved, invented, bypassed or copied from Chatterbox. The six are recorded **pending generation** (not blocked) with that exact reason.
+  4. **Qwen3 production-clone qualification is unchanged:** it remains under its separate S5 gates; a published preview does not qualify a voice.
+- *Model.* `previews.json` is schema 2: an `owner_decision` block (stated by the tool and checked equal), per-voice `rights.status` of `confirmed` (license evidence), `owner_authorized`
+  (the 17 voices the decision names, in `OWNER_AUTHORIZED_VOICES`) or `unresolved` (now meaning only *withdrawn*), and preview status `generated` / `pending` (with a required
+  `pending_reason`) / `blocked` (withdrawal only). A schema-1 record that was `unresolved` is migrated once by `sync`; from schema 2 on an `unresolved` voice is never re-authorized
+  by a sync. A voice added to the registry later is not in the decision, so it starts blocked until someone decides. The set is still never called complete while any row is
+  missing, and a preview marked generated for a non-authorized voice is refused, uncounted and unrendered.
+- *How the new previews were made (no substitution).* The same standardized sentence and target (24 kHz mono PCM16 WAV, edges trimmed to 120 ms, 8-13 s, no clipping or silence,
+  SHA-256 and duration recorded). **Edge:** the folder route's own `batch_convert.synthesize_chunk_mp3` request for the registered voice at that voice's own rate, the service's MP3
+  decoded straight to WAV (no re-encode); no retry, fallback voice or other engine, and a refusal is reported in the `edge_failures` wording and leaves the voice pending.
+  **Chatterbox:** the production `chatterbox_file_to_mp3` on the bundled approved reference for that voice, pauses zero, encoder swapped for a lossless WAV and restored afterwards
+  even on failure. Each voice asks the app's own availability answer first; one that cannot run here stays pending and is never a failure.
+- *Verification.* `test_voice_previews.py` (70 offline tests; an Edge fake bound to the real `Communicate` signature, the Chatterbox/Qwen3 seams, the migration, the withdrawal path,
+  the transcript approval rule on the real loader); 13 of 14 mutants of the new guards killed (the survivor, a duplicate non-mono check that `audio_problems` also makes, is
+  redundant). All 22 files: whisper-small.en read-back WER 0.00 for the whole sentence, pitch consistent with the named voice (Chatterbox against its own reference recording),
+  distinct SHA-256 per file, none clipped. No full `verify.py` (reserved for S5); A0 `check` OK; no production GUI, synthesis setting, model pin or A0-A6 behavior changed.
+- *To finish the last six (owner action).* Listen to each reference recording, correct its draft transcript so it matches exactly what is spoken, set `approved: true` (the entry
+  already carries the recording's `wav_sha256`) in the untracked `files/runtime-data/qwen3/transcripts.json` (or `ACT_QWEN3_TRANSCRIPTS`); then
+  `python files/dev-tools/voice_previews.py generate qwen3-female-1 qwen3-female-2 qwen3-male-1 qwen3-male-2 qwen3-male-3 qwen3-male-4` and commit the six WAVs, manifest and README.
+  The transcript is never committed.
+
+-- Decided by the owner (2026-10-20); recorded and implemented by Claude Code
+
+---
+
 ## 2026-10-20 - Edge TTS reliability and recovery (final hardening checkpoint): classify, retry only what can recover, say what to do
 
 **Decision.** Both Edge routes (direct `run_edgespeak`, folder `convert_single_pdf`) now decide whether another attempt can help from the exception's real type and
@@ -313,7 +355,7 @@ routes first lets the move and the later speech-pipeline work prove they changed
   and preview status together (a manifest that contradicts the rule is refused, never rendered); a new take is validated and its hash
   computed before it replaces the published file, and a published preview, its record and the README change together or are all rolled
   back. The recorded basis states only what the pinned model cards say (Apache-2.0 for the weights) and that the training-data provenance
-  is the model author's claim.
+  is the model author's claim. *(The `confirmed`-only generation rule described here is superseded by the 2026-10-20 owner decision; Kokoro/Qwen3-preset evidence is unchanged.)*
 - *Trust boundary for link guards.* Anything that can write into the repository folder can already replace the scripts, so the
   link/junction/hard-link guards defend against accidental or content-driven redirection of the app's own state, locks, job text, caches,
   scratch files and downloaded model files, not against an attacker who can edit code. `files/runtime-data` and the models folder may
@@ -342,10 +384,10 @@ mutation-checked.
 - **Q2** CustomVoice (Aiden, Ryan) and Base (the six clones) install independently, with an "Install Both" choice, in one shared environment. Download/install sizes are shown first, valid cached assets are reused, and nothing downloads on ordinary launch.
 - **Q3** CPU fallback on Windows without an NVIDIA GPU, with hardware and speed stated plainly. The measured 2.15x real time applies only to the tested Ryzen 7 9800X3D. No silent downgrade, quantization or alternate model.
 - **Q4** Windows first. On macOS the existing engines keep working and the Qwen3 voices read "not yet available"; no macOS Qwen3 claim without a Mac test.
-- **Q5** NOT approved for public redistribution: the six verified transcripts, new cloned-voice previews and (pending a rights audit) the original reference recordings are not committed. The transcript interface is built with synthetic fixtures and accepts development-only local files; real clone synthesis still needs the owner's `verified.json` approval; there is no transcript-free cloning; the clones stay blocked for public-release qualification.
+- **Q5** NOT approved for public redistribution: the six verified transcripts, new cloned-voice previews and (pending a rights audit) the original reference recordings are not committed. The transcript interface is built with synthetic fixtures and accepts development-only local files; real clone synthesis still needs the owner's `verified.json` approval; there is no transcript-free cloning; the clones stay blocked for public-release qualification. **[Superseded for preview audio by the owner's publication decision of 2026-10-20 (the entry at the top of this log). The history is kept as written.]**
 - **Q6** Qwen follows ACT's existing local-engine narration policy (the voice preset's paragraph pause between chunks, its end pause), not the evaluation's fixed pauses; source text and chunk/paragraph boundaries are preserved; one final MP3 encode.
 - **Q7** About 1.4-1.9x real time is acceptable for the first integration; speed is disclosed as machine-dependent and no fixed performance is promised.
-- **Q8** The permanent 10-second previews stay in scope but are generated or published only per voice with confirmed output rights and source permissions. Edge and cloned-voice previews are not published while rights are unresolved, a per-voice rights/status manifest is kept, and the 28-preview deliverable is not declared complete while any preview is blocked.
+- **Q8** The permanent 10-second previews stay in scope but are generated or published only per voice with confirmed output rights and source permissions. Edge and cloned-voice previews are not published while rights are unresolved, a per-voice rights/status manifest is kept, and the 28-preview deliverable is not declared complete while any preview is blocked. **[Superseded for preview audio by the owner's publication decision of 2026-10-20 (the entry at the top of this log). The history is kept as written.]**
 
 **Build choices made under these rulings.**
 - *In-app install/repair only; `bootstrap.py` is not changed.* One "Install / repair Qwen3 voices" dialog serves first-time and existing users. This drops the draft's bootstrap slice (D8), so no new setup behaviour needs separate approval and the every-launch fast path never touches Qwen3.
@@ -373,7 +415,7 @@ settings and ordering are preserved.
 (Aiden, Ryan and the six clones) on the existing frozen long corpus; the earlier selection matrix is superseded in the plan. This approves the
 roster only: transcript approval, audio validation, regression gates and the bounded Qwen3 production addendum (new runtime, bootstrap and
 platform decisions need the owner's approval) all still apply, and no Chatterbox retirement is authorized. Permanent 10-second previews cover the
-final 28 voices only, subject to a per-voice redistribution check.
+final 28 voices only, subject to a per-voice redistribution check. *(Preview audio: see the 2026-10-20 owner publication decision.)*
 
 -- Decided by maintainer, recorded by Claude Code
 

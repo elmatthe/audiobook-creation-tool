@@ -15,6 +15,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Voice previews for the Edge and Chatterbox voices (v0.6.7, 2026-10-20)
+
+- `files/voice-previews/` now holds **22 of 28** ten-second previews: the 11 already there plus the five Edge voices and the six Chatterbox voices, each made by that voice's own engine
+  reading the same sentence. The owner authorized publishing previews for all 28 voices (a publication decision, not a verified third-party license finding), which replaces the earlier
+  rule that kept the Edge, Chatterbox and Qwen3-clone previews unpublished.
+- The six Qwen3 clone previews are **pending**, not blocked: each needs an owner-approved transcript of its reference recording, which has not been approved yet. The set is not called
+  complete until all 28 exist. Transcripts and reference recordings are still never committed. Previews are repository documentation only and are not in the release archives.
+- The preview tool tracks authorization, generation and pending reasons separately, and checks every file (length, clipping, silence, hash) before it is published.
+
 ### Changed — Edge voices: clearer, faster failures when Microsoft's service is unavailable (v0.6.7 final hardening, 2026-10-20)
 
 - When Microsoft's online Edge Read Aloud service refuses or cannot be reached, a file that cannot be converted now says why in plain words and what to try (check the

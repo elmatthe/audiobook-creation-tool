@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "sample_text": "Welcome. This is a short sample of my voice, reading a calm passage at an even pace, so that you can decide whether it suits the story you want to hear, today or tomorrow.",
   "voices": [
     {
@@ -7,13 +7,19 @@
       "label": "Edge Male - Steffan (en-US)",
       "backend": "edge",
       "rights": {
-        "status": "unresolved",
-        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "Microsoft's online Edge Read Aloud service, reached over the network. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. Microsoft's service terms have not been independently reviewed by this project, and this record makes no claim about them.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "en-US-SteffanNeural.wav",
+        "sha256": "cf5a61e8c00dc4da2ff4c1851d217b0e4de52b0bc0fca8d5f74f2a1516cc1777",
+        "duration_s": 11.13,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -21,13 +27,19 @@
       "label": "Edge Male - Andrew (en-US)",
       "backend": "edge",
       "rights": {
-        "status": "unresolved",
-        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "Microsoft's online Edge Read Aloud service, reached over the network. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. Microsoft's service terms have not been independently reviewed by this project, and this record makes no claim about them.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "en-US-AndrewNeural.wav",
+        "sha256": "57c9472b235499a4ac6a48444bcbcafcd33a5e4544472a9ce10ccfa32882dce6",
+        "duration_s": 10.62,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -35,13 +47,19 @@
       "label": "Edge Female - Aria (en-US)",
       "backend": "edge",
       "rights": {
-        "status": "unresolved",
-        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "Microsoft's online Edge Read Aloud service, reached over the network. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. Microsoft's service terms have not been independently reviewed by this project, and this record makes no claim about them.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "en-US-AriaNeural.wav",
+        "sha256": "680b424400ea831d349fa150d2817b6e5badff1ef2c8d49de7dd546d11be6baa",
+        "duration_s": 10.75,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -49,13 +67,19 @@
       "label": "Edge Female - Ava (en-US)",
       "backend": "edge",
       "rights": {
-        "status": "unresolved",
-        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "Microsoft's online Edge Read Aloud service, reached over the network. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. Microsoft's service terms have not been independently reviewed by this project, and this record makes no claim about them.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "en-US-AvaNeural.wav",
+        "sha256": "6068763c5e28fdb87e7804d011050ec503fd54717ce6d43c25941922cfd972f2",
+        "duration_s": 10.21,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -63,13 +87,19 @@
       "label": "Edge Female - Jenny (en-US)",
       "backend": "edge",
       "rights": {
-        "status": "unresolved",
-        "basis": "Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the audio and have not been reviewed or confirmed. Blocked until the owner decides.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "Microsoft's online Edge Read Aloud service, reached over the network. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. Microsoft's service terms have not been independently reviewed by this project, and this record makes no claim about them.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "en-US-JennyNeural.wav",
+        "sha256": "4fd22451e4f4f5a7a5111720e380c374e824fa063af01dd4e57b211a827eda35",
+        "duration_s": 10.35,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -311,13 +341,19 @@
       "label": "Chatterbox - Female 1",
       "backend": "chatterbox",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "chatterbox-female-1.wav",
+        "sha256": "00ac14ecdf784cfb23c3ef26bbe27155a93e5443b3e249c17c766e7cf9f5e843",
+        "duration_s": 8.99,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -325,13 +361,19 @@
       "label": "Chatterbox - Female 2",
       "backend": "chatterbox",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "chatterbox-female-2.wav",
+        "sha256": "9acebe25627d4831b1590fb70daf7c41ed4009b9ab995c218c7803f9af28d0fa",
+        "duration_s": 11.28,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -339,13 +381,19 @@
       "label": "Chatterbox - Male 1",
       "backend": "chatterbox",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "chatterbox-male-1.wav",
+        "sha256": "c9548c5def79406a23097b00304d48c5524d6eaecb274d43d7b19841898f5d08",
+        "duration_s": 12.12,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -353,13 +401,19 @@
       "label": "Chatterbox - Male 2",
       "backend": "chatterbox",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "chatterbox-male-2.wav",
+        "sha256": "c4df76987d41e941fdb91d4cb1e54abae2140fd22bed965ed13f0681fcc00ad9",
+        "duration_s": 11.19,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -367,13 +421,19 @@
       "label": "Chatterbox - Male 3",
       "backend": "chatterbox",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "chatterbox-male-3.wav",
+        "sha256": "8322cc0ee3a071c378f9bf24c1a285be963ab10fdfe748b2a9c29c69b9841fa4",
+        "duration_s": 10.92,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -381,13 +441,19 @@
       "label": "Chatterbox - Male 4",
       "backend": "chatterbox",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "generated",
+        "file": "chatterbox-male-4.wav",
+        "sha256": "56234e9300629b69dc763591dcbfbfe296bf4f76132499ce546b7ff02e66cb9c",
+        "duration_s": 10.15,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20"
       }
     },
     {
@@ -447,13 +513,16 @@
       "label": "Qwen3 - Female 1",
       "backend": "qwen3",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "pending",
+        "file": null,
+        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
       }
     },
     {
@@ -461,13 +530,16 @@
       "label": "Qwen3 - Female 2",
       "backend": "qwen3",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "pending",
+        "file": null,
+        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
       }
     },
     {
@@ -475,13 +547,16 @@
       "label": "Qwen3 - Male 1",
       "backend": "qwen3",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "pending",
+        "file": null,
+        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
       }
     },
     {
@@ -489,13 +564,16 @@
       "label": "Qwen3 - Male 2",
       "backend": "qwen3",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "pending",
+        "file": null,
+        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
       }
     },
     {
@@ -503,13 +581,16 @@
       "label": "Qwen3 - Male 3",
       "backend": "qwen3",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "pending",
+        "file": null,
+        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
       }
     },
     {
@@ -517,14 +598,35 @@
       "label": "Qwen3 - Male 4",
       "backend": "qwen3",
       "rights": {
-        "status": "unresolved",
-        "basis": "A synthetic voice derived from a bundled reference recording of another person. The rights to that original recording (and so to audio cloned from it) have not been audited or confirmed. Blocked until the owner confirms redistribution rights.",
-        "evidence": []
+        "status": "owner_authorized",
+        "basis": "A synthetic voice derived from a bundled reference recording of another person. Publishing the short generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have not been independently audited by this project, and this record makes no claim about them. The decision covers the generated preview only, never the reference recording or its transcript.",
+        "evidence": [],
+        "authorized_on": "2026-10-20",
+        "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "blocked",
-        "file": null
+        "status": "pending",
+        "file": null,
+        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
       }
     }
-  ]
+  ],
+  "owner_decision": {
+    "date": "2026-10-20",
+    "decided_by": "owner",
+    "decision": "Short generated preview audio for all 28 registered ACT voices may be published in files/voice-previews/.",
+    "supersedes": "The 2026-10-19 Q5/Q8 restriction on preview audio for the Edge, Chatterbox and Qwen3 clone voices (kept as history in md-instructions/Decisions.md).",
+    "scope": "Generated preview audio only.",
+    "not_covered": [
+      "private reference transcripts",
+      "the reference recordings",
+      "any untracked or private asset",
+      "any voice that is not one of the 28 registered voices"
+    ],
+    "verification": "An owner publication decision. This project did not independently verify any third-party license or service terms for the Edge, Chatterbox or Qwen3 clone voices, and makes no claim about them.",
+    "separate_gates": [
+      "A Qwen3 clone preview is only generated from an owner-approved transcript bound to its reference recording's SHA-256.",
+      "Qwen3 production-clone qualification (S5) is unchanged by this decision."
+    ]
+  }
 }

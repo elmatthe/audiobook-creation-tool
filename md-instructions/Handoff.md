@@ -2,6 +2,28 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 voice previews: owner authorized all 28; 22 of 28 generated and published; 6 Qwen3 clones PENDING an approved transcript (2026-10-20, HOME-PC)
+
+- **Owner decision (2026-10-20, Decisions entry at the top):** short generated preview audio for all 28 registered voices may be published; this supersedes the Q5/Q8 preview
+  restriction for Edge, Chatterbox and the Qwen3 clones (history kept). It is a publication decision, not a verified third-party license finding; it excludes transcripts, reference
+  recordings and every untracked/private asset. Previews stay out of release archives.
+- **Four separate facts.** Publication permission: APPROVED 28/28. Audio generated and verified: **22 YES / 6 NO**. Qwen3 clone transcript validation: independently required.
+  Qwen3 production-clone qualification: unchanged (S5).
+- **Published now (11 new WAVs):** Edge Steffan, Andrew, Aria, Ava, Jenny (the folder route's own request, each voice's own rate, MP3 decoded to WAV); Chatterbox Female 1/2, Male 1-4
+  (production `chatterbox_file_to_mp3` on the approved bundled references, zero pauses, lossless encoder swap). The 11 earlier files (9 Kokoro, Aiden, Ryan) are byte-for-byte unchanged.
+  All 22 read back at WER 0.00 (whisper-small.en), pitch is consistent with each named voice (Chatterbox against its own reference), hashes are distinct, none clip.
+- **Still missing (6):** `qwen3-female-1/2`, `qwen3-male-1..4`. Cause: the engine requires an owner-approved transcript bound to the reference recording's SHA-256, and the only ones on
+  this PC are Whisper drafts in `files/dev-work/qwen3-eval/runs/qwen3-initial/transcripts/verified.json`, all `"approved": false`. The Base model, `.venv-qwen3` and the references are
+  present and valid. They are recorded `pending` with that reason (not blocked). Nothing was invented, approved, bypassed or copied from Chatterbox.
+  **Owner to supply:** listen to each reference, correct its draft to exactly what is spoken, set `approved: true`, keep the file at `files/runtime-data/qwen3/transcripts.json`
+  (untracked) or point `ACT_QWEN3_TRANSCRIPTS` at it; then run `python files/dev-tools/voice_previews.py generate qwen3-female-1 qwen3-female-2 qwen3-male-1 qwen3-male-2 qwen3-male-3 qwen3-male-4`
+  and commit the six WAVs plus the updated manifest and README. Until then the 28-preview deliverable is NOT complete and is not claimed.
+- **Tooling:** `voice_previews.py` schema 2 (owner decision block, `owner_authorized`, `pending` with a required reason, `blocked` = withdrawal only, one-time migration of the old
+  block, an availability preflight per voice, Edge and Chatterbox synthesis). `test_voice_previews.py` rewritten (70 offline tests, 13/14 mutants killed, the survivor redundant).
+  No production GUI, synthesis setting, model pin or A0-A6 behavior changed; A0 `check` OK; no full `verify.py` (reserved for S5).
+- **Next (owner-gated, not started):** the ONE consolidated independent Codex CLI review (B1 final correction, A1-A6, Edge hardening, and now this preview checkpoint), then resolution
+  of verified findings, then S5. Not authorised: Plan 02, B2, PR/merge/tag/release. This checkpoint can be included in that review.
+
 ## CURRENT STATE — v0.6.7 final hardening: Edge reliability and recovery DONE; STOPPED before the consolidated Codex review (2026-10-20, HOME-PC)
 
 - **What changed (both Edge routes, one shared module `scripts/tts/edge_failures.py`):** failures are classified from real exception types/status (service refused 401/403 and
@@ -188,7 +210,7 @@ voices cannot run until the owner approves their reference transcripts. Nothing 
   `ACT_QWEN3_TRANSCRIPTS`), accepted only with `"approved": true` and the reference recording's SHA-256. The six real short and long clone runs
   wait for the owner's approval of `files/dev-work/qwen3-eval/runs/qwen3-initial/transcripts/verified.json` (review sheet beside it:
   `review-sheet.md`). No transcript and no cloned-voice preview is committed.
-- **Previews.** `files/voice-previews/` holds a 28-row rights/status manifest and 11 generated previews (nine Kokoro voices, Aiden, Ryan; ASR
+- **Previews.** `files/voice-previews/` holds a 28-row rights/status manifest and 11 generated previews (nine Kokoro voices, Aiden, Ryan; ASR **[Superseded 2026-10-20: 22 of 28 are now generated and none is blocked; see the current-state block at the top.]**
   read-back WER 0.0). 17 are blocked: Edge 5, Chatterbox 6, Qwen3 clones 6. The set is never called complete while any row is blocked. Dev tool:
   `python files/dev-tools/voice_previews.py status | check | sync | generate | readme`.
 - **Verification.** `scripts/verify.py` RESULT: PASS (8,517 passed, 60 skipped, 17 min 54 s; the baseline before CP6 was 8,059 / 58). Mutation checks of the guarded behaviours: every mutant killed except two redundant guards (a leading check in

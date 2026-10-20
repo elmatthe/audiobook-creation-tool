@@ -1,19 +1,24 @@
 """Permanent 10-second voice previews for the 28-voice roster (v0.6.7). Dev-only: never shipped, never imported by the app.
 
-Owner ruling Q8 (``md-instructions/Decisions.md``, 2026-10-19): the previews stay in scope, but a preview is generated
-or published **only** for a voice whose output rights and underlying source permissions are confirmed. A per-voice
-rights/status manifest (``files/voice-previews/previews.json``) is the single record; this tool refuses to generate for
-a voice whose rights are not ``confirmed``, validates every preview it finds, regenerates the folder's README from the
-manifest, and states plainly -- never silently -- how many of the 28 are still blocked.
+Publication. Owner ruling Q8 (``md-instructions/Decisions.md``, 2026-10-19) made a preview publishable only for a voice
+whose output rights were confirmed. The **owner's decision of 2026-10-20 supersedes that for preview audio**: short
+generated previews of all 28 registered voices are authorized (``OWNER_DECISION``). It is a publication decision, not a
+third-party legal finding, and it covers generated preview audio only -- never a reference recording or transcript.
+A per-voice record (``files/voice-previews/previews.json``) is the single source: a voice is *authorized* (license
+evidence or the owner decision), a preview is *generated* (a validated WAV with its SHA-256) or *pending* (authorized, not
+yet generated, with the exact reason), and only a voice the owner withdraws is *blocked*. This tool validates every
+preview it finds, regenerates the folder's README from the manifest, and states plainly how many of the 28 exist.
 
-    python files/dev-tools/voice_previews.py status              # counts and the blocked list
+    python files/dev-tools/voice_previews.py status              # counts, and why each missing preview is missing
     python files/dev-tools/voice_previews.py check               # validate manifest + files + README (exit 1 on a problem)
-    python files/dev-tools/voice_previews.py sync                # add registry voices missing from the manifest as blocked
-    python files/dev-tools/voice_previews.py generate [VOICE_ID ...]   # make previews for confirmed voices that lack one
+    python files/dev-tools/voice_previews.py sync                # list exactly the registry's voices; migrate the old block
+    python files/dev-tools/voice_previews.py generate [VOICE_ID ...]   # make previews for authorized voices that lack one
     python files/dev-tools/voice_previews.py readme              # rewrite the folder README from the manifest
 
-Previews are made through the PRODUCTION engine entry points (Kokoro and Qwen3 file-to-MP3), with the pauses set to
-zero and the encode replaced by a lossless 16-bit WAV, so a preview is what the app would say, not a different path.
+Previews are made through the PRODUCTION engine entry points (Kokoro, Chatterbox and Qwen3 file-to-MP3, and the Edge folder
+route's own request), with the pauses set to zero and the encode replaced by a lossless 16-bit WAV, so a preview is what
+the app would say, not a different path. A voice's engine is never substituted, and a Qwen3 clone is only generated from
+its owner-approved, reference-bound transcript.
 """
 from __future__ import annotations
 
@@ -43,8 +48,37 @@ SILENCE_DB = -50.0
 PEAK_LIMIT = 0.999
 MIN_RMS_DB = -45.0
 
-RIGHTS_CONFIRMED, RIGHTS_UNRESOLVED = "confirmed", "unresolved"
+SCHEMA = 2  # 1 = the 2026-10-19 rights gate (17 voices blocked); 2 = the owner's 2026-10-20 publication decision
+
+#: ``confirmed`` = a license a reader can check; ``owner_authorized`` = the owner's publication decision, with no
+#: license review behind it; ``unresolved`` = withdrawn (or never decided): nothing is generated or published.
+RIGHTS_CONFIRMED, RIGHTS_OWNER, RIGHTS_UNRESOLVED = "confirmed", "owner_authorized", "unresolved"
+AUTHORIZED = (RIGHTS_CONFIRMED, RIGHTS_OWNER)
 PREVIEW_GENERATED, PREVIEW_BLOCKED, PREVIEW_PENDING = "generated", "blocked", "pending"
+
+OWNER_DECISION_DATE = "2026-10-20"
+#: Exactly the voices the owner's decision named (the registered roster minus the 11 already cleared by license review).
+#: A voice added to the registry later is NOT in this set, so it starts blocked until someone decides.
+OWNER_AUTHORIZED_VOICES = frozenset({
+    "en-US-SteffanNeural", "en-US-AndrewNeural", "en-US-AriaNeural", "en-US-AvaNeural", "en-US-JennyNeural",
+    "chatterbox-female-1", "chatterbox-female-2", "chatterbox-male-1", "chatterbox-male-2", "chatterbox-male-3",
+    "chatterbox-male-4",
+    "qwen3-female-1", "qwen3-female-2", "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4"})
+QWEN3_PRESETS = frozenset({"qwen3-aiden", "qwen3-ryan"})
+OWNER_DECISION = {
+    "date": OWNER_DECISION_DATE,
+    "decided_by": "owner",
+    "decision": "Short generated preview audio for all 28 registered ACT voices may be published in files/voice-previews/.",
+    "supersedes": "The 2026-10-19 Q5/Q8 restriction on preview audio for the Edge, Chatterbox and Qwen3 clone voices "
+                  "(kept as history in md-instructions/Decisions.md).",
+    "scope": "Generated preview audio only.",
+    "not_covered": ["private reference transcripts", "the reference recordings", "any untracked or private asset",
+                    "any voice that is not one of the 28 registered voices"],
+    "verification": "An owner publication decision. This project did not independently verify any third-party license "
+                    "or service terms for the Edge, Chatterbox or Qwen3 clone voices, and makes no claim about them.",
+    "separate_gates": ["A Qwen3 clone preview is only generated from an owner-approved transcript bound to its reference "
+                       "recording's SHA-256.",
+                       "Qwen3 production-clone qualification (S5) is unchanged by this decision."]}
 
 KOKORO_REVISION = "f3ff3571791e39611d31c381e3a41a3af07b4987"
 KOKORO_BASIS = (
@@ -67,11 +101,18 @@ QWEN3_PRESET_EVIDENCE = [{
     "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice/resolve/"
            "0c0e3051f131929182e2c023b9537f8b1c68adfe/README.md",
     "sha256": "64f65e809b51cc0c35f393fbbfcc2d735c0cb3fdbbc6f3fdc4a5e6ce55e9d088"}]
-EDGE_BASIS = ("Microsoft's online Edge TTS service, reached over the network. Its terms govern redistribution of the "
-              "audio and have not been reviewed or confirmed. Blocked until the owner decides.")
-CLONE_BASIS = ("A synthetic voice derived from a bundled reference recording of another person. The rights to that "
-               "original recording (and so to audio cloned from it) have not been audited or confirmed. "
-               "Blocked until the owner confirms redistribution rights.")
+EDGE_BASIS = ("Microsoft's online Edge Read Aloud service, reached over the network. Publishing the short generated "
+              "preview is authorized by the owner's decision of 2026-10-20. Microsoft's service terms have not been "
+              "independently reviewed by this project, and this record makes no claim about them.")
+CLONE_BASIS = ("A synthetic voice derived from a bundled reference recording of another person. Publishing the short "
+               "generated preview is authorized by the owner's decision of 2026-10-20. The rights to that recording have "
+               "not been independently audited by this project, and this record makes no claim about them. The decision "
+               "covers the generated preview only, never the reference recording or its transcript.")
+CLONE_PENDING = ("Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its "
+                 "owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the "
+                 "computer that holds the models (the draft transcript is unapproved). Supply the approved transcript "
+                 "(see the folder README), then run generate.")
+GENERIC_PENDING = "Publication is authorized; the preview has not been generated yet."
 
 
 class PreviewError(RuntimeError):
@@ -89,28 +130,40 @@ def registry_voices() -> list:
 
 
 def rights_for(entry) -> dict:
-    """The rights record a registry voice starts with. Only a voice whose basis is documented is ever ``confirmed``."""
+    """The publication record a registry voice starts with.
+
+    ``confirmed`` only where a license a reader can check is recorded; ``owner_authorized`` only for a voice the owner's
+    2026-10-20 decision names; anything else starts ``unresolved`` (blocked) until someone decides.
+    """
+    reviewed = {"confirmed_on": "2026-10-19", "confirmed_by": "license review (Claude Code); the owner may withdraw it"}
     if entry.backend == "kokoro":
-        return {"status": RIGHTS_CONFIRMED, "basis": KOKORO_BASIS, "evidence": KOKORO_EVIDENCE,
-                "confirmed_on": "2026-10-19", "confirmed_by": "license review (Claude Code); the owner may withdraw it"}
-    if entry.backend == "qwen3" and entry.voice_id in ("qwen3-aiden", "qwen3-ryan"):
-        return {"status": RIGHTS_CONFIRMED, "basis": QWEN3_PRESET_BASIS, "evidence": QWEN3_PRESET_EVIDENCE,
-                "confirmed_on": "2026-10-19", "confirmed_by": "license review (Claude Code); the owner may withdraw it"}
-    if entry.backend == "edge":
-        return {"status": RIGHTS_UNRESOLVED, "basis": EDGE_BASIS, "evidence": []}
-    return {"status": RIGHTS_UNRESOLVED, "basis": CLONE_BASIS, "evidence": []}
+        return {"status": RIGHTS_CONFIRMED, "basis": KOKORO_BASIS, "evidence": KOKORO_EVIDENCE, **reviewed}
+    if entry.backend == "qwen3" and entry.voice_id in QWEN3_PRESETS:
+        return {"status": RIGHTS_CONFIRMED, "basis": QWEN3_PRESET_BASIS, "evidence": QWEN3_PRESET_EVIDENCE, **reviewed}
+    if entry.voice_id in OWNER_AUTHORIZED_VOICES:
+        basis = EDGE_BASIS if entry.backend == "edge" else CLONE_BASIS
+        return {"status": RIGHTS_OWNER, "basis": basis, "evidence": [], "authorized_on": OWNER_DECISION_DATE,
+                "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"}
+    return {"status": RIGHTS_UNRESOLVED, "basis": "No publication decision is recorded for this voice, so no preview is "
+            "generated or published until the owner decides.", "evidence": []}
+
+
+def pending_reason_for(entry) -> str:
+    """The standing, machine-independent reason an authorized voice has no preview yet."""
+    return CLONE_PENDING if entry.backend == "qwen3" and entry.voice_id not in QWEN3_PRESETS else GENERIC_PENDING
 
 
 def new_entry(entry) -> dict:
     rights = rights_for(entry)
+    preview = ({"status": PREVIEW_PENDING, "file": None, "pending_reason": pending_reason_for(entry)}
+               if rights["status"] in AUTHORIZED else {"status": PREVIEW_BLOCKED, "file": None})
     return {"voice_id": entry.voice_id, "label": entry.display_label, "backend": entry.backend, "rights": rights,
-            "preview": {"status": PREVIEW_PENDING if rights["status"] == RIGHTS_CONFIRMED else PREVIEW_BLOCKED,
-                        "file": None}}
+            "preview": preview}
 
 
 def load_manifest() -> dict:
     if not MANIFEST.is_file():
-        return {"schema": 1, "sample_text": SAMPLE_TEXT, "voices": []}
+        return {"schema": SCHEMA, "owner_decision": OWNER_DECISION, "sample_text": SAMPLE_TEXT, "voices": []}
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
 
 
@@ -138,19 +191,27 @@ def write_readme(data: dict) -> None:
 def sync(data: dict) -> dict:
     """Make the manifest list exactly the registry's voices, in registry order, keeping what is already recorded.
 
-    A voice whose rights are already ``confirmed`` here and in the tool gets the tool's current basis and evidence text;
-    a voice the owner has withdrawn (``unresolved`` in the manifest) is never re-confirmed by a sync.
+    A voice already authorized here and in the tool gets the tool's current basis text. A **schema-1** record that is
+    ``unresolved`` was blocked by the 2026-10-19 rule, not withdrawn: if the owner's decision now authorizes it, it is
+    migrated once to ``owner_authorized`` / ``pending``. From schema 2 on, ``unresolved`` means the owner withdrew it, and a
+    sync never re-authorizes it.
     """
+    old_schema = int(data.get("schema", 1))
     by_id = {v["voice_id"]: v for v in data.get("voices", [])}
     voices = []
     for entry in registry_voices():
         record = by_id.get(entry.voice_id) or new_entry(entry)
         record["label"], record["backend"] = entry.display_label, entry.backend
         fresh = rights_for(entry)
-        if record["rights"]["status"] == RIGHTS_CONFIRMED and fresh["status"] == RIGHTS_CONFIRMED:
-            record["rights"]["basis"], record["rights"]["evidence"] = fresh["basis"], fresh["evidence"]
+        if record["rights"]["status"] == RIGHTS_UNRESOLVED and old_schema < SCHEMA and fresh["status"] in AUTHORIZED:
+            record["rights"], record["preview"] = fresh, {"status": PREVIEW_PENDING, "file": None,
+                                                          "pending_reason": pending_reason_for(entry)}
+        elif record["rights"]["status"] in AUTHORIZED and record["rights"]["status"] == fresh["status"]:
+            record["rights"] = {**record["rights"], "basis": fresh["basis"], "evidence": fresh["evidence"]}
+        if record["preview"]["status"] == PREVIEW_PENDING:
+            record["preview"]["pending_reason"] = pending_reason_for(entry)
         voices.append(record)
-    data["voices"], data["sample_text"], data["schema"] = voices, SAMPLE_TEXT, 1
+    data["voices"], data["sample_text"], data["schema"], data["owner_decision"] = voices, SAMPLE_TEXT, SCHEMA, OWNER_DECISION
     return data
 
 
@@ -211,12 +272,14 @@ def audio_problems(path: Path) -> list[str]:
 def manifest_problems(data: dict) -> list[str]:
     """Every way the manifest contradicts itself or the owner's rights rule, judged from the manifest alone."""
     problems: list[str] = []
+    if data.get("owner_decision") != OWNER_DECISION:  # the README states it, so a damaged one must stop the README
+        problems.append("the manifest does not carry the owner's publication decision as the tool states it (run sync)")
     ids = [v["voice_id"] for v in data.get("voices", [])]
     if len(set(ids)) != len(ids):
         problems.append("a voice id appears twice")
     for record in data.get("voices", []):
         vid, rights, preview = record["voice_id"], record["rights"], record["preview"]
-        if rights["status"] not in (RIGHTS_CONFIRMED, RIGHTS_UNRESOLVED):
+        if rights["status"] not in (*AUTHORIZED, RIGHTS_UNRESOLVED):
             problems.append(f"{vid}: unknown rights status {rights['status']!r}")
         if preview["status"] not in (PREVIEW_GENERATED, PREVIEW_PENDING, PREVIEW_BLOCKED):
             problems.append(f"{vid}: unknown preview status {preview['status']!r}")
@@ -224,13 +287,25 @@ def manifest_problems(data: dict) -> list[str]:
             problems.append(f"{vid}: no recorded basis for its rights status")
         if rights["status"] == RIGHTS_CONFIRMED and not rights.get("evidence"):
             problems.append(f"{vid}: rights are marked confirmed with no evidence")
+        if rights["status"] == RIGHTS_OWNER:
+            if vid not in OWNER_AUTHORIZED_VOICES:
+                problems.append(f"{vid}: marked owner-authorized but the owner's decision does not name this voice")
+            if rights.get("authorized_on") != OWNER_DECISION_DATE or not rights.get("authorized_by"):
+                problems.append(f"{vid}: an owner authorization must record its date and who gave it")
         if rights["status"] == RIGHTS_UNRESOLVED and preview["status"] != PREVIEW_BLOCKED:
             problems.append(f"{vid}: rights are unresolved but the preview is {preview['status']!r}, not blocked")
+        if rights["status"] in AUTHORIZED and preview["status"] == PREVIEW_BLOCKED:
+            problems.append(f"{vid}: publication is authorized, so the preview is pending or generated, never blocked")
         if preview["status"] == PREVIEW_BLOCKED and preview.get("file"):
             problems.append(f"{vid}: a blocked voice must have no preview file")
+        if preview["status"] == PREVIEW_PENDING:
+            if preview.get("file") or preview.get("sha256"):
+                problems.append(f"{vid}: a pending voice must have no preview file")
+            if not preview.get("pending_reason"):
+                problems.append(f"{vid}: a pending preview must say exactly why it is not generated yet")
         if preview["status"] == PREVIEW_GENERATED:
-            if rights["status"] != RIGHTS_CONFIRMED:
-                problems.append(f"{vid}: a preview exists for a voice whose rights are not confirmed")
+            if rights["status"] not in AUTHORIZED:
+                problems.append(f"{vid}: a preview exists for a voice whose publication is not authorized")
             if not preview.get("file") or not preview.get("sha256"):
                 problems.append(f"{vid}: a generated preview must name its file and SHA-256")
     return problems
@@ -246,11 +321,13 @@ def check(data: dict | None = None, preview_dir: Path = PREVIEW_DIR) -> list[str
         problems.append("the manifest does not list exactly the registry's voices in registry order (run sync)")
     if data.get("sample_text") != SAMPLE_TEXT:
         problems.append("the manifest's sample text differs from the tool's")
+    if data.get("schema") != SCHEMA:
+        problems.append(f"the manifest is schema {data.get('schema')!r}, not {SCHEMA} (run sync to migrate it)")
     wanted_files = set()
     for record in data.get("voices", []):
         vid, preview = record["voice_id"], record["preview"]
-        if preview["status"] == PREVIEW_BLOCKED and (preview_dir / f"{vid}.wav").exists():
-            problems.append(f"{vid}: a blocked voice must have no preview file")
+        if preview["status"] in (PREVIEW_BLOCKED, PREVIEW_PENDING) and (preview_dir / f"{vid}.wav").exists():
+            problems.append(f"{vid}: a {preview['status']} voice must have no preview file")
         if preview["status"] == PREVIEW_GENERATED:
             path = preview_dir / (preview.get("file") or "")
             wanted_files.add(path.name)
@@ -271,8 +348,8 @@ def check(data: dict | None = None, preview_dir: Path = PREVIEW_DIR) -> list[str
 
 
 def is_available(record: dict) -> bool:
-    """A preview counts as available only when its rights are confirmed AND a generated file is recorded for it."""
-    return (record["rights"]["status"] == RIGHTS_CONFIRMED and record["preview"]["status"] == PREVIEW_GENERATED
+    """A preview counts as available only when publication is authorized AND a generated file is recorded for it."""
+    return (record["rights"]["status"] in AUTHORIZED and record["preview"]["status"] == PREVIEW_GENERATED
             and bool(record["preview"].get("file")))
 
 
@@ -280,7 +357,7 @@ def counts(data: dict) -> dict:
     """Available / pending / blocked, derived from rights and preview together so a status can never over-claim."""
     voices = data["voices"]
     generated = sum(is_available(v) for v in voices)
-    pending = sum(v["rights"]["status"] == RIGHTS_CONFIRMED and v["preview"]["status"] == PREVIEW_PENDING for v in voices)
+    pending = sum(v["rights"]["status"] in AUTHORIZED and v["preview"]["status"] == PREVIEW_PENDING for v in voices)
     return {"total": len(voices), "generated": generated, "pending": pending, "blocked": len(voices) - generated - pending}
 
 
@@ -290,35 +367,55 @@ def render_readme(data: dict) -> str:
         raise PreviewError("the manifest is inconsistent, so no README is written: " + "; ".join(problems[:3]))
     c = counts(data)
     complete = c["generated"] == c["total"]
+    decision = data["owner_decision"]
     lines = [
         "# Voice previews", "",
         "Short (about 10 second) samples of the voices in the Audiobook Creation Tool, all reading the same sentence so "
         "they can be compared.", "",
         f"> **{c['generated']} of {c['total']} previews are available.** "
-        + ("" if complete else f"The other {c['total'] - c['generated']} are **blocked**, not forgotten: a preview is "
-           "only made for a voice whose output rights and source permissions are confirmed (see the table). "
+        + ("" if complete else f"The other {c['total'] - c['generated']} are **pending generation**"
+           + (f" and {c['blocked']} are **withdrawn**" if c["blocked"] else "")
+           + ": publication is authorized, but the audio cannot be made yet (see \"Pending previews\"). "
            "This folder is not a complete set until every row is available."), "",
         f"The sentence: *{data['sample_text']}*", "",
-        "| Voice | Engine | Preview | Rights |", "|---|---|---|---|"]
+        "| Voice | Engine | Preview | Publication |", "|---|---|---|---|"]
+    publication = {RIGHTS_CONFIRMED: "license reviewed", RIGHTS_OWNER: "owner-authorized", RIGHTS_UNRESOLVED: "not authorized"}
     for v in data["voices"]:
         preview = v["preview"]
         link = f"[{preview['file']}]({preview['file']})" if is_available(v) else \
-            ("pending" if preview["status"] == PREVIEW_PENDING else "blocked")
-        rights = "confirmed" if v["rights"]["status"] == RIGHTS_CONFIRMED else "unresolved"
-        lines.append(f"| {v['label']} | {v['backend']} | {link} | {rights} |")
+            ("pending generation" if preview["status"] == PREVIEW_PENDING else "withdrawn")
+        lines.append(f"| {v['label']} | {v['backend']} | {link} | {publication[v['rights']['status']]} |")
     lines += [
-        "", "## Why some previews are blocked", "",
-        "- **Edge voices** come from Microsoft's online service; its terms govern redistributing the audio and have not "
-        "been confirmed.",
-        "- **Chatterbox and Qwen3 cloned voices** are synthetic voices made from bundled reference recordings of other "
-        "people. Redistribution rights to those recordings, and so to audio cloned from them, have not been audited.",
-        "- **Kokoro and Qwen3 preset voices** are generated by local models whose license is Apache-2.0 (evidence recorded "
-        "per voice in `previews.json`).", "",
+        "", "## Publication decision", "",
+        f"On {decision['date']} the owner decided: {decision['decision']} This supersedes the earlier restriction: "
+        f"{decision['supersedes']}", "",
+        f"- **Scope:** {decision['scope']} Not covered: {', '.join(decision['not_covered'])}.",
+        f"- **What this is:** {decision['verification']}",
+        "- **Kokoro and the two Qwen3 preset voices** are generated by local models whose license is Apache-2.0 (the "
+        "evidence is recorded per voice in `previews.json`).",
+        *(f"- **Separate gate:** {gate}" for gate in decision["separate_gates"]), ""]
+    pending = [v for v in data["voices"] if v["preview"]["status"] == PREVIEW_PENDING and v["rights"]["status"] in AUTHORIZED]
+    if pending:
+        lines += ["## Pending previews", ""]
+        lines += [f"- **{v['label']}**: {v['preview']['pending_reason']}" for v in pending]
+        clones = [v["voice_id"] for v in pending if v["backend"] == "qwen3"]
+        if clones:
+            lines += [
+                "", "To finish the pending Qwen3 clones: listen to each reference recording, correct its draft transcript so "
+                "it matches exactly what is spoken, set that entry's `approved` to `true` (with the recording's `wav_sha256`), "
+                "and keep the file at `files/runtime-data/qwen3/transcripts.json` (untracked; or point "
+                "`ACT_QWEN3_TRANSCRIPTS` at it). Then run "
+                f"`python files/dev-tools/voice_previews.py generate {' '.join(clones)}` and commit the new files. "
+                "The transcript itself is never committed.", ""]
+        else:
+            lines.append("")
+    lines += [
         "## How they are made", "",
         "Each preview is produced by the app's own engine for that voice (not a separate path), with leading and trailing "
         f"silence trimmed to {EDGE_SILENCE_MS} ms, saved as 24 kHz mono 16-bit WAV, and checked for length "
-        f"({MIN_SECONDS:.0f}-{MAX_SECONDS:.0f} s), clipping and silence. `previews.json` records every voice's rights "
-        "status and basis, and each preview's SHA-256 and duration. Regenerate or validate with "
+        f"({MIN_SECONDS:.0f}-{MAX_SECONDS:.0f} s), clipping and silence. The Edge previews are a snapshot of Microsoft's "
+        "online service on the date recorded in `previews.json`. That file records every voice's publication basis, and "
+        "each preview's SHA-256, duration and date. Regenerate or validate with "
         "`python files/dev-tools/voice_previews.py generate | check | status`.", "",
         "These files live in the repository only. They are not part of the release archives, and no preview is rendered "
         "for the voices the maintainer excluded from the app.", ""]
@@ -342,9 +439,20 @@ def synthesize(entry, text_path: Path, out_wav: Path) -> None:
                                             end_silence_ms=0, chunk_pause_ms=0)
         finally:
             kokoro_synth._export_mp3 = original
-    elif entry.backend == "qwen3":
-        import shutil
+    elif entry.backend == "chatterbox":
+        from tts import chatterbox_synth
 
+        original = chatterbox_synth._export_mp3
+        chatterbox_synth._export_mp3 = lambda arr, rate, output, bitrate=None: sf.write(
+            output, np.asarray(arr, dtype="float32"), rate, subtype="PCM_16")
+        try:
+            chatterbox_synth.chatterbox_file_to_mp3(str(text_path), str(out_wav), entry.voice_id,
+                                                    end_silence_ms=0, chunk_pause_ms=0)
+        finally:
+            chatterbox_synth._export_mp3 = original
+    elif entry.backend == "edge":
+        _synthesize_edge(entry, text_path, out_wav)
+    elif entry.backend == "qwen3":
         from tts import qwen3_synth
 
         def wav_encoder(wav, mp3, bitrate, *, work_dir, cancel_check=None):
@@ -354,6 +462,46 @@ def synthesize(entry, text_path: Path, out_wav: Path) -> None:
                                       chunk_pause_ms=0, encoder=wav_encoder)
     else:
         raise PreviewError(f"{entry.voice_id}: no preview path exists for backend {entry.backend!r}")
+
+
+def _synthesize_edge(entry, text_path: Path, out_wav: Path) -> None:
+    """The Edge folder route's own request for this voice: its chunker, its ``synthesize_chunk_mp3`` and the voice's rate.
+
+    Nothing is re-encoded to MP3: the service's MP3 is decoded straight to a WAV. There is no retry, fallback voice or
+    other engine here -- a refusal or outage is reported (in ``edge_failures`` wording) and the voice stays pending.
+    """
+    from tts import batch_convert, edge_failures
+
+    text = text_path.read_text(encoding="utf-8")
+    chunks = batch_convert.split_into_chunks(text)
+    if len(chunks) != 1:
+        raise PreviewError(f"{entry.voice_id}: the sample text must be a single Edge chunk (found {len(chunks)})")
+    mp3 = out_wav.with_suffix(".mp3")
+    try:
+        batch_convert.synthesize_chunk_mp3(chunks[0], str(mp3), entry.voice_id, entry.timing_preset["rate"])
+    except Exception as exc:  # noqa: BLE001
+        final = edge_failures.final_error(exc, 1)
+        if final is exc:
+            raise
+        raise final from exc
+    audio, rate = sf.read(str(mp3), dtype="float32")
+    sf.write(str(out_wav), audio, rate, subtype="PCM_16")
+
+
+def unavailable_reason(entry) -> str | None:
+    """Why this machine cannot make this voice right now, or ``None``. Uses the app's own availability answer."""
+    sys.path.insert(0, str(SCRIPTS))
+    if entry.backend == "chatterbox":
+        from tts import chatterbox_synth
+
+        ok, reason = chatterbox_synth.voice_availability(entry.voice_id)
+    elif entry.backend == "qwen3":
+        from tts import qwen3_runtime
+
+        ok, reason = qwen3_runtime.voice_availability(entry.voice_id)
+    else:
+        return None
+    return None if ok else reason
 
 
 class RollbackError(PreviewError):
@@ -440,10 +588,14 @@ def generate(voice_ids: list[str] | None = None, log=print) -> dict:
             vid = record["voice_id"]
             if voice_ids and vid not in voice_ids:
                 continue
-            if record["rights"]["status"] != RIGHTS_CONFIRMED:
-                log(f"BLOCKED  {vid}: rights not confirmed; no preview is made")
+            if record["rights"]["status"] not in AUTHORIZED:
+                log(f"BLOCKED  {vid}: publication is not authorized; no preview is made")
                 continue
             if is_available(record) and not voice_ids:
+                continue
+            reason = unavailable_reason(registry[vid])  # the app's own answer: a missing model, reference or transcript
+            if reason:
+                log(f"PENDING  {vid}: {reason}" + ("; the existing preview is kept" if is_available(record) else ""))
                 continue
             target = PREVIEW_DIR / f"{vid}.wav"
             candidate = scratch / f"{vid}.candidate.wav"
@@ -512,10 +664,11 @@ def main(argv: list[str]) -> int:
                 print("PROBLEM:", problem)
             return 3
         c = counts(data)
-        print(f"{c['generated']} of {c['total']} previews available; {c['blocked']} blocked, {c['pending']} pending.")
+        print(f"{c['generated']} of {c['total']} previews available; {c['pending']} pending generation, {c['blocked']} withdrawn.")
         for v in data["voices"]:
             if not is_available(v):
-                print(f"  {v['preview']['status']:8} {v['voice_id']:24} {v['rights']['status']}")
+                print(f"  {v['preview']['status']:8} {v['voice_id']:24} {v['rights']['status']}: "
+                      f"{v['preview'].get('pending_reason') or 'publication not authorized'}")
         return 0 if c["generated"] == c["total"] else 2
     except PreviewError as exc:
         print("ERROR:", exc)

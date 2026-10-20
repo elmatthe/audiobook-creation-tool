@@ -17,6 +17,12 @@
 | Q7 | **Approved.** About 1.4-1.9x real time is acceptable for the first integration. | The UI discloses speed as machine-dependent and promises no fixed performance. Progress, cancellation and error recovery are meaningful. |
 | Q8 | **Conditionally approved.** | The generator, documentation, metadata and validation for the permanent 10-second previews are prepared. A preview is generated or published only for a voice whose output rights and source permissions are confirmed. A per-voice rights/status manifest is kept. Edge and cloned-voice previews stay unpublished while rights are unresolved, and the 28-preview deliverable is never declared complete while any preview is blocked. |
 
+> **Update, 2026-10-20 (owner decision, supersedes the preview parts of Q5 and Q8).** The owner authorized publishing short generated preview audio for all 28 registered
+> voices, including the Edge, Chatterbox and Qwen3 clone previews that Q5/Q8 had kept unpublished. This covers generated preview audio only: the verified transcripts and the
+> original reference recordings are still **not** committed (Q5 stands for those), a clone preview still needs an owner-approved, reference-bound transcript to be generated, and
+> Qwen3 production-clone qualification (S5) is unchanged. It is a publication decision, not a verified third-party license finding. See `Decisions.md` (2026-10-20) and
+> `files/voice-previews/README.md`. The Q8 text above and the section 7 matrix are kept as the historical record.
+
 **Build decisions taken under these rulings** (recorded in `Decisions.md`):
 
 - Install and repair happen **in the app only**, through one "Install / repair Qwen3 voices" dialog that serves first-time and existing users. `bootstrap.py` is not changed, which removes the D8 bootstrap slice and its risk. The every-launch fast path never touches Qwen3.
@@ -118,6 +124,8 @@ Same 24 kHz mono PCM, same single MP3 encode and bitrate option, same timing-pre
 - The evaluation proved quality only for the English passage used; other languages are untested.
 
 ## 7. Preview redistribution matrix (for `files/voice-previews/`; nothing is published yet)
+
+> *Historical matrix (2026-10-19). The "Unconfirmed" rows are superseded for preview audio by the owner's 2026-10-20 publication decision; see the update note in section 0.*
 
 | Voices | Provenance | Rights status |
 |---|---|---|

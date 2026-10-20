@@ -1,9 +1,11 @@
-"""v0.6.7 CP6 (owner ruling Q8) — the permanent 10-second voice previews, their rights record, and the tool that guards both.
+"""v0.6.7 CP6 — the permanent 10-second voice previews, their publication record, and the tool that guards both.
 
-The ruling: previews stay in scope, but a preview is generated or published only for a voice whose output rights and source
-permissions are confirmed; Edge and cloned-voice previews stay unpublished while rights are unresolved; a per-voice
-rights/status manifest is kept; and the 28-preview deliverable is never declared complete while any preview is blocked.
-These tests pin each of those, and prove the audio that is committed is valid (the tool's own validator, re-run here).
+Owner ruling Q8 (2026-10-19) made a preview publishable only for a voice whose rights were confirmed. The owner's decision
+of 2026-10-20 supersedes that for preview audio: short generated previews of all 28 registered voices are authorized. It is a
+publication decision, not a third-party legal finding, and it covers generated audio only. These tests pin what remains
+true: every authorized voice is generated or *pending with an exact reason* (never silently blocked or faked), a withdrawn
+voice is still never generated, a Qwen3 clone is only made from its approved transcript, the 28-preview deliverable is
+never declared complete while any preview is missing, and the audio that is committed is valid and distinct per voice.
 """
 
 from __future__ import annotations
@@ -57,36 +59,79 @@ def test_the_manifest_lists_exactly_the_28_roster_voices_in_registry_order():
     assert not any(any(name in voice_id for name in excluded) for voice_id in ids)  # rejected presets never appear
 
 
-def test_rights_gate_every_preview_and_the_recorded_basis_is_never_empty():
+EDGE_IDS = ["en-US-SteffanNeural", "en-US-AndrewNeural", "en-US-AriaNeural", "en-US-AvaNeural", "en-US-JennyNeural"]
+CHATTERBOX_IDS = [f"chatterbox-{g}-{n}" for g, n in (("female", 1), ("female", 2), ("male", 1), ("male", 2), ("male", 3),
+                                                      ("male", 4))]
+CLONE_IDS = [f"qwen3-{g}-{n}" for g, n in (("female", 1), ("female", 2), ("male", 1), ("male", 2), ("male", 3), ("male", 4))]
+KOKORO_IDS = ["af_heart", "af_bella", "am_michael", "am_fenrir", "am_puck", "am_onyx", "bf_emma", "bm_george", "bm_daniel"]
+PRESET_IDS = ["qwen3-aiden", "qwen3-ryan"]
+
+
+def record_of(voice_id, data=None):
+    return next(v for v in (data or manifest())["voices"] if v["voice_id"] == voice_id)
+
+
+def test_every_voice_is_authorized_and_each_record_is_internally_consistent():
+    assert vp.manifest_problems(manifest()) == []
     for record in manifest()["voices"]:
         rights, preview = record["rights"], record["preview"]
-        assert rights["basis"] and rights["status"] in (vp.RIGHTS_CONFIRMED, vp.RIGHTS_UNRESOLVED), record["voice_id"]
+        assert rights["basis"] and rights["status"] in vp.AUTHORIZED, record["voice_id"]  # nothing is blocked any more
+        assert preview["status"] in (vp.PREVIEW_GENERATED, vp.PREVIEW_PENDING), record["voice_id"]
         if preview["status"] == vp.PREVIEW_GENERATED:
-            assert rights["status"] == vp.RIGHTS_CONFIRMED and rights["evidence"], record["voice_id"]
-        if rights["status"] == vp.RIGHTS_UNRESOLVED:
-            assert preview["status"] == vp.PREVIEW_BLOCKED and preview["file"] is None, record["voice_id"]
+            assert preview["file"] and re.fullmatch(r"[0-9a-f]{64}", preview["sha256"]), record["voice_id"]
+        else:
+            assert preview["file"] is None and preview["pending_reason"], record["voice_id"]
+        if rights["status"] == vp.RIGHTS_CONFIRMED:
+            assert rights["evidence"], record["voice_id"]  # a license a reader can check
 
 
-def test_edge_chatterbox_and_all_cloned_voices_are_blocked_and_their_reasons_say_why():
-    by_backend: dict[str, list] = {}
+def test_the_owner_decision_is_recorded_as_a_publication_decision_not_a_legal_finding():
+    data = manifest()
+    decision = data["owner_decision"]
+    assert decision == vp.OWNER_DECISION and data["schema"] == vp.SCHEMA == 2
+    assert decision["date"] == "2026-10-20" and "28" in decision["decision"]
+    assert "supersedes" in decision and "2026-10-19" in decision["supersedes"]  # the old rule is history, not erased
+    assert "did not independently verify" in decision["verification"]  # no invented third-party legal opinion
+    assert any("reference recordings" in item for item in decision["not_covered"])
+    assert any("transcript" in item for item in decision["not_covered"])
+    owner = sorted(v["voice_id"] for v in data["voices"] if v["rights"]["status"] == vp.RIGHTS_OWNER)
+    assert owner == sorted(EDGE_IDS + CHATTERBOX_IDS + CLONE_IDS) == sorted(vp.OWNER_AUTHORIZED_VOICES)
+    for voice_id in owner:
+        basis = record_of(voice_id)["rights"]["basis"]
+        assert "owner" in basis and "makes no claim" in basis and "independently" in basis, voice_id
+        assert record_of(voice_id)["rights"]["authorized_on"] == "2026-10-20"
+    for voice_id in KOKORO_IDS + PRESET_IDS:
+        assert record_of(voice_id)["rights"]["status"] == vp.RIGHTS_CONFIRMED  # license evidence is untouched
+
+
+def test_edge_and_chatterbox_previews_are_generated_and_the_clones_are_pending_with_an_exact_reason():
+    for voice_id in EDGE_IDS + CHATTERBOX_IDS + KOKORO_IDS + PRESET_IDS:
+        record = record_of(voice_id)
+        assert record["preview"]["status"] == vp.PREVIEW_GENERATED, voice_id
+        assert (vp.PREVIEW_DIR / record["preview"]["file"]).is_file(), voice_id
     for record in manifest()["voices"]:
-        by_backend.setdefault(record["backend"], []).append(record)
-    for record in by_backend["edge"]:
-        assert record["preview"]["status"] == vp.PREVIEW_BLOCKED and "Microsoft" in record["rights"]["basis"]
-    for record in by_backend["chatterbox"]:
-        assert record["preview"]["status"] == vp.PREVIEW_BLOCKED and "reference recording" in record["rights"]["basis"]
-    clones = [r for r in by_backend["qwen3"] if r["voice_id"] not in ("qwen3-aiden", "qwen3-ryan")]
-    assert len(clones) == 6 and all(r["preview"]["status"] == vp.PREVIEW_BLOCKED for r in clones)
-    assert all("reference recording" in r["rights"]["basis"] for r in clones)
-    assert not any(p.stem.startswith(("en-US", "chatterbox", "qwen3-female", "qwen3-male"))
-                   for p in vp.PREVIEW_DIR.glob("*.wav"))  # not a single blocked voice has a file
+        if record["preview"]["status"] == vp.PREVIEW_PENDING:  # whatever is still missing must be a clone, and say why
+            assert record["voice_id"] in CLONE_IDS, record["voice_id"]
+            reason = record["preview"]["pending_reason"]
+            assert "transcript" in reason and "SHA-256" in reason and "not generated yet" in reason
+            assert not (vp.PREVIEW_DIR / f"{record['voice_id']}.wav").exists()  # and no stand-in file exists for it
 
 
-def test_the_available_set_is_the_nine_kokoro_voices_and_the_two_qwen3_presets():
-    available = sorted(v["voice_id"] for v in manifest()["voices"] if v["preview"]["status"] == vp.PREVIEW_GENERATED)
-    assert available == sorted(["af_heart", "af_bella", "am_michael", "am_fenrir", "am_puck", "am_onyx", "bf_emma",
-                                "bm_george", "bm_daniel", "qwen3-aiden", "qwen3-ryan"])
-    assert vp.counts(manifest()) == {"total": 28, "generated": 11, "pending": 0, "blocked": 17}
+def test_no_two_previews_are_the_same_recording_so_none_is_a_copy_under_another_name():
+    hashes = {}
+    for record in manifest()["voices"]:
+        if record["preview"]["status"] == vp.PREVIEW_GENERATED:
+            digest = vp.sha256_file(vp.PREVIEW_DIR / record["preview"]["file"])
+            assert digest == record["preview"]["sha256"]
+            assert hashes.setdefault(digest, record["voice_id"]) == record["voice_id"], (digest, record["voice_id"])
+            assert record["preview"]["file"] == f"{record['voice_id']}.wav"
+
+
+def test_the_counts_add_up_and_nothing_is_blocked():
+    c = vp.counts(manifest())
+    generated = [v for v in manifest()["voices"] if v["preview"]["status"] == vp.PREVIEW_GENERATED]
+    assert c == {"total": 28, "generated": len(generated), "pending": 28 - len(generated), "blocked": 0}
+    assert c["generated"] >= 22  # nine Kokoro, two Qwen3 presets, five Edge, six Chatterbox
 
 
 def test_the_confirmed_voices_carry_evidence_a_reader_can_check():
@@ -98,39 +143,75 @@ def test_the_confirmed_voices_carry_evidence_a_reader_can_check():
         assert "Apache-2.0" in record["rights"]["basis"] or "apache-2.0" in record["rights"]["basis"].lower()
 
 
-def confirm_everything(data):
-    """A manifest in which every voice has confirmed rights and a generated preview (what a finished set would be)."""
+def complete_set(data):
+    """A manifest in which every voice is authorized and has a generated preview (what a finished set would be)."""
     for record in data["voices"]:
-        record["rights"] = {"status": vp.RIGHTS_CONFIRMED, "basis": "test", "evidence": [{"url": "https://example.test"}]}
+        if record["rights"]["status"] == vp.RIGHTS_UNRESOLVED:
+            record["rights"] = {"status": vp.RIGHTS_CONFIRMED, "basis": "test", "evidence": [{"url": "https://example.test"}]}
         record["preview"] = {"status": vp.PREVIEW_GENERATED, "file": f"{record['voice_id']}.wav", "sha256": "0" * 64}
     return data
 
 
+def withdraw(record):
+    """What the owner withdrawing a voice looks like in the record."""
+    record["rights"] = {"status": vp.RIGHTS_UNRESOLVED, "basis": "owner withdrew this", "evidence": []}
+    record["preview"] = {"status": vp.PREVIEW_BLOCKED, "file": None}
+
+
 def test_the_readme_never_calls_an_incomplete_set_complete():
     text = vp.README.read_text("utf-8")
-    assert "**11 of 28 previews are available.**" in text and "not a complete set until every row is available" in text
+    c = vp.counts(manifest())
     assert text == vp.render_readme(manifest())
-    complete = vp.render_readme(confirm_everything(manifest()))  # only when every row has rights AND a preview
+    assert f"**{c['generated']} of 28 previews are available.**" in text
+    if c["generated"] < 28:
+        assert "not a complete set until every row is available" in text and "pending generation" in text
+        assert "Pending previews" in text and "transcript" in text
+    complete = vp.render_readme(complete_set(manifest()))  # only when every row has authorization AND a preview
     assert "**28 of 28 previews are available.**" in complete and "not a complete set" not in complete
+    assert "Pending previews" not in complete
 
 
-def test_a_preview_marked_generated_without_confirmed_rights_is_never_published_counted_or_claimed():
+def test_the_readme_states_the_owner_decision_its_scope_and_that_no_third_party_terms_were_verified():
+    text = vp.README.read_text("utf-8")
+    assert "## Publication decision" in text and "2026-10-20" in text and "supersedes" in text
+    assert "did not independently verify" in text and "makes no claim" in text
+    assert "Generated preview audio only." in text and "reference recordings" in text
+    assert "Separate gate" in text and "owner-approved transcript" in text
+    assert "blocked" not in text.lower()  # the old "17 blocked" story is gone
+
+
+def test_a_preview_for_a_withdrawn_voice_is_never_published_counted_or_claimed():
     data = manifest()
-    steffan = data["voices"][0]
-    assert steffan["rights"]["status"] == vp.RIGHTS_UNRESOLVED
+    steffan = record_of("en-US-SteffanNeural", data)
+    before = vp.counts(data)["generated"]
+    withdraw(steffan)
     steffan["preview"] = {"status": vp.PREVIEW_GENERATED, "file": "en-US-SteffanNeural.wav", "sha256": "0" * 64}
-    assert not vp.is_available(steffan) and vp.counts(data)["generated"] == 11  # never over-claims
+    assert not vp.is_available(steffan) and vp.counts(data)["generated"] == before - 1  # never over-claims
     with pytest.raises(vp.PreviewError, match="inconsistent"):
         vp.render_readme(data)
-    complete = confirm_everything(manifest())
-    complete["voices"][0]["rights"]["status"] = vp.RIGHTS_UNRESOLVED  # one withdrawn right out of 28
-    with pytest.raises(vp.PreviewError):
-        vp.render_readme(complete)
-    assert any("rights are not confirmed" in p for p in vp.manifest_problems(data))
+    complete = complete_set(manifest())
+    withdraw(complete["voices"][0])  # one withdrawn voice out of 28
+    assert vp.counts(complete)["generated"] == 27 and vp.counts(complete)["blocked"] == 1
+    assert any("not authorized" in p for p in vp.manifest_problems(data))
 
 
-def test_status_and_generate_refuse_a_manifest_that_contradicts_the_rights_rule(folder, capsys, monkeypatch):
+def test_the_old_blanket_block_is_gone_but_a_withdrawal_still_blocks():
     data = manifest()
+    assert vp.counts(data)["blocked"] == 0
+    withdraw(record_of("chatterbox-male-2", data))
+    assert vp.counts(data)["blocked"] == 1 and vp.manifest_problems(data) == []
+    assert "withdrawn" in vp.render_readme(data)
+    authorized_but_blocked = manifest()
+    authorized_but_blocked["voices"][0]["preview"] = {"status": vp.PREVIEW_BLOCKED, "file": None}
+    assert any("never blocked" in p for p in vp.manifest_problems(authorized_but_blocked))
+    no_reason = manifest()
+    record_of("qwen3-male-1", no_reason)["preview"] = {"status": vp.PREVIEW_PENDING, "file": None}
+    assert any("exactly why" in p for p in vp.manifest_problems(no_reason))
+
+
+def test_status_and_generate_refuse_a_manifest_that_contradicts_the_publication_rule(folder, capsys, monkeypatch):
+    data = manifest()
+    withdraw(data["voices"][0])
     data["voices"][0]["preview"] = {"status": vp.PREVIEW_GENERATED, "file": "x.wav", "sha256": "0" * 64}
     vp.MANIFEST.write_text(json.dumps(data), encoding="utf-8")
     assert vp.main(["status"]) == 3 and "PROBLEM" in capsys.readouterr().out
@@ -219,7 +300,7 @@ def test_a_failure_while_publishing_a_first_preview_removes_it_again(folder, mon
     (folder / "af_heart.wav").unlink()
     data = manifest()
     heart = next(v for v in data["voices"] if v["voice_id"] == "af_heart")
-    heart["preview"] = {"status": vp.PREVIEW_PENDING, "file": None}
+    heart["preview"] = {"status": vp.PREVIEW_PENDING, "file": None, "pending_reason": vp.GENERIC_PENDING}
     vp.MANIFEST.write_text(json.dumps(data), encoding="utf-8")
     vp.write_readme(data)
     before = folder_state(folder)
@@ -245,7 +326,9 @@ def test_the_folder_holds_only_audio_the_manifest_lists_plus_its_two_documents_a
     names = sorted(p.name for p in vp.PREVIEW_DIR.iterdir())
     listed = sorted(v["preview"]["file"] for v in manifest()["voices"] if v["preview"]["file"])
     assert names == sorted(listed + ["previews.json", "README.md"])
-    assert sum(p.stat().st_size for p in vp.PREVIEW_DIR.iterdir()) < 6 * 10**6  # about 4.7 MB: a public repo is not a media store
+    sizes = [p.stat().st_size for p in vp.PREVIEW_DIR.iterdir()]
+    assert max(sizes) < 10**6  # a ten-second 24 kHz mono clip is about 0.5 MB; far below any hosting limit
+    assert sum(sizes) < 16 * 10**6  # about 13.5 MB for all 28: a public repo is not a media store
 
 
 def test_no_private_path_or_account_name_is_in_the_published_record():
@@ -314,19 +397,81 @@ def test_trimming_keeps_a_short_margin_and_never_touches_the_speech():
 # --------------------------------------------------------------------------- #
 # The tool refuses what the rights record forbids, and the checker catches every inconsistency
 # --------------------------------------------------------------------------- #
-def test_generate_refuses_a_voice_whose_rights_are_not_confirmed(folder, monkeypatch):
+def test_generate_refuses_a_voice_the_owner_has_withdrawn(folder, monkeypatch):
     def forbidden(entry, text_path, out_wav):
-        pytest.fail(f"an engine was run for {entry.voice_id}, whose rights are unresolved")
+        pytest.fail(f"an engine was run for {entry.voice_id}, whose publication is withdrawn")
 
+    data = manifest()
+    for voice_id in ("en-US-SteffanNeural", "chatterbox-female-1", "qwen3-male-1"):
+        withdraw(record_of(voice_id, data))
+    (folder / "en-US-SteffanNeural.wav").unlink(missing_ok=True)
+    (folder / "chatterbox-female-1.wav").unlink(missing_ok=True)
+    vp.MANIFEST.write_text(json.dumps(data), encoding="utf-8")
     monkeypatch.setattr(vp, "synthesize", forbidden)
     logs = []
-    before = manifest()
-    data = vp.generate(["en-US-SteffanNeural", "chatterbox-female-1", "qwen3-male-1"], log=logs.append)
+    before = vp.counts(manifest())
+    result = vp.generate(["en-US-SteffanNeural", "chatterbox-female-1", "qwen3-male-1"], log=logs.append)
     assert [l for l in logs if l.startswith("BLOCKED")] == [
-        "BLOCKED  en-US-SteffanNeural: rights not confirmed; no preview is made",
-        "BLOCKED  chatterbox-female-1: rights not confirmed; no preview is made",
-        "BLOCKED  qwen3-male-1: rights not confirmed; no preview is made"]
-    assert vp.counts(data) == vp.counts(before) and not (folder / "en-US-SteffanNeural.wav").exists()
+        "BLOCKED  en-US-SteffanNeural: publication is not authorized; no preview is made",
+        "BLOCKED  chatterbox-female-1: publication is not authorized; no preview is made",
+        "BLOCKED  qwen3-male-1: publication is not authorized; no preview is made"]
+    assert vp.counts(result) == before and not (folder / "en-US-SteffanNeural.wav").exists()
+
+
+def test_an_authorized_voice_the_machine_cannot_make_stays_pending_with_the_apps_own_reason(folder, monkeypatch):
+    """No transcript, model or reference: reported, never faked, never counted as a failure, nothing written."""
+    monkeypatch.setattr(vp, "synthesize", lambda *a: pytest.fail("an engine ran for a voice that is unavailable"))
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: f"{entry.voice_id} needs its approved transcript")
+    before = folder_state(folder)
+    logs = []
+    data = vp.generate(["qwen3-female-1", "qwen3-male-4"], log=logs.append)
+    assert logs == ["PENDING  qwen3-female-1: qwen3-female-1 needs its approved transcript",
+                    "PENDING  qwen3-male-4: qwen3-male-4 needs its approved transcript"]
+    assert data["_failures"] == [] and folder_state(folder) == before
+    assert not (folder / "qwen3-female-1.wav").exists() and not (folder / ".scratch").exists()
+    assert record_of("qwen3-female-1", data)["preview"]["status"] == vp.PREVIEW_PENDING
+
+
+def test_an_unavailable_voice_that_already_has_a_good_preview_keeps_it(folder, monkeypatch):
+    monkeypatch.setattr(vp, "synthesize", lambda *a: pytest.fail("an engine ran for a voice that is unavailable"))
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: "the model is not installed here")
+    before = folder_state(folder)
+    logs = []
+    vp.generate(["chatterbox-male-1"], log=logs.append)
+    assert logs == ["PENDING  chatterbox-male-1: the model is not installed here; the existing preview is kept"]
+    assert folder_state(folder) == before
+
+
+def test_unavailable_reason_asks_the_apps_own_availability_and_never_substitutes(monkeypatch):
+    from tts import chatterbox_synth, qwen3_runtime, voice_registry
+
+    by_id = {e.voice_id: e for e in voice_registry.VOICES}
+    asked = []
+    monkeypatch.setattr(qwen3_runtime, "voice_availability", lambda vid: (asked.append(("qwen3", vid)), (False, "no transcript"))[1])
+    monkeypatch.setattr(chatterbox_synth, "voice_availability", lambda vid: (asked.append(("cbx", vid)), (True, "ok"))[1])
+    assert vp.unavailable_reason(by_id["qwen3-male-2"]) == "no transcript"
+    assert vp.unavailable_reason(by_id["chatterbox-male-3"]) is None
+    assert vp.unavailable_reason(by_id["en-US-AriaNeural"]) is None and vp.unavailable_reason(by_id["af_heart"]) is None
+    assert asked == [("qwen3", "qwen3-male-2"), ("cbx", "chatterbox-male-3")]  # each asks only its own engine, for its own voice
+
+
+def test_a_clone_preview_cannot_be_made_without_an_approved_reference_bound_transcript(tmp_path):
+    """The real availability rule the generator relies on: an unapproved or unbound draft is not a transcript."""
+    from tts import qwen3_runtime as rt
+
+    voice = rt.get_voice("qwen3-female-1")
+    path = tmp_path / "transcripts.json"
+
+    def load(entry):
+        path.write_text(json.dumps({voice.reference_name: entry}), encoding="utf-8")
+        return rt.load_transcript("qwen3-female-1", paths=[path])
+
+    draft = {"text": "draft words", "approved": False, "wav_sha256": voice.reference_sha256}
+    assert not load(draft).ok and "not been approved" in load(draft).reason
+    assert not load({**draft, "approved": True, "wav_sha256": "0" * 64}).ok  # approved, but for a different recording
+    assert not load({**draft, "approved": "true"}).ok  # only the literal true counts
+    assert load({**draft, "approved": True}).ok  # the owner's approval, bound to this exact recording
+    assert not rt.load_transcript("qwen3-female-1", paths=[tmp_path / "missing.json"]).ok
 
 
 def test_a_voice_that_fails_is_reported_and_does_not_lose_the_others(folder, monkeypatch):
@@ -356,6 +501,13 @@ def test_a_take_that_fails_validation_never_replaces_the_published_file(folder, 
     assert vp.check({k: v for k, v in data.items() if k != "_failures"}, folder) == []
 
 
+def manifest_problems_of(mutate):
+    """The manifest-only judgement (no files involved) of the committed manifest after one mutation."""
+    data = manifest()
+    mutate(data)
+    return vp.manifest_problems(data)
+
+
 def test_the_checker_catches_each_kind_of_inconsistency(folder):
     base = manifest()
 
@@ -366,10 +518,22 @@ def test_the_checker_catches_each_kind_of_inconsistency(folder):
 
     assert any("registry" in p for p in problems(lambda d: d["voices"].pop()))
     assert any("registry" in p for p in problems(lambda d: d["voices"].reverse()))
-    assert any("not a preview for a voice" in p or "rights are not confirmed" in p for p in problems(
-        lambda d: d["voices"][0]["preview"].update(status="generated", file="en-US-SteffanNeural.wav")))
+    assert any("publication is not authorized" in p for p in problems(
+        lambda d: (withdraw(d["voices"][0]),
+                   d["voices"][0]["preview"].update(status="generated", file="en-US-SteffanNeural.wav", sha256="0" * 64))))
     assert any("unresolved but the preview" in p for p in problems(
-        lambda d: d["voices"][0]["preview"].update(status="pending")))
+        lambda d: (withdraw(d["voices"][0]), d["voices"][0]["preview"].update(status="pending"))))
+    assert any("must name its file and SHA-256" in p or "preview file is missing" in p for p in problems(
+        lambda d: record_of("qwen3-female-1", d)["preview"].update(status="generated", file="qwen3-female-1.wav")))
+    assert any("not named" in p or "does not name this voice" in p for p in problems(
+        lambda d: record_of("af_heart", d)["rights"].update(status=vp.RIGHTS_OWNER, authorized_on="2026-10-20",
+                                                            authorized_by="owner")))
+    assert any("date and who gave it" in p for p in problems(
+        lambda d: record_of("en-US-AriaNeural", d)["rights"].update(authorized_on="2020-01-01")))
+    assert any("pending voice must have no preview file" in p for p in manifest_problems_of(
+        lambda d: record_of("qwen3-male-2", d)["preview"].update(file="qwen3-male-2.wav", sha256="0" * 64)))
+    assert any("schema 1" in p for p in problems(lambda d: d.update(schema=1)))
+    assert any("owner's publication decision" in p for p in problems(lambda d: d.update(owner_decision={})))
     assert any("no evidence" in p for p in problems(lambda d: d["voices"][5]["rights"].update(evidence=[])))
     assert any("no recorded basis" in p for p in problems(lambda d: d["voices"][5]["rights"].update(basis="")))
     assert any("does not match its recorded SHA-256" in p for p in problems(
@@ -379,12 +543,14 @@ def test_the_checker_catches_each_kind_of_inconsistency(folder):
     assert any("af_heart" in p and ("SHA-256" in p or "unreadable" in p) for p in vp.check(base, folder))
 
 
-def test_the_checker_flags_stray_audio_a_blocked_voices_file_and_a_stale_readme(folder):
+def test_the_checker_flags_stray_audio_a_pending_voices_file_and_a_stale_readme(folder):
+    pending = next(v["voice_id"] for v in manifest()["voices"] if v["preview"]["status"] == vp.PREVIEW_PENDING)
     shutil.copy(folder / "af_heart.wav", folder / "extra-take.wav")
-    shutil.copy(folder / "af_heart.wav", folder / "en-US-SteffanNeural.wav")
+    shutil.copy(folder / "af_heart.wav", folder / f"{pending}.wav")  # a stand-in under a pending voice's name
     (folder / "README.md").write_text("old", encoding="utf-8")
     found = " | ".join(vp.check(None, folder))
-    assert "extra-take.wav" in found and "en-US-SteffanNeural" in found and "README.md is out of date" in found
+    assert "extra-take.wav" in found and f"{pending}: a pending voice must have no preview file" in found
+    assert "README.md is out of date" in found
 
 
 def test_the_checker_flags_a_missing_preview_file(folder):
@@ -402,13 +568,51 @@ def test_sync_adds_a_new_registry_voice_as_blocked_or_pending_never_as_available
     data = vp.sync(manifest())
     new = data["voices"][-1]
     assert new["voice_id"] == "qwen3-new-one" and new["preview"]["status"] == vp.PREVIEW_BLOCKED
-    assert new["rights"]["status"] == vp.RIGHTS_UNRESOLVED  # a new voice is blocked until someone confirms its rights
+    # the owner's decision names the 28 registered voices; a voice added later is blocked until someone decides about it
+    assert new["rights"]["status"] == vp.RIGHTS_UNRESOLVED
 
 
-def test_status_reports_how_many_are_blocked_and_exits_nonzero_while_any_are(capsys):
-    assert vp.main(["status"]) == 2
+def old_schema_manifest():
+    """The committed manifest as the 2026-10-19 rule left it: 17 voices unresolved and blocked, schema 1."""
+    data = manifest()
+    data["schema"] = 1
+    data.pop("owner_decision")
+    for voice_id in EDGE_IDS + CHATTERBOX_IDS + CLONE_IDS:
+        record = record_of(voice_id, data)
+        record["rights"] = {"status": vp.RIGHTS_UNRESOLVED, "basis": "old blanket block", "evidence": []}
+        record["preview"] = {"status": vp.PREVIEW_BLOCKED, "file": None}
+    return data
+
+
+def test_sync_migrates_the_old_blanket_block_once_into_authorized_and_pending():
+    old = old_schema_manifest()
+    assert vp.counts(old)["blocked"] == 17
+    migrated = vp.sync(old)
+    assert migrated["schema"] == 2 and migrated["owner_decision"] == vp.OWNER_DECISION
+    assert vp.counts(migrated) == {"total": 28, "generated": 11, "pending": 17, "blocked": 0}
+    for voice_id in EDGE_IDS + CHATTERBOX_IDS + CLONE_IDS:
+        record = record_of(voice_id, migrated)
+        assert record["rights"]["status"] == vp.RIGHTS_OWNER and record["preview"]["status"] == vp.PREVIEW_PENDING
+        assert record["preview"]["pending_reason"] and record["preview"]["file"] is None
+    assert vp.manifest_problems(migrated) == []
+
+
+def test_after_the_migration_an_unresolved_voice_means_withdrawn_and_a_sync_keeps_it_withdrawn():
+    data = manifest()
+    withdraw(record_of("en-US-AndrewNeural", data))
+    synced = vp.sync(data)  # schema 2 already: this is the owner's withdrawal, not the old block
+    assert record_of("en-US-AndrewNeural", synced)["rights"]["status"] == vp.RIGHTS_UNRESOLVED
+    assert record_of("en-US-AndrewNeural", synced)["preview"]["status"] == vp.PREVIEW_BLOCKED
+
+
+def test_status_reports_what_is_missing_and_why_and_exits_nonzero_until_all_28_exist(capsys):
+    c = vp.counts(manifest())
+    expected = 0 if c["generated"] == 28 else 2
+    assert vp.main(["status"]) == expected
     out = capsys.readouterr().out
-    assert "11 of 28 previews available; 17 blocked, 0 pending." in out
+    assert f"{c['generated']} of 28 previews available; {c['pending']} pending generation, 0 withdrawn." in out
+    if c["pending"]:
+        assert "transcript" in out and "qwen3-female-1" in out
 
 
 def test_a_failed_publish_gives_back_the_record_and_a_readme_that_was_already_rewritten(folder, monkeypatch):
@@ -511,3 +715,141 @@ def test_ordinary_leftovers_in_the_scratch_folder_are_cleaned_up_by_the_next_run
     monkeypatch.setattr(vp, "synthesize", succeed)
     vp.generate(["af_heart"], log=lambda m: None)
     assert not scratch.exists()
+
+
+# --------------------------------------------------------------------------- #
+# Edge and Chatterbox previews go through the production routes, with no substitution
+# --------------------------------------------------------------------------- #
+class FakeCommunicate:
+    """Replaces ``edge_tts.Communicate`` (the one network boundary). Arguments are bound against the real signature."""
+
+    outcome = None  # an exception to raise from save(), or None to write a valid mono 24 kHz clip
+    calls: list = []
+
+    def __init__(self, *args, **kwargs):
+        import inspect
+
+        import edge_tts
+
+        inspect.signature(edge_tts.Communicate.__init__).bind(None, *args, **kwargs)  # a call the real class would reject fails
+        type(self).calls.append((args, kwargs))
+
+    async def save(self, path, *_):
+        if type(self).outcome is not None:
+            raise type(self).outcome
+        write_content_as(path, seconds=10.5, amplitude=0.1)
+
+
+def write_content_as(path, **kwargs):
+    """Audio content under the ".mp3" name the service's file would have; libsndfile reads by content, not by name."""
+    wav = write_wav(Path(path).with_suffix(".tmp.wav"), **kwargs)
+    Path(path).unlink(missing_ok=True)
+    wav.rename(path)
+
+
+@pytest.fixture()
+def fake_edge(monkeypatch):
+    import tts.batch_convert as bc
+
+    FakeCommunicate.outcome, FakeCommunicate.calls = None, []
+    monkeypatch.setattr(bc.edge_tts, "Communicate", FakeCommunicate)
+    return FakeCommunicate
+
+
+def handshake_error(status):
+    import aiohttp
+    from multidict import CIMultiDict, CIMultiDictProxy
+    from yarl import URL
+
+    url = URL("wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=SECRET")
+    info = aiohttp.RequestInfo(url=url, method="GET", headers=CIMultiDictProxy(CIMultiDict()), real_url=url)
+    return aiohttp.WSServerHandshakeError(info, (), status=status, message="Invalid response status")
+
+
+@pytest.mark.parametrize("voice_id", EDGE_IDS)
+def test_an_edge_preview_is_the_folder_routes_own_request_for_exactly_that_voice(fake_edge, tmp_path, voice_id):
+    from tts import voice_registry
+
+    entry = next(e for e in voice_registry.VOICES if e.voice_id == voice_id)
+    text_path = tmp_path / "sample.txt"
+    text_path.write_text(vp.SAMPLE_TEXT, encoding="utf-8")
+    vp.synthesize(entry, text_path, tmp_path / "out.wav")
+    assert fake_edge.calls == [((), {"text": vp.SAMPLE_TEXT, "voice": voice_id, "rate": entry.timing_preset["rate"]})]
+    assert vp.audio_problems(tmp_path / "out.wav") == []
+    assert sf.info(str(tmp_path / "out.wav")).subtype == "PCM_16"
+
+
+def test_an_edge_refusal_leaves_the_voice_pending_with_advice_and_substitutes_nothing(folder, fake_edge, monkeypatch):
+    from tts import chatterbox_synth, kokoro_synth, qwen3_synth
+
+    for module, name in ((kokoro_synth, "kokoro_file_to_mp3"), (chatterbox_synth, "chatterbox_file_to_mp3"),
+                         (qwen3_synth, "qwen3_file_to_mp3")):
+        monkeypatch.setattr(module, name, lambda *a, **k: pytest.fail("another engine was used in place of Edge"))
+    data = manifest()
+    record = record_of("en-US-AriaNeural", data)
+    (folder / "en-US-AriaNeural.wav").unlink()
+    record["preview"] = {"status": vp.PREVIEW_PENDING, "file": None, "pending_reason": vp.GENERIC_PENDING}
+    vp.MANIFEST.write_text(json.dumps(data), encoding="utf-8")
+    fake_edge.outcome = handshake_error(403)
+    logs = []
+    result = vp.generate(["en-US-AriaNeural"], log=logs.append)
+    assert len(fake_edge.calls) == 1  # a refusal is final: one request, no retry storm, no second voice
+    assert any(l.startswith("FAILED   en-US-AriaNeural") and "refused the connection" in l for l in logs)
+    assert not any("SECRET" in l for l in logs)  # the handshake token never reaches the log
+    assert not (folder / "en-US-AriaNeural.wav").exists()
+    assert record_of("en-US-AriaNeural", result)["preview"]["status"] == vp.PREVIEW_PENDING and result["_failures"]
+
+
+def test_an_edge_clip_that_comes_back_stereo_or_wrong_is_rejected_not_published(folder, fake_edge, monkeypatch):
+    monkeypatch.setattr(FakeCommunicate, "save", lambda self, path, *_: _write_stereo(path))
+    before = folder_state(folder)
+    result = vp.generate(["en-US-SteffanNeural"], log=lambda m: None)
+    assert result["_failures"] and folder_state(folder) == before  # the previous good preview is untouched
+
+
+async def _write_stereo(path):
+    write_content_as(path, seconds=10.5, channels=2)
+
+
+def test_a_chatterbox_preview_runs_the_production_entry_with_zero_pauses_and_writes_a_pcm16_wav(tmp_path, monkeypatch):
+    from tts import chatterbox_synth, voice_registry
+
+    entry = next(e for e in voice_registry.VOICES if e.voice_id == "chatterbox-male-3")
+    original = chatterbox_synth._export_mp3
+    seen = {}
+
+    def fake_entry(source, output, voice_id, **kwargs):
+        seen.update(source=Path(source).read_text("utf-8"), voice_id=voice_id, kwargs=kwargs)
+        chatterbox_synth._export_mp3(np.full(24000 * 10, 0.1, dtype="float32"), 24000, output)
+
+    monkeypatch.setattr(chatterbox_synth, "chatterbox_file_to_mp3", fake_entry)
+    text_path = tmp_path / "sample.txt"
+    text_path.write_text(vp.SAMPLE_TEXT, encoding="utf-8")
+    vp.synthesize(entry, text_path, tmp_path / "out.wav")
+    assert seen == {"source": vp.SAMPLE_TEXT, "voice_id": "chatterbox-male-3",
+                    "kwargs": {"end_silence_ms": 0, "chunk_pause_ms": 0}}  # the registered voice, the shared text, no pauses
+    assert sf.info(str(tmp_path / "out.wav")).subtype == "PCM_16" and sf.info(str(tmp_path / "out.wav")).samplerate == 24000
+    assert chatterbox_synth._export_mp3 is original  # the production encoder is put back
+
+
+def test_the_chatterbox_encoder_swap_is_undone_even_when_the_engine_fails(tmp_path, monkeypatch):
+    from tts import chatterbox_synth, voice_registry
+
+    entry = next(e for e in voice_registry.VOICES if e.voice_id == "chatterbox-female-1")
+    original = chatterbox_synth._export_mp3
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("the model fell over")
+
+    monkeypatch.setattr(chatterbox_synth, "chatterbox_file_to_mp3", explode)
+    text_path = tmp_path / "sample.txt"
+    text_path.write_text(vp.SAMPLE_TEXT, encoding="utf-8")
+    with pytest.raises(RuntimeError, match="fell over"):
+        vp.synthesize(entry, text_path, tmp_path / "out.wav")
+    assert chatterbox_synth._export_mp3 is original  # a failed take must not leave the app's encoder replaced
+
+
+def test_a_backend_with_no_preview_path_is_refused_not_guessed(tmp_path):
+    entry = type("Entry", (), {"backend": "mystery", "voice_id": "x"})()
+    with pytest.raises(vp.PreviewError, match="no preview path"):
+        vp.synthesize(entry, tmp_path / "s.txt", tmp_path / "o.wav")
