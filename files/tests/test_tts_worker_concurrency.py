@@ -545,7 +545,7 @@ def test_runner_never_lets_two_conversions_be_inside_read_book_at_once(
     counting_lock = _AcquireCountingLock()
     monkeypatch.setattr(runner, "_CWD_ISOLATION_LOCK", counting_lock)
 
-    def fake_get_book(work_txt):
+    def fake_get_book(work_txt, speech_prep=None):
         return (
             [{"title": "blank", "paragraphs": ["One sentence."]}],
             "Book", "Author", ["blank"],
@@ -616,7 +616,7 @@ def test_a_conversion_cancelled_while_waiting_for_the_lock_does_not_proceed(
     release = threading.Event()
     get_book_calls: list[str] = []
 
-    def fake_get_book(work_txt):
+    def fake_get_book(work_txt, speech_prep=None):
         # Both conversions share this patched function -- t1's own
         # (legitimate) call also lands here, so calls are tracked by which
         # source they came from rather than with a single shared flag.

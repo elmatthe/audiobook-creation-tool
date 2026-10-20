@@ -1,0 +1,800 @@
+{
+ "gate": "G1",
+ "date": "2026-10-20",
+ "decided_by": "owner",
+ "note": "Owner listening verdicts for Plan 01B A4 (listen-ordered/ comparison numbers). A/B are listening slots, decoded through key/ordered-mapping.json: 'prefers' is the preparation the chosen slot held. Same = no audible difference; by Plan 01B 7.2 and the convergence decision (D6) a Same cell expands when its mechanical checks pass (all did).",
+ "counts": {
+  "A": 11,
+  "B": 18,
+  "Same": 31,
+  "Neither": 0
+ },
+ "verdicts": [
+  {
+   "number": 1,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "CARD",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 2,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "CUR",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 3,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "DATE",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 4,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "DEC",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 5,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "FRAC",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 6,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "ORD",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 7,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "PCT",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 8,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "RANGE",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 9,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "RATIO",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pacing",
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 10,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "ROMAN",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 11,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "SYM",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 12,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "TIME",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pacing",
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 13,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "TITLE",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation",
+    "pacing"
+   ]
+  },
+  {
+   "number": 14,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "UNIT",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 15,
+   "engine": "chatterbox",
+   "route": "chatterbox",
+   "class": "YEAR",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 16,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "CARD",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 17,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "CUR",
+   "verdict": "B",
+   "prefers": "native",
+   "mode": "native",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 18,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "DATE",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 19,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "DEC",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 20,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "FRAC",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 21,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "ORD",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 22,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "PCT",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 23,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "RANGE",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 24,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "RATIO",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 25,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "ROMAN",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 26,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "SYM",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 27,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "TIME",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 28,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "TITLE",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation",
+    "pacing"
+   ]
+  },
+  {
+   "number": 29,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "UNIT",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 30,
+   "engine": "kokoro",
+   "route": "kokoro",
+   "class": "YEAR",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 31,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "CARD",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 32,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "CUR",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 33,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "DATE",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 34,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "DEC",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 35,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "FRAC",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 36,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "ORD",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 37,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "PCT",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 38,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "RANGE",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 39,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "RATIO",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 40,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "ROMAN",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 41,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "SYM",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 42,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "TIME",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 43,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "TITLE",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation",
+    "pacing"
+   ]
+  },
+  {
+   "number": 44,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "UNIT",
+   "verdict": "B",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 45,
+   "engine": "qwen3",
+   "route": "qwen3",
+   "class": "YEAR",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 46,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "CARD",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 47,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "CUR",
+   "verdict": "B",
+   "prefers": "native",
+   "mode": "native",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 48,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "DATE",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 49,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "DEC",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 50,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "FRAC",
+   "verdict": "B",
+   "prefers": "native",
+   "mode": "native",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 51,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "ORD",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 52,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "PCT",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 53,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "RANGE",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 54,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "RATIO",
+   "verdict": "A",
+   "prefers": "expand",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 55,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "ROMAN",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 56,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "SYM",
+   "verdict": "A",
+   "prefers": "native",
+   "mode": "native",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 57,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "TIME",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation"
+   ]
+  },
+  {
+   "number": 58,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "TITLE",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "pronunciation",
+    "pacing"
+   ]
+  },
+  {
+   "number": 59,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "UNIT",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  },
+  {
+   "number": 60,
+   "engine": "edge",
+   "route": "edge_direct",
+   "class": "YEAR",
+   "verdict": "Same",
+   "prefers": "same",
+   "mode": "expand",
+   "mechanical_pass": true,
+   "affects_previously_approved": [
+    "none"
+   ]
+  }
+ ]
+}

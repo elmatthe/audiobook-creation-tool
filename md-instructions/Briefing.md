@@ -423,6 +423,9 @@ flashing during use.
   are absolute (`tts.*`, `mp3_tools.*`, `shared.*`); entry scripts prepend the import root to
   Source-text structure (decode, `Title:`/`Author:`/`#`) is read by Kokoro, Chatterbox and Qwen3 through `tts/speech/document.py` (v0.6.7 A1);
   per-engine differences are `StructureOptions`.
+  Speech preparation (v0.6.7 A2-A5, `tts/speech/`): one shared, deterministic English normalizer runs on the decoded text before every route's structure
+  stage; per-engine cells in `tts/speech/data/modes.json` come from the owner's G1 verdicts (four native exceptions); `[tts] speech_prep` (default `v1`, `off`
+  restores the old text); a run freezes its snapshot by value, Retry Failed re-uses it.
   `sys.path` so they work standalone or via the launcher. The `epub2tts_edge/` subpackage is
   only ever imported as `tts.epub2tts_edge`.
 - **Data flow (TTS):** GUI → `tts/epub2tts_edge/runner.run_conversion_job` (cwd-safe temp-dir

@@ -4,6 +4,35 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Plan 01B gate G1 verdicts and checkpoint A5: the production mode table
+
+**Owner verdicts (G1, approved).** 60 comparisons in `files/dev-work/speech-ab/a4/listen-ordered/`: 11 A, 18 B, 31 Same, 0 Neither, decoded through the private
+key (A/B are listening slots, never preparation sides). Tracked record: `files/tests/golden/speech/g1-verdicts.json`. Decoded: 25 preferences for the expanded
+reading, 4 for the engine's own reading, 31 Same.
+
+**Decision.**
+- *Rule.* A cell expands unless the owner preferred the native reading. A Same verdict expands (Plan 01B 7.2, convergence decision D6): all 60 pairs passed every
+  mechanical and integrity check, so no Same cell was held back as mechanically unsafe. HYG (mechanical-only, never a listening class) expands everywhere.
+- *Exceptions (native), each an explicit owner preference, each re-tested at the next RULESET_VERSION change and at S5:*
+  - edge CUR (comparison 047, verdict B = native): Microsoft's server-side reading of currency was preferred.
+  - edge FRAC (comparison 050, verdict B = native): the service reads `1/2 cup` well natively; preferred.
+  - edge SYM (comparison 056, verdict A = native): native `&` / `x` reading preferred.
+  - kokoro CUR (comparison 017, verdict B = native): misaki's own currency handling (it knows the `$` symbol) was preferred.
+  Edge direct and Edge folder share the `edge` row (same service, same glossary scope); both routes are tested separately against it.
+- *Default.* `[tts] speech_prep` defaults to `v1`; `off` restores the pre-A5 text exactly (the A0 baselines still characterize that path, unchanged).
+- *Qwen3 revision.* `PIPELINE_REVISION` stays 1: it describes the planner/seed/generation/assembly code, which A0 proves unchanged, and the immutable A0 golden records it.
+  A run with speech preparation on reports `SPEECH_PREP_PIPELINE_REVISION = 2` (`qwen3_synth.pipeline_revision`, logged in Details), because its text -- and so its
+  chunks, seeds and audio -- can differ. This reconciles "bump the revision when audio can change" with "never edit the A0 goldens"; flagged for the owner.
+- *Chatterbox colon shim stays* (structural-colon `punc_norm` patch, 75 ms prose-colon pause) until A6 decides.
+- *A4 listening copies* in `listen-ordered/` were trimmed of terminal silence (evaluation hygiene only; production timing untouched).
+- *Edge hardening deferred (owner, verbatim):* "ACT v0.6.7 will retain pinned edge-tts 7.3.1. A dedicated Edge reliability and recovery enhancement is deferred to
+  final release hardening. It will consider service-failure detection, explicit recovery/repair, safe verified dependency updates, and preservation of user work. No
+  automatic unverified upgrades or silent voice substitutions."
+
+-- Decided by the owner (G1 verdicts, deferral); implemented by Claude Code
+
+---
+
 ## 2026-10-20 - edge-tts pinned to 7.3.1; the A4 ordered listening export
 
 **Decision.**

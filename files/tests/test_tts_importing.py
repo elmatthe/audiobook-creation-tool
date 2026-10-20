@@ -1176,7 +1176,7 @@ class _Stubs:
 
         def convert_single_pdf(path, output_dir, speaker, rate, log=print,
                                progress_report=None, cancel_check=None, out_mp3=None,
-                               bitrate=None):
+                               bitrate=None, speech_prep=None):
             self.batch_items.append({
                 "source": path, "output_dir": output_dir, "speaker": speaker,
                 "rate": rate, "out_mp3": out_mp3, "bitrate": bitrate})

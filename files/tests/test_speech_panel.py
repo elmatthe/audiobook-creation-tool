@@ -24,6 +24,10 @@ def v1_config():
     return dataclasses.replace(make_config(), tts=shared_config.TtsConfig(speech_prep="v1"))
 
 
+def off_config():
+    return dataclasses.replace(make_config(), tts=shared_config.TtsConfig(speech_prep="off"))
+
+
 def write_glossary(directory, spoken: str) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "glossary.user.json").write_text(json.dumps(
@@ -40,7 +44,7 @@ def user_dir(tmp_path, monkeypatch):
 def test_an_off_run_hands_no_snapshot_to_the_engine_and_says_nothing(
     make_panel, output_base, tmp_path, failing_stubs, user_dir, monkeypatch
 ):
-    panel, _ = direct_panel(make_panel, tmp_path, "good.txt")
+    panel, _ = direct_panel(make_panel, tmp_path, "good.txt", effective_config=off_config())
     params = run_attempt(panel)
     details = panel.log.details
     assert params["snapshot"].tool_options["speech_prep"] is pipeline.OFF

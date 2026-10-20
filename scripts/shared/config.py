@@ -123,9 +123,10 @@ DEFAULT_PLATFORMS: tuple[str, ...] = ("Windows", "MacOS")
 DEFAULT_MAX_SESSIONS = 30
 DEFAULT_LARGE_RESULT_WARNING_THRESHOLD = 1000
 
-#: Developer setting for the speech-preparation pipeline (Plan 01B 4.7). ``off`` until reviewed cells are enabled.
+#: Developer setting for the speech-preparation pipeline (Plan 01B 4.7). ``v1`` since checkpoint A5: only the cells the
+#: owner's G1 verdicts approved expand (``tts/speech/data/modes.json``); ``off`` restores the pre-A5 text exactly.
 #: The values mirror ``tts.speech.pipeline.SETTINGS`` (shared never imports tts; a test pins them equal).
-DEFAULT_SPEECH_PREP = "off"
+DEFAULT_SPEECH_PREP = "v1"
 SPEECH_PREP_VALUES: tuple[str, ...] = ("off", "v1")
 
 MAX_SESSIONS_RANGE = (1, 1000)

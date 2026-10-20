@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — Speech preparation is on: numbers, money, dates, times and titles are read as written (v0.6.7 Plan 01B checkpoint A5, 2026-10-20)
+
+- Text is now prepared for every voice before it is spoken: `$12.50` becomes "twelve dollars fifty cents", `1/2 cup` "one half cup", `pages 12-15` "pages twelve
+  to fifteen", `Mr.` "Mister", `Chapter IV` "Chapter four", and so on. Only the classes the owner approved by ear (gate G1, 60 comparisons) are prepared; four are
+  left to the voice's own reading because the owner preferred it: Edge currency, fractions and symbols, and Kokoro currency. Anything ambiguous (`1999 was`, `John 3:16`,
+  `24/7`) is still read exactly as written, as are web addresses, file paths and `Title:`/`Author:` lines. Text without numbers or abbreviations is unchanged.
+- `[tts] speech_prep = "off"` in `config.toml` restores the previous behaviour exactly.
+
 ### Fixed — Edge voices failed with HTTP 403 (edge-tts 7.2.8 -> 7.3.1, 2026-10-20)
 
 - Every Edge voice had stopped working: Microsoft's read-aloud service began refusing the pinned `edge-tts` 7.2.8 at the connection handshake (HTTP 403;

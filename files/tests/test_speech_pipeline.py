@@ -45,6 +45,22 @@ def _document(rng: random.Random) -> str:
 DOCUMENTS = [_document(random.Random(seed)) for seed in range(250)] + CORPUS_INPUTS
 
 
+#: The A3 rollout baseline: every cell native. The bundled table is the owner's G1 matrix since A5
+#: (test_speech_g1.py); these tests keep proving the A3 contract on the baseline they were written for.
+ALL_NATIVE = {"version": 1, "modes": {e: {c: "native" for c in classes.RULE_CLASSES} for e in ENGINE_IDS}}
+
+
+@pytest.fixture(autouse=True)
+def _native_table(tmp_path_factory):
+    global NATIVE_TABLE
+    NATIVE_TABLE = tmp_path_factory.mktemp("rollout") / "modes.json"
+    NATIVE_TABLE.write_text(json.dumps(ALL_NATIVE), encoding="utf-8")
+
+
+def rollout_snapshot(**kwargs) -> SpeechPrepSnapshot:
+    return build_snapshot(SETTING_V1, mode_table=NATIVE_TABLE, **kwargs)
+
+
 def write_user(directory: Path, glossary=None, modes=None) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     if glossary is not None:
@@ -74,8 +90,8 @@ def test_five_routes_four_engines_and_no_rules_in_profiles():
     assert "re.compile" not in source and "finditer" not in source, "profiles select classes; rules live in classes.py"
 
 
-def test_the_bundled_mode_table_is_all_native_during_rollout():
-    table = profiles.load_mode_table()
+def test_the_rollout_baseline_table_is_valid_and_all_native():
+    table = profiles.load_mode_table(NATIVE_TABLE)
     assert set(table) == set(ENGINE_IDS)
     assert all(row == {c: "native" for c in classes.RULE_CLASSES} for row in table.values())
 
@@ -98,7 +114,7 @@ def test_user_mode_overrides_validate_per_engine():
     assert cells == (("kokoro", "CARD", "expand"), ("kokoro", "YEAR", "glossary_only"))
     assert len(notes) == 3
     assert profiles.parse_user_modes([])[0] == () and "ignored" in profiles.parse_user_modes([])[1][0]
-    effective = dict(((e, c), m) for e, c, m in profiles.effective_cells(profiles.load_mode_table(), cells))
+    effective = dict(((e, c), m) for e, c, m in profiles.effective_cells(profiles.load_mode_table(NATIVE_TABLE), cells))
     assert effective[("kokoro", "CARD")] == "expand" and effective[("edge", "CARD")] == "native"
     assert len(effective) == len(ENGINE_IDS) * len(classes.RULE_CLASSES)
 
@@ -113,17 +129,17 @@ def test_off_reads_nothing_and_unknown_settings_fall_back_to_off(tmp_path):
 
 
 def test_v1_reads_validates_and_reports_but_never_raises(tmp_path):
-    clean = build_snapshot(SETTING_V1, user_dir=tmp_path / "absent")
+    clean = rollout_snapshot(user_dir=tmp_path / "absent")
     assert clean.enabled and clean.notes == () and clean.glossary == () and clean.user_overrides == ()
     assert len(clean.cells) == 64 and len(clean.exceptions()) == 64
-    broken = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "b", glossary="{broken", modes="[1, 2]"))
+    broken = rollout_snapshot(user_dir=write_user(tmp_path / "b", glossary="{broken", modes="[1, 2]"))
     assert broken.enabled and broken.glossary == () and len(broken.notes) == 2
     unreadable_table = build_snapshot(SETTING_V1, user_dir=None, mode_table=tmp_path / "missing.json")
     assert not unreadable_table.enabled and "mode table could not be read" in unreadable_table.notes[0]
 
 
 def test_the_snapshot_is_deeply_immutable_and_passes_the_run_freeze(tmp_path):
-    snapshot = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", glossary=tamar(),
+    snapshot = rollout_snapshot(user_dir=write_user(tmp_path / "u", glossary=tamar(),
                                                               modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}}))
     with pytest.raises(dataclasses.FrozenInstanceError):
         snapshot.setting = "off"
@@ -136,18 +152,18 @@ def test_the_snapshot_is_deeply_immutable_and_passes_the_run_freeze(tmp_path):
 
 
 def test_speech_prep_version_is_stable_and_moves_with_every_input(tmp_path):
-    first = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "a", glossary=tamar()))
-    again = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "b", glossary=tamar()))
+    first = rollout_snapshot(user_dir=write_user(tmp_path / "a", glossary=tamar()))
+    again = rollout_snapshot(user_dir=write_user(tmp_path / "b", glossary=tamar()))
     assert first.speech_prep_version == again.speech_prep_version and len(first.speech_prep_version) == 64
-    other_glossary = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "c", glossary=tamar("tah mar")))
-    other_modes = build_snapshot(SETTING_V1, user_dir=write_user(
+    other_glossary = rollout_snapshot(user_dir=write_user(tmp_path / "c", glossary=tamar("tah mar")))
+    other_modes = rollout_snapshot(user_dir=write_user(
         tmp_path / "d", glossary=tamar(), modes={"version": 1, "modes": {"edge": {"CARD": "expand"}}}))
     assert len({first.speech_prep_version, other_glossary.speech_prep_version, other_modes.speech_prep_version}) == 3
 
 
 def test_edits_after_run_start_never_reach_the_run_and_a_new_run_reads_them(tmp_path):
     user = write_user(tmp_path / "u", glossary=tamar())
-    run = build_snapshot(SETTING_V1, user_dir=user)          # run start: taken by value
+    run = rollout_snapshot(user_dir=user)          # run start: taken by value
     text = "Tamar spoke."
     assert prepare(text, run, "kokoro").text == "tay mar spoke."
     write_user(user, glossary=tamar("tah mar"))               # edited mid-run
@@ -156,7 +172,7 @@ def test_edits_after_run_start_never_reach_the_run_and_a_new_run_reads_them(tmp_
     write_user(user, modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}})
     assert prepare(text, run, "kokoro").text == "tay mar spoke.", "a retry re-uses the original snapshot"
     assert prepare("It has 5 parts.", run, "kokoro").text == "It has 5 parts."
-    fresh = build_snapshot(SETTING_V1, user_dir=user)         # a NEW run reads the files again
+    fresh = rollout_snapshot(user_dir=user)         # a NEW run reads the files again
     assert prepare(text, fresh, "kokoro").text == text and "ignored" in fresh.notes[-1]
     assert prepare("It has 5 parts.", fresh, "kokoro").text == "It has five parts."
 
@@ -165,7 +181,7 @@ def test_edits_after_run_start_never_reach_the_run_and_a_new_run_reads_them(tmp_
 
 @pytest.mark.parametrize("route", profiles.ROUTES)
 def test_off_and_v1_native_are_identical_to_the_structure_stage_alone(route, tmp_path):
-    native = build_snapshot(SETTING_V1, user_dir=tmp_path / "none")
+    native = rollout_snapshot(user_dir=tmp_path / "none")
     options = profiles.PROFILES[route].structure
     for text in DOCUMENTS:
         expected = text if options is None else parse_structure(text, options).text
@@ -177,7 +193,7 @@ def test_off_and_v1_native_are_identical_to_the_structure_stage_alone(route, tmp
 def test_v1_applies_only_cells_set_to_expand_and_engine_scope(tmp_path):
     user = write_user(tmp_path / "u", glossary=[{"id": "t", "written": "Tamar", "spoken": "tay mar", "engines": ["qwen3"]}],
                       modes={"version": 1, "modes": {"chatterbox": {"CUR": "expand"}}})
-    run = build_snapshot(SETTING_V1, user_dir=user)
+    run = rollout_snapshot(user_dir=user)
     text = "Tamar paid $5 in 1999."
     assert prepare(text, run, "chatterbox").text == "Tamar paid five dollars in 1999."
     assert prepare(text, run, "qwen3").text == "tay mar paid $5 in 1999."
@@ -187,13 +203,13 @@ def test_v1_applies_only_cells_set_to_expand_and_engine_scope(tmp_path):
 
 def test_kokoro_alone_receives_phoneme_markup(tmp_path):
     entry = [{"id": "a", "written": "Ascended", "spoken": "uh sended", "phonemes": "ɐsˈɛndᵻd"}]
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", glossary=entry))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", glossary=entry))
     assert prepare("Ascended.", run, "kokoro").text == "[Ascended](/ɐsˈɛndᵻd/)."
     assert prepare("Ascended.", run, "chatterbox").text == "uh sended."
 
 
 def test_an_integrity_failure_falls_back_to_the_unchanged_text_with_a_note(tmp_path, monkeypatch):
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}}))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}}))
 
     def broken(*args, **kwargs):
         raise IntegrityError("I2: simulated")
@@ -204,7 +220,7 @@ def test_an_integrity_failure_falls_back_to_the_unchanged_text_with_a_note(tmp_p
 
 
 def test_a_spoken_form_with_the_engines_prosodic_punctuation_is_refused(tmp_path, monkeypatch):
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}}))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}}))
     strict = dataclasses.replace(profiles.PROFILES["kokoro"], avoid_punctuation="v")  # "five" contains a v
     monkeypatch.setitem(profiles.PROFILES, "kokoro", strict)
     prepared = prepare("It has 5 parts.", run, "kokoro")
@@ -213,7 +229,7 @@ def test_a_spoken_form_with_the_engines_prosodic_punctuation_is_refused(tmp_path
 
 def test_details_are_silent_when_off_and_informative_when_on(tmp_path):
     assert prepare("It has 5 parts.", None, "kokoro").details() == []
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}}))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes={"version": 1, "modes": {"kokoro": {"CARD": "expand"}}}))
     lines = prepare("It has 5 parts; 1999 was odd.", run, "kokoro").details()
     assert lines[0] == "Speech preparation: 1 edit, 1 ambiguous left unchanged"
 
@@ -236,7 +252,7 @@ def test_structure_segments_mirror_parse_structure_exactly(options):
 
 
 def test_qwen3_chunk_source_spans_map_every_chunk_back_to_its_source(tmp_path):
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
     checked = 0
     for text in DOCUMENTS:
         prepared = prepare(text, run, "qwen3")
@@ -256,7 +272,7 @@ def test_qwen3_chunk_source_spans_map_every_chunk_back_to_its_source(tmp_path):
 
 def test_the_source_map_resolves_offsets_inside_joining_newlines(tmp_path):
     """Structured text ``Chapter five`` + ``\\n\\n\\n`` + ``Mister Smith.``: the gaps belong to no source character."""
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
     source = "Title: T\n# Chapter 5\n\nMr. Smith.\n"
     prepared = prepare(source, run, "qwen3")
     assert prepared.text == "Chapter five\n\n\nMister Smith."
@@ -271,7 +287,7 @@ def test_the_source_map_resolves_offsets_inside_joining_newlines(tmp_path):
 
 
 def test_unchanged_documents_keep_identical_qwen3_chunks_and_seeds(tmp_path):
-    native = build_snapshot(SETTING_V1, user_dir=tmp_path / "none")
+    native = rollout_snapshot(user_dir=tmp_path / "none")
     for text in DOCUMENTS:
         before = qs.prepare_text(text)
         if not before:
@@ -296,7 +312,7 @@ def characterization():
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_a0_goldens_are_unchanged_with_v1_and_every_cell_native(characterization, monkeypatch, tmp_path):
     """Every route's real entry point now runs the full v1 path (normalize, modes, structure) and still matches A0."""
-    native = build_snapshot(SETTING_V1, user_dir=tmp_path / "none")
+    native = rollout_snapshot(user_dir=tmp_path / "none")
     assert native.enabled and not native.notes
     monkeypatch.setattr(pipeline, "OFF", native)  # what the routes fall back to when handed no snapshot
     assert characterization.check_all() == []
@@ -305,7 +321,7 @@ def test_a0_goldens_are_unchanged_with_v1_and_every_cell_native(characterization
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_mutation_a0_detects_v1_with_cells_expanded(characterization, monkeypatch, tmp_path):
     """The previous test can fail: with every cell expanded, the routes' text changes and A0 says so."""
-    expanded = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
+    expanded = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
     monkeypatch.setattr(pipeline, "OFF", expanded)
     problems = characterization.check_all()
     assert {p.split(":")[0] for p in problems} >= {"edge_direct", "edge_folder", "kokoro", "chatterbox"}
@@ -313,7 +329,7 @@ def test_mutation_a0_detects_v1_with_cells_expanded(characterization, monkeypatc
 
 # --------------------------------------------------------------------------- configuration and the panel
 
-def test_the_configuration_key_is_validated_and_defaults_to_off(tmp_path):
+def test_the_configuration_key_is_validated_and_defaults_to_v1_since_a5(tmp_path):
     assert shared_config.SPEECH_PREP_VALUES == pipeline.SETTINGS
     root = tmp_path / "repo"
     (root / "scripts").mkdir(parents=True)
@@ -324,10 +340,13 @@ def test_the_configuration_key_is_validated_and_defaults_to_off(tmp_path):
         path.write_text(toml, encoding="utf-8")
         return shared_config.load(config_path=path, settings_data={}, repo_root=root, home=tmp_path)
 
-    assert load("").tts.speech_prep == "off"
+    assert load("").tts.speech_prep == "v1"  # A5: on by default, through the G1-approved cells only
+    assert load('[tts]\nspeech_prep = "off"\n').tts.speech_prep == "off"
     assert load('[tts]\nspeech_prep = "V1"\n').tts.speech_prep == "v1"
     bad = load('[tts]\nspeech_prep = "on"\n')
-    assert bad.tts.speech_prep == "off" and any(d.key == "tts.speech_prep" for d in bad.diagnostics)
+    # An unknown value falls back to the default (with a diagnostic), exactly like every other configuration key.
+    assert bad.tts.speech_prep == shared_config.DEFAULT_SPEECH_PREP == "v1"
+    assert any(d.key == "tts.speech_prep" for d in bad.diagnostics)
 
 
 def test_the_panel_freezes_the_snapshot_and_hands_it_on_only_when_on(tmp_path):
@@ -336,7 +355,7 @@ def test_the_panel_freezes_the_snapshot_and_hands_it_on_only_when_on(tmp_path):
     base = dict(speaker="s", backend="kokoro", voice_id="v", rate="+0%", resume=False, overwrite=False, bitrate="128k",
                 workers=1, kokoro_speed=1.0, end_pause=1, paragraph_pause=1, pause_kw={})
     assert gui.freeze_tts_options(**base)["speech_prep"] is OFF
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", glossary="{bad"))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", glossary="{bad"))
     options = job_control.freeze_options(gui.freeze_tts_options(**base, speech_prep=run))
     assert options["speech_prep"] is run
     assert gui.speech_prep_kwargs({"speech_prep": OFF}) == {} and gui.speech_prep_kwargs({}) == {}
@@ -363,7 +382,7 @@ def test_local_engine_helpers_pass_the_snapshot_only_when_on(helper, engine_name
     source = tmp_path / "a.txt"
     source.write_text("x", encoding="utf-8")
     item = {"item_id": "1", "source": source, "destination": tmp_path / "out" / "a.mp3"}
-    run = build_snapshot(SETTING_V1, user_dir=tmp_path / "none")
+    run = rollout_snapshot(user_dir=tmp_path / "none")
     for snapshot in (OFF, run):
         params = {"voice_id": "v", "kokoro_speed": 1.0, "end_pause": 1, "paragraph_pause": 1, "bitrate": "128k",
                   "speech_prep": snapshot}
@@ -376,7 +395,7 @@ def test_edge_direct_get_book_prepares_the_body_and_keeps_its_metadata(tmp_path)
 
     path = tmp_path / "b.txt"
     path.write_text("Title: Book 5\nAuthor: Agent 99\n\n# Chapter 5\n\nIt cost $5.\n", encoding="utf-8")
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
     contents, title, author, chapters = edge.get_book(str(path), run)
     assert (title, author, chapters) == ("Book 5", "Agent 99", ["Chapter five"])
     assert contents[0]["paragraphs"] == ["It cost five dollars."]
@@ -395,7 +414,7 @@ def test_the_edge_runner_hands_the_snapshot_to_get_book_only_when_given(tmp_path
     monkeypatch.setattr(runner, "get_book", fake_get_book)
     source = tmp_path / "a.txt"
     source.write_text("x", encoding="utf-8")
-    run = build_snapshot(SETTING_V1, user_dir=tmp_path / "none")
+    run = rollout_snapshot(user_dir=tmp_path / "none")
     for snapshot in (None, run):
         kwargs = {} if snapshot is None else {"speech_prep": snapshot}
         with pytest.raises(ValueError, match="No text content"):
@@ -411,7 +430,7 @@ def test_edge_folder_prepares_the_text_handed_to_its_splitter(tmp_path, monkeypa
     monkeypatch.setattr(bc, "merge_mp3s", lambda paths, output, bitrate=None: None)
     source = tmp_path / "a.txt"
     source.write_text("Title: Book 5\nIt cost $5.\n", encoding="utf-8")
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
     logged: list[str] = []
     status = bc.convert_single_pdf(source, tmp_path / "o", "voice", "+0%", log=logged.append,
                                    out_mp3=tmp_path / "o" / "a.mp3", speech_prep=run)
@@ -434,7 +453,7 @@ def test_the_qwen3_entry_point_plans_the_prepared_text_and_proves_its_spans(tmp_
     monkeypatch.setattr(qs.rt, "inference_lease", contextlib.nullcontext)
     source = tmp_path / "a.txt"
     source.write_text("# Chapter 5\n\nMr. Smith paid $5.\n", encoding="utf-8")
-    run = build_snapshot(SETTING_V1, user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
+    run = rollout_snapshot(user_dir=write_user(tmp_path / "u", modes=ALL_EXPAND))
     for snapshot in (None, run):
         with pytest.raises(RuntimeError, match="stop before"):
             qs.qwen3_file_to_mp3(str(source), str(tmp_path / "o.mp3"), "qwen3-aiden", log=lambda m: None,

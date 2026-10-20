@@ -2,6 +2,15 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: A5 done (speech preparation on); STOPPED at owner gate G2 (2026-10-20, HOME-PC)
+
+G1 approved by the owner (60 verdicts: 11 A / 18 B / 31 Same; record `files/tests/golden/speech/g1-verdicts.json`). A5 applied it: every cell expands except
+edge CUR / FRAC / SYM and kokoro CUR (owner preferred native); `[tts] speech_prep` defaults to `v1`; Qwen3 runs with it on report pipeline revision 2.
+A4 listening copies trimmed of terminal silence (Edge 3.13 s, Kokoro ~1.45 s, Chatterbox ~1.17 s, Qwen3 ~1.02 s removed; originals untouched).
+**Waiting for the owner:** G2 listening of the ~3-minute mixed passages in `files/dev-work/speech-ab/g2/` (see its `REVIEW-SHEET.md`). A6 (Chatterbox colon) only after G2.
+**Open for final hardening / pre-merge:** the deferred Edge reliability and recovery enhancement (Decisions 2026-10-20; no automatic unverified upgrades or silent voice
+substitutions); the deferred Codex review of A1-A5; S5.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: Edge repaired, A4 corpus complete (120 clips); STOPPED at owner gate G1 (2026-10-20, HOME-PC)
 
 **Waiting for the owner's listening verdicts.** Review `files/dev-work/speech-ab/a4/listen-ordered/` with its `REVIEW-SHEET.md`: 60 comparisons (001-015 Chatterbox,

@@ -60,7 +60,17 @@ from tts.speech.profiles import QWEN3 as QWEN3_ROUTE
 QWEN3_MAX_CHUNK_CHARS = 600
 
 #: Bump deliberately whenever a change can alter generated audio (planning, seeding, generation calls, assembly).
+#: This is the revision of the pipeline itself with speech preparation off -- unchanged by Plan 01B, as the A0
+#: characterization proves. A run with speech preparation on is revision :data:`SPEECH_PREP_PIPELINE_REVISION`.
 PIPELINE_REVISION = 1
+#: Plan 01B A5: speech preparation v1 changes the text Qwen3 is given (and so its chunks, seeds and audio) wherever an
+#: approved cell edits it.
+SPEECH_PREP_PIPELINE_REVISION = 2
+
+
+def pipeline_revision(speech_prep=None) -> int:
+    """The revision that produced a run's audio: 2 when its speech-preparation snapshot is on, otherwise 1."""
+    return SPEECH_PREP_PIPELINE_REVISION if speech_prep is not None and speech_prep.enabled else PIPELINE_REVISION
 SEED_BASE = 20261019
 
 LANGUAGE = "English"  # the only language the evaluation proved
@@ -725,6 +735,8 @@ def qwen3_file_to_mp3(
         prepared = prepare(read_source_text(src), speech_prep, QWEN3_ROUTE)
         for line in prepared.details():
             log(line)
+        if prepared.enabled:
+            log(f"Qwen3 pipeline revision {pipeline_revision(speech_prep)}")
         text = prepared.text
         if not text:
             raise ValueError("No text content found after parsing source file.")

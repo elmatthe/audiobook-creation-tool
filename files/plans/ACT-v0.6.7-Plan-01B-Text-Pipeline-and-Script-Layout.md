@@ -661,3 +661,17 @@ Status: **done**, switched off. Codex review deferred to the consolidated pre-me
   046-060 Edge; classes alphabetical), A/B = the blind sheet's First/Second, plus `REVIEW-SHEET.md` (60 rows: # | Engine | Class | Listen for | Clip A | Clip B | My verdict |
   Notes). Private mapping: `a4/key/ordered-mapping.json`. A rerun copies nothing. `test_speech_ab.py` 17 tests (ordering, slots vs the issued sheet, byte identity,
   determinism, blindness, refusal of missing or foreign files, the real folder).
+
+### B.11 Gate G1 and checkpoint A5 (2026-10-20) -- stopped at owner gate G2
+
+* G1 approved: 60 owner verdicts (11 A, 18 B, 31 Same, 0 Neither), decoded through `a4/key/ordered-mapping.json`, recorded in
+  `files/tests/golden/speech/g1-verdicts.json` and `a4/key/g1-verdicts.json`; the completed sheet is `a4/listen-ordered/REVIEW-SHEET-G1-COMPLETED.md`.
+* Mode table (`scripts/tts/speech/data/modes.json`): expand everywhere except edge CUR, edge FRAC, edge SYM, kokoro CUR (owner-preferred native; Decisions 2026-10-20).
+  Default `[tts] speech_prep = "v1"`. Qwen3: `PIPELINE_REVISION` 1 unchanged (A0), `SPEECH_PREP_PIPELINE_REVISION` 2 for runs with preparation on.
+* A4 hygiene: `listen-ordered/` copies trimmed of terminal silence (120 ms kept after the last sample above -60 dBFS; lossless; each verified as an exact prefix of its
+  untouched source with a silent removed tail; originals and `plan.json` byte-identical).
+* Tests: `test_speech_g1.py` (record, table = verdicts, documented exceptions, every route incl. Edge direct and folder through their own entry points, protected and
+  ambiguous tokens, revisions, colon shim intact); the A3 rollout tests now pin their all-native baseline explicitly; three engine stubs gained the real `speech_prep`
+  keyword. A0 `check` OK.
+* **Final hardening / pre-merge qualification checklist (carried forward):** (1) Edge reliability and recovery enhancement (owner deferral, Decisions 2026-10-20);
+  (2) the consolidated Codex review of A1-A5 (and A6); (3) S5 on the final tree; (4) re-test the four native exceptions at S5.
