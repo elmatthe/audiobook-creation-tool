@@ -2,6 +2,17 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: A5 verified (full gate PASS); G2 recordings ready; STOPPED at owner gate G2 (2026-10-20, HOME-PC)
+
+- **A5 full gate** (`scripts/verify.py`, run under Git Bash so `bash` is Git's): RESULT: PASS -- **9,989 passed, 60 skipped, 0 failed** (19 min 1 s); deps, docs,
+  docnames and config steps PASS. Recorded separately: the pre-existing suite baseline is 8,517 passed / 60 skipped (`df0dbc2`); the skip count is unchanged (nothing newly
+  skipped) and nothing failed; tests added since then: 1,472. Pre-existing tests changed on purpose in A5: three engine stubs gained the real `speech_prep` keyword
+  (`test_tts_importing`, `test_tts_jobs` x2) and the `get_book` fakes in `test_tts_worker_concurrency`; A3 rollout tests now pin an explicit all-native table.
+- **G2:** `files/dev-work/speech-ab/g2/` -- `1-Edge-Steffan.mp3` (3.3 min), `2-Kokoro-Heart.mp3` (2.9), `3-Chatterbox-Female-1.mp3` (3.2), `4-Qwen3-Aiden.mp3` (3.4),
+  made through the production entry points with the A5 snapshot, production presets and 192k; `REVIEW-SHEET.md`, `passage.txt`, `settings.json`, `prepared/`.
+  Advisory read-back: WER 5.5-7.3%, openings and endings present; Chatterbox "one rule:" came back as "one roll" (flagged for the owner's ear).
+- **Next:** the owner's G2 acceptance; only then A6 (Chatterbox colon retirement evaluation, conditional G3).
+
 ## CURRENT STATE — v0.6.7 Plan 01B: A5 done (speech preparation on); STOPPED at owner gate G2 (2026-10-20, HOME-PC)
 
 G1 approved by the owner (60 verdicts: 11 A / 18 B / 31 Same; record `files/tests/golden/speech/g1-verdicts.json`). A5 applied it: every cell expands except

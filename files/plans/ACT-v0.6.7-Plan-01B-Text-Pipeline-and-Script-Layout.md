@@ -675,3 +675,13 @@ Status: **done**, switched off. Codex review deferred to the consolidated pre-me
   keyword. A0 `check` OK.
 * **Final hardening / pre-merge qualification checklist (carried forward):** (1) Edge reliability and recovery enhancement (owner deferral, Decisions 2026-10-20);
   (2) the consolidated Codex review of A1-A5 (and A6); (3) S5 on the final tree; (4) re-test the four native exceptions at S5.
+
+### B.12 A5 verification and G2 package (2026-10-20) -- stopped at owner gate G2
+
+* Commits: A4 listening-copy cleanup `4a5a00f`; A5 `fa83d09`; this record and the G2 tool follow.
+* Focused set before the gate (speech, TTS panel/jobs, Qwen3, Chatterbox, Kokoro, Edge, batch, config, settings, segmentation, quality corpus, epub-retirement, application
+  boundary, layout, Plan 3): 3,129 passed, 2 skipped. A0 `check` OK (OFF path unchanged).
+* **Full gate (once):** `scripts/verify.py` under Git Bash: RESULT: PASS, 9,989 passed / 60 skipped / 0 failed, 19 min 1 s. Pre-existing baseline 8,517 / 60 at `df0dbc2`;
+  skips unchanged; +1,472 tests since. The three macOS-launcher parse tests that fail when PowerShell resolves WSL's `bash.exe` ran and passed under Git Bash.
+* G2: `speech_ab.py g2` renders one 2,392-character passage (two chapters, every listening class, the ambiguous examples, a URL, prose colons, dialogue) through each
+  engine's production entry point with `build_snapshot("v1")`, the voice's production timing preset (including the end pause) and 192k MP3. Durations 2.9-3.4 min.

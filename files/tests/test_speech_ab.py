@@ -241,6 +241,18 @@ def test_the_real_ordered_folder_is_complete_and_identical_to_its_sources():
     assert len(edge) == 15 and all((ab.LISTEN / f"{n}.wav").is_file() for p in edge for n in p["clips"].values())
 
 
+def test_the_g2_passage_covers_every_class_and_keeps_its_ambiguous_examples():
+    from tts.speech.normalize import normalize
+
+    result = normalize(ab.G2_PASSAGE)
+    assert {e.cls for e in result.edits} >= set(ab.SNIPPETS)
+    assert {a.text for a in result.ambiguities} >= {"24/7", "3:16", "1999", "3.5", "1:30"}
+    assert 2000 < len(ab.G2_PASSAGE) < 3000, "about three minutes of narration"
+    assert ab.G2_PASSAGE.count("\n# ") == 2 and ab.G2_PASSAGE.startswith("Title: ")
+    sheet = ab.g2_review_sheet({"edge_direct": {"seconds": 180.0}})
+    assert all(name in sheet for name in ab.G2_FILES.values()) and "not generated" in sheet
+
+
 @pytest.mark.parametrize("reference, heard, expected", [
     ("It cost $12.50.", "It cost twelve dollars fifty cents.", 0.0),
     ("It cost $12.50.", "It cost $12.50", 0.0),

@@ -674,6 +674,133 @@ def ordered_review_sheet(plan: dict, rows: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# --------------------------------------------------------------------------- G2: assembled narration with A5 settings
+
+G2 = OUT.parent / "g2"
+G2_BITRATE = "192k"  # the panel's default
+G2_FILES = {"edge_direct": "1-Edge-Steffan.mp3", "kokoro": "2-Kokoro-Heart.mp3", "chatterbox": "3-Chatterbox-Female-1.mp3",
+            "qwen3": "4-Qwen3-Aiden.mp3"}
+G2_PASSAGE = """Title: The Harbor Light
+Author: A. Keeper
+
+# Chapter I
+
+Dr. Elena Marsh arrived at the harbor on March 5, 2024, carrying 1,250 pages of logbooks and a ticket that had cost $12.50. The ferry left at 6:45 a.m., and by 7:15 the fog had lifted. She had one rule: never trust the first reading. Mr. Okafor met her on the pier with a thermos of tea and a printed map from https://example.com/harbor-map.
+
+The lighthouse was built in 1905 and restored by 1999. Its lamp turned at 2.5 degrees per second, and its keepers had logged storms in the 1990s, the 1950s and even the 1880s. "We lost 12% of the glass in the last storm," Mr. Okafor said, "and the repairs ran to $1.5 million." She asked how many steps there were. "One hundred and twelve," he replied, "or 112 if you count the way the old keepers did."
+
+They climbed together. On the 21st step she stopped to read a brass plate: it listed pages 12-15 of the original survey, a 3:1 ratio of mortar to sand, and a warning that children aged 8-12 must be accompanied. Somebody had scratched 24/7 into the rail, and below it the verse John 3:16. The view from the top stretched 5 km across the water, and the thermometer read 72°F.
+
+Outside, the wind came in off the strait, rattling the shutters twice, then three times. Below, the harbor lights blinked on one by one, small and steady, as the first boats pushed out past the breakwater into water still dark as slate. Nobody on the pier looked up; nobody ever did, which was, Mrs. Yates had written, exactly the point.
+
+# Chapter II
+
+Henry VIII never saw this coast, but World War II did. Prof. Whitfield's notes, i.e. the ones kept in the drawer, described convoys passing at dawn, three or four a week. Mrs. Yates, the last keeper, wrote that 1999 was a quiet year; then again, she wrote that about every year.
+
+The winter supply list was short: 1/2 cup of oil per lamp per night, 3/4 of a pound of wicks, 10 kg of coal, and 1 1/2 sacks of flour. Smith & Wesson had made the old lock on the store room, and its floor was a simple 3 × 4 grid. The order was due by 9 p.m. on December 1st, and it came to £42.75 with delivery.
+
+Elena closed the logbook at 10:30 p.m. The light flickered once, then steadied... as it had since 1905, and as it would, she hoped, for another 100 years. Section 3.5 of the manual said to check the lens every 3 hours, so she set an alarm for 1:30 and went to sleep.
+"""
+
+
+def g2() -> int:
+    """Each representative voice reads the G2 passage through its production entry point, with the A5 snapshot."""
+    import edge_tts
+
+    from shared import ffmpeg_utils
+    from tts.epub2tts_gui import SPEECH_USER_DIR
+    from tts.speech.pipeline import build_snapshot
+
+    ffmpeg_utils.configure_pydub()
+    from pydub import AudioSegment
+
+    snapshot = build_snapshot(SETTING_V1, user_dir=SPEECH_USER_DIR)
+    G2.mkdir(parents=True, exist_ok=True)
+    (G2 / "prepared").mkdir(exist_ok=True)
+    (G2 / "passage.txt").write_text(G2_PASSAGE, encoding="utf-8")
+    log_file = (G2 / "generate.log").open("a", encoding="utf-8")
+    results = {}
+    for route, name in G2_FILES.items():
+        voice = VOICES[route]
+        prepared = prepare(G2_PASSAGE, snapshot, route)
+        (G2 / "prepared" / f"{name[:-4]}.txt").write_text(
+            "\n".join([prepared.spoken_source if prepared.document is None else prepared.text, "", *prepared.details()]) + "\n",
+            encoding="utf-8")
+        target = G2 / name
+        print(f"{name} ...", flush=True)
+        try:
+            with tempfile.TemporaryDirectory(prefix="speech_g2_") as work, contextlib.redirect_stdout(log_file):
+                src = Path(work) / "the-harbor-light.txt"
+                src.write_text(G2_PASSAGE, encoding="utf-8")
+                log = lambda m: log_file.write(str(m) + "\n")  # noqa: E731
+                if route == "edge_direct":
+                    from tts.epub2tts_edge import epub2tts_edge, runner
+
+                    epub2tts_edge.ensure_punkt()
+                    kwargs = {**_edge_kwargs(voice), "end_of_book_pause": int(_local_preset(voice)["end_pause"])}
+                    produced = runner.run_conversion_job(str(src), output_dir=work, speaker=voice, audio_format="mp3",
+                                                         mp3_bitrate=G2_BITRATE, cover=None, overwrite=True,
+                                                         speech_prep=snapshot, **kwargs)
+                    shutil.copyfile(produced, target)
+                else:
+                    preset = _local_preset(voice)
+                    common = dict(end_silence_ms=int(preset["end_pause"]), chunk_pause_ms=int(preset["paragraphpause"]),
+                                  log=log, bitrate=G2_BITRATE, speech_prep=snapshot)
+                    if route == "kokoro":
+                        from tts import kokoro_synth as ks
+
+                        ks.kokoro_file_to_mp3(str(src), str(target), voice, speed=float(preset["kokoro_speed"]), **common)
+                    elif route == "chatterbox":
+                        from tts import chatterbox_synth as cb
+
+                        cb.chatterbox_file_to_mp3(str(src), str(target), voice, **common)
+                    else:
+                        from tts import qwen3_synth as qs
+
+                        qs.qwen3_file_to_mp3(str(src), str(target), voice, **common)
+            audio = AudioSegment.from_file(str(target))
+            results[route] = {"file": name, "voice": voice, "seconds": round(len(audio) / 1000, 1),
+                              "dbfs": round(audio.dBFS, 1), "edits": len(prepared.normalized.edits),
+                              "ambiguous_left_unchanged": len(prepared.normalized.ambiguities),
+                              "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
+            print(f"  {results[route]['seconds']} s, {results[route]['dbfs']} dBFS, {results[route]['edits']} edits", flush=True)
+        except Exception as exc:  # noqa: BLE001 - report every engine
+            results[route] = {"file": name, "voice": voice, "error": f"{type(exc).__name__}: {exc}"}
+            print(f"  FAILED: {type(exc).__name__}: {exc}", flush=True)
+    log_file.close()
+    settings = {"speech_prep": {"setting": snapshot.setting, "ruleset": snapshot.ruleset_version,
+                                "speech_prep_version": snapshot.speech_prep_version,
+                                "not_expanded": [list(c) for c in snapshot.exceptions()],
+                                "glossary_entries": len(snapshot.glossary), "notes": list(snapshot.notes)},
+                "bitrate": G2_BITRATE, "edge_tts": edge_tts.__version__,
+                "presets": {route: _local_preset(VOICES[route]) for route in G2_FILES}, "results": results}
+    write_json(G2 / "settings.json", settings)
+    (G2 / "REVIEW-SHEET.md").write_text(g2_review_sheet(results), encoding="utf-8")
+    return 0 if all("error" not in r for r in results.values()) else 1
+
+
+def g2_review_sheet(results: dict) -> str:
+    lines = ["# G2 listening: the A5 speech preparation in real narration", "",
+             "Four recordings of the same ~3-minute passage (`passage.txt`), one per engine, made exactly as the app makes an "
+             "audiobook today with speech preparation on (the settings are in `settings.json`; what each engine was given is in "
+             "`prepared/`). The silence at the very end is the app's normal end-of-book pause.", "",
+             "Please listen to each one through and note anything about:", "",
+             "* pronunciation of numbers, money, dates, times, titles and units",
+             "* pacing and pauses: sentences, paragraphs, the two chapter headings",
+             "* missing, repeated or invented words",
+             "* Chatterbox: the colons (`She had one rule: never...`, `a brass plate: it listed...`, the times and `3:1`)",
+             "* anything that sounds worse than before speech preparation", "",
+             "Items deliberately left as written (no rule can be sure of them): `1999 was a quiet year`, `24/7`, `John 3:16`, "
+             "`Section 3.5`, `an alarm for 1:30`, `1 1/2 sacks` (\"sacks\" is not in the unit/count list), the web address. "
+             "Edge also keeps its own reading of money, fractions and `&`/`×`, and Kokoro of money (your G1 choices).", "",
+             "| File | Engine | Length | Accept? | Notes |", "|---|---|---|---|---|"]
+    for route, name in G2_FILES.items():
+        r = results.get(route, {})
+        length = f"{r['seconds'] / 60:.1f} min" if "seconds" in r else "not generated"
+        lines.append(f"| {name} | {ENGINE_NAMES[route]} | {length} | | |")
+    return "\n".join(lines) + "\n"
+
+
 EDGE_SMOKE_DIR = OUT / "edge-voice-smoke"
 EDGE_SMOKE_SENTENCE = "The lighthouse keeper climbed the stairs and checked the lamp one last time."
 
@@ -710,6 +837,8 @@ def main(argv: list[str]) -> int:
         return edge_smoke()
     if command == "export-ordered":
         return export_ordered()
+    if command == "g2":
+        return g2()
     if command == "plan":
         plan = build_plan()
         write_json(KEY / "plan.json", plan)
