@@ -158,6 +158,26 @@ def run_probe(job: dict) -> int:
     return EXIT_OK
 
 
+#: A chunk whose audio is far longer than its words can account for has "run away": the model added sound the text does
+#: not ask for (S5 found a preset speaker opening a two-word heading with five seconds of laughter, about one short
+#: heading in eight; a different seed fixed every case). Normal speech is 2-3 words a second, so the bound below is
+#: generous: a 100-word chunk may last 61 s. Such a chunk is rendered again with the next deterministic seed, at most
+#: RUNAWAY_RETRIES times; a chunk that is not runaway is never rendered twice, so its audio and seed are unchanged.
+RUNAWAY_BASE_S = 1.0
+RUNAWAY_SECONDS_PER_WORD = 0.6
+RUNAWAY_RETRIES = 2
+RESEED_STEP = 104729
+
+
+def is_runaway(seconds: float, text: str) -> bool:
+    return seconds > RUNAWAY_BASE_S + RUNAWAY_SECONDS_PER_WORD * max(1, len(text.split()))
+
+
+def attempt_seed(seed: int, attempt: int) -> int:
+    """Attempt 0 is the chunk's own seed; a re-render steps to the next deterministic one (31 bits, like the parent's)."""
+    return (seed + attempt * RESEED_STEP) & 0x7FFFFFFF
+
+
 def run_synth(job: dict) -> int:
     import numpy as np
     import soundfile as sf
@@ -205,18 +225,29 @@ def run_synth(job: dict) -> int:
             emit({"event": "canceled", "completed": done})
             return EXIT_CANCELED
         try:
-            torch.manual_seed(int(chunk["seed"]))
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(int(chunk["seed"]))
             t0 = time.perf_counter()
-            if mode == "custom_voice":
-                wavs, got_rate = model.generate_custom_voice(
-                    text=chunk["text"], language=job.get("language", "English"), speaker=job["speaker"])
-            else:
-                wavs, got_rate = model.generate_voice_clone(
-                    text=chunk["text"], language=job.get("language", "English"), voice_clone_prompt=prompt, **generation)
-            _sync(torch)
-            wav = _mono_float(wavs[0], got_rate)
+            wav, got_rate, retries = None, None, 0
+            for attempt in range(RUNAWAY_RETRIES + 1):
+                seed = attempt_seed(int(chunk["seed"]), attempt)
+                torch.manual_seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
+                if mode == "custom_voice":
+                    wavs, this_rate = model.generate_custom_voice(
+                        text=chunk["text"], language=job.get("language", "English"), speaker=job["speaker"])
+                else:
+                    wavs, this_rate = model.generate_voice_clone(
+                        text=chunk["text"], language=job.get("language", "English"), voice_clone_prompt=prompt,
+                        **generation)
+                _sync(torch)
+                this = _mono_float(wavs[0], this_rate)
+                if wav is None or this.size / int(this_rate) < wav.size / int(got_rate):
+                    wav, got_rate, retries = this, this_rate, attempt  # if every attempt runs away, the shortest is kept
+                if not is_runaway(this.size / int(this_rate), chunk["text"]):
+                    wav, got_rate, retries = this, this_rate, attempt
+                    break
+                if _cancelled(job):
+                    break
             if rate is not None and int(got_rate) != rate:
                 raise RuntimeError(f"the sample rate changed within one file ({rate} -> {got_rate})")
             rate = int(got_rate)
@@ -232,7 +263,7 @@ def run_synth(job: dict) -> int:
             return EXIT_FAILED
         done += 1
         emit({"event": "chunk", "index": chunk["index"], "of": len(chunks), "wav": name,
-              "audio_s": round(wav.size / rate, 3), "gen_s": round(gen_s, 3), "sample_rate": rate})
+              "audio_s": round(wav.size / rate, 3), "gen_s": round(gen_s, 3), "sample_rate": rate, "retries": retries})
     emit({"event": "done", "chunks": done, "sample_rate": rate, "device": device,
           "wall_s": round(time.perf_counter() - started, 2), "load_s": load_s})
     return EXIT_OK

@@ -373,3 +373,82 @@ def test_clone_generation_accepts_the_two_temperatures_as_floats_and_nothing_els
 def test_any_other_sampling_control_is_refused_by_name_not_by_accident(name):
     with pytest.raises(RuntimeError, match="unsupported generation setting"):
         worker.clone_generation({"generation": {name: 1}})
+
+
+# --------------------------------------------------------------------------- #
+# Runaway chunks (S5): far longer than their words can account for -> re-rendered with the next deterministic seed
+# --------------------------------------------------------------------------- #
+class SeededModel:
+    """A fake model whose output length depends on the seed the worker set last: ``long_seeds`` run away."""
+
+    def __init__(self, torch, long_seeds, *, long_s=6.0):
+        self.torch, self.long_seeds, self.long_s = torch, set(long_seeds), long_s
+        self.model = types.SimpleNamespace(tts_model_type="fake")
+        self.calls = []
+
+    def get_supported_speakers(self):
+        return ["Aiden", "Ryan"]
+
+    def create_voice_clone_prompt(self, ref_audio, ref_text, x_vector_only_mode):
+        return {"prompt": ref_text}
+
+    def _wave(self):
+        seed = self.torch.seeds[-1]
+        self.calls.append(seed)
+        seconds = self.long_s if seed in self.long_seeds else 0.8
+        return [np.full(int(24000 * seconds), 0.1, dtype="float32")], 24000
+
+    def generate_custom_voice(self, text, language, speaker):
+        return self._wave()
+
+    def generate_voice_clone(self, text, language, voice_clone_prompt, **kwargs):
+        return self._wave()
+
+
+def seeded(monkeypatch, long_seeds, **kw):
+    holder = {}
+    torch, _ = install_fakes(monkeypatch, model_factory=lambda: holder.setdefault("m", SeededModel(torch_ref[0], long_seeds, **kw)))
+    torch_ref[0] = torch
+    return torch, holder
+
+
+torch_ref = [None]
+
+
+def test_the_runaway_bound_is_generous_for_speech_and_strict_for_noise():
+    assert not worker.is_runaway(1.4, "Chapter One") and worker.is_runaway(2.3, "Chapter One")
+    assert not worker.is_runaway(45.0, " ".join(["word"] * 100))  # 100 words at a slow 2.2 words a second
+    assert worker.is_runaway(62.0, " ".join(["word"] * 100))
+    assert worker.attempt_seed(1000, 0) == 1000 and worker.attempt_seed(1000, 1) == 1000 + worker.RESEED_STEP
+    assert worker.attempt_seed(0x7FFFFFFF, 1) == (0x7FFFFFFF + worker.RESEED_STEP) & 0x7FFFFFFF
+
+
+@pytest.mark.parametrize("mode", ["custom_voice", "clone"])
+def test_a_runaway_chunk_is_rendered_again_with_the_next_seed_and_reports_it(tmp_path, monkeypatch, capsys, mode):
+    torch, holder = seeded(monkeypatch, {1000})
+    extra = {"reference_wav": "r.wav", "reference_text": "words", "generation": {"temperature": 0.7}} if mode == "clone" else {}
+    assert worker.run_synth(job_for(tmp_path, mode=mode, chunks=("Chapter One", "Body text here."), **extra)) == worker.EXIT_OK
+    assert holder["m"].calls == [1000, 1000 + worker.RESEED_STEP, 1001]  # chunk 0 twice, chunk 1 once
+    chunks = [e for e in events(capsys) if e["event"] == "chunk"]
+    assert [c["retries"] for c in chunks] == [1, 0] and chunks[0]["audio_s"] == 0.8
+    data, _ = sf.read(str(tmp_path / "chunks" / "chunk-0001.wav"), dtype="float32")
+    assert data.size == int(24000 * 0.8)  # the kept take is the clean one
+
+
+def test_a_normal_chunk_is_never_rendered_twice(tmp_path, monkeypatch, capsys):
+    torch, holder = seeded(monkeypatch, set())
+    assert worker.run_synth(job_for(tmp_path)) == worker.EXIT_OK
+    assert holder["m"].calls == [1000, 1001] and torch.seeds == [1000, 1001]
+
+
+def test_when_every_take_runs_away_the_shortest_is_kept_and_the_file_still_finishes(tmp_path, monkeypatch, capsys):
+    step = worker.RESEED_STEP
+    torch, holder = seeded(monkeypatch, {1000, 1000 + step, 1000 + 2 * step})
+    lengths = {1000: 7.0, 1000 + step: 5.0, 1000 + 2 * step: 6.0}
+    holder_model = holder.setdefault("m", SeededModel(torch, set(lengths)))
+    holder_model._wave = lambda: (holder_model.calls.append(torch.seeds[-1]),
+                                  ([np.full(int(24000 * lengths.get(torch.seeds[-1], 0.8)), 0.1, dtype="float32")], 24000))[1]
+    assert worker.run_synth(job_for(tmp_path, chunks=("Chapter One",))) == worker.EXIT_OK
+    assert holder_model.calls == [1000, 1000 + step, 1000 + 2 * step]  # bounded: RUNAWAY_RETRIES re-renders, no more
+    chunk = next(e for e in events(capsys) if e["event"] == "chunk")
+    assert chunk["audio_s"] == 5.0 and chunk["retries"] == 1

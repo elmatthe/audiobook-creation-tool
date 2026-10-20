@@ -485,3 +485,13 @@ def test_the_install_dialog_offers_clone_setup_once_the_base_model_is_installed(
         assert opened == [win]
     finally:
         win.destroy()
+
+
+def test_the_six_rows_scroll_inside_a_box_that_fits_a_768_pixel_screen(dialog, drafting, monkeypatch):
+    win = dialog()
+    win.update_idletasks()
+    box = int(win.rows_canvas.cget("height"))
+    assert 240 <= box <= 560
+    assert box <= max(240, win.winfo_screenheight() - 420)  # the rest of the dialog keeps its room on a short screen
+    win.rows_canvas.update_idletasks()
+    assert win.rows_canvas.bbox("all")[3] > 0  # the rows live inside the scrolled area

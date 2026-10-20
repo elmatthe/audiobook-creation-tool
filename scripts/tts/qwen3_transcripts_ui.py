@@ -108,8 +108,25 @@ def build_dialog(parent: tk.Misc, *, theme: Optional[dict] = None, session: Opti
     ttk.Label(body, textvariable=win.status_var, justify=tk.LEFT, wraplength=640, style=st("label")).pack(
         anchor="w", pady=(8, 0))
 
-    grid = ttk.Frame(body, style=st("window"))
-    grid.pack(anchor="w", fill=tk.X, pady=(12, 0))
+    # Six voices do not fit a 768-pixel-high screen with their text boxes, so they scroll inside a box sized to the screen.
+    holder = ttk.Frame(body, style=st("window"))
+    holder.pack(anchor="w", fill=tk.BOTH, expand=True, pady=(12, 0))
+    canvas = tk.Canvas(holder, highlightthickness=0, borderwidth=0, width=700,
+                       height=max(240, min(560, win.winfo_screenheight() - 420)))
+    if colors:
+        try:
+            canvas.configure(background=colors["window"])
+        except tk.TclError:
+            pass
+    scroll = ttk.Scrollbar(holder, orient=tk.VERTICAL, command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    grid = ttk.Frame(canvas, style=st("window"))
+    canvas.create_window((0, 0), window=grid, anchor="nw")
+    grid.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+    win.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-event.delta / 120), "units"))
+    win.rows_canvas = canvas
     win.rows = []
     for index, row in enumerate(qt.rows()):
         frame = ttk.Frame(grid, style=st("window"))
