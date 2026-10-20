@@ -612,3 +612,22 @@ consolidated pre-merge qualification; it has not passed for A1 or A2.
   mutation, integrity-checker mutation, pinned ruleset fingerprint, a 1 MB book in well under the 15 s bound) and `test_speech_glossary.py`. The property test found one real
   defect during development (a longer claim hid a bare fraction, violating I6), fixed. 23 code mutants (boundaries, cues, claims, modes, maps, each invariant check,
   glossary validation, verbalizer style) were each killed. Focused set 1,631 passed; A0 `check` OK; no full verify (reserved for A5).
+
+### B.8 Checkpoint A3 record (2026-10-20)
+
+Status: **done**, switched off. Codex review deferred to the consolidated pre-merge qualification.
+
+* New: `scripts/tts/speech/profiles.py` (five route profiles, mode-table and user-override validation, effective cells), `pipeline.py` (`SpeechPrepSnapshot`, `build_snapshot`,
+  `prepare`, `PreparedText`, `SourceMap`), `data/modes.json` (64 cells, all `native`); `document.structure_segments` (a structure-stage offset map that mirrors
+  `parse_structure`, which is unchanged).
+* Wired: `kokoro_synth`, `chatterbox_synth`, `qwen3_synth` (+ `chunk_source_spans`), `batch_convert.convert_single_pdf`, `epub2tts_edge.get_book` / `runner.run_conversion_job`,
+  `epub2tts_gui` (snapshot at run start, frozen in `tool_options`, re-used by Retry Failed, Details lines, `speech_prep=` passed only when enabled); `shared/config.py`
+  (`[tts] speech_prep`, `TtsConfig`). Engine segmentation, ceilings, pauses, the Chatterbox colon patch, prose-colon split and content proof, Qwen3 `verify_plan` and seeds:
+  untouched.
+* Acceptance: with `v1` and every cell `native`, the unmodified A0 collectors still match the goldens (four routes run the full v1 path underneath; Qwen3's collector
+  characterises `prepare_text`, and a separate test proves its file entry plans the same text and seeds). The paired mutation test shows the check fails when cells expand.
+  A0 goldens unchanged.
+* Snapshot tests: mid-run glossary edit, corrupt replacement and mode-file edit before Retry Failed cannot reach the run; a new run reads the files again; the snapshot is
+  deeply frozen and passes the run freeze; `off` reads no file; broken user files and an unreadable bundled table never fail a run.
+* Mutation sweep: 17 mutants; 15 killed. Survivors: a documentation string (expected) and an equivalent mutant (`<` vs `<=` at a segment end returns the same offset).
+  It found one real gap, fixed: a span wholly inside a joining newline came back inverted; it is now empty.

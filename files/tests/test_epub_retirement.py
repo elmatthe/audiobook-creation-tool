@@ -73,6 +73,8 @@ PRODUCTION_TTS_SOURCES = (
     "tts/speech/integrity.py",
     "tts/speech/normalize.py",
     "tts/speech/numbers_en.py",
+    "tts/speech/pipeline.py",
+    "tts/speech/profiles.py",
     "tts/speech/report.py",
     "tts/qwen3_process.py",
     "tts/qwen3_setup.py",

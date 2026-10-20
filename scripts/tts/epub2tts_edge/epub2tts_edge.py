@@ -116,7 +116,7 @@ def sent_tokenize(text: str) -> list[str]:
     return _sentence_tokenizer().tokenize(text)
 
 
-def get_book(sourcefile):
+def get_book(sourcefile, speech_prep=None):
     book_contents = []
     book_title = sourcefile
     book_author = "Unknown"
@@ -125,11 +125,18 @@ def get_book(sourcefile):
     # utf-8-sig, not utf-8 (v0.6.6 Phase 10): a Windows "UTF-8 with BOM" file
     # otherwise keeps U+FEFF on its first line, which ``strip`` leaves in place,
     # so its "Title:"/"Author:"/"#" line was spoken aloud instead of parsed.
-    # The decode boundary is shared (Plan 01B A1); get_book keeps its own chapter parsing.
+    # The decode boundary is shared (Plan 01B A1); get_book keeps its own chapter parsing. Speech preparation (A3)
+    # runs on the decoded text before it and never touches the Title:/Author:/# markers; ``speech_prep`` is the run's
+    # frozen snapshot, and None or "off" leaves the text exactly as decoded.
     _ensure_shared_on_path()
     from tts.speech.document import read_source_text
+    from tts.speech.pipeline import prepare
+    from tts.speech.profiles import EDGE_DIRECT
 
-    with io.StringIO(read_source_text(sourcefile)) as file:
+    prepared = prepare(read_source_text(sourcefile), speech_prep, EDGE_DIRECT)
+    for detail in prepared.details():
+        print(detail)
+    with io.StringIO(prepared.spoken_source) as file:
         current_chapter = {"title": "blank", "paragraphs": []}
         initialized_first_chapter = False
         header_done = False

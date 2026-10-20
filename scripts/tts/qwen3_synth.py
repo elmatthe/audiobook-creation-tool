@@ -48,7 +48,9 @@ from shared.cancellation import ConversionCancelled
 from tts import qwen3_process
 from tts import qwen3_runtime as rt
 from tts.qwen3_runtime import Qwen3Unavailable
-from tts.speech.document import HEADING_PARAGRAPH_STRUCTURE, load_speech_text, parse_structure
+from tts.speech.document import HEADING_PARAGRAPH_STRUCTURE, parse_structure, read_source_text
+from tts.speech.pipeline import PreparedText, prepare
+from tts.speech.profiles import QWEN3 as QWEN3_ROUTE
 
 # --------------------------------------------------------------------------- #
 # Constants
@@ -250,6 +252,23 @@ def verify_plan(text: str, chunks: list[Chunk]) -> None:
         previous_end = chunk.end
     if "".join("".join(c.text.split()) for c in chunks) != "".join(text.split()):
         raise ChunkPlanError("the chunk plan did not preserve its source text")
+
+
+def chunk_source_spans(prepared: PreparedText, chunks: list[Chunk]) -> list[tuple[int, int]]:
+    """Each chunk's span in the decoded source text (Plan 01B 4.4), ordered and non-overlapping.
+
+    ``Chunk.start``/``end`` keep indexing the spoken (prepared) text, and seeds keep hashing the spoken chunk text, so a
+    document without edits keeps identical chunks and seeds. The source span is derived through the verified structure
+    and normalization maps; a span that runs backwards or outside the source is a defect and fails the plan.
+    """
+    source_map = prepared.source_map()
+    spans = [source_map.source_span(chunk.start, chunk.end) for chunk in chunks]
+    previous_end, limit = 0, len(prepared.normalized.source)
+    for chunk, (start, end) in zip(chunks, spans):
+        if start < previous_end or end <= start or end > limit:
+            raise ChunkPlanError(f"chunk {chunk.index} maps to source span {start}-{end}, out of order")
+        previous_end = end
+    return spans
 
 
 def derive_seed(voice_id: str, chunk: Chunk) -> int:
@@ -667,6 +686,7 @@ def qwen3_file_to_mp3(
     bitrate: Optional[str] = None,
     device: str = "auto",
     *,
+    speech_prep=None,
     availability: Callable[[str], tuple[bool, str]] = rt.voice_availability,
     python: Optional[Path] = None,
     script: Optional[Path] = None,
@@ -700,10 +720,17 @@ def qwen3_file_to_mp3(
     # Held for the whole conversion, machine-wide: an install or repair (in this app or another copy) cannot replace the
     # environment or models under a running worker, and two Qwen3 conversions cannot fight over one GPU.
     with rt.inference_lease():
-        text = load_speech_text(src, HEADING_PARAGRAPH_STRUCTURE).text
+        # Speech preparation (Plan 01B A3) runs on the decoded source before the structure stage. ``speech_prep`` is the
+        # run's frozen snapshot; None or "off" leaves the text, the plan and every seed exactly as before.
+        prepared = prepare(read_source_text(src), speech_prep, QWEN3_ROUTE)
+        for line in prepared.details():
+            log(line)
+        text = prepared.text
         if not text:
             raise ValueError("No text content found after parsing source file.")
         chunks = plan_chunks(text)
+        if prepared.enabled:
+            chunk_source_spans(prepared, chunks)  # proves every chunk maps back to the decoded source, in order
 
         reference_text = ""
         if voice.kind == rt.KIND_CLONE:

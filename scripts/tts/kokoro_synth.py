@@ -37,7 +37,9 @@ from pydub import AudioSegment
 
 from shared import espeak_data
 from shared import ffmpeg_utils
-from tts.speech.document import LOCAL_ENGINE_STRUCTURE, load_speech_text
+from tts.speech.document import read_source_text
+from tts.speech.pipeline import prepare
+from tts.speech.profiles import KOKORO as KOKORO_ROUTE
 
 #: Kokoro's model rate. Fixed by the model, not a choice made here.
 SAMPLE_RATE = 24000
@@ -226,6 +228,7 @@ def kokoro_file_to_mp3(
     cancel_check: Callable[[], bool] | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     bitrate: str | None = None,
+    speech_prep=None,
 ) -> None:
     """Read plain text from file → Kokoro TTS → single MP3.
 
@@ -241,9 +244,13 @@ def kokoro_file_to_mp3(
     if not src.exists():
         raise FileNotFoundError(f"Source text file not found: {source_path}")
 
-    # Decoding (utf-8-sig, so a BOM cannot hide a "Title:" line) and the Title:/Author:/# rules are the shared
-    # structure stage (Plan 01B A1); this engine keeps its own options.
-    text = load_speech_text(src, LOCAL_ENGINE_STRUCTURE).text
+    # Decoding (utf-8-sig, so a BOM cannot hide a "Title:" line), speech preparation and the Title:/Author:/# rules are
+    # the shared stages (Plan 01B A1/A3); this engine keeps its own structure options. ``speech_prep`` is the run's
+    # frozen snapshot: None or "off" leaves the text exactly as the structure stage alone produced it.
+    prepared = prepare(read_source_text(src), speech_prep, KOKORO_ROUTE)
+    for line in prepared.details():
+        log(line)
+    text = prepared.text
 
     chunks = split_into_chunks(text)
     if not chunks:

@@ -142,10 +142,13 @@ def run_conversion_job(
     overwrite: bool = False,
     cancel_check=None,
     progress_callback=None,
+    speech_prep=None,
 ) -> str:
     """
     Convert PDF or TXT to M4B or MP3.
     Returns the path to the final audio file.
+
+    ``speech_prep`` is the run's frozen speech-preparation snapshot (Plan 01B A3), handed to ``get_book``; None means off.
 
     ``progress_callback(done, total)`` reports paragraph-level progress from
     ``read_book`` on the calling (worker) thread — GUI callers must enqueue
@@ -187,7 +190,9 @@ def run_conversion_job(
             else:
                 shutil.copy2(sourcefile, work_txt)
 
-            book_contents, book_title, book_author, chapter_titles = get_book(work_txt)
+            # Off (None): exactly the call this route always made.
+            book_contents, book_title, book_author, chapter_titles = (
+                get_book(work_txt) if speech_prep is None else get_book(work_txt, speech_prep))
             # Nothing speakable (empty, header-only, heading-only or punctuation-only)
             # used to publish a silent MP3 as a success. Fail the item instead, with
             # the local engines' own message, as the folder path already did

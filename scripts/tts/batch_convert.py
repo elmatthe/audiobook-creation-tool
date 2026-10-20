@@ -35,6 +35,8 @@ if str(_SCRIPTS_ROOT) not in _sys.path:
 from shared import ffmpeg_utils
 from tts.pdf_extractor import extract_text_from_pdf
 from tts.speech.document import read_source_text
+from tts.speech.pipeline import prepare
+from tts.speech.profiles import EDGE_FOLDER
 
 DEFAULT_SPEAKER = "en-US-SteffanNeural"
 CHUNK_TARGET = 3000
@@ -131,6 +133,7 @@ def convert_single_pdf(
     cancel_check: Callable[[], bool] | None = None,
     out_mp3: Path | None = None,
     bitrate: str | None = None,
+    speech_prep=None,
 ) -> tuple[str, Path, str | None]:
     """Convert one source file (.pdf or .txt) to MP3.
 
@@ -176,6 +179,13 @@ def convert_single_pdf(
                     text = read_source_text(pdf_path)
                 else:
                     text = extract_text_from_pdf(str(pdf_path))
+                # Speech preparation (Plan 01B A3) on the decoded or extracted text; this route reads no structure, so
+                # the prepared text is the whole text. None or "off" leaves it unchanged.
+                prepared = prepare(text, speech_prep, EDGE_FOLDER)
+                if pdf_attempt == 0:
+                    for detail in prepared.details():
+                        log(f"  {detail}")
+                text = prepared.text
                 chunks = split_into_chunks(text)
                 if not chunks:
                     last_err = "No text chunks after split"

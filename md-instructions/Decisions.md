@@ -4,6 +4,32 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Plan 01B checkpoint A3: how speech preparation is wired, frozen and kept switched off
+
+**Decision.**
+- *Normalization runs on the decoded text, before each route's structure stage.* The normalizer protects `Title:`/`Author:`/`#` markers and never changes a line count, so
+  the structure stage sees the same structure, and every offset indexes the decoded source as Plan 01B 4.4 requires. Edge direct keeps `get_book`; it reads the prepared text.
+- *One mode-table row per engine* (edge, kokoro, chatterbox, qwen3): the two Edge routes share the `edge` row, as they share the glossary scope. `data/modes.json` ships with
+  all 64 cells `native` (D6).
+- *The setting is a configuration key, not a settings.json key.* `[tts] speech_prep = "off" | "v1"` is validated in `shared/config.py` (unknown values fall back to `off`
+  with a diagnostic). `USER_STATE_SETTINGS` lists only keys a real `settings.set` writer produces, so it does not gain one.
+- *Off means the old call.* The panel passes `speech_prep=` to an engine, and the Edge runner passes it to `get_book`, only when the snapshot is enabled; an `off` run makes
+  byte-for-byte the calls it made before, so existing engine fakes and the A0 baselines are untouched.
+- *By value, once.* `SpeechPrepSnapshot` (frozen dataclass of tuples, frozen glossary entries) is built on the main thread at run start, frozen into `tool_options`, and
+  re-used by Retry Failed. Worker threads never read a file. Notes (a broken user file) are written to Details once per attempt.
+- *Defects never fail a conversion.* An integrity failure in one file falls back to that file's unchanged text with a Details line; an unreadable bundled mode table turns
+  speech preparation off for the run with a note.
+- *Qwen3 keeps its `Chunk`.* The A0 golden serialises `Chunk` with `asdict`, so source spans are not new fields: `qwen3_synth.chunk_source_spans` derives them through a
+  verified structure map and the normalization map, only when preparation is on. Seeds still hash the spoken chunk text, so unchanged documents keep identical plans and seeds;
+  `PIPELINE_REVISION` is not bumped in A3 because no audio can change.
+
+**Why.** The owner's acceptance condition for A3: off and native paths must reproduce the A0 characterization exactly; a run must not be able to see a glossary edited after it
+started; and broken user data must never cost a non-technical user a conversion.
+
+-- Decided under the owner's A2-A6 authorisation; implemented by Claude Code
+
+---
+
 ## 2026-10-20 - Plan 01B checkpoint A2: normalizer core decisions
 
 **Decision.**

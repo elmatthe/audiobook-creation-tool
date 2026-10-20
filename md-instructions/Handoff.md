@@ -2,6 +2,14 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: A3 (wiring, snapshot) done, switched off; A4 next (2026-10-20, HOME-PC)
+
+All five routes call `tts.speech.pipeline.prepare`; `[tts] speech_prep` defaults to `off` and every mode cell is `native`, so no route or audio changed. Proof: the unmodified
+A0 collectors pass with v1 switched on underneath (and fail, as they must, with every cell expanded). Retry Failed re-uses the run's original snapshot (panel-level tests).
+Tests: `test_speech_pipeline.py` (42), `test_speech_panel.py` (3). Focused set (speech, Qwen3, Chatterbox, Kokoro, Edge, batch, all TTS panel/job modules, config, settings,
+segmentation, quality corpus, Plan 3, epub-retirement, application boundary, layout, job control, bootstrap, launcher): 3,525 passed, 2 skipped. A0 `check` OK.
+Record: Plan 01B Appendix B.8. Next: A4 audio evaluation, then owner gate G1 (mandatory stop).
+
 ## CURRENT STATE — v0.6.7 Plan 01B: A2 (normalizer core) done, not wired; A3 next (2026-10-20, HOME-PC)
 
 A2 is complete under the owner's A2-A6 authorisation (Codex reviews deferred to the consolidated pre-merge qualification; none has passed for A1 or A2).

@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Speech preparation wired into every TTS route, switched off (v0.6.7 Plan 01B checkpoint A3, 2026-10-20)
+
+- No audible change: the new developer setting `[tts] speech_prep` in `config.toml` defaults to `off`, and with `off` every route (Edge direct, Edge folder, Kokoro,
+  Chatterbox, Qwen3) makes exactly the calls it made before. With `v1` a run takes one snapshot of the pronunciation glossary and the per-engine mode table when it starts
+  and keeps it for the whole run, including Retry Failed; every mode cell ships as `native`, so text still reaches each engine unchanged until reviewed cells are enabled.
+- Optional owner files, never required and never able to fail a run: `files/runtime-data/speech/glossary.user.json` and `modes.user.json`. A broken file is ignored with
+  a line in the run's Details.
+
 ### Added — Speech-preparation normalizer core, not yet wired (v0.6.7 Plan 01B checkpoint A2, 2026-10-20)
 
 - Development only, no audible change: nothing calls it yet. New `tts/speech/` modules (`normalize`, `classes`, `numbers_en`, `glossary`, `integrity`, `report`) and data

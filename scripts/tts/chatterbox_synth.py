@@ -69,7 +69,9 @@ import soundfile as sf
 from pydub import AudioSegment
 
 from shared import ffmpeg_utils
-from tts.speech.document import LOCAL_ENGINE_STRUCTURE, load_speech_text
+from tts.speech.document import read_source_text
+from tts.speech.pipeline import prepare
+from tts.speech.profiles import CHATTERBOX as CHATTERBOX_ROUTE
 
 # --------------------------------------------------------------------------- #
 # Engine identity — the exact release this module was written against
@@ -1414,6 +1416,7 @@ def chatterbox_file_to_mp3(
     progress_callback: Callable[[int, int], None] | None = None,
     device: str | None = None,
     bitrate: str | None = None,
+    speech_prep=None,
 ) -> None:
     """Read plain text from file → Chatterbox Turbo → single MP3.
 
@@ -1435,9 +1438,14 @@ def chatterbox_file_to_mp3(
     if not src.exists():
         raise FileNotFoundError(f"Source text file not found: {source_path}")
 
-    # Decoding (utf-8-sig, so a BOM cannot hide a "Title:" line) and the Title:/Author:/# rules are the shared
-    # structure stage (Plan 01B A1); this engine keeps its own options.
-    text = load_speech_text(src, LOCAL_ENGINE_STRUCTURE).text
+    # Decoding (utf-8-sig, so a BOM cannot hide a "Title:" line), speech preparation and the Title:/Author:/# rules are
+    # the shared stages (Plan 01B A1/A3); this engine keeps its own structure options. ``speech_prep`` is the run's
+    # frozen snapshot: None or "off" leaves the text exactly as the structure stage alone produced it. The colon patch,
+    # the prose-colon split and the content proof below run on the prepared text unchanged.
+    prepared = prepare(read_source_text(src), speech_prep, CHATTERBOX_ROUTE)
+    for line in prepared.details():
+        log(line)
+    text = prepared.text
 
     # Chatterbox Turbo's own ceiling, never Kokoro's — see
     # CHATTERBOX_MAX_CHUNK_CHARS for the evidence and the Phase 12 defect it fixes.

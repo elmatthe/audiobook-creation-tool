@@ -82,6 +82,49 @@ def parse_structure(raw_text: str, options: StructureOptions = LOCAL_ENGINE_STRU
     return SpeechDocument(tuple(blocks), text)
 
 
+def structure_segments(raw_text: str, options: StructureOptions = LOCAL_ENGINE_STRUCTURE) -> tuple[tuple[int, int, int], ...]:
+    """Where each run of ``parse_structure(raw_text, options).text`` came from: ``(text_start, raw_start, length)``.
+
+    The joining newlines and the blank lines a heading gains are not in any segment. Mirrors ``parse_structure`` line for
+    line without changing it; a test proves every segment's text equals its raw slice and that the segments cover every
+    non-whitespace character of the structured text.
+    """
+    if not options.honour_header_markers:
+        return ((0, 0, len(raw_text)),) if raw_text else ()
+    pieces: list[tuple[int | None, str]] = []
+    position = 0
+    for line_with_end in raw_text.splitlines(keepends=True):
+        line = (line_with_end.splitlines() or [""])[0]
+        stripped = line.strip()
+        if stripped.startswith("Title:") or stripped.startswith("Author:"):
+            pass
+        elif stripped.startswith("#"):
+            after_marks = stripped.lstrip("#")
+            heading = after_marks.strip()
+            offset = (len(line) - len(line.lstrip())) + (len(stripped) - len(after_marks)) \
+                + (len(after_marks) - len(after_marks.lstrip()))
+            if options.heading_as_paragraph:
+                if heading:
+                    pieces.extend(((None, ""), (position + offset, heading), (None, "")))
+            else:
+                pieces.append((position + offset, heading))
+        else:
+            pieces.append((position, line))
+        position += len(line_with_end)
+    joined = "\n".join(text for _, text in pieces)
+    lead = len(joined) - len(joined.lstrip())
+    total = len(joined.strip())
+    segments: list[tuple[int, int, int]] = []
+    cursor = 0
+    for raw_start, text in pieces:
+        if raw_start is not None and text:
+            start, end = max(cursor, lead), min(cursor + len(text), lead + total)
+            if end > start:
+                segments.append((start - lead, raw_start + (start - cursor), end - start))
+        cursor += len(text) + 1
+    return tuple(segments)
+
+
 def load_speech_text(path, options: StructureOptions = LOCAL_ENGINE_STRUCTURE) -> SpeechDocument:
     """Decode ``path`` and structure it for one engine."""
     return parse_structure(read_source_text(path), options)

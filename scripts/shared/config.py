@@ -109,6 +109,7 @@ _SCHEMA: dict[str, frozenset[str]] = {
     "output": frozenset({"base_directory"}),
     "logging": frozenset({"max_sessions"}),
     "importing": frozenset({"large_result_warning_threshold"}),
+    "tts": frozenset({"speech_prep"}),
 }
 
 # --------------------------------------------------------------------------- #
@@ -121,6 +122,11 @@ DEFAULT_ENTRY_POINT = "scripts/launcher.py"
 DEFAULT_PLATFORMS: tuple[str, ...] = ("Windows", "MacOS")
 DEFAULT_MAX_SESSIONS = 30
 DEFAULT_LARGE_RESULT_WARNING_THRESHOLD = 1000
+
+#: Developer setting for the speech-preparation pipeline (Plan 01B 4.7). ``off`` until reviewed cells are enabled.
+#: The values mirror ``tts.speech.pipeline.SETTINGS`` (shared never imports tts; a test pins them equal).
+DEFAULT_SPEECH_PREP = "off"
+SPEECH_PREP_VALUES: tuple[str, ...] = ("off", "v1")
 
 MAX_SESSIONS_RANGE = (1, 1000)
 LARGE_RESULT_THRESHOLD_RANGE = (1, 1_000_000)
@@ -138,6 +144,7 @@ DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "output.base_directory": "",
         "logging.max_sessions": DEFAULT_MAX_SESSIONS,
         "importing.large_result_warning_threshold": DEFAULT_LARGE_RESULT_WARNING_THRESHOLD,
+        "tts.speech_prep": DEFAULT_SPEECH_PREP,
     }
 )
 
@@ -227,6 +234,12 @@ class ImportingConfig:
 
 
 @dataclass(frozen=True)
+class TtsConfig:
+    #: ``off`` | ``v1``; validated here, consumed by the TTS panel when a run starts.
+    speech_prep: str = DEFAULT_SPEECH_PREP
+
+
+@dataclass(frozen=True)
 class EffectiveConfig:
     """A frozen snapshot. Capture one at run start and it cannot shift underneath."""
 
@@ -237,6 +250,7 @@ class EffectiveConfig:
     #: dotted key -> which layer supplied the effective value.
     sources: Mapping[str, str]
     diagnostics: tuple[Diagnostic, ...]
+    tts: TtsConfig = TtsConfig()
 
     @property
     def has_warnings(self) -> bool:
@@ -431,6 +445,15 @@ class _Builder:
         self._bounded_int(source, "importing.large_result_warning_threshold", raw,
                           LARGE_RESULT_THRESHOLD_RANGE)
 
+    def tts_speech_prep(self, source: str, raw: Any) -> None:
+        key = "tts.speech_prep"
+        if not isinstance(raw, str) or raw.strip().lower() not in SPEECH_PREP_VALUES:
+            self.note(source, key,
+                      f"must be one of {', '.join(SPEECH_PREP_VALUES)}; using {DEFAULT_SPEECH_PREP!r}",
+                      f"got {raw!r}")
+            return
+        self.accept(source, key, raw.strip().lower())
+
 
 _TOML_VALIDATORS = {
     "project.name": _Builder.project_name,
@@ -441,6 +464,7 @@ _TOML_VALIDATORS = {
     "output.base_directory": _Builder.output_base,
     "logging.max_sessions": _Builder.logging_max_sessions,
     "importing.large_result_warning_threshold": _Builder.importing_threshold,
+    "tts.speech_prep": _Builder.tts_speech_prep,
 }
 
 
@@ -585,6 +609,7 @@ def load(
         ),
         sources=MappingProxyType(dict(builder.sources)),
         diagnostics=tuple(builder.diagnostics),
+        tts=TtsConfig(speech_prep=builder.values["tts.speech_prep"]),
     )
 
 

@@ -139,6 +139,8 @@ from shared.job_control import (
     capture_run,
 )
 from shared.output_paths import plan_flat, plan_mirrored, plan_multi_root
+from shared.paths import RESOURCES_DIR
+from tts.speech import pipeline as speech_pipeline
 from tts.epub2tts_edge.epub2tts_edge import (
     DEFAULT_CHAPTER_PAUSE_MS,
     DEFAULT_END_OF_BOOK_PAUSE_MS,
@@ -666,10 +668,34 @@ def plan_destinations(snapshot, run_root: Path, *, direct_rename, grouped_rename
     return mapping
 
 
+#: Where an owner's optional ``glossary.user.json`` and ``modes.user.json`` live (ignored by Git, survives updates).
+SPEECH_USER_DIR = RESOURCES_DIR / "speech"
+
+
+def speech_prep_run_lines(snapshot) -> list[str]:
+    """What the run's Details say about speech preparation once per attempt: nothing while it is off."""
+    if snapshot is None:
+        return []
+    lines = [f"Speech preparation: {note}" for note in snapshot.notes]
+    if snapshot.enabled:
+        exceptions = snapshot.exceptions()
+        lines.insert(0, f"Speech preparation v1 (ruleset {snapshot.ruleset_version}, "
+                        f"version {snapshot.speech_prep_version[:12]}, {len(snapshot.glossary)} glossary entries, "
+                        f"{len(exceptions)} of {len(snapshot.cells)} cells not expanded)")
+    return lines
+
+
+def speech_prep_kwargs(params) -> dict:
+    """``speech_prep=`` for an engine call only when it is on, so an "off" run makes exactly the calls it made before."""
+    snapshot = params.get("speech_prep")
+    return {"speech_prep": snapshot} if snapshot is not None and snapshot.enabled else {}
+
+
 def freeze_tts_options(
     *, speaker: str, backend: str, voice_id: str, rate: str, resume: bool,
     overwrite: bool, bitrate: str, workers: int, kokoro_speed: float,
     end_pause: int, paragraph_pause: int, pause_kw: dict,
+    speech_prep: "speech_pipeline.SpeechPrepSnapshot | None" = None,
 ) -> dict:
     """Everything about a run that changes what it produces, as plain frozen values.
 
@@ -683,8 +709,12 @@ def freeze_tts_options(
     rather than something inferred from ``speaker`` or matched out of a display
     label, because a display label is a name shown to a person and names change —
     the maintainer may rename a voice without any run behaving differently.
+
+    ``speech_prep`` is the run's speech-preparation snapshot (Plan 01B 4.7): the mode cells and the validated glossary
+    themselves, by value, so a glossary edited mid-run or before Retry Failed cannot reach this run.
     """
     return {
+        "speech_prep": speech_pipeline.OFF if speech_prep is None else speech_prep,
         "speaker": str(speaker),
         "backend": str(backend),
         "voice_id": str(voice_id),
@@ -2446,6 +2476,11 @@ class TtsPanel(ttk.Frame):
             kokoro_speed = 1.0
         end_pause = int(preset["end_pause"])
         paragraph_pause = int(preset["paragraphpause"])
+        # Speech preparation (Plan 01B 4.7): the glossary and mode files are read and validated once, here, and the run
+        # keeps the result by value. "off" (the default) reads nothing and changes nothing.
+        speech_prep = speech_pipeline.build_snapshot(
+            getattr(getattr(self._effective_config, "tts", None), "speech_prep", speech_pipeline.SETTING_OFF),
+            user_dir=SPEECH_USER_DIR)
 
         # Decision 9A, in one call: the imported queue, the catalog, the import
         # options, the effective configuration and every output-affecting setting
@@ -2470,6 +2505,7 @@ class TtsPanel(ttk.Frame):
                 end_pause=end_pause,
                 paragraph_pause=paragraph_pause,
                 pause_kw=pause_kw,
+                speech_prep=speech_prep,
             ),
             created_at=float(self._clock()),
         )
@@ -2547,6 +2583,8 @@ class TtsPanel(ttk.Frame):
                   if run_directory is None
                   else f"Run {self._run_count} — {run_directory.name}")
         self.log.divider(f"{DIVIDER_MARK} {heading}")
+        for line in speech_prep_run_lines(options.get("speech_prep")):
+            self.log.append_detail(line)
         self._controller = job_control.JobController(
             snapshot.snapshot_id, listener=self._on_state)
         self._install_jobs(snapshot.snapshot_id, snapshot.item_ids)
@@ -2575,6 +2613,8 @@ class TtsPanel(ttk.Frame):
             "end_pause": options["end_pause"],
             "paragraph_pause": options["paragraph_pause"],
             "pause_kw": dict(options["pause_kw"]),
+            # The run's frozen speech-preparation snapshot; a retry re-uses the original one, never today's files.
+            "speech_prep": options.get("speech_prep"),
             "snapshot": snapshot,
             "controller": self._controller,
             # The authority, never the reporter behind it: there must be exactly
@@ -2880,6 +2920,7 @@ class _RunContext:
                         item["source"], params["run_directory"], params["speaker"],
                         params["rate"], self.log, None, self.cancel_check,
                         item["destination"], bitrate=params["bitrate"],
+                        **speech_prep_kwargs(params),
                     )
                     if status != "success":
                         return status, item, message, None
@@ -3043,6 +3084,7 @@ def convert_with_edge_engine(item, params, log_q, cancel_check) -> None:
             cancel_check=cancel_check,
             progress_callback=None,
             **{k: v for k, v in pause_kw.items() if k not in skip},
+            **speech_prep_kwargs(params),
         )
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(produced, str(destination))
@@ -3079,6 +3121,7 @@ def convert_with_kokoro(item, params, log_q, log, cancel_check) -> None:
             # only the Edge direct path read it, so the local engines silently
             # produced whatever ffmpeg defaulted to.
             bitrate=params["bitrate"],
+            **speech_prep_kwargs(params),
         )
 
     if source.suffix.lower() == ".txt":
@@ -3133,6 +3176,7 @@ def convert_with_chatterbox(item, params, log_q, log, cancel_check) -> None:
             # only the Edge direct path read it, so the local engines silently
             # produced whatever ffmpeg defaulted to.
             bitrate=params["bitrate"],
+            **speech_prep_kwargs(params),
         )
 
     if source.suffix.lower() == ".txt":
@@ -3185,6 +3229,7 @@ def convert_with_qwen3(item, params, log_q, log, cancel_check) -> None:
             cancel_check=cancel_check,
             progress_callback=progress,
             bitrate=params["bitrate"],
+            **speech_prep_kwargs(params),
         )
 
     if source.suffix.lower() == ".txt":
