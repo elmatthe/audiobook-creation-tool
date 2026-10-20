@@ -13,6 +13,7 @@ preview it finds, regenerates the folder's README from the manifest, and states 
     python files/dev-tools/voice_previews.py check               # validate manifest + files + README (exit 1 on a problem)
     python files/dev-tools/voice_previews.py sync                # list exactly the registry's voices; migrate the old block
     python files/dev-tools/voice_previews.py generate [VOICE_ID ...]   # make previews for authorized voices that lack one
+    python files/dev-tools/voice_previews.py generate --provisional-transcripts [VOICE_ID ...]   # clones from Whisper drafts (labelled)
     python files/dev-tools/voice_previews.py readme              # rewrite the folder README from the manifest
 
 Previews are made through the PRODUCTION engine entry points (Kokoro, Chatterbox and Qwen3 file-to-MP3, and the Edge folder
@@ -22,11 +23,14 @@ its owner-approved, reference-bound transcript.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import hashlib
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -34,12 +38,18 @@ import numpy as np
 import soundfile as sf
 
 ROOT = Path(__file__).resolve().parents[2]
+TOOLS_DIR = Path(__file__).resolve().parent
 SCRIPTS = ROOT / "scripts"
 PREVIEW_DIR = ROOT / "files" / "voice-previews"
 MANIFEST = PREVIEW_DIR / "previews.json"
 README = PREVIEW_DIR / "README.md"
 #: Direct links to the raw WAVs on the feature branch, so each row of the README is one click from the audio. GitHub serves a raw
 #: file as a download, so a click saves the WAV and opens it in the default audio player.
+#: Whisper's drafts of the six clone reference recordings. NOT owner-approved. ``generate --provisional-transcripts`` may use them
+#: for listening samples only; the application itself never does (it needs an approved, reference-bound transcript).
+PROVISIONAL_DRAFTS = ROOT / "files" / "dev-work" / "qwen3-eval" / "runs" / "qwen3-initial" / "transcripts" / "verified.json"
+TRANSCRIPT_APPROVED, TRANSCRIPT_PROVISIONAL = "owner-approved", "provisional"
+PROVISIONAL_SOURCE = "Whisper draft of the original reference recording; not owner-approved"
 RAW_BASE = "https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/"
 
 SAMPLE_TEXT = ("Welcome. This is a short sample of my voice, reading a calm passage at an even pace, "
@@ -50,6 +60,15 @@ EDGE_SILENCE_MS = 120  # leading/trailing silence is trimmed to this
 SILENCE_DB = -50.0
 PEAK_LIMIT = 0.999
 MIN_RMS_DB = -45.0
+#: A preview must begin from near-silence: loud sound in the first few milliseconds means the clip starts mid-sound, i.e. the first
+#: word is cut or the clone's output opens with a leftover of its reference recording (which ends mid-speech for some voices).
+ONSET_DB = -50.0
+ONSET_MS = 10
+MAX_TAKES = 6  # a clone whose take fails validation is re-rendered with the next seed take, at most this many times
+TAKE_SEED_STEP = 1_000_003
+READBACK_MAX_WER = 0.10
+FRAGMENT_MAX_MS = 600  # a leftover longer than this is not a leftover: it is speech, and the clip is left to fail validation
+FRAGMENT_GAP_MS = 100  # the pause that must separate a leftover from the real speech
 
 SCHEMA = 2  # 1 = the 2026-10-19 rights gate (17 voices blocked); 2 = the owner's 2026-10-20 publication decision
 
@@ -229,6 +248,37 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _frame_db(audio: np.ndarray, rate: int, frame_ms: int = 10) -> np.ndarray:
+    size = max(1, int(rate * frame_ms / 1000))
+    count = audio.size // size
+    frames = audio[:count * size].reshape(count, size)
+    return 20 * np.log10(np.maximum(np.sqrt(np.mean(np.square(frames), axis=1)), 1e-9))
+
+
+def strip_leading_fragment(audio: np.ndarray, rate: int, keep_ms: int = EDGE_SILENCE_MS) -> tuple[np.ndarray, int]:
+    """Drop a short leftover that opens a clone's output, returning ``(audio, milliseconds_removed)``.
+
+    A clone is conditioned on its reference recording, and some references end mid-speech: the clone can then open with the tail of
+    that speech before it starts the real text. If, and only if, the clip begins mid-sound AND that opening sound is at most
+    :data:`FRAGMENT_MAX_MS` AND a clear pause of at least :data:`FRAGMENT_GAP_MS` follows it, the opening is removed (keeping
+    ``keep_ms`` of the pause as the clip's leading silence). Otherwise nothing is touched and validation judges the clip as it is,
+    so this can never hide a swallowed word: the speech read-back still has to hear the whole sentence.
+    """
+    size = max(1, int(rate * ONSET_MS / 1000))
+    if audio.size < size * 2 or 20 * np.log10(max(float(np.sqrt(np.mean(np.square(audio[:size])))), 1e-9)) <= ONSET_DB:
+        return audio, 0
+    quiet = _frame_db(audio, rate) < SILENCE_DB
+    gap_frames = FRAGMENT_GAP_MS // 10
+    start = next((i for i in range(len(quiet) - gap_frames + 1) if quiet[i:i + gap_frames].all()), None)
+    if start is None or start * 10 > FRAGMENT_MAX_MS:
+        return audio, 0
+    speech = next((j for j in range(start, len(quiet)) if not quiet[j]), None)
+    if speech is None:
+        return audio, 0
+    cut = max(start * size, speech * size - int(rate * keep_ms / 1000))
+    return audio[cut:], int(round(cut * 1000 / rate))
+
+
 def trim_edges(audio: np.ndarray, rate: int, keep_ms: int = EDGE_SILENCE_MS, threshold_db: float = SILENCE_DB) -> np.ndarray:
     """Trim leading/trailing silence down to ``keep_ms`` each side. Never touches the speech itself."""
     amplitude = np.abs(audio)
@@ -266,7 +316,63 @@ def audio_problems(path: Path) -> list[str]:
     rms_db = 20 * np.log10(max(float(np.sqrt(np.mean(np.square(data)))), 1e-9))
     if rms_db < MIN_RMS_DB:
         problems.append(f"is nearly silent (RMS {rms_db:.0f} dBFS)")
+    head = data[:max(1, int(rate * ONSET_MS / 1000))]
+    onset_db = 20 * np.log10(max(float(np.sqrt(np.mean(np.square(head)))), 1e-9))
+    if onset_db > ONSET_DB:
+        problems.append(f"begins mid-sound ({onset_db:.0f} dBFS in the first {ONSET_MS} ms): the first word is cut or a leftover "
+                        "of the reference opens the clip")
     return problems
+
+
+def read_back_problems(path: Path) -> list[str]:
+    """Read a clone take back with the local whisper-small.en (inside ``.venv-qwen3``) and compare it with the sample sentence.
+
+    A missing first or last word, or a wrong sentence, is a problem. When the speech recognizer is not installed here the check cannot
+    run, and that is itself reported (never silently passed).
+    """
+    sys.path.insert(0, str(TOOLS_DIR))
+    from qwen3_calm_experiment import WHISPER_DIR, words_of, word_error_rate
+
+    rt = _qwen3_runtime()
+    if not Path(WHISPER_DIR).is_dir() or not Path(rt.venv_python()).is_file():
+        return ["the speech read-back check cannot run here (no local whisper-small.en)"]
+    out = path.with_suffix(".readback.json")
+    result = subprocess.run([str(rt.venv_python()), "-I", str(TOOLS_DIR / "qwen3_calm_venv_tools.py"), "asr", str(WHISPER_DIR),
+                             str(out), str(path)], capture_output=True, text=True, env=rt.worker_environment())
+    try:
+        heard = json.loads(out.read_text(encoding="utf-8"))[str(path)]
+    except (OSError, ValueError, KeyError):
+        return [f"the speech read-back failed ({(result.stderr or '')[-200:].strip()})"]
+    finally:
+        out.unlink(missing_ok=True)
+    expected, got = words_of(SAMPLE_TEXT), words_of(heard)
+    problems = []
+    if not got or got[0] != expected[0]:
+        problems.append(f"the first word is not spoken (heard {' '.join(got[:2]) or 'nothing'!r}, expected {expected[0]!r})")
+    if not got or got[-1] != expected[-1]:
+        problems.append("the last word is not spoken")
+    wer = word_error_rate(SAMPLE_TEXT, heard)
+    if wer > READBACK_MAX_WER:
+        problems.append(f"read back with a word error rate of {wer:.2f}")
+    return problems
+
+
+@contextlib.contextmanager
+def seed_take(take: int):
+    """Take 0 is the application's own seeds. A later take shifts the seed base for one render only, so each chunk's seed stays
+    deterministic (and recorded); the application's seed base is restored afterwards."""
+    if take == 0:
+        yield
+        return
+    sys.path.insert(0, str(SCRIPTS))
+    from tts import qwen3_synth
+
+    original = qwen3_synth.SEED_BASE
+    qwen3_synth.SEED_BASE = original + take * TAKE_SEED_STEP
+    try:
+        yield
+    finally:
+        qwen3_synth.SEED_BASE = original
 
 
 # --------------------------------------------------------------------------- #
@@ -314,7 +420,20 @@ def manifest_problems(data: dict) -> list[str]:
             if is_clone(record) and preview.get("generation_profile") != current_clone_profile():
                 problems.append(f"{vid}: this clone preview was not made under the application's current clone generation profile "
                                 "(regenerate it)")
-            if not is_clone(record) and "generation_profile" in preview:
+            if is_clone(record):
+                transcript = preview.get("transcript") or {}
+                if transcript.get("status") not in (TRANSCRIPT_APPROVED, TRANSCRIPT_PROVISIONAL) \
+                        or not re.fullmatch(r"[0-9a-f]{64}", str(transcript.get("text_sha256"))):
+                    problems.append(f"{vid}: a clone preview must record whether its transcript is owner-approved or provisional")
+                elif transcript["status"] == TRANSCRIPT_PROVISIONAL and not transcript.get("source"):
+                    problems.append(f"{vid}: a provisional transcript must say where it came from")
+            if is_clone(record) and (not isinstance(preview.get("leading_fragment_trimmed_ms"), int)
+                                     or preview["leading_fragment_trimmed_ms"] < 0):
+                problems.append(f"{vid}: a clone preview must record how much leading leftover was removed (0 if none)")
+            if is_clone(record) and (not isinstance(preview.get("seed_take"), int) or preview["seed_take"] < 0):
+                problems.append(f"{vid}: a clone preview must record which seed take it is (0 is the application's own seeds)")
+            if not is_clone(record) and ("generation_profile" in preview or "transcript" in preview or "seed_take" in preview
+                                        or "leading_fragment_trimmed_ms" in preview):
                 problems.append(f"{vid}: only a Qwen3 clone preview records a clone generation profile")
     return problems
 
@@ -364,7 +483,87 @@ def current_clone_profile() -> dict:
     sys.path.insert(0, str(SCRIPTS))
     from tts import qwen3_synth
 
-    return {"revision": qwen3_synth.CLONE_GENERATION_REVISION, **qwen3_synth.CLONE_GENERATION}
+    return {"revision": qwen3_synth.CLONE_GENERATION_REVISION, **qwen3_synth.CLONE_GENERATION,
+            "reference_tail_silence_s": qwen3_synth.CLONE_REFERENCE_TAIL_SILENCE_S}
+
+
+def _qwen3_runtime():
+    sys.path.insert(0, str(SCRIPTS))
+    from tts import qwen3_runtime
+
+    return qwen3_runtime
+
+
+def provisional_transcripts(path: Path | None = None) -> dict:
+    """``voice_id -> Whisper draft`` for the six clones, each proven bound to the recording the app registered.
+
+    Development only. This never approves anything and writes nothing: it only supplies listening-sample text, and a preview made
+    from it is recorded (and labelled in the README) as provisional.
+    """
+    rt = _qwen3_runtime()
+    try:
+        data = json.loads(Path(path or PROVISIONAL_DRAFTS).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise PreviewError(f"the provisional transcript drafts could not be read ({exc})") from exc
+    out = {}
+    for voice in rt.QWEN3_VOICES:
+        if voice.kind != rt.KIND_CLONE:
+            continue
+        entry = data.get(voice.reference_name) if isinstance(data, dict) else None
+        text = entry.get("text") if isinstance(entry, dict) else None
+        if not isinstance(text, str) or not text.strip() or len(text) > rt.MAX_TRANSCRIPT_CHARS:
+            raise PreviewError(f"{voice.voice_id}: there is no usable draft transcript")
+        if entry.get("wav_sha256") != voice.reference_sha256:
+            raise PreviewError(f"{voice.voice_id}: the draft was made for a different recording than the app's")
+        out[voice.voice_id] = text.strip()
+    return out
+
+
+@contextlib.contextmanager
+def provisional_loader(texts: dict):
+    """For the duration of one synthesis, let ``load_transcript`` answer with these drafts for exactly these voices.
+
+    The production rule is unchanged for every other voice and outside the ``with``: this only changes what the preview tool's own
+    process sees, and the answer says plainly that it is provisional. Nothing is written to the approved-transcripts file.
+    """
+    rt = _qwen3_runtime()
+    original = rt.load_transcript
+
+    def load_transcript(voice_id, *, paths=None):
+        if voice_id in texts:
+            return rt.Transcript(True, texts[voice_id], "provisional Whisper draft (NOT owner-approved)")
+        return original(voice_id, paths=paths)
+
+    rt.load_transcript = load_transcript
+    try:
+        yield
+    finally:
+        rt.load_transcript = original
+
+
+def provisional_reason(entry) -> str | None:
+    """Why a clone cannot be made here even with a provisional transcript: platform, environment, model or reference."""
+    rt = _qwen3_runtime()
+    voice = rt.get_voice(entry.voice_id)
+    if not rt.platform_supported():
+        return rt.platform_reason()
+    for check in (rt.environment_status, lambda: rt.model_status(voice.model_key), lambda: rt.reference_status(voice)):
+        ok, reason = check()
+        if not ok:
+            return reason
+    return None
+
+
+def transcript_record(voice_id: str, provisional: dict) -> dict:
+    """What a clone preview records about its transcript: a hash, never the text, and whether the owner approved it."""
+    rt = _qwen3_runtime()
+    if voice_id in provisional:
+        return {"status": TRANSCRIPT_PROVISIONAL, "source": PROVISIONAL_SOURCE,
+                "text_sha256": rt.transcript_sha256(provisional[voice_id])}
+    transcript = rt.load_transcript(voice_id)
+    if not transcript.ok:
+        raise PreviewError(f"{voice_id}: no approved transcript to record")
+    return {"status": TRANSCRIPT_APPROVED, "text_sha256": rt.transcript_sha256(transcript.text)}
 
 
 def is_available(record: dict) -> bool:
@@ -406,7 +605,10 @@ def render_readme(data: dict) -> str:
         preview = v["preview"]
         link = f"[{preview['file']}]({RAW_BASE}{preview['file']})" if is_available(v) else \
             ("pending generation" if preview["status"] == PREVIEW_PENDING else "withdrawn")
-        lines.append(f"| {v['label']} | {v['backend']} | {link} | {publication[v['rights']['status']]} |")
+        note = ""
+        if is_clone(v) and is_available(v) and v["preview"]["transcript"]["status"] == TRANSCRIPT_PROVISIONAL:
+            note = " (provisional transcript)"
+        lines.append(f"| {v['label']} | {v['backend']} | {link} | {publication[v['rights']['status']]}{note} |")
     lines += [
         "", "## Publication decision", "",
         f"On {decision['date']} the owner decided: {decision['decision']} This supersedes the earlier restriction: "
@@ -423,9 +625,29 @@ def render_readme(data: dict) -> str:
                   "The six Qwen3 cloned voices are meant to narrate calmly and evenly, with less pitch, intensity and pace variation than the "
                   f"model's own sampling gives. They are generated at temperature {profile['temperature']:.2f} (the Base model's default is 0.90) "
                   f"and sub-talker temperature {profile['subtalker_temperature']:.2f} (also 0.90 by default); top_p, top_k, the repetition "
-                  "penalty and each chunk's seed are unchanged. The previews are made by the application's own clone path with that profile "
-                  f"(profile revision {profile['revision']}), each from its original reference recording and an owner-approved transcript. "
+                  "penalty and each chunk's seed are unchanged. The copy of the reference recording the clone is conditioned on also gets "
+                  f"{profile['reference_tail_silence_s']:.1f} s of silence after it, because some references end mid-sound and the clone then "
+                  "opens with a leftover of it. The previews are made by the application's own clone path with that profile "
+                  f"(profile revision {profile['revision']}), each from its original reference recording. "
                   "Neither the recordings nor the transcripts are published here.", ""]
+        retaken = [v for v in clones if v["preview"]["seed_take"] > 0]
+        if retaken:
+            lines += [f"Every clone take is checked before it is published: it must begin from near-silence and, read back by speech recognition, "
+                      "say the whole sentence. The reference recordings of some voices end mid-speech, and a clone can then open with a "
+                      f"leftover of that speech; {len(retaken)} of the clone previews were therefore re-rendered with the next seed take "
+                      "(`seed_take` in `previews.json`; 0 is the application's own seeds). The application itself does not filter that "
+                      "opening.", ""]
+        trimmed = [v for v in clones if v["preview"]["leading_fragment_trimmed_ms"] > 0]
+        if trimmed:
+            lines += [f"{len(trimmed)} of the clone previews ({', '.join(v['label'] for v in trimmed)}) opened with a short leftover of the end "
+                      "of their reference recording, which ends mid-speech; that opening sound (under 0.6 s, followed by a clear pause) was "
+                      "removed from the preview, and the sentence was read back in full by speech recognition afterwards "
+                      "(`leading_fragment_trimmed_ms` in `previews.json`). The application's own clone path does not remove it.", ""]
+        provisional = [v for v in clones if v["preview"]["transcript"]["status"] == TRANSCRIPT_PROVISIONAL]
+        if provisional:
+            lines += [f"**{len(provisional)} of the clone previews use a provisional reference transcript:** Whisper's draft of the "
+                      "recording, which the owner has not approved. They are listening samples only. The application still refuses to "
+                      "make a clone without an approved, reference-bound transcript, and these previews do not approve one.", ""]
     pending = [v for v in data["voices"] if v["preview"]["status"] == PREVIEW_PENDING and v["rights"]["status"] in AUTHORIZED]
     if pending:
         lines += ["## Pending previews", ""]
@@ -593,7 +815,7 @@ def publish(record: dict, meta: dict, candidate: Path, target: Path, data: dict,
         raise
 
 
-def generate(voice_ids: list[str] | None = None, log=print) -> dict:
+def generate(voice_ids: list[str] | None = None, log=print, provisional: bool = False, takes: int = 1, readback=None) -> dict:
     """Make previews for confirmed voices. A voice that fails is reported and skipped; the others are kept.
 
     A failed take never touches the previous good preview: the new audio is validated and its metadata computed in the
@@ -605,6 +827,7 @@ def generate(voice_ids: list[str] | None = None, log=print) -> dict:
         raise PreviewError("the manifest is inconsistent; fix it before generating: " + "; ".join(problems[:3]))
     failures: list[str] = []
     registry = {e.voice_id: e for e in registry_voices()}
+    drafts = provisional_transcripts() if provisional else {}  # dev-only listening-sample text; approves nothing
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     scratch = PREVIEW_DIR / ".scratch"
     recovery = sorted(p.name for pattern in ("*.bak", "*.previous.wav") for p in scratch.glob(pattern))
@@ -625,7 +848,10 @@ def generate(voice_ids: list[str] | None = None, log=print) -> dict:
                 continue
             if is_available(record) and not voice_ids:
                 continue
-            reason = unavailable_reason(registry[vid])  # the app's own answer: a missing model, reference or transcript
+            if vid in drafts:  # explicit provisional mode: everything but the transcript approval is still checked
+                reason = provisional_reason(registry[vid])
+            else:
+                reason = unavailable_reason(registry[vid])  # the app's own answer: a missing model, reference or transcript
             if reason:
                 log(f"PENDING  {vid}: {reason}" + ("; the existing preview is kept" if is_available(record) else ""))
                 continue
@@ -633,19 +859,38 @@ def generate(voice_ids: list[str] | None = None, log=print) -> dict:
             candidate = scratch / f"{vid}.candidate.wav"
             try:
                 raw = scratch / f"{vid}.wav"
-                synthesize(registry[vid], text_path, raw)
-                audio, rate = sf.read(str(raw), dtype="float32")
-                if audio.ndim != 1:
-                    raise PreviewError(f"{vid}: the engine returned a non-mono waveform")
-                sf.write(str(candidate), trim_edges(audio, rate), rate, subtype="PCM_16")
-                issues = audio_problems(candidate)
-                if issues:
-                    raise PreviewError(f"{vid}: the generated preview is not valid: {'; '.join(issues)}")
+                clone = is_clone(record)
+                chosen, rejected, trimmed = None, [], 0
+                for take in range(max(1, min(takes, MAX_TAKES)) if clone else 1):
+                    with provisional_loader({vid: drafts[vid]} if vid in drafts else {}), seed_take(take):
+                        synthesize(registry[vid], text_path, raw)
+                    audio, rate = sf.read(str(raw), dtype="float32")
+                    if audio.ndim != 1:
+                        raise PreviewError(f"{vid}: the engine returned a non-mono waveform")
+                    removed = 0
+                    if clone:
+                        audio, removed = strip_leading_fragment(audio, rate)
+                    sf.write(str(candidate), trim_edges(audio, rate), rate, subtype="PCM_16")
+                    issues = audio_problems(candidate)
+                    if not issues and clone and readback is not None:
+                        issues = readback(candidate)
+                    if not issues:
+                        chosen, trimmed = take, removed
+                        break
+                    rejected.append(f"take {take}: {'; '.join(issues)}")
+                    log(f"REJECTED {vid}: take {take}: {'; '.join(issues)}")
+                if chosen is None:
+                    raise PreviewError(f"{vid}: the generated preview is not valid: {' | '.join(rejected)}")
                 meta = {"status": PREVIEW_GENERATED, "file": target.name, "sha256": sha256_file(candidate),
                         "duration_s": round(sf.info(str(candidate)).duration, 2), "sample_rate": rate,
                         "generated_on": datetime.date.today().isoformat()}
-                if is_clone(record):  # the clone is made by the application's own profile; record exactly which
+                if clone:  # the clone is made by the application's own profile; record exactly which
                     meta["generation_profile"] = current_clone_profile()
+                    meta["transcript"] = transcript_record(vid, drafts)
+                    meta["seed_take"] = chosen
+                    meta["leading_fragment_trimmed_ms"] = trimmed
+                    if readback is not None:
+                        meta["read_back_checked"] = True
             except Exception as exc:  # noqa: BLE001 - one voice failing must not lose the others
                 failures.append(f"{vid}: {exc}")  # nothing was published, so the previous good preview is untouched
                 log(f"FAILED   {vid}: {exc}")
@@ -679,7 +924,14 @@ def main(argv: list[str]) -> int:
             print(json.dumps(counts(data)))
             return 0
         if command == "generate":
-            data = generate(argv[1:] or None)
+            flag = "--provisional-transcripts"
+            rest = [a for a in argv[1:] if a != flag]
+            takes = MAX_TAKES
+            if "--takes" in rest:  # --takes N: how many seed takes a clone may use (default: MAX_TAKES)
+                index = rest.index("--takes")
+                takes = int(rest[index + 1])
+                del rest[index:index + 2]
+            data = generate(rest or None, provisional=flag in argv[1:], takes=takes, readback=read_back_problems)
             print(json.dumps(counts(data)))
             return 1 if data.get("_failures") else 0
         if command == "readme":

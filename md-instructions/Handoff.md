@@ -2,6 +2,23 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 voice previews: 28 of 28 PUBLISHED; the six Qwen3 clone previews await the owner's listening review (2026-10-20, HOME-PC)
+
+- **Done:** the six clone previews (`qwen3-female-1/2`, `qwen3-male-1..4`) are generated and published in `files/voice-previews/`, so the set is 28 of 28; the 22 earlier WAVs are unchanged. The README links every WAV directly
+  (GitHub serves raw files as downloads: click, save, play).
+- **Generation configuration:** the production Qwen3 Base clone path in `.venv-qwen3`, each clone from its ORIGINAL reference recording in `files/Chatterbox-Voice-Uploads/`, the common preview sentence, temperature 0.70 and
+  sub-talker temperature 0.80 (defaults were 0.90 / 0.90), top_p/top_k/repetition_penalty and the per-chunk seeds unchanged, and 0.6 s of silence appended to the reference COPY the worker receives (production change; see Decisions).
+- **Transcripts are PROVISIONAL:** Whisper's drafts (owner-authorized for these samples only). They are not owner-approved: all six remain `approved: false`, the application still refuses a clone without an approved transcript,
+  and the owner's decisions JSON never reached the importer. After listening, the owner still approves the transcripts (review page: `files/dev-work/qwen3-eval/transcript-review/review.html`, then the importer) and the previews are
+  re-rendered with `voice_previews.py generate qwen3-female-1 ...` (without `--provisional-transcripts`).
+- **Defect found and fixed on the way:** three references end mid-sound, which made Female 1, Female 2 and Male 4 open with a stray leftover (Male 4 also lost "Welcome"). Fixed at the cause (reference tail silence), not by trimming;
+  with it all six passed on the application's own seeds. This is a real change to how every cloned chunk starts, so the listening review should also judge the openings.
+- **Verification (focused only):** preview tool 101 tests; synth/worker/runtime/GUI/packaging, the dev harness and review tool, release packaging, layout/boundary guards and the A0 check pass; new guards mutation-checked. Audio: all
+  28 previews read back at word error rate 0.00 (whisper-small.en); clone pitch tracks the references (Female 1 196 vs 198 Hz, Female 2 210 vs 223, Male 1 75 vs 77, Male 2 135 vs 141, Male 3 108 vs 89, Male 4 99 vs 92); none clips
+  (loudest: Male 3 peak 0.95, Male 1 0.91); every clip begins from silence. NOT established: naturalness, calmness, likeness -- only the owner's listening can.
+- **Pending owner:** listen to the six and give each PASS / NEEDS ADJUSTMENT; approve the transcripts for production use. Deferred until afterwards: the remaining v0.6.7 work, then the ONE consolidated independent Codex review (now also
+  covering the clone profile and the reference-tail fix), resolution of verified findings, and S5. Not started: Plan 02, B2, PR, merge, tag, release.
+
 ## CURRENT STATE — v0.6.7 Qwen3 clones: transcript-review page and calm-narration harness READY; STOPPED at the owner gate (2026-10-20, HOME-PC)
 
 - **Owner preference:** calm, restrained, consistent clone narration (less pitch/emotion/pace swing than Chatterbox) with identity, accent, text and the original WAVs preserved. Decisions 2026-10-20 (Qwen3 clone narration) has the facts and the gate.

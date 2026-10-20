@@ -777,11 +777,14 @@ def test_a_clone_is_made_from_a_verified_snapshot_not_from_the_pathname(fake, mo
     import hashlib
     from dataclasses import replace
 
-    original = b"RIFF the approved reference recording"
+    reference = tmp_path / "Male-4.wav"
+    sf.write(str(reference), (0.1 * np.sin(np.arange(24000) / 7)).astype("float32"), 24000, subtype="PCM_16")
+    original = reference.read_bytes()
     voice = replace(rt.get_voice("qwen3-male-4"), reference_sha256=hashlib.sha256(original).hexdigest())
     monkeypatch.setitem(rt._VOICE_BY_ID, "qwen3-male-4", voice)
-    reference = tmp_path / "Male-4.wav"
-    reference.write_bytes(original)
+    padded = tmp_path / "expected-padded.wav"
+    padded.write_bytes(original)
+    qs.pad_reference_tail(padded)
     monkeypatch.setattr(rt, "reference_path", lambda v: reference)
     monkeypatch.setattr(rt, "load_transcript", lambda voice_id: rt.Transcript(True, "approved fixture words", "ok"))
     seen = tmp_path / "job-seen.json"
@@ -795,9 +798,11 @@ def test_a_clone_is_made_from_a_verified_snapshot_not_from_the_pathname(fake, mo
                          encoder=lambda *a, **k: Path(a[1]).write_bytes(b"MP3"))
     job = json.loads(seen.read_text("utf-8"))
     assert Path(job["reference_wav"]).parent.parent == fake.jobs  # the copy inside the job folder, not the repository path
-    assert job["_reference_sha256"] == voice.reference_sha256  # and the worker read exactly the approved bytes
+    # the worker read exactly the approved recording, followed by the tail of silence and nothing else
+    assert job["_reference_sha256"] == hashlib.sha256(padded.read_bytes()).hexdigest() != voice.reference_sha256
+    assert reference.read_bytes() == original  # the approved recording itself is never modified
 
-    reference.write_bytes(b"RIFF a substituted recording")  # replaced after approval, before the run reads it
+    sf.write(str(reference), (0.1 * np.sin(np.arange(24000) / 5)).astype("float32"), 24000, subtype="PCM_16")  # replaced after approval
     with pytest.raises(rt.Qwen3Unavailable, match="does not match the one Qwen3 - Male 4 was approved against"):
         qs.qwen3_file_to_mp3(str(source), str(tmp_path / "clone2.mp3"), "qwen3-male-4", python=Path(sys.executable),
                              script=fake.script, jobs_root=fake.jobs, env=env, availability=lambda v: (True, "ok"))
@@ -975,3 +980,56 @@ def test_a_clone_run_sends_the_worker_the_profile_and_logs_it_while_a_preset_run
     assert "generation" not in seen["qwen3-ryan"]
     assert any("clone generation profile 1: temperature 0.70, sub-talker 0.80" in line for line in logs["qwen3-male-3"])
     assert not any("generation profile" in line for line in logs["qwen3-ryan"])
+
+
+# --------------------------------------------------------------------------- #
+# The reference tail: a clone must not open with a leftover of a reference that ends mid-sound
+# --------------------------------------------------------------------------- #
+def test_the_reference_copy_gets_exactly_the_tail_of_silence_and_keeps_its_format(tmp_path):
+    for subtype, channels in (("PCM_16", 1), ("PCM_16", 2), ("FLOAT", 1)):
+        path = tmp_path / f"ref-{subtype}-{channels}.wav"
+        audio = (0.3 * np.sin(np.arange(24000 * 2 * channels) / 9)).astype("float32").reshape(-1, channels)
+        sf.write(str(path), audio, 24000, subtype=subtype)
+        before, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        qs.pad_reference_tail(path, 0.6)
+        after, rate2 = sf.read(str(path), dtype="float32", always_2d=True)
+        info = sf.info(str(path))
+        assert rate2 == rate == 24000 and info.subtype == subtype and info.channels == channels
+        assert after.shape[0] == before.shape[0] + int(24000 * 0.6)
+        assert np.array_equal(after[:before.shape[0]], before)  # every original sample, unchanged
+        assert not after[before.shape[0]:].any()  # and the added part is digital silence
+
+
+def test_the_profile_adds_a_tail_of_silence_to_the_clone_reference_only_and_records_it():
+    assert qs.CLONE_REFERENCE_TAIL_SILENCE_S == 0.6
+    assert qs.CLONE_GENERATION == {"temperature": 0.70, "subtalker_temperature": 0.80}  # sampling is unchanged by the padding
+
+
+def test_a_real_clone_reference_is_copied_padded_and_the_bundled_recording_is_untouched(tmp_path):
+    voice = rt.get_voice("qwen3-female-1")
+    source = rt.reference_path(voice)
+    before = rt.sha256_file(source)
+    snapshot = qs.snapshot_reference(voice, tmp_path)
+    original, rate = sf.read(str(source), dtype="float32")
+    copy, rate_copy = sf.read(str(snapshot), dtype="float32")
+    assert before == voice.reference_sha256 == rt.sha256_file(source)  # the repository file: same bytes as ever
+    assert rate_copy == rate and copy.size == original.size + int(rate * 0.6)
+    assert np.array_equal(copy[:original.size], original) and not copy[original.size:].any()
+    assert rt.sha256_file(snapshot) != voice.reference_sha256  # the padded copy is not the approved file; the check ran BEFORE padding
+
+
+def test_a_reference_that_cannot_be_prepared_is_refused_not_used_unpadded(tmp_path, monkeypatch):
+    voice = rt.get_voice("qwen3-male-2")
+    monkeypatch.setattr(qs, "pad_reference_tail", lambda path: (_ for _ in ()).throw(RuntimeError("disk full")))
+    with pytest.raises(rt.Qwen3Unavailable, match="could not be prepared"):
+        qs.snapshot_reference(voice, tmp_path)
+
+
+def test_a_preset_voice_never_has_a_reference_prepared(fake, monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(qs, "pad_reference_tail", lambda path: calls.append(path))
+    source = tmp_path / "t.txt"
+    source.write_text("Some text to read aloud.", encoding="utf-8")
+    qs.qwen3_file_to_mp3(str(source), str(tmp_path / "p.mp3"), "qwen3-aiden", python=Path(sys.executable), script=fake.script,
+                         jobs_root=fake.jobs, env=fake.env(), availability=lambda v: (True, "ok"))
+    assert calls == []

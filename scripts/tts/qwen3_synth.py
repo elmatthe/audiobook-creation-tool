@@ -83,6 +83,11 @@ CLONE_GENERATION = {"temperature": 0.70, "subtalker_temperature": 0.80}
 #: :data:`PIPELINE_REVISION` on purpose: that one describes the planner/seed/assembly code the immutable A0 characterization
 #: pins at 1, and the profile changes neither the text, nor the chunks, nor the seeds.
 CLONE_GENERATION_REVISION = 1
+#: A clone continues from its reference recording. Several of the bundled references were cut at a fixed length and end mid-sound
+#: (the Female 1, Female 2 and Male 4 recordings), and a clone conditioned on one opens every chunk with a stray leftover of that sound
+#: (or loses its first word). The copy of the reference handed to the worker therefore gets this much silence appended after it has
+#: been proved to be the approved recording; the recording itself, its hash and its transcript are untouched (silence adds no words).
+CLONE_REFERENCE_TAIL_SILENCE_S = 0.6
 
 LANGUAGE = "English"  # the only language the evaluation proved
 DTYPE = "bfloat16"
@@ -462,7 +467,19 @@ def snapshot_reference(voice: rt.Qwen3Voice, job_dir: Path) -> Path:
         raise Qwen3Unavailable(
             f"The reference recording '{voice.reference_name}.wav' does not match the one {voice.label} was approved "
             "against, so it will not be used.")
+    try:
+        pad_reference_tail(snapshot)  # only after the copy has been proved to be the approved recording
+    except (OSError, RuntimeError) as exc:
+        raise Qwen3Unavailable(f"Setup required for {voice.label}: its reference recording could not be prepared ({exc}).") from exc
     return snapshot
+
+
+def pad_reference_tail(path: Path, seconds: float = CLONE_REFERENCE_TAIL_SILENCE_S) -> None:
+    """Append ``seconds`` of digital silence to a WAV in place, keeping its sample rate, channels and sample format."""
+    info = sf.info(str(path))
+    audio, rate = sf.read(str(path), dtype="float32", always_2d=True)
+    padded = np.concatenate([audio, np.zeros((int(round(rate * seconds)), audio.shape[1]), dtype="float32")])
+    sf.write(str(path), padded, rate, subtype=info.subtype, format=info.format)
 
 
 def _tail(path: Path, limit: int = STDERR_TAIL_CHARS) -> str:
@@ -773,7 +790,8 @@ def qwen3_file_to_mp3(
             log(f"Qwen3: synthesizing {len(chunks)} chunk(s) in {voice.label}...")
             if voice.kind == rt.KIND_CLONE:
                 log(f"Qwen3 clone generation profile {CLONE_GENERATION_REVISION}: temperature {CLONE_GENERATION['temperature']:.2f}, "
-                    f"sub-talker {CLONE_GENERATION['subtalker_temperature']:.2f}")
+                    f"sub-talker {CLONE_GENERATION['subtalker_temperature']:.2f}, reference tail silence "
+                    f"{CLONE_REFERENCE_TAIL_SILENCE_S:.1f} s")
             job = build_job(voice, chunks, job_dir=job_dir, model_dir=model_dir, reference_text=reference_text,
                             device=device, reference_wav=reference)
             run = run_worker(job, job_dir, python=py, script=worker,

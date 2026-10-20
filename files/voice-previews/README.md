@@ -2,7 +2,7 @@
 
 Short (about 10 second) samples of the voices in the Audiobook Creation Tool, all reading the same sentence so they can be compared.
 
-> **22 of 28 previews are available.** The other 6 are **pending generation**: publication is authorized, but the audio cannot be made yet (see "Pending previews"). This folder is not a complete set until every row is available.
+> **28 of 28 previews are available.** 
 
 The sentence: *Welcome. This is a short sample of my voice, reading a calm passage at an even pace, so that you can decide whether it suits the story you want to hear, today or tomorrow.*
 
@@ -32,12 +32,12 @@ Each link below is the raw WAV. GitHub serves raw files as downloads, so a click
 | Chatterbox - Male 4 | chatterbox | [chatterbox-male-4.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/chatterbox-male-4.wav) | owner-authorized |
 | Qwen3 - Aiden | qwen3 | [qwen3-aiden.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-aiden.wav) | license reviewed |
 | Qwen3 - Ryan | qwen3 | [qwen3-ryan.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-ryan.wav) | license reviewed |
-| Qwen3 - Female 1 | qwen3 | pending generation | owner-authorized |
-| Qwen3 - Female 2 | qwen3 | pending generation | owner-authorized |
-| Qwen3 - Male 1 | qwen3 | pending generation | owner-authorized |
-| Qwen3 - Male 2 | qwen3 | pending generation | owner-authorized |
-| Qwen3 - Male 3 | qwen3 | pending generation | owner-authorized |
-| Qwen3 - Male 4 | qwen3 | pending generation | owner-authorized |
+| Qwen3 - Female 1 | qwen3 | [qwen3-female-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-female-1.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Female 2 | qwen3 | [qwen3-female-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-female-2.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 1 | qwen3 | [qwen3-male-1.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-1.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 2 | qwen3 | [qwen3-male-2.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-2.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 3 | qwen3 | [qwen3-male-3.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-3.wav) | owner-authorized (provisional transcript) |
+| Qwen3 - Male 4 | qwen3 | [qwen3-male-4.wav](https://github.com/elmatthe/audiobook-creation-tool/raw/feature/0.6.7-speech-pipeline-and-layout/files/voice-previews/qwen3-male-4.wav) | owner-authorized (provisional transcript) |
 
 ## Publication decision
 
@@ -49,16 +49,11 @@ On 2026-10-20 the owner decided: Short generated preview audio for all 28 regist
 - **Separate gate:** A Qwen3 clone preview is only generated from an owner-approved transcript bound to its reference recording's SHA-256.
 - **Separate gate:** Qwen3 production-clone qualification (S5) is unchanged by this decision.
 
-## Pending previews
+## The Qwen3 clone narration profile
 
-- **Qwen3 - Female 1**: Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate.
-- **Qwen3 - Female 2**: Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate.
-- **Qwen3 - Male 1**: Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate.
-- **Qwen3 - Male 2**: Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate.
-- **Qwen3 - Male 3**: Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate.
-- **Qwen3 - Male 4**: Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate.
+The six Qwen3 cloned voices are meant to narrate calmly and evenly, with less pitch, intensity and pace variation than the model's own sampling gives. They are generated at temperature 0.70 (the Base model's default is 0.90) and sub-talker temperature 0.80 (also 0.90 by default); top_p, top_k, the repetition penalty and each chunk's seed are unchanged. The copy of the reference recording the clone is conditioned on also gets 0.6 s of silence after it, because some references end mid-sound and the clone then opens with a leftover of it. The previews are made by the application's own clone path with that profile (profile revision 1), each from its original reference recording. Neither the recordings nor the transcripts are published here.
 
-To finish the pending Qwen3 clones: listen to each reference recording, correct its draft transcript so it matches exactly what is spoken, set that entry's `approved` to `true` (with the recording's `wav_sha256`), and keep the file at `files/runtime-data/qwen3/transcripts.json` (untracked; or point `ACT_QWEN3_TRANSCRIPTS` at it). Then run `python files/dev-tools/voice_previews.py generate qwen3-female-1 qwen3-female-2 qwen3-male-1 qwen3-male-2 qwen3-male-3 qwen3-male-4` and commit the new files. The transcript itself is never committed.
+**6 of the clone previews use a provisional reference transcript:** Whisper's draft of the recording, which the owner has not approved. They are listening samples only. The application still refuses to make a clone without an approved, reference-bound transcript, and these previews do not approve one.
 
 ## How they are made
 

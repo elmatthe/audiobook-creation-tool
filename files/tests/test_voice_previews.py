@@ -151,7 +151,23 @@ def complete_set(data):
         record["preview"] = {"status": vp.PREVIEW_GENERATED, "file": f"{record['voice_id']}.wav", "sha256": "0" * 64}
         if vp.is_clone(record):
             record["preview"]["generation_profile"] = vp.current_clone_profile()
+            record["preview"]["transcript"] = {"status": vp.TRANSCRIPT_APPROVED, "text_sha256": "1" * 64}
+            record["preview"]["seed_take"] = 0
+            record["preview"]["leading_fragment_trimmed_ms"] = 0
     return data
+
+
+def reset_clones_to_pending(folder):
+    """Put the six Qwen3 clones back to pending in the scratch copy, so these tests do not depend on how complete the real folder is."""
+    registry = {e.voice_id: e for e in vp.registry_voices()}
+    data = manifest()
+    for voice_id in CLONE_IDS:
+        record_of(voice_id, data)["preview"] = {"status": vp.PREVIEW_PENDING, "file": None,
+                                                 "pending_reason": vp.pending_reason_for(registry[voice_id])}
+        (folder / f"{voice_id}.wav").unlink(missing_ok=True)
+    vp.MANIFEST.write_text(json.dumps(data), encoding="utf-8")
+    vp.write_readme(data)
+
 
 
 def withdraw(record):
@@ -352,9 +368,11 @@ def test_the_previews_are_not_part_of_the_release_archive_or_bundled_anywhere():
 # --------------------------------------------------------------------------- #
 # The validator
 # --------------------------------------------------------------------------- #
-def write_wav(path, seconds=10.0, rate=24000, amplitude=0.2, subtype="PCM_16", channels=1):
+def write_wav(path, seconds=10.0, rate=24000, amplitude=0.2, subtype="PCM_16", channels=1, lead=0.15):
+    """A test tone that, like a real preview, begins from silence (``lead`` seconds of it); ``lead=0`` starts mid-sound."""
     t = np.arange(int(rate * seconds)) / rate
     wave = (amplitude * np.sin(2 * np.pi * 220 * t)).astype("float32")
+    wave[:int(rate * lead)] = 0
     if channels == 2:
         wave = np.stack([wave, wave], axis=1)
     sf.write(str(path), wave, rate, subtype=subtype)
@@ -421,6 +439,7 @@ def test_generate_refuses_a_voice_the_owner_has_withdrawn(folder, monkeypatch):
 
 
 def test_an_authorized_voice_the_machine_cannot_make_stays_pending_with_the_apps_own_reason(folder, monkeypatch):
+    reset_clones_to_pending(folder)
     """No transcript, model or reference: reported, never faked, never counted as a failure, nothing written."""
     monkeypatch.setattr(vp, "synthesize", lambda *a: pytest.fail("an engine ran for a voice that is unavailable"))
     monkeypatch.setattr(vp, "unavailable_reason", lambda entry: f"{entry.voice_id} needs its approved transcript")
@@ -511,6 +530,7 @@ def manifest_problems_of(mutate):
 
 
 def test_the_checker_catches_each_kind_of_inconsistency(folder):
+    reset_clones_to_pending(folder)
     base = manifest()
 
     def problems(mutate):
@@ -546,6 +566,7 @@ def test_the_checker_catches_each_kind_of_inconsistency(folder):
 
 
 def test_the_checker_flags_stray_audio_a_pending_voices_file_and_a_stale_readme(folder):
+    reset_clones_to_pending(folder)
     pending = next(v["voice_id"] for v in manifest()["voices"] if v["preview"]["status"] == vp.PREVIEW_PENDING)
     shutil.copy(folder / "af_heart.wav", folder / "extra-take.wav")
     shutil.copy(folder / "af_heart.wav", folder / f"{pending}.wav")  # a stand-in under a pending voice's name
@@ -873,7 +894,7 @@ def test_every_available_preview_has_a_direct_raw_wav_link_to_a_file_that_exists
 
 def test_the_clone_profile_is_recorded_for_every_clone_preview_and_only_for_those():
     profile = vp.current_clone_profile()
-    assert profile == {"revision": 1, "temperature": 0.7, "subtalker_temperature": 0.8}
+    assert profile == {"revision": 1, "temperature": 0.7, "subtalker_temperature": 0.8, "reference_tail_silence_s": 0.6}
     for record in manifest()["voices"]:
         if record["preview"]["status"] != vp.PREVIEW_GENERATED:
             continue
@@ -900,11 +921,415 @@ def test_a_clone_preview_made_under_another_profile_or_none_is_a_problem_and_blo
     assert any("only a Qwen3 clone preview records" in p for p in vp.manifest_problems(data))
 
 
-def test_generating_a_clone_records_the_profile_and_other_voices_do_not(folder, monkeypatch):
+def test_generating_a_clone_records_the_profile_and_the_approved_transcript_hash_and_other_voices_do_not(folder, monkeypatch):
+    from tts import qwen3_runtime as rt
+
     monkeypatch.setattr(vp, "synthesize", succeed)
     monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id, **k: rt.Transcript(True, "approved words", "ok"))
     data = vp.generate(["qwen3-female-1", "af_heart"], log=lambda m: None)
     assert not data["_failures"]
-    assert record_of("qwen3-female-1", data)["preview"]["generation_profile"] == vp.current_clone_profile()
-    assert "generation_profile" not in record_of("af_heart", data)["preview"]
+    clone = record_of("qwen3-female-1", data)["preview"]
+    assert clone["generation_profile"] == vp.current_clone_profile()
+    assert clone["transcript"] == {"status": "owner-approved", "text_sha256": rt.transcript_sha256("approved words")}
+    assert clone["seed_take"] == 0 and clone["leading_fragment_trimmed_ms"] == 0 and "read_back_checked" not in clone  # no recognizer was supplied, and the record says so
+    assert "approved words" not in json.dumps(data)  # a hash is recorded, never the text
+    other = record_of("af_heart", data)["preview"]
+    assert not {"generation_profile", "transcript", "seed_take", "leading_fragment_trimmed_ms"} & set(other)
     assert vp.check({k: v for k, v in data.items() if k != "_failures"}, folder) == []
+
+
+# --------------------------------------------------------------------------- #
+# Provisional transcripts (owner authorization: listening samples only; production approval untouched)
+# --------------------------------------------------------------------------- #
+@pytest.fixture()
+def drafts_file(tmp_path):
+    from tts import qwen3_runtime as rt
+
+    data = {v.reference_name: {"text": f"Provisional words for {v.reference_name}.", "approved": False,
+                               "wav_sha256": v.reference_sha256} for v in rt.QWEN3_VOICES if v.kind == rt.KIND_CLONE}
+    path = tmp_path / "verified.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_the_provisional_drafts_must_be_bound_to_the_registered_recordings(drafts_file):
+    texts = vp.provisional_transcripts(drafts_file)
+    assert sorted(texts) == sorted(CLONE_IDS) and texts["qwen3-male-2"] == "Provisional words for Male-2."
+    data = json.loads(drafts_file.read_text("utf-8"))
+    for mutate, message in ((lambda d: d["Male-1"].update(wav_sha256="0" * 64), "different recording"),
+                            (lambda d: d["Male-1"].update(text="  "), "no usable draft"),
+                            (lambda d: d["Male-1"].update(text="x" * 2001), "no usable draft"),
+                            (lambda d: d.pop("Female-2"), "no usable draft")):
+        bad = json.loads(json.dumps(data))
+        mutate(bad)
+        drafts_file.write_text(json.dumps(bad), encoding="utf-8")
+        with pytest.raises(vp.PreviewError, match=message):
+            vp.provisional_transcripts(drafts_file)
+    with pytest.raises(vp.PreviewError, match="could not be read"):
+        vp.provisional_transcripts(drafts_file.with_name("missing.json"))
+
+
+def test_the_provisional_loader_answers_only_for_its_voices_and_only_inside_the_with(tmp_path):
+    from tts import qwen3_runtime as rt
+
+    original = rt.load_transcript
+    none = tmp_path / "none.json"  # no approved transcripts anywhere
+    with vp.provisional_loader({"qwen3-male-1": "draft words"}):
+        got = rt.load_transcript("qwen3-male-1")
+        assert got.ok and got.text == "draft words" and "NOT owner-approved" in got.reason
+        assert not rt.load_transcript("qwen3-male-2", paths=[none]).ok  # every other clone still needs a real approval
+        assert rt.load_transcript("qwen3-aiden").ok  # presets need none, as always
+    assert rt.load_transcript is original  # restored
+    assert not rt.load_transcript("qwen3-male-1", paths=[none]).ok  # and production approval is exactly as strict as before
+    with pytest.raises(RuntimeError):
+        with vp.provisional_loader({"qwen3-male-1": "x"}):
+            raise RuntimeError("synthesis failed")
+    assert rt.load_transcript is original  # restored even when the synthesis fails
+
+
+def test_a_provisional_run_makes_clones_labels_them_and_never_writes_an_approval(folder, monkeypatch, drafts_file, tmp_path):
+    from tts import qwen3_runtime as rt
+
+    seen = []
+
+    def synth(entry, text_path, out_wav):
+        seen.append(rt.load_transcript(entry.voice_id).text)  # what the production path would read at this moment
+        write_wav(out_wav, seconds=10.0, amplitude=0.1)
+
+    approved_file = tmp_path / "approved" / "transcripts.json"
+    monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(approved_file))
+    monkeypatch.setattr(vp, "PROVISIONAL_DRAFTS", drafts_file)
+    monkeypatch.setattr(vp, "synthesize", synth)
+    monkeypatch.setattr(vp, "provisional_reason", lambda entry: None)
+    logs = []
+    data = vp.generate(["qwen3-female-1", "qwen3-male-4"], log=logs.append, provisional=True)
+    assert not data["_failures"] and seen == ["Provisional words for Female-1.", "Provisional words for Male-4."]
+    for voice_id in ("qwen3-female-1", "qwen3-male-4"):
+        preview = record_of(voice_id, data)["preview"]
+        assert preview["transcript"]["status"] == "provisional" and "not owner-approved" in preview["transcript"]["source"]
+        assert preview["transcript"]["text_sha256"] == rt.transcript_sha256(seen[0 if voice_id.endswith("1") else 1])
+        assert preview["generation_profile"] == vp.current_clone_profile()
+    assert not approved_file.exists() and not approved_file.parent.exists()  # nothing was ever written as an approval
+    assert "Provisional words" not in json.dumps(data) and "Provisional words" not in vp.README.read_text("utf-8")
+    readme = vp.README.read_text("utf-8")
+    assert "(provisional transcript)" in readme and "use a provisional reference transcript" in readme
+    assert "still refuses to make a clone without an approved" in readme
+    assert vp.check({k: v for k, v in data.items() if k != "_failures"}, folder) == []
+
+
+def test_without_the_flag_a_clone_still_needs_a_real_approval_and_stays_pending(folder, monkeypatch, drafts_file, tmp_path):
+    reset_clones_to_pending(folder)
+    from tts import qwen3_runtime as rt
+
+    monkeypatch.setenv(rt.TRANSCRIPTS_ENV, str(tmp_path / "none.json"))
+    monkeypatch.setattr(vp, "PROVISIONAL_DRAFTS", drafts_file)
+    monkeypatch.setattr(vp, "synthesize", lambda *a: pytest.fail("a clone was made without an approved transcript"))
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: "no approved reference transcript is available")
+    logs = []
+    data = vp.generate(["qwen3-female-2"], log=logs.append)
+    assert logs == ["PENDING  qwen3-female-2: no approved reference transcript is available"]
+    assert record_of("qwen3-female-2", data)["preview"]["status"] == vp.PREVIEW_PENDING
+
+
+def test_a_provisional_run_still_refuses_what_the_machine_cannot_make(folder, monkeypatch, drafts_file):
+    reset_clones_to_pending(folder)
+    monkeypatch.setattr(vp, "PROVISIONAL_DRAFTS", drafts_file)
+    monkeypatch.setattr(vp, "synthesize", lambda *a: pytest.fail("an engine ran"))
+    monkeypatch.setattr(vp, "provisional_reason", lambda entry: "the Base model is not installed")
+    logs = []
+    data = vp.generate(["qwen3-male-3"], log=logs.append, provisional=True)
+    assert logs == ["PENDING  qwen3-male-3: the Base model is not installed"]  # model, environment and reference are still required
+    assert record_of("qwen3-male-3", data)["preview"]["status"] == vp.PREVIEW_PENDING
+
+
+def test_a_clone_preview_must_say_whose_transcript_it_used():
+    data = complete_set(manifest())
+    clone = record_of("qwen3-male-2", data)["preview"]
+    assert vp.manifest_problems(data) == []
+    for bad in ({"status": "approved"}, {"status": "provisional", "text_sha256": "1" * 64}, {"status": "owner-approved", "text_sha256": "zz"}):
+        clone["transcript"] = bad
+        assert any("transcript" in p for p in vp.manifest_problems(data)), bad
+    clone.pop("transcript")
+    assert any("whether its transcript is owner-approved or provisional" in p for p in vp.manifest_problems(data))
+    record_of("af_heart", data)["preview"]["transcript"] = {"status": "owner-approved", "text_sha256": "1" * 64}
+    assert any("only a Qwen3 clone preview" in p for p in vp.manifest_problems(data))
+
+
+def test_the_command_line_flag_reaches_generate(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(vp, "generate", lambda ids, provisional=False, **k: seen.update(ids=ids, provisional=provisional) or {"voices": [], "_failures": []})
+    monkeypatch.setattr(vp, "counts", lambda d: {})
+    assert vp.main(["generate", "--provisional-transcripts", "qwen3-male-1", "qwen3-male-2"]) == 0
+    assert seen == {"ids": ["qwen3-male-1", "qwen3-male-2"], "provisional": True}
+    vp.main(["generate", "qwen3-male-1"])
+    assert seen == {"ids": ["qwen3-male-1"], "provisional": False}
+
+
+# --------------------------------------------------------------------------- #
+# A clone must open from silence and say the whole sentence; a failed take is re-rendered with the next seed take
+# --------------------------------------------------------------------------- #
+def test_a_clip_that_begins_mid_sound_is_rejected_and_one_that_begins_from_silence_is_not(tmp_path):
+    assert vp.audio_problems(write_wav(tmp_path / "ok.wav")) == []
+    problems = vp.audio_problems(write_wav(tmp_path / "abrupt.wav", lead=0))
+    assert any("begins mid-sound" in p for p in problems), problems
+    # a quiet fragment is tolerated only below the threshold: -50 dBFS in the first 10 ms
+    faint = write_wav(tmp_path / "faint.wav", amplitude=0.2, lead=0.15)
+    data, rate = sf.read(str(faint), dtype="float32")
+    data[:240] = 10 ** (-60 / 20)
+    sf.write(str(faint), data, rate, subtype="PCM_16")
+    assert vp.audio_problems(faint) == []
+
+
+def test_the_published_previews_all_begin_from_silence():
+    for record in manifest()["voices"]:
+        if record["preview"]["status"] == vp.PREVIEW_GENERATED:
+            assert not any("begins mid-sound" in p for p in vp.audio_problems(vp.PREVIEW_DIR / record["preview"]["file"])), record["voice_id"]
+
+
+def test_a_seed_take_shifts_the_seed_base_for_one_render_only_and_always_restores_it():
+    from tts import qwen3_synth
+
+    base = qwen3_synth.SEED_BASE
+    with vp.seed_take(0):
+        assert qwen3_synth.SEED_BASE == base  # take 0 is the application's own seeds
+    with vp.seed_take(2):
+        assert qwen3_synth.SEED_BASE == base + 2 * vp.TAKE_SEED_STEP
+    assert qwen3_synth.SEED_BASE == base
+    with pytest.raises(RuntimeError):
+        with vp.seed_take(1):
+            raise RuntimeError("synthesis failed")
+    assert qwen3_synth.SEED_BASE == base
+
+
+def clone_synth(good_from_take, seen):
+    """A fake engine whose output is unusable (starts mid-sound) until the given seed take."""
+    from tts import qwen3_synth
+
+    def synth(entry, text_path, out_wav):
+        take = (qwen3_synth.SEED_BASE - 20261019) // vp.TAKE_SEED_STEP
+        seen.append(take)
+        write_wav(out_wav, seconds=10.0, amplitude=0.1, lead=0.15 if take >= good_from_take else 0)
+
+    return synth
+
+
+def test_a_clone_whose_first_take_fails_is_re_rendered_with_the_next_seed_take_and_the_take_is_recorded(folder, monkeypatch):
+    from tts import qwen3_runtime as rt
+
+    seen, logs = [], []
+    monkeypatch.setattr(vp, "synthesize", clone_synth(2, seen))
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id, **k: rt.Transcript(True, "approved words", "ok"))
+    data = vp.generate(["qwen3-male-4"], log=logs.append, takes=6)
+    assert seen == [0, 1, 2] and not data["_failures"]  # stops at the first take that validates
+    assert record_of("qwen3-male-4", data)["preview"]["seed_take"] == 2
+    assert [l for l in logs if l.startswith("REJECTED")][0].startswith("REJECTED qwen3-male-4: take 0: begins mid-sound")
+    assert "1 of the clone previews were therefore re-rendered with the next seed take" in vp.README.read_text("utf-8")
+    from tts import qwen3_synth
+
+    assert qwen3_synth.SEED_BASE == 20261019  # the application's seed base is untouched afterwards
+    assert vp.check({k: v for k, v in data.items() if k != "_failures"}, folder) == []
+
+
+def test_when_every_take_fails_nothing_is_published_and_the_previous_state_is_kept(folder, monkeypatch):
+    reset_clones_to_pending(folder)
+    from tts import qwen3_runtime as rt
+
+    seen = []
+    monkeypatch.setattr(vp, "synthesize", clone_synth(99, seen))
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id, **k: rt.Transcript(True, "approved words", "ok"))
+    before = folder_state(folder)
+    data = vp.generate(["qwen3-male-4"], log=lambda m: None, takes=3)
+    assert seen == [0, 1, 2] and "take 0" in data["_failures"][0] and "take 2" in data["_failures"][0]
+    assert folder_state(folder) == before and record_of("qwen3-male-4", data)["preview"]["status"] == vp.PREVIEW_PENDING
+
+
+def test_only_clones_get_more_than_one_take_and_the_read_back_gates_clones_only(folder, monkeypatch):
+    from tts import qwen3_runtime as rt
+
+    seen, heard = [], []
+    monkeypatch.setattr(vp, "synthesize", clone_synth(99, seen))
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id, **k: rt.Transcript(True, "approved words", "ok"))
+    vp.generate(["af_heart"], log=lambda m: None, takes=6, readback=lambda path: heard.append(path) or [])
+    assert seen == [0] and heard == []  # a Kokoro voice is rendered once, and no recognizer is run for it
+
+
+def test_a_clone_take_that_reads_back_wrongly_is_rejected_then_the_next_take_is_used(folder, monkeypatch):
+    from tts import qwen3_runtime as rt
+
+    outcomes = iter([["the first word is not spoken (heard 'this is', expected 'welcome')"], []])
+    monkeypatch.setattr(vp, "synthesize", lambda entry, text_path, out_wav: write_wav(out_wav, seconds=10.0, amplitude=0.1))
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id, **k: rt.Transcript(True, "approved words", "ok"))
+    data = vp.generate(["qwen3-male-4"], log=lambda m: None, takes=4, readback=lambda path: next(outcomes))
+    preview = record_of("qwen3-male-4", data)["preview"]
+    assert preview["seed_take"] == 1 and preview["read_back_checked"] is True
+
+
+class FakeRecognizer:
+    """Stands in for the .venv-qwen3 whisper call: writes the JSON the real tool writes."""
+
+    def __init__(self, monkeypatch, text, tmp_path):
+        self.text = text
+        venv = tmp_path / "python.exe"
+        venv.write_text("", encoding="utf-8")
+        from tts import qwen3_runtime as rt
+        import qwen3_calm_experiment as exp
+
+        whisper = tmp_path / "whisper"
+        whisper.mkdir()
+        monkeypatch.setattr(rt, "venv_python", lambda: venv)
+        monkeypatch.setattr(exp, "WHISPER_DIR", whisper)
+        monkeypatch.setattr(vp.subprocess, "run", self.run)
+
+    def run(self, command, **kwargs):
+        out, wav = Path(command[-2]), command[-1]
+        out.write_text(json.dumps({wav: self.text}), encoding="utf-8")
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+
+@pytest.mark.parametrize("heard, expected_fragment", [
+    (None, None),
+    ("This is a short sample of my voice, reading a calm passage at an even pace, so that you can decide whether it suits the story "
+     "you want to hear, today or tomorrow.", "the first word is not spoken"),
+    ("Welcome. This is a short sample of my voice, reading a calm passage at an even pace, so that you can decide whether it suits "
+     "the story you want to hear, today or", "the last word is not spoken"),
+    ("Welcome. Something else entirely was said here by a different speaker, nothing alike, tomorrow", "word error rate")])
+def test_the_read_back_check_names_what_is_wrong_with_the_speech(monkeypatch, tmp_path, heard, expected_fragment):
+    FakeRecognizer(monkeypatch, heard or vp.SAMPLE_TEXT, tmp_path)
+    wav = write_wav(tmp_path / "clip.wav")
+    problems = vp.read_back_problems(wav)
+    if expected_fragment is None:
+        assert problems == []
+    else:
+        assert any(expected_fragment in p for p in problems), problems
+    assert not list(tmp_path.glob("*.readback.json"))  # nothing is left behind
+
+
+def test_the_read_back_check_cannot_pass_silently_when_the_recognizer_is_missing(monkeypatch, tmp_path):
+    import qwen3_calm_experiment as exp
+
+    monkeypatch.setattr(exp, "WHISPER_DIR", tmp_path / "nowhere")
+    problems = vp.read_back_problems(write_wav(tmp_path / "clip.wav"))
+    assert problems and "cannot run here" in problems[0]
+
+
+def test_a_clone_preview_must_record_its_seed_take_and_only_a_clone_does():
+    data = complete_set(manifest())
+    clone = record_of("qwen3-male-2", data)["preview"]
+    for bad in (None, -1, "0", 1.5):
+        if bad is None:
+            clone.pop("seed_take")
+        else:
+            clone["seed_take"] = bad
+        assert any("which seed take" in p for p in vp.manifest_problems(data)), bad
+    clone["seed_take"] = 3
+    assert vp.manifest_problems(data) == [] and "re-rendered with the next seed take" in vp.render_readme(data)
+    record_of("af_heart", data)["preview"]["seed_take"] = 0
+    assert any("only a Qwen3 clone preview" in p for p in vp.manifest_problems(data))
+
+
+def test_the_command_line_takes_option_reaches_generate(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(vp, "generate", lambda ids, provisional=False, takes=None, readback=None, **k: seen.update(
+        ids=ids, takes=takes, readback=readback) or {"voices": [], "_failures": []})
+    monkeypatch.setattr(vp, "counts", lambda d: {})
+    vp.main(["generate", "--provisional-transcripts", "--takes", "3", "qwen3-male-1"])
+    assert seen == {"ids": ["qwen3-male-1"], "takes": 3, "readback": vp.read_back_problems}
+    vp.main(["generate", "qwen3-male-1"])
+    assert seen["takes"] == vp.MAX_TAKES
+
+
+# --------------------------------------------------------------------------- #
+# A clone's opening leftover from its reference recording
+# --------------------------------------------------------------------------- #
+RATE = 24000
+
+
+def burst(seconds, hz=200, amplitude=0.2):
+    t = np.arange(int(RATE * seconds)) / RATE
+    return (amplitude * np.sin(2 * np.pi * hz * t)).astype("float32")
+
+
+def silence(seconds):
+    return np.zeros(int(RATE * seconds), dtype="float32")
+
+
+def test_a_short_leftover_followed_by_a_clear_pause_is_removed_and_the_clip_then_opens_from_silence():
+    audio = np.concatenate([burst(0.24), silence(0.45), burst(3.0)])
+    out, removed = vp.strip_leading_fragment(audio, RATE)
+    assert 240 <= removed <= 700 and out.size == audio.size - int(RATE * removed / 1000)
+    assert out.size / RATE >= 3.1  # all of the real speech is kept, with its pause in front
+    assert np.array_equal(out[-int(RATE * 3.0):], audio[-int(RATE * 3.0):])  # the speech itself is untouched
+    trimmed = vp.trim_edges(out, RATE)
+    head = trimmed[:int(RATE * 0.01)]
+    assert 20 * np.log10(max(float(np.sqrt(np.mean(head ** 2))), 1e-9)) < vp.ONSET_DB
+
+
+def test_nothing_is_removed_when_the_clip_already_opens_from_silence_or_has_no_safe_boundary():
+    clean = np.concatenate([silence(0.2), burst(3.0)])
+    out, removed = vp.strip_leading_fragment(clean, RATE)
+    assert removed == 0 and np.array_equal(out, clean)
+    for audio in (np.concatenate([burst(0.9), silence(0.45), burst(3.0)]),          # opening too long to be a leftover: it is speech
+                  np.concatenate([burst(0.2), silence(0.06), burst(3.0)]),          # no clear pause after it: cannot be separated
+                  burst(3.0)):                                                      # no pause at all
+        out, removed = vp.strip_leading_fragment(audio, RATE)
+        assert removed == 0 and np.array_equal(out, audio)  # left for validation to reject, never silently cut into the speech
+
+
+def test_the_strip_cannot_hide_a_swallowed_word_because_the_read_back_still_decides(folder, monkeypatch):
+    reset_clones_to_pending(folder)
+    from tts import qwen3_runtime as rt
+
+    def synth(entry, text_path, out_wav):
+        sf.write(str(out_wav), np.concatenate([burst(0.24), silence(0.45), burst(10.0, amplitude=0.1)]), RATE, subtype="PCM_16")
+
+    monkeypatch.setattr(vp, "synthesize", synth)
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id, **k: rt.Transcript(True, "approved words", "ok"))
+    heard = ["the first word is not spoken (heard 'this is', expected 'welcome')"]
+    data = vp.generate(["qwen3-male-4"], log=lambda m: None, takes=2, readback=lambda path: heard)
+    assert data["_failures"] and "first word is not spoken" in data["_failures"][0]  # the leftover was removed, the missing word still fails
+    assert record_of("qwen3-male-4", data)["preview"]["status"] == vp.PREVIEW_PENDING
+
+
+def test_a_clone_with_a_removed_leftover_is_published_and_the_amount_is_recorded_and_explained(folder, monkeypatch):
+    from tts import qwen3_runtime as rt
+
+    def synth(entry, text_path, out_wav):
+        sf.write(str(out_wav), np.concatenate([burst(0.24), silence(0.45), burst(10.0, amplitude=0.1)]), RATE, subtype="PCM_16")
+
+    monkeypatch.setattr(vp, "synthesize", synth)
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id, **k: rt.Transcript(True, "approved words", "ok"))
+    data = vp.generate(["qwen3-female-1"], log=lambda m: None, takes=1, readback=lambda path: [])
+    preview = record_of("qwen3-female-1", data)["preview"]
+    assert not data["_failures"] and preview["leading_fragment_trimmed_ms"] >= 240 and preview["seed_take"] == 0
+    assert vp.audio_problems(vp.PREVIEW_DIR / "qwen3-female-1.wav") == []
+    complete = complete_set(vp.sync(json.loads(vp.MANIFEST.read_text("utf-8"))))
+    record_of("qwen3-female-1", complete)["preview"]["leading_fragment_trimmed_ms"] = 300
+    assert "opened with a short leftover of the end of their reference recording" in vp.render_readme(complete)
+
+
+def test_a_non_clone_is_never_trimmed_and_an_abrupt_start_still_fails_for_it(folder, monkeypatch):
+    monkeypatch.setattr(vp, "synthesize", lambda entry, text_path, out_wav: sf.write(
+        str(out_wav), np.concatenate([burst(0.24), silence(0.45), burst(10.0, amplitude=0.1)]), RATE, subtype="PCM_16"))
+    data = vp.generate(["af_heart"], log=lambda m: None)
+    assert data["_failures"] and "begins mid-sound" in data["_failures"][0]
+
+
+def test_a_clone_preview_must_record_the_removed_leftover_and_only_a_clone_does():
+    data = complete_set(manifest())
+    clone = record_of("qwen3-male-2", data)["preview"]
+    for bad in (None, -5, "0", 2.5):
+        if bad is None:
+            clone.pop("leading_fragment_trimmed_ms")
+        else:
+            clone["leading_fragment_trimmed_ms"] = bad
+        assert any("how much leading leftover was removed" in p for p in vp.manifest_problems(data)), bad
+    clone["leading_fragment_trimmed_ms"] = 0
+    record_of("af_heart", data)["preview"]["leading_fragment_trimmed_ms"] = 0
+    assert any("only a Qwen3 clone preview" in p for p in vp.manifest_problems(data))

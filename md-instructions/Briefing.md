@@ -635,7 +635,7 @@ rulings and the build decisions are in `Decisions.md` (2026-10-19, two entries);
 - **Voice previews (documentation, not shipped).** `files/voice-previews/` holds the ten-second sample of each voice, one per registered voice, with a
   per-voice record (`previews.json`) and README; `files/dev-tools/voice_previews.py` makes them through each voice's own engine. Since 2026-10-20 the owner has authorized
   publishing previews for all 28 voices (a publication decision, not a verified third-party license finding; transcripts and reference recordings are still never committed).
-  22 of 28 exist; the six Qwen3 clone previews are pending the owner-approved transcripts that cloning requires. Previews are never in the release archives.
+  All 28 exist; the six Qwen3 clone previews were made with provisional (Whisper-draft, not owner-approved) transcripts for listening review, and the app still requires an approved transcript before it uses a clone. Previews are never in the release archives.
 - **Models** live under `files/runtime-data/models/qwen3-tts/<Model>-<rev8>/`, loaded offline from the pinned snapshot; CustomVoice and
   Base install independently, the nine shared files are linked, and a `ACT-VERIFIED.json` marker is written only after every file is
   verified by size and SHA-256. Status checks only stat files; full hashing is for install and repair.

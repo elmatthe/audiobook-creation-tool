@@ -367,3 +367,9 @@ def test_clone_generation_accepts_the_two_temperatures_as_floats_and_nothing_els
     assert worker.clone_generation({"generation": {"temperature": 1, "subtalker_temperature": 0.8}}) == {
         "temperature": 1.0, "subtalker_temperature": 0.8}
     assert set(worker.GENERATION_LIMITS) == {"temperature", "subtalker_temperature"}
+
+
+@pytest.mark.parametrize("name", ["top_p", "top_k", "repetition_penalty", "max_new_tokens", "do_sample", "subtalker_top_p"])
+def test_any_other_sampling_control_is_refused_by_name_not_by_accident(name):
+    with pytest.raises(RuntimeError, match="unsupported generation setting"):
+        worker.clone_generation({"generation": {name: 1}})

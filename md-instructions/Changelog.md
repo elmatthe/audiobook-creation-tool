@@ -15,6 +15,14 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Changed — Qwen3 cloned voices: calmer, more even narration, and a clean start (v0.6.7, 2026-10-20)
+
+- The six cloned Qwen3 voices now narrate with less pitch, intensity and pace variation (lower sampling temperatures than the model's defaults); the other voices are unchanged.
+- A cloned voice no longer opens with a stray leftover sound (or loses its first word) when its reference recording ends mid-sound: a short stretch of silence is added after the reference copy that the voice is cloned from.
+  The recordings themselves are untouched.
+- `files/voice-previews/` now holds all 28 previews, including the six cloned Qwen3 voices, each linked directly in its README. The clone previews were made with provisional (not yet owner-approved) reference
+  transcripts and are for listening review only; the application still requires an approved transcript before it will use a clone.
+
 ### Added — Voice previews for the Edge and Chatterbox voices (v0.6.7, 2026-10-20)
 
 - `files/voice-previews/` now holds **22 of 28** ten-second previews: the 11 already there plus the five Edge voices and the six Chatterbox voices, each made by that voice's own engine

@@ -4,6 +4,33 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - Qwen3 clone previews: provisional transcripts for listening samples, the calmer profile, and the reference-tail fix
+
+**Decision (owner).** The six clone previews are published NOW for the owner to listen to, before any further approval. The owner authorized using Whisper's existing drafts as PROVISIONAL reference text for these
+listening samples only, and ordered less dramatic delivery. Publishing a sample is not an approval of its audio quality.
+
+- *Provisional transcripts.* `voice_previews.py generate --provisional-transcripts` reads the Whisper drafts (`qwen3-initial/transcripts/verified.json`), proves each is bound to the registered recording's SHA-256 (they also read back at
+  word error rate 0.00 against a fresh transcription of the originals), and lets the production clone path see them for exactly that one synthesis, in the tool's own process. The production approval rule is untouched: the application
+  still refuses a clone without an approved, reference-bound transcript, nothing is ever written to `transcripts.json`, all six drafts remain `approved: false`, and no PASS decision was invented. Each clone preview records
+  `transcript.status = provisional` (a hash of the text, never the text) and the README labels the rows "(provisional transcript)". Re-render with approved transcripts once the owner approves them.
+- *Calmer sampling (production, clones only).* A clone job carries temperature 0.70 and sub-talker temperature 0.80 (the Base defaults are 0.90 / 0.90), forwarded by the worker as validated floats; top_p, top_k,
+  repetition_penalty, max_new_tokens and the deterministic chunk seeds are the Base model's own / unchanged; Aiden, Ryan and the other engines are untouched. Proved in the installed `qwen-tts 0.1.1` that both values reach
+  the talker and the code predictor. `CLONE_GENERATION_REVISION = 1` identifies the profile and is logged and recorded per preview; `PIPELINE_REVISION` stays 1 because the immutable A0 golden pins it and text, chunks and seeds are unchanged.
+- *Root-cause defect found by validating the audio, and its fix.* Three clones (Female 1, Female 2, Male 4) opened with a stray leftover sound and, for Male 4, lost the word "Welcome"; re-seeding (six takes each) did not help. The cause:
+  those three reference recordings were cut at 15.0 s mid-sound, and a clone continues from its reference, whereas the three whose references end in silence opened cleanly. Appending 0.6 s of silence to the reference copy fixed all
+  three in a scratch test. It is now production behavior: `snapshot_reference` appends `CLONE_REFERENCE_TAIL_SILENCE_S = 0.6` to the COPY the worker receives, after proving the copy is the approved recording (the file in the
+  repository, its hash and its transcript are unchanged; silence adds no words). This also removes the same stray opening from every chunk of a cloned audiobook, so it is a real application change that the owner's listening review covers.
+- *What the preview tool now validates.* A preview must begin from near-silence (first 10 ms below -50 dBFS), a clone take must read back (local whisper-small.en) with its first and last word and a word error rate of at most 0.10,
+  and a failing clone take is re-rendered with the next seed take (at most six; the take is recorded). A bounded clean-up for a short leftover (under 0.6 s, followed by a 100 ms pause) exists for the preview tool only; with
+  the fix above none of the six needed a re-take or a trim (`seed_take` 0, `leading_fragment_trimmed_ms` 0).
+- *Result.* 28 of 28 previews exist. All 28 read back at word error rate 0.00; clone pitch tracks each reference; the 22 earlier files are byte-identical to what was published. Not established without listening: naturalness,
+  whether the calmer delivery is calm enough, identity likeness, and any residual artifacts. Two clips are loud (Male 1 peak 0.91, Male 3 peak 0.95; not clipped).
+- *Verification.* Focused suites (preview tool 101, Qwen3 synth/worker/runtime/packaging/harness/review, release packaging, layout and boundary guards, A0) and mutation checks of the new guards; no full `verify.py`.
+
+-- Provisional-transcript use and publication ordered by the owner (2026-10-20); recorded and implemented by Claude Code
+
+---
+
 ## 2026-10-20 - Qwen3 clone narration: calm-delivery preference, the transcript review package, and the temperature experiment (owner-gated)
 
 **Preference (owner).** The six Qwen3 Base clones should narrate calmly and evenly: noticeably less variation in pitch, emotional intensity and pace than their Chatterbox counterparts; no sudden

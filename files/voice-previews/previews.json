@@ -520,9 +520,26 @@
         "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "pending",
-        "file": null,
-        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
+        "status": "generated",
+        "file": "qwen3-female-1.wav",
+        "sha256": "a6cb0c99ac27576abc28c6cb71ffa3bfc1187fdfd61493fdb62db84fbec28019",
+        "duration_s": 10.72,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20",
+        "generation_profile": {
+          "revision": 1,
+          "temperature": 0.7,
+          "subtalker_temperature": 0.8,
+          "reference_tail_silence_s": 0.6
+        },
+        "transcript": {
+          "status": "provisional",
+          "source": "Whisper draft of the original reference recording; not owner-approved",
+          "text_sha256": "e40fbde71669985cc41625375aa22c6ef9933afcb72fddaf05847fe81e5204ba"
+        },
+        "seed_take": 0,
+        "leading_fragment_trimmed_ms": 0,
+        "read_back_checked": true
       }
     },
     {
@@ -537,9 +554,26 @@
         "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "pending",
-        "file": null,
-        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
+        "status": "generated",
+        "file": "qwen3-female-2.wav",
+        "sha256": "8512cb810ee704019660ec8df60a3fbd787c89c78ee1de935cce46d12ac842ff",
+        "duration_s": 9.84,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20",
+        "generation_profile": {
+          "revision": 1,
+          "temperature": 0.7,
+          "subtalker_temperature": 0.8,
+          "reference_tail_silence_s": 0.6
+        },
+        "transcript": {
+          "status": "provisional",
+          "source": "Whisper draft of the original reference recording; not owner-approved",
+          "text_sha256": "dd7cbd39f94e746b2554cb48710ea0afa8e75eb17514989e33d2c327125680b8"
+        },
+        "seed_take": 0,
+        "leading_fragment_trimmed_ms": 0,
+        "read_back_checked": true
       }
     },
     {
@@ -554,9 +588,26 @@
         "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "pending",
-        "file": null,
-        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
+        "status": "generated",
+        "file": "qwen3-male-1.wav",
+        "sha256": "859bc544cc46aa1bc5e6670e63a06aa4be759aff47f6131e23c4accb8cf3a0e0",
+        "duration_s": 11.17,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20",
+        "generation_profile": {
+          "revision": 1,
+          "temperature": 0.7,
+          "subtalker_temperature": 0.8,
+          "reference_tail_silence_s": 0.6
+        },
+        "transcript": {
+          "status": "provisional",
+          "source": "Whisper draft of the original reference recording; not owner-approved",
+          "text_sha256": "5afea1f7de940a148339dc84e69965348a16f8a28a8c5c054522b0c25eae3f59"
+        },
+        "seed_take": 0,
+        "leading_fragment_trimmed_ms": 0,
+        "read_back_checked": true
       }
     },
     {
@@ -571,9 +622,26 @@
         "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "pending",
-        "file": null,
-        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
+        "status": "generated",
+        "file": "qwen3-male-2.wav",
+        "sha256": "040b69ce2b3d4b48f88edec3bd098ea1f32ce3b91ff70294d337cfbaf15bc4af",
+        "duration_s": 10.56,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20",
+        "generation_profile": {
+          "revision": 1,
+          "temperature": 0.7,
+          "subtalker_temperature": 0.8,
+          "reference_tail_silence_s": 0.6
+        },
+        "transcript": {
+          "status": "provisional",
+          "source": "Whisper draft of the original reference recording; not owner-approved",
+          "text_sha256": "3589fb60ebd9d2f6d4e15e981a2700be3994fabfbf3e1677c6d86f57eb2a887d"
+        },
+        "seed_take": 0,
+        "leading_fragment_trimmed_ms": 0,
+        "read_back_checked": true
       }
     },
     {
@@ -588,9 +656,26 @@
         "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "pending",
-        "file": null,
-        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
+        "status": "generated",
+        "file": "qwen3-male-3.wav",
+        "sha256": "510ce1e50c6660200da708664e2b9c53f39e3ab8d43e6e98cbfcb163603b8650",
+        "duration_s": 12.11,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20",
+        "generation_profile": {
+          "revision": 1,
+          "temperature": 0.7,
+          "subtalker_temperature": 0.8,
+          "reference_tail_silence_s": 0.6
+        },
+        "transcript": {
+          "status": "provisional",
+          "source": "Whisper draft of the original reference recording; not owner-approved",
+          "text_sha256": "7be44794203b1952805a11d35d36fa65b1deccc9dd7c29a405ca5a9a376996ce"
+        },
+        "seed_take": 0,
+        "leading_fragment_trimmed_ms": 0,
+        "read_back_checked": true
       }
     },
     {
@@ -605,9 +690,26 @@
         "authorized_by": "owner (md-instructions/Decisions.md, 2026-10-20)"
       },
       "preview": {
-        "status": "pending",
-        "file": null,
-        "pending_reason": "Publication is authorized, but the preview is not generated yet: a Qwen3 clone is only made from its owner-approved transcript bound to the reference recording's SHA-256, and none is approved on the computer that holds the models (the draft transcript is unapproved). Supply the approved transcript (see the folder README), then run generate."
+        "status": "generated",
+        "file": "qwen3-male-4.wav",
+        "sha256": "e95670550c267e1c217f468b73e4ff05677cc6cb4fe73f5cc4f20b754b2453dc",
+        "duration_s": 9.29,
+        "sample_rate": 24000,
+        "generated_on": "2026-10-20",
+        "generation_profile": {
+          "revision": 1,
+          "temperature": 0.7,
+          "subtalker_temperature": 0.8,
+          "reference_tail_silence_s": 0.6
+        },
+        "transcript": {
+          "status": "provisional",
+          "source": "Whisper draft of the original reference recording; not owner-approved",
+          "text_sha256": "257b969b72f6551a198bbb402600e07bc86f064058612f9a218250faf7a85d70"
+        },
+        "seed_take": 0,
+        "leading_fragment_trimmed_ms": 0,
+        "read_back_checked": true
       }
     }
   ],
