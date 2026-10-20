@@ -15,6 +15,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — Edge voices failed with HTTP 403 (edge-tts 7.2.8 -> 7.3.1, 2026-10-20)
+
+- Every Edge voice had stopped working: Microsoft's read-aloud service began refusing the pinned `edge-tts` 7.2.8 at the connection handshake (HTTP 403;
+  upstream issue rany2/edge-tts #490, fixed in 7.3.0). The pin is now 7.3.1. Existing installations pick it up on their next launch through `Setup_and_Run`,
+  which reconciles a changed requirements file; only `edge-tts` changes. All five Edge voices were checked with real audio through the app's own Edge path.
+- Development only: the A4 listening corpus is complete (120 clips, 19.7 min) and is also exported to one flat, numbered folder with its own review sheet.
+
 ### Added — Speech-preparation A/B listening tool (v0.6.7 Plan 01B checkpoint A4, 2026-10-20)
 
 - Development only, no application change: `files/dev-tools/speech_ab.py` builds the bounded A/B listening corpus (one class per snippet, one voice per engine) through

@@ -2,6 +2,20 @@
 
 ## Current Focus
 
+## CURRENT STATE — v0.6.7 Plan 01B: Edge repaired, A4 corpus complete (120 clips); STOPPED at owner gate G1 (2026-10-20, HOME-PC)
+
+**Waiting for the owner's listening verdicts.** Review `files/dev-work/speech-ab/a4/listen-ordered/` with its `REVIEW-SHEET.md`: 60 comparisons (001-015 Chatterbox,
+016-030 Kokoro, 031-045 Qwen3, 046-060 Edge), files `NNN-Engine-CLASS-A.wav` / `-B.wav`; verdict A / B / Same / Neither. The key is `a4/key/` (do not open before listening).
+Nothing is enabled: `[tts] speech_prep` is `off` and every cell `native`.
+- **Edge fixed:** `edge-tts` 7.2.8 -> 7.3.1 (the service had begun refusing 7.2.8 with HTTP 403). Root `.venv` reconciled through the bootstrap (only edge-tts changed);
+  all five Edge voices produced real audio through the production path (`a4/edge-voice-smoke/results.json`).
+- **A4:** the 30 Edge clips were generated from the unchanged plan; `plan.json` and the 90 earlier clips are byte-identical; 60 pairs, 19.7 min, every mechanical check
+  passes; ASR read-back 120/120 (run in `.venv-qwen3`; the evaluation venv's torch still fails to import `torch._dynamo` and was not repaired).
+- **Environment note:** from PowerShell, `test_release_packaging`'s three macOS-launcher parse tests pick WSL's `bash.exe` (no distribution installed) and fail; under Git
+  Bash they pass. Pre-existing PATH hazard, unrelated to this change.
+- **Resume after G1:** record verdicts per engine x class in Decisions, then A5 (apply the approved matrix, flip the default for approved cells only, bump Qwen3
+  `PIPELINE_REVISION`, focused tests, the A5 full verify gate), then G2.
+
 ## CURRENT STATE — v0.6.7 Plan 01B: A4 clips ready; STOPPED at owner gate G1 (2026-10-20, HOME-PC)
 
 **Waiting for the owner.** Listen to `files/dev-work/speech-ab/a4/listen/` (90 WAV clips, 14 min) using `listen/REVIEW-SHEET.md` (45 rows: Kokoro, Chatterbox, Qwen3 x 15

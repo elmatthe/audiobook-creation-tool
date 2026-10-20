@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -68,6 +70,123 @@ def test_the_review_sheet_never_reveals_which_clip_is_which():
     for pair in PLAN["pairs"]:
         assert pair["b_text"] not in sheet
     assert "today" not in sheet.split("Sentences:")[1] and " A " not in sheet and " B " not in sheet
+
+
+# --------------------------------------------------------------------------- ordered listening export
+
+ROWS = ab.ordered_rows(PLAN)
+BLIND_WORDS = ("today", "normalized", "normalised", "expanded", "original", "preparation off", "native")
+
+
+def test_sixty_comparisons_in_engine_blocks_and_alphabetical_class_order():
+    assert [row["number"] for row in ROWS] == list(range(1, 61))
+    blocks = {"chatterbox": range(1, 16), "kokoro": range(16, 31), "qwen3": range(31, 46), "edge_direct": range(46, 61)}
+    for route, numbers in blocks.items():
+        block = [row for row in ROWS if row["route"] == route]
+        assert [row["number"] for row in block] == list(numbers)
+        assert [row["class"] for row in block] == ["CARD", "CUR", "DATE", "DEC", "FRAC", "ORD", "PCT", "RANGE", "RATIO",
+                                                   "ROMAN", "SYM", "TIME", "TITLE", "UNIT", "YEAR"]
+    assert ROWS[0]["A"]["file"] == "001-Chatterbox-CARD-A.wav" and ROWS[-1]["B"]["file"] == "060-Edge-YEAR-B.wav"
+
+
+def test_names_sort_as_pairs_and_slots_follow_the_blind_sheet_not_the_side():
+    names = [row[s]["file"] for row in ROWS for s in ("A", "B")]
+    assert names == sorted(names) and len(set(names)) == 120
+    pairs = {p["pair"]: p for p in PLAN["pairs"]}
+    off_in_slot_a = 0
+    for row in ROWS:
+        first, second = sorted(pairs[row["pair"]]["clips"].values())
+        assert (row["A"]["source_clip"], row["B"]["source_clip"]) == (first, second)
+        off_in_slot_a += row["A"]["source_clip"] == pairs[row["pair"]]["clips"]["A"]
+    assert 15 < off_in_slot_a < 45, "slot A must not systematically be one preparation side"
+
+
+def test_the_legacy_sheet_agrees_with_the_ordered_slots_where_it_exists():
+    sheet = ab.LISTEN / "REVIEW-SHEET.md"
+    if not sheet.is_file():
+        pytest.skip("no local A4 listening folder")
+    names = {v: k for k, v in ab.ENGINE_NAMES.items()}
+    by_pair = {(row["route"], row["class"]): row for row in ROWS}
+    checked = 0
+    for line in sheet.read_text(encoding="utf-8").splitlines():
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) == 7 and cells[0].isdigit():
+            row = by_pair[(names[cells[1]], cells[2].split(" ")[0])]
+            assert (cells[4], cells[5]) == (row["A"]["source_clip"], row["B"]["source_clip"])
+            checked += 1
+    assert checked == 45
+
+
+@pytest.fixture()
+def fake_listen(tmp_path, monkeypatch):
+    listen = tmp_path / "listen"
+    listen.mkdir()
+    for pair in PLAN["pairs"]:
+        for side, name in pair["clips"].items():
+            (listen / f"{name}.wav").write_bytes(f"RIFF-{name}-{side}".encode())
+    monkeypatch.setattr(ab, "synthesize", lambda *a, **k: pytest.fail("the export must never synthesize"))
+    return listen
+
+
+def test_export_copies_byte_identical_files_and_a_private_mapping(fake_listen, tmp_path):
+    out, key = tmp_path / "listen-ordered", tmp_path / "key"
+    assert ab.export_ordered(PLAN, fake_listen, out, key) == 0
+    wavs = sorted(p.name for p in out.glob("*.wav"))
+    assert wavs == sorted(row[s]["file"] for row in ROWS for s in ("A", "B"))
+    mapping = json.loads((key / ab.ORDERED_MAPPING).read_text(encoding="utf-8"))["files"]
+    pairs = {p["pair"]: p for p in PLAN["pairs"]}
+    for entry in mapping:
+        source = fake_listen / f"{entry['source_clip']}.wav"
+        assert (out / entry["file"]).read_bytes() == source.read_bytes()
+        assert entry["sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+        side = "A" if pairs[entry["pair"]]["clips"]["A"] == entry["source_clip"] else "B"
+        assert entry["preparation"] == ("off (today)" if side == "A" else f"{pairs[entry['pair']]['class']} expanded")
+    before = {p.name: p.stat().st_mtime_ns for p in out.glob("*.wav")}
+    assert ab.export_ordered(PLAN, fake_listen, out, key) == 0
+    assert {p.name: p.stat().st_mtime_ns for p in out.glob("*.wav")} == before, "a rerun rewrites nothing"
+
+
+def test_the_ordered_sheet_references_every_file_and_stays_blind(fake_listen, tmp_path):
+    out = tmp_path / "listen-ordered"
+    ab.export_ordered(PLAN, fake_listen, out, tmp_path / "key")
+    sheet = (out / "REVIEW-SHEET.md").read_text(encoding="utf-8")
+    table = [line for line in sheet.splitlines() if line.startswith("| 0")]
+    assert len(table) == 60
+    assert "| # | Engine | Class | Listen for | Clip A | Clip B | My verdict | Notes |" in sheet
+    for line, row in zip(table, ROWS):
+        assert f"| {row['A']['file']} | {row['B']['file']} |" in line and (out / row["A"]["file"]).is_file()
+    for word in BLIND_WORDS:
+        assert word not in sheet.lower() and not any(word in name.lower() for name in map(str, out.iterdir()))
+    assert sum("touches approved audio" in line for line in table) == sum(p["affects_previously_approved"] != ["none"] for p in PLAN["pairs"])
+    for text in ab.SNIPPETS.values():
+        assert text in sheet
+
+
+def test_the_export_refuses_missing_sources_and_foreign_files(fake_listen, tmp_path):
+    out = tmp_path / "listen-ordered"
+    victim = next(fake_listen.glob("*.wav"))
+    victim.write_bytes(b"")
+    assert ab.export_ordered(PLAN, fake_listen, out, tmp_path / "key") == 1 and not out.exists()
+    victim.write_bytes(b"RIFF")
+    out.mkdir()
+    (out / "stray.wav").write_bytes(b"x")
+    assert ab.export_ordered(PLAN, fake_listen, out, tmp_path / "key") == 1
+
+
+def test_the_real_ordered_folder_is_complete_and_identical_to_its_sources():
+    mapping_path = ab.KEY / ab.ORDERED_MAPPING
+    if not mapping_path.is_file():
+        pytest.skip("no local ordered export")
+    mapping = json.loads(mapping_path.read_text(encoding="utf-8"))["files"]
+    assert len(mapping) == 120 and len(list(ab.ORDERED.glob("*.wav"))) == 120
+    for entry in mapping:
+        source, copy = ab.LISTEN / f"{entry['source_clip']}.wav", ab.ORDERED / entry["file"]
+        assert hashlib.sha256(copy.read_bytes()).hexdigest() == entry["sha256"] == \
+            hashlib.sha256(source.read_bytes()).hexdigest()
+    plan = ab.load_plan()
+    assert plan == PLAN, "key/plan.json must be the plan this tool builds (unchanged since generation)"
+    edge = [p for p in plan["pairs"] if p["route"] == "edge_direct"]
+    assert len(edge) == 15 and all((ab.LISTEN / f"{n}.wav").is_file() for p in edge for n in p["clips"].values())
 
 
 @pytest.mark.parametrize("reference, heard, expected", [

@@ -4,6 +4,25 @@ Append-only. Newest entries on top. Each entry: date, decision, why, signed by w
 
 ---
 
+## 2026-10-20 - edge-tts pinned to 7.3.1; the A4 ordered listening export
+
+**Decision.**
+- *edge-tts 7.2.8 -> 7.3.1 (owner-authorized).* The read-aloud endpoint answers 7.2.8's WebSocket handshake with HTTP 403 (clock verified in sync); upstream issue
+  #490 was fixed in 7.3.0, and 7.3.1 also fixes server date parsing. 7.3.1 declares the same four dependencies and every installed version satisfies them; a
+  `pip install --dry-run -r scripts/requirements.txt` would change only `edge-tts`, and the bootstrap's own reconcile then changed exactly that one package. No other pin,
+  no voice parameter and no protocol detail changed; no token is embedded. Proven first in a throwaway venv, then through `runner.run_conversion_job` for all five
+  registered Edge voices. `test_edge_tts_pin.py` pins the version, the installed package, the `Communicate` API ACT calls, and the fingerprint change that makes an existing
+  install reconcile.
+- *Ordered export slots follow the blind sheet.* In `listen-ordered/`, `NNN-Engine-CLASS-A.wav` is the pair's lower-numbered blind clip and `-B` the higher one -- the same
+  rule as the original sheet's First/Second -- never the preparation side. The private mapping (`key/ordered-mapping.json`) records each file's source clip, SHA-256 and side.
+  The export copies bytes and never synthesizes. The first `listen/REVIEW-SHEET.md` is kept as issued; `listen-ordered/REVIEW-SHEET.md` is the current sheet.
+
+**Why.** A non-technical user's Edge voices had silently stopped working; the A4 review needs all four engines and a folder that sorts naturally in Explorer.
+
+-- Decided by the owner's instruction; implemented by Claude Code
+
+---
+
 ## 2026-10-20 - Plan 01B checkpoint A3: how speech preparation is wired, frozen and kept switched off
 
 **Decision.**

@@ -96,7 +96,9 @@ REMOVED_IMPORT_NAMES = ("ebooklib", "bs4", "lxml")
 
 #: Retained pins that must not drift while the three above are removed.
 RETAINED_PINS = {
-    "edge-tts": "7.2.8",
+    # Moved 7.2.8 -> 7.3.1 on 2026-10-20 (owner-authorized): the read-aloud endpoint began refusing 7.2.8 with HTTP 403.
+    # Unrelated to the EPUB retirement; tracked so it cannot drift silently. See scripts/requirements.txt.
+    "edge-tts": "7.3.1",
     "mutagen": "1.47.0",
     "nltk": "3.9.4",
     "pillow": "12.2.0",

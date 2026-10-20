@@ -12,7 +12,10 @@ Commands (run from the repository root with the root ``.venv``):
   probe     Kokoro's misaki G2P on cue / no-cue four-digit numbers (evidence for decision D8); no audio
   generate  synthesize every planned clip that is missing or stale (Edge needs the network; Qwen3 its own venv)
   asr       advisory Whisper read-back of every clip (the evaluation harness's small.en snapshot)
-  report    mechanical checks, ``key/manifest.json``, ``listen/REVIEW-SHEET.md`` and ``key/VERDICT-TABLE.md``
+  report    mechanical checks, ``key/manifest.json``, ``key/VERDICT-TABLE.md`` (and ``listen/REVIEW-SHEET.md`` once)
+  export-ordered  copy the clips, unchanged, into ``listen-ordered/NNN-Engine-CLASS-A|B.wav`` with its own review sheet;
+            the private filename mapping goes to ``key/ordered-mapping.json``
+  edge-smoke      one fixed sentence through every registered Edge voice (``edge-voice-smoke/``)
 
 Nothing here touches recordings outside ``files/dev-work/speech-ab/``; nothing is installed or downloaded.
 """
@@ -435,7 +438,9 @@ def report() -> int:
         manifest["pairs"].append(record)
     manifest["total_audio_seconds"] = round(total_seconds, 1)
     write_json(KEY / "manifest.json", manifest)
-    (LISTEN / "REVIEW-SHEET.md").write_text(review_sheet(manifest), encoding="utf-8")
+    legacy_sheet = LISTEN / "REVIEW-SHEET.md"
+    if not legacy_sheet.exists():  # the first sheet is kept as issued; listen-ordered/ carries the current one
+        legacy_sheet.write_text(review_sheet(manifest), encoding="utf-8")
     (KEY / "VERDICT-TABLE.md").write_text(verdict_table(manifest), encoding="utf-8")
     failing = [p["pair"] for p in manifest["pairs"] if not p["mechanical_pass"]]
     print(f"{len(manifest['pairs'])} pairs, {total_seconds / 60:.1f} min of audio, mechanical failures: {failing or 'none'}")
@@ -460,7 +465,7 @@ def review_sheet(manifest: dict) -> str:
             missing.append(pair)
             continue
         index += 1
-        first, second = sorted(pair["clips"].values())
+        first, second = listening_order(pair)
         items = ", ".join(sorted({e["original"] for e in pair["edits"]}, key=pair["source"].find))
         flag = " (touches approved audio)" if pair["affects_previously_approved"] != ["none"] else ""
         lines.append(f"| {index} | {ENGINE_NAMES[pair['route']]} | {pair['class']}{flag} | {items} | {first} | {second} | |")
@@ -501,8 +506,144 @@ def verdict_table(manifest: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+# --------------------------------------------------------------------------- ordered listening export
+
+ORDERED = OUT / "listen-ordered"
+ORDERED_MAPPING = "ordered-mapping.json"
+ENGINE_ORDER = ("chatterbox", "kokoro", "qwen3", "edge_direct")
+ENGINE_SHORT = {"chatterbox": "Chatterbox", "kokoro": "Kokoro", "qwen3": "Qwen3", "edge_direct": "Edge"}
+CLASS_ORDER = tuple(sorted(SNIPPETS))
+
+
+def listening_order(pair: dict) -> tuple[str, str]:
+    """(first, second) exactly as the blind review sheet lists a pair: by clip number, never by preparation side."""
+    first, second = sorted(pair["clips"].values())
+    return first, second
+
+
+def ordered_rows(plan: dict) -> list[dict]:
+    """The 60 comparisons in owner order: engine blocks, classes alphabetical; A = first clip, B = second clip."""
+    by_pair = {(p["route"], p["class"]): p for p in plan["pairs"]}
+    rows = []
+    for route in ENGINE_ORDER:
+        for cls in CLASS_ORDER:
+            pair = by_pair[(route, cls)]
+            first, second = listening_order(pair)
+            stem = f"{len(rows) + 1:03d}-{ENGINE_SHORT[route]}-{cls}"
+            rows.append({"number": len(rows) + 1, "pair": pair["pair"], "route": route, "class": cls,
+                         "A": {"file": f"{stem}-A.wav", "source_clip": first},
+                         "B": {"file": f"{stem}-B.wav", "source_clip": second}})
+    return rows
+
+
+def _file_sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def export_ordered(plan: dict | None = None, listen: Path = LISTEN, out: Path = ORDERED, key: Path = KEY) -> int:
+    """Copy the blind clips into one flat, numbered folder. Never synthesizes; a byte-identical copy is left alone."""
+    plan = load_plan() if plan is None else plan
+    rows = ordered_rows(plan)
+    pairs = {p["pair"]: p for p in plan["pairs"]}
+    sources = [listen / f"{row[s]['source_clip']}.wav" for row in rows for s in ("A", "B")]
+    missing = [p.name for p in sources if not p.is_file() or p.stat().st_size == 0]
+    if missing:
+        print(f"refusing to export: {len(missing)} source clip(s) missing or empty: {missing[:5]}")
+        return 1
+    out.mkdir(parents=True, exist_ok=True)
+    expected = {row[s]["file"] for row in rows for s in ("A", "B")}
+    stray = sorted(p.name for p in out.glob("*.wav") if p.name not in expected)
+    if stray:
+        print(f"refusing to export: {out} holds WAVs this export does not own: {stray[:5]}")
+        return 1
+    mapping, copied = [], 0
+    for row in rows:
+        pair = pairs[row["pair"]]
+        for slot in ("A", "B"):
+            source = listen / f"{row[slot]['source_clip']}.wav"
+            target = out / row[slot]["file"]
+            digest = _file_sha(source)
+            if not target.is_file() or _file_sha(target) != digest:
+                shutil.copyfile(source, target)
+                copied += 1
+            if _file_sha(target) != digest:
+                print(f"copy of {source.name} does not match its source")
+                return 1
+            preparation = "off (today)" if row[slot]["source_clip"] == pair["clips"]["A"] else f"{row['class']} expanded"
+            mapping.append({"file": row[slot]["file"], "number": row["number"], "listening_slot": slot,
+                            "source_clip": row[slot]["source_clip"], "sha256": digest, "pair": row["pair"],
+                            "preparation": preparation})
+    write_json(key / ORDERED_MAPPING, {"note": "THE KEY for listen-ordered/. Do not open before listening.",
+                                       "files": mapping})
+    (out / "REVIEW-SHEET.md").write_text(ordered_review_sheet(plan, rows), encoding="utf-8")
+    print(f"{len(rows)} comparisons, {len(mapping)} files ({copied} copied, {len(mapping) - copied} already identical)")
+    return 0
+
+
+def ordered_review_sheet(plan: dict, rows: list[dict]) -> str:
+    pairs = {p["pair"]: p for p in plan["pairs"]}
+    lines = ["# Speech preparation listening review (Plan 01B A4, gate G1)", "",
+             "Each numbered comparison is the same sentence read twice by the same voice, in two files named "
+             "`NNN-...-A.wav` and `NNN-...-B.wav`. The two differ only in how the items under *Listen for* were prepared.",
+             "",
+             "* Listen to **A** first, then **B**.",
+             "* Choose which pronunciation and pacing you prefer and write **A** or **B** under *My verdict*.",
+             "* **Same** means both are acceptable; **Neither** means both are unacceptable.",
+             "* Use *Notes* for anything mispronounced, skipped, or paced badly.",
+             "* Do not open the answer key (`../key/`) before you have finished.",
+             "",
+             "Comparisons marked *(touches approved audio)* change a reading or pause that was heard and approved before.",
+             "",
+             "| # | Engine | Class | Listen for | Clip A | Clip B | My verdict | Notes |",
+             "|---|---|---|---|---|---|---|---|"]
+    for row in rows:
+        pair = pairs[row["pair"]]
+        items = ", ".join(sorted({e["original"] for e in pair["edits"]}, key=pair["source"].find))
+        flag = " *(touches approved audio)*" if pair["affects_previously_approved"] != ["none"] else ""
+        lines.append(f"| {row['number']:03d} | {ENGINE_NAMES[row['route']]} | {row['class']}{flag} | {items} | "
+                     f"{row['A']['file']} | {row['B']['file']} | | |")
+    lines += ["", "## The test sentences", "", "Every engine reads the same sentence for a class.", ""]
+    for cls in CLASS_ORDER:
+        lines.append(f"* **{cls}**: {SNIPPETS[cls]}")
+    return "\n".join(lines) + "\n"
+
+
+EDGE_SMOKE_DIR = OUT / "edge-voice-smoke"
+EDGE_SMOKE_SENTENCE = "The lighthouse keeper climbed the stairs and checked the lamp one last time."
+
+
+def edge_smoke() -> int:
+    """Every registered Edge voice through ACT's production Edge entry point (``runner.run_conversion_job``)."""
+    import edge_tts
+
+    from tts.voice_registry import VOICES as REGISTRY
+
+    EDGE_SMOKE_DIR.mkdir(parents=True, exist_ok=True)
+    version = getattr(edge_tts, "__version__", "unknown")
+    results = []
+    for entry in (v for v in REGISTRY if v.backend == "edge"):
+        target = EDGE_SMOKE_DIR / f"{entry.voice_id}.wav"
+        try:
+            synthesize("edge_direct", entry.voice_id, EDGE_SMOKE_SENTENCE, None, target, 0, print)
+            check = audio_check(target, EDGE_SMOKE_SENTENCE)
+        except Exception as exc:  # noqa: BLE001 - every voice is reported
+            check = {"pass": False, "problems": [f"{type(exc).__name__}: {exc}"]}
+        results.append({"voice_id": entry.voice_id, "label": entry.display_label, "wav": target.name,
+                        "sha256": hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() else None, **check})
+        print(f"{entry.voice_id:<24} {'PASS' if check['pass'] else 'FAIL'} {check.get('seconds', '-')} s "
+              f"{'; '.join(check['problems'])}")
+    write_json(EDGE_SMOKE_DIR / "results.json", {"edge_tts": version, "sentence": EDGE_SMOKE_SENTENCE,
+                                                 "entry_point": "tts.epub2tts_edge.runner.run_conversion_job",
+                                                 "voices": results})
+    return 0 if results and all(r["pass"] for r in results) else 1
+
+
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "plan"
+    if command == "edge-smoke":
+        return edge_smoke()
+    if command == "export-ordered":
+        return export_ordered()
     if command == "plan":
         plan = build_plan()
         write_json(KEY / "plan.json", plan)

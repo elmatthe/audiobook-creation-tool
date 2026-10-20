@@ -143,7 +143,9 @@ def test_no_dependency_is_sourced_from_a_git_or_master_reference():
 # Preservation — the pre-existing project pins are untouched by Phase 8
 # --------------------------------------------------------------------------- #
 UNCHANGED_PROJECT_PINS = {
-    "edge-tts": "7.2.8",
+    # Moved 7.2.8 -> 7.3.1 on 2026-10-20 (owner-authorized): Microsoft's endpoint began refusing 7.2.8 with HTTP 403.
+    # Unrelated to Chatterbox; tracked here only so it cannot drift silently. See scripts/requirements.txt.
+    "edge-tts": "7.3.1",
     "mutagen": "1.47.0",
     "nltk": "3.9.4",
     "pillow": "12.2.0",

@@ -648,3 +648,16 @@ Status: **done**, switched off. Codex review deferred to the consolidated pre-me
   Kokoro keeps reading them as years -- a residual risk; no engine-risk override is proposed without its own approval.
 * Changes to previously approved audio, labelled in the key: TITLE (pronunciation + pacing), TIME and DEC (pronunciation) on every engine, from DIFFICULT_SHORT; and
   Chatterbox TIME/RATIO (pronunciation + pacing; the colon patch's "B PASS natively" baseline).
+
+### B.10 Edge repair and A4 completion (2026-10-20) -- still at owner gate G1
+
+* Edge: `edge-tts==7.3.1` (was 7.2.8, refused with HTTP 403 by the read-aloud endpoint). Throwaway-venv proof, then the bootstrap's reconcile on the root `.venv`
+  (dry run and real run: only `edge-tts` changed; import proof passed; requirements stamp current). `speech_ab.py edge-smoke`: all five registered Edge voices (Steffan,
+  Andrew, Aria, Ava, Jenny) produced 6.8-7.2 s of valid audio through `runner.run_conversion_job` (`a4/edge-voice-smoke/`).
+* A4 completed: `generate edge_direct` produced the 30 missing clips (0 failures) from the unchanged `plan.json`; the 90 earlier clips are byte-identical (SHA-256 before and
+  after). 60 pairs, 120 clips, 19.7 min; every integrity proof and audio check passes. Advisory ASR on Edge: both sides read back alike for most classes (Microsoft
+  normalizes server-side); FRAC's native side scores worse.
+* `export-ordered`: `a4/listen-ordered/` holds exactly 120 byte-identical copies named `NNN-Engine-CLASS-A|B.wav` (001-015 Chatterbox, 016-030 Kokoro, 031-045 Qwen3,
+  046-060 Edge; classes alphabetical), A/B = the blind sheet's First/Second, plus `REVIEW-SHEET.md` (60 rows: # | Engine | Class | Listen for | Clip A | Clip B | My verdict |
+  Notes). Private mapping: `a4/key/ordered-mapping.json`. A rerun copies nothing. `test_speech_ab.py` 17 tests (ordering, slots vs the issued sheet, byte identity,
+  determinism, blindness, refusal of missing or foreign files, the real folder).

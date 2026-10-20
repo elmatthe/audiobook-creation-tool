@@ -11,7 +11,12 @@
 # Their only consumers anywhere in the tree were chap2text_epub, export and
 # get_epub_cover, retained in Git history and maintainer-local archives. Restoring EPUB
 # means restoring these three pins and bootstrap.REQUIRED_IMPORTS with them.
-edge-tts==7.2.8
+# edge-tts 7.2.8 stopped working (2026-10): Microsoft's read-aloud endpoint answers its
+# WebSocket handshake with HTTP 403 (upstream rany2/edge-tts issue #490, fixed in 7.3.0;
+# 7.3.1 also fixes server date parsing). 7.3.1 declares the same four dependencies
+# (aiohttp, certifi, tabulate, typing-extensions) and every pin below still satisfies
+# them. Verified on HOME-PC 2026-10-20 with real audio from all five Edge voices.
+edge-tts==7.3.1
 mutagen==1.47.0
 nltk==3.9.4
 pillow==12.2.0
