@@ -149,6 +149,8 @@ def complete_set(data):
         if record["rights"]["status"] == vp.RIGHTS_UNRESOLVED:
             record["rights"] = {"status": vp.RIGHTS_CONFIRMED, "basis": "test", "evidence": [{"url": "https://example.test"}]}
         record["preview"] = {"status": vp.PREVIEW_GENERATED, "file": f"{record['voice_id']}.wav", "sha256": "0" * 64}
+        if vp.is_clone(record):
+            record["preview"]["generation_profile"] = vp.current_clone_profile()
     return data
 
 
@@ -853,3 +855,56 @@ def test_a_backend_with_no_preview_path_is_refused_not_guessed(tmp_path):
     entry = type("Entry", (), {"backend": "mystery", "voice_id": "x"})()
     with pytest.raises(vp.PreviewError, match="no preview path"):
         vp.synthesize(entry, tmp_path / "s.txt", tmp_path / "o.wav")
+
+
+# --------------------------------------------------------------------------- #
+# Direct raw links, and the clone previews reflect the application's own clone profile
+# --------------------------------------------------------------------------- #
+def test_every_available_preview_has_a_direct_raw_wav_link_to_a_file_that_exists():
+    text = vp.README.read_text("utf-8")
+    links = re.findall(r"\[([^\]]+\.wav)\]\((https://[^)]+)\)", text)
+    available = [v["preview"]["file"] for v in manifest()["voices"] if v["preview"]["status"] == vp.PREVIEW_GENERATED]
+    assert [name for name, _ in links] == available  # one link per available preview, in registry order
+    for name, url in links:
+        assert url == vp.RAW_BASE + name and (vp.PREVIEW_DIR / name).is_file()
+    assert vp.RAW_BASE.startswith("https://github.com/elmatthe/audiobook-creation-tool/raw/") and vp.RAW_BASE.endswith("/files/voice-previews/")
+    assert "not an approval of its audio quality" in text and "saves the file" in text  # honest about downloads and about quality
+
+
+def test_the_clone_profile_is_recorded_for_every_clone_preview_and_only_for_those():
+    profile = vp.current_clone_profile()
+    assert profile == {"revision": 1, "temperature": 0.7, "subtalker_temperature": 0.8}
+    for record in manifest()["voices"]:
+        if record["preview"]["status"] != vp.PREVIEW_GENERATED:
+            continue
+        if vp.is_clone(record):
+            assert record["preview"]["generation_profile"] == profile, record["voice_id"]
+        else:
+            assert "generation_profile" not in record["preview"], record["voice_id"]
+
+
+def test_a_clone_preview_made_under_another_profile_or_none_is_a_problem_and_blocks_the_readme():
+    data = complete_set(manifest())
+    assert vp.manifest_problems(data) == [] and "## The Qwen3 clone narration profile" in vp.render_readme(data)
+    clone = record_of("qwen3-male-2", data)
+    for bad in (None, {**vp.current_clone_profile(), "temperature": 0.9}, {**vp.current_clone_profile(), "revision": 0}):
+        if bad is None:
+            clone["preview"].pop("generation_profile")
+        else:
+            clone["preview"]["generation_profile"] = bad
+        assert any("not made under the application's current clone generation profile" in p for p in vp.manifest_problems(data))
+        with pytest.raises(vp.PreviewError):
+            vp.render_readme(data)
+    clone["preview"]["generation_profile"] = vp.current_clone_profile()
+    record_of("af_heart", data)["preview"]["generation_profile"] = vp.current_clone_profile()
+    assert any("only a Qwen3 clone preview records" in p for p in vp.manifest_problems(data))
+
+
+def test_generating_a_clone_records_the_profile_and_other_voices_do_not(folder, monkeypatch):
+    monkeypatch.setattr(vp, "synthesize", succeed)
+    monkeypatch.setattr(vp, "unavailable_reason", lambda entry: None)
+    data = vp.generate(["qwen3-female-1", "af_heart"], log=lambda m: None)
+    assert not data["_failures"]
+    assert record_of("qwen3-female-1", data)["preview"]["generation_profile"] == vp.current_clone_profile()
+    assert "generation_profile" not in record_of("af_heart", data)["preview"]
+    assert vp.check({k: v for k, v in data.items() if k != "_failures"}, folder) == []

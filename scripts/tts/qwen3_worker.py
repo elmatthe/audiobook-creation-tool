@@ -92,6 +92,27 @@ def _load_model(job: dict, torch):
     return model, device, round(time.perf_counter() - started, 2)
 
 
+#: The only sampling controls a job may set, and the range each must be in. A clone job carries the application's clone narration
+#: narration profile (``qwen3_synth.CLONE_GENERATION``); every control not named here keeps the Base model's own value.
+GENERATION_LIMITS = {"temperature": (0.1, 1.5), "subtalker_temperature": (0.1, 1.5)}
+
+
+def clone_generation(job: dict) -> dict:
+    """The sampling arguments a clone job asks for, validated; ``{}`` when the job carries none. Preset jobs never use them."""
+    generation = job.get("generation") or {}
+    if not isinstance(generation, dict):
+        raise RuntimeError("the job's generation settings are not an object")
+    out = {}
+    for name, value in generation.items():
+        if name not in GENERATION_LIMITS:
+            raise RuntimeError(f"unsupported generation setting {name!r}")
+        low, high = GENERATION_LIMITS[name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+            raise RuntimeError(f"generation setting {name} must be a number from {low} to {high}, not {value!r}")
+        out[name] = float(value)
+    return out
+
+
 def _mono_float(audio, rate) -> "object":
     """One generated chunk as mono float32, or an error. Nothing is flattened, resampled or guessed."""
     import numpy as np
@@ -166,6 +187,7 @@ def run_synth(job: dict) -> int:
         elif mode == "clone":
             prompt = model.create_voice_clone_prompt(
                 ref_audio=job["reference_wav"], ref_text=job["reference_text"], x_vector_only_mode=False)
+            generation = clone_generation(job)
             _sync(torch)
         else:
             raise RuntimeError(f"unknown synthesis mode {mode!r}")
@@ -190,7 +212,7 @@ def run_synth(job: dict) -> int:
                     text=chunk["text"], language=job.get("language", "English"), speaker=job["speaker"])
             else:
                 wavs, got_rate = model.generate_voice_clone(
-                    text=chunk["text"], language=job.get("language", "English"), voice_clone_prompt=prompt)
+                    text=chunk["text"], language=job.get("language", "English"), voice_clone_prompt=prompt, **generation)
             _sync(torch)
             wav = _mono_float(wavs[0], got_rate)
             if rate is not None and int(got_rate) != rate:

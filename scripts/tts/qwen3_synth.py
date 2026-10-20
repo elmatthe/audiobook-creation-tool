@@ -73,6 +73,17 @@ def pipeline_revision(speech_prep=None) -> int:
     return SPEECH_PREP_PIPELINE_REVISION if speech_prep is not None and speech_prep.enabled else PIPELINE_REVISION
 SEED_BASE = 20261019
 
+#: Owner preference (2026-10-20): the six cloned voices narrate calmly and evenly, with less pitch, intensity and pace
+#: variation than the Base model's own sampling gives. Sampling temperature is the model's own control for that: a clone is
+#: generated at a lower main ``temperature`` (the model default is 0.9) and a slightly lower ``subtalker_temperature`` (the
+#: acoustic-detail stage; also 0.9 by default). Every other sampling control (top_p, top_k, repetition_penalty, max_new_tokens)
+#: stays the Base model's own, and each chunk's seed is unchanged. Preset voices (Aiden, Ryan) are never given this profile.
+CLONE_GENERATION = {"temperature": 0.70, "subtalker_temperature": 0.80}
+#: Identifies :data:`CLONE_GENERATION`; bump it with any change to that profile. It is separate from
+#: :data:`PIPELINE_REVISION` on purpose: that one describes the planner/seed/assembly code the immutable A0 characterization
+#: pins at 1, and the profile changes neither the text, nor the chunks, nor the seeds.
+CLONE_GENERATION_REVISION = 1
+
 LANGUAGE = "English"  # the only language the evaluation proved
 DTYPE = "bfloat16"
 ATTENTION = "sdpa"
@@ -426,6 +437,7 @@ def build_job(voice: rt.Qwen3Voice, chunks: list[Chunk], *, job_dir: Path, model
     else:
         job["reference_wav"] = str(reference_wav if reference_wav is not None else rt.reference_path(voice))
         job["reference_text"] = reference_text
+        job["generation"] = dict(CLONE_GENERATION)  # the worker forwards exactly these to generate_voice_clone
     return job
 
 
@@ -759,6 +771,9 @@ def qwen3_file_to_mp3(
         try:
             reference = snapshot_reference(voice, job_dir) if voice.kind == rt.KIND_CLONE else None
             log(f"Qwen3: synthesizing {len(chunks)} chunk(s) in {voice.label}...")
+            if voice.kind == rt.KIND_CLONE:
+                log(f"Qwen3 clone generation profile {CLONE_GENERATION_REVISION}: temperature {CLONE_GENERATION['temperature']:.2f}, "
+                    f"sub-talker {CLONE_GENERATION['subtalker_temperature']:.2f}")
             job = build_job(voice, chunks, job_dir=job_dir, model_dir=model_dir, reference_text=reference_text,
                             device=device, reference_wav=reference)
             run = run_worker(job, job_dir, python=py, script=worker,

@@ -1,17 +1,16 @@
 """Development-only Qwen3 clone worker for the calm-narration experiment (v0.6.7). Runs ONLY inside ``.venv-qwen3``.
 
-The production worker (``scripts/tts/qwen3_worker.py``) passes no sampling argument, so a clone is generated with the Base model's
-own ``generation_config.json`` (temperature 0.9, top_p 1.0, top_k 50, repetition_penalty 1.05, and the same for the sub-talker).
-This wrapper changes exactly one thing for one run: it forwards an explicit ``temperature`` to ``generate_voice_clone``. It does
-that by loading and running the UNCHANGED production worker, so the job format, the offline model load, the per-chunk seeds,
+A clone job carries the application's calm-narration profile (``qwen3_synth.CLONE_GENERATION``: temperature 0.70, sub-talker 0.80);
+the production worker forwards it to ``generate_voice_clone`` and every other sampling control stays the Base model's own. This
+wrapper changes the sampling of ONE experimental run: it replaces ``temperature`` and/or ``subtalker_temperature`` in that call. It
+does that by loading and running the UNCHANGED production worker, so the job format, the offline model load, the per-chunk seeds,
 the reference/transcript conditioning, the events and the chunk files are all production's own.
 
-    <.venv-qwen3 python> qwen3_calm_worker.py <job.json>        with ACT_QWEN3_EXPERIMENT='{"temperature": 0.8}'
+    <.venv-qwen3 python> qwen3_calm_worker.py <job.json>        with ACT_QWEN3_EXPERIMENT='{"temperature": 0.9}'
 
 With no override in the environment this is exactly ``qwen3_worker.main`` (nothing is imported or patched). The override is
-refused for anything but a clone ``synth`` job (a preset voice such as Aiden or Ryan is never altered), accepts only
-``temperature``, and only inside ``TEMPERATURE_RANGE``. ``subtalker_temperature`` and every other control are deliberately not
-overridable here: the first experiment varies one thing.
+refused for anything but a clone ``synth`` job (a preset voice such as Aiden or Ryan is never altered), accepts only the two
+temperatures, and only inside ``TEMPERATURE_RANGE``; top_p, top_k, repetition_penalty and the rest are not overridable here.
 """
 from __future__ import annotations
 
@@ -23,7 +22,7 @@ from pathlib import Path
 
 ENV_VAR = "ACT_QWEN3_EXPERIMENT"
 TEMPERATURE_RANGE = (0.1, 1.5)
-ALLOWED = ("temperature",)
+ALLOWED = ("temperature", "subtalker_temperature")
 PRODUCTION_WORKER = Path(__file__).resolve().parents[2] / "scripts" / "tts" / "qwen3_worker.py"
 
 
@@ -54,16 +53,13 @@ def parse_override(raw) -> dict:
 
 
 def install_override(model_class, override: dict) -> None:
-    """Make ``model_class.generate_voice_clone`` forward ``override``; refuse a call that already sets the same argument."""
+    """Make ``model_class.generate_voice_clone`` use ``override`` in place of the production profile's value for the same argument."""
     if not override:
         return
     original = model_class.generate_voice_clone
 
     def generate_voice_clone(self, *args, **kwargs):
-        clash = sorted(set(override) & set(kwargs))
-        if clash:
-            raise ExperimentError(f"the production call already sets {clash}; refusing to override it silently")
-        return original(self, *args, **kwargs, **override)
+        return original(self, *args, **{**kwargs, **override})
 
     model_class.generate_voice_clone = generate_voice_clone
 

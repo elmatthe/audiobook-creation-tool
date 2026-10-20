@@ -2,8 +2,8 @@
 
 Offline and deterministic: no model is loaded and no clone audio is generated. What is pinned:
 
-* the experiment forwards exactly one extra sampling argument, ``temperature``, and nothing else, to a clone ``synth`` job;
-* the baseline (0.9) is the PRODUCTION worker with no override, and an explicit 0.9 is the same merge as the default;
+* the experiment replaces only ``temperature`` and/or ``subtalker_temperature`` in a clone ``synth`` job, nothing else;
+* the baseline is the application's own clone profile (0.70 / 0.80) on the PRODUCTION worker with no override;
 * a clone is refused unless the app's own rules say it can run, i.e. an owner-approved transcript bound to the original recording;
 * the recording used is the registered original, the voice asked for is the voice made, presets and other engines are refused;
 * nothing in production (worker, synth, job format, pins) knows the experiment exists, and its output stays under ignored dev-work.
@@ -40,7 +40,9 @@ CLONES = ["qwen3-female-1", "qwen3-female-2", "qwen3-male-1", "qwen3-male-2", "q
 @pytest.mark.parametrize("raw, expected", [
     (None, {}), ("", {}), ("   ", {}), ("{}", {}),
     ('{"temperature": 0.8}', {"temperature": 0.8}), ('{"temperature": 1}', {"temperature": 1.0}),
-    ('{"temperature": 0.1}', {"temperature": 0.1}), ('{"temperature": 1.5}', {"temperature": 1.5})])
+    ('{"temperature": 0.1}', {"temperature": 0.1}), ('{"temperature": 1.5}', {"temperature": 1.5}),
+    ('{"subtalker_temperature": 0.9}', {"subtalker_temperature": 0.9}),
+    ('{"temperature": 0.9, "subtalker_temperature": 0.9}', {"temperature": 0.9, "subtalker_temperature": 0.9})])
 def test_a_valid_override_parses_and_an_empty_one_is_no_override(raw, expected):
     assert cw.parse_override(raw) == expected
 
@@ -48,7 +50,7 @@ def test_a_valid_override_parses_and_an_empty_one_is_no_override(raw, expected):
 @pytest.mark.parametrize("raw", [
     "not json", "[0.8]", '"0.8"', '{"temperature": "0.8"}', '{"temperature": true}', '{"temperature": 0.05}',
     '{"temperature": 3}', '{"temperature": null}',
-    '{"subtalker_temperature": 0.8}', '{"top_p": 0.9}', '{"top_k": 10}', '{"repetition_penalty": 1.0}',
+    '{"subtalker_temperature": 9}', '{"top_p": 0.9}', '{"top_k": 10}', '{"repetition_penalty": 1.0}',
     '{"max_new_tokens": 100}', '{"do_sample": false}', '{"temperature": 0.8, "top_p": 0.9}'])
 def test_anything_but_a_temperature_in_range_is_refused(raw):
     with pytest.raises(cw.ExperimentError):
@@ -87,11 +89,10 @@ def test_no_override_leaves_the_method_the_very_same_object(model_class):
     assert model_class.calls[0]["kwargs"] == {}
 
 
-def test_a_call_that_already_sets_the_argument_is_not_silently_overridden(model_class):
-    cw.install_override(model_class, {"temperature": 0.7})
-    with pytest.raises(cw.ExperimentError, match="already sets"):
-        model_class().generate_voice_clone(text="x", temperature=0.9)
-    assert model_class.calls == []
+def test_the_override_replaces_the_production_profile_value_and_leaves_the_other_settings_alone(model_class):
+    cw.install_override(model_class, {"temperature": 0.9})
+    model_class().generate_voice_clone(text="x", temperature=0.7, subtalker_temperature=0.8)
+    assert model_class.calls[0]["kwargs"] == {"temperature": 0.9, "subtalker_temperature": 0.8}
 
 
 class FakeWorker:
@@ -151,8 +152,8 @@ def test_an_override_is_refused_for_a_preset_voice_or_any_other_job(tmp_path, mo
 def test_a_bad_override_gives_the_parent_a_terminal_failure_and_runs_nothing(tmp_path, model_class):
     worker = FakeWorker()
     argv = job_file(tmp_path, kind="synth", mode="clone")
-    assert cw.main(argv, {cw.ENV_VAR: '{"subtalker_temperature": 0.5}'}, worker=worker, model_class=model_class) == 2
-    assert worker.mains == [] and worker.events[0]["event"] == "failed" and "subtalker_temperature" in worker.events[0]["message"]
+    assert cw.main(argv, {cw.ENV_VAR: '{"top_p": 0.5}'}, worker=worker, model_class=model_class) == 2
+    assert worker.mains == [] and worker.events[0]["event"] == "failed" and "top_p" in worker.events[0]["message"]
 
 
 def test_the_dev_worker_loads_the_production_worker_file_itself():
@@ -169,12 +170,16 @@ PRODUCTION_QWEN3 = ["qwen3_worker.py", "qwen3_synth.py", "qwen3_runtime.py", "qw
 
 
 @pytest.mark.parametrize("name", PRODUCTION_QWEN3)
-def test_production_qwen3_code_has_no_sampling_override_and_no_link_to_the_experiment(name):
+def test_production_qwen3_code_has_no_link_to_the_experiment(name):
     text = (REPO_ROOT / "scripts" / "tts" / name).read_text(encoding="utf-8")
-    for needle in ("ACT_QWEN3_EXPERIMENT", "qwen3_calm", "calm-narration", "subtalker_temperature"):
+    for needle in ("ACT_QWEN3_EXPERIMENT", "qwen3_calm", "calm-narration"):
         assert needle not in text, (name, needle)
-    if name == "qwen3_worker.py":
-        assert "temperature" not in text  # the production call passes no sampling argument at all
+
+
+def test_production_forwards_only_the_two_temperatures_never_top_p_top_k_or_the_penalty():
+    text = (REPO_ROOT / "scripts" / "tts" / "qwen3_worker.py").read_text(encoding="utf-8")
+    for needle in ("top_p", "top_k", "repetition_penalty", "max_new_tokens", "do_sample"):
+        assert needle not in text, needle  # those stay the Base model's own values
 
 
 def test_no_application_source_imports_a_dev_tool():
@@ -186,13 +191,14 @@ def test_no_application_source_imports_a_dev_tool():
     assert offenders == []
 
 
-def test_the_production_job_carries_no_sampling_control(tmp_path):
+def test_the_production_clone_job_carries_the_profile_and_no_other_sampling_control(tmp_path):
     voice = rt.get_voice("qwen3-female-1")
     chunks = qwen3_synth.plan_chunks("Hello there. This is a short test of the job format.")
     job = qwen3_synth.build_job(voice, chunks, job_dir=tmp_path, model_dir=tmp_path, reference_text="ref", device="auto",
                                 reference_wav=tmp_path / "reference.wav")
-    flat = json.dumps(job)
-    for name in ("temperature", "top_p", "top_k", "repetition_penalty", "sampling", "experiment", "generation"):
+    assert job["generation"] == {"temperature": 0.7, "subtalker_temperature": 0.8}
+    flat = json.dumps({k: v for k, v in job.items() if k != "generation"})
+    for name in ("temperature", "top_p", "top_k", "repetition_penalty", "sampling", "experiment"):
         assert name not in flat
 
 
@@ -205,14 +211,15 @@ def test_the_pinned_qwen_tts_version_is_unchanged():
 # The driver
 # --------------------------------------------------------------------------- #
 def test_temperatures_always_start_with_the_baseline_and_stay_in_range():
-    assert exp.normalise_temperatures([0.7, 0.8]) == [0.9, 0.8, 0.7]
-    assert exp.normalise_temperatures([0.6, 0.8, 0.7, 0.8, 0.9]) == [0.9, 0.8, 0.7, 0.6]
-    assert exp.normalise_temperatures([]) == [0.9]
+    assert exp.normalise_temperatures([0.9, 0.8]) == [0.9, 0.8, 0.7]
+    assert exp.normalise_temperatures([0.6, 0.8, 0.9, 0.8, 0.7]) == [0.9, 0.8, 0.7, 0.6]
+    assert exp.normalise_temperatures([]) == [0.7]
     for bad in (0.05, 2.0, "0.8", True):
         with pytest.raises(exp.ExperimentError):
             exp.normalise_temperatures([bad])
-    assert exp.is_baseline(0.9) and not exp.is_baseline(0.8)
-    assert [exp.label_for(t) for t in (0.9, 0.8, 0.7, 0.6)] == ["baseline-T0.90", "T0.80", "T0.70", "T0.60"]
+    assert exp.is_baseline(0.7) and not exp.is_baseline(0.9)
+    assert [exp.label_for(t) for t in (0.9, 0.8, 0.7, 0.6)] == ["T0.90", "T0.80", "production-T0.70", "T0.60"]
+    assert exp.label_for(0.9, 0.9) == "T0.90-S0.90" and exp.production_profile() == {"temperature": 0.7, "subtalker_temperature": 0.8}
 
 
 def test_the_comparison_passage_has_prose_dialogue_punctuation_and_paragraphs_and_never_changes():
@@ -223,13 +230,15 @@ def test_the_comparison_passage_has_prose_dialogue_punctuation_and_paragraphs_an
     assert any(mark in text for mark in (";", "...", ":", "(", "?")) and not text.startswith("The Ninth Bell of Kaerthellin")
 
 
-def test_the_baseline_is_the_production_worker_and_a_candidate_adds_one_variable():
-    assert exp.synth_kwargs(0.9) == {}
-    kwargs = exp.synth_kwargs(0.8)
+def test_the_baseline_is_the_production_worker_and_a_candidate_overrides_only_what_it_names():
+    assert exp.synth_kwargs(0.7) == {}
+    kwargs = exp.synth_kwargs(0.9)
     assert set(kwargs) == {"script", "env"} and kwargs["script"] == exp.DEV_WORKER
     env = dict(kwargs["env"])
-    assert json.loads(env.pop(exp.ENV_VAR)) == {"temperature": 0.8}
+    assert json.loads(env.pop(exp.ENV_VAR)) == {"temperature": 0.9}  # the sub-talker stays the production profile's
     assert env == dict(rt.worker_environment())  # nothing else about the worker's environment differs
+    legacy = exp.synth_kwargs(0.9, 0.9)  # the Base model's own defaults: how clones sounded before the profile
+    assert json.loads(legacy["env"][exp.ENV_VAR]) == {"temperature": 0.9, "subtalker_temperature": 0.9}
 
 
 class Recorder:
@@ -255,14 +264,14 @@ def test_each_clip_goes_through_the_production_entry_for_exactly_the_requested_v
     rec = Recorder()
     text = tmp_path / "n.txt"
     text.write_text("Hello.", encoding="utf-8")
-    exp.run_one("qwen3-male-2", 0.8, text, tmp_path / "out.wav", gap_ms=700, synth=rec, log=lambda m: None)
+    exp.run_one("qwen3-male-2", 0.9, text, tmp_path / "out.wav", gap_ms=700, synth=rec, log=lambda m: None)
     (source, output, voice_id, kwargs), = rec.calls
     assert voice_id == "qwen3-male-2" and source == str(text) and output == str(tmp_path / "out.wav")
     assert set(kwargs) <= ALLOWED_SEAMS  # no `availability`, `python`, `jobs_root` or `speech_prep` override
     assert kwargs["end_silence_ms"] == 0 and kwargs["chunk_pause_ms"] == 700
     assert sf.info(str(tmp_path / "out.wav")).format == "WAV"
     rec.calls.clear()
-    exp.run_one("qwen3-male-2", 0.9, text, tmp_path / "base.wav", gap_ms=700, synth=rec, log=lambda m: None)
+    exp.run_one("qwen3-male-2", 0.7, text, tmp_path / "base.wav", gap_ms=700, synth=rec, log=lambda m: None)
     assert "script" not in rec.calls[0][3] and "env" not in rec.calls[0][3]  # the baseline IS production
 
 
@@ -348,19 +357,20 @@ def test_a_run_makes_baseline_then_candidates_with_identical_seeds_and_records_w
     rec = Recorder()
     root = tmp_path / "runs"
     previews_before = sorted(p.name for p in (REPO_ROOT / "files" / "voice-previews").iterdir())
-    run_dir = exp.run(["qwen3-female-1", "qwen3-male-1"], [0.8, 0.7], run_id="r1", run_root=root, synth=rec,
+    run_dir = exp.run(["qwen3-female-1", "qwen3-male-1"], [0.9, 0.8], run_id="r1", run_root=root, synth=rec,
                       availability=lambda v: (True, "ok"), log=lambda m: None, measure=False)
     assert run_dir == root / "r1"
     assert [(c[2], c[3].get("env", {}).get(exp.ENV_VAR)) for c in rec.calls] == [
-        ("qwen3-female-1", None), ("qwen3-female-1", '{"temperature": 0.8}'), ("qwen3-female-1", '{"temperature": 0.7}'),
-        ("qwen3-male-1", None), ("qwen3-male-1", '{"temperature": 0.8}'), ("qwen3-male-1", '{"temperature": 0.7}')]
+        ("qwen3-female-1", '{"temperature": 0.9}'), ("qwen3-female-1", '{"temperature": 0.8}'), ("qwen3-female-1", None),
+        ("qwen3-male-1", '{"temperature": 0.9}'), ("qwen3-male-1", '{"temperature": 0.8}'), ("qwen3-male-1", None)]
     manifest = json.loads((run_dir / "manifest.json").read_text("utf-8"))
-    assert manifest["temperatures"] == [0.9, 0.8, 0.7] and "unchanged" in manifest["subtalker_temperature"]
+    assert manifest["temperatures"] == [0.9, 0.8, 0.7]
+    assert manifest["production_profile"] == {"temperature": 0.7, "subtalker_temperature": 0.8}
     for voice_id in ("qwen3-female-1", "qwen3-male-1"):
         clips = [c for c in manifest["clips"] if c["voice_id"] == voice_id]
-        assert [c["label"] for c in clips] == ["baseline-T0.90", "T0.80", "T0.70"]
+        assert [c["label"] for c in clips] == ["T0.90", "T0.80", "production-T0.70"]
         assert len({tuple(c["chunk_seeds"]) for c in clips}) == 1  # deterministic: the same seeds for every candidate
-        assert len(clips[0]["chunk_seeds"]) >= 3 and clips[0]["worker"] == "production"
+        assert len(clips[0]["chunk_seeds"]) >= 3 and clips[-1]["worker"] == "production" and clips[0]["worker"] != "production"
         assert all(c["reference_sha256"] == rt.get_voice(voice_id).reference_sha256 for c in clips)
         assert all((run_dir / c["file"]).is_file() and c["file"].startswith(voice_id + "/") for c in clips)
         assert len({c["transcript_sha256"] for c in clips}) == 1
@@ -395,7 +405,7 @@ def test_the_real_library_merges_an_explicit_baseline_identically_and_temperatur
                             env=rt.worker_environment())
     report = json.loads(result.stdout[result.stdout.find("{"):])
     assert report["qwen_tts"] == "0.1.1" and report["generate_voice_clone_forwards_kwargs"] is True
-    assert report["explicit_0.9_equals_default"] is True
+    assert report["explicit_0.9_equals_default"] is True and "subtalker_temperature" in report["sampling_arguments_accepted"]
     assert report["temperature_0.8_changes_only"] == ["temperature"] and report["subtalker_temperature_at_0.8"] == 0.9
     assert report["effective_default"]["temperature"] == 0.9 and report["effective_default"]["top_p"] == 1.0
 
@@ -444,8 +454,8 @@ def test_read_back_helpers():
 
 def test_the_listening_page_is_labelled_and_escapes_what_it_shows():
     manifest = {"text_chars": 10, "text_sha256": "a" * 64, "clips": [
-        {"voice_id": "qwen3-female-1", "label": "baseline-T0.90", "temperature": 0.9, "file": "qwen3-female-1/baseline-T0.90.wav"},
+        {"voice_id": "qwen3-female-1", "label": "production-T0.70", "temperature": 0.7, "file": "qwen3-female-1/production-T0.70.wav"},
         {"voice_id": "qwen3-female-1", "label": "T0.80", "temperature": 0.8, "file": "qwen3-female-1/T0.80.wav"}]}
     page = exp.render_listening_page(manifest, {"qwen3-female-1/T0.80": {"f0_sd_st": 1.23}}, "<b>passage</b> & more")
-    assert "baseline-T0.90" in page and "T0.80" in page and 'src="qwen3-female-1/T0.80.wav"' in page
+    assert "production-T0.70" in page and "T0.80" in page and 'src="qwen3-female-1/T0.80.wav"' in page
     assert "1.23" in page and "&lt;b&gt;passage&lt;/b&gt; &amp; more" in page and "<b>passage</b>" not in page

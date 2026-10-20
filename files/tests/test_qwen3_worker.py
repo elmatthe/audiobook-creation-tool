@@ -75,8 +75,8 @@ def install_fakes(monkeypatch, *, cuda: bool = False, speakers=("Aiden", "Ryan")
             wave, rate = self._wave(text)
             return [wave], rate
 
-        def generate_voice_clone(self, text, language, voice_clone_prompt):
-            self.calls.append(("clone", text, language, voice_clone_prompt))
+        def generate_voice_clone(self, text, language, voice_clone_prompt, **kwargs):
+            self.calls.append(("clone", text, language, voice_clone_prompt, kwargs))
             wave, rate = self._wave(text)
             return [wave], rate
 
@@ -317,3 +317,53 @@ def test_the_worker_module_imports_without_the_model_stack():
     import subprocess
 
     assert subprocess.run([sys.executable, "-c", code], capture_output=True).returncode == 0
+
+
+# --------------------------------------------------------------------------- #
+# The clone narration profile (owner preference, 2026-10-20): calmer sampling for the six clones only
+# --------------------------------------------------------------------------- #
+PROFILE = {"temperature": 0.7, "subtalker_temperature": 0.8}
+
+
+def test_a_clone_job_forwards_exactly_its_generation_settings_to_every_chunk(tmp_path, monkeypatch, capsys):
+    _, holder = install_fakes(monkeypatch)
+    job = job_for(tmp_path, mode="clone", reference_wav="ref.wav", reference_text="approved words", generation=PROFILE)
+    assert worker.run_synth(job) == worker.EXIT_OK
+    clones = [c for c in holder["model"].calls if c[0] == "clone"]
+    assert [c[4] for c in clones] == [PROFILE, PROFILE]  # both controls, as floats, and nothing else (no top_p, top_k, ...)
+    assert events(capsys)[-1]["event"] == "done"
+
+
+def test_a_clone_job_without_generation_settings_passes_none_so_older_jobs_behave_as_before(tmp_path, monkeypatch, capsys):
+    _, holder = install_fakes(monkeypatch)
+    job = job_for(tmp_path, mode="clone", reference_wav="ref.wav", reference_text="approved words")
+    assert worker.run_synth(job) == worker.EXIT_OK
+    assert [c[4] for c in holder["model"].calls if c[0] == "clone"] == [{}, {}]
+
+
+def test_a_preset_voice_is_never_given_the_clone_profile(tmp_path, monkeypatch, capsys):
+    """Aiden and Ryan: even a stray `generation` in the job is not forwarded (the fake's preset method accepts no extras)."""
+    _, holder = install_fakes(monkeypatch)
+    assert worker.run_synth(job_for(tmp_path, generation=PROFILE)) == worker.EXIT_OK
+    assert [c[0] for c in holder["model"].calls] == ["custom", "custom"]
+    assert events(capsys)[-1]["event"] == "done"
+
+
+@pytest.mark.parametrize("generation", [
+    {"top_p": 0.9}, {"top_k": 10}, {"repetition_penalty": 1.0}, {"max_new_tokens": 5}, {"do_sample": False},
+    {"temperature": 0.05}, {"temperature": 1.6}, {"temperature": "0.7"}, {"temperature": True}, {"subtalker_temperature": None},
+    ["temperature"], "temperature=0.7"])
+def test_an_unsupported_or_out_of_range_setting_fails_the_file_before_any_audio(tmp_path, monkeypatch, capsys, generation):
+    _, holder = install_fakes(monkeypatch)
+    job = job_for(tmp_path, mode="clone", reference_wav="ref.wav", reference_text="approved words", generation=generation)
+    assert worker.run_synth(job) == worker.EXIT_FAILED
+    got = events(capsys)
+    assert got[-1]["event"] == "failed" and got[-1]["stage"] == "prepare"
+    assert not [c for c in holder["model"].calls if c[0] == "clone"]  # no chunk was generated with a setting nobody approved
+
+
+def test_clone_generation_accepts_the_two_temperatures_as_floats_and_nothing_else():
+    assert worker.clone_generation({}) == {} and worker.clone_generation({"generation": None}) == {}
+    assert worker.clone_generation({"generation": {"temperature": 1, "subtalker_temperature": 0.8}}) == {
+        "temperature": 1.0, "subtalker_temperature": 0.8}
+    assert set(worker.GENERATION_LIMITS) == {"temperature", "subtalker_temperature"}

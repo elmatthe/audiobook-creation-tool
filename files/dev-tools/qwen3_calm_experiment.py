@@ -13,10 +13,11 @@ How it stays honest:
 
 * Every clip goes through the PRODUCTION entry point ``qwen3_synth.qwen3_file_to_mp3`` with its own availability check, so a clone
   with no owner-approved, reference-bound transcript is refused exactly as in the app. Nothing is approved or bypassed here.
-* The baseline (temperature 0.9, the Base model's own default) runs on the PRODUCTION worker with no override at all. A candidate
-  runs the same production worker through ``qwen3_calm_worker.py``, which forwards one extra argument, ``temperature``. Every
-  other control (top_p, top_k, repetition_penalty, the sub-talker's temperature 0.9, max_new_tokens), the reference recording,
-  the transcript, the text, the chunking and each chunk's seed are identical across candidates.
+* The baseline is the application's own clone profile (temperature 0.70, sub-talker 0.80) on the PRODUCTION worker with no override at
+  all. A candidate runs the same production worker through ``qwen3_calm_worker.py``, which replaces ``temperature`` (and, with
+  ``--subtalker``, the sub-talker's) for that run. ``--temps 0.9 --subtalker 0.9`` reproduces the Base model's own defaults, i.e. how
+  clones sounded before the profile. Every other control, the reference recording, the transcript, the text, the chunking and each
+  chunk's seed are identical across candidates.
 * Only the six clone voices are accepted; Aiden, Ryan and every other voice are refused, and the voice asked for is the voice made.
 * Audio, measurements and the listening page go under ignored ``files/dev-work/`` only, never into ``files/voice-previews/``.
 """
@@ -45,8 +46,8 @@ WHISPER_DIR = ROOT / "files" / "dev-work" / "qwen3-eval" / "models" / "whisper-s
 DEV_WORKER = TOOLS / "qwen3_calm_worker.py"
 VENV_TOOLS = TOOLS / "qwen3_calm_venv_tools.py"
 
-BASELINE_TEMPERATURE = 0.9  # the Base model's own default; what production uses
-CANDIDATE_TEMPERATURES = (0.8, 0.7)
+MODEL_DEFAULT_TEMPERATURE = 0.9  # the Base model's own default, what clones used before the calm profile
+CANDIDATE_TEMPERATURES = (0.9, 0.8)
 OPTIONAL_TEMPERATURES = (0.6,)
 TEMPERATURE_RANGE = (0.1, 1.5)
 DEFAULT_VOICES = ("qwen3-female-1", "qwen3-male-1")
@@ -84,18 +85,25 @@ def comparison_text() -> str:
     return "\n\n".join(chosen) + "\n"
 
 
+def production_profile() -> dict:
+    return dict(_import_app()[1].CLONE_GENERATION)
+
+
 def is_baseline(temperature: float) -> bool:
-    return abs(temperature - BASELINE_TEMPERATURE) < 1e-9
+    """The production profile's main temperature: that run uses the production worker with no override."""
+    return abs(temperature - production_profile()["temperature"]) < 1e-9
 
 
-def label_for(temperature: float) -> str:
-    return "baseline-T0.90" if is_baseline(temperature) else f"T{temperature:.2f}"
+def label_for(temperature: float, subtalker: float | None = None) -> str:
+    if is_baseline(temperature) and subtalker is None:
+        return f"production-T{temperature:.2f}"
+    return f"T{temperature:.2f}" + (f"-S{subtalker:.2f}" if subtalker is not None else "")
 
 
 def normalise_temperatures(candidates) -> list[float]:
-    """The baseline first, then each distinct candidate from highest to lowest. A value outside the allowed range is an error."""
+    """The production profile first, then each distinct candidate from highest to lowest. A value outside the allowed range is an error."""
     low, high = TEMPERATURE_RANGE
-    out = {BASELINE_TEMPERATURE}
+    out = {production_profile()["temperature"]}
     for value in candidates:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
             raise ExperimentError(f"temperature must be a number from {low} to {high}, not {value!r}")
@@ -148,13 +156,16 @@ def wav_encoder(wav, mp3, bitrate, *, work_dir, cancel_check=None):
     shutil.copyfile(wav, mp3)  # keep the lossless WAV; the "mp3" name is only the hand-off path
 
 
-def synth_kwargs(temperature: float) -> dict:
-    """The seam arguments for one candidate. The baseline passes none: it IS the production worker."""
+def synth_kwargs(temperature: float, subtalker: float | None = None) -> dict:
+    """The seam arguments for one candidate. The production run passes none: it IS the production worker."""
     rt, _synth, _registry = _import_app()
-    if is_baseline(temperature):
+    if is_baseline(temperature) and subtalker is None:
         return {}
+    override = {"temperature": float(temperature)}
+    if subtalker is not None:
+        override["subtalker_temperature"] = float(subtalker)
     env = dict(rt.worker_environment())
-    env[ENV_VAR] = json.dumps({"temperature": float(temperature)})
+    env[ENV_VAR] = json.dumps(override)
     return {"script": DEV_WORKER, "env": env}
 
 
@@ -168,18 +179,19 @@ def chunk_plan(voice_id: str, text_path: Path):
     return [synth.derive_seed(voice_id, c) for c in chunks], [len(c.text.split()) for c in chunks]
 
 
-def run_one(voice_id: str, temperature: float, text_path: Path, out_wav: Path, *, gap_ms: int, synth=None, log=print) -> dict:
+def run_one(voice_id: str, temperature: float, text_path: Path, out_wav: Path, *, gap_ms: int, synth=None, log=print,
+            subtalker: float | None = None) -> dict:
     _rt, qwen3_synth, _registry = _import_app()
     call = synth or qwen3_synth.qwen3_file_to_mp3
     started = time.perf_counter()
     # No `availability`, `python` or `encoder`-of-the-engine override: the app's own readiness and transcript rules apply.
     call(str(text_path), str(out_wav), voice_id, end_silence_ms=0, chunk_pause_ms=gap_ms, log=log, encoder=wav_encoder,
-         **synth_kwargs(temperature))
+         **synth_kwargs(temperature, subtalker))
     return {"wall_s": round(time.perf_counter() - started, 1)}
 
 
 def run(voices, candidates, *, run_id: str | None = None, run_root: Path = RUN_ROOT, synth=None, availability=None,
-        log=print, measure=True) -> Path:
+        log=print, measure=True, subtalker: float | None = None) -> Path:
     rt, _synth, registry = _import_app()
     temperatures = normalise_temperatures(candidates)
     voices = list(dict.fromkeys(voices))
@@ -197,7 +209,8 @@ def run(voices, candidates, *, run_id: str | None = None, run_root: Path = RUN_R
     text_path = run_dir / "narration.txt"
     text_path.write_text(text, encoding="utf-8")
     manifest = {"schema": 1, "created": datetime.datetime.now().isoformat(timespec="seconds"), "temperatures": temperatures,
-                "baseline": BASELINE_TEMPERATURE, "subtalker_temperature": "unchanged (0.9, the model's own)",
+                "production_profile": production_profile(),
+                "candidate_subtalker_temperature": subtalker if subtalker is not None else "the production profile's",
                 "text_sha256": rt.sha256_file(text_path), "text_chars": len(text), "clips": []}
     for voice_id in voices:
         voice = clone_voice(voice_id)
@@ -205,13 +218,15 @@ def run(voices, candidates, *, run_id: str | None = None, run_root: Path = RUN_R
         seeds, words = chunk_plan(voice_id, text_path)
         transcript = rt.load_transcript(voice_id)
         for temperature in temperatures:
-            out = run_dir / voice_id / f"{label_for(temperature)}.wav"
+            sub = None if is_baseline(temperature) else subtalker
+            label = label_for(temperature, sub)
+            out = run_dir / voice_id / f"{label}.wav"
             out.parent.mkdir(parents=True, exist_ok=True)
-            log(f"== {voice.label}  {label_for(temperature)}")
-            info = run_one(voice_id, temperature, text_path, out, gap_ms=gap_ms, synth=synth, log=log)
+            log(f"== {voice.label}  {label_for(temperature, sub)}")
+            info = run_one(voice_id, temperature, text_path, out, gap_ms=gap_ms, synth=synth, log=log, subtalker=sub)
             manifest["clips"].append({
-                "voice_id": voice_id, "label": label_for(temperature), "temperature": temperature,
-                "worker": "production" if is_baseline(temperature) else "dev wrapper (temperature only)",
+                "voice_id": voice_id, "label": label, "temperature": temperature, "subtalker_temperature": sub,
+                "worker": "production" if is_baseline(temperature) and sub is None else "dev wrapper (sampling override)",
                 "file": out.relative_to(run_dir).as_posix(), "gap_ms": gap_ms, "chunk_seeds": seeds, "chunk_words": words,
                 "reference_sha256": voice.reference_sha256, "transcript_sha256": rt.transcript_sha256(transcript.text),
                 **info})
@@ -408,7 +423,7 @@ table{{border-collapse:collapse;width:100%;margin:8px 0 24px}}th,td{{border:1px 
 small{{color:#5d5d58}}audio{{width:260px}}@media (prefers-color-scheme:dark){{body{{background:#161614;color:#ecebe6}}th,td{{border-color:#38372f}}}}
 </style></head><body>
 <h1>Qwen3 clone calm-narration comparison</h1>
-<p>The same passage, the same reference voice, transcript, seeds and every setting except <b>temperature</b>. <b>baseline-T0.90</b> is what the app does today.
+<p>The same passage, the same reference voice, transcript, seeds and every setting except <b>temperature</b>. <b>production-T0.70</b> is what the app does today.
 Lower pitch spread, phrase pitch range, ending fall and chunk-to-chunk steps mean a calmer, more even delivery; the numbers only support your ears. Check the words and the ending too.</p>
 {''.join(sections)}
 <p><small>Passage ({manifest['text_chars']} characters, SHA-256 {html.escape(manifest['text_sha256'][:16])}...):</small></p>
@@ -443,7 +458,8 @@ def main(argv: list[str]) -> int:
         p = sub.add_parser(name)
         p.add_argument("--voices", nargs="+", default=list(DEFAULT_VOICES))
         p.add_argument("--temps", nargs="+", type=float, default=list(CANDIDATE_TEMPERATURES),
-                       help="candidate temperatures (the 0.9 baseline is always included); 0.6 is optional")
+                       help="candidate temperatures (the production profile is always included)")
+        p.add_argument("--subtalker", type=float, default=None, help="also override the sub-talker temperature for candidates")
     sub.add_parser("report").add_argument("run_dir")
     args = parser.parse_args(argv)
     try:
@@ -459,7 +475,7 @@ def main(argv: list[str]) -> int:
             for voice_id, state in readiness(args.voices).items():
                 print(f"  {voice_id}: {state}")
             return 0
-        print(f"Run folder: {run(args.voices, args.temps)}")
+        print(f"Run folder: {run(args.voices, args.temps, subtalker=args.subtalker)}")
     except ExperimentError as exc:
         print("ERROR:", exc)
         return 2

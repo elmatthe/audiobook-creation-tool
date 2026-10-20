@@ -932,3 +932,46 @@ def test_the_conversion_holds_the_lease_for_its_whole_run_and_always_gives_it_ba
         fake.convert(cancel_check=lambda: True, grace_s=0.3)
     with su.InstallLock():  # free after success, failure, crash and cancel alike
         pass
+
+
+# --------------------------------------------------------------------------- #
+# The clone narration profile (owner preference, 2026-10-20)
+# --------------------------------------------------------------------------- #
+def test_the_clone_profile_is_the_owners_calmer_sampling_and_leaves_the_text_pipeline_revision_alone():
+    assert qs.CLONE_GENERATION == {"temperature": 0.70, "subtalker_temperature": 0.80}
+    assert qs.CLONE_GENERATION_REVISION == 1
+    assert qs.PIPELINE_REVISION == 1  # the A0-characterized planner/seed/assembly revision is pinned by the immutable golden
+    assert set(qs.CLONE_GENERATION) == {"temperature", "subtalker_temperature"}  # top_p, top_k, repetition_penalty stay the model's own
+
+
+def test_only_a_clone_job_carries_the_profile_and_each_job_gets_its_own_copy(tmp_path):
+    chunks = qs.plan_chunks("One chunk of text.")
+    for voice_id in ("qwen3-female-1", "qwen3-female-2", "qwen3-male-1", "qwen3-male-2", "qwen3-male-3", "qwen3-male-4"):
+        job = qs.build_job(rt.get_voice(voice_id), chunks, job_dir=tmp_path, model_dir=tmp_path / "m", reference_text="words")
+        assert job["generation"] == {"temperature": 0.7, "subtalker_temperature": 0.8}, voice_id
+        job["generation"]["temperature"] = 0.1  # a mutated job must not change the application's profile
+        assert qs.CLONE_GENERATION["temperature"] == 0.70
+    for voice_id in ("qwen3-aiden", "qwen3-ryan"):
+        preset = qs.build_job(rt.get_voice(voice_id), chunks, job_dir=tmp_path, model_dir=tmp_path / "m")
+        assert "generation" not in preset, voice_id  # Aiden and Ryan are not touched
+    seeds = [c["seed"] for c in qs.build_job(rt.get_voice("qwen3-male-1"), chunks, job_dir=tmp_path, model_dir=tmp_path / "m")["chunks"]]
+    assert seeds == [qs.derive_seed("qwen3-male-1", c) for c in chunks]  # the deterministic chunk seeds are unchanged
+
+
+def test_a_clone_run_sends_the_worker_the_profile_and_logs_it_while_a_preset_run_does_neither(fake, monkeypatch, tmp_path):
+    monkeypatch.setattr(rt, "load_transcript", lambda voice_id: rt.Transcript(True, "approved fixture words", "ok"))
+    source = tmp_path / "t.txt"
+    source.write_text("Some text to read aloud.", encoding="utf-8")
+    seen, logs = {}, {}
+    for voice_id in ("qwen3-male-3", "qwen3-ryan"):
+        log_file = tmp_path / f"job-{voice_id}.json"
+        env = fake.env()
+        env["FAKE_QWEN3_LOG"] = str(log_file)
+        logs[voice_id] = []
+        qs.qwen3_file_to_mp3(str(source), str(tmp_path / f"{voice_id}.mp3"), voice_id, python=Path(sys.executable), script=fake.script,
+                             jobs_root=fake.jobs, env=env, availability=lambda v: (True, "ok"), log=logs[voice_id].append)
+        seen[voice_id] = json.loads(log_file.read_text("utf-8"))
+    assert seen["qwen3-male-3"]["generation"] == {"temperature": 0.7, "subtalker_temperature": 0.8}
+    assert "generation" not in seen["qwen3-ryan"]
+    assert any("clone generation profile 1: temperature 0.70, sub-talker 0.80" in line for line in logs["qwen3-male-3"])
+    assert not any("generation profile" in line for line in logs["qwen3-ryan"])
